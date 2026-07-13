@@ -1,6 +1,9 @@
 {
-  "summarize": {
-    "prompt_id": "summarize",
-    "provider_profile": "fast"
+  "version": "1.0",
+  "tasks": {
+    "summarize": {
+      "prompt_id": "summarize",
+      "provider_profile": "fast"
+    }
   }
 }

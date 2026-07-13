@@ -1,0 +1,65 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "314b96f5-343c-41f6-80a6-b49f6554e05e",
+      "name": "Execute Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b90c88a0-e459-4fd9-b546-9e7e7f0e90c3",
+              "name": "task",
+              "value": "summarize",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "a9cfcf55-3572-4e79-87f2-5cc409a292d9",
+      "name": "Task Input"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Task Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d810006b-68ce-47c9-b2da-e3ebaf1b864c",
+  "meta": {
+    "instanceId": "1299d76a023c7a66a941956f683fb788fcf6bbbeb74941a1967b31629ff2a264"
+  },
+  "nodeGroups": [],
+  "id": "r1YWXtjSTmJ2e9XM",
+  "tags": []
+}
