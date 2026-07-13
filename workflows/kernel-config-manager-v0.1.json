@@ -1,0 +1,132 @@
+{
+  "id": "kernel-config-manager-v0.1",
+  "name": "KERNEL - Config Manager",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"config_name\": \"tasks\"\n}"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3db3d4e4-5e58-4ad3-bebc-e66f836a8e83",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "=/opt/cmm/config/{{ $json.config_name }}/{{ $json.config_name }}.json",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        0
+      ],
+      "id": "77ed09a0-2d47-4bc4-8e2b-18c5f546d1f8",
+      "name": "Read Config File"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "destinationKey": "config",
+        "options": {
+          "encoding": "utf8",
+          "stripBOM": true,
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ],
+      "id": "3cf9f07d-e8ca-4a98-a64b-851b777d2648",
+      "name": "Parse Config JSON"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3c33ac0b-902d-476b-83ef-7be5b199faad",
+              "name": "version",
+              "value": "={{ $json.config.version }}",
+              "type": "string"
+            },
+            {
+              "id": "ff7e10a2-a8f7-46a8-a3f5-f3aab0a8f8e8",
+              "name": "tasks",
+              "value": "={{ $json.config.tasks }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        780,
+        0
+      ],
+      "id": "dc188249-25cb-4905-9f9d-d06a722c1400",
+      "name": "Output"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read Config File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config File": {
+      "main": [
+        [
+          {
+            "node": "Parse Config JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Config JSON": {
+      "main": [
+        [
+          {
+            "node": "Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "cmm-os"
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "3ceb7cf0-bff6-4609-ad49-df20626acc21",
+  "tags": []
+}

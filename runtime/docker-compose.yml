@@ -14,6 +14,9 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/opt/cmm/config
 
     volumes:
       - ./n8n:/home/node/.n8n
+      - ../config:/opt/cmm/config:ro
+      - ../prompts:/opt/cmm/prompts:ro
