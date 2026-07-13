@@ -1,0 +1,220 @@
+{
+  "name": "KERNEL - CMM",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0f3519fc-c7f9-493b-88aa-d6c3fff28850",
+              "name": "prompt",
+              "value": "Responde únicamente con una palabra.  Pregunta:",
+              "type": "string"
+            },
+            {
+              "id": "c07d7091-b089-4e65-a196-4600591d7d90",
+              "name": "input",
+              "value": "¿Cuál es la capital de Francia?",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "6a2df4c7-7e60-4417-bbc8-aebc8a9ea904",
+      "name": "Input"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "01323da2-102f-4edc-817a-46af0c38604c",
+      "name": "Execute"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "={{ $json.model }}",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.prompt + \"\\n\\n\" + $json.input }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.ollama",
+      "typeVersion": 1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "d35e916c-b57f-46da-993e-bc3565070921",
+      "name": "Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "UHZ6r0NJj956u4Ur",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bf145710-271e-4453-8d3b-e5f03c9fa50b",
+              "name": "success",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "903453de-1b15-451f-922b-de0d29a0db1b",
+              "name": "engine",
+              "value": "CMM",
+              "type": "string"
+            },
+            {
+              "id": "e804e95f-b37a-4e61-aab6-ba05a4bf672d",
+              "name": "version",
+              "value": "0.1.0-alpha",
+              "type": "string"
+            },
+            {
+              "id": "7022b74f-85d3-4ba5-acca-a9eb98da10b8",
+              "name": "provider",
+              "value": "={{ $('Model Manager').item.json.provider }}",
+              "type": "string"
+            },
+            {
+              "id": "44a4ec80-9e12-4628-8058-47f54ff3cb45",
+              "name": "model",
+              "value": "={{ $('Model Manager').item.json.model }}",
+              "type": "string"
+            },
+            {
+              "id": "0c3007dc-a27a-47d5-9c19-f3d4e6ccba5f",
+              "name": "response",
+              "value": "={{ $('Model').item.json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        976,
+        0
+      ],
+      "id": "af307bdc-5e99-4020-8e2e-d6fcd59965de",
+      "name": "Output"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "07689e65-6a2a-492e-b935-b4a8492c101f",
+              "name": "model",
+              "value": "qwen3:8b",
+              "type": "string"
+            },
+            {
+              "id": "80b00fd3-e95f-4e04-b111-6d7edee0bacb",
+              "name": "provider",
+              "value": "ollama",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "1a9b55eb-d14f-425b-9b4e-e09fc8c1a030",
+      "name": "Model Manager"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute": {
+      "main": [
+        [
+          {
+            "node": "Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input": {
+      "main": [
+        [
+          {
+            "node": "Model Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model": {
+      "main": [
+        [
+          {
+            "node": "Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model Manager": {
+      "main": [
+        [
+          {
+            "node": "Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "a0889791-7815-44f7-95cb-18a766f1258e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1299d76a023c7a66a941956f683fb788fcf6bbbeb74941a1967b31629ff2a264"
+  },
+  "nodeGroups": [],
+  "id": "4n8lszduggEd4hPf",
+  "tags": []
+}

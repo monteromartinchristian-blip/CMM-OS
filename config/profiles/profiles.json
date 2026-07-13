@@ -1,0 +1,10 @@
+{
+  "fast": {
+    "provider": "ollama",
+    "model": "qwen3:8b"
+  },
+  "quality": {
+    "provider": "ollama",
+    "model": "gemma4:latest"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "summarize": {
+    "prompt_id": "summarize",
+    "provider_profile": "fast"
+  }
+}

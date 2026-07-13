@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Runtime
+runtime/n8n/database.sqlite
+runtime/n8n/database.sqlite-shm
+runtime/n8n/database.sqlite-wal
+runtime/n8n/n8nEventLog.log
+runtime/n8n/crash.journal
+
+# Secrets
+runtime/.env
+
+# Logs
+*.log
+
+# n8n runtime
+runtime/n8n/
