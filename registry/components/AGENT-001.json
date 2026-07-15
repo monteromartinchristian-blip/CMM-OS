@@ -1,0 +1,9 @@
+{
+  "id": "AGENT-001",
+  "name": "Planner",
+  "type": "unknown",
+  "status": "planned",
+  "version": "0.1",
+  "dependencies": [],
+  "description": ""
+}

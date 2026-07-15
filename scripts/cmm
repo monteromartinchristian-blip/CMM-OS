@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    bootstrap)
+        exec "$ROOT/scripts/bootstrap.sh" "$@"
+        ;;
+    doctor)
+        exec "$ROOT/scripts/doctor.sh" "$@"
+        ;;
+    new-component)
+        exec "$ROOT/scripts/new-component.sh" "$@"
+        ;;
+    *)
+        echo "CMM OS CLI"
+        echo
+        echo "Comandos disponibles:"
+        echo "  bootstrap"
+        echo "  doctor"
+        echo "  new-component"
+        exit 1
+        ;;
+esac

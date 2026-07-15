@@ -1,0 +1,10 @@
+{
+  "name": "CMM Agent",
+  "version": "0.1",
+  "default_provider": "ollama",
+  "default_model": "qwen2.5-coder:7b",
+  "planner": "planner",
+  "executor": "executor",
+  "memory": "memory",
+  "tools": "tools"
+}

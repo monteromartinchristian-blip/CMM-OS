@@ -1,0 +1,2 @@
+[console_scripts]
+cmm = cmm.cli:main

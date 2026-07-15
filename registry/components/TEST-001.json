@@ -1,0 +1,9 @@
+{
+  "id": "TEST-001",
+  "name": "My Test Component",
+  "type": "unknown",
+  "status": "planned",
+  "version": "0.1",
+  "dependencies": [],
+  "description": ""
+}

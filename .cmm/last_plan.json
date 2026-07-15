@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "tool": "python",
+      "action": "insert_method",
+      "path": "kernel/kernel.py",
+      "class_name": "Kernel",
+      "position": "end",
+      "code": "\n    def hello(self):\n        return 'hola'"
+    }
+  ]
+}

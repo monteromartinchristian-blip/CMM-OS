@@ -1,0 +1,9 @@
+{
+  "id": "CORE-001",
+  "name": "Bootstrap CLI",
+  "type": "core",
+  "status": "implemented",
+  "version": "0.1",
+  "dependencies": [],
+  "description": "Initializes the CMM OS development environment."
+}
