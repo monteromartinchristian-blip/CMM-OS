@@ -1,3 +1,0 @@
-cmm
-cmm_agent
-kernel
