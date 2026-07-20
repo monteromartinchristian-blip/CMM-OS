@@ -1,13 +1,49 @@
-✅ python.insert_method
+# Roadmap
 
-⬜ python.replace_method
-⬜ python.delete_method
-⬜ python.rename_method
-⬜ python.add_import
-⬜ python.remove_import
-⬜ python.create_class
-⬜ python.replace_class
-⬜ python.rename_class
-⬜ python.move_method
-⬜ python.extract_function
-⬜ python.inline_function
+## ✅ Phase 1 — Semantic Python Engine
+
+Estado: Completada.
+
+Incluye:
+
+- AST transformations
+- semantic editing
+- import management
+- testing
+- validation
+
+---
+
+## ⬜ Phase 2 — Semantic Planner
+
+Convertir intenciones en planes de ejecución.
+
+---
+
+## ⬜ Phase 3 — Execution Engine
+
+Ejecutar planes completos.
+
+---
+
+## ⬜ Phase 4 — Intent Layer
+
+Interpretación mediante LLM.
+
+---
+
+## ⬜ Phase 5 — Memory
+
+Memoria persistente del proyecto.
+
+---
+
+## ⬜ Phase 6 — Autonomous AI OS
+
+Sistema capaz de desarrollar proyectos completos.
+
+---
+
+# Objetivo final
+
+Versión 1.0
