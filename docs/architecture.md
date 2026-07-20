@@ -1,63 +1,107 @@
 # Architecture
 
-## Visión general
-
-CMM OS es un sistema operativo orientado a software que busca transformar intenciones humanas en acciones concretas sobre un proyecto de código. Su enfoque principal no es editar archivos de forma directa, sino traducir una intención en un plan estructurado, validado y ejecutado de forma segura.
-
-## Objetivo principal
-
-El objetivo de CMM OS es convertir la intención de desarrollo en acciones verificables y controladas, reduciendo el riesgo de cambios arbitrarios y mejorando la trazabilidad del proceso.
-
-## Componentes principales
-
-### 1. Semantic Planner
-
-Es la capa encargada de interpretar una intención y convertirla en un plan semántico de ejecución. Esta fase define qué debe hacerse antes de modificar el código.
-
-### 2. Execution Plan
-
-Representa la secuencia de acciones a ejecutar. Sirve como puente entre la intención y la ejecución real del cambio.
-
-### 3. Semantic Python Engine
-
-Es la capa de ejecución específica para manipular código Python de forma segura. Usa un modelo basado en AST para aplicar cambios semánticos sin depender de ediciones textuales frágiles.
-
-### 4. Project Files
-
-Son los archivos reales del proyecto que reciben los cambios. El motor actúa sobre ellos de manera controlada y validada.
-
-## Diagrama general
+## CMM OS - Current Architecture (v0.5.0)
 
 ```text
-User Intent
-      │
-      ▼
-Semantic Planner
-      │
-      ▼
-Execution Plan
-      │
-      ▼
-Semantic Python Engine
-      │
-      ▼
-Project Files
+User Goal
+      |
+      v
+Technical Reasoner
+      |
+      v
+Task Planner
+      |
+      v
+Action Planner
+      |
+      v
+Execution Runtime
+      |
+      v
+CompositeExecutor
+|-- ReadOnlyFilesystemExecutor
+|-- PythonExecutor
+`-- GitExecutor
 ```
 
-## Descripción de cada bloque
+## Layer responsibilities
 
-- User Intent: la instrucción o necesidad expresada por el usuario.
-- Semantic Planner: transforma esa intención en un plan estructurado.
-- Execution Plan: representa las acciones ordenadas que deben ejecutarse.
-- Semantic Python Engine: aplica los cambios semánticos sobre el código.
-- Project Files: resultado final del proceso sobre el repositorio.
+- User Goal: high-level objective from the user.
+- Technical Reasoner: provides deterministic technical context for planning.
+- Task Planner: builds an ordered plan from the goal.
+- Action Planner: converts plan steps into validated atomic actions.
+- Execution Runtime: tracks queue state, transitions, and execution history.
+- CompositeExecutor: primary entry point that routes actions by prefix.
+- ReadOnlyFilesystemExecutor: read-only filesystem inspection.
+- PythonExecutor: semantic Python actions delegated to the Semantic Python Engine.
+- GitExecutor: read-only repository inspection actions.
 
-## Cómo interactuarán las futuras fases
+## Implemented capabilities
 
-Las fases futuras irán ampliando esta arquitectura en capas:
+### Semantic Python Engine
 
-- La fase actual aporta la capacidad de editar código Python de forma semántica.
-- La siguiente fase permitirá convertir intenciones más complejas en planes detallados.
-- Luego, el motor de ejecución podrá aplicar esos planes de forma más completa.
-- Más adelante, la capa de intención permitirá una interacción más natural con LLMs.
-- Finalmente, la memoria persistente y la autonomía del sistema permitirán operar de forma más independiente.
+- Python semantic indexing
+- Class discovery
+- Function discovery
+- Method discovery
+- Module description
+- Symbol search
+
+### Execution Layer
+
+#### ReadOnlyFilesystemExecutor
+
+- Read-only filesystem operations
+
+#### PythonExecutor
+
+- Semantic Python operations
+- Delegation to the Semantic Python Engine
+
+#### GitExecutor
+
+Supported actions:
+
+- git.status
+- git.current_branch
+- git.list_branches
+- git.log
+- git.diff
+- git.show
+- git.list_tags
+
+#### CompositeExecutor
+
+CompositeExecutor is a thin routing layer with no business logic. It delegates execution by action prefix to filesystem.*, python.*, and git.* specialized executors.
+
+## Architectural principles
+
+- Layered architecture
+- Separation of responsibilities
+- Thin executors
+- Reusable services
+- Read-only execution layer
+- Dependency injection where appropriate
+- Comprehensive automated tests
+
+## Project status
+
+Completed
+
+- ✓ Phase 1 - Semantic Python Engine
+- ✓ Phase 2
+- ✓ Phase 3
+- ✓ Phase 4
+- ✓ Phase 5 - Execution Layer
+
+Current release:
+
+v0.5.0
+
+## Roadmap
+
+Next milestone:
+
+Phase 6 - Semantic Architecture
+
+Phase 6 will introduce a persistent semantic representation of the entire software project, enabling architectural reasoning, dependency analysis, impact analysis, and high-level project understanding beyond tool execution.
