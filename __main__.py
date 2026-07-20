@@ -1,0 +1,7 @@
+"""Module entry point for the CMM OS CLI."""
+
+from kernel.cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
