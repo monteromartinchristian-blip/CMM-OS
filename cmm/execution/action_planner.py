@@ -27,6 +27,12 @@ class ActionType(str, Enum):
     FILESYSTEM_IS_DIRECTORY = "filesystem.is_directory"
     FILESYSTEM_READ_FILE = "filesystem.read_file"
     FILESYSTEM_LIST_DIRECTORY = "filesystem.list_directory"
+    PYTHON_LIST_CLASSES = "python.list_classes"
+    PYTHON_LIST_FUNCTIONS = "python.list_functions"
+    PYTHON_LIST_METHODS = "python.list_methods"
+    PYTHON_LIST_IMPORTS = "python.list_imports"
+    PYTHON_DESCRIBE_MODULE = "python.describe_module"
+    PYTHON_FIND_SYMBOL = "python.find_symbol"
 
 
 @dataclass(frozen=True)

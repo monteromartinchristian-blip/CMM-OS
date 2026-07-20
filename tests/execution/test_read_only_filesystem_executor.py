@@ -5,7 +5,7 @@ import stat
 import pytest
 
 from cmm.execution import Action, ActionType, UnsupportedActionError, create_default_executor_registry
-from cmm.execution.executors import ExecutionContext, NoOpExecutor, ReadOnlyFilesystemExecutor
+from cmm.execution.executors import ExecutionContext, NoOpExecutor, PythonExecutor, ReadOnlyFilesystemExecutor
 
 
 def test_exists_reports_true_and_false(tmp_path) -> None:
@@ -150,7 +150,8 @@ def test_create_default_executor_registry_registers_filesystem_and_noop() -> Non
     registry = create_default_executor_registry()
 
     assert isinstance(registry.all()[0], ReadOnlyFilesystemExecutor)
-    assert isinstance(registry.all()[1], NoOpExecutor)
+    assert isinstance(registry.all()[1], PythonExecutor)
+    assert isinstance(registry.all()[2], NoOpExecutor)
 
 
 def _action(action_type: ActionType, target: str) -> Action:
