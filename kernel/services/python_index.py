@@ -15,7 +15,6 @@ class PythonIndex:
         tree = ast.parse(source)
 
         classes = []
-
         functions = []
 
         for node in tree.body:
@@ -26,8 +25,10 @@ class PythonIndex:
 
                 for item in node.body:
 
-                    if isinstance(item, ast.FunctionDef):
-
+                    if isinstance(
+                        item,
+                        (ast.FunctionDef, ast.AsyncFunctionDef),
+                    ):
                         methods.append(
                             {
                                 "name": item.name,
@@ -45,7 +46,10 @@ class PythonIndex:
                     }
                 )
 
-            elif isinstance(node, ast.FunctionDef):
+            elif isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
 
                 functions.append(
                     {
