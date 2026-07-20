@@ -16,7 +16,7 @@ class KnowledgeNode:
     kind: str
     summary: str = ""
     source_path: Optional[Path] = None
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -26,4 +26,4 @@ class KnowledgeEdge:
     source_id: str
     target_id: str
     relation: str
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, object] = field(default_factory=dict)
