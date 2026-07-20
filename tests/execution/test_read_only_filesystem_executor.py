@@ -6,6 +6,7 @@ import pytest
 
 from cmm.execution import Action, ActionType, UnsupportedActionError, create_default_executor_registry
 from cmm.execution.executors import (
+    CompositeExecutor,
     ExecutionContext,
     GitExecutor,
     NoOpExecutor,
@@ -155,10 +156,11 @@ def test_binary_file_is_rejected(tmp_path) -> None:
 def test_create_default_executor_registry_registers_filesystem_and_noop() -> None:
     registry = create_default_executor_registry()
 
-    assert isinstance(registry.all()[0], ReadOnlyFilesystemExecutor)
-    assert isinstance(registry.all()[1], PythonExecutor)
-    assert isinstance(registry.all()[2], GitExecutor)
-    assert isinstance(registry.all()[3], NoOpExecutor)
+    assert isinstance(registry.all()[0], CompositeExecutor)
+    assert isinstance(registry.all()[1], ReadOnlyFilesystemExecutor)
+    assert isinstance(registry.all()[2], PythonExecutor)
+    assert isinstance(registry.all()[3], GitExecutor)
+    assert isinstance(registry.all()[4], NoOpExecutor)
 
 
 def _action(action_type: ActionType, target: str) -> Action:

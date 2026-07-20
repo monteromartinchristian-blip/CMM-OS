@@ -56,10 +56,33 @@ class ExecutorRegistry:
 
 def create_default_executor_registry() -> ExecutorRegistry:
     """Create the default registry with production and fallback executors."""
-    from cmm.execution.executors import GitExecutor, NoOpExecutor, PythonExecutor, ReadOnlyFilesystemExecutor
+    from cmm.execution.executors import (
+        CompositeExecutor,
+        GitExecutor,
+        NoOpExecutor,
+        PythonExecutor,
+        ReadOnlyFilesystemExecutor,
+    )
+
+    filesystem_executor = ReadOnlyFilesystemExecutor()
+    python_executor = PythonExecutor()
+    git_executor = GitExecutor()
+    composite_executor = CompositeExecutor(
+        {
+            "filesystem.": filesystem_executor,
+            "python.": python_executor,
+            "git.": git_executor,
+        }
+    )
 
     registry = ExecutorRegistry()
     registry.register_many(
-        [ReadOnlyFilesystemExecutor(), PythonExecutor(), GitExecutor(), NoOpExecutor()]
+        [
+            composite_executor,
+            filesystem_executor,
+            python_executor,
+            git_executor,
+            NoOpExecutor(),
+        ]
     )
     return registry

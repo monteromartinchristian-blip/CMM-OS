@@ -9,6 +9,7 @@ from cmm.execution.executors.base import (
 
 __all__ = [
     "ActionExecutor",
+    "CompositeExecutor",
     "ExecutionContext",
     "ExecutionResult",
     "NoOpExecutor",
@@ -19,6 +20,10 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name == "CompositeExecutor":
+        from cmm.execution.executors.composite_executor import CompositeExecutor
+
+        return CompositeExecutor
     if name == "ReadOnlyFilesystemExecutor":
         from cmm.execution.executors.read_only_filesystem import ReadOnlyFilesystemExecutor
 
