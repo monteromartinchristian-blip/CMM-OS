@@ -3,8 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Mapping, Optional
+
+
+class RelationType(str, Enum):
+    """Supported relationship types in the technical knowledge graph."""
+
+    CONTAINS = "CONTAINS"
+    IMPORTS = "IMPORTS"
+    INHERITS = "INHERITS"
+    CALLS = "CALLS"
+    USES = "USES"
 
 
 @dataclass(frozen=True)
@@ -25,5 +36,5 @@ class KnowledgeEdge:
 
     source_id: str
     target_id: str
-    relation: str
+    relation: RelationType
     metadata: Mapping[str, object] = field(default_factory=dict)

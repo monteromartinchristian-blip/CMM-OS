@@ -10,10 +10,7 @@ from kernel.services.project_analyzer import ProjectAnalyzer
 from kernel.services.python_index import PythonIndex
 
 from cmm.memory.graph import KnowledgeGraph
-from cmm.memory.models import KnowledgeEdge, KnowledgeNode
-
-
-CONTAINS = "CONTAINS"
+from cmm.memory.models import KnowledgeEdge, KnowledgeNode, RelationType
 
 
 @dataclass
@@ -40,10 +37,21 @@ class ProjectIndexer:
 
         analyzer = ProjectAnalyzer(project_root)
         python_index = PythonIndex()
+        module_indexes = {
+            relative_path: python_index.index(project_root / relative_path)
+            for relative_path in analyzer.python_files()
+        }
+        module_names = {
+            relative_path: self._module_name(relative_path)
+            for relative_path in module_indexes
+        }
+        module_ids = {
+            module_name: self._module_id(relative_path)
+            for relative_path, module_name in module_names.items()
+        }
 
-        for relative_path in analyzer.python_files():
+        for relative_path, module_index in module_indexes.items():
             module_path = project_root / relative_path
-            module_index = python_index.index(module_path)
             module_id = self._module_id(relative_path)
 
             graph.add_node(
@@ -63,6 +71,18 @@ class ProjectIndexer:
 
             self._add_classes(graph, module_id, module_path, module_index)
             self._add_functions(graph, module_id, module_path, module_index)
+
+        lookup = self._build_lookup(module_indexes, module_names)
+
+        for relative_path, module_index in module_indexes.items():
+            module_name = module_names[relative_path]
+            module_id = self._module_id(relative_path)
+            aliases = self._import_aliases(relative_path, module_name, module_index, module_ids)
+
+            self._add_imports(graph, relative_path, module_name, module_id, module_index, module_ids)
+            self._add_inherits(graph, module_name, module_index, aliases, lookup)
+            self._add_calls(graph, module_name, module_index, aliases, lookup)
+            self._add_uses(graph, module_name, module_index, aliases, lookup)
 
         return graph
 
@@ -95,7 +115,7 @@ class ProjectIndexer:
                     },
                 )
             )
-            self._add_contains(graph, module_id, class_id)
+            self._add_relation(graph, module_id, class_id, RelationType.CONTAINS)
 
             for method_index in class_index.get("methods", ()):
                 method_name = method_index["name"]
@@ -115,7 +135,7 @@ class ProjectIndexer:
                         },
                     )
                 )
-                self._add_contains(graph, class_id, method_id)
+                self._add_relation(graph, class_id, method_id, RelationType.CONTAINS)
 
     def _add_functions(
         self,
@@ -141,14 +161,125 @@ class ProjectIndexer:
                     },
                 )
             )
-            self._add_contains(graph, module_id, function_id)
+            self._add_relation(graph, module_id, function_id, RelationType.CONTAINS)
 
     def _add_contains(self, graph: KnowledgeGraph, source_id: str, target_id: str) -> None:
+        self._add_relation(graph, source_id, target_id, RelationType.CONTAINS)
+
+    def _add_imports(
+        self,
+        graph: KnowledgeGraph,
+        relative_path: Path,
+        module_name: str,
+        module_id: str,
+        module_index: Mapping[str, Any],
+        module_ids: Mapping[str, str],
+    ) -> None:
+        for import_target in module_index.get("import_targets", ()):
+            for imported_module in self._imported_project_modules(
+                relative_path,
+                module_name,
+                import_target,
+                module_ids,
+            ):
+                self._add_relation(
+                    graph,
+                    module_id,
+                    module_ids[imported_module],
+                    RelationType.IMPORTS,
+                )
+
+    def _add_inherits(
+        self,
+        graph: KnowledgeGraph,
+        module_name: str,
+        module_index: Mapping[str, Any],
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> None:
+        module_id = self._lookup_module_id(module_name, lookup)
+
+        for class_index in module_index.get("classes", ()):
+            class_id = self._class_id(module_id, class_index["name"])
+
+            for base in class_index.get("bases", ()):
+                parent_id = self._resolve_class(base, module_name, aliases, lookup)
+                if parent_id and parent_id != class_id:
+                    self._add_relation(graph, class_id, parent_id, RelationType.INHERITS)
+
+    def _add_calls(
+        self,
+        graph: KnowledgeGraph,
+        module_name: str,
+        module_index: Mapping[str, Any],
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> None:
+        module_id = self._lookup_module_id(module_name, lookup)
+
+        for function_index in module_index.get("functions", ()):
+            function_id = self._function_id(module_id, function_index["name"])
+
+            for call in function_index.get("calls", ()):
+                target_id = self._resolve_function(call, module_name, aliases, lookup)
+                if target_id and target_id != function_id:
+                    self._add_relation(graph, function_id, target_id, RelationType.CALLS)
+
+        for class_index in module_index.get("classes", ()):
+            class_id = self._class_id(module_id, class_index["name"])
+
+            for method_index in class_index.get("methods", ()):
+                method_id = self._method_id(class_id, method_index["name"])
+
+                for call in method_index.get("calls", ()):
+                    target_id = self._resolve_method_call(
+                        call,
+                        module_name,
+                        class_id,
+                        aliases,
+                        lookup,
+                    )
+                    if target_id and target_id != method_id:
+                        self._add_relation(graph, method_id, target_id, RelationType.CALLS)
+
+    def _add_uses(
+        self,
+        graph: KnowledgeGraph,
+        module_name: str,
+        module_index: Mapping[str, Any],
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> None:
+        module_id = self._lookup_module_id(module_name, lookup)
+
+        for class_index in module_index.get("classes", ()):
+            class_id = self._class_id(module_id, class_index["name"])
+
+            for candidate in class_index.get("uses", ()):
+                target_id = self._resolve_class(candidate, module_name, aliases, lookup)
+                if target_id and target_id != class_id:
+                    self._add_relation(graph, class_id, target_id, RelationType.USES)
+
+    def _add_relation(
+        self,
+        graph: KnowledgeGraph,
+        source_id: str,
+        target_id: str,
+        relation: RelationType,
+    ) -> None:
+        if any(
+            edge.source_id == source_id
+            and edge.target_id == target_id
+            and edge.relation == relation
+            for edge in graph.edges
+        ):
+            return
+
         graph.add_edge(
             KnowledgeEdge(
                 source_id=source_id,
                 target_id=target_id,
-                relation=CONTAINS,
+                relation=relation,
             )
         )
 
@@ -178,3 +309,220 @@ class ProjectIndexer:
             return value
 
         return ""
+
+    def _build_lookup(
+        self,
+        module_indexes: Mapping[Path, Mapping[str, Any]],
+        module_names: Mapping[Path, str],
+    ) -> dict[str, object]:
+        classes_by_qualified = {}
+        classes_by_name: dict[str, list[str]] = {}
+        functions_by_qualified = {}
+        methods_by_qualified = {}
+        module_ids = {}
+
+        for relative_path, module_index in module_indexes.items():
+            module_name = module_names[relative_path]
+            module_id = self._module_id(relative_path)
+            module_ids[module_name] = module_id
+
+            for class_index in module_index.get("classes", ()):
+                class_name = class_index["name"]
+                class_id = self._class_id(module_id, class_name)
+                classes_by_qualified[f"{module_name}.{class_name}"] = class_id
+                classes_by_name.setdefault(class_name, []).append(class_id)
+
+                for method_index in class_index.get("methods", ()):
+                    method_name = method_index["name"]
+                    method_id = self._method_id(class_id, method_name)
+                    methods_by_qualified[f"{module_name}.{class_name}.{method_name}"] = method_id
+
+            for function_index in module_index.get("functions", ()):
+                function_name = function_index["name"]
+                function_id = self._function_id(module_id, function_name)
+                functions_by_qualified[f"{module_name}.{function_name}"] = function_id
+
+        return {
+            "classes_by_qualified": classes_by_qualified,
+            "classes_by_name": classes_by_name,
+            "functions_by_qualified": functions_by_qualified,
+            "methods_by_qualified": methods_by_qualified,
+            "module_ids": module_ids,
+        }
+
+    def _lookup_module_id(self, module_name: str, lookup: Mapping[str, Any]) -> str:
+        module_ids = lookup["module_ids"]
+        if isinstance(module_ids, dict):
+            module_id = module_ids.get(module_name)
+            if isinstance(module_id, str):
+                return module_id
+
+        return f"module:{module_name.replace('.', '/')}.py"
+
+    def _import_aliases(
+        self,
+        relative_path: Path,
+        module_name: str,
+        module_index: Mapping[str, Any],
+        module_ids: Mapping[str, str],
+    ) -> dict[str, str]:
+        aliases = {}
+
+        for import_target in module_index.get("import_targets", ()):
+            kind = import_target.get("kind")
+            module = self._resolve_import_module(relative_path, module_name, import_target)
+            name = import_target.get("name")
+            asname = import_target.get("asname")
+
+            if kind == "import" and module:
+                alias = asname or module.split(".", 1)[0]
+                aliases[alias] = module
+                aliases[module] = module
+
+            if kind == "from" and module and isinstance(name, str) and name != "*":
+                imported_module = f"{module}.{name}" if module else name
+                alias = asname or name
+                aliases[alias] = imported_module if imported_module in module_ids else f"{module}.{name}"
+
+        return aliases
+
+    def _imported_project_modules(
+        self,
+        relative_path: Path,
+        module_name: str,
+        import_target: Mapping[str, Any],
+        module_ids: Mapping[str, str],
+    ) -> list[str]:
+        module = self._resolve_import_module(relative_path, module_name, import_target)
+        name = import_target.get("name")
+        matches = []
+
+        if module in module_ids:
+            matches.append(module)
+
+        if isinstance(name, str) and name != "*":
+            imported_module = f"{module}.{name}" if module else name
+            if imported_module in module_ids:
+                matches.append(imported_module)
+
+        return sorted(set(matches))
+
+    def _resolve_import_module(
+        self,
+        relative_path: Path,
+        module_name: str,
+        import_target: Mapping[str, Any],
+    ) -> str:
+        module = import_target.get("module")
+        level = import_target.get("level", 0)
+
+        if not isinstance(module, str):
+            module = ""
+
+        if not isinstance(level, int) or level == 0:
+            return module
+
+        package_parts = list(module_name.split("."))
+        if relative_path.name != "__init__.py":
+            package_parts = package_parts[:-1]
+
+        base_length = len(package_parts) - level + 1
+        if base_length < 0:
+            return module
+
+        base_parts = package_parts[:base_length]
+        if module:
+            base_parts.extend(module.split("."))
+
+        return ".".join(part for part in base_parts if part)
+
+    def _resolve_class(
+        self,
+        candidate: str,
+        module_name: str,
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> str:
+        expanded = self._expand_alias(candidate, aliases)
+        classes_by_qualified = lookup["classes_by_qualified"]
+        classes_by_name = lookup["classes_by_name"]
+
+        if not isinstance(classes_by_qualified, dict) or not isinstance(classes_by_name, dict):
+            return ""
+
+        if expanded in classes_by_qualified:
+            return classes_by_qualified[expanded]
+
+        local_name = f"{module_name}.{expanded}"
+        if local_name in classes_by_qualified:
+            return classes_by_qualified[local_name]
+
+        short_name = expanded.rsplit(".", 1)[-1]
+        matches = classes_by_name.get(short_name, [])
+        if len(matches) == 1 and expanded == short_name:
+            return matches[0]
+
+        return ""
+
+    def _resolve_function(
+        self,
+        candidate: str,
+        module_name: str,
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> str:
+        expanded = self._expand_alias(candidate, aliases)
+        functions_by_qualified = lookup["functions_by_qualified"]
+
+        if not isinstance(functions_by_qualified, dict):
+            return ""
+
+        if expanded in functions_by_qualified:
+            return functions_by_qualified[expanded]
+
+        local_name = f"{module_name}.{expanded}"
+        if local_name in functions_by_qualified:
+            return functions_by_qualified[local_name]
+
+        return ""
+
+    def _resolve_method_call(
+        self,
+        candidate: str,
+        module_name: str,
+        class_id: str,
+        aliases: Mapping[str, str],
+        lookup: Mapping[str, Any],
+    ) -> str:
+        methods_by_qualified = lookup["methods_by_qualified"]
+
+        if isinstance(methods_by_qualified, dict) and candidate.startswith("self."):
+            method_name = candidate.split(".", 1)[1]
+            method_id = self._method_id(class_id, method_name)
+            if method_id in methods_by_qualified.values():
+                return method_id
+
+        function_id = self._resolve_function(candidate, module_name, aliases, lookup)
+        if function_id:
+            return function_id
+
+        expanded = self._expand_alias(candidate, aliases)
+        if isinstance(methods_by_qualified, dict) and expanded in methods_by_qualified:
+            return methods_by_qualified[expanded]
+
+        local_method = f"{module_name}.{expanded}"
+        if isinstance(methods_by_qualified, dict) and local_method in methods_by_qualified:
+            return methods_by_qualified[local_method]
+
+        return ""
+
+    def _expand_alias(self, candidate: str, aliases: Mapping[str, str]) -> str:
+        if not candidate:
+            return ""
+
+        parts = candidate.split(".")
+        first = parts[0]
+        if first not in aliases:
+            return candidate
+
+        return ".".join([aliases[first]] + parts[1:])
