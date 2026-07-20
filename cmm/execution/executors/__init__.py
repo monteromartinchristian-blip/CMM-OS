@@ -14,6 +14,7 @@ __all__ = [
     "NoOpExecutor",
     "ReadOnlyFilesystemExecutor",
     "PythonExecutor",
+    "GitExecutor",
 ]
 
 
@@ -26,4 +27,8 @@ def __getattr__(name: str):
         from cmm.execution.executors.python_executor import PythonExecutor
 
         return PythonExecutor
+    if name == "GitExecutor":
+        from cmm.execution.executors.git_executor import GitExecutor
+
+        return GitExecutor
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -33,6 +33,13 @@ class ActionType(str, Enum):
     PYTHON_LIST_IMPORTS = "python.list_imports"
     PYTHON_DESCRIBE_MODULE = "python.describe_module"
     PYTHON_FIND_SYMBOL = "python.find_symbol"
+    GIT_STATUS = "git.status"
+    GIT_CURRENT_BRANCH = "git.current_branch"
+    GIT_LIST_BRANCHES = "git.list_branches"
+    GIT_LOG = "git.log"
+    GIT_DIFF = "git.diff"
+    GIT_SHOW = "git.show"
+    GIT_LIST_TAGS = "git.list_tags"
 
 
 @dataclass(frozen=True)
