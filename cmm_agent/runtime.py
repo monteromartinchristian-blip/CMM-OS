@@ -1,25 +1,13 @@
-#!/usr/bin/env python3
+"""Legacy wrapper for the official CMM OS entrypoint."""
 
-import sys
+from __future__ import annotations
 
-from cmm_agent.agent import Agent
+from cmm.__main__ import main as _official_main
 
 
-def main():
-
-    if len(sys.argv) < 2:
-        print("Uso:")
-        print('python3 runtime.py "Pregunta"')
-        return
-
-    goal = " ".join(sys.argv[1:])
-
-    result = Agent().run(goal)
-
-    print()
-
-    print(result)
+def main(argv: list[str] | None = None) -> int:
+    return _official_main(argv)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

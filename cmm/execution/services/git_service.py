@@ -16,7 +16,10 @@ class GitServiceError(Exception):
 
 
 class GitService:
-    """Run read-only Git commands for a repository root."""
+    """Run controlled Git commands for a repository root."""
+
+    def __init__(self, timeout: float = 15.0) -> None:
+        self.timeout = timeout
 
     def status(self, path: Path) -> dict[str, object]:
         repository_root = self._repository_root(path)
@@ -100,6 +103,36 @@ class GitService:
             "tags": tags,
         }
 
+    def create_branch(self, path: Path, branch: str) -> dict[str, object]:
+        repository_root = self._repository_root(path)
+        self._validate_ref(branch)
+        self._run(repository_root, "switch", "-c", branch)
+        return {"repository": str(repository_root), "branch": branch}
+
+    def switch_branch(self, path: Path, branch: str) -> dict[str, object]:
+        repository_root = self._repository_root(path)
+        self._validate_ref(branch)
+        self._run(repository_root, "switch", branch)
+        return {"repository": str(repository_root), "branch": branch}
+
+    def restore_worktree(self, path: Path) -> dict[str, object]:
+        repository_root = self._repository_root(path)
+        self._run(repository_root, "restore", "--worktree", "--staged", "--", ".")
+        return {"repository": str(repository_root), "restored": True}
+
+    def list_changed_files(self, path: Path) -> dict[str, object]:
+        repository_root = self._repository_root(path)
+        output = self._run(repository_root, "status", "--porcelain")
+        files = []
+        for line in output.splitlines():
+            if len(line) >= 4:
+                files.append(line[3:])
+        return {"repository": str(repository_root), "files": files}
+
+    def _validate_ref(self, value: str) -> None:
+        if not isinstance(value, str) or not value.strip() or value.startswith("-") or any(char.isspace() for char in value):
+            raise GitServiceError("invalid_input", "Invalid Git branch name.")
+
     def _repository_root(self, path: Path) -> Path:
         candidate = Path(path)
         if not candidate.exists():
@@ -123,11 +156,14 @@ class GitService:
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=self.timeout,
             )
         except FileNotFoundError as error:
             raise GitServiceError("git_not_available", "Git command is not available.") from error
         except OSError as error:
             raise GitServiceError("os_error", f"Unable to execute git command: {error}") from error
+        except subprocess.TimeoutExpired as error:
+            raise GitServiceError("timeout", "Git command timed out.") from error
 
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()

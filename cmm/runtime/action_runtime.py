@@ -1,13 +1,18 @@
-"""In-memory lifecycle management for non-executing action queues."""
+"""Lifecycle management and registry-backed execution of action queues."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+import os
+from pathlib import Path
+from time import perf_counter
+from typing import Any, Optional
 
 from cmm.execution.action_planner import ActionPlanner
+from cmm.execution.executor_registry import ExecutorRegistry, create_default_executor_registry
+from cmm.execution.executors.base import ExecutionContext, ExecutionResult
 
 
 class ActionStatus(str, Enum):
@@ -45,13 +50,103 @@ class RuntimeStatus:
     progress: float
 
 
+@dataclass(frozen=True)
+class RuntimeExecutionResult:
+    """Structured result for one complete action-queue execution."""
+
+    success: bool
+    executions: tuple[ActionExecution, ...]
+    errors: tuple[str, ...] = ()
+    stopped: bool = False
+    duration_seconds: float = 0.0
+
+    def serialize(self) -> dict[str, Any]:
+        return {
+            "success": self.success,
+            "executions": [
+                {
+                    "action_id": self._action_id(execution.action),
+                    "status": execution.status.value,
+                    "error": execution.error,
+                    "result": _serialize_result(execution.result),
+                }
+                for execution in self.executions
+            ],
+            "errors": list(self.errors),
+            "stopped": self.stopped,
+            "duration_seconds": self.duration_seconds,
+        }
+
+    def _action_id(self, action: object) -> str:
+        return str(getattr(action, "id", ""))
+
+
 class ActionRuntime:
     """Manage action state transitions without executing any action."""
 
-    def __init__(self, action_planner: ActionPlanner) -> None:
+    def __init__(
+        self,
+        action_planner: ActionPlanner,
+        registry: ExecutorRegistry | None = None,
+        working_directory: str | Path = ".",
+    ) -> None:
         """Initialize an empty runtime using the public action-planning facade."""
         self._action_planner = action_planner
+        self._registry = registry or create_default_executor_registry()
+        self._working_directory = str(Path(working_directory).resolve(strict=False))
         self._executions: list[ActionExecution] = []
+
+    def execute(self, actions: list[object] | None = None) -> RuntimeExecutionResult:
+        """Execute pending actions through ``ExecutorRegistry`` in queue order."""
+        started = perf_counter()
+        errors: list[str] = []
+        if actions is not None:
+            try:
+                self.enqueue(actions)
+            except Exception as error:
+                return RuntimeExecutionResult(False, tuple(self._executions), (str(error),), True, perf_counter() - started)
+
+        while True:
+            action = self.next_action()
+            if action is None:
+                break
+            action_id = self._action_id(action)
+            self.mark_running(action_id)
+            try:
+                executor = self._registry.resolve(action)
+                result = executor.execute(
+                    ExecutionContext(
+                        runtime=self,
+                        action=action,
+                        working_directory=self._working_directory,
+                        environment=dict(os.environ),
+                    )
+                )
+                if not isinstance(result, ExecutionResult):
+                    raise TypeError("Executor returned an invalid ExecutionResult.")
+                if result.success:
+                    self.mark_completed(action_id, result=result)
+                    continue
+                self.mark_failed(action_id, result.message, result=result)
+                errors.append(result.message)
+            except Exception as error:
+                self.mark_failed(action_id, str(error))
+                errors.append(str(error))
+
+            for pending in list(self._executions):
+                if pending.status == ActionStatus.PENDING:
+                    self.mark_skipped(self._action_id(pending.action), "Execution stopped after a previous failure.")
+            break
+
+        return RuntimeExecutionResult(
+            success=not errors,
+            executions=tuple(self._executions),
+            errors=tuple(errors),
+            stopped=bool(errors),
+            duration_seconds=perf_counter() - started,
+        )
+
+    run = execute
 
     def enqueue(self, actions: list[object]) -> None:
         """Append validated actions to the runtime as pending executions."""
@@ -103,7 +198,7 @@ class ActionRuntime:
             result=result,
         )
 
-    def mark_failed(self, action_id: str, reason: str) -> ActionExecution:
+    def mark_failed(self, action_id: str, reason: str, result: object = None) -> ActionExecution:
         """Mark a running action as failed and record its failure reason."""
         return self._transition(
             action_id,
@@ -111,6 +206,7 @@ class ActionRuntime:
             new_status=ActionStatus.FAILED,
             finished_at=self._now(),
             error=reason,
+            result=result,
         )
 
     def mark_skipped(
@@ -203,3 +299,15 @@ class ActionRuntime:
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
+
+
+def _serialize_result(result: object) -> object:
+    if isinstance(result, ExecutionResult):
+        return {
+            "success": result.success,
+            "message": result.message,
+            "artifacts": list(result.artifacts),
+            "metadata": dict(result.metadata),
+            "execution_time": result.execution_time,
+        }
+    return result

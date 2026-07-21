@@ -11,19 +11,35 @@ from kernel.actions.filesystem import (
 from kernel.services.diff_engine import DiffEngine
 from kernel.services.filesystem import FileSystemService
 from kernel.services.python_editor import PythonEditor
+from kernel.semantic import SemanticRuntime
+from kernel.semantic_adapters import legacy_value_from_result, operation_from_legacy_action
+from kernel.semantic_executors import create_default_semantic_registry
 
 
 class Executor:
 
-    def __init__(self):
+    def __init__(self, runtime=None):
 
         self.fs = FileSystemService()
 
         self.diff = DiffEngine()
 
         self.python = PythonEditor()
+        self.runtime = runtime or SemanticRuntime(create_default_semantic_registry())
 
     def execute(self, action):
+        """Execute a legacy action through the common semantic runtime."""
+
+        try:
+            operation = operation_from_legacy_action(action)
+        except TypeError:
+            operation = None
+
+        if operation is not None:
+            result = self.runtime.execute_operation(operation)
+            if result.success:
+                return legacy_value_from_result(dict(result.data))
+            raise ValueError(result.message)
 
         if isinstance(action, WriteFileAction):
             self.fs.write(

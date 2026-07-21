@@ -3,6 +3,16 @@ from pathlib import Path
 
 class ProjectAnalyzer:
 
+    _EXCLUDED_PARTS = {
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+
     def __init__(self, root: Path):
         self.root = Path(root)
 
@@ -10,9 +20,18 @@ class ProjectAnalyzer:
         return sorted(
             p.relative_to(self.root)
             for p in self.root.rglob("*.py")
-            if ".venv" not in p.parts
-            and "__pycache__" not in p.parts
+            if not any(part in self._EXCLUDED_PARTS for part in p.relative_to(self.root).parts)
+            and not p.is_symlink()
+            and p.is_file()
+            and self._within_root(p)
         )
+
+    def _within_root(self, path: Path) -> bool:
+        try:
+            path.resolve(strict=True).relative_to(self.root.resolve(strict=True))
+        except (OSError, ValueError):
+            return False
+        return True
 
     def packages(self):
 

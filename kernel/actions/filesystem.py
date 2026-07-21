@@ -74,3 +74,81 @@ class InsertMethodAction(Action):
     position: str
 
     code: str
+
+    scope: str | None = None
+
+
+@dataclass
+class ReplaceMethodAction(Action):
+
+    path: str
+    class_name: str
+    method_name: str
+    code: str
+    scope: str | None = None
+
+
+@dataclass
+class DeleteMethodAction(Action):
+
+    path: str
+    class_name: str
+    method_name: str
+    scope: str | None = None
+
+
+@dataclass
+class RenameMethodAction(Action):
+
+    path: str
+    class_name: str
+    old_name: str
+    new_name: str
+    scope: str | None = None
+
+
+@dataclass
+class AddImportAction(Action):
+
+    path: str
+    module: str
+    name: str | None = None
+    alias: str | None = None
+    level: int = 0
+
+
+@dataclass
+class RemoveImportAction(Action):
+
+    path: str
+    module: str
+    name: str | None = None
+    alias: str | None = None
+    level: int = 0
+
+
+@dataclass
+class CreateClassAction(Action):
+
+    path: str
+    class_name: str
+    scope: str | None = None
+    base_classes: list[str] | None = None
+    methods: list[str] | None = None
+
+
+@dataclass
+class RenameClassAction(Action):
+
+    path: str
+    class_name: str
+    new_name: str
+    scope: str | None = None
+
+
+@dataclass
+class DeleteClassAction(Action):
+
+    path: str
+    class_name: str
+    scope: str | None = None

@@ -14,6 +14,7 @@ __all__ = [
     "ExecutionResult",
     "NoOpExecutor",
     "ReadOnlyFilesystemExecutor",
+    "FilesystemExecutor",
     "PythonExecutor",
     "GitExecutor",
 ]
@@ -28,6 +29,10 @@ def __getattr__(name: str):
         from cmm.execution.executors.read_only_filesystem import ReadOnlyFilesystemExecutor
 
         return ReadOnlyFilesystemExecutor
+    if name == "FilesystemExecutor":
+        from cmm.execution.executors.filesystem import FilesystemExecutor
+
+        return FilesystemExecutor
     if name == "PythonExecutor":
         from cmm.execution.executors.python_executor import PythonExecutor
 

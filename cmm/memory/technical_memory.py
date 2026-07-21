@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from time import perf_counter
 from typing import Optional, Union
 
+from cmm.memory.graph import KnowledgeGraph
+from cmm.memory.indexer import ProjectIndexer
 from cmm.memory.models import KnowledgeNode
+from cmm.memory.persistence import (
+    CorruptRepositoryError,
+    IncompatibleRepositoryError,
+    PersistentKnowledgeRepository,
+    ProjectMismatchError,
+    ProjectSnapshot,
+    RepositoryNotFoundError,
+    compare_snapshots,
+    scan_project,
+)
 from cmm.memory.query import KnowledgeQuery
 from cmm.memory.repository import KnowledgeRepository
+from cmm.memory.results import MemoryLoadResult, MemoryRefreshResult, ProjectChangeSet
 
 
 class TechnicalMemory:
@@ -17,19 +32,102 @@ class TechnicalMemory:
     complexity.
     """
 
-    def __init__(self, repository: KnowledgeRepository) -> None:
+    def __init__(self, repository: KnowledgeRepository | None = None, project_root: Path | None = None) -> None:
         """Initialize TechnicalMemory with a knowledge repository.
 
         Args:
             repository: A KnowledgeRepository instance used to load the knowledge graph.
         """
+        if repository is None:
+            if project_root is None:
+                raise ValueError("TechnicalMemory requires a repository or project_root.")
+            root = Path(project_root).resolve(strict=True)
+            repository = PersistentKnowledgeRepository(root / ".cmm" / "memory.json", root)
         self._repository = repository
+        requested_root = Path(project_root).resolve(strict=True) if project_root is not None else None
+        repository_root = self._repository_root()
+        if requested_root is not None and repository_root is not None and requested_root != repository_root:
+            raise ProjectMismatchError(
+                f"Memory repository belongs to {repository_root}, not {requested_root}."
+            )
+        self._project_root = requested_root or repository_root
         self._query: Optional[KnowledgeQuery] = None
+        self._graph: Optional[KnowledgeGraph] = None
+        self._snapshot: Optional[ProjectSnapshot] = None
 
-    def load(self) -> None:
-        """Load the technical knowledge graph from the underlying repository."""
-        graph = self._repository.load()
-        self._query = KnowledgeQuery(graph)
+    @classmethod
+    def for_project(cls, project_root: Path) -> "TechnicalMemory":
+        """Create a persistent memory facade using the project's local `.cmm` store."""
+
+        return cls(project_root=project_root)
+
+    def load(self) -> MemoryLoadResult:
+        """Load persisted knowledge, rebuilding safely when it is absent or invalid."""
+        started = perf_counter()
+        warnings: list[str] = []
+        origin = "persisted"
+        rebuilt = False
+        persisted = False
+        try:
+            if hasattr(self._repository, "load_snapshot"):
+                graph, snapshot = self._repository.load_snapshot()
+                self._snapshot = snapshot
+            else:
+                graph = self._repository.load()
+                self._snapshot = None
+                origin = "in_memory"
+        except (RepositoryNotFoundError, CorruptRepositoryError, IncompatibleRepositoryError) as error:
+            if self._project_root is None:
+                raise
+            graph = ProjectIndexer(self._project_root).build()
+            snapshot = scan_project(self._project_root)
+            self._persist(graph, snapshot)
+            self._snapshot = snapshot
+            origin = "reconstructed"
+            rebuilt = True
+            persisted = True
+            warnings.append(str(error))
+        except ProjectMismatchError:
+            raise
+
+        self._set_graph(graph)
+        return MemoryLoadResult(
+            success=True,
+            origin=origin,
+            persisted=persisted or origin == "persisted",
+            rebuilt=rebuilt,
+            warnings=tuple(warnings),
+            duration_seconds=perf_counter() - started,
+        )
+
+    def refresh(self) -> MemoryRefreshResult:
+        """Detect project changes, rebuild safely, and persist the current graph."""
+        started = perf_counter()
+        if self._query is None:
+            self.load()
+        if self._project_root is None:
+            return MemoryRefreshResult(False, ProjectChangeSet(), errors=("Memory has no project root.",), duration_seconds=perf_counter() - started)
+        current = scan_project(self._project_root)
+        changes = compare_snapshots(self._snapshot, current)
+        if changes.empty:
+            return MemoryRefreshResult(True, changes, persisted=False, duration_seconds=perf_counter() - started)
+
+        previous_nodes = set(self._graph.nodes) if self._graph is not None else set()
+        graph = ProjectIndexer(self._project_root).build()
+        current_nodes = set(graph.nodes)
+        self._persist(graph, current)
+        self._snapshot = current
+        self._set_graph(graph)
+        return MemoryRefreshResult(
+            success=True,
+            change_set=changes,
+            nodes_added=tuple(sorted(current_nodes - previous_nodes)),
+            nodes_modified=tuple(sorted(current_nodes & previous_nodes)),
+            nodes_deleted=tuple(sorted(previous_nodes - current_nodes)),
+            persisted=True,
+            rebuilt=True,
+            duration_seconds=perf_counter() - started,
+        )
 
     def _get_query(self) -> KnowledgeQuery:
         """Ensure the knowledge graph is loaded and return the active query interface.
@@ -43,6 +141,27 @@ class TechnicalMemory:
         if self._query is None:
             raise RuntimeError("TechnicalMemory is not loaded. Call load() before querying.")
         return self._query
+
+    def _set_graph(self, graph: KnowledgeGraph) -> None:
+        self._graph = graph
+        if self._project_root is None:
+            project_nodes = [node for node in graph.nodes.values() if node.kind == "Project" and node.source_path is not None]
+            if project_nodes:
+                self._project_root = Path(project_nodes[0].source_path).resolve(strict=False)
+        self._query = KnowledgeQuery(graph)
+
+    def _persist(self, graph: KnowledgeGraph, snapshot: ProjectSnapshot) -> None:
+        save_snapshot = getattr(self._repository, "save_snapshot", None)
+        if callable(save_snapshot):
+            save_snapshot(graph, snapshot)
+        else:
+            self._repository.save(graph)
+
+    def _repository_root(self) -> Optional[Path]:
+        root = getattr(self._repository, "project_root", None)
+        if root is not None:
+            return Path(root).resolve(strict=False)
+        return None
 
     def find_symbol(self, name: str) -> list[KnowledgeNode]:
         """Locate modules, classes, functions, or methods by display name.

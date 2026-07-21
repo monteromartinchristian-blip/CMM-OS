@@ -37,10 +37,20 @@ class ProjectIndexer:
 
         analyzer = ProjectAnalyzer(project_root)
         python_index = PythonIndex()
-        module_indexes = {
-            relative_path: python_index.index(project_root / relative_path)
-            for relative_path in analyzer.python_files()
-        }
+        module_indexes = {}
+        parse_errors = {}
+        for relative_path in analyzer.python_files():
+            try:
+                module_indexes[relative_path] = python_index.index(project_root / relative_path)
+            except (SyntaxError, UnicodeDecodeError) as error:
+                module_indexes[relative_path] = {
+                    "docstring": None,
+                    "imports": (),
+                    "import_targets": (),
+                    "classes": (),
+                    "functions": (),
+                }
+                parse_errors[relative_path] = str(error)
         module_names = {
             relative_path: self._module_name(relative_path)
             for relative_path in module_indexes
@@ -64,6 +74,7 @@ class ProjectIndexer:
                     metadata={
                         "path": relative_path.as_posix(),
                         "imports": tuple(module_index.get("imports", ())),
+                        **({"parse_error": parse_errors[relative_path]} if relative_path in parse_errors else {}),
                     },
                 )
             )

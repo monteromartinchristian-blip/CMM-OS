@@ -1,4 +1,4 @@
-from ollama import chat
+import importlib
 
 DEFAULT_MODEL = "qwen2.5-coder:7b"
 
@@ -9,8 +9,14 @@ class OllamaProvider:
         self.model = model
 
     def chat(self, prompt: str) -> str:
+        try:
+            ollama = importlib.import_module("ollama")
+        except ModuleNotFoundError as error:
+            raise RuntimeError(
+                "The legacy Ollama provider requires the optional 'ollama' package."
+            ) from error
 
-        response = chat(
+        response = ollama.chat(
             model=self.model,
             messages=[
                 {

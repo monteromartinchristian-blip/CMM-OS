@@ -43,10 +43,13 @@ class PythonEditor:
         if not changed:
             return False
 
-        self._write_source(path, ast.unparse(tree))
+        ast.fix_missing_locations(tree)
+        updated_source = ast.unparse(tree)
+        self.validator.validate(updated_source)
+        self._write_source(path, updated_source)
         return True
 
-    def insert_method(self, path, class_name, position, code):
+    def insert_method(self, path, class_name, position, code, scope=None):
         """Insert a new method into a class using AST.
 
         Args:
@@ -72,10 +75,11 @@ class PythonEditor:
                 class_name,
                 position,
                 code,
+                scope=scope,
             ),
         )
 
-    def create_class(self, path, class_name, base_classes=None, methods=None):
+    def create_class(self, path, class_name, base_classes=None, methods=None, scope=None):
         """Create a new class at the end of the module.
 
         Args:
@@ -101,10 +105,11 @@ class PythonEditor:
                 class_name,
                 base_classes=base_classes,
                 methods=methods,
+                scope=scope,
             ),
         )
 
-    def replace_class(self, path, class_name, new_class):
+    def replace_class(self, path, class_name, new_class, scope=None):
         """Replace an existing class definition in the module.
 
         Args:
@@ -128,10 +133,11 @@ class PythonEditor:
                 tree,
                 class_name,
                 new_class,
+                scope=scope,
             ),
         )
 
-    def ensure_import(self, path, module, name=None, alias=None):
+    def ensure_import(self, path, module, name=None, alias=None, level=0):
         """Ensure that an import exists in the module.
 
         Args:
@@ -157,10 +163,11 @@ class PythonEditor:
                 module,
                 name=name,
                 alias=alias,
+                level=level,
             ),
         )
 
-    def remove_import(self, path, module, name=None):
+    def remove_import(self, path, module, name=None, alias=None, level=0):
         """Remove an import from the module.
 
         Args:
@@ -184,10 +191,12 @@ class PythonEditor:
                 tree,
                 module,
                 name=name,
+                alias=alias,
+                level=level,
             ),
         )
 
-    def has_import(self, path, module, name=None):
+    def has_import(self, path, module, name=None, alias=None, level=0):
         """Check whether a module import exists.
 
         Args:
@@ -207,9 +216,9 @@ class PythonEditor:
         """
         source = self._read_source(path)
         tree = ast.parse(source)
-        return self.transformer.has_import(tree, module, name=name)
+        return self.transformer.has_import(tree, module, name=name, alias=alias, level=level)
 
-    def replace_method(self, path, class_name, method_name, new_method):
+    def replace_method(self, path, class_name, method_name, new_method, scope=None):
         """Replace an existing method inside a class.
 
         Args:
@@ -235,10 +244,11 @@ class PythonEditor:
                 class_name,
                 method_name,
                 new_method,
+                scope=scope,
             ),
         )
 
-    def delete_method(self, path, class_name, method_name):
+    def delete_method(self, path, class_name, method_name, scope=None):
         """Delete a method from a class.
 
         Args:
@@ -262,10 +272,11 @@ class PythonEditor:
                 tree,
                 class_name,
                 method_name,
+                scope=scope,
             ),
         )
 
-    def rename_method(self, path, class_name, old_name, new_name):
+    def rename_method(self, path, class_name, old_name, new_name, scope=None):
         """Rename a method in a class.
 
         Args:
@@ -291,5 +302,27 @@ class PythonEditor:
                 class_name,
                 old_name,
                 new_name,
+                scope=scope,
+            ),
+        )
+
+    def rename_class(self, path, class_name, new_name, scope=None):
+        return self._apply_transform(
+            path,
+            lambda tree: self.transformer.rename_class(
+                tree,
+                class_name,
+                new_name,
+                scope=scope,
+            ),
+        )
+
+    def delete_class(self, path, class_name, scope=None):
+        return self._apply_transform(
+            path,
+            lambda tree: self.transformer.delete_class(
+                tree,
+                class_name,
+                scope=scope,
             ),
         )

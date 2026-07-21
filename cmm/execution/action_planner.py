@@ -27,12 +27,28 @@ class ActionType(str, Enum):
     FILESYSTEM_IS_DIRECTORY = "filesystem.is_directory"
     FILESYSTEM_READ_FILE = "filesystem.read_file"
     FILESYSTEM_LIST_DIRECTORY = "filesystem.list_directory"
+    FILESYSTEM_CREATE_FILE = "filesystem.create_file"
+    FILESYSTEM_WRITE_FILE = "filesystem.write_file"
+    FILESYSTEM_APPEND_FILE = "filesystem.append_file"
+    FILESYSTEM_DELETE_FILE = "filesystem.delete_file"
+    FILESYSTEM_MOVE_FILE = "filesystem.move_file"
+    FILESYSTEM_CREATE_DIRECTORY = "filesystem.create_directory"
+    FILESYSTEM_DELETE_DIRECTORY = "filesystem.delete_directory"
     PYTHON_LIST_CLASSES = "python.list_classes"
     PYTHON_LIST_FUNCTIONS = "python.list_functions"
     PYTHON_LIST_METHODS = "python.list_methods"
     PYTHON_LIST_IMPORTS = "python.list_imports"
     PYTHON_DESCRIBE_MODULE = "python.describe_module"
     PYTHON_FIND_SYMBOL = "python.find_symbol"
+    PYTHON_INSERT_METHOD = "python.insert_method"
+    PYTHON_REPLACE_METHOD = "python.replace_method"
+    PYTHON_DELETE_METHOD = "python.delete_method"
+    PYTHON_RENAME_METHOD = "python.rename_method"
+    PYTHON_ADD_IMPORT = "python.add_import"
+    PYTHON_REMOVE_IMPORT = "python.remove_import"
+    PYTHON_CREATE_CLASS = "python.create_class"
+    PYTHON_RENAME_CLASS = "python.rename_class"
+    PYTHON_DELETE_CLASS = "python.delete_class"
     GIT_STATUS = "git.status"
     GIT_CURRENT_BRANCH = "git.current_branch"
     GIT_LIST_BRANCHES = "git.list_branches"
@@ -40,6 +56,10 @@ class ActionType(str, Enum):
     GIT_DIFF = "git.diff"
     GIT_SHOW = "git.show"
     GIT_LIST_TAGS = "git.list_tags"
+    GIT_CREATE_BRANCH = "git.create_branch"
+    GIT_SWITCH_BRANCH = "git.switch_branch"
+    GIT_RESTORE_WORKTREE = "git.restore_worktree"
+    GIT_LIST_CHANGED_FILES = "git.list_changed_files"
 
 
 @dataclass(frozen=True)
@@ -108,6 +128,31 @@ class ActionPlanner:
                         )
                     )
 
+        return actions
+
+    def create_operation_actions(self, operations: list[object]) -> list[Action]:
+        """Convert structured provider operations into ordered executable actions."""
+        actions: list[Action] = []
+        for operation in operations:
+            domain = getattr(operation, "domain", "")
+            operation_type = getattr(operation, "operation_type", "")
+            parameters = dict(getattr(operation, "parameters", {}) or {})
+            qualified = f"{domain}.{operation_type}"
+            try:
+                action_type = ActionType(qualified)
+            except ValueError as error:
+                raise ValueError(f"Unsupported operation action: {qualified}") from error
+            target = str(parameters.get("path", "."))
+            actions.append(
+                Action(
+                    id=f"action-{len(actions) + 1}",
+                    order=len(actions) + 1,
+                    action_type=action_type,
+                    target=target,
+                    description=getattr(operation, "reason", "") or qualified,
+                    metadata=parameters,
+                )
+            )
         return actions
 
     def optimize(self, actions: list[Action]) -> list[Action]:

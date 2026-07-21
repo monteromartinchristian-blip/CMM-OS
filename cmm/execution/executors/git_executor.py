@@ -12,7 +12,7 @@ from cmm.execution.services import GitService, GitServiceError
 
 
 class GitExecutor(ActionExecutor):
-    """Execute read-only Git operations through a dedicated Git service."""
+    """Execute controlled read-only and isolation Git operations."""
 
     _SUPPORTED_ACTION_TYPES = {
         ActionType.GIT_STATUS,
@@ -22,10 +22,14 @@ class GitExecutor(ActionExecutor):
         ActionType.GIT_DIFF,
         ActionType.GIT_SHOW,
         ActionType.GIT_LIST_TAGS,
+        ActionType.GIT_CREATE_BRANCH,
+        ActionType.GIT_SWITCH_BRANCH,
+        ActionType.GIT_RESTORE_WORKTREE,
+        ActionType.GIT_LIST_CHANGED_FILES,
     }
 
-    def __init__(self) -> None:
-        self._service = GitService()
+    def __init__(self, timeout: float = 15.0) -> None:
+        self._service = GitService(timeout=timeout)
 
     @property
     def name(self) -> str:
@@ -51,6 +55,10 @@ class GitExecutor(ActionExecutor):
             ActionType.GIT_DIFF.value: self._diff,
             ActionType.GIT_SHOW.value: self._show,
             ActionType.GIT_LIST_TAGS.value: self._list_tags,
+            ActionType.GIT_CREATE_BRANCH.value: self._create_branch,
+            ActionType.GIT_SWITCH_BRANCH.value: self._switch_branch,
+            ActionType.GIT_RESTORE_WORKTREE.value: self._restore_worktree,
+            ActionType.GIT_LIST_CHANGED_FILES.value: self._list_changed_files,
         }
         operation = operations.get(action_type.value)
         if operation is None:
@@ -120,6 +128,24 @@ class GitExecutor(ActionExecutor):
     def _list_tags(self, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
         return self._service_result("Git tags listed.", self._service.list_tags, path)
 
+    def _create_branch(self, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
+        return self._branch_result("Git branch created.", self._service.create_branch, path, metadata)
+
+    def _switch_branch(self, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
+        return self._branch_result("Git branch switched.", self._service.switch_branch, path, metadata)
+
+    def _restore_worktree(self, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
+        return self._service_result("Git worktree restored.", self._service.restore_worktree, path)
+
+    def _list_changed_files(self, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
+        return self._service_result("Git changed files listed.", self._service.list_changed_files, path)
+
+    def _branch_result(self, message: str, operation, path: Path, metadata: Mapping[str, object]) -> ExecutionResult:
+        branch = metadata.get("branch")
+        if not isinstance(branch, str) or not branch.strip():
+            return ExecutionResult(False, "Missing branch name.", metadata={"error": "invalid_input", "field": "branch"})
+        return self._service_result(message, operation, path, branch)
+
     def _service_result(self, message: str, operation, path: Path, *args: object) -> ExecutionResult:
         try:
             payload = operation(path, *args)
@@ -138,7 +164,11 @@ class GitExecutor(ActionExecutor):
             base_directory = Path(working_directory).expanduser()
             if not path.is_absolute():
                 path = base_directory / path
-            return path.resolve(strict=False)
+            resolved = path.resolve(strict=False)
+            resolved.relative_to(base_directory.resolve(strict=True))
+            return resolved
+        except ValueError:
+            return ExecutionResult(False, "Git path escapes the project.", metadata={"error": "unsafe_path", "path": target})
         except (OSError, RuntimeError, ValueError) as error:
             return ExecutionResult(
                 success=False,

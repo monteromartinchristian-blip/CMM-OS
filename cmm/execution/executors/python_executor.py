@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Mapping
 
 from kernel.services.python_index import PythonIndex
+from kernel.semantic import SemanticOperation, SemanticRuntime
+from kernel.semantic_executors import create_default_semantic_registry
 
 from cmm.execution.action_planner import ActionType
 from cmm.execution.executor_registry import UnsupportedActionError
@@ -13,7 +15,7 @@ from cmm.execution.executors.base import ActionExecutor, ExecutionContext, Execu
 
 
 class PythonExecutor(ActionExecutor):
-    """Execute read-only Python semantic operations through the semantic engine."""
+    """Execute read-only and mutating Python operations through the semantic engine."""
 
     _SUPPORTED_ACTION_TYPES = {
         ActionType.PYTHON_LIST_CLASSES,
@@ -22,10 +24,20 @@ class PythonExecutor(ActionExecutor):
         ActionType.PYTHON_LIST_IMPORTS,
         ActionType.PYTHON_DESCRIBE_MODULE,
         ActionType.PYTHON_FIND_SYMBOL,
+        ActionType.PYTHON_INSERT_METHOD,
+        ActionType.PYTHON_REPLACE_METHOD,
+        ActionType.PYTHON_DELETE_METHOD,
+        ActionType.PYTHON_RENAME_METHOD,
+        ActionType.PYTHON_ADD_IMPORT,
+        ActionType.PYTHON_REMOVE_IMPORT,
+        ActionType.PYTHON_CREATE_CLASS,
+        ActionType.PYTHON_RENAME_CLASS,
+        ActionType.PYTHON_DELETE_CLASS,
     }
 
     def __init__(self) -> None:
         self._engine = PythonIndex()
+        self._semantic_runtime = SemanticRuntime(create_default_semantic_registry())
 
     @property
     def name(self) -> str:
@@ -42,6 +54,9 @@ class PythonExecutor(ActionExecutor):
         action_type = getattr(action, "action_type", None)
         if not isinstance(action_type, ActionType):
             raise UnsupportedActionError(f"Unsupported action type: {action_type}.")
+
+        if action_type in self._MUTATING_ACTION_TYPES:
+            return self._execute_mutation(context, action_type)
 
         operations = {
             ActionType.PYTHON_LIST_CLASSES.value: self._list_classes,
@@ -76,6 +91,47 @@ class PythonExecutor(ActionExecutor):
             return module_index
 
         return operation(path_result, module_index, metadata)
+
+    _MUTATING_ACTION_TYPES = {
+        ActionType.PYTHON_INSERT_METHOD,
+        ActionType.PYTHON_REPLACE_METHOD,
+        ActionType.PYTHON_DELETE_METHOD,
+        ActionType.PYTHON_RENAME_METHOD,
+        ActionType.PYTHON_ADD_IMPORT,
+        ActionType.PYTHON_REMOVE_IMPORT,
+        ActionType.PYTHON_CREATE_CLASS,
+        ActionType.PYTHON_RENAME_CLASS,
+        ActionType.PYTHON_DELETE_CLASS,
+    }
+
+    def _execute_mutation(self, context: ExecutionContext, action_type: ActionType) -> ExecutionResult:
+        target = getattr(context.action, "target", "")
+        resolved = self._resolve_path(target, context.working_directory)
+        if isinstance(resolved, ExecutionResult):
+            return resolved
+        root = Path(context.working_directory).resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            return self._error_result("Python path escapes the project.", resolved, "unsafe_path")
+        metadata = getattr(context.action, "metadata", {})
+        parameters = dict(metadata) if isinstance(metadata, Mapping) else {}
+        parameters.pop("goal", None)
+        parameters.pop("plan_step_order", None)
+        parameters["path"] = str(resolved)
+        operation = SemanticOperation(
+            domain="python",
+            operation_type=action_type.value.split(".", 1)[1],
+            parameters=parameters,
+            metadata={"source": "ActionRuntime", "action_id": str(getattr(context.action, "id", ""))},
+        )
+        result = self._semantic_runtime.execute_operation(operation)
+        return ExecutionResult(
+            success=result.success,
+            message=result.message,
+            artifacts=list(result.changes),
+            metadata={**dict(result.data), "semantic_errors": list(result.errors), "operation": result.operation.serialize() if result.operation else None},
+        )
 
     def _list_classes(
         self,
