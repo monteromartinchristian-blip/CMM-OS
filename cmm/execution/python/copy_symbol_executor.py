@@ -1,6 +1,7 @@
 """LibCST executor for copying top-level Python functions."""
 
 from cmm.execution.execution_result import ExecutionResult
+from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter
@@ -48,6 +49,7 @@ class PythonCopySymbolExecutor(OperationExecutor):
                 operation=request.operation,
                 diagnostics=("Missing SemanticContext",),
             )
+        execution_context = request.metadata.get("execution_context")
 
         source_module = self._module(context.snapshot, request.operation.source)
         target_module = self._module(context.snapshot, request.operation.destination)
@@ -63,6 +65,9 @@ class PythonCopySymbolExecutor(OperationExecutor):
                 operation=request.operation,
                 diagnostics=("Target module not found",),
             )
+        if isinstance(execution_context, ExecutionContext):
+            execution_context.resolve_project_path(source_module.path)
+            execution_context.resolve_project_path(target_module.path)
 
         function = self._locator.find(
             source_module.parsed_module,

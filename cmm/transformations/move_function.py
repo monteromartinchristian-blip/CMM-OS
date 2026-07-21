@@ -13,6 +13,13 @@ from cmm.transformations.operations import (
     ValidateProjectOperation,
 )
 from cmm.transformations.plan import TransformationPlan
+from cmm.transformations.preconditions import (
+    FunctionDependenciesPrecondition,
+    ModuleExistsPrecondition,
+    SymbolAbsentPrecondition,
+    SymbolExistsPrecondition,
+    SupportedSymbolReferencesPrecondition,
+)
 from cmm.transformations.transformation import Transformation
 
 
@@ -43,6 +50,10 @@ class MoveFunctionTransformationBuilder:
         transformation: MoveFunctionTransformation,
     ) -> TransformationPlan:
         """Compose the ordered primitive operations for a function move."""
+        if transformation.source_module == transformation.target_module:
+            raise ValueError("Source and target modules must differ.")
+
+        destination_symbol = transformation.new_name or transformation.function_name
         operations = [
             CopySymbolOperation(
                 symbol=transformation.function_name,
@@ -55,10 +66,17 @@ class MoveFunctionTransformationBuilder:
                 RenameSymbolOperation(
                     symbol=transformation.function_name,
                     new_name=transformation.new_name,
+                    module=transformation.target_module,
                 )
             )
         operations.append(
-            UpdateImportsOperation(module=transformation.target_module)
+            UpdateImportsOperation(
+                module=transformation.target_module,
+                old_module=transformation.source_module,
+                new_module=transformation.target_module,
+                symbol_name=transformation.function_name,
+                new_symbol_name=destination_symbol,
+            )
         )
         operations.append(
             DeleteSymbolOperation(
@@ -68,12 +86,45 @@ class MoveFunctionTransformationBuilder:
         )
         operations.append(ValidateProjectOperation(scope="project"))
 
-        return TransformationPlan(
-            steps=tuple(
-                TransformationStep(
-                    id=f"move-function-{index}",
-                    operation=operation,
-                )
-                for index, operation in enumerate(operations, start=1)
+        steps = tuple(
+            TransformationStep(
+                id=f"move-function-{index}",
+                operation=operation,
+                dependencies=(f"move-function-{index - 1}",) if index > 1 else (),
             )
+            for index, operation in enumerate(operations, start=1)
+        )
+        return TransformationPlan(
+            id="move-function",
+            preconditions=(
+                ModuleExistsPrecondition(transformation.source_module),
+                SymbolExistsPrecondition(
+                    transformation.source_module,
+                    transformation.function_name,
+                    "function",
+                ),
+                ModuleExistsPrecondition(transformation.target_module),
+                SymbolAbsentPrecondition(
+                    transformation.target_module,
+                    destination_symbol,
+                ),
+                *(() if destination_symbol == transformation.function_name else (
+                    SymbolAbsentPrecondition(
+                        transformation.target_module,
+                        transformation.function_name,
+                    ),
+                )),
+                SupportedSymbolReferencesPrecondition(
+                    transformation.source_module,
+                    transformation.function_name,
+                    transformation.target_module,
+                    destination_symbol,
+                ),
+                FunctionDependenciesPrecondition(
+                    transformation.source_module,
+                    transformation.target_module,
+                    transformation.function_name,
+                ),
+            ),
+            steps=steps,
         )

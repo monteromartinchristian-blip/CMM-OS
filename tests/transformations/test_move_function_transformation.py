@@ -59,8 +59,15 @@ def test_builder_propagates_transformation_parameters() -> None:
     assert rename_operation == RenameSymbolOperation(
         symbol="greet",
         new_name="welcome",
+        module="cmm.target",
     )
-    assert update_imports_operation == UpdateImportsOperation(module="cmm.target")
+    assert update_imports_operation == UpdateImportsOperation(
+        module="cmm.target",
+        old_module="cmm.source",
+        new_module="cmm.target",
+        symbol_name="greet",
+        new_symbol_name="welcome",
+    )
     assert delete_operation == DeleteSymbolOperation(
         symbol="greet",
         module="cmm.source",
@@ -103,15 +110,25 @@ def test_plan_operations_are_serializable() -> None:
                 "destination": "cmm.target",
             },
         },
-        {
-            "id": "move-function-2",
-            "operation": "rename_symbol",
-            "metadata": {"symbol": "greet", "new_name": "welcome"},
-        },
-        {
-            "id": "move-function-3",
-            "operation": "update_imports",
-            "metadata": {"module": "cmm.target"},
+            {
+                "id": "move-function-2",
+                "operation": "rename_symbol",
+                "metadata": {
+                    "symbol": "greet",
+                    "new_name": "welcome",
+                    "module": "cmm.target",
+                },
+            },
+            {
+                "id": "move-function-3",
+                "operation": "update_imports",
+                "metadata": {
+                    "module": "cmm.target",
+                    "old_module": "cmm.source",
+                    "new_module": "cmm.target",
+                    "symbol_name": "greet",
+                    "new_symbol_name": "welcome",
+                },
         },
         {
             "id": "move-function-4",

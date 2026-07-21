@@ -3,6 +3,7 @@
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.import_resolver import ImportResolver
+from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter
 from cmm.execution.python.semantic_context import SemanticContext
@@ -24,14 +25,17 @@ class PythonUpdateImportsExecutor(OperationExecutor):
 
     def execute(self, request: ExecutionRequest) -> ExecutionResult:
         context = request.metadata.get("semantic_context")
+        execution_context = request.metadata.get("execution_context")
         old_module = request.metadata.get("old_module")
         new_module = request.metadata.get("new_module")
         symbol_name = request.metadata.get("symbol_name")
+        new_symbol_name = request.metadata.get("new_symbol_name", symbol_name)
         if (
             not isinstance(context, SemanticContext)
             or not isinstance(old_module, str)
             or not isinstance(new_module, str)
             or not isinstance(symbol_name, str)
+            or not isinstance(new_symbol_name, str)
         ):
             return ExecutionResult(
                 success=False,
@@ -39,16 +43,22 @@ class PythonUpdateImportsExecutor(OperationExecutor):
                 diagnostics=("Missing import update parameters",),
             )
 
+        if isinstance(execution_context, ExecutionContext):
+            execution_context.module_path(old_module)
+            execution_context.module_path(new_module)
         resolver = ImportResolver(context)
         written_paths = []
         for module in context.snapshot.modules:
             if module.parsed_module is None:
                 continue
+            if isinstance(execution_context, ExecutionContext):
+                execution_context.resolve_project_path(module.path)
             resolver.resolve_symbol(module.module_name, symbol_name)
             transformer = UpdateImportTransformer(
                 old_module,
                 new_module,
                 symbol_name,
+                new_symbol_name,
             )
             updated_module = PythonModuleEditor(module).apply(transformer)
             if transformer.changed and self._writer.write(updated_module):

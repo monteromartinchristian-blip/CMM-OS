@@ -11,6 +11,7 @@ class RenameSymbolOperation(TransformationOperation):
 
     symbol: str
     new_name: str
+    module: str | None = None
 
     @property
     def name(self) -> str:
@@ -20,4 +21,8 @@ class RenameSymbolOperation(TransformationOperation):
         return f"Rename symbol {self.symbol} to {self.new_name}."
 
     def metadata(self) -> dict[str, object]:
-        return {"symbol": self.symbol, "new_name": self.new_name}
+        return {
+            "symbol": self.symbol,
+            "new_name": self.new_name,
+            **({"module": self.module} if self.module else {}),
+        }

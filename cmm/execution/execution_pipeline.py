@@ -294,17 +294,22 @@ class ExecutionPipeline:
         }
         operation = request.operation
         if isinstance(operation, UpdateImportsOperation):
-            copy_operation = self._copy_operation(request)
-            if copy_operation is not None:
+            if (
+                operation.old_module is not None
+                and operation.new_module is not None
+                and operation.symbol_name is not None
+            ):
                 metadata.update(
                     {
-                        "old_module": copy_operation.source,
-                        "new_module": copy_operation.destination,
-                        "symbol_name": copy_operation.symbol,
+                        "old_module": operation.old_module,
+                        "new_module": operation.new_module,
+                        "symbol_name": operation.symbol_name,
+                        "new_symbol_name": operation.new_symbol_name
+                        or operation.symbol_name,
                     }
                 )
         if isinstance(operation, RenameSymbolOperation):
-            metadata["module"] = self._target_module(request)
+            metadata["module"] = operation.module or self._target_module(request)
         return ExecutionRequest(operation=operation, metadata=metadata)
 
     def _step_id(self, request: ExecutionRequest) -> str | None:
@@ -429,15 +434,22 @@ class ExecutionPipeline:
         for request in plan.all_requests():
             affected.update(self._context.affected_paths_for(request.operation))
         for result in raw_results:
-            affected.update(result.created_paths)
+            affected.update(
+                self._context.resolve_project_path(path)
+                for path in result.created_paths
+            )
             deleted_paths = result.metadata.get("deleted_paths", ())
             if isinstance(deleted_paths, tuple):
-                affected.update(path for path in deleted_paths if isinstance(path, Path))
+                affected.update(
+                    self._context.resolve_project_path(path)
+                    for path in deleted_paths
+                    if isinstance(path, Path)
+                )
         created: set[Path] = set()
         modified: set[Path] = set()
         deleted: set[Path] = set()
         all_created_paths = {
-            created_path
+            self._context.resolve_project_path(created_path)
             for result in raw_results
             for created_path in result.created_paths
         }
@@ -451,7 +463,9 @@ class ExecutionPipeline:
             deleted_paths = result.metadata.get("deleted_paths", ())
             if isinstance(deleted_paths, tuple):
                 result_deleted_paths.update(
-                    path for path in deleted_paths if isinstance(path, Path)
+                    self._context.resolve_project_path(path)
+                    for path in deleted_paths
+                    if isinstance(path, Path)
                 )
         for path in sorted(affected):
             snapshot_entry = snapshot.get(path)
@@ -460,7 +474,7 @@ class ExecutionPipeline:
                 deleted.add(path)
             elif path in result_created_paths and not existed_before:
                 created.add(path)
-            elif existed_before and (path in result_created_paths or path in affected):
+            elif existed_before and path in result_created_paths:
                 modified.add(path)
         return tuple(sorted(created)), tuple(sorted(modified)), tuple(sorted(deleted))
 

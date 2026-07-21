@@ -13,10 +13,12 @@ class UpdateImportTransformer(cst.CSTTransformer):
         old_module: str,
         new_module: str,
         symbol_name: str,
+        new_symbol_name: str | None = None,
     ) -> None:
         self._old_module = old_module
         self._new_module = new_module
         self._symbol_name = symbol_name
+        self._new_symbol_name = new_symbol_name or symbol_name
         self.changed = False
 
     def leave_ImportFrom(
@@ -29,19 +31,28 @@ class UpdateImportTransformer(cst.CSTTransformer):
             or original_node.module is None
             or self._module_name(original_node.module) != self._old_module
             or isinstance(original_node.names, cst.ImportStar)
-            or len(original_node.names) != 1
         ):
             return updated_node
-
-        imported = original_node.names[0]
-        if (
-            not isinstance(imported.name, cst.Name)
-            or imported.name.value != self._symbol_name
-        ):
+        changed = False
+        updated_names = []
+        for imported in updated_node.names:
+            if (
+                isinstance(imported.name, cst.Name)
+                and imported.name.value == self._symbol_name
+            ):
+                imported = imported.with_changes(
+                    name=cst.Name(self._new_symbol_name),
+                )
+                changed = True
+            updated_names.append(imported)
+        if not changed:
             return updated_node
 
         self.changed = True
-        return updated_node.with_changes(module=self._module_node(self._new_module))
+        return updated_node.with_changes(
+            module=self._module_node(self._new_module),
+            names=tuple(updated_names),
+        )
 
     def _module_name(self, node: cst.Name | cst.Attribute) -> str:
         if isinstance(node, cst.Name):

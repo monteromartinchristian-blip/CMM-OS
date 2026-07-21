@@ -1,6 +1,7 @@
 """LibCST executor for deleting top-level Python functions."""
 
 from cmm.execution.execution_result import ExecutionResult
+from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter
@@ -35,6 +36,7 @@ class PythonDeleteSymbolExecutor(OperationExecutor):
             )
 
         context = request.metadata.get("semantic_context")
+        execution_context = request.metadata.get("execution_context")
         if not isinstance(context, SemanticContext):
             return ExecutionResult(
                 success=False,
@@ -55,6 +57,8 @@ class PythonDeleteSymbolExecutor(OperationExecutor):
                 operation=request.operation,
                 diagnostics=("Function not found",),
             )
+        if isinstance(execution_context, ExecutionContext):
+            execution_context.resolve_project_path(module.path)
         if self._locator.find(module.parsed_module, request.operation.symbol) is None:
             return ExecutionResult(
                 success=False,

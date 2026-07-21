@@ -36,9 +36,12 @@ from cmm.transformations.operations import (
 from cmm.transformations.plan import TransformationPlan
 from cmm.transformations.preconditions import (
     FileExistsPrecondition,
+    FunctionDependenciesPrecondition,
     ModuleExistsPrecondition,
     PreconditionResult,
+    SymbolAbsentPrecondition,
     SymbolExistsPrecondition,
+    SupportedSymbolReferencesPrecondition,
     TransformationPrecondition,
 )
 from cmm.transformations.planner import TransformationPlanner
@@ -64,6 +67,7 @@ __all__ = [
     "ExecutionPlanner",
     "ExecutionStage",
     "FileExistsPrecondition",
+    "FunctionDependenciesPrecondition",
     "GraphValidationError",
     "GraphValidationResult",
     "MoveSymbolOperation",
@@ -86,6 +90,8 @@ __all__ = [
     "TransformationRegistry",
     "TransformationStep",
     "SymbolExistsPrecondition",
+    "SymbolAbsentPrecondition",
+    "SupportedSymbolReferencesPrecondition",
     "TransformationPrecondition",
     "UnsupportedOperationError",
     "UnsupportedTransformationError",
