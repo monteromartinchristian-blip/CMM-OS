@@ -8,6 +8,12 @@ from cmm.execution.python.visitors.append_function_transformer import (
 )
 from cmm.execution.python.visitors.append_symbol_transformer import AppendSymbolTransformer
 from cmm.execution.python.visitors.delete_symbol_transformer import DeleteSymbolTransformer
+from cmm.execution.python.visitors.extract_method_transformer import ExtractMethodTransformer
+from cmm.execution.python.visitors.extract_module_transformer import (
+    AppendSelectedSymbolsTransformer,
+    DeleteSelectedSymbolsTransformer,
+    UpdateSelectedImportsTransformer,
+)
 from cmm.execution.python.visitors.function_locator import FunctionLocator
 from cmm.execution.python.visitors.reference_locator import (
     ReferenceLocation,
@@ -36,6 +42,10 @@ __all__ = [
     "UpdateImportTransformer",
     "DeleteFunctionTransformer",
     "DeleteSymbolTransformer",
+    "ExtractMethodTransformer",
+    "AppendSelectedSymbolsTransformer",
+    "DeleteSelectedSymbolsTransformer",
+    "UpdateSelectedImportsTransformer",
     "RenameSymbolTransformer",
     "SymbolLocator",
 ]

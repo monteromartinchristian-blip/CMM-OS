@@ -2,6 +2,8 @@
 
 from cmm.execution.python.copy_symbol_executor import PythonCopySymbolExecutor
 from cmm.execution.python.create_module_executor import PythonCreateModuleExecutor
+from cmm.execution.python.extract_method_executor import PythonExtractMethodExecutor
+from cmm.execution.python.extract_module_executor import PythonExtractModuleExecutor
 from cmm.execution.python.delete_symbol_executor import PythonDeleteSymbolExecutor
 from cmm.execution.python.update_imports_executor import PythonUpdateImportsExecutor
 from cmm.execution.python.validate_project_executor import PythonValidateProjectExecutor
@@ -28,6 +30,8 @@ __all__ = [
     "ImportResolver",
     "ImportType",
     "PythonCreateModuleExecutor",
+    "PythonExtractMethodExecutor",
+    "PythonExtractModuleExecutor",
     "PythonDeleteSymbolExecutor",
     "PythonModuleInfo",
     "PythonModuleEditor",

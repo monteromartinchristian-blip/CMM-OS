@@ -17,6 +17,8 @@ from cmm.transformations.operations import (
     DeleteSymbolOperation,
     RenameSymbolOperation,
     UpdateImportsOperation,
+    ExtractMethodOperation,
+    ExtractModuleOperation,
 )
 
 
@@ -300,6 +302,128 @@ class ExecutionContext:
             )
         return True, f"Dependencies for {source_module}.{symbol_name} are available in {target_module}."
 
+    def validate_extract_method(
+        self,
+        module: str,
+        class_name: str,
+        method_name: str,
+        new_method_name: str,
+        start_index: int,
+        end_index: int,
+    ) -> tuple[bool, str]:
+        from cmm.execution.python.extract_method_analysis import analyze_method_extraction
+
+        path = self.module_path(module)
+        analysis, message = analyze_method_extraction(
+            path, class_name, method_name, new_method_name, start_index, end_index
+        )
+        if analysis is None:
+            return False, message
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeError) as error:
+            return False, f"Module is not analyzable: {error}."
+        class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+        if any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == new_method_name
+            for node in class_node.body
+        ):
+            return False, f"Extracted method already exists: {class_name}.{new_method_name}."
+        return True, message
+
+    def validate_extract_module(
+        self,
+        source_module: str,
+        target_module: str,
+        symbols: tuple[str, ...],
+        allow_missing_target: bool = False,
+    ) -> tuple[bool, str]:
+        import libcst as cst
+        from cmm.execution.python.visitors import SymbolLocator
+
+        if not symbols:
+            return False, "Symbol selection is empty."
+        if len(set(symbols)) != len(symbols):
+            return False, "Symbol selection contains duplicates."
+        if source_module == target_module:
+            return False, "Source and target modules must differ."
+        source = next((item for item in self.semantic_context.snapshot.modules if item.module_name == source_module), None)
+        target = next((item for item in self.semantic_context.snapshot.modules if item.module_name == target_module), None)
+        if source is None or source.parsed_module is None:
+            return False, f"Source module is not analyzable: {source_module}."
+        if target is None and allow_missing_target:
+            target = type(source)(
+                path=self.module_path(target_module),
+                module_name=target_module,
+                parsed_module=cst.Module(body=()),
+            )
+        if target is None or target.parsed_module is None:
+            return False, f"Target module is not analyzable: {target_module}."
+        locator = SymbolLocator()
+        selected = []
+        for name in symbols:
+            function_count = self.module_symbol_count(source_module, name, "function")
+            class_count = self.module_symbol_count(source_module, name, "class")
+            if function_count + class_count > 1:
+                return False, f"Ambiguous symbol: {source_module}.{name}."
+            symbol = locator.find(source.parsed_module, name, "function") or locator.find(
+                source.parsed_module, name, "class"
+            )
+            if symbol is None:
+                return False, f"Symbol not found: {source_module}.{name}."
+            selected.append(symbol)
+            if self.module_symbol_count(target_module, name, "function") + self.module_symbol_count(target_module, name, "class"):
+                return False, f"Destination conflict: {target_module}.{name}."
+        selected_names = set(symbols)
+        source_defs = {
+            node.name.value for node in source.parsed_module.body
+            if isinstance(node, (cst.FunctionDef, cst.ClassDef))
+        }
+        for symbol in selected:
+            names = self._cst_loaded_names(symbol)
+            missing_local = sorted((names & source_defs) - selected_names)
+            if missing_local:
+                return False, f"Unselected local dependencies for {symbol.name.value}: {', '.join(missing_local)}."
+        for statement in source.parsed_module.body:
+            if not isinstance(statement, cst.SimpleStatementLine):
+                continue
+            for small in statement.body:
+                if isinstance(small, cst.Import):
+                    imported_modules = {self._cst_name(alias.name) for alias in small.names}
+                    if source_module in imported_modules:
+                        return False, f"Direct import of source module is unsupported in {source_module}."
+        for module in self.semantic_context.snapshot.modules:
+            if module.parsed_module is None:
+                return False, f"References are not analyzable in {module.module_name}."
+            for statement in module.parsed_module.body:
+                if not isinstance(statement, cst.SimpleStatementLine):
+                    continue
+                for small in statement.body:
+                    if isinstance(small, cst.ImportFrom) and self._cst_module_name(small) == source_module:
+                        if small.relative or isinstance(small.names, cst.ImportStar):
+                            return False, f"Unsupported import in {module.module_name}."
+                        imported_names = {self._cst_name(item.name) for item in small.names}
+                        if imported_names & selected_names and not imported_names <= selected_names:
+                            return False, f"Mixed multi-symbol import is unsupported in {module.module_name}."
+                    if isinstance(small, cst.Import) and any(self._cst_name(alias.name) == source_module for alias in small.names):
+                        return False, f"Direct module import is unsupported in {module.module_name}."
+        return True, f"Selected symbols are safe to extract into {target_module}."
+
+    def _cst_loaded_names(self, node: object) -> set[str]:
+        import libcst as cst
+
+        class Collector(cst.CSTVisitor):
+            def __init__(self) -> None:
+                self.names: set[str] = set()
+
+            def visit_Name(self, name: cst.Name) -> None:
+                self.names.add(name.value)
+
+        collector = Collector()
+        if isinstance(node, cst.CSTNode):
+            node.visit(collector)
+        return collector.names
+
     def _ast_import_bindings(self, node: ast.Import | ast.ImportFrom) -> set[str]:
         if isinstance(node, ast.Import):
             return {alias.asname or alias.name.split(".", maxsplit=1)[0] for alias in node.names}
@@ -344,6 +468,13 @@ class ExecutionContext:
             return (self.module_path(operation.destination),)
         if isinstance(operation, DeleteSymbolOperation):
             return (self.module_path(operation.module),)
+        if isinstance(operation, ExtractMethodOperation):
+            return (self.module_path(operation.module),)
+        if isinstance(operation, ExtractModuleOperation):
+            return tuple(
+                self.resolve_project_path(module.path)
+                for module in self.semantic_context.snapshot.modules
+            ) + (self.module_path(operation.source_module), self.module_path(operation.target_module))
         if isinstance(operation, RenameSymbolOperation):
             return tuple(
                 self.resolve_project_path(module.path)

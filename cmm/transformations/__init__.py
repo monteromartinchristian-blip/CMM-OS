@@ -20,6 +20,8 @@ from cmm.transformations.move_function import (
     MoveFunctionTransformation,
     MoveFunctionTransformationBuilder,
 )
+from cmm.transformations.extract_method import ExtractMethodTransformation
+from cmm.transformations.extract_module import ExtractModuleTransformation
 from cmm.transformations.operation import TransformationOperation
 from cmm.transformations.operations import (
     CopySymbolOperation,
@@ -28,6 +30,8 @@ from cmm.transformations.operations import (
     DeleteFileOperation,
     DeleteModuleOperation,
     DeleteSymbolOperation,
+    ExtractMethodOperation,
+    ExtractModuleOperation,
     MoveSymbolOperation,
     RenameSymbolOperation,
     UpdateImportsOperation,
@@ -43,6 +47,8 @@ from cmm.transformations.preconditions import (
     SymbolExistsPrecondition,
     SupportedSymbolReferencesPrecondition,
     SymbolDependenciesPrecondition,
+    ExtractMethodPrecondition,
+    ExtractModulePrecondition,
     TransformationPrecondition,
 )
 from cmm.transformations.planner import TransformationPlanner
@@ -64,10 +70,14 @@ __all__ = [
     "DeleteFileOperation",
     "DeleteModuleOperation",
     "DeleteSymbolOperation",
+    "ExtractMethodOperation",
+    "ExtractModuleOperation",
     "ExecutionRequest",
     "ExecutionPlan",
     "ExecutionPlanner",
     "ExecutionStage",
+    "ExtractMethodTransformation",
+    "ExtractModuleTransformation",
     "FileExistsPrecondition",
     "FunctionDependenciesPrecondition",
     "GraphValidationError",
@@ -97,6 +107,8 @@ __all__ = [
     "SymbolAbsentPrecondition",
     "SupportedSymbolReferencesPrecondition",
     "SymbolDependenciesPrecondition",
+    "ExtractMethodPrecondition",
+    "ExtractModulePrecondition",
     "TransformationPrecondition",
     "UnsupportedOperationError",
     "UnsupportedTransformationError",

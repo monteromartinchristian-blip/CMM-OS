@@ -72,6 +72,26 @@ class PreconditionContext(Protocol):
     ) -> tuple[bool, str]:
         """Validate dependencies needed by a typed top-level symbol."""
 
+    def validate_extract_method(
+        self,
+        module: str,
+        class_name: str,
+        method_name: str,
+        new_method_name: str,
+        start_index: int,
+        end_index: int,
+    ) -> tuple[bool, str]:
+        """Validate an extract-method selection and its flow contract."""
+
+    def validate_extract_module(
+        self,
+        source_module: str,
+        target_module: str,
+        symbols: tuple[str, ...],
+        allow_missing_target: bool = False,
+    ) -> tuple[bool, str]:
+        """Validate selected symbols and dependencies for module extraction."""
+
 
 @runtime_checkable
 class TransformationPrecondition(Protocol):
@@ -311,3 +331,56 @@ class SymbolDependenciesPrecondition:
             message=message,
             step_id=step_id,
         )
+
+
+@dataclass(frozen=True)
+class ExtractMethodPrecondition:
+    """Require a safe, contiguous method extraction selection."""
+
+    module: str
+    class_name: str
+    method_name: str
+    new_method_name: str
+    start_index: int
+    end_index: int
+
+    @property
+    def name(self) -> str:
+        return "extract_method_supported"
+
+    def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
+        success, message = context.validate_extract_method(
+            self.module,
+            self.class_name,
+            self.method_name,
+            self.new_method_name,
+            self.start_index,
+            self.end_index,
+        )
+        return PreconditionResult(self.name, success, message, step_id)
+
+
+@dataclass(frozen=True)
+class ExtractModulePrecondition:
+    """Require a safe selected-symbol module extraction."""
+
+    source_module: str
+    target_module: str
+    symbols: tuple[str, ...]
+    allow_missing_target: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "symbols", tuple(self.symbols))
+
+    @property
+    def name(self) -> str:
+        return "extract_module_supported"
+
+    def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
+        success, message = context.validate_extract_module(
+            self.source_module,
+            self.target_module,
+            self.symbols,
+            self.allow_missing_target,
+        )
+        return PreconditionResult(self.name, success, message, step_id)

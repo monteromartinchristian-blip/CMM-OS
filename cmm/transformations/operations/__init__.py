@@ -6,6 +6,8 @@ from cmm.transformations.operations.create_module import CreateModuleOperation
 from cmm.transformations.operations.delete_file import DeleteFileOperation
 from cmm.transformations.operations.delete_module import DeleteModuleOperation
 from cmm.transformations.operations.delete_symbol import DeleteSymbolOperation
+from cmm.transformations.operations.extract_method import ExtractMethodOperation
+from cmm.transformations.operations.extract_module import ExtractModuleOperation
 from cmm.transformations.operations.move_symbol import MoveSymbolOperation
 from cmm.transformations.operations.rename_symbol import RenameSymbolOperation
 from cmm.transformations.operations.update_imports import UpdateImportsOperation
@@ -18,6 +20,8 @@ __all__ = [
     "DeleteFileOperation",
     "DeleteModuleOperation",
     "DeleteSymbolOperation",
+    "ExtractMethodOperation",
+    "ExtractModuleOperation",
     "MoveSymbolOperation",
     "RenameSymbolOperation",
     "UpdateImportsOperation",
