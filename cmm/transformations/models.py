@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from types import MappingProxyType
-from typing import Mapping
+from dataclasses import dataclass
+
+from cmm.transformations.operation import TransformationOperation
 
 
 @dataclass(frozen=True)
@@ -12,16 +12,13 @@ class TransformationStep:
     """One language-agnostic semantic operation in a transformation plan."""
 
     id: str
-    operation: str
-    parameters: Mapping[str, object] = field(default_factory=dict)
+    operation: TransformationOperation
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
             raise ValueError("Transformation step id must be a non-empty string.")
-        if not isinstance(self.operation, str) or not self.operation.strip():
-            raise ValueError("Transformation step operation must be a non-empty string.")
-
-        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        if not isinstance(self.operation, TransformationOperation):
+            raise TypeError("Transformation step operation must implement TransformationOperation.")
 
 
 @dataclass(frozen=True)

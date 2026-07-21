@@ -1,15 +1,17 @@
-"""Dispatcher contract for transformation step execution."""
+"""Dispatch transformation operations through a transformation adapter."""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from cmm.transformations.adapter import TransformationActionAdapter
+from cmm.transformations.operation import TransformationOperation
 
-from cmm.transformations.models import TransformationStep
 
+class TransformationDispatcher:
+    """Delegate typed operations directly to a transformation adapter."""
 
-class TransformationDispatcher(ABC):
-    """Dispatch one transformation step to its concrete runtime implementation."""
+    def __init__(self, adapter: TransformationActionAdapter) -> None:
+        self._adapter = adapter
 
-    @abstractmethod
-    def dispatch(self, step: TransformationStep) -> object:
-        """Execute ``step`` and return an implementation-defined result."""
+    def dispatch(self, operation: TransformationOperation) -> object:
+        """Delegate ``operation`` without inspecting or transforming it."""
+        return self._adapter.adapt(operation)

@@ -1,38 +1,47 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from cmm.transformations import (
     BasicTransformationExecutor,
     BasicTransformationPlanner,
-    TransformationDispatcher,
+    CreateFileOperation,
+    CreateModuleOperation,
+    DeleteFileOperation,
     TransformationGraph,
     TransformationGraphNode,
     TransformationPlan,
+    TransformationOperation,
     TransformationStep,
 )
 
 
-@dataclass
-class RecordingDispatcher(TransformationDispatcher):
+class RecordingDispatcher:
     """Test dispatcher that records received steps in execution order."""
 
-    received_step_ids: list[str] = field(default_factory=list)
+    def __init__(self) -> None:
+        self.received_operation_names: list[str] = []
 
-    def dispatch(self, step: TransformationStep) -> object:
-        self.received_step_ids.append(step.id)
-        return {"step_id": step.id, "operation": step.operation}
+    def dispatch(self, operation: TransformationOperation) -> object:
+        self.received_operation_names.append(operation.name)
+        return {"operation": operation.name}
 
 
 def test_basic_planner_builds_linear_dependency_graph() -> None:
     planner = BasicTransformationPlanner()
     plan = TransformationPlan(
-        goal="Reorganize project structure",
-        steps=[
-            TransformationStep(id="step-1", operation="create_module"),
-            TransformationStep(id="step-2", operation="move_class"),
-            TransformationStep(id="step-3", operation="update_imports"),
-        ],
+        steps=(
+            TransformationStep(
+                id="step-1",
+                operation=CreateFileOperation(path="cmm/first.py"),
+            ),
+            TransformationStep(
+                id="step-2",
+                operation=CreateModuleOperation(module_name="cmm.second"),
+            ),
+            TransformationStep(
+                id="step-3",
+                operation=DeleteFileOperation(path="cmm/third.py"),
+            ),
+        ),
     )
 
     graph = planner.build_graph(plan)
@@ -49,15 +58,24 @@ def test_basic_executor_traverses_all_nodes() -> None:
     graph = TransformationGraph(
         nodes={
             "step-1": TransformationGraphNode(
-                step=TransformationStep(id="step-1", operation="create_module"),
+                step=TransformationStep(
+                    id="step-1",
+                    operation=CreateFileOperation(path="cmm/first.py"),
+                ),
                 dependencies=(),
             ),
             "step-2": TransformationGraphNode(
-                step=TransformationStep(id="step-2", operation="move_class"),
+                step=TransformationStep(
+                    id="step-2",
+                    operation=CreateModuleOperation(module_name="cmm.second"),
+                ),
                 dependencies=("step-1",),
             ),
             "step-3": TransformationGraphNode(
-                step=TransformationStep(id="step-3", operation="update_imports"),
+                step=TransformationStep(
+                    id="step-3",
+                    operation=DeleteFileOperation(path="cmm/third.py"),
+                ),
                 dependencies=("step-2",),
             ),
         }
@@ -66,7 +84,11 @@ def test_basic_executor_traverses_all_nodes() -> None:
     result = executor.execute(graph)
 
     assert len(result) == 3
-    assert dispatcher.received_step_ids == ["step-1", "step-2", "step-3"]
+    assert dispatcher.received_operation_names == [
+        "create_file",
+        "create_module",
+        "delete_file",
+    ]
 
 
 def test_basic_executor_respects_dependency_order() -> None:
@@ -75,15 +97,24 @@ def test_basic_executor_respects_dependency_order() -> None:
     graph = TransformationGraph(
         nodes={
             "step-3": TransformationGraphNode(
-                step=TransformationStep(id="step-3", operation="update_imports"),
+                step=TransformationStep(
+                    id="step-3",
+                    operation=DeleteFileOperation(path="cmm/third.py"),
+                ),
                 dependencies=("step-2",),
             ),
             "step-1": TransformationGraphNode(
-                step=TransformationStep(id="step-1", operation="create_module"),
+                step=TransformationStep(
+                    id="step-1",
+                    operation=CreateFileOperation(path="cmm/first.py"),
+                ),
                 dependencies=(),
             ),
             "step-2": TransformationGraphNode(
-                step=TransformationStep(id="step-2", operation="move_class"),
+                step=TransformationStep(
+                    id="step-2",
+                    operation=CreateModuleOperation(module_name="cmm.second"),
+                ),
                 dependencies=("step-1",),
             ),
         }
@@ -91,7 +122,11 @@ def test_basic_executor_respects_dependency_order() -> None:
 
     executor.execute(graph)
 
-    assert dispatcher.received_step_ids == ["step-1", "step-2", "step-3"]
+    assert dispatcher.received_operation_names == [
+        "create_file",
+        "create_module",
+        "delete_file",
+    ]
 
 
 def test_dispatcher_receives_steps_from_planned_graph_in_expected_order() -> None:
@@ -99,16 +134,32 @@ def test_dispatcher_receives_steps_from_planned_graph_in_expected_order() -> Non
     dispatcher = RecordingDispatcher()
     executor = BasicTransformationExecutor(dispatcher)
     plan = TransformationPlan(
-        goal="Extract module",
-        steps=[
-            TransformationStep(id="step-a", operation="create_module"),
-            TransformationStep(id="step-b", operation="move_function"),
-            TransformationStep(id="step-c", operation="delete_symbol"),
-        ],
+        steps=(
+            TransformationStep(
+                id="step-a",
+                operation=CreateFileOperation(path="cmm/a.py"),
+            ),
+            TransformationStep(
+                id="step-b",
+                operation=CreateModuleOperation(module_name="cmm.b"),
+            ),
+            TransformationStep(
+                id="step-c",
+                operation=DeleteFileOperation(path="cmm/c.py"),
+            ),
+        ),
     )
 
     graph = planner.build_graph(plan)
     results = executor.execute(graph)
 
-    assert dispatcher.received_step_ids == ["step-a", "step-b", "step-c"]
-    assert [item["step_id"] for item in results] == ["step-a", "step-b", "step-c"]
+    assert dispatcher.received_operation_names == [
+        "create_file",
+        "create_module",
+        "delete_file",
+    ]
+    assert [item["operation"] for item in results] == [
+        "create_file",
+        "create_module",
+        "delete_file",
+    ]

@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from cmm.transformations.models import TransformationStep
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TransformationPlan:
-    """Ordered, non-executing plan for a high-level transformation goal."""
+    """Versioned, immutable sequence of transformation steps."""
 
-    goal: str
-    steps: list[TransformationStep]
+    version: str = "1.0"
+    steps: tuple[TransformationStep, ...]

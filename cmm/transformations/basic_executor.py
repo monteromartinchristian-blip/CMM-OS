@@ -26,7 +26,7 @@ class BasicTransformationExecutor(TransformationExecutor):
                 if any(dependency not in completed for dependency in node.dependencies):
                     continue
 
-                dispatch_results.append(self._dispatcher.dispatch(node.step))
+                dispatch_results.append(self._dispatcher.dispatch(node.step.operation))
                 completed.add(node_id)
                 del unresolved[node_id]
                 progressed = True
