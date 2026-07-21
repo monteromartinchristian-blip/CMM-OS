@@ -20,6 +20,11 @@ class UpdateImportTransformer(cst.CSTTransformer):
         self._symbol_name = symbol_name
         self._new_symbol_name = new_symbol_name or symbol_name
         self.changed = False
+        self._rename_unaliased_references = False
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> bool:
+        # Import bindings are handled as a unit so aliases remain untouched.
+        return False
 
     def leave_ImportFrom(
         self,
@@ -40,6 +45,8 @@ class UpdateImportTransformer(cst.CSTTransformer):
                 isinstance(imported.name, cst.Name)
                 and imported.name.value == self._symbol_name
             ):
+                if imported.asname is None and self._new_symbol_name != self._symbol_name:
+                    self._rename_unaliased_references = True
                 imported = imported.with_changes(
                     name=cst.Name(self._new_symbol_name),
                 )
@@ -53,6 +60,14 @@ class UpdateImportTransformer(cst.CSTTransformer):
             module=self._module_node(self._new_module),
             names=tuple(updated_names),
         )
+
+    def leave_Name(self, original_node: cst.Name, updated_node: cst.Name) -> cst.Name:
+        if (
+            self._rename_unaliased_references
+            and original_node.value == self._symbol_name
+        ):
+            return updated_node.with_changes(value=self._new_symbol_name)
+        return updated_node
 
     def _module_name(self, node: cst.Name | cst.Attribute) -> str:
         if isinstance(node, cst.Name):

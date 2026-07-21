@@ -1,4 +1,4 @@
-"""LibCST executor for renaming one top-level function in one module."""
+"""LibCST executor for renaming one top-level symbol in one module."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from cmm.execution.python.python_module_writer import PythonModuleWriter
 from cmm.execution.python.reference_index import ReferenceIndex
 from cmm.execution.python.semantic_context import SemanticContext
 from cmm.execution.python.visitors import (
-    FunctionLocator,
-    RenameFunctionTransformer,
+    RenameSymbolTransformer,
+    SymbolLocator,
 )
 from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.operation import TransformationOperation
@@ -25,10 +25,10 @@ class PythonRenameSymbolExecutor(OperationExecutor):
 
     def __init__(
         self,
-        locator: FunctionLocator | None = None,
+        locator: SymbolLocator | None = None,
         writer: PythonModuleWriter | None = None,
     ) -> None:
-        self._locator = locator or FunctionLocator()
+        self._locator = locator or SymbolLocator()
         self._writer = writer or PythonModuleWriter()
 
     @property
@@ -77,21 +77,29 @@ class PythonRenameSymbolExecutor(OperationExecutor):
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function not found",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} not found",),
             )
         if isinstance(execution_context, ExecutionContext):
             execution_context.resolve_project_path(module.path)
-        if self._locator.find(module.parsed_module, request.operation.symbol) is None:
+        if self._locator.find(
+            module.parsed_module,
+            request.operation.symbol,
+            request.operation.symbol_kind,
+        ) is None:
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function not found",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} not found",),
             )
-        if self._locator.find(module.parsed_module, request.operation.new_name) is not None:
+        if self._locator.find(
+            module.parsed_module,
+            request.operation.new_name,
+            request.operation.symbol_kind,
+        ) is not None:
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function already exists",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} already exists",),
             )
 
         reference_locations = [
@@ -100,9 +108,10 @@ class PythonRenameSymbolExecutor(OperationExecutor):
             if location.module_name == module_name
         ]
         updated_module = PythonModuleEditor(module).apply(
-            RenameFunctionTransformer(
+            RenameSymbolTransformer(
                 request.operation.symbol,
                 request.operation.new_name,
+                request.operation.symbol_kind,
             )
         )
         wrote = self._writer.write(updated_module)

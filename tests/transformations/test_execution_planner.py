@@ -78,4 +78,4 @@ def test_backend_action_adapter_accepts_execution_plan() -> None:
     assert [action.id for action in actions] == [
         step.id for step in transformation_plan.steps
     ]
-    assert [action.order for action in actions] == [1, 2, 3, 4, 5]
+    assert [action.order for action in actions] == [1, 2, 3, 4]

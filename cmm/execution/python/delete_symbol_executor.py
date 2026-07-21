@@ -1,4 +1,4 @@
-"""LibCST executor for deleting top-level Python functions."""
+"""LibCST executor for deleting top-level Python symbols."""
 
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.execution_context import ExecutionContext
@@ -6,7 +6,7 @@ from cmm.execution.operation_executor import OperationExecutor
 from cmm.execution.python.python_module_editor import PythonModuleEditor
 from cmm.execution.python.python_module_writer import PythonModuleWriter
 from cmm.execution.python.semantic_context import SemanticContext
-from cmm.execution.python.visitors import DeleteFunctionTransformer, FunctionLocator
+from cmm.execution.python.visitors import DeleteSymbolTransformer, SymbolLocator
 from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.operation import TransformationOperation
 from cmm.transformations.operations import DeleteSymbolOperation
@@ -17,10 +17,10 @@ class PythonDeleteSymbolExecutor(OperationExecutor):
 
     def __init__(
         self,
-        locator: FunctionLocator | None = None,
+        locator: SymbolLocator | None = None,
         writer: PythonModuleWriter | None = None,
     ) -> None:
-        self._locator = locator or FunctionLocator()
+        self._locator = locator or SymbolLocator()
         self._writer = writer or PythonModuleWriter()
 
     @property
@@ -55,19 +55,26 @@ class PythonDeleteSymbolExecutor(OperationExecutor):
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function not found",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} not found",),
             )
         if isinstance(execution_context, ExecutionContext):
             execution_context.resolve_project_path(module.path)
-        if self._locator.find(module.parsed_module, request.operation.symbol) is None:
+        if self._locator.find(
+            module.parsed_module,
+            request.operation.symbol,
+            request.operation.symbol_kind,
+        ) is None:
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function not found",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} not found",),
             )
 
         updated_module = PythonModuleEditor(module).apply(
-            DeleteFunctionTransformer(request.operation.symbol)
+            DeleteSymbolTransformer(
+                request.operation.symbol,
+                request.operation.symbol_kind,
+            )
         )
         wrote = self._writer.write(updated_module)
         return ExecutionResult(

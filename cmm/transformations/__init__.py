@@ -42,6 +42,7 @@ from cmm.transformations.preconditions import (
     SymbolAbsentPrecondition,
     SymbolExistsPrecondition,
     SupportedSymbolReferencesPrecondition,
+    SymbolDependenciesPrecondition,
     TransformationPrecondition,
 )
 from cmm.transformations.planner import TransformationPlanner
@@ -52,6 +53,7 @@ from cmm.transformations.registry import (
     UnsupportedTransformationError,
 )
 from cmm.transformations.transformation import Transformation
+from cmm.transformations.symbol_kind import SymbolKind, SUPPORTED_SYMBOL_KINDS
 
 __all__ = [
     "BasicTransformationExecutor",
@@ -77,6 +79,8 @@ __all__ = [
     "OperationRegistry",
     "RenameSymbolOperation",
     "Transformation",
+    "SymbolKind",
+    "SUPPORTED_SYMBOL_KINDS",
     "TransformationActionAdapter",
     "TransformationOperation",
     "TransformationDispatcher",
@@ -92,6 +96,7 @@ __all__ = [
     "SymbolExistsPrecondition",
     "SymbolAbsentPrecondition",
     "SupportedSymbolReferencesPrecondition",
+    "SymbolDependenciesPrecondition",
     "TransformationPrecondition",
     "UnsupportedOperationError",
     "UnsupportedTransformationError",

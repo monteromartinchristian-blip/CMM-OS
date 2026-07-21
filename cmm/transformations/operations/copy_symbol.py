@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from cmm.transformations.operation import TransformationOperation
+from cmm.transformations.symbol_kind import SymbolKind, validate_symbol_kind
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,10 @@ class CopySymbolOperation(TransformationOperation):
     symbol: str
     source: str
     destination: str
+    symbol_kind: SymbolKind = "function"
+
+    def __post_init__(self) -> None:
+        validate_symbol_kind(self.symbol_kind)
 
     @property
     def name(self) -> str:
@@ -25,4 +30,5 @@ class CopySymbolOperation(TransformationOperation):
             "symbol": self.symbol,
             "source": self.source,
             "destination": self.destination,
+            **({"symbol_kind": self.symbol_kind} if self.symbol_kind != "function" else {}),
         }

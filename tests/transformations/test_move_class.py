@@ -6,7 +6,6 @@ from cmm.transformations import (
     BasicTransformationExecutor,
     BasicTransformationPlanner,
     CopySymbolOperation,
-    CreateModuleOperation,
     DeleteSymbolOperation,
     MoveClassTransformation,
     TransformationGraph,
@@ -35,12 +34,11 @@ def _transformation() -> MoveClassTransformation:
     )
 
 
-def test_move_class_builds_five_primitive_operation_steps() -> None:
+def test_move_class_builds_four_primitive_operation_steps() -> None:
     plan = _transformation().build_plan()
 
-    assert len(plan.steps) == 5
+    assert len(plan.steps) == 4
     assert [step.operation.name for step in plan.steps] == [
-        "create_module",
         "copy_symbol",
         "update_imports",
         "delete_symbol",
@@ -49,14 +47,20 @@ def test_move_class_builds_five_primitive_operation_steps() -> None:
     assert [
         step.operation for step in plan.steps
     ] == [
-        CreateModuleOperation(module_name="cmm.target"),
         CopySymbolOperation(
             symbol="Service",
             source="cmm.source",
             destination="cmm.target",
+            symbol_kind="class",
         ),
-        UpdateImportsOperation(module="cmm.target"),
-        DeleteSymbolOperation(symbol="Service", module="cmm.source"),
+        UpdateImportsOperation(
+            module="cmm.target",
+            old_module="cmm.source",
+            new_module="cmm.target",
+            symbol_name="Service",
+            new_symbol_name="Service",
+        ),
+        DeleteSymbolOperation(symbol="Service", module="cmm.source", symbol_kind="class"),
         ValidateProjectOperation(scope="project"),
     ]
 
@@ -72,7 +76,6 @@ def test_move_class_plan_builds_valid_linear_graph() -> None:
     assert graph.nodes[plan.steps[1].id].dependencies == (plan.steps[0].id,)
     assert graph.nodes[plan.steps[2].id].dependencies == (plan.steps[1].id,)
     assert graph.nodes[plan.steps[3].id].dependencies == (plan.steps[2].id,)
-    assert graph.nodes[plan.steps[4].id].dependencies == (plan.steps[3].id,)
 
 
 def test_move_class_graph_can_be_traversed_with_dispatcher_mock() -> None:

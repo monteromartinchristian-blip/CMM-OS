@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from cmm.transformations.symbol_kind import SymbolKind, validate_symbol_kind
+
 
 @dataclass(frozen=True)
 class PreconditionResult:
@@ -36,6 +38,14 @@ class PreconditionContext(Protocol):
     ) -> bool:
         """Return whether a parsed module contains a top-level symbol."""
 
+    def module_symbol_count(
+        self,
+        module_name: str,
+        symbol_name: str,
+        symbol_kind: SymbolKind | None = None,
+    ) -> int:
+        """Return the number of matching top-level symbols."""
+
     def validate_symbol_move_references(
         self,
         source_module: str,
@@ -52,6 +62,15 @@ class PreconditionContext(Protocol):
         symbol_name: str,
     ) -> tuple[bool, str]:
         """Validate dependencies needed by a moved top-level function."""
+
+    def validate_symbol_dependencies(
+        self,
+        source_module: str,
+        target_module: str,
+        symbol_name: str,
+        symbol_kind: str,
+    ) -> tuple[bool, str]:
+        """Validate dependencies needed by a typed top-level symbol."""
 
 
 @runtime_checkable
@@ -130,7 +149,11 @@ class SymbolExistsPrecondition:
 
     module_name: str
     symbol_name: str
-    symbol_kind: str | None = None
+    symbol_kind: SymbolKind | None = None
+
+    def __post_init__(self) -> None:
+        if self.symbol_kind is not None:
+            validate_symbol_kind(self.symbol_kind)
 
     @property
     def name(self) -> str:
@@ -142,18 +165,23 @@ class SymbolExistsPrecondition:
         step_id: str | None = None,
     ) -> PreconditionResult:
         module_path = context.module_path(self.module_name)
-        success = module_path.is_file() and context.module_contains_symbol(
-            self.module_name,
-            self.symbol_name,
-            self.symbol_kind,
+        count = (
+            context.module_symbol_count(self.module_name, self.symbol_name, self.symbol_kind)
+            if module_path.is_file()
+            else 0
         )
+        success = count == 1
         return PreconditionResult(
             name=self.name,
             success=success,
             message=(
                 f"Symbol exists: {self.module_name}.{self.symbol_name}"
                 if success
-                else f"Symbol not found: {self.module_name}.{self.symbol_name}"
+                else (
+                    f"Ambiguous symbol: {self.module_name}.{self.symbol_name}"
+                    if count > 1
+                    else f"Symbol not found: {self.module_name}.{self.symbol_name}"
+                )
             ),
             step_id=step_id,
         )
@@ -241,6 +269,41 @@ class FunctionDependenciesPrecondition:
             self.source_module,
             self.target_module,
             self.symbol_name,
+        )
+        return PreconditionResult(
+            name=self.name,
+            success=success,
+            message=message,
+            step_id=step_id,
+        )
+
+
+@dataclass(frozen=True)
+class SymbolDependenciesPrecondition:
+    """Require a moved function or class to have safe destination globals."""
+
+    source_module: str
+    target_module: str
+    symbol_name: str
+    symbol_kind: SymbolKind
+
+    def __post_init__(self) -> None:
+        validate_symbol_kind(self.symbol_kind)
+
+    @property
+    def name(self) -> str:
+        return "symbol_dependencies"
+
+    def evaluate(
+        self,
+        context: PreconditionContext,
+        step_id: str | None = None,
+    ) -> PreconditionResult:
+        success, message = context.validate_symbol_dependencies(
+            self.source_module,
+            self.target_module,
+            self.symbol_name,
+            self.symbol_kind,
         )
         return PreconditionResult(
             name=self.name,

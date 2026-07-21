@@ -87,3 +87,14 @@ def test_operation_registry_stores_and_resolves_operations() -> None:
     registry.clear()
 
     assert registry.all() == []
+
+
+@pytest.mark.parametrize("operation_type", [CopySymbolOperation, DeleteSymbolOperation, RenameSymbolOperation])
+def test_symbol_operations_reject_unknown_symbol_kind(operation_type) -> None:
+    arguments = {
+        CopySymbolOperation: {"symbol": "Thing", "source": "source", "destination": "target"},
+        DeleteSymbolOperation: {"symbol": "Thing", "module": "source"},
+        RenameSymbolOperation: {"symbol": "Thing", "new_name": "Other"},
+    }
+    with pytest.raises(ValueError, match="Unsupported symbol kind"):
+        operation_type(**arguments[operation_type], symbol_kind="module")

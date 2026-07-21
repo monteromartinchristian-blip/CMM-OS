@@ -1,4 +1,4 @@
-"""LibCST executor for copying top-level Python functions."""
+"""LibCST executor for copying top-level Python symbols."""
 
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.execution_context import ExecutionContext
@@ -11,8 +11,8 @@ from cmm.execution.python.python_project_parser import (
 )
 from cmm.execution.python.semantic_context import SemanticContext
 from cmm.execution.python.visitors import (
-    AppendFunctionTransformer,
-    FunctionLocator,
+    AppendSymbolTransformer,
+    SymbolLocator,
 )
 from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.operation import TransformationOperation
@@ -24,10 +24,10 @@ class PythonCopySymbolExecutor(OperationExecutor):
 
     def __init__(
         self,
-        locator: FunctionLocator | None = None,
+        locator: SymbolLocator | None = None,
         writer: PythonModuleWriter | None = None,
     ) -> None:
-        self._locator = locator or FunctionLocator()
+        self._locator = locator or SymbolLocator()
         self._writer = writer or PythonModuleWriter()
 
     @property
@@ -69,25 +69,30 @@ class PythonCopySymbolExecutor(OperationExecutor):
             execution_context.resolve_project_path(source_module.path)
             execution_context.resolve_project_path(target_module.path)
 
-        function = self._locator.find(
+        symbol = self._locator.find(
             source_module.parsed_module,
             request.operation.symbol,
+            request.operation.symbol_kind,
         )
-        if function is None:
+        if symbol is None:
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function not found",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} not found",),
             )
-        if self._locator.find(target_module.parsed_module, function.name.value) is not None:
+        if self._locator.find(
+            target_module.parsed_module,
+            symbol.name.value,
+            request.operation.symbol_kind,
+        ) is not None:
             return ExecutionResult(
                 success=False,
                 operation=request.operation,
-                diagnostics=("Function already exists",),
+                diagnostics=(f"{request.operation.symbol_kind.title()} already exists",),
             )
 
         updated_target = PythonModuleEditor(target_module).apply(
-            AppendFunctionTransformer(function)
+            AppendSymbolTransformer(symbol)
         )
         wrote = self._writer.write(updated_target)
         return ExecutionResult(

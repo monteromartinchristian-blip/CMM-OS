@@ -31,7 +31,7 @@ class _NameReferenceVisitor(cst.CSTVisitor):
             return
 
         parent = self.get_metadata(ParentNodeProvider, node)
-        if isinstance(parent, cst.FunctionDef) and parent.name is node:
+        if isinstance(parent, (cst.FunctionDef, cst.ClassDef)) and parent.name is node:
             return
 
         position = self.get_metadata(PositionProvider, node).start

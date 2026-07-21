@@ -79,29 +79,39 @@ class ExecutionContext:
         symbol_kind: str | None = None,
     ) -> bool:
         """Return whether ``module_name`` contains a matching top-level symbol."""
+        return self.module_symbol_count(module_name, symbol_name, symbol_kind) > 0
+
+    def module_symbol_count(
+        self,
+        module_name: str,
+        symbol_name: str,
+        symbol_kind: str | None = None,
+    ) -> int:
+        """Return the number of matching top-level symbols."""
         module_path = self.module_path(module_name)
         if not module_path.is_file():
-            return False
+            return 0
         try:
             tree = ast.parse(module_path.read_text(encoding="utf-8"))
         except SyntaxError:
-            return False
+            return 0
+        count = 0
         for node in tree.body:
             if symbol_kind is None and isinstance(node, ast.Import | ast.ImportFrom):
                 bound_names = self._ast_import_bindings(node)
                 if symbol_name in bound_names:
-                    return True
+                    count += 1
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
                 continue
             if node.name != symbol_name:
                 continue
             if symbol_kind is None:
-                return True
+                count += 1
             if symbol_kind == "function" and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                return True
+                count += 1
             if symbol_kind == "class" and isinstance(node, ast.ClassDef):
-                return True
-        return False
+                count += 1
+        return count
 
     def validate_symbol_move_references(
         self,
@@ -165,7 +175,42 @@ class ExecutionContext:
                 return False, f"Internal references to {source_module}.{symbol_name} are unsupported."
             if module.module_name != source_module and references and not bindings:
                 return False, f"Ambiguous reference to {symbol_name} in {module.module_name}."
+            if module.module_name != source_module and bindings:
+                if self._has_ambiguous_local_binding(module.path, symbol_name, source_module):
+                    return False, f"Ambiguous local binding for {symbol_name} in {module.module_name}."
         return True, f"References to {source_module}.{symbol_name} are supported."
+
+    def _has_ambiguous_local_binding(
+        self,
+        module_path: Path,
+        symbol_name: str,
+        source_module: str,
+    ) -> bool:
+        """Detect local homonyms that a simple-name rewrite cannot disambiguate."""
+        try:
+            tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeError):
+            return True
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if self._ast_import_module_name(node) == source_module:
+                    continue
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == symbol_name:
+                    return True
+            if isinstance(node, ast.arg) and node.arg == symbol_name:
+                return True
+            if (
+                isinstance(node, ast.Name)
+                and node.id == symbol_name
+                and isinstance(node.ctx, ast.Store)
+            ):
+                return True
+        return False
+
+    def _ast_import_module_name(self, node: ast.ImportFrom) -> str:
+        prefix = "." * node.level
+        return prefix + (node.module or "")
 
     def validate_function_dependencies(
         self,
@@ -174,25 +219,43 @@ class ExecutionContext:
         symbol_name: str,
     ) -> tuple[bool, str]:
         """Reject moved functions whose non-local globals are absent in target."""
+        return self.validate_symbol_dependencies(
+            source_module, target_module, symbol_name, "function"
+        )
+
+    def validate_symbol_dependencies(
+        self,
+        source_module: str,
+        target_module: str,
+        symbol_name: str,
+        symbol_kind: str,
+    ) -> tuple[bool, str]:
+        """Reject typed symbols whose non-local globals are absent in target."""
         source_path = self.module_path(source_module)
         target_path = self.module_path(target_module)
         try:
             source_tree = ast.parse(source_path.read_text(encoding="utf-8"))
             target_tree = ast.parse(target_path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeError) as error:
-            return False, f"Function dependencies are not analyzable: {error}."
+            return False, f"Symbol dependencies are not analyzable: {error}."
 
-        function = next(
+        expected = {
+            "function": (ast.FunctionDef, ast.AsyncFunctionDef),
+            "class": (ast.ClassDef,),
+        }.get(symbol_kind)
+        if expected is None:
+            return False, f"Unsupported symbol kind: {symbol_kind}."
+        symbol = next(
             (
                 node
                 for node in source_tree.body
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                if isinstance(node, expected)
                 and node.name == symbol_name
             ),
             None,
         )
-        if function is None:
-            return False, f"Function not found: {source_module}.{symbol_name}."
+        if symbol is None:
+            return False, f"{symbol_kind.title()} not found: {source_module}.{symbol_name}."
 
         available = set(dir(builtins))
         for node in target_tree.body:
@@ -201,27 +264,29 @@ class ExecutionContext:
             elif isinstance(node, ast.Import | ast.ImportFrom):
                 available.update(self._ast_import_bindings(node))
 
-        bound = {
-            argument.arg
-            for argument in (
-                *function.args.posonlyargs,
-                *function.args.args,
-                *function.args.kwonlyargs,
-            )
-        }
-        if function.args.vararg is not None:
-            bound.add(function.args.vararg.arg)
-        if function.args.kwarg is not None:
-            bound.add(function.args.kwarg.arg)
-        bound.add(function.name)
+        bound = {symbol.name}
+        for node in ast.walk(symbol):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                bound.add(node.name)
+                bound.update(argument.arg for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                ))
+                if node.args.vararg is not None:
+                    bound.add(node.args.vararg.arg)
+                if node.args.kwarg is not None:
+                    bound.add(node.args.kwarg.arg)
+            elif isinstance(node, ast.ClassDef):
+                bound.add(node.name)
         bound.update(
             node.id
-            for node in ast.walk(function)
+            for node in ast.walk(symbol)
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
         )
         required = {
             node.id
-            for node in ast.walk(function)
+            for node in ast.walk(symbol)
             if isinstance(node, ast.Name)
             and isinstance(node.ctx, ast.Load)
             and node.id not in bound
