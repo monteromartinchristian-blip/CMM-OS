@@ -15,23 +15,8 @@ class BasicTransformationExecutor(TransformationExecutor):
 
     def execute(self, graph: TransformationGraph) -> object:
         """Traverse the graph and dispatch each step once dependencies are met."""
-        unresolved = dict(graph.nodes)
-        completed = set()
         dispatch_results = []
-
-        while unresolved:
-            progressed = False
-
-            for node_id, node in list(unresolved.items()):
-                if any(dependency not in completed for dependency in node.dependencies):
-                    continue
-
-                dispatch_results.append(self._dispatcher.dispatch(node.step.operation))
-                completed.add(node_id)
-                del unresolved[node_id]
-                progressed = True
-
-            if not progressed:
-                raise RuntimeError("Unresolvable transformation graph dependencies.")
+        for node in graph.topological_order():
+            dispatch_results.append(self._dispatcher.dispatch(node.step.operation))
 
         return dispatch_results

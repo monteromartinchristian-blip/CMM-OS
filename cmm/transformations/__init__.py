@@ -9,7 +9,11 @@ from cmm.transformations.execution_plan import ExecutionPlan
 from cmm.transformations.execution_planner import ExecutionPlanner
 from cmm.transformations.execution_stage import ExecutionStage
 from cmm.transformations.executor import TransformationExecutor
-from cmm.transformations.graph import TransformationGraph
+from cmm.transformations.graph import (
+    GraphValidationError,
+    GraphValidationResult,
+    TransformationGraph,
+)
 from cmm.transformations.models import TransformationGraphNode, TransformationStep
 from cmm.transformations.move_class import MoveClassTransformation
 from cmm.transformations.move_function import (
@@ -30,6 +34,13 @@ from cmm.transformations.operations import (
     ValidateProjectOperation,
 )
 from cmm.transformations.plan import TransformationPlan
+from cmm.transformations.preconditions import (
+    FileExistsPrecondition,
+    ModuleExistsPrecondition,
+    PreconditionResult,
+    SymbolExistsPrecondition,
+    TransformationPrecondition,
+)
 from cmm.transformations.planner import TransformationPlanner
 from cmm.transformations.registry import (
     OperationRegistry,
@@ -52,6 +63,9 @@ __all__ = [
     "ExecutionPlan",
     "ExecutionPlanner",
     "ExecutionStage",
+    "FileExistsPrecondition",
+    "GraphValidationError",
+    "GraphValidationResult",
     "MoveSymbolOperation",
     "MoveClassTransformation",
     "MoveFunctionTransformation",
@@ -66,9 +80,13 @@ __all__ = [
     "TransformationGraph",
     "TransformationGraphNode",
     "TransformationPlan",
+    "ModuleExistsPrecondition",
+    "PreconditionResult",
     "TransformationPlanner",
     "TransformationRegistry",
     "TransformationStep",
+    "SymbolExistsPrecondition",
+    "TransformationPrecondition",
     "UnsupportedOperationError",
     "UnsupportedTransformationError",
     "UpdateImportsOperation",

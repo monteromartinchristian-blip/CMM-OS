@@ -37,10 +37,7 @@ def test_transformation_action_adapter_creates_execution_request() -> None:
 
     assert isinstance(request, ExecutionRequest)
     assert request.operation == operation
-    assert request.metadata == {
-        "module_name": "cmm.feature",
-        "project_root": ".",
-    }
+    assert request.metadata == {"module_name": "cmm.feature"}
 
 
 def test_backend_action_adapter_creates_generic_action() -> None:

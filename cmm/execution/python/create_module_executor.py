@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from cmm.execution.execution_context import ExecutionContext
 from cmm.execution.execution_result import ExecutionResult
 from cmm.execution.operation_executor import OperationExecutor
 from cmm.transformations.execution_request import ExecutionRequest
@@ -25,7 +26,21 @@ class PythonCreateModuleExecutor(OperationExecutor):
             )
 
         operation = request.operation
-        module_path = self._module_path(operation)
+        context = request.metadata.get("execution_context")
+        if not isinstance(context, ExecutionContext) and operation.project_root is None:
+            return ExecutionResult(
+                success=False,
+                operation=operation,
+                diagnostics=("Missing project_root",),
+            )
+        if not isinstance(context, ExecutionContext):
+            context = ExecutionContext(operation.project_root)
+        display_root = (
+            Path(operation.project_root)
+            if operation.project_root is not None
+            else context.project_root
+        )
+        module_path = context.module_path(operation.module_name)
         if module_path.exists():
             return ExecutionResult(
                 success=False,
@@ -33,23 +48,17 @@ class PythonCreateModuleExecutor(OperationExecutor):
                 diagnostics=("Module already exists",),
             )
 
-        created_paths = self._create_parent_packages(
-            Path(operation.project_root),
-            operation.module_name,
-        )
+        project_root = context.project_root
+        created_paths = self._create_parent_packages(project_root, operation.module_name)
         module_path.touch(exist_ok=False)
         created_paths.append(module_path)
         return ExecutionResult(
             success=True,
             operation=operation,
-            created_paths=tuple(created_paths),
-        )
-
-    def _module_path(self, operation: CreateModuleOperation) -> Path:
-        return (
-            Path(operation.project_root)
-            .joinpath(*operation.module_name.split("."))
-            .with_suffix(".py")
+            created_paths=tuple(
+                display_root / path.relative_to(context.project_root)
+                for path in created_paths
+            ),
         )
 
     def _create_parent_packages(

@@ -10,7 +10,7 @@ class CreateModuleOperation(TransformationOperation):
     """Describe the intent to create a module."""
 
     module_name: str
-    project_root: str = "."
+    project_root: str | None = None
 
     @property
     def name(self) -> str:
@@ -20,7 +20,7 @@ class CreateModuleOperation(TransformationOperation):
         return f"Create module: {self.module_name}."
 
     def metadata(self) -> dict[str, object]:
-        return {
-            "module_name": self.module_name,
-            "project_root": self.project_root,
-        }
+        metadata: dict[str, object] = {"module_name": self.module_name}
+        if self.project_root is not None:
+            metadata["project_root"] = self.project_root
+        return metadata

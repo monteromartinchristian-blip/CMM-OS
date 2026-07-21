@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cmm.transformations.preconditions import TransformationPrecondition
 from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.execution_stage import ExecutionStage
 
@@ -14,6 +15,14 @@ class ExecutionPlan:
 
     stages: tuple[ExecutionStage, ...]
     version: str = "1.0"
+    plan_id: str | None = None
+    planned_steps: tuple[str, ...] = ()
+    preconditions: tuple[TransformationPrecondition, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "stages", tuple(self.stages))
+        object.__setattr__(self, "planned_steps", tuple(self.planned_steps))
+        object.__setattr__(self, "preconditions", tuple(self.preconditions))
 
     def all_requests(self) -> tuple[ExecutionRequest, ...]:
         """Return every request in stage and request order."""
@@ -27,6 +36,8 @@ class ExecutionPlan:
         """Return serializable execution-plan data."""
         return {
             "version": self.version,
+            "plan_id": self.plan_id,
+            "planned_steps": list(self.planned_steps),
             "stages": [stage.metadata() for stage in self.stages],
         }
 

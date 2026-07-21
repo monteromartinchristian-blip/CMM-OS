@@ -16,7 +16,7 @@ El cálculo de cumplimiento usa requisitos obligatorios verificados por fase. Un
 | Fase 3 - Ciclo autónomo de desarrollo | ✅ Completa | 11/11 = 100% | `cmm/development/autonomous.py:L17-L277`, `cmm/development/service.py:L47-L185`, `tests/test_autonomous_development.py:L39-L176` | Ninguno para Fase 3. |
 | Fase 4 - Memoria técnica | ✅ Completa | 16/16 = 100% | `cmm/memory/persistence.py:L19-L286`, `cmm/memory/technical_memory.py:L35-L130`, `cmm/runtime/action_runtime.py:L53-L149`, `tests/test_persistent_memory.py`, `tests/test_action_runtime_execution.py` | Ninguno para Fase 4. |
 | Fase 5 - Desarrollo autónomo | ✅ Completa | 16/16 = 100% | `cmm/execution/development.py:L20-L287`, `cmm/execution/executors/filesystem.py:L13-L178`, `cmm/execution/executors/python_executor.py:L15-L365`, `cmm/execution/executors/git_executor.py:L14-L190`, `tests/test_phase5_execution.py` | Ninguno para Fase 5. |
-| Fase 6 - Transformaciones arquitectónicas | ⚠️ Parcial | 6/18 = 33% | `cmm/transformations/move_class.py:L20-L69`, `cmm/transformations/move_function.py:L19-L79`, prueba manual de pipeline | Solo existen `move_class` y `move_function`; fallan E2E en casos reales; no hay extract/módulos/paquetes/rollback/precondiciones/impacto. |
+| Fase 6 - Transformaciones arquitectónicas | ⚠️ Parcial | 13/18 = 72% | `cmm/transformations/graph.py`, `cmm/transformations/preconditions.py`, `cmm/execution/execution_context.py`, `cmm/execution/execution_pipeline.py`, tests de transformaciones/ejecución | Hito 6.1 listo para commit; siguen pendientes análisis de impacto y transformaciones arquitectónicas de alto nivel (`move_*` E2E, `extract_method`, `extract_module`, reorganización/paquetes). |
 
 ## 2. Entorno y comandos ejecutados
 
@@ -27,7 +27,7 @@ El cálculo de cumplimiento usa requisitos obligatorios verificados por fase. Un
 | `pytest -q` | Falló por entorno: `zsh:1: command not found: pytest`. |
 | `python -m pytest -q` | Falló por entorno: `zsh:1: command not found: python`. |
 | `python3 -m pytest -q` | Falló por entorno: Python 3.14.6 sin módulo `pytest`. |
-| `.venv/bin/python -m pytest -q` | `448 passed in 1.65s`. |
+| `.venv/bin/python -m pytest -q` | `472 passed in 2.22s` tras la revisión de 6.1. |
 | `.venv/bin/python -m pytest -q tests/test_phase5_execution.py` | `8 passed`; cubre filesystem, Python semántico, Git, ActionRuntime, rollback, coordinación multiacción e integración Fase 3. |
 | `.venv/bin/python -m pytest -q tests/test_assisted_development.py` | `22 passed in 0.20s`. |
 | `.venv/bin/python -m pytest -q tests/test_assisted_development.py tests/test_cmm_cli.py tests/test_end_to_end_runner.py tests/test_semantic_kernel.py tests/test_semantic_python_engine.py tests/test_cli.py tests/core/test_kernel.py tests/planner/test_executor.py tests/llm/test_parser.py` | `83 passed in 0.29s`. |
@@ -36,7 +36,7 @@ El cálculo de cumplimiento usa requisitos obligatorios verificados por fase. Un
 | `.venv/bin/python -m pytest -q tests/test_insert_method.py ... tests/test_edge_cases.py` | `11 passed in 0.43s`. |
 | `.venv/bin/python -m pytest -q tests/test_end_to_end_runner.py tests/test_cmm_cli.py tests/test_cli.py` | `14 passed in 0.58s`. |
 | `.venv/bin/python -m pytest -q tests/memory tests/planner/test_task_planner.py tests/runtime/test_action_runtime.py tests/execution/test_action_planner.py tests/execution/test_action_executor.py tests/execution/test_executor_registry.py` | `48 passed in 0.42s`. |
-| `.venv/bin/python -m pytest -q tests/execution tests/transformations` | `145 passed in 1.62s`. |
+| `.venv/bin/python -m pytest -q tests/transformations tests/execution` | `169 passed in 1.30s` tras la revisión de 6.1. |
 | `.venv/bin/python -m pytest -q tests/planner` | `123 passed in 0.61s`. |
 | `.venv/bin/python -m cmm doctor` | Falla: CLI oficial solo acepta `{run}`. |
 | `.venv/bin/python -m cmm plan "Añade python.replace_method"` | Falla: CLI oficial solo acepta `{run}`. |
@@ -58,7 +58,7 @@ Suite global ejecutada con `.venv/bin/python -m pytest -q`.
 
 | Total | Aprobados | Fallidos | Omitidos | Duración |
 | ---: | ---: | ---: | ---: | ---: |
-| 448 | 448 | 0 | 0 | 1.65s |
+| 472 | 472 | 0 | 0 | 2.22s |
 
 Fallos relevantes de entorno:
 
@@ -212,23 +212,27 @@ Veredicto técnico de fase 2: el flujo oficial es supervisado, configurable, con
 | ID | Requisito | Estado | Evidencia de código | Evidencia de test | Observaciones |
 | -- | --------- | ------ | ------------------- | ----------------- | ------------- |
 | F6-01 | Abstracción de transformación | ✅ Implementado y funcional | `cmm/transformations/transformation.py:L10-L20` | `tests/transformations/test_architecture.py` | Contrato existe. |
-| F6-02 | Representación en grafo/DAG | ⚠️ Parcial | `cmm/transformations/graph.py:L12-L26`; `cmm/transformations/models.py:L24-L31` | `tests/transformations/test_basic_pipeline.py:L28-L53` | Modelo de dependencias, sin validación explícita de DAG. |
-| F6-03 | Nodos y dependencias | ✅ Implementado y funcional | `cmm/transformations/models.py:L10-L31`; `cmm/transformations/basic_planner.py:L14-L27` | `tests/transformations/test_move_class.py:L64-L75` | Lineal por orden de plan. |
-| F6-04 | Precondiciones | ❌ Ausente | Sin implementación localizada | Sin tests | Ausente. |
-| F6-05 | Planificación | ⚠️ Parcial | `cmm/transformations/basic_planner.py:L11-L27`; `cmm/transformations/execution_planner.py:L13-L35` | `tests/transformations/test_execution_planner.py` | Convierte planes existentes; no traduce objetivos altos genéricos. |
-| F6-06 | Ejecución | ⚠️ Parcial | `cmm/transformations/basic_executor.py:L16-L36`; `cmm/execution/execution_pipeline.py:L32-L48` | Tests con dispatcher mock; prueba manual falla E2E | El executor de grafo no ejecuta backend real salvo vía adaptadores separados. |
-| F6-07 | Validación | ⚠️ Parcial | `ValidateProjectOperation` en `cmm/transformations/operations/validate_project.py:L8-L22`; executor en `cmm/execution/python/validate_project_executor.py:L13-L47` | `tests/execution/python/test_validate_project_executor.py` | Existe operación, pero los planes fallan antes en pruebas E2E. |
-| F6-08 | Rollback/compensación | ❌ Ausente | Sin implementación localizada | Sin tests | Ausente. |
-| F6-09 | Reutilización de operaciones anteriores | ⚠️ Parcial | `cmm/transformations/operations/*.py`; executors Python LibCST | `tests/execution/python/*` | Reutiliza operaciones primitivas nuevas, no el `PythonEditor` de fase 1. |
+| F6-02 | Representación en grafo/DAG | ✅ Implementado y funcional | `cmm/transformations/graph.py:L13-L158`; `cmm/transformations/models.py:L11-L37` | `tests/transformations/test_phase_6_infrastructure.py:L29-L117` | Valida duplicados, dependencias inexistentes, ciclos y orden topológico determinista. |
+| F6-03 | Nodos y dependencias | ✅ Implementado y funcional | `cmm/transformations/models.py:L11-L26`; `cmm/transformations/plan.py:L11-L22` | `tests/transformations/test_phase_6_infrastructure.py:L29-L117` | `TransformationStep` declara dependencias y precondiciones; `TransformationPlan` conserva id/precondiciones globales. |
+| F6-04 | Precondiciones | ✅ Implementado y funcional | `cmm/transformations/preconditions.py`; integración en `cmm/execution/execution_pipeline.py` | `tests/transformations/test_phase_6_infrastructure.py`; `tests/execution/test_phase_6_execution_pipeline.py` | Contrato tipado/extensible; soporta archivo, módulo y símbolo; globales antes del snapshot y de cada paso antes de su operación. |
+| F6-05 | Planificación | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/transformations/execution_planner.py:L24-L53` | `tests/transformations/test_execution_planner.py`; `tests/execution/test_phase_6_execution_pipeline.py:L80-L82` | Convierte plan validado a `ExecutionPlan` en orden topológico; no implementa todavía objetivos altos nuevos. |
+| F6-06 | Ejecución | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/execution/execution_pipeline.py:L43-L170`; `cmm/execution/file_operation_executors.py:L18-L56` | `tests/execution/test_phase_6_execution_pipeline.py:L125-L144`, `L265-L320` | Ejecuta secuencialmente con `OperationExecutorRegistry`, detiene en primer fallo y cubre E2E real con `tmp_path`. |
+| F6-07 | Validación | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/execution/execution_pipeline.py:L138-L156`, `L265-L283`; `cmm/execution/python/validate_project_executor.py:L13-L47` | `tests/execution/test_phase_6_execution_pipeline.py:L219-L234`, `L265-L288` | Validación final sintáctica de archivos Python afectados; falla y activa rollback. |
+| F6-08 | Rollback/compensación | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/execution/execution_pipeline.py` | `tests/execution/test_phase_6_execution_pipeline.py` | Snapshot byte a byte previo de files/dirs potencialmente afectados, restaura modificados/eliminados y elimina creados; informa errores y no depende de Git. |
+| F6-09 | Reutilización de operaciones anteriores | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/transformations/operations/*.py`; `cmm/execution/file_operation_executors.py:L18-L56`; ejecutores Python LibCST existentes | `tests/execution/test_phase_6_execution_pipeline.py:L60-L77`, `L147-L216`, `L265-L320` | Reutiliza `CreateFileOperation`, `DeleteFileOperation`, `CreateModuleOperation`, `DeleteSymbolOperation` y executors registrados; no añade transformaciones de alto nivel. |
 | F6-10 | Análisis de impacto | ❌ Ausente | No conectado a `TechnicalReasoner`; no se usa `kernel/services/impact_analyzer.py` | Sin tests | Ausente en transformaciones. |
 | F6-11 | Actualización de imports | ⚠️ Parcial | `cmm/execution/python/update_imports_executor.py:L15-L61` | `tests/execution/python/test_update_imports_executor.py` | Falla en pipeline manual por parámetros faltantes. |
 | F6-12 | Resolución de referencias | ⚠️ Parcial | `cmm/execution/python/reference_index.py`; `cmm/execution/python/import_resolver.py` | tests en `tests/execution/python` | Limitada a funciones y casos simples. |
-| F6-13 | Detección de ciclos | ⚠️ Parcial | `cmm/transformations/basic_executor.py:L34-L35` | Sin test específico de ciclo en transformaciones; sí en `kernel/planner/graph_validator.py:L76-L118` | Detecta bloqueo, no informa ciclo estructurado. |
-| F6-14 | Orden topológico | ⚠️ Parcial | `cmm/transformations/basic_executor.py:L22-L35` | `tests/transformations/test_basic_pipeline.py:L94-L129` | Orden por dependencias, no sorter separado. |
-| F6-15 | Resultados estructurados | ⚠️ Parcial | `cmm/execution/execution_result.py:L10-L24` | `tests/execution/python/*` | En pipeline sí, en `BasicTransformationExecutor` devuelve lista genérica. |
-| F6-16 | Tests unitarios e integración | ⚠️ Parcial | `tests/transformations` | `.venv/bin/python -m pytest -q tests/execution tests/transformations` -> `145 passed` | Muchos tests usan mocks o validan composición, no E2E completo. |
+| F6-13 | Detección de ciclos | ✅ Implementado y funcional | `cmm/transformations/graph.py` | `tests/transformations/test_phase_6_infrastructure.py` | Devuelve `GraphValidationError(code="cycle_detected")` con ciclo directo/indirecto, no bloqueo genérico. |
+| F6-14 | Orden topológico | ✅ Implementado y funcional | `cmm/transformations/graph.py`; `cmm/transformations/execution_planner.py` | `tests/transformations/test_phase_6_infrastructure.py`; E2E de ejecución | Kahn iterativo determinista con IDs ordenados; no depende de recursión y tolera dependencias compartidas. |
+| F6-15 | Resultados estructurados | ✅ Implementado y funcional para infraestructura 6.1 | `cmm/execution/execution_result.py:L30-L93`; `cmm/execution/execution_pipeline.py:L285-L357` | `tests/execution/test_phase_6_execution_pipeline.py:L237-L262` | Resultado final incluye éxito, plan/transformation id, pasos planificados/ejecutados, fallo, error, precondiciones, operaciones, validaciones, rollback y diff de paths. |
+| F6-16 | Tests unitarios e integración | ✅ Implementado y funcional para infraestructura 6.1 | `tests/transformations/test_phase_6_infrastructure.py`; `tests/execution/test_phase_6_execution_pipeline.py` | `.venv/bin/python -m pytest -q tests/transformations tests/execution` -> `169 passed`; suite global final -> `472 passed` | Incluye E2E real sin mocks con `tmp_path`, dependencias DAG, precondiciones dinámicas, seguridad de symlinks, operaciones mutadoras y rollback byte a byte. |
 | F6-17 | Transformaciones enumeradas | ❌ Ausente | Solo `move_class.py` y `move_function.py` existen | Sin tests para extract/módulos/paquetes | No existen extraer métodos, extraer módulos, reorganizar paquetes, dividir/fusionar/renombrar paquetes. |
-| F6-18 | Transformación arquitectónica completa validada | 🔴 Implementada pero no funcional | `cmm/transformations/move_class.py:L33-L59`; `cmm/transformations/move_function.py:L41-L79`; `cmm/execution/execution_pipeline.py:L32-L48` | Pruebas manuales fallidas | `move_function` falla en `update_imports`; `move_class` falla porque los executors solo localizan funciones top-level. |
+| F6-18 | Transformación arquitectónica completa validada | ⚠️ Parcial | `cmm/transformations/move_class.py:L33-L59`; `cmm/transformations/move_function.py:L41-L79`; infraestructura de ejecución en `cmm/execution/execution_pipeline.py:L43-L357` | E2E 6.1 cubre infraestructura, no `move_function`/`move_class` reales | El hito 6.1 no implementa ni valida transformaciones arquitectónicas completas; queda pendiente estabilizar move/extract/reorganización. |
+
+Veredicto de hito 6.1: puede cerrarse oficialmente. Existe infraestructura integrada y reutilizable para validar DAG, evaluar precondiciones, planificar en orden topológico, propagar `project_root` mediante contexto seguro, ejecutar por registry/executors, hacer rollback no-Git, validar el resultado final y devolver un resultado homogéneo.
+
+Veredicto de Fase 6 completa: no puede cerrarse oficialmente. Siguen ausentes o parciales el análisis de impacto, transformaciones de alto nivel (`extract_method`, `extract_module`, reorganización de paquetes), move_function/move_class E2E reales completos y resolución/imports para escenarios arquitectónicos amplios.
 
 ## 5. Pruebas de extremo a extremo
 
@@ -258,8 +262,11 @@ Veredicto técnico de fase 2: el flujo oficial es supervisado, configurable, con
 | Fase 5, Git aislado | `GitExecutor` sobre repositorio temporal con `git.create_branch`, `git.current_branch`, `git.list_changed_files` | Rama temporal, diff/estado y ningún commit | Rama `cmm-review`, operaciones exitosas, historial sin commit nuevo | Repo Git temporal | Aislamiento Git seguro verificado. |
 | Fase 5, sin Git | `AutonomousExecutionService` sobre directorio normal | Ejecutar, validar, generar diff y mantener rollback por snapshots | Éxito y memoria refrescada sin invocar Git | Proyecto temporal | Git no es una dependencia obligatoria. |
 | Fase 5, ciclo autónomo real | `AutonomousDevelopmentService(provider, development=AutonomousExecutionService(provider))` | Fallo clasificable, rollback, nuevo plan y validación | El backend mutador comparte la orquestación de Fase 3; no duplica reintentos | Proyecto temporal | Integración F3 -> F5 preparada y compatible. |
-| `MoveFunctionTransformation` E2E | Script temporal `ExecutionPlanner` + `ExecutionPipeline` | Copiar, actualizar imports, borrar fuente, validar | Copia función y falla en `update_imports`: `Missing import update parameters` | `/tmp/source.py`, `/tmp/target.py` | Transformación no completa. |
-| `MoveClassTransformation` E2E | Script temporal `ExecutionPlanner` + `ExecutionPipeline` | Crear target, copiar clase, actualizar imports, borrar fuente, validar | `create_module` usa `project_root="."`; luego `copy_symbol` falla: `Target module not found` | Se evitó dejar cambios; artefacto accidental limpiado | `move_class` no mueve clases de verdad. |
+| Fase 6.1, infraestructura E2E exitosa | `.venv/bin/python -m pytest -q tests/execution/test_phase_6_execution_pipeline.py::test_e2e_real_successful_dag_with_preconditions` | Proyecto Python temporal, DAG con dependencia, precondición válida, ejecución real `ExecutionPlanner -> ExecutionPipeline -> OperationExecutorRegistry`, validación final | Incluido en `169 passed`; crea `alpha.py` y `pkg/beta.py`, ejecuta pasos `("create-file", "create-module")`, validación final exitosa | Archivos temporales de `tmp_path` | Demuestra flujo integrado sin mocks para el camino feliz de 6.1. |
+| Fase 6.1, rollback E2E byte a byte | `.venv/bin/python -m pytest -q tests/execution/test_phase_6_execution_pipeline.py::test_e2e_real_failure_restores_bytes` | Crear archivo, modificar módulo real con `PythonDeleteSymbolExecutor`, fallar después y restaurar todo byte a byte | Incluido en `169 passed`; elimina el archivo creado, restaura `sample.py` exactamente y reporta pasos ejecutados `("create", "delete-symbol", "fail")` | Archivos temporales de `tmp_path` | Demuestra rollback no-Git ante fallo intermedio con operaciones mutadoras reales. |
+| Fase 6.1, validación final con rollback | `.venv/bin/python -m pytest -q tests/execution/test_phase_6_execution_pipeline.py::test_final_validation_failure_triggers_rollback` | Una operación escribe Python inválido, la validación sintáctica final falla y dispara rollback | Incluido en `169 passed`; `error.code="final_validation_failed"`, rollback intentado y archivo inválido eliminado | `broken.py` temporal | Demuestra que la validación final genérica participa en la transacción. |
+| `MoveFunctionTransformation` E2E (evidencia histórica previa a 6.1) | Script temporal `ExecutionPlanner` + `ExecutionPipeline` | Copiar, actualizar imports, borrar fuente, validar | En la auditoría anterior copió función y falló en `update_imports`: `Missing import update parameters` | `/tmp/source.py`, `/tmp/target.py` | Transformación sigue pendiente; el resultado no evalúa la infraestructura 6.1 revisada. |
+| `MoveClassTransformation` E2E (evidencia histórica previa a 6.1) | Script temporal `ExecutionPlanner` + `ExecutionPipeline` | Crear target, copiar clase, actualizar imports, borrar fuente, validar | En la auditoría anterior usó `project_root="."` y falló al copiar clase: `Target module not found` | Se evitó dejar cambios; artefacto accidental limpiado | Transformación sigue pendiente; `project_root="."` ya no es el valor implícito de la infraestructura 6.1. |
 
 ## 6. Hallazgos
 
@@ -351,8 +358,9 @@ Fase cerrada. No quedan tareas imprescindibles de Fase 5.
 
 ### Fase 6
 
-1. Corregir `move_function` E2E: parámetros de `update_imports`, delete y validación final.
-2. Implementar movimiento real de clases o separar `copy_class` de `copy_function`.
-3. Añadir precondiciones, validación de DAG/ciclos y rollback/compensación mínima.
-4. Integrar análisis de impacto y resolución de referencias.
-5. Implementar y probar las transformaciones restantes: extraer método, extraer módulo, reorganizar paquetes, dividir/fusionar módulos y renombrar paquetes.
+1. Corregir y validar `move_function` E2E.
+2. Implementar y validar `move_class` E2E.
+3. Integrar análisis de impacto y ampliar la resolución de referencias.
+4. Implementar `extract_method` y `extract_module`.
+5. Implementar reorganización, división, fusión y renombrado de módulos/paquetes.
+6. Ejecutar la auditoría final de Fase 6.
