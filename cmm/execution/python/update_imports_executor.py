@@ -48,6 +48,14 @@ class PythonUpdateImportsExecutor(OperationExecutor):
             execution_context.module_path(new_module)
         resolver = ImportResolver(context)
         written_paths = []
+        qualified_consumers: set[str] | None = None
+        if isinstance(execution_context, ExecutionContext) and execution_context.impact_result is not None:
+            qualified_consumers = {
+                reference.module
+                for reference in execution_context.impact_result.affected_references
+                if getattr(getattr(reference, "kind", None), "value", None) == "qualified"
+                and reference.symbol == symbol_name
+            }
         for module in context.snapshot.modules:
             if module.parsed_module is None:
                 continue
@@ -59,8 +67,19 @@ class PythonUpdateImportsExecutor(OperationExecutor):
                 new_module,
                 symbol_name,
                 new_symbol_name,
+                consumer_module=module.module_name,
+                consumer_is_package=module.path.name == "__init__.py",
+                rewrite_qualified_module=(
+                    qualified_consumers is None or module.module_name in qualified_consumers
+                ),
             )
             updated_module = PythonModuleEditor(module).apply(transformer)
+            if transformer.blocking_reason is not None:
+                return ExecutionResult(
+                    success=False,
+                    operation=request.operation,
+                    diagnostics=(transformer.blocking_reason,),
+                )
             if transformer.changed and self._writer.write(updated_module):
                 written_paths.append(updated_module.path)
 

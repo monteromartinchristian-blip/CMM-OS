@@ -9,7 +9,12 @@ from cmm.transformations.operations import (
     ValidateProjectOperation,
 )
 from cmm.transformations.plan import TransformationPlan
-from cmm.transformations.preconditions import ExtractModulePrecondition, ModuleExistsPrecondition
+from cmm.transformations.preconditions import (
+    ExtractModulePrecondition,
+    ImpactAnalysisPrecondition,
+    ModuleExistsPrecondition,
+)
+from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.transformation import Transformation
 
 
@@ -46,6 +51,12 @@ class ExtractModuleTransformation(Transformation):
         preconditions = [ModuleExistsPrecondition(self.source_module)]
         if not self.create_target:
             preconditions.append(ModuleExistsPrecondition(self.target_module))
+        preconditions.append(ImpactAnalysisPrecondition(ImpactAnalysisRequest(
+            source_module=self.source_module,
+            target_module=self.target_module,
+            symbols=self.symbols,
+            transformation_id="extract_module",
+        )))
         preconditions.append(
             ExtractModulePrecondition(
                 self.source_module,

@@ -86,6 +86,8 @@ class PipelineExecutionResult:
     created_paths: tuple[Path, ...] = ()
     modified_paths: tuple[Path, ...] = ()
     deleted_paths: tuple[Path, ...] = ()
+    impact_analysis: object | None = None
+    post_impact_validation: object | None = None
 
     @property
     def transformation_id(self) -> str | None:

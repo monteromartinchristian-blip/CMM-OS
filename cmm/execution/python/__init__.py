@@ -23,6 +23,10 @@ from cmm.execution.python.import_resolver import (
     ImportType,
 )
 from cmm.execution.python.rename_symbol_executor import PythonRenameSymbolExecutor
+from cmm.transformations.relative_import_resolver import (
+    RelativeImportResolution,
+    RelativeImportResolver,
+)
 
 __all__ = [
     "PythonCopySymbolExecutor",
@@ -44,4 +48,6 @@ __all__ = [
     "ReferenceIndex",
     "SemanticContext",
     "SemanticContextBuilder",
+    "RelativeImportResolution",
+    "RelativeImportResolver",
 ]

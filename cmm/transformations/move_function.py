@@ -19,7 +19,9 @@ from cmm.transformations.preconditions import (
     SymbolAbsentPrecondition,
     SymbolExistsPrecondition,
     SupportedSymbolReferencesPrecondition,
+    ImpactAnalysisPrecondition,
 )
+from cmm.transformations.impact_analysis import ImpactAnalysisRequest
 from cmm.transformations.transformation import Transformation
 
 
@@ -113,6 +115,13 @@ class MoveFunctionTransformationBuilder:
                         transformation.target_module,
                         transformation.function_name,
                     ),
+                )),
+                ImpactAnalysisPrecondition(ImpactAnalysisRequest(
+                    source_module=transformation.source_module,
+                    target_module=transformation.target_module,
+                    symbols=(transformation.function_name,),
+                    renamed_symbols=((destination_symbol,) if transformation.new_name else ()),
+                    transformation_id="move_function",
                 )),
                 SupportedSymbolReferencesPrecondition(
                     transformation.source_module,

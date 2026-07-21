@@ -35,6 +35,7 @@ class ExecutionContext:
         semantic_context: Any | None = None,
         parser: Any | None = None,
         context_builder: Any | None = None,
+        technical_memory: Any | None = None,
     ) -> None:
         if project_root is None:
             raise ProjectPathError("project_root is required.")
@@ -46,7 +47,107 @@ class ExecutionContext:
 
         self._parser = parser or PythonProjectParser()
         self._context_builder = context_builder or SemanticContextBuilder()
+        self.technical_memory = technical_memory
+        self.impact_result = None
+        self.post_impact_validation = None
         self.semantic_context = semantic_context or self.refresh_semantic_context()
+
+    def analyze_impact(self, request: object) -> object:
+        """Run one cached impact analysis against the current semantic snapshot."""
+        from cmm.transformations.impact_analysis import ImpactAnalyzer, ImpactAnalysisRequest
+
+        if not isinstance(request, ImpactAnalysisRequest):
+            raise TypeError("Impact analysis requires ImpactAnalysisRequest.")
+        if self.impact_result is not None:
+            cached = self.impact_result.request
+            if (
+                cached.source_module,
+                cached.target_module,
+                cached.symbols,
+                cached.renamed_symbols,
+            ) == (
+                request.source_module,
+                request.target_module,
+                request.symbols,
+                request.renamed_symbols,
+            ):
+                return self.impact_result
+        self.impact_result = ImpactAnalyzer(self.technical_memory).analyze(self, request)
+        return self.impact_result
+
+    def validate_post_impact(self, changed_paths: tuple[Path, ...]) -> object | None:
+        """Validate the transformed graph against the cached expected impact."""
+        from cmm.transformations.impact_analysis import ImpactAnalyzer
+
+        if self.impact_result is None:
+            return None
+        self.post_impact_validation = ImpactAnalyzer().validate_post(
+            self,
+            self.impact_result,
+            changed_paths,
+        )
+        return self.post_impact_validation
+
+    def validate_rollback_impact(self) -> object | None:
+        """Compare a restored project graph with the pre-execution impact graph."""
+        if self.impact_result is None:
+            return None
+        from dataclasses import replace
+        from cmm.transformations.impact_analysis import ImpactAnalyzer
+
+        rollback_validation = ImpactAnalyzer().validate_rollback(
+            self,
+            self.impact_result,
+        )
+        if self.post_impact_validation is None:
+            self.post_impact_validation = rollback_validation
+        else:
+            self.post_impact_validation = replace(
+                self.post_impact_validation,
+                rollback_graph_matches=rollback_validation.rollback_graph_matches,
+                rollback_discrepancies=rollback_validation.rollback_discrepancies,
+            )
+        return self.post_impact_validation
+
+    def refresh_technical_memory(self) -> tuple[bool, str | None]:
+        """Refresh optional technical memory after a committed successful mutation."""
+        if self.technical_memory is None:
+            return True, None
+        refresh = getattr(self.technical_memory, "refresh", None)
+        if not callable(refresh):
+            return False, "Technical memory has no refresh operation."
+        try:
+            result = refresh()
+        except (OSError, RuntimeError, ValueError) as error:
+            return False, str(error)
+        success = bool(getattr(result, "success", True))
+        if not success:
+            errors = tuple(getattr(result, "errors", ()))
+            message = "; ".join(str(error) for error in errors) or "Technical memory refresh failed."
+            if self.impact_result is not None:
+                from dataclasses import replace
+
+                self.impact_result = replace(
+                    self.impact_result,
+                    memory_used=True,
+                    memory_stale=True,
+                    memory_errors=(*self.impact_result.memory_errors, message),
+                )
+            return False, message
+        if success and self.impact_result is not None:
+            from dataclasses import replace
+
+            self.impact_result = replace(
+                self.impact_result,
+                memory_used=True,
+                memory_refreshed=(
+                    self.impact_result.memory_refreshed
+                    or bool(getattr(result, "rebuilt", False))
+                    or bool(getattr(result, "persisted", False))
+                ),
+                memory_stale=False,
+            )
+        return True, None
 
     def refresh_semantic_context(self) -> Any:
         """Reparse the project and store a fresh semantic context."""
@@ -122,11 +223,23 @@ class ExecutionContext:
         target_module: str,
         new_symbol_name: str,
     ) -> tuple[bool, str]:
-        """Validate the conservative import/reference subset supported by moves."""
+        """Validate statically rewritable direct, from, relative, and qualified references."""
         from cmm.execution.python.visitors import ReferenceLocator
+        from cmm.transformations.relative_import_resolver import RelativeImportResolver
+        from cmm.transformations.impact_analysis import ImpactAnalysisRequest
         import libcst as cst
 
+        impact = self.analyze_impact(ImpactAnalysisRequest(
+            source_module=source_module,
+            target_module=target_module,
+            symbols=(symbol_name,),
+            renamed_symbols=((new_symbol_name,) if new_symbol_name != symbol_name else ()),
+            transformation_id="move_symbol",
+        ))
+        if not impact.success:
+            return False, impact.summary
         locator = ReferenceLocator()
+        resolver = RelativeImportResolver()
         for module in self.semantic_context.snapshot.modules:
             try:
                 self.resolve_project_path(module.path)
@@ -135,12 +248,20 @@ class ExecutionContext:
             if module.parsed_module is None:
                 return False, f"References are not analyzable in {module.module_name}."
             bindings: set[str] = set()
+            qualified_bindings: set[str] = set()
             for statement in module.parsed_module.body:
                 if not isinstance(statement, cst.SimpleStatementLine):
                     continue
                 for small_statement in statement.body:
                     if isinstance(small_statement, cst.ImportFrom):
-                        imported_module = self._cst_module_name(small_statement)
+                        raw_module = self._cst_module_name(small_statement)
+                        resolution = resolver.resolve(
+                            module.module_name,
+                            len(small_statement.relative),
+                            raw_module,
+                            consumer_is_package=module.path.name == "__init__.py",
+                        )
+                        imported_module = resolution.absolute_module if resolution is not None else ""
                         if imported_module == target_module:
                             if isinstance(small_statement.names, cst.ImportStar):
                                 return False, f"Wildcard target import is unsupported in {module.module_name}."
@@ -154,10 +275,17 @@ class ExecutionContext:
                                     return False, f"Import collision in {module.module_name}: {new_symbol_name}."
                         if imported_module != source_module:
                             continue
+                        if small_statement.relative and resolver.render_relative(
+                            module.module_name,
+                            target_module,
+                            consumer_is_package=module.path.name == "__init__.py",
+                        ) is None:
+                            return False, (
+                                f"Relative import from {module.module_name} to "
+                                f"{target_module} cannot be preserved."
+                            )
                         if isinstance(small_statement.names, cst.ImportStar):
                             return False, f"Wildcard import is unsupported in {module.module_name}."
-                        if len(small_statement.names) != 1:
-                            return False, f"Multiple imported symbols are unsupported in {module.module_name}."
                         for imported in small_statement.names:
                             if isinstance(imported.name, cst.Name) and imported.name.value == symbol_name:
                                 bindings.add(
@@ -166,20 +294,39 @@ class ExecutionContext:
                                     else symbol_name
                                 )
                     elif isinstance(small_statement, cst.Import):
-                        if any(
-                            self._cst_name(alias.name) == source_module
-                            for alias in small_statement.names
-                        ):
-                            return False, f"Direct module import is unsupported in {module.module_name}."
+                        for alias in small_statement.names:
+                            if self._cst_name(alias.name) != source_module:
+                                continue
+                            binding = (
+                                alias.asname.name.value
+                                if alias.asname is not None
+                                else source_module.split(".")[0]
+                            )
+                            qualified_bindings.add(binding)
+                            if self._has_ambiguous_local_binding(
+                                module.path,
+                                binding,
+                                source_module,
+                                module.module_name,
+                                module.path.name == "__init__.py",
+                            ):
+                                return False, f"Shadowed module binding {binding} in {module.module_name}."
 
             references = locator.find(module.module_name, module.parsed_module, symbol_name)
             if module.module_name == source_module and references:
                 return False, f"Internal references to {source_module}.{symbol_name} are unsupported."
-            if module.module_name != source_module and references and not bindings:
+            if module.module_name != source_module and references and not bindings and not qualified_bindings:
                 return False, f"Ambiguous reference to {symbol_name} in {module.module_name}."
             if module.module_name != source_module and bindings:
-                if self._has_ambiguous_local_binding(module.path, symbol_name, source_module):
-                    return False, f"Ambiguous local binding for {symbol_name} in {module.module_name}."
+                for binding in bindings:
+                    if self._has_ambiguous_local_binding(
+                        module.path,
+                        binding,
+                        source_module,
+                        module.module_name,
+                        module.path.name == "__init__.py",
+                    ):
+                        return False, f"Ambiguous local binding for {binding} in {module.module_name}."
         return True, f"References to {source_module}.{symbol_name} are supported."
 
     def _has_ambiguous_local_binding(
@@ -187,16 +334,35 @@ class ExecutionContext:
         module_path: Path,
         symbol_name: str,
         source_module: str,
+        consumer_module: str,
+        consumer_is_package: bool,
     ) -> bool:
         """Detect local homonyms that a simple-name rewrite cannot disambiguate."""
         try:
             tree = ast.parse(module_path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeError):
             return True
+        from cmm.transformations.relative_import_resolver import RelativeImportResolver
+
+        resolver = RelativeImportResolver()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
-                if self._ast_import_module_name(node) == source_module:
+                resolution = resolver.resolve(
+                    consumer_module,
+                    node.level,
+                    node.module or "",
+                    consumer_is_package=consumer_is_package,
+                )
+                if resolution is not None and resolution.absolute_module == source_module:
                     continue
+                if any((alias.asname or alias.name) == symbol_name for alias in node.names):
+                    return True
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == source_module:
+                        continue
+                    if (alias.asname or alias.name.split(".", 1)[0]) == symbol_name:
+                        return True
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 if node.name == symbol_name:
                     return True
@@ -339,6 +505,7 @@ class ExecutionContext:
         allow_missing_target: bool = False,
     ) -> tuple[bool, str]:
         import libcst as cst
+        from cmm.transformations.relative_import_resolver import RelativeImportResolver
         from cmm.execution.python.visitors import SymbolLocator
 
         if not symbols:
@@ -375,6 +542,7 @@ class ExecutionContext:
             if self.module_symbol_count(target_module, name, "function") + self.module_symbol_count(target_module, name, "class"):
                 return False, f"Destination conflict: {target_module}.{name}."
         selected_names = set(symbols)
+        resolver = RelativeImportResolver()
         source_defs = {
             node.name.value for node in source.parsed_module.body
             if isinstance(node, (cst.FunctionDef, cst.ClassDef))
@@ -400,11 +568,27 @@ class ExecutionContext:
                     continue
                 for small in statement.body:
                     if isinstance(small, cst.ImportFrom) and self._cst_module_name(small) == source_module:
-                        if small.relative or isinstance(small.names, cst.ImportStar):
+                        if isinstance(small.names, cst.ImportStar):
                             return False, f"Unsupported import in {module.module_name}."
-                        imported_names = {self._cst_name(item.name) for item in small.names}
-                        if imported_names & selected_names and not imported_names <= selected_names:
-                            return False, f"Mixed multi-symbol import is unsupported in {module.module_name}."
+                    if isinstance(small, cst.ImportFrom) and small.module is not None:
+                        resolution = resolver.resolve(
+                            module.module_name,
+                            len(small.relative),
+                            self._cst_module_name(small),
+                            consumer_is_package=module.path.name == "__init__.py",
+                        )
+                        if resolution is not None and resolution.absolute_module == source_module:
+                            if small.relative and resolver.render_relative(
+                                module.module_name,
+                                target_module,
+                                consumer_is_package=module.path.name == "__init__.py",
+                            ) is None:
+                                return False, (
+                                    f"Relative import from {module.module_name} to "
+                                    f"{target_module} cannot be preserved."
+                                )
+                            if isinstance(small.names, cst.ImportStar):
+                                return False, f"Unsupported import in {module.module_name}."
                     if isinstance(small, cst.Import) and any(self._cst_name(alias.name) == source_module for alias in small.names):
                         return False, f"Direct module import is unsupported in {module.module_name}."
         return True, f"Selected symbols are safe to extract into {target_module}."

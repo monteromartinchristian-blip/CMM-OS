@@ -44,9 +44,14 @@ class ExecutionPipeline:
         registry: OperationExecutorRegistry,
         semantic_context: SemanticContext,
         project_root: Path,
+        technical_memory: object | None = None,
     ) -> None:
         self._registry = registry
-        self._context = ExecutionContext(project_root, semantic_context=semantic_context)
+        self._context = ExecutionContext(
+            project_root,
+            semantic_context=semantic_context,
+            technical_memory=technical_memory,
+        )
         self._semantic_context = self._context.semantic_context
         self._project_root = self._context.project_root
 
@@ -228,6 +233,53 @@ class ExecutionPipeline:
                 validations=(validation, restored_validation),
             )
 
+        changed_paths = self._changed_paths(snapshot)
+        post_impact = self._context.validate_post_impact(changed_paths)
+        if post_impact is not None and not getattr(post_impact, "success", False):
+            rollback = self._rollback(snapshot)
+            restored_validation = self._validate_final(snapshot)
+            diagnostics = tuple(
+                getattr(item, "message", str(item))
+                for item in getattr(post_impact, "discrepancies", ())
+            )
+            return self._structured_result(
+                plan=plan,
+                success=False,
+                precondition_results=precondition_results,
+                operation_results=tuple(operation_results),
+                raw_results=tuple(raw_results),
+                snapshot=snapshot,
+                executed_steps=tuple(executed_steps),
+                failed_step=None,
+                error=StructuredExecutionError(
+                    code="post_impact_validation_failed",
+                    message="; ".join(diagnostics) or "Post-impact validation failed.",
+                ),
+                rollback=rollback,
+                validations=(validation, restored_validation),
+            )
+
+        memory_success, memory_error = self._context.refresh_technical_memory()
+        if not memory_success:
+            rollback = self._rollback(snapshot)
+            restored_validation = self._validate_final(snapshot)
+            return self._structured_result(
+                plan=plan,
+                success=False,
+                precondition_results=precondition_results,
+                operation_results=tuple(operation_results),
+                raw_results=tuple(raw_results),
+                snapshot=snapshot,
+                executed_steps=tuple(executed_steps),
+                failed_step=None,
+                error=StructuredExecutionError(
+                    code="technical_memory_refresh_failed",
+                    message=memory_error or "Technical memory refresh failed.",
+                ),
+                rollback=rollback,
+                validations=(validation, restored_validation),
+            )
+
         return self._structured_result(
             plan=plan,
             success=True,
@@ -268,7 +320,18 @@ class ExecutionPipeline:
             failed_step=failed.step_id,
             error=StructuredExecutionError("precondition_failed", failed.message, failed.step_id),
             precondition_results=results,
+            impact_analysis=self._context.impact_result,
+            post_impact_validation=self._context.post_impact_validation,
         )
+
+    def _changed_paths(self, snapshot: dict[Path, _SnapshotEntry]) -> tuple[Path, ...]:
+        changed = []
+        for path, entry in snapshot.items():
+            if entry.existed != path.exists():
+                changed.append(path)
+            elif entry.is_file and path.is_file() and entry.content != path.read_bytes():
+                changed.append(path)
+        return tuple(sorted(changed))
 
     def _path_failure(self, plan, results, error):
         return PipelineExecutionResult(
@@ -278,6 +341,7 @@ class ExecutionPipeline:
             executed_steps=(),
             precondition_results=results,
             error=StructuredExecutionError("path_error", str(error)),
+            impact_analysis=self._context.impact_result,
         )
 
     def _enrich_request(
@@ -349,9 +413,20 @@ class ExecutionPipeline:
                     restored.append(path)
             except OSError as error:
                 errors.append(f"{path}: {error}")
-        applied = bool(restored or removed) and not errors
         self._context.refresh_semantic_context()
         self._semantic_context = self._context.semantic_context
+        rollback_validation = self._context.validate_rollback_impact()
+        if rollback_validation is not None and not getattr(
+            rollback_validation, "rollback_graph_matches", False
+        ):
+            errors.extend(
+                getattr(item, "message", str(item))
+                for item in getattr(rollback_validation, "rollback_discrepancies", ())
+            )
+        memory_success, memory_error = self._context.refresh_technical_memory()
+        if not memory_success:
+            errors.append(memory_error or "Technical memory refresh failed after rollback.")
+        applied = bool(restored or removed) and not errors
         return RollbackResult(
             attempted=True,
             applied=applied,
@@ -422,6 +497,8 @@ class ExecutionPipeline:
             created_paths=created,
             modified_paths=modified,
             deleted_paths=deleted,
+            impact_analysis=self._context.impact_result,
+            post_impact_validation=self._context.post_impact_validation,
         )
 
     def _diff_paths(

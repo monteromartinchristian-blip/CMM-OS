@@ -174,18 +174,16 @@ def test_move_function_updates_multiple_consumers_and_multiline_import(tmp_path)
     assert "from package.target import foo" in second_consumer.read_text(encoding="utf-8")
 
 
-def test_move_function_rejects_relative_import_before_mutation(tmp_path) -> None:
-    source, target, consumer, package_init = _project(
+def test_move_function_rewrites_relative_import(tmp_path) -> None:
+    _, _, consumer, _ = _project(
         tmp_path,
         "from .source import foo\n",
     )
-    before = {path: path.read_bytes() for path in (source, target, consumer, package_init)}
 
     result = _execute(tmp_path)
 
-    assert not result.success
-    assert result.error.code == "precondition_failed"
-    assert {path: path.read_bytes() for path in before} == before
+    assert result.success
+    assert "from .target import foo" in consumer.read_text(encoding="utf-8")
 
 
 def test_move_function_supports_renaming_and_updates_imported_name(tmp_path) -> None:
@@ -250,34 +248,32 @@ def test_move_function_conflict_fails_before_mutation(tmp_path) -> None:
     assert {path: path.read_bytes() for path in before} == before
 
 
-def test_move_function_rejects_unsupported_direct_import_before_mutation(tmp_path) -> None:
-    source, target, consumer, package_init = _project(
+def test_move_function_rewrites_direct_qualified_import(tmp_path) -> None:
+    _, _, consumer, _ = _project(
         tmp_path,
         "import package.source\nvalue = package.source.foo()\n",
     )
-    before = {path: path.read_bytes() for path in (source, target, consumer, package_init)}
 
     result = _execute(tmp_path)
 
-    assert not result.success
-    assert result.error.code == "precondition_failed"
-    assert "Direct module import is unsupported" in result.error.message
-    assert {path: path.read_bytes() for path in before} == before
+    code = consumer.read_text(encoding="utf-8")
+    assert result.success
+    assert "import package.target" in code
+    assert "package.target.foo()" in code
 
 
-def test_move_function_rejects_multiple_symbols_in_one_import(tmp_path) -> None:
-    source, target, consumer, package_init = _project(
+def test_move_function_splits_multiple_symbols_in_one_import(tmp_path) -> None:
+    _, _, consumer, _ = _project(
         tmp_path,
         "from package.source import foo, other\n",
     )
-    before = {path: path.read_bytes() for path in (source, target, consumer, package_init)}
 
     result = _execute(tmp_path)
 
-    assert not result.success
-    assert result.error.code == "precondition_failed"
-    assert "Multiple imported symbols are unsupported" in result.error.message
-    assert {path: path.read_bytes() for path in before} == before
+    code = consumer.read_text(encoding="utf-8")
+    assert result.success
+    assert "from package.source import other" in code
+    assert "from package.target import foo" in code
 
 
 def test_move_function_rejects_destination_import_collision(tmp_path) -> None:

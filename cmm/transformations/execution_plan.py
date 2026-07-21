@@ -18,11 +18,13 @@ class ExecutionPlan:
     plan_id: str | None = None
     planned_steps: tuple[str, ...] = ()
     preconditions: tuple[TransformationPrecondition, ...] = ()
+    impact_requests: tuple[object, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "stages", tuple(self.stages))
         object.__setattr__(self, "planned_steps", tuple(self.planned_steps))
         object.__setattr__(self, "preconditions", tuple(self.preconditions))
+        object.__setattr__(self, "impact_requests", tuple(self.impact_requests))
 
     def all_requests(self) -> tuple[ExecutionRequest, ...]:
         """Return every request in stage and request order."""
@@ -38,6 +40,7 @@ class ExecutionPlan:
             "version": self.version,
             "plan_id": self.plan_id,
             "planned_steps": list(self.planned_steps),
+            "impact_requests": [getattr(request, "__dict__", str(request)) for request in self.impact_requests],
             "stages": [stage.metadata() for stage in self.stages],
         }
 

@@ -9,6 +9,7 @@ from cmm.transformations.execution_stage import ExecutionStage
 from cmm.transformations.graph import TransformationGraph
 from cmm.transformations.models import TransformationStep
 from cmm.transformations.plan import TransformationPlan
+from cmm.transformations.preconditions import ImpactAnalysisPrecondition
 
 
 class InvalidTransformationGraphError(ValueError):
@@ -42,6 +43,11 @@ class ExecutionPlanner:
             plan_id=plan.id,
             planned_steps=tuple(step.id for step in ordered_steps),
             preconditions=plan.preconditions,
+            impact_requests=tuple(
+                precondition.request
+                for precondition in plan.preconditions
+                if isinstance(precondition, ImpactAnalysisPrecondition)
+            ),
         )
 
     def _request_for(self, step: TransformationStep) -> ExecutionRequest:

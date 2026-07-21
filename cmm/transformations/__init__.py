@@ -49,6 +49,7 @@ from cmm.transformations.preconditions import (
     SymbolDependenciesPrecondition,
     ExtractMethodPrecondition,
     ExtractModulePrecondition,
+    ImpactAnalysisPrecondition,
     TransformationPrecondition,
 )
 from cmm.transformations.planner import TransformationPlanner
@@ -60,6 +61,27 @@ from cmm.transformations.registry import (
 )
 from cmm.transformations.transformation import Transformation
 from cmm.transformations.symbol_kind import SymbolKind, SUPPORTED_SYMBOL_KINDS
+from cmm.transformations.impact_analysis import (
+    DependencyEdge,
+    ImpactAnalysisRequest,
+    ImpactAnalysisResult,
+    ImpactAnalyzer,
+    ImpactDiscrepancy,
+    ImpactDiscrepancyCode,
+    ImpactedModule,
+    ImpactedSymbol,
+    ImpactIssue,
+    ImpactIssueCode,
+    ImpactSeverity,
+    ImportReference,
+    ExpectedImpactPlan,
+    PostImpactValidationResult,
+    ProjectReferenceGraph,
+    ReferenceKind,
+    ReferenceLocation,
+    RewriteCapability,
+    SymbolReference,
+)
 
 __all__ = [
     "BasicTransformationExecutor",
@@ -114,4 +136,24 @@ __all__ = [
     "UnsupportedTransformationError",
     "UpdateImportsOperation",
     "ValidateProjectOperation",
+    "DependencyEdge",
+    "ImpactAnalysisPrecondition",
+    "ImpactAnalysisRequest",
+    "ImpactAnalysisResult",
+    "ImpactAnalyzer",
+    "ImpactDiscrepancy",
+    "ImpactDiscrepancyCode",
+    "ImpactedModule",
+    "ImpactedSymbol",
+    "ImpactIssue",
+    "ImpactIssueCode",
+    "ImpactSeverity",
+    "ImportReference",
+    "ExpectedImpactPlan",
+    "PostImpactValidationResult",
+    "ProjectReferenceGraph",
+    "ReferenceKind",
+    "ReferenceLocation",
+    "RewriteCapability",
+    "SymbolReference",
 ]

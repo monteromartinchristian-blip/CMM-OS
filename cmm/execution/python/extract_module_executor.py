@@ -75,11 +75,7 @@ class PythonExtractModuleExecutor(OperationExecutor):
         updated_source = PythonModuleEditor(source).apply(
             DeleteSelectedSymbolsTransformer(names)
         )
-        written = []
-        if self._writer.write(updated_target):
-            written.append(updated_target.path)
-        if self._writer.write(updated_source):
-            written.append(updated_source.path)
+        consumer_updates = []
         for module in context.snapshot.modules:
             if module.parsed_module is None:
                 continue
@@ -87,9 +83,25 @@ class PythonExtractModuleExecutor(OperationExecutor):
                 operation.source_module,
                 operation.target_module,
                 names,
+                consumer_module=module.module_name,
+                consumer_is_package=module.path.name == "__init__.py",
             )
             updated = PythonModuleEditor(module).apply(transformer)
-            if transformer.changed and self._writer.write(updated):
+            if transformer.blocking_reason is not None:
+                return ExecutionResult(
+                    False,
+                    operation,
+                    (transformer.blocking_reason,),
+                )
+            if transformer.changed:
+                consumer_updates.append(updated)
+        written = []
+        if self._writer.write(updated_target):
+            written.append(updated_target.path)
+        if self._writer.write(updated_source):
+            written.append(updated_source.path)
+        for updated in consumer_updates:
+            if self._writer.write(updated):
                 written.append(updated.path)
         return ExecutionResult(True, operation, created_paths=tuple(written))
 

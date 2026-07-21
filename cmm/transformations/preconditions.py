@@ -92,6 +92,9 @@ class PreconditionContext(Protocol):
     ) -> tuple[bool, str]:
         """Validate selected symbols and dependencies for module extraction."""
 
+    def analyze_impact(self, request: object) -> object:
+        """Analyze a proposed architectural transformation without mutating."""
+
 
 @runtime_checkable
 class TransformationPrecondition(Protocol):
@@ -383,4 +386,21 @@ class ExtractModulePrecondition:
             self.symbols,
             self.allow_missing_target,
         )
+        return PreconditionResult(self.name, success, message, step_id)
+
+
+@dataclass(frozen=True)
+class ImpactAnalysisPrecondition:
+    """Require a successful impact analysis before any mutation."""
+
+    request: object
+
+    @property
+    def name(self) -> str:
+        return "impact_analysis"
+
+    def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
+        result = context.analyze_impact(self.request)
+        success = bool(getattr(result, "success", False))
+        message = str(getattr(result, "summary", "Impact analysis failed."))
         return PreconditionResult(self.name, success, message, step_id)
