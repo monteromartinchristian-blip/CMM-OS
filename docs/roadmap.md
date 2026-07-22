@@ -631,7 +631,10 @@ The following principles apply to all future phases:
 
 # Detailed specifications
 
-The full implementation specifications for Phases 7–11 are maintained separately because they define contracts, components, security requirements, test scenarios, implementation order, and closure criteria in much greater detail.
+Sustitúyelo por esto:
+
+````markdown
+The full implementation specifications for Phases 7–11 are maintained separately because they define contracts, components, security requirements, test scenarios, implementation order, and completion criteria in much greater detail.
 
 Recommended repository structure:
 
@@ -639,13 +642,24 @@ Recommended repository structure:
 docs/
 └── roadmap/
     ├── README.md
-    └── phases-7-11.md
+    ├── phase-7-continuous-validation.md
+    ├── phase-8-cognitive-layer.md
+    ├── phase-9-autonomous-agent-runtime.md
+    ├── phase-10-domain-intelligence.md
+    └── phase-11-stable-integrated-platform.md
+````
+
+This file should remain the concise public roadmap.
+
+The detailed specifications are organized by phase:
+
+* [`Phase 7 — Continuous Validation`](docs/roadmap/phase-7-continuous-validation.md)
+* [`Phase 8 — Cognitive Layer`](docs/roadmap/phase-8-cognitive-layer.md)
+* [`Phase 9 — Autonomous Agent Runtime`](docs/roadmap/phase-9-autonomous-agent-runtime.md)
+* [`Phase 10 — Domain Intelligence`](docs/roadmap/phase-10-domain-intelligence.md)
+* [`Phase 11 — Stable Integrated Platform`](docs/roadmap/phase-11-stable-integrated-platform.md)
+
+This separation keeps the public roadmap readable while preserving the complete engineering design of each phase.
+
 ```
 
-This file should remain the concise public roadmap. The detailed specification should live in:
-
-```text
-docs/roadmap/phases-7-11.md
-```
-
-That separation keeps the project direction readable while preserving the complete engineering design.
