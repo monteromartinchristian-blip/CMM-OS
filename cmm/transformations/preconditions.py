@@ -400,7 +400,35 @@ class ImpactAnalysisPrecondition:
         return "impact_analysis"
 
     def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
-        result = context.analyze_impact(self.request)
+        try:
+            result = context.analyze_impact(self.request)
+        except (OSError, ValueError) as error:
+            return PreconditionResult(self.name, False, str(error), step_id)
         success = bool(getattr(result, "success", False))
         message = str(getattr(result, "summary", "Impact analysis failed."))
         return PreconditionResult(self.name, success, message, step_id)
+
+
+@dataclass(frozen=True)
+class ReorganizationPrecondition:
+    """Require a safe and fully analyzable filesystem reorganization."""
+
+    operation: object
+
+    @property
+    def name(self) -> str:
+        return "reorganization"
+
+    def evaluate(self, context: PreconditionContext, step_id: str | None = None) -> PreconditionResult:
+        from cmm.transformations.operations import ReorganizationOperation
+        from cmm.transformations.reorganization_validation import ReorganizationValidator
+
+        if not isinstance(self.operation, ReorganizationOperation):
+            return PreconditionResult(self.name, False, "Invalid reorganization operation.", step_id)
+        result = ReorganizationValidator().validate(context, self.operation)
+        message = (
+            "Reorganization is safe to execute."
+            if result.success
+            else "; ".join(result.diagnostics)
+        )
+        return PreconditionResult(self.name, result.success, message, step_id)

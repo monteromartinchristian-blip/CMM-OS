@@ -58,6 +58,19 @@ class ImpactDiscrepancyCode(str, Enum):
     PUBLIC_API_MISMATCH = "public_api_mismatch"
     UNRESOLVED_REFERENCE_AFTER_REWRITE = "unresolved_reference_after_rewrite"
     ROLLBACK_GRAPH_MISMATCH = "rollback_graph_mismatch"
+    MISSING_TARGET_MODULE = "missing_target_module"
+    SOURCE_MODULE_STILL_PRESENT = "source_module_still_present"
+    MISSING_TARGET_PACKAGE = "missing_target_package"
+    SOURCE_PACKAGE_STILL_PRESENT = "source_package_still_present"
+    UNEXPECTED_MODULE = "unexpected_module"
+    UNEXPECTED_PACKAGE = "unexpected_package"
+    STALE_PACKAGE_IMPORT = "stale_package_import"
+    STALE_MODULE_REFERENCE = "stale_module_reference"
+    SYMBOL_IN_WRONG_MODULE = "symbol_in_wrong_module"
+    MERGE_SYMBOL_CONFLICT = "merge_symbol_conflict"
+    SPLIT_DEPENDENCY_MISMATCH = "split_dependency_mismatch"
+    PACKAGE_CYCLE = "package_cycle"
+    FILESYSTEM_LAYOUT_MISMATCH = "filesystem_layout_mismatch"
 
 
 @dataclass(frozen=True)
@@ -139,6 +152,13 @@ class ExpectedImpactPlan:
     public_bindings: tuple[str, ...] = ()
     expected_reexports: tuple[ImportReference, ...] = ()
     expected_paths: tuple[Path, ...] = ()
+    moved_modules: tuple[tuple[str, str], ...] = ()
+    moved_packages: tuple[tuple[str, str], ...] = ()
+    new_packages: tuple[str, ...] = ()
+    deleted_packages: tuple[str, ...] = ()
+    expected_modules: tuple[str, ...] = ()
+    expected_packages: tuple[str, ...] = ()
+    expected_public_api: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     def serialize(self) -> dict[str, Any]:
         """Return deterministic JSON-compatible plan data."""
@@ -184,11 +204,12 @@ class ImpactAnalysisRequest:
     symbols: tuple[str, ...]
     renamed_symbols: tuple[str, ...] = ()
     transformation_id: str = "transformation"
+    graph_only: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "symbols", tuple(self.symbols))
         object.__setattr__(self, "renamed_symbols", tuple(self.renamed_symbols))
-        if not self.source_module or not self.target_module or not self.symbols:
+        if not self.source_module or not self.target_module or (not self.symbols and not self.graph_only):
             raise ValueError("Impact analysis requires source, target and symbols.")
         if self.source_module == self.target_module:
             raise ValueError("Impact analysis source and target modules must differ.")
@@ -285,7 +306,16 @@ class ImpactAnalyzer:
                 node.name for node in tree.body
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
             }
-            symbols.extend(f"{module_name}.{name}" for name in sorted(defs[module_name]))
+            graph_names = set(defs[module_name])
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    graph_names.update(
+                        target.id for target in node.targets if isinstance(target, ast.Name)
+                    )
+                elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                    graph_names.add(node.target.id)
+            graph_names.discard("__all__")
+            symbols.extend(f"{module_name}.{name}" for name in sorted(graph_names))
             self._collect_imports(module_name, module.path, tree, request, imports, issues)
             self._collect_dynamic(module_name, tree, module.path, references, issues, request)
             self._collect_qualified_references(
@@ -893,18 +923,21 @@ class ImpactAnalyzer:
             if len(parts) < 2:
                 continue
             binding = aliases.get(parts[0])
-            if binding is None or binding[0] != request.source_module:
+            if binding is None:
+                continue
+            imported_module = binding[0]
+            if not request.graph_only and imported_module != request.source_module:
                 continue
             if binding[1]:
                 symbol_index = 1
             else:
-                module_parts = request.source_module.split(".")
+                module_parts = imported_module.split(".")
                 if parts[: len(module_parts)] != module_parts:
                     continue
                 symbol_index = len(module_parts)
             if symbol_index >= len(parts):
                 continue
-            if parts[symbol_index] not in request.symbols:
+            if not request.graph_only and parts[symbol_index] not in request.symbols:
                 other_bindings.add(parts[0])
                 continue
             shadowed = self._binding_shadowed(tree, parts[0])
@@ -916,12 +949,12 @@ class ImpactAnalyzer:
                 location,
                 ReferenceKind.QUALIFIED,
                 parts[0],
-                request.source_module,
+                imported_module,
                 capability,
                 not shadowed,
                 f"Module binding {parts[0]} is shadowed." if shadowed else None,
             ))
-            if shadowed:
+            if shadowed and not request.graph_only:
                 issues.append(ImpactIssue(
                     ImpactIssueCode.AMBIGUOUS_REFERENCE,
                     ImpactSeverity.BLOCKING,
@@ -930,7 +963,11 @@ class ImpactAnalyzer:
                     location,
                 ))
         output.extend(selected_references)
-        mixed = sorted({item.binding for item in selected_references} & other_bindings)
+        mixed = (
+            sorted({item.binding for item in selected_references} & other_bindings)
+            if not request.graph_only
+            else ()
+        )
         for binding in mixed:
             issues.append(ImpactIssue(
                 ImpactIssueCode.AMBIGUOUS_REFERENCE,

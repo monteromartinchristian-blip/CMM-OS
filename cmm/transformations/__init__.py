@@ -22,6 +22,14 @@ from cmm.transformations.move_function import (
 )
 from cmm.transformations.extract_method import ExtractMethodTransformation
 from cmm.transformations.extract_module import ExtractModuleTransformation
+from cmm.transformations.reorganization import (
+    MergeModulesTransformation,
+    MoveModuleTransformation,
+    MovePackageTransformation,
+    RenameModuleTransformation,
+    RenamePackageTransformation,
+    SplitModuleTransformation,
+)
 from cmm.transformations.operation import TransformationOperation
 from cmm.transformations.operations import (
     CopySymbolOperation,
@@ -36,6 +44,14 @@ from cmm.transformations.operations import (
     RenameSymbolOperation,
     UpdateImportsOperation,
     ValidateProjectOperation,
+    MergeModulesOperation,
+    MoveModuleOperation,
+    MovePackageOperation,
+    RenameModuleOperation,
+    RenamePackageOperation,
+    ReorganizationOperation,
+    SplitModuleGroup,
+    SplitModuleOperation,
 )
 from cmm.transformations.plan import TransformationPlan
 from cmm.transformations.preconditions import (
@@ -50,6 +66,7 @@ from cmm.transformations.preconditions import (
     ExtractMethodPrecondition,
     ExtractModulePrecondition,
     ImpactAnalysisPrecondition,
+    ReorganizationPrecondition,
     TransformationPrecondition,
 )
 from cmm.transformations.planner import TransformationPlanner
@@ -136,8 +153,23 @@ __all__ = [
     "UnsupportedTransformationError",
     "UpdateImportsOperation",
     "ValidateProjectOperation",
+    "MergeModulesOperation",
+    "MoveModuleOperation",
+    "MovePackageOperation",
+    "RenameModuleOperation",
+    "RenamePackageOperation",
+    "ReorganizationOperation",
+    "SplitModuleGroup",
+    "SplitModuleOperation",
+    "MergeModulesTransformation",
+    "MoveModuleTransformation",
+    "MovePackageTransformation",
+    "RenameModuleTransformation",
+    "RenamePackageTransformation",
+    "SplitModuleTransformation",
     "DependencyEdge",
     "ImpactAnalysisPrecondition",
+    "ReorganizationPrecondition",
     "ImpactAnalysisRequest",
     "ImpactAnalysisResult",
     "ImpactAnalyzer",

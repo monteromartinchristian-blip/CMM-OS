@@ -12,6 +12,16 @@ from cmm.transformations.operations.move_symbol import MoveSymbolOperation
 from cmm.transformations.operations.rename_symbol import RenameSymbolOperation
 from cmm.transformations.operations.update_imports import UpdateImportsOperation
 from cmm.transformations.operations.validate_project import ValidateProjectOperation
+from cmm.transformations.operations.reorganize import (
+    MergeModulesOperation,
+    MoveModuleOperation,
+    MovePackageOperation,
+    RenameModuleOperation,
+    RenamePackageOperation,
+    ReorganizationOperation,
+    SplitModuleGroup,
+    SplitModuleOperation,
+)
 
 __all__ = [
     "CopySymbolOperation",
@@ -26,4 +36,12 @@ __all__ = [
     "RenameSymbolOperation",
     "UpdateImportsOperation",
     "ValidateProjectOperation",
+    "MergeModulesOperation",
+    "MoveModuleOperation",
+    "MovePackageOperation",
+    "RenameModuleOperation",
+    "RenamePackageOperation",
+    "ReorganizationOperation",
+    "SplitModuleGroup",
+    "SplitModuleOperation",
 ]

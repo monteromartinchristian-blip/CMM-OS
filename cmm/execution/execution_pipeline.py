@@ -24,6 +24,7 @@ from cmm.transformations.execution_request import ExecutionRequest
 from cmm.transformations.preconditions import PreconditionResult, TransformationPrecondition
 from cmm.transformations.operations import (
     CopySymbolOperation,
+    ReorganizationOperation,
     RenameSymbolOperation,
     UpdateImportsOperation,
 )
@@ -384,6 +385,12 @@ class ExecutionPipeline:
         paths: set[Path] = set()
         for request in plan.all_requests():
             paths.update(self._context.affected_paths_for(request.operation))
+        if any(
+            isinstance(request.operation, ReorganizationOperation)
+            for request in plan.all_requests()
+        ):
+            paths.add(self._context.project_root)
+            paths.update(self._project_inventory())
         return {
             path: _SnapshotEntry(
                 existed=path.exists(),
@@ -397,6 +404,32 @@ class ExecutionPipeline:
         restored: list[Path] = []
         removed: list[Path] = []
         errors: list[str] = []
+        if self._context.project_root in snapshot:
+            extras = sorted(
+                self._project_inventory() - set(snapshot),
+                key=lambda path: len(path.parts),
+                reverse=True,
+            )
+            for path in extras:
+                try:
+                    if path.is_file() or path.is_symlink():
+                        path.unlink()
+                    elif path.exists():
+                        shutil.rmtree(path)
+                    removed.append(path)
+                except OSError as error:
+                    errors.append(f"{path}: {error}")
+        for path, entry in sorted(snapshot.items(), key=lambda item: len(item[0].parts)):
+            if not entry.existed or entry.is_file:
+                continue
+            try:
+                if not path.exists():
+                    path.mkdir(parents=True, exist_ok=True)
+                    restored.append(path)
+                elif not path.is_dir():
+                    errors.append(f"{path}: expected a directory during rollback.")
+            except OSError as error:
+                errors.append(f"{path}: {error}")
         for path, entry in snapshot.items():
             try:
                 if not entry.existed:
@@ -434,6 +467,27 @@ class ExecutionPipeline:
             removed_created_paths=tuple(removed),
             errors=tuple(errors),
         )
+
+    def _project_inventory(self) -> set[Path]:
+        excluded = {
+            ".git", ".venv", ".cmm", "__pycache__", ".pytest_cache",
+            ".mypy_cache", ".ruff_cache",
+        }
+        result: set[Path] = set()
+        pending = [self._context.project_root]
+        while pending:
+            directory = pending.pop()
+            try:
+                entries = tuple(directory.iterdir())
+            except OSError:
+                continue
+            for path in entries:
+                if path.name in excluded:
+                    continue
+                result.add(path)
+                if path.is_dir() and not path.is_symlink():
+                    pending.append(path)
+        return result
 
     def _remove_empty_parents(self, path: Path) -> None:
         while path != self._context.project_root and path.is_relative_to(self._context.project_root):

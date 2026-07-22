@@ -30,6 +30,10 @@ from cmm.execution.python.visitors.update_import_transformer import (
 from cmm.execution.python.visitors.delete_function_transformer import (
     DeleteFunctionTransformer,
 )
+from cmm.execution.python.visitors.reorganization_transformer import (
+    ModuleReferenceRewriteTransformer,
+    SymbolDestinationRewriteTransformer,
+)
 
 __all__ = [
     "AppendCommentTransformer",
@@ -48,4 +52,6 @@ __all__ = [
     "UpdateSelectedImportsTransformer",
     "RenameSymbolTransformer",
     "SymbolLocator",
+    "ModuleReferenceRewriteTransformer",
+    "SymbolDestinationRewriteTransformer",
 ]

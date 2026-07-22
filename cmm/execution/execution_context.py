@@ -19,6 +19,13 @@ from cmm.transformations.operations import (
     UpdateImportsOperation,
     ExtractMethodOperation,
     ExtractModuleOperation,
+    MergeModulesOperation,
+    MoveModuleOperation,
+    MovePackageOperation,
+    RenameModuleOperation,
+    RenamePackageOperation,
+    ReorganizationOperation,
+    SplitModuleOperation,
 )
 
 
@@ -55,33 +62,57 @@ class ExecutionContext:
     def analyze_impact(self, request: object) -> object:
         """Run one cached impact analysis against the current semantic snapshot."""
         from cmm.transformations.impact_analysis import ImpactAnalyzer, ImpactAnalysisRequest
+        from cmm.transformations.reorganization_impact import (
+            ReorganizationImpactAnalyzer,
+            ReorganizationImpactRequest,
+        )
 
-        if not isinstance(request, ImpactAnalysisRequest):
-            raise TypeError("Impact analysis requires ImpactAnalysisRequest.")
+        if not isinstance(request, ImpactAnalysisRequest | ReorganizationImpactRequest):
+            raise TypeError("Unsupported impact analysis request.")
         if self.impact_result is not None:
             cached = self.impact_result.request
-            if (
-                cached.source_module,
-                cached.target_module,
-                cached.symbols,
-                cached.renamed_symbols,
-            ) == (
-                request.source_module,
-                request.target_module,
-                request.symbols,
-                request.renamed_symbols,
-            ):
+            if isinstance(cached, ImpactAnalysisRequest) and isinstance(request, ImpactAnalysisRequest):
+                equivalent = (
+                    cached.source_module,
+                    cached.target_module,
+                    cached.symbols,
+                    cached.renamed_symbols,
+                    cached.graph_only,
+                ) == (
+                    request.source_module,
+                    request.target_module,
+                    request.symbols,
+                    request.renamed_symbols,
+                    request.graph_only,
+                )
+            else:
+                equivalent = cached == request
+            if equivalent:
                 return self.impact_result
-        self.impact_result = ImpactAnalyzer(self.technical_memory).analyze(self, request)
+        analyzer = (
+            ReorganizationImpactAnalyzer(self.technical_memory)
+            if isinstance(request, ReorganizationImpactRequest)
+            else ImpactAnalyzer(self.technical_memory)
+        )
+        self.impact_result = analyzer.analyze(self, request)
         return self.impact_result
 
     def validate_post_impact(self, changed_paths: tuple[Path, ...]) -> object | None:
         """Validate the transformed graph against the cached expected impact."""
         from cmm.transformations.impact_analysis import ImpactAnalyzer
+        from cmm.transformations.reorganization_impact import (
+            ReorganizationImpactAnalyzer,
+            ReorganizationImpactRequest,
+        )
 
         if self.impact_result is None:
             return None
-        self.post_impact_validation = ImpactAnalyzer().validate_post(
+        analyzer = (
+            ReorganizationImpactAnalyzer()
+            if isinstance(self.impact_result.request, ReorganizationImpactRequest)
+            else ImpactAnalyzer()
+        )
+        self.post_impact_validation = analyzer.validate_post(
             self,
             self.impact_result,
             changed_paths,
@@ -94,8 +125,17 @@ class ExecutionContext:
             return None
         from dataclasses import replace
         from cmm.transformations.impact_analysis import ImpactAnalyzer
+        from cmm.transformations.reorganization_impact import (
+            ReorganizationImpactAnalyzer,
+            ReorganizationImpactRequest,
+        )
 
-        rollback_validation = ImpactAnalyzer().validate_rollback(
+        analyzer = (
+            ReorganizationImpactAnalyzer()
+            if isinstance(self.impact_result.request, ReorganizationImpactRequest)
+            else ImpactAnalyzer()
+        )
+        rollback_validation = analyzer.validate_rollback(
             self,
             self.impact_result,
         )
@@ -671,11 +711,58 @@ class ExecutionContext:
                 for module in self.semantic_context.snapshot.modules
                 if module.path.resolve().is_relative_to(self.project_root)
             )
+        if isinstance(operation, ReorganizationOperation):
+            return self._reorganization_paths(operation)
         metadata = operation.metadata()
         path = metadata.get("path")
         if isinstance(path, str):
             return self._path_with_missing_parents(path)
         return ()
+
+    def _reorganization_paths(self, operation: ReorganizationOperation) -> tuple[Path, ...]:
+        paths: set[Path] = {
+            self.resolve_project_path(module.path)
+            for module in self.semantic_context.snapshot.modules
+            if module.path.resolve().is_relative_to(self.project_root)
+        }
+
+        def add_missing(path: Path) -> None:
+            paths.update(self._path_with_missing_parents(path))
+
+        if isinstance(operation, RenameModuleOperation | MoveModuleOperation):
+            source = self._existing_module_path(operation.source_module)
+            paths.add(source)
+            add_missing(self.module_path(operation.target_module))
+        elif isinstance(operation, SplitModuleOperation):
+            paths.add(self._existing_module_path(operation.source_module))
+            for group in operation.groups:
+                add_missing(self.module_path(group.target_module))
+        elif isinstance(operation, MergeModulesOperation):
+            for source in operation.source_modules:
+                paths.add(self._existing_module_path(source))
+            add_missing(self.module_path(operation.target_module))
+        elif isinstance(operation, RenamePackageOperation | MovePackageOperation):
+            source = self.resolve_project_path(Path(*operation.source_package.split(".")))
+            target = self.resolve_project_path(Path(*operation.target_package.split(".")))
+            if source.is_dir():
+                for item in source.rglob("*"):
+                    paths.add(self.resolve_project_path(item))
+            paths.add(source)
+            add_missing(target)
+            if source.is_dir():
+                for item in source.rglob("*"):
+                    add_missing(target / item.relative_to(source))
+        return tuple(sorted(paths))
+
+    def _existing_module_path(self, module_name: str) -> Path:
+        match = next(
+            (
+                item.path for item in self.semantic_context.snapshot.modules
+                if item.module_name == module_name
+            ),
+            None,
+        )
+        return self.resolve_project_path(match) if match is not None else self.module_path(module_name)
 
     def _path_with_missing_parents(self, path: str | Path) -> tuple[Path, ...]:
         resolved = self.resolve_project_path(path)

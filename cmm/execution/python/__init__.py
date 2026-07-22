@@ -23,6 +23,14 @@ from cmm.execution.python.import_resolver import (
     ImportType,
 )
 from cmm.execution.python.rename_symbol_executor import PythonRenameSymbolExecutor
+from cmm.execution.python.reorganization_executor import (
+    PythonMergeModulesExecutor,
+    PythonMoveModuleExecutor,
+    PythonMovePackageExecutor,
+    PythonRenameModuleExecutor,
+    PythonRenamePackageExecutor,
+    PythonSplitModuleExecutor,
+)
 from cmm.transformations.relative_import_resolver import (
     RelativeImportResolution,
     RelativeImportResolver,
@@ -50,4 +58,10 @@ __all__ = [
     "SemanticContextBuilder",
     "RelativeImportResolution",
     "RelativeImportResolver",
+    "PythonMergeModulesExecutor",
+    "PythonMoveModuleExecutor",
+    "PythonMovePackageExecutor",
+    "PythonRenameModuleExecutor",
+    "PythonRenamePackageExecutor",
+    "PythonSplitModuleExecutor",
 ]
