@@ -660,5 +660,3 @@ The detailed specifications are organized by phase:
 * [`Phase 11 — Stable Integrated Platform`](docs/roadmap/phase-11-stable-integrated-platform.md)
 
 This separation keeps the public roadmap readable while preserving the complete engineering design of each phase.
-
-```
