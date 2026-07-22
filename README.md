@@ -367,6 +367,14 @@ This release closes Phases 0–6 and integrates the completed architectural tran
 
 Release notes, changelog, compatibility information, and migration guidance will be maintained alongside future tagged releases.
 
+## Project identity
+
+**CMM OS** is the original open-source project created and maintained by **Christian Montero Martín**.
+
+The name “CMM OS” identifies this original project and does not imply endorsement, affiliation, or official status for forks, modified versions, or derivative works.
+
+For attribution and licensing details, see [`NOTICE`](NOTICE) and [`LICENSE`](LICENSE).
+
 ## License
 
 CMM OS is licensed under the [Apache License 2.0](LICENSE).
