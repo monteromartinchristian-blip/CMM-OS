@@ -158,7 +158,7 @@ class CreateClassOperation(Operation):
     def serialize(self) -> dict[str, Any]:
         """Serialize the operation into a dictionary."""
 
-        payload = super().serialize()
+        payload = Operation.serialize(self)
         payload.update(
             {
                 "operation_type": self.operation_type_value,
@@ -171,7 +171,7 @@ class CreateClassOperation(Operation):
     def validate(self) -> None:
         """Validate that the class name is usable."""
 
-        super().validate()
+        Operation.validate(self)
         if not isinstance(self.class_name, str) or not self.class_name.strip():
             raise InvalidOperationError("CreateClassOperation requires a non-empty class_name.")
         if self.module is not None and (not isinstance(self.module, str) or not self.module.strip()):
@@ -228,7 +228,7 @@ class InsertMethodOperation(Operation):
     def serialize(self) -> dict[str, Any]:
         """Serialize the operation into a dictionary."""
 
-        payload = super().serialize()
+        payload = Operation.serialize(self)
         payload.update(
             {
                 "operation_type": self.operation_type_value,
@@ -242,7 +242,7 @@ class InsertMethodOperation(Operation):
     def validate(self) -> None:
         """Validate the method insertion payload."""
 
-        super().validate()
+        Operation.validate(self)
         if not isinstance(self.target_class, str) or not self.target_class.strip():
             raise InvalidOperationError("InsertMethodOperation requires a non-empty target_class.")
         if not isinstance(self.method_name, str) or not self.method_name.strip():
@@ -301,7 +301,7 @@ class ReplaceMethodOperation(Operation):
     def serialize(self) -> dict[str, Any]:
         """Serialize the operation into a dictionary."""
 
-        payload = super().serialize()
+        payload = Operation.serialize(self)
         payload.update(
             {
                 "operation_type": self.operation_type_value,
@@ -315,7 +315,7 @@ class ReplaceMethodOperation(Operation):
     def validate(self) -> None:
         """Validate the method replacement payload."""
 
-        super().validate()
+        Operation.validate(self)
         if not isinstance(self.target_class, str) or not self.target_class.strip():
             raise InvalidOperationError("ReplaceMethodOperation requires a non-empty target_class.")
         if not isinstance(self.method_name, str) or not self.method_name.strip():
@@ -367,7 +367,7 @@ class EnsureImportOperation(Operation):
     def serialize(self) -> dict[str, Any]:
         """Serialize the operation into a dictionary."""
 
-        payload = super().serialize()
+        payload = Operation.serialize(self)
         payload.update(
             {
                 "operation_type": self.operation_type_value,
@@ -380,7 +380,7 @@ class EnsureImportOperation(Operation):
     def validate(self) -> None:
         """Validate the import operation payload."""
 
-        super().validate()
+        Operation.validate(self)
         if not isinstance(self.module, str) or not self.module.strip():
             raise InvalidOperationError("EnsureImportOperation requires a non-empty module.")
         if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
