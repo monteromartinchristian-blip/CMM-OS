@@ -662,4 +662,3 @@ The detailed specifications are organized by phase:
 This separation keeps the public roadmap readable while preserving the complete engineering design of each phase.
 
 ```
-
