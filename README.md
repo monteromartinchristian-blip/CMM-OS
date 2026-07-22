@@ -4,28 +4,25 @@ CMM OS (Code Management Machine Operating System) is an AI-native software devel
 
 It transforms user intent into structured, validated, and testable execution flows instead of allowing direct, unstructured edits.
 
-## CMM OS - Current Architecture (v0.5.0)
+## CMM OS - Current Architecture (v0.7.0)
 
 ```text
 User Goal
   |
   v
-Technical Reasoner
+Technical Reasoner and Planning
   |
-  v
-Task Planner
+  +-- Development Execution Runtime
+  |   `-- CompositeExecutor
+  |       |-- ReadOnlyFilesystemExecutor
+  |       |-- PythonExecutor
+  |       `-- GitExecutor
   |
-  v
-Action Planner
-  |
-  v
-Execution Runtime
-  |
-  v
-CompositeExecutor
-|-- ReadOnlyFilesystemExecutor
-|-- PythonExecutor
-`-- GitExecutor
+  `-- Architectural Transformation Pipeline
+      |-- DAG planning and typed preconditions
+      |-- Impact analysis and reference graph
+      |-- LibCST/filesystem executors
+      `-- Validation and rollback
 ```
 
 ### Layer responsibilities
@@ -39,6 +36,7 @@ CompositeExecutor
 - ReadOnlyFilesystemExecutor: handles read-only filesystem inspection actions.
 - PythonExecutor: handles semantic Python actions through the Semantic Python Engine.
 - GitExecutor: handles read-only Git repository inspection actions.
+- Architectural Transformation Pipeline: plans and executes validated, reversible project-wide Python transformations.
 
 ## Current implemented capabilities
 
@@ -84,13 +82,22 @@ It delegates execution based on action prefix:
 - python.* -> PythonExecutor
 - git.* -> GitExecutor
 
+### Architectural transformations
+
+- Deterministic DAG planning and typed preconditions
+- Project impact analysis and advanced reference rewriting
+- Byte-accurate rollback and final project validation
+- `move_function`, `move_class`, `extract_method`, and `extract_module`
+- Rename, move, split, and merge operations for modules
+- Rename and move operations for packages
+
 ## Architectural principles
 
 - Layered architecture
 - Separation of responsibilities
 - Thin executors
 - Reusable services
-- Read-only execution layer
+- Validated and reversible execution
 - Dependency injection where appropriate
 - Comprehensive automated tests
 
@@ -98,23 +105,23 @@ It delegates execution based on action prefix:
 
 Completed
 
+- ✓ Phase 0 - Foundations
 - ✓ Phase 1 - Semantic Python Engine
 - ✓ Phase 2
 - ✓ Phase 3
 - ✓ Phase 4
 - ✓ Phase 5 - Execution Layer
+- ✓ Phase 6 - Architectural Transformations
 
 Current release:
 
-v0.5.0
+v0.7.0
+
+Automated test baseline: 642 passing tests.
 
 ## Roadmap
 
-Next milestone:
-
-Phase 6 - Semantic Architecture
-
-Phase 6 introduces a persistent semantic representation of the full software project to enable architectural reasoning, dependency analysis, impact analysis, and high-level project understanding beyond tool execution.
+Phases 0–6 are complete. The next milestone focuses on reliability, release engineering, documentation, observability, API stability, regression coverage, packaging, and user experience.
 
 ## Project structure
 
