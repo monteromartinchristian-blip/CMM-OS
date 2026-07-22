@@ -631,9 +631,6 @@ The following principles apply to all future phases:
 
 # Detailed specifications
 
-Sustitúyelo por esto:
-
-````markdown
 The full implementation specifications for Phases 7–11 are maintained separately because they define contracts, components, security requirements, test scenarios, implementation order, and completion criteria in much greater detail.
 
 Recommended repository structure:
@@ -647,7 +644,6 @@ docs/
     ├── phase-9-autonomous-agent-runtime.md
     ├── phase-10-domain-intelligence.md
     └── phase-11-stable-integrated-platform.md
-````
 
 This file should remain the concise public roadmap.
 
