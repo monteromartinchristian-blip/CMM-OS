@@ -645,14 +645,15 @@ docs/
     ├── phase-10-domain-intelligence.md
     └── phase-11-stable-integrated-platform.md
 ```
+
 This file should remain the concise public roadmap.
 
 The detailed specifications are organized by phase:
 
-* [`Phase 7 — Continuous Validation`](docs/roadmap/phase-7-continuous-validation.md)
-* [`Phase 8 — Cognitive Layer`](docs/roadmap/phase-8-cognitive-layer.md)
-* [`Phase 9 — Autonomous Agent Runtime`](docs/roadmap/phase-9-autonomous-agent-runtime.md)
-* [`Phase 10 — Domain Intelligence`](docs/roadmap/phase-10-domain-intelligence.md)
-* [`Phase 11 — Stable Integrated Platform`](docs/roadmap/phase-11-stable-integrated-platform.md)
+- [`Phase 7 — Continuous Validation`](docs/roadmap/phase-7-continuous-validation.md)
+- [`Phase 8 — Cognitive Layer`](docs/roadmap/phase-8-cognitive-layer.md)
+- [`Phase 9 — Autonomous Agent Runtime`](docs/roadmap/phase-9-autonomous-agent-runtime.md)
+- [`Phase 10 — Domain Intelligence`](docs/roadmap/phase-10-domain-intelligence.md)
+- [`Phase 11 — Stable Integrated Platform`](docs/roadmap/phase-11-stable-integrated-platform.md)
 
 This separation keeps the public roadmap readable while preserving the complete engineering design of each phase.
