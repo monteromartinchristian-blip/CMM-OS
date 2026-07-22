@@ -644,7 +644,7 @@ docs/
     ├── phase-9-autonomous-agent-runtime.md
     ├── phase-10-domain-intelligence.md
     └── phase-11-stable-integrated-platform.md
-
+`
 This file should remain the concise public roadmap.
 
 The detailed specifications are organized by phase:
