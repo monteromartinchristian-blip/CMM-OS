@@ -34,7 +34,7 @@ class Operation:
     parameters: ClassVar[tuple[dict[str, Any], ...]] = ()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
+        super(Operation, cls).__init_subclass__(**kwargs)
         if cls.operation_type:
             _OPERATION_REGISTRY[cls.operation_type] = cls
 
