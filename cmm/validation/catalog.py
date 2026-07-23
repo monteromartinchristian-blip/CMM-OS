@@ -253,6 +253,32 @@ def change_impact_step(context: ValidationContext) -> ValidationStep:
     return _change_impact_step(context)
 
 
+def static_type_check_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+    from cmm.validation.static_analysis.validation import default_static_analysis_steps
+
+    steps = default_static_analysis_steps(context, change_impact_step=change_impact_step)
+    for step in steps:
+        if step.name == "type_check":
+            return step
+    return None
+
+
+def static_dead_code_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+    from cmm.validation.static_analysis.validation import default_static_analysis_steps
+
+    steps = default_static_analysis_steps(context, change_impact_step=change_impact_step)
+    for step in steps:
+        if step.name == "dead_code":
+            return step
+    return None
+
+
+def default_static_analysis_steps(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> tuple[ValidationStep, ...]:
+    from cmm.validation.static_analysis.validation import default_static_analysis_steps as _default_static_analysis_steps
+
+    return _default_static_analysis_steps(context, change_impact_step=change_impact_step)
+
+
 def default_structural_steps(context: ValidationContext) -> tuple[ValidationStep, ...]:
     return (
         syntax_step(),

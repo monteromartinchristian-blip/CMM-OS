@@ -9,6 +9,8 @@ from cmm.validation import (
     ValidationStepResult,
     ValidationContext,
     ValidationResult,
+    StaticAnalysisPlan,
+    StaticAnalysisScope,
 )
 
 
@@ -24,3 +26,5 @@ def test_package_exports_exist():
     assert ValidationStepResult is not None
     assert ValidationContext is not None
     assert ValidationResult is not None
+    assert StaticAnalysisPlan is not None
+    assert StaticAnalysisScope is not None
