@@ -32,9 +32,19 @@ class DummyResponses:
         return DummyResponse(self.payload)
 
 
-class DummyClient:
+class DummyKernelProvider:
     def __init__(self, payload: dict[str, Any]) -> None:
-        self.responses = DummyResponses(payload)
+        self.payload = payload
+        self.calls: list[Any] = []
+
+    def generate(self, request: Any) -> Any:
+        from kernel.llm.models import LLMResponse
+
+        self.calls.append(request)
+        return LLMResponse(
+            content=json.dumps(self.payload),
+            model="test-model",
+        )
 
 
 def valid_plan(path: str = "requested.py") -> dict[str, Any]:
@@ -66,20 +76,20 @@ def test_factory_creates_openai_provider_with_requested_model() -> None:
 
 
 def test_generate_plan_uses_injected_client() -> None:
-    client = DummyClient(valid_plan())
-    provider = OpenAIPlanningProvider(model="test-model", client=client)
+    provider = DummyKernelProvider(valid_plan())
+    adapter = OpenAIPlanningProvider(model="test-model", provider=provider)
 
-    result = provider.generate_plan(
+    result = adapter.generate_plan(
         "create class Example in requested.py",
         DummyContext(),
     )
 
     assert result["affected_files"] == ["requested.py"]
-    assert client.responses.calls[0]["model"] == "test-model"
+    assert provider.calls[0].prompt
 
 
 def test_prompt_requires_exact_explicit_paths() -> None:
-    provider = OpenAIPlanningProvider(client=DummyClient(valid_plan()))
+    provider = OpenAIPlanningProvider(provider=DummyKernelProvider(valid_plan()))
 
     prompt = provider._prompt(
         "create class Example in requested.py",
@@ -91,8 +101,8 @@ def test_prompt_requires_exact_explicit_paths() -> None:
 
 
 def test_generate_plan_rejects_relocated_explicit_path() -> None:
-    client = DummyClient(valid_plan("tests/requested.py"))
-    provider = OpenAIPlanningProvider(client=client)
+    kernel_provider = DummyKernelProvider(valid_plan("tests/requested.py"))
+    provider = OpenAIPlanningProvider(provider=kernel_provider)
 
     with pytest.raises(
         PlanningProviderError,
@@ -106,7 +116,7 @@ def test_generate_plan_rejects_relocated_explicit_path() -> None:
 
 def test_generate_plan_accepts_exact_explicit_path() -> None:
     provider = OpenAIPlanningProvider(
-        client=DummyClient(valid_plan("requested.py"))
+        provider=DummyKernelProvider(valid_plan("requested.py"))
     )
 
     result = provider.generate_plan(

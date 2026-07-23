@@ -10,6 +10,9 @@ from typing import Any, Mapping, Protocol, runtime_checkable
 
 from cmm.development.analyzer import ProjectContext
 from cmm.development.models import DevelopmentPlan, PlanValidationError
+from kernel.llm.exceptions import ProviderError
+from kernel.llm.models import LLMRequest
+from kernel.llm.openai_provider import OpenAIProvider
 
 
 class PlanningProviderError(RuntimeError):
@@ -99,49 +102,43 @@ class DeterministicPlanningProvider:
 
 
 class OpenAIPlanningProvider:
-    """OpenAI provider using the Responses API."""
+    """Planning adapter backed by the shared kernel OpenAI provider."""
 
-    def __init__(self, model: str | None = None, *, client: Any | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        *,
+        provider: OpenAIProvider | None = None,
+    ) -> None:
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-5-mini")
-        self._injected_client = client
+        self.provider = provider or OpenAIProvider(model=self.model)
 
-    def generate_plan(self, goal: str, context: ProjectContext) -> Mapping[str, Any]:
-        self._load_dotenv_if_available()
-        openai = self._load_openai()
-
-        if self._injected_client is None and not os.getenv("OPENAI_API_KEY"):
-            raise PlanningProviderError(
-                "OPENAI_API_KEY is not configured in the environment or .env file."
-            )
-
-        client = self._injected_client or openai.OpenAI()
+    def generate_plan(
+        self,
+        goal: str,
+        context: ProjectContext,
+    ) -> Mapping[str, Any]:
+        request = LLMRequest(
+            prompt=self._prompt(goal, context),
+            system_prompt=(
+                "You are the planning provider for CMM OS. "
+                "Return exactly one valid JSON object. "
+                "Use only project-relative paths and registered semantic operations. "
+                "Preserve every explicit file path from the user goal exactly. "
+                "Never emit Markdown, shell commands, or explanatory text."
+            ),
+            temperature=0.0,
+        )
 
         try:
-            response = client.responses.create(
-                model=self.model,
-                instructions=(
-                    "You are the planning provider for CMM OS. "
-                    "Return exactly one valid JSON object. "
-                    "Use only project-relative paths and registered semantic operations. "
-                    "Preserve every explicit file path from the user goal exactly. "
-                    "Never replace an explicitly requested path with a preferred test, source, "
-                    "package, or generated path. "
-                    "Never emit Markdown, shell commands, or explanatory text."
-                ),
-                input=self._prompt(goal, context),
-            )
-            payload = json.loads(response.output_text)
+            response = self.provider.generate(request)
+            payload = json.loads(response.content)
+        except ProviderError as error:
+            raise PlanningProviderError(str(error)) from error
         except json.JSONDecodeError as error:
             raise PlanningProviderError(
                 f"OpenAI returned invalid JSON: {error}"
             ) from error
-        except Exception as error:
-            api_error = getattr(openai, "APIError", None)
-            if api_error is not None and isinstance(error, api_error):
-                raise PlanningProviderError(
-                    f"OpenAI request failed: {error}"
-                ) from error
-            raise
 
         if not isinstance(payload, Mapping):
             raise PlanningProviderError(
@@ -150,26 +147,6 @@ class OpenAIPlanningProvider:
 
         self._validate_explicit_path(goal, payload)
         return payload
-
-    def _load_dotenv_if_available(self) -> None:
-        """Load a local .env file when python-dotenv is installed."""
-
-        try:
-            dotenv = importlib.import_module("dotenv")
-        except ImportError:
-            return
-        dotenv.load_dotenv()
-
-    def _load_openai(self) -> Any:
-        """Load the optional OpenAI SDK only when this provider is used."""
-
-        try:
-            return importlib.import_module("openai")
-        except ImportError as error:
-            raise PlanningProviderError(
-                "OpenAI provider requested, but the optional 'openai' package "
-                "is not installed. Install CMM OS with the 'openai' extra."
-            ) from error
 
     def _validate_explicit_path(
         self,
@@ -225,15 +202,15 @@ class OpenAIPlanningProvider:
         }
 
         return (
-            "Generate one development plan matching this schema:\\n"
-            f"{json.dumps(schema, ensure_ascii=True)}\\n"
-            "Rules:\\n"
-            "- Preserve all file paths explicitly written in the goal exactly.\\n"
-            "- Do not relocate requested files into tests/, src/, cmm/, or another directory.\\n"
-            "- Use only project-relative paths.\\n"
-            "- Return JSON only.\\n"
-            "Available project context:\\n"
-            f"{json.dumps(context.serialize(), ensure_ascii=True)}\\n"
+            "Generate one development plan matching this schema:\n"
+            f"{json.dumps(schema, ensure_ascii=True)}\n"
+            "Rules:\n"
+            "- Preserve all file paths explicitly written in the goal exactly.\n"
+            "- Do not relocate requested files into another directory.\n"
+            "- Use only project-relative paths.\n"
+            "- Return JSON only.\n"
+            "Available project context:\n"
+            f"{json.dumps(context.serialize(), ensure_ascii=True)}\n"
             f"Development goal: {goal}"
         )
 
