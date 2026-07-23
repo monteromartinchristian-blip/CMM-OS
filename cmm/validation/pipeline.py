@@ -148,6 +148,7 @@ class ValidationPipeline:
             stopped_early = False
             cancelled = False
             name_to_step: Dict[str, ValidationStep] = {s.name: s for s in ordered}
+            affected_tests: List[str] = []
 
             for step in ordered:
                 if cancel.is_cancelled():
@@ -192,6 +193,13 @@ class ValidationPipeline:
 
                 res = self.executor.execute(context, step, self.registry)
                 results.append(res)
+
+                metadata_affected = step.metadata.get("affected_tests")
+                if isinstance(metadata_affected, (list, tuple)):
+                    for item in metadata_affected:
+                        path = str(item)
+                        if path not in affected_tests:
+                            affected_tests.append(path)
 
                 # Stop semantics:
                 # - Always stop on internal ERROR
@@ -268,7 +276,7 @@ class ValidationPipeline:
                 blocking_findings=tuple(blocking),
                 warnings=tuple(warnings),
                 changed_files=tuple(context.changed_files),
-                affected_tests=(),
+                affected_tests=tuple(affected_tests),
                 duration_ms=int((time.monotonic() - t0) * 1000),
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),

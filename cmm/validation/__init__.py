@@ -34,6 +34,8 @@ from .catalog import (
 )
 from .defaults import build_default_pipeline, build_default_validation_pipeline
 from .command_parsers import CommandResultParser
+from .testing_catalog import default_testing_steps, affected_tests_step, unit_tests_step, integration_tests_step, full_suite_step
+from .testing_defaults import default_validation_steps
 
 __all__ = [
     "ValidationStatus",
@@ -71,4 +73,10 @@ __all__ = [
     "build_default_pipeline",
     "build_default_validation_pipeline",
     "CommandResultParser",
+    "affected_tests_step",
+    "unit_tests_step",
+    "integration_tests_step",
+    "full_suite_step",
+    "default_testing_steps",
+    "default_validation_steps",
 ]
