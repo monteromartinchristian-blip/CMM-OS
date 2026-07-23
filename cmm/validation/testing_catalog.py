@@ -21,6 +21,8 @@ def _make_pytest_step(
     command_tests: Iterable[Path] = (),
     full_suite: bool = False,
 ) -> ValidationStep | None:
+    from cmm.validation.security.contracts import default_command_policy
+
     tests = tuple(Path(str(path)) for path in command_tests)
     if not full_suite and not tests:
         return None
@@ -49,6 +51,8 @@ def _make_pytest_step(
         "selection": selection.serialize(),
         "affected_tests": [str(path) for path in selection.selected_tests],
         "related_changes": {key: list(value) for key, value in selection.related_changes.items()},
+        "security_profile": "validation",
+        "command_policy": default_command_policy().serialize(),
     }
     return ValidationStep(
         name=name,

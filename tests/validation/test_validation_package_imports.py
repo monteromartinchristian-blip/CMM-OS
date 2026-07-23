@@ -11,6 +11,10 @@ from cmm.validation import (
     ValidationResult,
     StaticAnalysisPlan,
     StaticAnalysisScope,
+    CommandPolicy,
+    SecurityAnalysisPlan,
+    SecurityScope,
+    SecurityValidator,
 )
 
 
@@ -28,3 +32,7 @@ def test_package_exports_exist():
     assert ValidationResult is not None
     assert StaticAnalysisPlan is not None
     assert StaticAnalysisScope is not None
+    assert CommandPolicy is not None
+    assert SecurityAnalysisPlan is not None
+    assert SecurityScope is not None
+    assert SecurityValidator is not None

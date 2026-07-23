@@ -48,6 +48,8 @@ def build_static_analysis_plan(
 def static_type_check_step(context: ValidationContext, plan: StaticAnalysisPlan) -> ValidationStep | None:
     if not plan.files:
         return None
+    from cmm.validation.security.contracts import default_command_policy
+
     command = (
         sys.executable,
         "-m",
@@ -80,6 +82,8 @@ def static_type_check_step(context: ValidationContext, plan: StaticAnalysisPlan)
             "analysis_complete": plan.complete,
             "analysis_reason": plan.reason,
             "scope": [str(path) for path in plan.files],
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
         },
     )
 
@@ -87,6 +91,8 @@ def static_type_check_step(context: ValidationContext, plan: StaticAnalysisPlan)
 def static_dead_code_step(context: ValidationContext, plan: StaticAnalysisPlan) -> ValidationStep | None:
     if not plan.files:
         return None
+    from cmm.validation.security.contracts import default_command_policy
+
     command = (
         sys.executable,
         "-m",
@@ -113,6 +119,8 @@ def static_dead_code_step(context: ValidationContext, plan: StaticAnalysisPlan) 
             "analysis_complete": plan.complete,
             "analysis_reason": plan.reason,
             "scope": [str(path) for path in plan.files],
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
         },
     )
 

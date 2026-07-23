@@ -76,11 +76,18 @@ def _context(tmp_path: Path):
     return ValidationContext(project_root=tmp_path)
 
 
+def _script(tmp_path: Path, name: str, body: str) -> Path:
+    path = tmp_path / name
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
 def test_pipeline_all_pass(tmp_path: Path):
     pl = _pipeline()
     ctx = _context(tmp_path)
     s1 = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
-    s2 = ValidationStep(name="pass2", step_type=ValidationStepType.COMMAND, command=(sys.executable, "-c", "print('ok')"))
+    script = _script(tmp_path, "pass2.py", "print('ok')\n")
+    s2 = ValidationStep(name="pass2", step_type=ValidationStepType.COMMAND, command=(sys.executable, str(script)))
     steps = (s1, s2)
     result = pl.run(ctx, steps)
     assert result.status == ValidationStatus.PASSED
@@ -165,10 +172,11 @@ def test_pipeline_requested_steps_and_unknown(tmp_path: Path):
 def test_pipeline_timeout_and_changed_files(tmp_path: Path):
     pl = _pipeline()
     ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("src/a.py"),))
+    script = _script(tmp_path, "sleep.py", "import time\ntime.sleep(0.2)\n")
     s = ValidationStep(
         name="sleep",
         step_type=ValidationStepType.COMMAND,
-        command=(sys.executable, "-c", "import time; time.sleep(0.2)"),
+        command=(sys.executable, str(script)),
         timeout_seconds=1,
     )
     res = pl.run(ctx, (s,))

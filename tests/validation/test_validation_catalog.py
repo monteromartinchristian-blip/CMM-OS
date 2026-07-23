@@ -9,6 +9,8 @@ from cmm.validation.catalog import (
     ast_step,
     structural_step,
     default_structural_steps,
+    default_security_steps,
+    security_step,
     build_default_validation_registry,
 )
 from cmm.validation.context import ValidationContext
@@ -32,6 +34,8 @@ def test_catalog_steps_are_command_or_internal_and_required(tmp_path: Path):
     assert syntax_step().step_type == ValidationStepType.INTERNAL
     assert ast_step().step_type == ValidationStepType.INTERNAL
     assert structural_step().step_type == ValidationStepType.INTERNAL
+    assert security_step(ctx).step_type == ValidationStepType.INTERNAL
+    assert default_security_steps(ctx)[0].step_type == ValidationStepType.INTERNAL
 
 
 def test_default_registry_contains_internal_validators():
@@ -39,3 +43,4 @@ def test_default_registry_contains_internal_validators():
     assert registry.has("syntax")
     assert registry.has("ast")
     assert registry.has("structural")
+    assert registry.has("security")

@@ -136,6 +136,8 @@ def select_python_files_with_errors(context: ValidationContext) -> tuple[list[Pa
 
 
 def formatter_check_step(context: ValidationContext) -> ValidationStep:
+    from cmm.validation.security.contracts import default_command_policy
+
     files = [str(p) for p in select_python_files(context)]
     command = (sys.executable, "-m", "ruff", "format", "--check")
     if files:
@@ -150,11 +152,13 @@ def formatter_check_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": False, "scope": files or None},
+        metadata={"fix": False, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
     )
 
 
 def formatter_fix_step(context: ValidationContext) -> ValidationStep:
+    from cmm.validation.security.contracts import default_command_policy
+
     files = [str(p) for p in select_python_files(context)]
     command = (sys.executable, "-m", "ruff", "format")
     if files:
@@ -169,11 +173,13 @@ def formatter_fix_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0,),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": True, "scope": files or None},
+        metadata={"fix": True, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
     )
 
 
 def lint_check_step(context: ValidationContext) -> ValidationStep:
+    from cmm.validation.security.contracts import default_command_policy
+
     files = [str(p) for p in select_python_files(context)]
     command = (sys.executable, "-m", "ruff", "check", "--output-format", "json")
     if files:
@@ -188,11 +194,13 @@ def lint_check_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": False, "scope": files or None},
+        metadata={"fix": False, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
     )
 
 
 def lint_fix_step(context: ValidationContext) -> ValidationStep:
+    from cmm.validation.security.contracts import default_command_policy
+
     files = [str(p) for p in select_python_files(context)]
     command = (sys.executable, "-m", "ruff", "check", "--fix")
     if files:
@@ -207,7 +215,7 @@ def lint_fix_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": True, "scope": files or None},
+        metadata={"fix": True, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
     )
 
 
@@ -279,6 +287,40 @@ def default_static_analysis_steps(context: ValidationContext, *, change_impact_s
     return _default_static_analysis_steps(context, change_impact_step=change_impact_step)
 
 
+def security_step(
+    context: ValidationContext,
+    *,
+    change_impact_step: ValidationStep | None = None,
+    planned_steps: tuple[ValidationStep, ...] = (),
+) -> ValidationStep:
+    from cmm.validation.security.validation import security_step as _security_step
+
+    return _security_step(context, change_impact_step=change_impact_step, planned_steps=planned_steps)
+
+
+def default_security_steps(
+    context: ValidationContext,
+    *,
+    change_impact_step: ValidationStep | None = None,
+    planned_steps: tuple[ValidationStep, ...] = (),
+) -> tuple[ValidationStep, ...]:
+    from cmm.validation.security.validation import default_security_steps as _default_security_steps
+
+    return _default_security_steps(context, change_impact_step=change_impact_step, planned_steps=planned_steps)
+
+
+def bandit_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+    from cmm.validation.security.validation import bandit_step as _bandit_step
+
+    return _bandit_step(context, change_impact_step=change_impact_step)
+
+
+def pip_audit_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+    from cmm.validation.security.validation import pip_audit_step as _pip_audit_step
+
+    return _pip_audit_step(context, change_impact_step=change_impact_step)
+
+
 def default_structural_steps(context: ValidationContext) -> tuple[ValidationStep, ...]:
     return (
         syntax_step(),
@@ -295,6 +337,8 @@ def build_default_validation_registry() -> ValidationRegistry:
     registry.register("ast", PythonAstValidator())
     registry.register("structural", PythonStructuralValidator())
     from cmm.validation.impact.validation import ChangeImpactValidator
+    from cmm.validation.security.validation import SecurityValidator
 
     registry.register("change_impact", ChangeImpactValidator())
+    registry.register("security", SecurityValidator())
     return registry

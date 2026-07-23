@@ -29,8 +29,12 @@ from .catalog import (
     ast_step,
     structural_step,
     default_structural_steps,
+    default_security_steps,
+    bandit_step,
+    pip_audit_step,
     build_default_validation_registry,
     select_python_files,
+    security_step,
 )
 from .defaults import build_default_pipeline, build_default_validation_pipeline
 from .command_parsers import CommandResultParser
@@ -52,6 +56,15 @@ from .impact import (
     ChangeType,
     change_impact_step,
     default_impact_steps,
+)
+from .security import (
+    CommandPolicy,
+    SecurityAnalysisPlan,
+    SecurityScope,
+    default_command_policy,
+    build_security_plan,
+    evaluate_command_policy,
+    SecurityValidator,
 )
 
 __all__ = [
@@ -85,11 +98,15 @@ __all__ = [
     "ast_step",
     "structural_step",
     "default_structural_steps",
+    "default_security_steps",
+    "bandit_step",
+    "pip_audit_step",
     "build_default_validation_registry",
     "select_python_files",
     "build_default_pipeline",
     "build_default_validation_pipeline",
     "CommandResultParser",
+    "security_step",
     "affected_tests_step",
     "unit_tests_step",
     "integration_tests_step",
@@ -109,4 +126,11 @@ __all__ = [
     "ChangeType",
     "change_impact_step",
     "default_impact_steps",
+    "CommandPolicy",
+    "SecurityAnalysisPlan",
+    "SecurityScope",
+    "default_command_policy",
+    "build_security_plan",
+    "evaluate_command_policy",
+    "SecurityValidator",
 ]

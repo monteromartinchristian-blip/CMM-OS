@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Any, Optional
 
+from .artifacts import ValidationArtifact
 from .context import ValidationContext
 from .enums import ValidationStatus, ValidationSeverity
 from .steps import ValidationStep, ValidationStepType, ValidationStepResult
@@ -16,20 +17,43 @@ from .registry import ValidationRegistry
 from .exceptions import ValidationExecutionError
 from .findings import ValidationFinding
 from .command_parsers import CommandResultParser
+from .security.contracts import CommandPolicy, default_command_policy
+from .security.validation import evaluate_command_policy
 
 
 @dataclass(slots=True)
 class ValidationExecutor:
     """Executes validation steps (command or internal)."""
 
-    def _build_environment(self, context_env: Mapping[str, str], step_env: Mapping[str, str]) -> Mapping[str, str]:
-        env = dict(os.environ)  # base
+    def _build_environment(self, context_env: Mapping[str, str], step_env: Mapping[str, str], policy: CommandPolicy, *, strict: bool) -> Mapping[str, str]:
+        if strict:
+            env = {key: value for key, value in os.environ.items() if policy.allows_environment_key(key)}  # base is filtered
+        else:
+            env = dict(os.environ)
         env.update(context_env or {})
         env.update(step_env or {})  # step has priority
         return env
 
     def _select_cwd(self, context: ValidationContext, step: ValidationStep) -> Optional[Path]:
         return step.working_directory or context.project_root
+
+    def _resolve_command_policy(self, context: ValidationContext, step: ValidationStep) -> CommandPolicy:
+        for candidate in (
+            step.metadata.get("command_policy"),
+            context.metadata.get("command_policy"),
+        ):
+            if isinstance(candidate, Mapping):
+                return CommandPolicy.from_mapping(candidate)
+        return default_command_policy()
+
+    def _security_profile(self, context: ValidationContext, step: ValidationStep) -> str | None:
+        for candidate in (
+            step.metadata.get("security_profile"),
+            context.metadata.get("security_profile"),
+        ):
+            if candidate is not None:
+                return str(candidate)
+        return None
 
     def execute(self, context: ValidationContext, step: ValidationStep, registry: Optional[ValidationRegistry] = None) -> ValidationStepResult:
         if step.step_type == ValidationStepType.COMMAND:
@@ -47,10 +71,56 @@ class ValidationExecutor:
             return ValidationStepResult(name=step.name, status=ValidationStatus.ERROR, stderr="Unknown step type")
 
     def _execute_command(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
-        env = self._build_environment(context.environment, step.environment)
+        profile = self._security_profile(context, step)
+        policy = self._resolve_command_policy(context, step)
         cwd = self._select_cwd(context, step)
+        env = self._build_environment(context.environment, step.environment, policy, strict=profile == "validation")
         started_at = datetime.now(timezone.utc)
         start = time.monotonic()
+        violations = ()
+        if profile == "validation":
+            violations = evaluate_command_policy(
+                command=step.command,
+                working_directory=cwd,
+                project_root=context.project_root,
+                environment=env,
+                policy=policy,
+                step_name=step.name,
+                security_profile=profile,
+            )
+        if violations:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            artifact = ValidationArtifact(
+                id="command-policy",
+                kind="command_policy_report",
+                source="validation.security",
+                content={
+                    "step_name": step.name,
+                    "command_policy": policy.serialize(),
+                    "violations": [finding.serialize() for finding in violations],
+                    "working_directory": None if cwd is None else str(cwd),
+                },
+                findings=violations,
+                metrics={"violation_count": len(violations)},
+            )
+            return ValidationStepResult(
+                name=step.name,
+                status=ValidationStatus.ERROR,
+                exit_code=None,
+                duration_ms=duration_ms,
+                stdout="",
+                stderr="Command blocked by security policy",
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                findings=violations,
+                artifacts=(artifact,),
+                metadata={
+                    "executor": "command",
+                    "error": "command_policy_violation",
+                    "command_policy": policy.serialize(),
+                    "security_profile": profile,
+                },
+            )
         try:
             completed = subprocess.run(
                 list(step.command),

@@ -6,7 +6,9 @@ from pathlib import Path
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStep, ValidationStepResult
+from cmm.validation.tools.bandit import parse_bandit_results
 from cmm.validation.tools.mypy import parse_mypy_results
+from cmm.validation.tools.pip_audit import parse_pip_audit_results
 from cmm.validation.tools.ruff import parse_ruff_results
 from cmm.validation.tools.vulture import parse_vulture_results
 
@@ -39,6 +41,26 @@ class CommandResultParser:
             )
         elif parser in {"vulture", "dead_code"}:
             parsed = parse_vulture_results(
+                result.stdout,
+                result.exit_code or 0,
+                result.stdout,
+                result.stderr,
+                project_root=context.project_root,
+                command=step.command,
+                selected_files=selected_files,
+            )
+        elif parser in {"bandit", "code_security"}:
+            parsed = parse_bandit_results(
+                result.stdout,
+                result.exit_code or 0,
+                result.stdout,
+                result.stderr,
+                project_root=context.project_root,
+                command=step.command,
+                selected_files=selected_files,
+            )
+        elif parser in {"pip_audit", "dependency_security"}:
+            parsed = parse_pip_audit_results(
                 result.stdout,
                 result.exit_code or 0,
                 result.stdout,
