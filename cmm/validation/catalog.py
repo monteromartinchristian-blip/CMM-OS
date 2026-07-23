@@ -247,6 +247,12 @@ def structural_step() -> ValidationStep:
     )
 
 
+def change_impact_step(context: ValidationContext) -> ValidationStep:
+    from cmm.validation.impact.validation import change_impact_step as _change_impact_step
+
+    return _change_impact_step(context)
+
+
 def default_structural_steps(context: ValidationContext) -> tuple[ValidationStep, ...]:
     return (
         syntax_step(),
@@ -262,4 +268,7 @@ def build_default_validation_registry() -> ValidationRegistry:
     registry.register("syntax", PythonSyntaxValidator())
     registry.register("ast", PythonAstValidator())
     registry.register("structural", PythonStructuralValidator())
+    from cmm.validation.impact.validation import ChangeImpactValidator
+
+    registry.register("change_impact", ChangeImpactValidator())
     return registry
