@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Mapping, Any, Optional
 
 from .context import ValidationContext
-from .enums import ValidationStatus
+from .enums import ValidationStatus, ValidationSeverity
 from .steps import ValidationStep, ValidationStepType, ValidationStepResult
 from .registry import ValidationRegistry
 from .exceptions import ValidationExecutionError
+from .findings import ValidationFinding
 
 
 @dataclass(slots=True)
@@ -135,6 +136,15 @@ class ValidationExecutor:
             if not isinstance(result, ValidationStepResult):  # type: ignore
                 raise ValidationExecutionError(code="invalid_result", message="Internal validator returned invalid result type")
             if result.name != step.name:
+                # normalize and attach a structured warning finding
+                name_mismatch_finding = ValidationFinding(
+                    code="INTERNAL_NAME_MISMATCH",
+                    message=f"Validator returned result for '{result.name}' instead of '{step.name}'",
+                    severity=ValidationSeverity.WARNING,
+                    source="validation.internal",
+                    blocking=False,
+                    metadata={"original_step_name": result.name},
+                )
                 result = ValidationStepResult(
                     name=step.name,
                     status=result.status,
@@ -142,7 +152,7 @@ class ValidationExecutor:
                     duration_ms=result.duration_ms or int((time.monotonic() - start) * 1000),
                     stdout=result.stdout,
                     stderr=result.stderr,
-                    findings=result.findings,
+                    findings=tuple(result.findings) + (name_mismatch_finding,),
                     artifacts=result.artifacts,
                     started_at=result.started_at or started_at,
                     completed_at=result.completed_at or datetime.now(timezone.utc),

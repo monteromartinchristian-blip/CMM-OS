@@ -46,12 +46,29 @@ class SlowValidator:
         return ValidationStepResult(name=step.name, status=ValidationStatus.PASSED)
 
 
+class FailValidator:
+    name = "fail"
+
+    def validate(self, context: ValidationContext, step: ValidationStep):
+        # Non-blocking failure
+        return ValidationStepResult(name=step.name, status=ValidationStatus.FAILED)
+
+
+class ErrValidator:
+    name = "err"
+
+    def validate(self, context: ValidationContext, step: ValidationStep):
+        raise RuntimeError("boom")
+
+
 def _pipeline():
     reg = ValidationRegistry()
     reg.register("pass", PassValidator())
     reg.register("warn", WarnValidator())
     reg.register("block", BlockValidator())
     reg.register("slow", SlowValidator())
+    reg.register("fail", FailValidator())
+    reg.register("err", ErrValidator())
     return ValidationPipeline(executor=ValidationExecutor(), registry=reg)
 
 
@@ -87,6 +104,48 @@ def test_pipeline_stop_on_failure_and_blocker(tmp_path: Path):
     result = pl.run(ctx, (s1, s2))
     assert result.status in (ValidationStatus.FAILED, ValidationStatus.ERROR)
     assert any(r.status == ValidationStatus.SKIPPED for r in result.steps)
+
+
+def test_optional_failed_continues_and_warn_aggregate(tmp_path: Path):
+    pl = _pipeline()
+    ctx = _context(tmp_path)
+    s_opt_fail = ValidationStep(name="fail", step_type=ValidationStepType.INTERNAL, required=False, stop_on_failure=False)
+    s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
+    res = pl.run(ctx, (s_opt_fail, s_next))
+    assert [r.name for r in res.steps] == ["fail", "pass"]
+    assert res.status == ValidationStatus.WARNING
+    assert not any(r.status == ValidationStatus.SKIPPED for r in res.steps)
+    assert "non_blocking_failures" in res.metadata.get("pipeline", {})
+
+
+def test_required_failed_stops_without_blocking_finding(tmp_path: Path):
+    pl = _pipeline()
+    ctx = _context(tmp_path)
+    s_req_fail = ValidationStep(name="fail", step_type=ValidationStepType.INTERNAL, required=True, stop_on_failure=True)
+    s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
+    res = pl.run(ctx, (s_req_fail, s_next))
+    assert any(r.status == ValidationStatus.SKIPPED for r in res.steps)
+    assert res.status == ValidationStatus.FAILED
+
+
+def test_optional_blocking_finding_stops(tmp_path: Path):
+    pl = _pipeline()
+    ctx = _context(tmp_path)
+    s_opt_block = ValidationStep(name="block", step_type=ValidationStepType.INTERNAL, required=False, stop_on_failure=False)
+    s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
+    res = pl.run(ctx, (s_opt_block, s_next))
+    assert any(r.status == ValidationStatus.SKIPPED for r in res.steps)
+    assert res.status == ValidationStatus.FAILED
+
+
+def test_internal_error_always_stops(tmp_path: Path):
+    pl = _pipeline()
+    ctx = _context(tmp_path)
+    s_err = ValidationStep(name="err", step_type=ValidationStepType.INTERNAL)
+    s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
+    res = pl.run(ctx, (s_err, s_next))
+    assert res.status == ValidationStatus.ERROR
+    assert any(r.status == ValidationStatus.SKIPPED for r in res.steps)
 
 
 def test_pipeline_requested_steps_and_unknown(tmp_path: Path):

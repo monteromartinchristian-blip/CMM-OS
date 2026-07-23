@@ -147,6 +147,7 @@ class ValidationPipeline:
             results: List[ValidationStepResult] = []
             stopped_early = False
             cancelled = False
+            name_to_step: Dict[str, ValidationStep] = {s.name: s for s in ordered}
 
             for step in ordered:
                 if cancel.is_cancelled():
@@ -192,16 +193,15 @@ class ValidationPipeline:
                 res = self.executor.execute(context, step, self.registry)
                 results.append(res)
 
-                stop_due_to_status = res.status in {
-                    ValidationStatus.ERROR,
-                    ValidationStatus.FAILED,
-                    ValidationStatus.TIMED_OUT,
-                    ValidationStatus.CANCELLED,
-                }
+                # Stop semantics:
+                # - Always stop on internal ERROR
+                # - Stop on blockers regardless of step flags
+                # - Stop on FAILED/TIMED_OUT/CANCELLED only if step is required and stop_on_failure
+                stop_due_to_internal_error = res.status == ValidationStatus.ERROR
                 stop_due_to_step_policy = step.required and step.stop_on_failure and not res.is_successful
                 stop_due_to_blockers = any(f.blocking for f in res.findings)
 
-                if stop_due_to_status or stop_due_to_step_policy or stop_due_to_blockers:
+                if stop_due_to_internal_error or stop_due_to_step_policy or stop_due_to_blockers:
                     stopped_early = True
                     # mark remaining as SKIPPED
                     remaining = [s for s in ordered if s.name not in {r.name for r in results}]
@@ -230,15 +230,34 @@ class ValidationPipeline:
                 for a in r.artifacts:
                     artifacts.append(a)
 
-            # aggregate status
-            if any(r.status == ValidationStatus.ERROR for r in results):
+            # aggregate status with distinction between required vs optional failures
+            failed_like = {ValidationStatus.FAILED, ValidationStatus.TIMED_OUT, ValidationStatus.CANCELLED}
+            has_internal_error = any(r.status == ValidationStatus.ERROR for r in results)
+            has_required_failure = False
+            has_optional_failure = False
+            for r in results:
+                if r.status in failed_like:
+                    step_def = name_to_step.get(r.name)
+                    if step_def is not None and step_def.required:
+                        has_required_failure = True
+                    else:
+                        has_optional_failure = True
+
+            if has_internal_error:
                 overall = ValidationStatus.ERROR
-            elif any(r.status in (ValidationStatus.FAILED, ValidationStatus.TIMED_OUT, ValidationStatus.CANCELLED) for r in results) or blocking:
+            elif blocking or has_required_failure:
                 overall = ValidationStatus.FAILED
-            elif warnings:
+            elif warnings or has_optional_failure:
                 overall = ValidationStatus.WARNING
             else:
                 overall = ValidationStatus.PASSED
+
+            non_blocking_failures = []
+            for r in results:
+                if r.status in failed_like:
+                    step_def = name_to_step.get(r.name)
+                    if step_def is None or not step_def.required:
+                        non_blocking_failures.append(r.name)
 
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
@@ -258,6 +277,7 @@ class ValidationPipeline:
                     "pipeline": {
                         "stopped_early": stopped_early,
                         "cancelled": cancelled,
+                        "non_blocking_failures": non_blocking_failures,
                     }
                 },
             )

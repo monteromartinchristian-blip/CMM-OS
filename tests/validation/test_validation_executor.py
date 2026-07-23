@@ -152,6 +152,9 @@ def test_execute_internal(tmp_path: Path):
     assert r_ok.status == ValidationStatus.PASSED
     assert r_warn.status == ValidationStatus.WARNING
     assert r_wrong.status == ValidationStatus.PASSED and r_wrong.name == "wrong"
+    # name mismatch should add a warning finding and metadata
+    assert any(f.code == "INTERNAL_NAME_MISMATCH" for f in r_wrong.findings)
+    assert "original_step_name" in r_wrong.metadata
 
     # missing registry
     r_missing = ex.execute(ctx, s_ok, None)
