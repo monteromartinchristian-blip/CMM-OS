@@ -20,6 +20,20 @@ from .protocols import InternalValidator
 from .registry import ValidationRegistry
 from .executor import ValidationExecutor
 from .pipeline import ValidationPipeline, CancellationToken
+from .catalog import (
+    formatter_check_step,
+    formatter_fix_step,
+    lint_check_step,
+    lint_fix_step,
+    syntax_step,
+    ast_step,
+    structural_step,
+    default_structural_steps,
+    build_default_validation_registry,
+    select_python_files,
+)
+from .defaults import build_default_pipeline, build_default_validation_pipeline
+from .command_parsers import CommandResultParser
 
 __all__ = [
     "ValidationStatus",
@@ -43,4 +57,18 @@ __all__ = [
     "ValidationExecutor",
     "ValidationPipeline",
     "CancellationToken",
+    # 7.3
+    "formatter_check_step",
+    "formatter_fix_step",
+    "lint_check_step",
+    "lint_fix_step",
+    "syntax_step",
+    "ast_step",
+    "structural_step",
+    "default_structural_steps",
+    "build_default_validation_registry",
+    "select_python_files",
+    "build_default_pipeline",
+    "build_default_validation_pipeline",
+    "CommandResultParser",
 ]

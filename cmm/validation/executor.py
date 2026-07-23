@@ -15,6 +15,7 @@ from .steps import ValidationStep, ValidationStepType, ValidationStepResult
 from .registry import ValidationRegistry
 from .exceptions import ValidationExecutionError
 from .findings import ValidationFinding
+from .command_parsers import CommandResultParser
 
 
 @dataclass(slots=True)
@@ -62,7 +63,7 @@ class ValidationExecutor:
             )
             duration_ms = int((time.monotonic() - start) * 1000)
             status = ValidationStatus.PASSED if completed.returncode in step.allowed_exit_codes else ValidationStatus.FAILED
-            return ValidationStepResult(
+            result = ValidationStepResult(
                 name=step.name,
                 status=status,
                 exit_code=completed.returncode,
@@ -73,6 +74,7 @@ class ValidationExecutor:
                 completed_at=datetime.now(timezone.utc),
                 metadata={"executor": "command"},
             )
+            return CommandResultParser().parse(context, step, result)
         except subprocess.TimeoutExpired as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
             return ValidationStepResult(
