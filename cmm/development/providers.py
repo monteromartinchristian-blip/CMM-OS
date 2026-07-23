@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import re
 from typing import Any, Mapping, Protocol, runtime_checkable
 
@@ -96,6 +97,147 @@ class DeterministicPlanningProvider:
         return None
 
 
+
+class OpenAIPlanningProvider:
+    """OpenAI provider using the Responses API."""
+
+    def __init__(self, model: str | None = None, *, client: Any | None = None) -> None:
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5-mini")
+        self._injected_client = client
+
+    def generate_plan(self, goal: str, context: ProjectContext) -> Mapping[str, Any]:
+        self._load_dotenv_if_available()
+        openai = self._load_openai()
+
+        if self._injected_client is None and not os.getenv("OPENAI_API_KEY"):
+            raise PlanningProviderError(
+                "OPENAI_API_KEY is not configured in the environment or .env file."
+            )
+
+        client = self._injected_client or openai.OpenAI()
+
+        try:
+            response = client.responses.create(
+                model=self.model,
+                instructions=(
+                    "You are the planning provider for CMM OS. "
+                    "Return exactly one valid JSON object. "
+                    "Use only project-relative paths and registered semantic operations. "
+                    "Preserve every explicit file path from the user goal exactly. "
+                    "Never replace an explicitly requested path with a preferred test, source, "
+                    "package, or generated path. "
+                    "Never emit Markdown, shell commands, or explanatory text."
+                ),
+                input=self._prompt(goal, context),
+            )
+            payload = json.loads(response.output_text)
+        except json.JSONDecodeError as error:
+            raise PlanningProviderError(
+                f"OpenAI returned invalid JSON: {error}"
+            ) from error
+        except Exception as error:
+            api_error = getattr(openai, "APIError", None)
+            if api_error is not None and isinstance(error, api_error):
+                raise PlanningProviderError(
+                    f"OpenAI request failed: {error}"
+                ) from error
+            raise
+
+        if not isinstance(payload, Mapping):
+            raise PlanningProviderError(
+                "OpenAI returned a JSON value that is not a plan object."
+            )
+
+        self._validate_explicit_path(goal, payload)
+        return payload
+
+    def _load_dotenv_if_available(self) -> None:
+        """Load a local .env file when python-dotenv is installed."""
+
+        try:
+            dotenv = importlib.import_module("dotenv")
+        except ImportError:
+            return
+        dotenv.load_dotenv()
+
+    def _load_openai(self) -> Any:
+        """Load the optional OpenAI SDK only when this provider is used."""
+
+        try:
+            return importlib.import_module("openai")
+        except ImportError as error:
+            raise PlanningProviderError(
+                "OpenAI provider requested, but the optional 'openai' package "
+                "is not installed. Install CMM OS with the 'openai' extra."
+            ) from error
+
+    def _validate_explicit_path(
+        self,
+        goal: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        """Reject plans that replace an explicitly requested Python path."""
+
+        match = re.search(
+            r"\bin\s+(?P<path>[^\s]+\.py)\b",
+            goal,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return
+
+        requested_path = match.group("path")
+        affected_files = payload.get("affected_files", [])
+        operations = payload.get("operations", [])
+
+        operation_paths = {
+            str(parameters["path"])
+            for operation in operations
+            if isinstance(operation, Mapping)
+            for parameters in [operation.get("parameters")]
+            if isinstance(parameters, Mapping) and "path" in parameters
+        }
+
+        if requested_path not in affected_files or requested_path not in operation_paths:
+            raise PlanningProviderError(
+                "OpenAI changed an explicitly requested path: "
+                f"expected '{requested_path}'."
+            )
+
+    def _prompt(self, goal: str, context: ProjectContext) -> str:
+        schema = {
+            "goal": goal,
+            "affected_files": ["relative/path.py"],
+            "operations": [
+                {
+                    "domain": "python",
+                    "type": "create_class",
+                    "parameters": {
+                        "path": "relative/path.py",
+                        "class_name": "Name",
+                    },
+                    "reason": "brief reason",
+                }
+            ],
+            "rationale": "brief rationale",
+            "validations": ["python_ast", "python_compile"],
+            "risks": [],
+        }
+
+        return (
+            "Generate one development plan matching this schema:\\n"
+            f"{json.dumps(schema, ensure_ascii=True)}\\n"
+            "Rules:\\n"
+            "- Preserve all file paths explicitly written in the goal exactly.\\n"
+            "- Do not relocate requested files into tests/, src/, cmm/, or another directory.\\n"
+            "- Use only project-relative paths.\\n"
+            "- Return JSON only.\\n"
+            "Available project context:\\n"
+            f"{json.dumps(context.serialize(), ensure_ascii=True)}\\n"
+            f"Development goal: {goal}"
+        )
+
+
 class OllamaPlanningProvider:
     """Optional Ollama provider whose dependency is loaded only when used."""
 
@@ -170,4 +312,6 @@ def create_planning_provider(name: str) -> PlanningProvider:
         return DeterministicPlanningProvider()
     if provider_name == "ollama":
         return OllamaPlanningProvider(model or "qwen2.5-coder:7b")
+    if provider_name == "openai":
+        return OpenAIPlanningProvider(model or None)
     raise PlanValidationError(f"Unknown planning provider: {name}")
