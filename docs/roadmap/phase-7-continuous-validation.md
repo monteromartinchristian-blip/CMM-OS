@@ -1216,6 +1216,10 @@ Artifacts and results must be structured enough for Phase 8 to distinguish:
 - missing information;
 - commit-gate decisions.
 
+## Documentation
+
+See `docs/validation/cli-api-ci.md`.
+
 ## Future Autonomous Agent
 
 The Phase 9 agent must be able to use the result to decide:

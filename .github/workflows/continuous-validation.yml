@@ -1,0 +1,63 @@
+name: Continuous Validation
+
+on:
+  push:
+    branches:
+      - main
+      - feature/phase-7-continuous-validation
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: continuous-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validation Pipeline (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e .
+          python -m pip install pytest
+
+      - name: Run validation pipeline
+        run: |
+          python -m cmm validation run --policy ci --git-changes --output json > validation-report.json
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report-${{ matrix.python-version }}
+          path: |
+            validation-report.json
+            .cmm/validation/
+          if-no-files-found: ignore

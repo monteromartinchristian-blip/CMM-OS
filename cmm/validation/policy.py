@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 from .context import ValidationContext
 from .errors import ValidationContractError
@@ -37,7 +38,9 @@ class ValidationPolicy:
     def __post_init__(self) -> None:
         if not self.name:
             raise ValidationContractError("ValidationPolicy.name must not be empty")
-        object.__setattr__(self, "name", canonical_validation_policy_name(self.name) or self.name)
+        object.__setattr__(
+            self, "name", canonical_validation_policy_name(self.name) or self.name
+        )
         object.__setattr__(self, "required_steps", _as_tuple(self.required_steps))
         object.__setattr__(self, "optional_steps", _as_tuple(self.optional_steps))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
@@ -54,15 +57,19 @@ class ValidationPolicy:
         }
 
     @classmethod
-    def from_mapping(cls, payload: Mapping[str, Any]) -> "ValidationPolicy":
+    def from_mapping(cls, payload: Mapping[str, Any]) -> ValidationPolicy:
         return cls(
             name=str(payload["name"]),
             required_steps=_as_tuple(payload.get("required_steps", ())),
             optional_steps=_as_tuple(payload.get("optional_steps", ())),
-            stop_on_blocking_failure=bool(payload.get("stop_on_blocking_failure", True)),
+            stop_on_blocking_failure=bool(
+                payload.get("stop_on_blocking_failure", True)
+            ),
             require_full_suite=bool(payload.get("require_full_suite", False)),
             allow_commit=bool(payload.get("allow_commit", False)),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -84,6 +91,7 @@ _POLICY_ALIASES: dict[str, str] = {
     "release": "release",
     "autonomousexecution": "autonomous_execution",
     "autonomous_execution": "autonomous_execution",
+    "ci": "ci",
     "full": "full",
 }
 
@@ -153,9 +161,13 @@ def expand_validation_step_labels(
         canonical = str(label_str).strip().lower().replace("-", "_").replace(" ", "_")
         if canonical in active_path:
             cycle_str = " -> ".join(active_path + (canonical,))
-            raise ValidationContractError(f"Circular alias detected in validation step labels: {cycle_str}")
+            raise ValidationContractError(
+                f"Circular alias detected in validation step labels: {cycle_str}"
+            )
         if canonical not in step_aliases:
-            raise ValidationContractError(f"Unknown validation step label '{label_str}'.")
+            raise ValidationContractError(
+                f"Unknown validation step label '{label_str}'."
+            )
 
         targets = step_aliases[canonical]
         new_path = active_path + (canonical,)
@@ -189,7 +201,9 @@ def resolve_validation_policy(
         try:
             return available[requested]
         except KeyError as exc:
-            raise ValidationContractError(f"Unknown validation policy '{context.requested_policy}'.") from exc
+            raise ValidationContractError(
+                f"Unknown validation policy '{context.requested_policy}'."
+            ) from exc
 
     change_type = canonical_validation_policy_name(context.change_type)
     if change_type in available:
@@ -207,7 +221,11 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
         allow_commit=True,
         metadata={
             "objective": "file validation, formatting, link checking, and documentation-specific validations",
-            "future_required_steps": ("file_validation", "link_check", "documentation_validation"),
+            "future_required_steps": (
+                "file_validation",
+                "link_check",
+                "documentation_validation",
+            ),
         },
     ),
     "small_change": ValidationPolicy(
@@ -221,7 +239,17 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "structural_change": ValidationPolicy(
         name="structural_change",
-        required_steps=("formatter_check", "lint", "syntax", "ast", "custom_checks", "affected_tests", "unit_tests", "integration_tests", "static_analysis"),
+        required_steps=(
+            "formatter_check",
+            "lint",
+            "syntax",
+            "ast",
+            "custom_checks",
+            "affected_tests",
+            "unit_tests",
+            "integration_tests",
+            "static_analysis",
+        ),
         optional_steps=(),
         stop_on_blocking_failure=True,
         require_full_suite=False,
@@ -230,7 +258,14 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "imports_change": ValidationPolicy(
         name="imports_change",
-        required_steps=("lint", "syntax", "ast", "import_analysis", "affected_tests", "cycle_checks"),
+        required_steps=(
+            "lint",
+            "syntax",
+            "ast",
+            "import_analysis",
+            "affected_tests",
+            "cycle_checks",
+        ),
         optional_steps=("custom_checks",),
         stop_on_blocking_failure=True,
         require_full_suite=False,
@@ -262,7 +297,18 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "kernel_change": ValidationPolicy(
         name="kernel_change",
-        required_steps=("formatter_check", "lint", "syntax", "ast", "custom_checks", "full_suite", "static_analysis", "security", "e2e", "kernel_specific_validations"),
+        required_steps=(
+            "formatter_check",
+            "lint",
+            "syntax",
+            "ast",
+            "custom_checks",
+            "full_suite",
+            "static_analysis",
+            "security",
+            "e2e",
+            "kernel_specific_validations",
+        ),
         optional_steps=("bandit", "pip_audit"),
         stop_on_blocking_failure=True,
         require_full_suite=True,
@@ -271,7 +317,20 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "release": ValidationPolicy(
         name="release",
-        required_steps=("formatter_check", "lint", "ast", "custom_checks", "full_suite", "static_analysis", "security", "e2e", "minimum_coverage", "version_validation", "documentation_validation", "migration_validation"),
+        required_steps=(
+            "formatter_check",
+            "lint",
+            "ast",
+            "custom_checks",
+            "full_suite",
+            "static_analysis",
+            "security",
+            "e2e",
+            "minimum_coverage",
+            "version_validation",
+            "documentation_validation",
+            "migration_validation",
+        ),
         optional_steps=("bandit", "pip_audit"),
         stop_on_blocking_failure=True,
         require_full_suite=True,
@@ -280,7 +339,17 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "full": ValidationPolicy(
         name="full",
-        required_steps=("syntax", "ast", "static_analysis", "security", "custom_checks", "affected_tests", "unit_tests", "integration_tests", "full_suite"),
+        required_steps=(
+            "syntax",
+            "ast",
+            "static_analysis",
+            "security",
+            "custom_checks",
+            "affected_tests",
+            "unit_tests",
+            "integration_tests",
+            "full_suite",
+        ),
         optional_steps=(),
         stop_on_blocking_failure=True,
         require_full_suite=True,
@@ -289,12 +358,28 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "autonomous_execution": ValidationPolicy(
         name="autonomous_execution",
-        required_steps=("restrictive_policy", "allowed_commands_only", "all_required_checks", "complete_artifacts", "mandatory_traceability", "custom_checks"),
+        required_steps=(
+            "restrictive_policy",
+            "allowed_commands_only",
+            "all_required_checks",
+            "complete_artifacts",
+            "mandatory_traceability",
+            "custom_checks",
+        ),
         optional_steps=(),
         stop_on_blocking_failure=True,
         require_full_suite=True,
         allow_commit=False,
         metadata={"objective": "autonomous execution with strict controls"},
+    ),
+    "ci": ValidationPolicy(
+        name="ci",
+        required_steps=("formatter_check", "lint", "syntax", "ast", "custom_checks"),
+        optional_steps=("affected_tests",),
+        stop_on_blocking_failure=True,
+        require_full_suite=False,
+        allow_commit=False,
+        metadata={"objective": "continuous integration policy"},
     ),
 }
 

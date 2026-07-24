@@ -50,3 +50,5 @@ dist/
 
 # Windows
 Thumbs.db
+# CMM OS local runtime state
+.cmm/

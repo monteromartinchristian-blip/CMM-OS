@@ -7,8 +7,13 @@ import sys
 from pathlib import Path
 from time import perf_counter
 
-from cmm.development import AutonomousDevelopmentService, DevelopmentService, create_planning_provider
+from cmm.development import (
+    AutonomousDevelopmentService,
+    DevelopmentService,
+    create_planning_provider,
+)
 from cmm.execution.development import AutonomousExecutionService
+from cmm.validation.cli import handle_validation_cli, register_validation_cli
 from kernel.end_to_end_runner import EndToEndRunner
 
 
@@ -18,24 +23,68 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cmm")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run a natural-language goal against a Python project")
+    register_validation_cli(subparsers)
+
+    run_parser = subparsers.add_parser(
+        "run", help="Run a natural-language goal against a Python project"
+    )
     run_parser.add_argument("goal", help="Natural-language goal to execute")
     run_parser.add_argument("--project", dest="project", default=Path.cwd(), type=Path)
 
-    develop_parser = subparsers.add_parser("develop", help="Plan and apply a supervised semantic change")
-    develop_parser.add_argument("goal", help="Natural-language or structured development goal")
-    develop_parser.add_argument("--project", dest="project", default=Path.cwd(), type=Path)
-    develop_parser.add_argument("--yes", action="store_true", help="Apply without an interactive confirmation")
-    develop_parser.add_argument("--provider", default="deterministic", help="Planning provider (deterministic or ollama[:model])")
-    develop_parser.add_argument("--dry-run", action="store_true", help="Show and validate the plan without applying it")
-    develop_parser.add_argument("--autonomous", action="store_true", help="Iterate after recoverable failures")
-    develop_parser.add_argument("--max-attempts", type=int, default=3, help="Maximum autonomous attempts")
-    develop_parser.add_argument("--max-files", type=int, default=40, help="Maximum Python files included in planning context")
-    develop_parser.add_argument("--isolate", action="store_true", help="Create an isolated Git review branch when autonomous")
-    develop_parser.add_argument("--branch-name", help="Name for the isolated Git branch")
-    develop_parser.add_argument("--keep-changes", action="store_true", default=True, help="Keep successful changes for review")
-    develop_parser.add_argument("--restore", action="store_true", help="Restore the snapshot after execution")
-    develop_parser.add_argument("--json", action="store_true", help="Print the structured result as JSON")
+    develop_parser = subparsers.add_parser(
+        "develop", help="Plan and apply a supervised semantic change"
+    )
+    develop_parser.add_argument(
+        "goal", help="Natural-language or structured development goal"
+    )
+    develop_parser.add_argument(
+        "--project", dest="project", default=Path.cwd(), type=Path
+    )
+    develop_parser.add_argument(
+        "--yes", action="store_true", help="Apply without an interactive confirmation"
+    )
+    develop_parser.add_argument(
+        "--provider",
+        default="deterministic",
+        help="Planning provider (deterministic or ollama[:model])",
+    )
+    develop_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show and validate the plan without applying it",
+    )
+    develop_parser.add_argument(
+        "--autonomous", action="store_true", help="Iterate after recoverable failures"
+    )
+    develop_parser.add_argument(
+        "--max-attempts", type=int, default=3, help="Maximum autonomous attempts"
+    )
+    develop_parser.add_argument(
+        "--max-files",
+        type=int,
+        default=40,
+        help="Maximum Python files included in planning context",
+    )
+    develop_parser.add_argument(
+        "--isolate",
+        action="store_true",
+        help="Create an isolated Git review branch when autonomous",
+    )
+    develop_parser.add_argument(
+        "--branch-name", help="Name for the isolated Git branch"
+    )
+    develop_parser.add_argument(
+        "--keep-changes",
+        action="store_true",
+        default=True,
+        help="Keep successful changes for review",
+    )
+    develop_parser.add_argument(
+        "--restore", action="store_true", help="Restore the snapshot after execution"
+    )
+    develop_parser.add_argument(
+        "--json", action="store_true", help="Print the structured result as JSON"
+    )
     develop_parser.add_argument(
         "--validate",
         action="append",
@@ -57,7 +106,11 @@ def _print_result(result, elapsed_seconds: float) -> None:
         for error in result.validation_result.errors:
             print(f"- {error}")
 
-    executed_operations = result.execution_result.executed_operations if result.execution_result is not None else []
+    executed_operations = (
+        result.execution_result.executed_operations
+        if result.execution_result is not None
+        else []
+    )
     print("Executed operations:")
     if executed_operations:
         for operation in executed_operations:
@@ -80,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "validation":
+        return handle_validation_cli(args)
 
     if args.command == "develop":
         return _develop(args)
@@ -115,7 +171,9 @@ def _develop(args: argparse.Namespace) -> int:
         return 2
 
     if args.autonomous:
-        backend = AutonomousExecutionService(provider, output_fn=(lambda _message: None) if args.json else print)
+        backend = AutonomousExecutionService(
+            provider, output_fn=(lambda _message: None) if args.json else print
+        )
         result = AutonomousDevelopmentService(provider, development=backend).develop(
             args.goal,
             Path(args.project),
@@ -131,6 +189,7 @@ def _develop(args: argparse.Namespace) -> int:
         )
         if args.json:
             import json
+
             print(json.dumps(result.serialize(), ensure_ascii=True, sort_keys=True))
         else:
             _print_autonomous_result(result)
@@ -160,7 +219,9 @@ def _print_development_result(result) -> None:
         print("- none")
     print("Validations:")
     for validation in result.validations:
-        print(f"- {validation.name}: {'ok' if validation.success else 'failed'} - {validation.message}")
+        print(
+            f"- {validation.name}: {'ok' if validation.success else 'failed'} - {validation.message}"
+        )
     if not result.validations:
         print("- none")
     if result.diff:
@@ -183,7 +244,9 @@ def _print_autonomous_result(result) -> None:
     print(f"Stop reason: {result.stop_reason}")
     print(f"Rollback: {'yes' if result.rollback_applied else 'no'}")
     for attempt in result.attempts:
-        print(f"Attempt {attempt.number}: {attempt.failure.kind.value} - {attempt.failure.message}")
+        print(
+            f"Attempt {attempt.number}: {attempt.failure.kind.value} - {attempt.failure.message}"
+        )
     if result.final_result is not None:
         _print_development_result(result.final_result)
 
