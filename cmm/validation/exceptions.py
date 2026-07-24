@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping, Any
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,10 +31,30 @@ class ValidationPipelineError(ValidationErrorBase):
     pass
 
 
+class CommitGateError(ValidationErrorBase):
+    pass
+
+
+class CommitAuthorizationError(ValidationErrorBase):
+    pass
+
+
+class UnsafeRepositoryStateError(ValidationErrorBase):
+    pass
+
+
+class ProvisionalCommitError(ValidationErrorBase):
+    pass
+
+
 __all__ = [
-    "ValidationErrorBase",
-    "ValidationRegistryError",
+    "CommitAuthorizationError",
+    "CommitGateError",
+    "ProvisionalCommitError",
+    "UnsafeRepositoryStateError",
     "ValidationDependencyError",
+    "ValidationErrorBase",
     "ValidationExecutionError",
     "ValidationPipelineError",
+    "ValidationRegistryError",
 ]

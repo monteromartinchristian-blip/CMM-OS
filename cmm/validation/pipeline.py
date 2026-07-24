@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Mapping, Optional, Tuple, List, Dict, Set
+from typing import TYPE_CHECKING
 
-from .context import ValidationContext
-from .enums import ValidationStatus, ValidationSeverity
-from .errors import ValidationContractError
-from .steps import ValidationStep, ValidationStepResult
-from .results import ValidationResult
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from .commit_gate.models import CommitGateResult
+    from .policy import ValidationPolicy
+
 from .artifacts import ValidationArtifact
-from .findings import ValidationFinding
-from .policy import canonical_validation_policy_name, resolve_validation_policy
+from .context import ValidationContext
+from .enums import ValidationSeverity, ValidationStatus
+from .errors import ValidationContractError
 from .exceptions import (
     ValidationDependencyError,
-    ValidationPipelineError,
 )
-from .registry import ValidationRegistry
 from .executor import ValidationExecutor
+from .findings import ValidationFinding
+from .policy import canonical_validation_policy_name, resolve_validation_policy
+from .registry import ValidationRegistry
+from .results import ValidationResult
+from .steps import ValidationStep, ValidationStepResult
 
 
 @dataclass(slots=True)
@@ -32,12 +38,17 @@ class CancellationToken:
         return self.cancelled
 
 
-def _subset_with_dependencies(all_steps: Tuple[ValidationStep, ...], requested: Tuple[str, ...]) -> Tuple[ValidationStep, ...]:
-    by_name: Dict[str, ValidationStep] = {s.name: s for s in all_steps}
+def _subset_with_dependencies(
+    all_steps: tuple[ValidationStep, ...], requested: tuple[str, ...]
+) -> tuple[ValidationStep, ...]:
+    by_name: dict[str, ValidationStep] = {s.name: s for s in all_steps}
     missing = [n for n in requested if n not in by_name]
     if missing:
-        raise ValidationDependencyError(code="unknown_requested_step", message=f"Unknown requested steps: {', '.join(missing)}")
-    result: Dict[str, ValidationStep] = {}
+        raise ValidationDependencyError(
+            code="unknown_requested_step",
+            message=f"Unknown requested steps: {', '.join(missing)}",
+        )
+    result: dict[str, ValidationStep] = {}
 
     def visit(name: str) -> None:
         if name in result:
@@ -45,7 +56,10 @@ def _subset_with_dependencies(all_steps: Tuple[ValidationStep, ...], requested: 
         step = by_name[name]
         for dep in step.dependencies:
             if dep not in by_name:
-                raise ValidationDependencyError(code="missing_dependency", message=f"Missing dependency '{dep}' for step '{name}'")
+                raise ValidationDependencyError(
+                    code="missing_dependency",
+                    message=f"Missing dependency '{dep}' for step '{name}'",
+                )
             visit(dep)
         result[name] = step
 
@@ -56,27 +70,32 @@ def _subset_with_dependencies(all_steps: Tuple[ValidationStep, ...], requested: 
     return tuple(ordered)
 
 
-def _topological_sort(steps: Tuple[ValidationStep, ...]) -> Tuple[ValidationStep, ...]:
-    by_name: Dict[str, ValidationStep] = {}
+def _topological_sort(steps: tuple[ValidationStep, ...]) -> tuple[ValidationStep, ...]:
+    by_name: dict[str, ValidationStep] = {}
     for s in steps:
         if s.name in by_name:
-            raise ValidationDependencyError(code="duplicate_step", message=f"Duplicate step '{s.name}'")
+            raise ValidationDependencyError(
+                code="duplicate_step", message=f"Duplicate step '{s.name}'"
+            )
         by_name[s.name] = s
     # verify dependencies exist
     for s in steps:
         for dep in s.dependencies:
             if dep not in by_name:
-                raise ValidationDependencyError(code="missing_dependency", message=f"Missing dependency '{dep}' for step '{s.name}'")
+                raise ValidationDependencyError(
+                    code="missing_dependency",
+                    message=f"Missing dependency '{dep}' for step '{s.name}'",
+                )
     # Kahn's algorithm with deterministic order based on input sequence
-    in_degree: Dict[str, int] = {s.name: 0 for s in steps}
+    in_degree: dict[str, int] = {s.name: 0 for s in steps}
     for s in steps:
         for dep in s.dependencies:
             in_degree[s.name] += 1
-    ready: List[str] = [name for name, deg in in_degree.items() if deg == 0]
+    ready: list[str] = [name for name, deg in in_degree.items() if deg == 0]
     # stable order by original order
     ready.sort(key=lambda n: next(i for i, s in enumerate(steps) if s.name == n))
 
-    order: List[str] = []
+    order: list[str] = []
     while ready:
         n = ready.pop(0)
         order.append(n)
@@ -85,10 +104,16 @@ def _topological_sort(steps: Tuple[ValidationStep, ...]) -> Tuple[ValidationStep
                 in_degree[s.name] -= 1
                 if in_degree[s.name] == 0:
                     ready.append(s.name)
-                    ready.sort(key=lambda name: next(i for i, s in enumerate(steps) if s.name == name))
+                    ready.sort(
+                        key=lambda name: next(
+                            i for i, s in enumerate(steps) if s.name == name
+                        )
+                    )
 
     if len(order) != len(steps):
-        raise ValidationDependencyError(code="dependency_cycle", message="Dependency cycle detected")
+        raise ValidationDependencyError(
+            code="dependency_cycle", message="Dependency cycle detected"
+        )
 
     return tuple(by_name[name] for name in order)
 
@@ -98,7 +123,13 @@ class ValidationPipeline:
     executor: ValidationExecutor
     registry: ValidationRegistry
 
-    def run(self, context: ValidationContext, steps: Iterable[ValidationStep], *, cancel: Optional[CancellationToken] = None) -> ValidationResult:
+    def run(
+        self,
+        context: ValidationContext,
+        steps: Iterable[ValidationStep],
+        *,
+        cancel: CancellationToken | None = None,
+    ) -> ValidationResult:
         started_at = datetime.now(timezone.utc)
         t0 = time.monotonic()
         cancel = cancel or CancellationToken()
@@ -106,7 +137,9 @@ class ValidationPipeline:
             try:
                 resolved_policy = resolve_validation_policy(context)
             except ValidationContractError as exc:
-                policy_name = canonical_validation_policy_name(context.requested_policy or context.change_type or "full")
+                policy_name = canonical_validation_policy_name(
+                    context.requested_policy or context.change_type or "full"
+                )
                 return ValidationResult(
                     id=f"validation-result-{int(t0)}",
                     status=ValidationStatus.ERROR,
@@ -127,13 +160,17 @@ class ValidationPipeline:
             policy_name = (
                 resolved_policy.name
                 if resolved_policy is not None
-                else canonical_validation_policy_name(context.requested_policy or context.change_type or "full")
+                else canonical_validation_policy_name(
+                    context.requested_policy or context.change_type or "full"
+                )
             )
             steps_tuple = tuple(steps)
             # filter steps if requested
             if context.requested_steps is not None:
                 try:
-                    steps_tuple = _subset_with_dependencies(steps_tuple, context.requested_steps)
+                    steps_tuple = _subset_with_dependencies(
+                        steps_tuple, context.requested_steps
+                    )
                 except ValidationDependencyError as exc:
                     return ValidationResult(
                         id=f"validation-result-{int(t0)}",
@@ -151,7 +188,9 @@ class ValidationPipeline:
                         can_commit=False,
                         metadata={
                             "error": {"code": exc.code, "message": exc.message},
-                            "policy": None if resolved_policy is None else resolved_policy.serialize(),
+                            "policy": None
+                            if resolved_policy is None
+                            else resolved_policy.serialize(),
                         },
                     )
             # order and validate dependencies
@@ -174,21 +213,25 @@ class ValidationPipeline:
                     can_commit=False,
                     metadata={
                         "error": {"code": exc.code, "message": exc.message},
-                        "policy": None if resolved_policy is None else resolved_policy.serialize(),
+                        "policy": None
+                        if resolved_policy is None
+                        else resolved_policy.serialize(),
                     },
                 )
 
-            results: List[ValidationStepResult] = []
+            results: list[ValidationStepResult] = []
             stopped_early = False
             cancelled = False
-            name_to_step: Dict[str, ValidationStep] = {s.name: s for s in ordered}
-            affected_tests: List[str] = []
+            name_to_step: dict[str, ValidationStep] = {s.name: s for s in ordered}
+            affected_tests: list[str] = []
 
             for step in ordered:
                 if cancel.is_cancelled():
                     cancelled = True
                     # mark this and remaining as CANCELLED
-                    remaining = [s for s in ordered if s.name not in {r.name for r in results}]
+                    remaining = [
+                        s for s in ordered if s.name not in {r.name for r in results}
+                    ]
                     for rem in remaining:
                         results.append(
                             ValidationStepResult(
@@ -240,13 +283,21 @@ class ValidationPipeline:
                 # - Stop on blockers regardless of step flags
                 # - Stop on FAILED/TIMED_OUT/CANCELLED only if step is required and stop_on_failure
                 stop_due_to_internal_error = res.status == ValidationStatus.ERROR
-                stop_due_to_step_policy = step.required and step.stop_on_failure and not res.is_successful
+                stop_due_to_step_policy = (
+                    step.required and step.stop_on_failure and not res.is_successful
+                )
                 stop_due_to_blockers = any(f.blocking for f in res.findings)
 
-                if stop_due_to_internal_error or stop_due_to_step_policy or stop_due_to_blockers:
+                if (
+                    stop_due_to_internal_error
+                    or stop_due_to_step_policy
+                    or stop_due_to_blockers
+                ):
                     stopped_early = True
                     # mark remaining as SKIPPED
-                    remaining = [s for s in ordered if s.name not in {r.name for r in results}]
+                    remaining = [
+                        s for s in ordered if s.name not in {r.name for r in results}
+                    ]
                     for rem in remaining:
                         results.append(
                             ValidationStepResult(
@@ -260,9 +311,9 @@ class ValidationPipeline:
                         )
                     break
 
-            artifacts: List[ValidationArtifact] = []
-            blocking: List[ValidationFinding] = []
-            warnings: List[ValidationFinding] = []
+            artifacts: list[ValidationArtifact] = []
+            blocking: list[ValidationFinding] = []
+            warnings: list[ValidationFinding] = []
             for r in results:
                 for f in r.findings:
                     if f.blocking:
@@ -273,8 +324,14 @@ class ValidationPipeline:
                     artifacts.append(a)
 
             # aggregate status with distinction between required vs optional failures
-            failed_like = {ValidationStatus.FAILED, ValidationStatus.TIMED_OUT, ValidationStatus.CANCELLED}
-            has_internal_error = any(r.status == ValidationStatus.ERROR for r in results)
+            failed_like = {
+                ValidationStatus.FAILED,
+                ValidationStatus.TIMED_OUT,
+                ValidationStatus.CANCELLED,
+            }
+            has_internal_error = any(
+                r.status == ValidationStatus.ERROR for r in results
+            )
             has_required_failure = False
             has_optional_failure = False
             for r in results:
@@ -327,14 +384,18 @@ class ValidationPipeline:
                         "cancelled": cancelled,
                         "non_blocking_failures": non_blocking_failures,
                     },
-                    "policy": None if resolved_policy is None else resolved_policy.serialize(),
+                    "policy": None
+                    if resolved_policy is None
+                    else resolved_policy.serialize(),
                 },
             )
         except Exception as exc:  # pragma: no cover - unexpected safety net
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
                 status=ValidationStatus.ERROR,
-                policy=canonical_validation_policy_name(context.requested_policy or context.change_type or "full"),
+                policy=canonical_validation_policy_name(
+                    context.requested_policy or context.change_type or "full"
+                ),
                 steps=(),
                 artifacts=(),
                 blocking_findings=(),
@@ -345,8 +406,23 @@ class ValidationPipeline:
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),
                 can_commit=False,
-                metadata={"error": {"code": "unexpected_exception", "message": str(exc)}},
+                metadata={
+                    "error": {"code": "unexpected_exception", "message": str(exc)}
+                },
             )
 
+    def evaluate_commit_gate(
+        self,
+        result: ValidationResult,
+        policy: ValidationPolicy | None = None,
+        *,
+        required_artifacts: Sequence[str] | None = None,
+    ) -> CommitGateResult:
+        from .commit_gate.evaluator import CommitGateEvaluator
 
-__all__ = ["ValidationPipeline", "CancellationToken"]
+        return CommitGateEvaluator.evaluate(
+            result, policy, required_artifacts=required_artifacts
+        )
+
+
+__all__ = ["CancellationToken", "ValidationPipeline"]
