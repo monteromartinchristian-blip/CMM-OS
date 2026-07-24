@@ -1538,3 +1538,25 @@ Each modification will produce verifiable evidence showing:
 - whether it may pass the commit gate.
 
 Phase 7 will turn validation into a cross-cutting system capability and establish the trust foundation required for the Cognitive Layer, future autonomous agents, and the complete evolution of CMM OS.
+
+---
+
+# Phase 7 Completion
+
+- **Baseline Commit**: `7571534 feat(validation): add phase 7.12 CLI API and CI`
+- **Validation Tests**: 517 passing
+- **Global Test Suite**: 1170 passing (0 failing)
+- **CLI**: Implemented (`cmm validation run/inspect/artifacts/gate`)
+- **API**: `ValidationApplicationService`
+- **CI**: GitHub Actions workflow `.github/workflows/continuous-validation.yml`
+- **Semantic Integration**: `SemanticValidationAdapter`
+- **Execution Integration**: `ExecutionValidationCoordinator`
+- **Planner Integration**: `PlannerValidationAdapter`
+- **Kernel Events**: `KernelEventPublisher` (`kernel.events.event.Event`)
+- **Memory Integration**: `ValidationMemoryAdapter` (`TechnicalMemory`)
+- **Commit Gate**: `CommitGateEvaluator` & `ProvisionalCommitService`
+- **Observability**: `ValidationObservabilityService` & metrics
+- **Persistence**: `LocalValidationRepository` (`.cmm/validation/`)
+- **Security**: Secret sanitization, path traversal prevention, command policies
+- **E2E Validation**: End-to-end integration scenarios passing
+- **Declared Limitations**: Legacy execution paths operate in opt-in mode when validation is disabled; TechnicalMemory persistence stores structured summaries without forcing graph migrations.
