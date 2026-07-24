@@ -26,6 +26,14 @@ from .custom import (
     build_custom_validation_step,
     custom_validator_step,
 )
+from .custom_validators import (
+    ProjectManifestValidator,
+    ValidationContractValidator,
+    PublicApiValidator,
+    TestLayoutValidator,
+    default_custom_validators,
+    build_default_custom_validator_registry,
+)
 from .catalog import (
     formatter_check_step,
     formatter_fix_step,
@@ -157,4 +165,10 @@ __all__ = [
     "CustomValidatorRegistry",
     "build_custom_validation_step",
     "custom_validator_step",
+    "ProjectManifestValidator",
+    "ValidationContractValidator",
+    "PublicApiValidator",
+    "TestLayoutValidator",
+    "default_custom_validators",
+    "build_default_custom_validator_registry",
 ]
