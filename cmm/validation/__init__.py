@@ -88,6 +88,12 @@ from .policy import (
     expand_validation_step_labels,
     resolve_validation_policy,
 )
+from .planning import (
+    ValidationPlan,
+    build_default_validation_plan,
+    build_validation_plan,
+    validate_custom_policy,
+)
 
 __all__ = [
     "ValidationStatus",
@@ -171,4 +177,9 @@ __all__ = [
     "TestLayoutValidator",
     "default_custom_validators",
     "build_default_custom_validator_registry",
+    # 7.9 Block 3
+    "ValidationPlan",
+    "build_default_validation_plan",
+    "build_validation_plan",
+    "validate_custom_policy",
 ]

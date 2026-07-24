@@ -14,6 +14,7 @@ class ValidationContext:
     change_type: str = "full"
     execution_mode: str = "local"
     requested_steps: Optional[Tuple[str, ...]] = None
+    excluded_steps: Tuple[str, ...] = ()
     environment: Mapping[str, str] = field(default_factory=dict)
     allow_commit: bool = False
     branch: Optional[str] = None
@@ -39,7 +40,11 @@ class ValidationContext:
             except Exception:
                 normalized.append(path)
         object.__setattr__(self, "changed_files", tuple(normalized))
-        # defensive copies
+        # defensive copies & normalization
+        if isinstance(self.excluded_steps, (list, tuple, set)):
+            object.__setattr__(self, "excluded_steps", tuple(str(s) for s in self.excluded_steps))
+        else:
+            object.__setattr__(self, "excluded_steps", (str(self.excluded_steps),))
         object.__setattr__(self, "environment", dict(self.environment or {}))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
@@ -50,6 +55,7 @@ class ValidationContext:
             "change_type": self.change_type,
             "execution_mode": self.execution_mode,
             "requested_steps": list(self.requested_steps) if self.requested_steps is not None else None,
+            "excluded_steps": list(self.excluded_steps),
             "environment": dict(self.environment or {}),
             "allow_commit": self.allow_commit,
             "branch": self.branch,

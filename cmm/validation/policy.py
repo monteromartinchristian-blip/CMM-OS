@@ -89,13 +89,13 @@ _POLICY_ALIASES: dict[str, str] = {
 
 
 _STEP_ALIASES: dict[str, tuple[str, ...]] = {
-    "formatter_check": ("formatter_check",),
-    "formatter": ("formatter_check",),
-    "lint": ("lint_check",),
-    "lint_check": ("lint_check",),
     "syntax": ("syntax",),
     "ast": ("ast",),
     "structural": ("structural",),
+    "formatter_check": ("formatter_check",),
+    "formatter": ("formatter_check",),
+    "lint_check": ("lint_check",),
+    "lint": ("formatter_check", "lint_check"),
     "affected_tests": ("affected_tests",),
     "unit_tests": ("unit_tests",),
     "integration_tests": ("integration_tests",),
@@ -109,6 +109,7 @@ _STEP_ALIASES: dict[str, tuple[str, ...]] = {
     "type_check": ("type_check",),
     "dead_code": ("dead_code",),
     "security": ("security", "bandit", "pip_audit"),
+    "security_checks": ("security", "bandit", "pip_audit"),
     "bandit": ("bandit",),
     "pip_audit": ("pip_audit",),
     "e2e": ("integration_tests",),
@@ -124,6 +125,16 @@ _STEP_ALIASES: dict[str, tuple[str, ...]] = {
     "mandatory_traceability": ("security",),
     "file_validation": ("formatter_check",),
     "link_check": ("formatter_check",),
+    "custom.project_manifest": ("custom.project_manifest",),
+    "custom.validation_contract": ("custom.validation_contract",),
+    "custom.public_api": ("custom.public_api",),
+    "custom.test_layout": ("custom.test_layout",),
+    "custom_checks": (
+        "custom.project_manifest",
+        "custom.validation_contract",
+        "custom.public_api",
+        "custom.test_layout",
+    ),
 }
 
 
@@ -147,15 +158,14 @@ def expand_validation_step_labels(
             raise ValidationContractError(f"Unknown validation step label '{label_str}'.")
 
         targets = step_aliases[canonical]
-        if len(targets) == 1 and targets[0] == canonical:
-            if canonical not in seen:
-                seen.add(canonical)
-                expanded.append(canonical)
-            return
-
         new_path = active_path + (canonical,)
         for target in targets:
-            _expand(target, new_path)
+            if target == canonical:
+                if canonical not in seen:
+                    seen.add(canonical)
+                    expanded.append(canonical)
+            else:
+                _expand(target, new_path)
 
     for label in labels:
         _expand(label, ())
@@ -191,7 +201,7 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     "documentation_only": ValidationPolicy(
         name="documentation_only",
         required_steps=(),
-        optional_steps=("formatter_check",),
+        optional_steps=("formatter_check", "custom.project_manifest"),
         stop_on_blocking_failure=True,
         require_full_suite=False,
         allow_commit=True,
@@ -203,7 +213,7 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     "small_change": ValidationPolicy(
         name="small_change",
         required_steps=("formatter_check", "lint", "syntax", "ast", "affected_tests"),
-        optional_steps=(),
+        optional_steps=("custom_checks",),
         stop_on_blocking_failure=True,
         require_full_suite=False,
         allow_commit=True,
@@ -211,7 +221,7 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "structural_change": ValidationPolicy(
         name="structural_change",
-        required_steps=("formatter_check", "lint", "syntax", "ast", "affected_tests", "unit_tests", "integration_tests", "static_analysis"),
+        required_steps=("formatter_check", "lint", "syntax", "ast", "custom_checks", "affected_tests", "unit_tests", "integration_tests", "static_analysis"),
         optional_steps=(),
         stop_on_blocking_failure=True,
         require_full_suite=False,
@@ -221,7 +231,7 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     "imports_change": ValidationPolicy(
         name="imports_change",
         required_steps=("lint", "syntax", "ast", "import_analysis", "affected_tests", "cycle_checks"),
-        optional_steps=(),
+        optional_steps=("custom_checks",),
         stop_on_blocking_failure=True,
         require_full_suite=False,
         allow_commit=True,
@@ -229,8 +239,22 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "public_api_change": ValidationPolicy(
         name="public_api_change",
-        required_steps=("formatter_check", "lint", "syntax", "ast", "affected_tests", "unit_tests", "integration_tests", "full_suite", "contract_validation", "associated_documentation"),
-        optional_steps=(),
+        required_steps=(
+            "formatter_check",
+            "lint",
+            "syntax",
+            "ast",
+            "affected_tests",
+            "unit_tests",
+            "integration_tests",
+            "full_suite",
+            "contract_validation",
+            "associated_documentation",
+            "custom.project_manifest",
+            "custom.validation_contract",
+            "custom.public_api",
+        ),
+        optional_steps=("custom.test_layout",),
         stop_on_blocking_failure=True,
         require_full_suite=True,
         allow_commit=True,
@@ -238,7 +262,7 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "kernel_change": ValidationPolicy(
         name="kernel_change",
-        required_steps=("formatter_check", "lint", "syntax", "ast", "full_suite", "static_analysis", "security", "e2e", "kernel_specific_validations"),
+        required_steps=("formatter_check", "lint", "syntax", "ast", "custom_checks", "full_suite", "static_analysis", "security", "e2e", "kernel_specific_validations"),
         optional_steps=("bandit", "pip_audit"),
         stop_on_blocking_failure=True,
         require_full_suite=True,
@@ -247,16 +271,25 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
     ),
     "release": ValidationPolicy(
         name="release",
-        required_steps=("formatter_check", "lint", "ast", "full_suite", "static_analysis", "security", "e2e", "minimum_coverage", "version_validation", "documentation_validation", "migration_validation"),
+        required_steps=("formatter_check", "lint", "ast", "custom_checks", "full_suite", "static_analysis", "security", "e2e", "minimum_coverage", "version_validation", "documentation_validation", "migration_validation"),
         optional_steps=("bandit", "pip_audit"),
         stop_on_blocking_failure=True,
         require_full_suite=True,
         allow_commit=True,
         metadata={"objective": "release validation"},
     ),
+    "full": ValidationPolicy(
+        name="full",
+        required_steps=("syntax", "ast", "static_analysis", "security", "custom_checks", "affected_tests", "unit_tests", "integration_tests", "full_suite"),
+        optional_steps=(),
+        stop_on_blocking_failure=True,
+        require_full_suite=True,
+        allow_commit=True,
+        metadata={"objective": "full validation suite"},
+    ),
     "autonomous_execution": ValidationPolicy(
         name="autonomous_execution",
-        required_steps=("restrictive_policy", "allowed_commands_only", "all_required_checks", "complete_artifacts", "mandatory_traceability"),
+        required_steps=("restrictive_policy", "allowed_commands_only", "all_required_checks", "complete_artifacts", "mandatory_traceability", "custom_checks"),
         optional_steps=(),
         stop_on_blocking_failure=True,
         require_full_suite=True,

@@ -76,7 +76,7 @@ def _select_policy_steps(
     _DYNAMIC_TEST_SCOPES = {"affected_tests", "unit_tests", "integration_tests"}
     for req_name in expand_validation_step_labels(policy.required_steps):
         if req_name not in by_name:
-            if req_name in _DYNAMIC_TEST_SCOPES:
+            if req_name in _DYNAMIC_TEST_SCOPES or req_name.startswith("custom."):
                 continue
             raise ValidationContractError(
                 f"Required validation step '{req_name}' for policy '{policy.name}' is missing."

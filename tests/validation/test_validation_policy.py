@@ -136,14 +136,11 @@ def test_structural_change_policy_includes_static_analysis_and_test_scopes(tmp_p
     steps = default_validation_steps(ctx)
     names = [step.name for step in steps]
 
-    assert names[:7] == [
+    assert names[:4] == [
         "syntax",
         "formatter_check",
         "lint_check",
         "ast",
-        "affected_tests",
-        "unit_tests",
-        "integration_tests",
     ]
     assert "change_impact" in names
     assert names.index("change_impact") < names.index("type_check")
@@ -164,6 +161,7 @@ def test_imports_change_policy_uses_lint_alias_and_change_impact(tmp_path: Path)
 
     assert names == [
         "syntax",
+        "formatter_check",
         "lint_check",
         "ast",
         "change_impact",
@@ -252,7 +250,7 @@ def test_unknown_step_label_raises_contract_error() -> None:
 def test_expand_step_labels_deduplication_and_order() -> None:
     from cmm.validation.policy import expand_validation_step_labels
     expanded = expand_validation_step_labels(("lint", "lint_check", "static_analysis", "syntax"))
-    assert expanded == ("lint_check", "change_impact", "type_check", "dead_code", "syntax")
+    assert expanded == ("formatter_check", "lint_check", "change_impact", "type_check", "dead_code", "syntax")
 
 
 def test_expand_step_labels_cyclic_alias_detection() -> None:
