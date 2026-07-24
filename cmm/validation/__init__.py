@@ -72,6 +72,24 @@ from .impact import (
     change_impact_step,
     default_impact_steps,
 )
+from .observability import (
+    LocalValidationRepository,
+    UnsupportedValidationSchemaError,
+    ValidationArtifactStorageError,
+    ValidationExecutionRecord,
+    ValidationHistoryPage,
+    ValidationHistoryQuery,
+    ValidationLogEntry,
+    ValidationMetrics,
+    ValidationMetricsCalculator,
+    ValidationObservabilityService,
+    ValidationPersistenceError,
+    ValidationRecordConflictError,
+    ValidationRecordNotFoundError,
+    ValidationRepositoryProtocol,
+    ValidationStorageCorruptionError,
+    sanitize_validation_data,
+)
 from .pipeline import CancellationToken, ValidationPipeline
 from .planning import (
     ValidationPlan,
@@ -117,7 +135,7 @@ from .testing_catalog import (
 )
 from .testing_defaults import default_validation_steps
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - grouped by phase
     "ValidationStatus",
     "ValidationSeverity",
     "ValidationContractError",
@@ -218,4 +236,21 @@ __all__ = [
     "RepositoryState",
     "SubprocessGitRepository",
     "UnsafeRepositoryStateError",
+    # 7.11 Observability and Persistence
+    "LocalValidationRepository",
+    "UnsupportedValidationSchemaError",
+    "ValidationArtifactStorageError",
+    "ValidationExecutionRecord",
+    "ValidationHistoryPage",
+    "ValidationHistoryQuery",
+    "ValidationLogEntry",
+    "ValidationMetrics",
+    "ValidationMetricsCalculator",
+    "ValidationObservabilityService",
+    "ValidationPersistenceError",
+    "ValidationRecordConflictError",
+    "ValidationRecordNotFoundError",
+    "ValidationRepositoryProtocol",
+    "ValidationStorageCorruptionError",
+    "sanitize_validation_data",
 ]

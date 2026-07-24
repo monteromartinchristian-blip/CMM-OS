@@ -999,7 +999,93 @@ The initial implementation may be local and evolve later.
 
 ---
 
+# 7.11 — Observability and Persistence
+
+> **Status: Implemented** (commit `feat(validation): add phase 7.11 observability and persistence`)
+
+## Objective
+
+Build the observability and persistence layer for the validation
+infrastructure so that every execution can be identified unambiguously,
+reconstructed, queried, audited, and consumed by future interfaces
+(CLI, API, CI) and phases 8 and 9.
+
+## Components Implemented
+
+### `ValidationExecutionRecord`
+
+Immutable, versionable, serializable snapshot of a validation run.
+Contains ID, schema version, status, policy, actor, context, branch,
+changed files, step results, findings, artifacts, metrics, gate result,
+commit hash, timestamps, and metadata.  Round-trip safe via
+`serialize()` / `from_mapping()`.
+
+### `ValidationLogEntry`
+
+Structured log event tied to a validation execution.  Fields: ID,
+validation ID, timestamp, level, component, event (stable identifier),
+message, step name, duration, status, correlation ID, metadata.
+
+### `ValidationMetrics` / `ValidationMetricsCalculator`
+
+Immutable aggregated statistics.  Pure, I/O-free calculator derives
+metrics from `ValidationResult` + optional `CommitGateResult`.
+
+### `ValidationRepositoryProtocol`
+
+`typing.Protocol` (runtime-checkable) defining the storage interface.
+Allows plug-in of any backend without changing consumers.
+
+### `LocalValidationRepository`
+
+File-system implementation:
+
+```text
+.cmm/validation/
+├── executions/<validation-id>.json  ← atomic JSON per execution
+├── logs/<validation-id>.jsonl       ← append-only JSONL
+├── artifacts/<validation-id>/<artifact-id>.json
+└── index.json                       ← compact searchable index
+```
+
+Features: atomic writes (`tempfile` + `os.replace`), idempotence,
+conflict detection (status regression, cleared commit_hash, timestamp
+regression), path traversal guard, JSONL corruption resilience,
+index rebuild from disk, artifact content size limit.
+
+### `ValidationObservabilityService`
+
+Coordinator for record construction, metrics calculation, sanitisation,
+and persistence.  Does not execute validations.  Persistence failures
+are surfaced as structured log entries without altering validation results.
+
+### `sanitize_validation_data`
+
+Recursive sanitisation utility.  Redacts values for sensitive keys
+(`token`, `api_key`, `password`, `authorization`, `cookie`, etc.)
+and URL-embedded credentials.  Never mutates input objects.
+
+### `ValidationHistoryQuery` / `ValidationHistoryPage`
+
+Immutable filter and paginated result contracts.  Filters: policy,
+status, actor, branch, time range, gate decision, commit presence.
+Default order: most recent first.
+
+## Pipeline Integration
+
+`ValidationPipeline` accepts an optional `observability` field
+(`None` by default).  When provided, it records execution start and
+completion and assigns a stable `validation-<uuid>` ID.  Persistence
+failures do not alter the validation result.
+
+## Documentation
+
+See `docs/validation/observability-and-persistence.md`.
+
+---
+
 # 7.12 — CLI, API, and CI
+
 
 ## CLI
 

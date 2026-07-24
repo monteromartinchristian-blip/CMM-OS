@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from .commit_gate.models import CommitGateResult
+    from .observability.service import ValidationObservabilityService
     from .policy import ValidationPolicy
 
 from .artifacts import ValidationArtifact
@@ -122,6 +123,9 @@ def _topological_sort(steps: tuple[ValidationStep, ...]) -> tuple[ValidationStep
 class ValidationPipeline:
     executor: ValidationExecutor
     registry: ValidationRegistry
+    observability: ValidationObservabilityService | None = field(
+        default=None,
+    )
 
     def run(
         self,
@@ -129,10 +133,22 @@ class ValidationPipeline:
         steps: Iterable[ValidationStep],
         *,
         cancel: CancellationToken | None = None,
+        validation_id: str | None = None,
     ) -> ValidationResult:
         started_at = datetime.now(timezone.utc)
         t0 = time.monotonic()
         cancel = cancel or CancellationToken()
+
+        # --- Observability: record execution start ---
+        obs = self.observability
+        if obs is not None:
+            try:
+                validation_id = obs.start_execution(
+                    context=context,
+                    validation_id=validation_id,
+                )
+            except Exception:  # noqa: BLE001
+                obs = None  # disable observability on failure; don't break pipeline
         try:
             try:
                 resolved_policy = resolve_validation_policy(context)
@@ -320,8 +336,7 @@ class ValidationPipeline:
                         blocking.append(f)
                     elif f.severity in (ValidationSeverity.WARNING,):
                         warnings.append(f)
-                for a in r.artifacts:
-                    artifacts.append(a)
+                artifacts.extend(r.artifacts)
 
             # aggregate status with distinction between required vs optional failures
             failed_like = {
@@ -358,8 +373,12 @@ class ValidationPipeline:
                     if step_def is None or not step_def.required:
                         non_blocking_failures.append(r.name)
 
-            return ValidationResult(
-                id=f"validation-result-{int(t0)}",
+            # Use the stable validation_id if observability assigned one;
+            # otherwise fall back to the old monotonic-timestamp ID.
+            result_id = validation_id or f"validation-result-{int(t0)}"
+
+            final_result = ValidationResult(
+                id=result_id,
                 status=overall,
                 policy=policy_name,
                 steps=tuple(results),
@@ -389,7 +408,21 @@ class ValidationPipeline:
                     else resolved_policy.serialize(),
                 },
             )
-        except Exception as exc:  # pragma: no cover - unexpected safety net
+
+            # --- Observability: record completion ---
+            if obs is not None and validation_id is not None:
+                try:
+                    obs.complete_execution(
+                        validation_id=validation_id,
+                        result=final_result,
+                    )
+                except Exception:  # noqa: BLE001, S110
+                    pass  # observability failure must not alter result
+
+            return final_result
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - unexpected safety net  # noqa: BLE001
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
                 status=ValidationStatus.ERROR,
