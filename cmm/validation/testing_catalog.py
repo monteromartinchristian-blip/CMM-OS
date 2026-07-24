@@ -152,7 +152,7 @@ def full_suite_step(context: ValidationContext) -> ValidationStep | None:
     )
 
 
-def default_testing_steps(context: ValidationContext) -> tuple[ValidationStep, ...]:
+def default_testing_steps(context: ValidationContext, *, require_full_suite: bool = False) -> tuple[ValidationStep, ...]:
     selection = select_affected_tests(context)
     escalation = decide_test_escalation(context, selection)
 
@@ -177,6 +177,15 @@ def default_testing_steps(context: ValidationContext) -> tuple[ValidationStep, .
             steps.append(integration)
 
     full_suite = full_suite_step(context)
+    if require_full_suite and full_suite is None:
+        full_suite = _make_pytest_step(
+            name="full_suite",
+            context=context,
+            selection=selection,
+            scope="full",
+            command_tests=(),
+            full_suite=True,
+        )
     if full_suite is not None:
         steps.append(full_suite)
 

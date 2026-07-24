@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from cmm.validation import ValidationContext
 from cmm.validation.catalog import change_impact_step
 from cmm.validation.enums import ValidationStatus
@@ -48,7 +50,8 @@ def _security_result(tmp_path: Path) -> tuple[ValidationContext, ValidationStep,
     return context, step, result
 
 
-def test_security_validator_detects_secrets_code_config_dependency_and_command_reports(tmp_path: Path) -> None:
+def test_security_validator_detects_secrets_code_config_dependency_and_command_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("cmm.validation.security.validation._tool_available", lambda name: False if name == "pip_audit" else True)
     _write(
         tmp_path / "pkg" / "module.py",
         """

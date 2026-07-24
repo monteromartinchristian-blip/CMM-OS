@@ -7,10 +7,12 @@ from typing import Iterable, Mapping, Optional, Tuple, List, Dict, Set
 
 from .context import ValidationContext
 from .enums import ValidationStatus, ValidationSeverity
+from .errors import ValidationContractError
 from .steps import ValidationStep, ValidationStepResult
 from .results import ValidationResult
 from .artifacts import ValidationArtifact
 from .findings import ValidationFinding
+from .policy import canonical_validation_policy_name, resolve_validation_policy
 from .exceptions import (
     ValidationDependencyError,
     ValidationPipelineError,
@@ -101,36 +103,14 @@ class ValidationPipeline:
         t0 = time.monotonic()
         cancel = cancel or CancellationToken()
         try:
-            steps_tuple = tuple(steps)
-            # filter steps if requested
-            if context.requested_steps is not None:
-                try:
-                    steps_tuple = _subset_with_dependencies(steps_tuple, context.requested_steps)
-                except ValidationDependencyError as exc:
-                    return ValidationResult(
-                        id=f"validation-result-{int(t0)}",
-                        status=ValidationStatus.ERROR,
-                        policy=context.requested_policy,
-                        steps=(),
-                        artifacts=(),
-                        blocking_findings=(),
-                        warnings=(),
-                        changed_files=tuple(context.changed_files),
-                        affected_tests=(),
-                        duration_ms=int((time.monotonic() - t0) * 1000),
-                        started_at=started_at,
-                        completed_at=datetime.now(timezone.utc),
-                        can_commit=False,
-                        metadata={"error": {"code": exc.code, "message": exc.message}},
-                    )
-            # order and validate dependencies
             try:
-                ordered = _topological_sort(steps_tuple)
-            except ValidationDependencyError as exc:
+                resolved_policy = resolve_validation_policy(context)
+            except ValidationContractError as exc:
+                policy_name = canonical_validation_policy_name(context.requested_policy or context.change_type or "full")
                 return ValidationResult(
                     id=f"validation-result-{int(t0)}",
                     status=ValidationStatus.ERROR,
-                    policy=context.requested_policy,
+                    policy=policy_name,
                     steps=(),
                     artifacts=(),
                     blocking_findings=(),
@@ -141,7 +121,61 @@ class ValidationPipeline:
                     started_at=started_at,
                     completed_at=datetime.now(timezone.utc),
                     can_commit=False,
-                    metadata={"error": {"code": exc.code, "message": exc.message}},
+                    metadata={"error": {"code": "invalid_policy", "message": str(exc)}},
+                )
+
+            policy_name = (
+                resolved_policy.name
+                if resolved_policy is not None
+                else canonical_validation_policy_name(context.requested_policy or context.change_type or "full")
+            )
+            steps_tuple = tuple(steps)
+            # filter steps if requested
+            if context.requested_steps is not None:
+                try:
+                    steps_tuple = _subset_with_dependencies(steps_tuple, context.requested_steps)
+                except ValidationDependencyError as exc:
+                    return ValidationResult(
+                        id=f"validation-result-{int(t0)}",
+                        status=ValidationStatus.ERROR,
+                        policy=policy_name,
+                        steps=(),
+                        artifacts=(),
+                        blocking_findings=(),
+                        warnings=(),
+                        changed_files=tuple(context.changed_files),
+                        affected_tests=(),
+                        duration_ms=int((time.monotonic() - t0) * 1000),
+                        started_at=started_at,
+                        completed_at=datetime.now(timezone.utc),
+                        can_commit=False,
+                        metadata={
+                            "error": {"code": exc.code, "message": exc.message},
+                            "policy": None if resolved_policy is None else resolved_policy.serialize(),
+                        },
+                    )
+            # order and validate dependencies
+            try:
+                ordered = _topological_sort(steps_tuple)
+            except ValidationDependencyError as exc:
+                return ValidationResult(
+                    id=f"validation-result-{int(t0)}",
+                    status=ValidationStatus.ERROR,
+                    policy=policy_name,
+                    steps=(),
+                    artifacts=(),
+                    blocking_findings=(),
+                    warnings=(),
+                    changed_files=tuple(context.changed_files),
+                    affected_tests=(),
+                    duration_ms=int((time.monotonic() - t0) * 1000),
+                    started_at=started_at,
+                    completed_at=datetime.now(timezone.utc),
+                    can_commit=False,
+                    metadata={
+                        "error": {"code": exc.code, "message": exc.message},
+                        "policy": None if resolved_policy is None else resolved_policy.serialize(),
+                    },
                 )
 
             results: List[ValidationStepResult] = []
@@ -270,7 +304,7 @@ class ValidationPipeline:
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
                 status=overall,
-                policy=context.requested_policy,
+                policy=policy_name,
                 steps=tuple(results),
                 artifacts=tuple(artifacts),
                 blocking_findings=tuple(blocking),
@@ -280,20 +314,27 @@ class ValidationPipeline:
                 duration_ms=int((time.monotonic() - t0) * 1000),
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),
-                can_commit=False,
+                can_commit=bool(
+                    context.allow_commit
+                    and resolved_policy is not None
+                    and resolved_policy.allow_commit
+                    and overall == ValidationStatus.PASSED
+                    and not blocking
+                ),
                 metadata={
                     "pipeline": {
                         "stopped_early": stopped_early,
                         "cancelled": cancelled,
                         "non_blocking_failures": non_blocking_failures,
-                    }
+                    },
+                    "policy": None if resolved_policy is None else resolved_policy.serialize(),
                 },
             )
         except Exception as exc:  # pragma: no cover - unexpected safety net
             return ValidationResult(
                 id=f"validation-result-{int(t0)}",
                 status=ValidationStatus.ERROR,
-                policy=context.requested_policy,
+                policy=canonical_validation_policy_name(context.requested_policy or context.change_type or "full"),
                 steps=(),
                 artifacts=(),
                 blocking_findings=(),

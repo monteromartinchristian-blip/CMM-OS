@@ -66,6 +66,14 @@ from .security import (
     evaluate_command_policy,
     SecurityValidator,
 )
+from .policy import (
+    DEFAULT_VALIDATION_POLICIES,
+    ValidationPolicy,
+    canonical_validation_policy_name,
+    default_validation_policies,
+    expand_validation_step_labels,
+    resolve_validation_policy,
+)
 
 __all__ = [
     "ValidationStatus",
@@ -113,6 +121,12 @@ __all__ = [
     "full_suite_step",
     "default_testing_steps",
     "default_validation_steps",
+    "ValidationPolicy",
+    "DEFAULT_VALIDATION_POLICIES",
+    "default_validation_policies",
+    "resolve_validation_policy",
+    "canonical_validation_policy_name",
+    "expand_validation_step_labels",
     "StaticAnalysisPlan",
     "StaticAnalysisScope",
     "build_static_analysis_plan",

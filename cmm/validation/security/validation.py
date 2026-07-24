@@ -125,19 +125,13 @@ def default_security_steps(
     change_impact_step: ValidationStep | None = None,
     planned_steps: Sequence[ValidationStep] = (),
 ) -> tuple[ValidationStep, ...]:
-    optional_steps: list[ValidationStep] = []
-    bandit = bandit_step(context, change_impact_step=change_impact_step)
-    if bandit is not None:
-        optional_steps.append(bandit)
-    pip_audit = pip_audit_step(context, change_impact_step=change_impact_step)
-    if pip_audit is not None:
-        optional_steps.append(pip_audit)
-    security = security_step(
-        context,
-        change_impact_step=change_impact_step,
-        planned_steps=tuple(planned_steps) + tuple(optional_steps),
+    return (
+        security_step(
+            context,
+            change_impact_step=change_impact_step,
+            planned_steps=planned_steps,
+        ),
     )
-    return (security, *optional_steps)
 
 
 def bandit_step(
