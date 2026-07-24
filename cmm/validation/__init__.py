@@ -20,6 +20,12 @@ from .protocols import InternalValidator
 from .registry import ValidationRegistry
 from .executor import ValidationExecutor
 from .pipeline import ValidationPipeline, CancellationToken
+from .custom import (
+    CustomValidator,
+    CustomValidatorRegistry,
+    build_custom_validation_step,
+    custom_validator_step,
+)
 from .catalog import (
     formatter_check_step,
     formatter_fix_step,
@@ -147,4 +153,8 @@ __all__ = [
     "build_security_plan",
     "evaluate_command_policy",
     "SecurityValidator",
+    "CustomValidator",
+    "CustomValidatorRegistry",
+    "build_custom_validation_step",
+    "custom_validator_step",
 ]
