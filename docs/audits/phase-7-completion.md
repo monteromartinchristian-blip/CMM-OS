@@ -1,8 +1,8 @@
 # Auditoría de cierre — Fase 7: Validación continua
 
-Fecha: 2026-07-25  
-Rama de publicación: `main`  
-Commit de cierre: `9eb59178efa53365663c944498f31b2b65588bfb`  
+Fecha: 2026-07-25
+Rama de publicación: `main`
+Commit de cierre: `9eb59178efa53365663c944498f31b2b65588bfb`
 Versión objetivo: `v0.8.0`
 
 ## 1. Veredicto
