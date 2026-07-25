@@ -166,3 +166,30 @@ class KnowledgeConsolidationApplicationError(KnowledgeConsolidationError, Runtim
 
 class ManualReviewRequiredError(KnowledgeConsolidationError, ValueError):
     """Raised when trying to automatically apply a plan containing manual review actions."""
+
+
+# ── Phase 8.8 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeContradictionDetectionError(CognitiveError):
+    """Base error for knowledge contradiction detection operations."""
+
+
+class InvalidContradictionSignalError(KnowledgeContradictionDetectionError, ValueError):
+    """Raised when a ContradictionSignal contract is invalid."""
+
+
+class InvalidContradictionDetectionError(
+    KnowledgeContradictionDetectionError, ValueError
+):
+    """Raised when a ContradictionDetection contract is invalid."""
+
+
+class KnowledgeContradictionConflictError(
+    KnowledgeContradictionDetectionError, ValueError
+):
+    """Raised when registering a contradiction with conflicting payload."""
+
+
+class ContradictionRegistrationError(KnowledgeContradictionDetectionError):
+    """Raised when registering a contradiction fails."""

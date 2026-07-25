@@ -25,6 +25,13 @@ from cmm.cognitive.contracts import (
     CognitiveResult,
     Confidence,
 )
+from cmm.cognitive.contradiction_detection import KnowledgeContradictionDetector
+from cmm.cognitive.contradiction_detection_contracts import (
+    ContradictionDetection,
+    ContradictionDetectionResult,
+    ContradictionKind,
+    ContradictionSignal,
+)
 from cmm.cognitive.enums import (
     AdaptationStatus,
     CandidateKind,
@@ -51,6 +58,7 @@ from cmm.cognitive.errors import (
     CognitiveError,
     ComponentNotCompatibleError,
     ComponentNotFoundError,
+    ContradictionRegistrationError,
     DuplicateRegistryEntryError,
     InvalidAdaptationError,
     InvalidAdapterContractError,
@@ -59,7 +67,9 @@ from cmm.cognitive.errors import (
     InvalidConfidenceError,
     InvalidConsolidationCandidateError,
     InvalidConsolidationPlanError,
+    InvalidContradictionDetectionError,
     InvalidContradictionError,
+    InvalidContradictionSignalError,
     InvalidEvidenceError,
     InvalidExtractionError,
     InvalidExtractionEvidenceError,
@@ -77,6 +87,8 @@ from cmm.cognitive.errors import (
     KnowledgeConsolidationApplicationError,
     KnowledgeConsolidationConflictError,
     KnowledgeConsolidationError,
+    KnowledgeContradictionConflictError,
+    KnowledgeContradictionDetectionError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
     KnowledgeStoreCorruptionError,
@@ -176,8 +188,13 @@ __all__ = [
     "ConsolidationPlan",
     "ConsolidationResult",
     "Contradiction",
-    # 8.4 enums
+    # 8.8 contradiction detection
+    "ContradictionDetection",
+    "ContradictionDetectionResult",
+    "ContradictionKind",
+    "ContradictionRegistrationError",
     "ContradictionSeverity",
+    "ContradictionSignal",
     "ContradictionStatus",
     "DuplicateRegistryEntryError",
     "Evidence",
@@ -197,8 +214,10 @@ __all__ = [
     "InvalidConfidenceError",
     "InvalidConsolidationCandidateError",
     "InvalidConsolidationPlanError",
-    # 8.4 errors
+    # 8.8 errors
+    "InvalidContradictionDetectionError",
     "InvalidContradictionError",
+    "InvalidContradictionSignalError",
     "InvalidEvidenceError",
     "InvalidExtractionError",
     "InvalidExtractionEvidenceError",
@@ -218,6 +237,9 @@ __all__ = [
     "KnowledgeConsolidationConflictError",
     "KnowledgeConsolidationError",
     "KnowledgeConsolidator",
+    "KnowledgeContradictionConflictError",
+    "KnowledgeContradictionDetectionError",
+    "KnowledgeContradictionDetector",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
     # 8.3 registries
