@@ -225,3 +225,24 @@ class InvalidResolutionPolicyEvaluationError(
 
 class ResolutionPolicyConflictError(KnowledgeResolutionPolicyError, ValueError):
     """Raised when a resolution policy evaluation fails or encounters conflicting configuration."""
+
+
+# ── Phase 8.12 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeResolutionExecutionError(CognitiveError):
+    """Base error for knowledge resolution execution operations."""
+
+
+class InvalidResolutionExecutionError(KnowledgeResolutionExecutionError, ValueError):
+    """Raised when a resolution execution contract, proposal, or evaluation is invalid."""
+
+
+class ResolutionExecutionConflictError(KnowledgeResolutionExecutionError, ValueError):
+    """Raised when execution encounters conflicting knowledge or state in the store."""
+
+
+class ResolutionExecutionRollbackError(
+    KnowledgeResolutionExecutionError, RuntimeError
+):
+    """Raised when an execution fails and forces a transaction rollback."""

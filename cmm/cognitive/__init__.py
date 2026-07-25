@@ -83,6 +83,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeModelError,
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
+    InvalidResolutionExecutionError,
     InvalidResolutionPolicyEvaluationError,
     InvalidResolutionProposalError,
     InvalidResourceError,
@@ -97,6 +98,7 @@ from cmm.cognitive.errors import (
     KnowledgeContradictionConflictError,
     KnowledgeContradictionDetectionError,
     KnowledgeContradictionResolutionError,
+    KnowledgeResolutionExecutionError,
     KnowledgeResolutionPolicyError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
@@ -107,6 +109,8 @@ from cmm.cognitive.errors import (
     KnowledgeStoreSerializationError,
     ManualReviewRequiredError,
     ResolutionConflictError,
+    ResolutionExecutionConflictError,
+    ResolutionExecutionRollbackError,
     ResolutionPolicyConflictError,
     UnsupportedKnowledgeQueryError,
 )
@@ -151,6 +155,14 @@ from cmm.cognitive.resolution_contracts import (
     ContradictionResolutionResult,
     ResolutionDecision,
     ResolutionStatus,
+)
+from cmm.cognitive.resolution_executor import (
+    ContradictionResolutionExecutor,
+)
+from cmm.cognitive.resolution_executor_contracts import (
+    ExecutionStatus,
+    ResolutionAuditRecord,
+    ResolutionExecutionResult,
 )
 from cmm.cognitive.resolution_policy import (
     ContradictionResolutionPolicyEngine,
@@ -219,6 +231,8 @@ __all__ = [
     "ContradictionKind",
     "ContradictionRegistrationError",
     "ContradictionResolutionEngine",
+    # 8.12 resolution executor
+    "ContradictionResolutionExecutor",
     # 8.11 resolution policy
     "ContradictionResolutionPolicyEngine",
     # 8.9 contradiction resolution
@@ -231,6 +245,7 @@ __all__ = [
     "Evidence",
     "EvidenceKind",
     "EvidencePolarityKind",
+    "ExecutionStatus",
     "ExistingResourceAdapter",
     # 8.3 extraction
     "ExtractionCandidate",
@@ -257,6 +272,7 @@ __all__ = [
     "InvalidKnowledgeModelError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
+    "InvalidResolutionExecutionError",
     "InvalidResolutionPolicyEvaluationError",
     # 8.9 errors
     "InvalidResolutionProposalError",
@@ -287,6 +303,7 @@ __all__ = [
     "KnowledgeQueryResult",
     "KnowledgeRelation",
     "KnowledgeRelationKind",
+    "KnowledgeResolutionExecutionError",
     "KnowledgeResolutionPolicyError",
     "KnowledgeRetrievalError",
     "KnowledgeRetriever",
@@ -306,9 +323,13 @@ __all__ = [
     "PlainTextResourceAdapter",
     "PolicyDecision",
     "PolicySeverity",
+    "ResolutionAuditRecord",
     # 8.9 enums
     "ResolutionConflictError",
     "ResolutionDecision",
+    "ResolutionExecutionConflictError",
+    "ResolutionExecutionResult",
+    "ResolutionExecutionRollbackError",
     "ResolutionPolicyConflictError",
     "ResolutionPolicyEvaluation",
     "ResolutionStatus",
