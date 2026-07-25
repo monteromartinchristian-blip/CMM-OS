@@ -12,7 +12,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 from types import TracebackType
-from typing import Any, Self
+from typing import Any
+
+from typing_extensions import Self
 
 from cmm.cognitive.enums import (
     ContradictionSeverity,
