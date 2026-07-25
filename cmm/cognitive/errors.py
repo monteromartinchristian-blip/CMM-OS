@@ -97,3 +97,30 @@ class InvalidKnowledgeBundleError(CognitiveError, ValueError):
 
 # Alias kept for backward compatibility with WIP commit 32cea48
 InvalidKnowledgeModelError = InvalidKnowledgeItemError
+
+
+# ── Phase 8.5 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeStoreError(CognitiveError):
+    """Base error for Knowledge Store operations."""
+
+
+class KnowledgeStoreNotFoundError(KnowledgeStoreError, LookupError):
+    """Raised when a requested entity is not found in the knowledge store."""
+
+
+class KnowledgeStoreConflictError(KnowledgeStoreError, ValueError):
+    """Raised when an entity conflict occurs in the knowledge store."""
+
+
+class KnowledgeStoreCorruptionError(KnowledgeStoreError, ValueError):
+    """Raised when corrupted data or payload is encountered in the knowledge store."""
+
+
+class KnowledgeStoreSchemaError(KnowledgeStoreError, ValueError):
+    """Raised when the store database schema version or structure is invalid."""
+
+
+class KnowledgeStoreSerializationError(KnowledgeStoreError, ValueError):
+    """Raised when serialization or deserialization fails in the store."""

@@ -1,21 +1,42 @@
+# ── Phase 8.3 ─────────────────────────────────────────────────────────────────
+from cmm.cognitive.adapters import (
+    AdaptationContext,
+    ExistingResourceAdapter,
+    MappingResourceAdapter,
+    PlainTextResourceAdapter,
+    ResourceAdaptationResult,
+    ResourceAdapter,
+    ResourceInput,
+)
 from cmm.cognitive.contracts import (
     CognitiveActor,
     CognitiveFinding,
     CognitiveResult,
     Confidence,
 )
+
+# ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
 from cmm.cognitive.enums import (
     AdaptationStatus,
     CandidateKind,
     CognitiveActorKind,
     CognitiveSeverity,
     CognitiveStatus,
+    ContradictionSeverity,
+    ContradictionStatus,
+    EvidenceKind,
+    EvidencePolarityKind,
     ExtractionStatus,
+    KnowledgeKind,
+    KnowledgeRelationKind,
+    KnowledgeStatus,
     ResourceIntegrityStatus,
     ResourceKind,
     ResourcePermissionOperation,
     ResourceSourceKind,
     SensitivityLevel,
+    TemporalScopeKind,
+    TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
     CognitiveError,
@@ -27,37 +48,26 @@ from cmm.cognitive.errors import (
     InvalidCognitiveContractError,
     InvalidCognitiveIdentifierError,
     InvalidConfidenceError,
+    InvalidContradictionError,
+    InvalidEvidenceError,
     InvalidExtractionError,
     InvalidExtractionEvidenceError,
+    InvalidKnowledgeBundleError,
+    InvalidKnowledgeItemError,
+    InvalidKnowledgeModelError,
+    InvalidKnowledgeRelationError,
     InvalidResourceError,
     InvalidResourceInputError,
     InvalidResourcePermissionError,
     InvalidResourceProvenanceError,
     InvalidResourceTemporalScopeError,
-)
-from cmm.cognitive.identifiers import (
-    CognitiveIdentifier,
-    generate_cognitive_id,
-)
-
-# ── Phase 8.2 ─────────────────────────────────────────────────────────────────
-from cmm.cognitive.resources import (
-    Resource,
-    ResourcePermission,
-    ResourceProvenance,
-    ResourceTemporalScope,
-    ResourceTransformation,
-)
-
-# ── Phase 8.3 ─────────────────────────────────────────────────────────────────
-from cmm.cognitive.adapters import (
-    AdaptationContext,
-    ExistingResourceAdapter,
-    MappingResourceAdapter,
-    PlainTextResourceAdapter,
-    ResourceAdapter,
-    ResourceAdaptationResult,
-    ResourceInput,
+    InvalidTemporalValidityError,
+    KnowledgeStoreConflictError,
+    KnowledgeStoreCorruptionError,
+    KnowledgeStoreError,
+    KnowledgeStoreNotFoundError,
+    KnowledgeStoreSchemaError,
+    KnowledgeStoreSerializationError,
 )
 from cmm.cognitive.extraction import (
     ExtractionCandidate,
@@ -68,36 +78,9 @@ from cmm.cognitive.extraction import (
     MappingKnowledgeExtractor,
     PlainTextKnowledgeExtractor,
 )
-from cmm.cognitive.registries import (
-    KnowledgeExtractorRegistry,
-    ResourceAdapterRegistry,
-)
-from cmm.cognitive.service import (
-    AdaptAndExtractResult,
-    ResourceExtractionService,
-)
-
-
-# ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
-from cmm.cognitive.enums import (
-    ContradictionSeverity,
-    ContradictionStatus,
-    EvidenceKind,
-    EvidencePolarityKind,
-    KnowledgeKind,
-    KnowledgeRelationKind,
-    KnowledgeStatus,
-    TemporalScopeKind,
-    TemporalValidityStatus,
-)
-from cmm.cognitive.errors import (
-    InvalidContradictionError,
-    InvalidEvidenceError,
-    InvalidKnowledgeBundleError,
-    InvalidKnowledgeItemError,
-    InvalidKnowledgeModelError,
-    InvalidKnowledgeRelationError,
-    InvalidTemporalValidityError,
+from cmm.cognitive.identifiers import (
+    CognitiveIdentifier,
+    generate_cognitive_id,
 )
 from cmm.cognitive.knowledge import (
     Contradiction,
@@ -112,8 +95,41 @@ from cmm.cognitive.knowledge_materializer import (
     materialise_evidence,
     materialise_result,
 )
+from cmm.cognitive.registries import (
+    KnowledgeExtractorRegistry,
+    ResourceAdapterRegistry,
+)
+
+# ── Phase 8.2 ─────────────────────────────────────────────────────────────────
+from cmm.cognitive.resources import (
+    Resource,
+    ResourcePermission,
+    ResourceProvenance,
+    ResourceTemporalScope,
+    ResourceTransformation,
+)
+from cmm.cognitive.service import (
+    AdaptAndExtractResult,
+    ResourceExtractionService,
+)
+from cmm.cognitive.store import (
+    KNOWLEDGE_STORE_SCHEMA_VERSION,
+    InMemoryKnowledgeStore,
+    KnowledgeStoreProtocol,
+    LocalKnowledgeStore,
+    SQLiteKnowledgeStore,
+)
 
 __all__ = [
+    # 8.5 store
+    "KNOWLEDGE_STORE_SCHEMA_VERSION",
+    # 8.3 service
+    "AdaptAndExtractResult",
+    # 8.3 adapters
+    "AdaptationContext",
+    # 8.3 enums
+    "AdaptationStatus",
+    "CandidateKind",
     # 8.1 contracts
     "CognitiveActor",
     "CognitiveActorKind",
@@ -123,13 +139,75 @@ __all__ = [
     "CognitiveResult",
     "CognitiveSeverity",
     "CognitiveStatus",
+    # 8.3 errors
+    "ComponentNotCompatibleError",
+    "ComponentNotFoundError",
     "Confidence",
+    # 8.4 knowledge model
+    "Contradiction",
+    # 8.4 enums
+    "ContradictionSeverity",
+    "ContradictionStatus",
+    "DuplicateRegistryEntryError",
+    "Evidence",
+    "EvidenceKind",
+    "EvidencePolarityKind",
+    "ExistingResourceAdapter",
+    # 8.3 extraction
+    "ExtractionCandidate",
+    "ExtractionContext",
+    "ExtractionEvidence",
+    "ExtractionStatus",
+    "InMemoryKnowledgeStore",
+    "InvalidAdaptationError",
+    "InvalidAdapterContractError",
     "InvalidCognitiveContractError",
     "InvalidCognitiveIdentifierError",
     "InvalidConfidenceError",
-    "generate_cognitive_id",
+    # 8.4 errors
+    "InvalidContradictionError",
+    "InvalidEvidenceError",
+    "InvalidExtractionError",
+    "InvalidExtractionEvidenceError",
+    "InvalidKnowledgeBundleError",
+    "InvalidKnowledgeItemError",
+    "InvalidKnowledgeModelError",
+    "InvalidKnowledgeRelationError",
+    "InvalidResourceError",
+    "InvalidResourceInputError",
+    "InvalidResourcePermissionError",
+    "InvalidResourceProvenanceError",
+    "InvalidResourceTemporalScopeError",
+    "InvalidTemporalValidityError",
+    "KnowledgeBundle",
+    "KnowledgeExtractionResult",
+    "KnowledgeExtractor",
+    # 8.3 registries
+    "KnowledgeExtractorRegistry",
+    "KnowledgeItem",
+    "KnowledgeKind",
+    "KnowledgeRelation",
+    "KnowledgeRelationKind",
+    "KnowledgeStatus",
+    "KnowledgeStoreConflictError",
+    "KnowledgeStoreCorruptionError",
+    "KnowledgeStoreError",
+    "KnowledgeStoreNotFoundError",
+    "KnowledgeStoreProtocol",
+    "KnowledgeStoreSchemaError",
+    "KnowledgeStoreSerializationError",
+    "LocalKnowledgeStore",
+    "MappingKnowledgeExtractor",
+    "MappingResourceAdapter",
+    "PlainTextKnowledgeExtractor",
+    "PlainTextResourceAdapter",
     # 8.2 resources
     "Resource",
+    "ResourceAdaptationResult",
+    "ResourceAdapter",
+    "ResourceAdapterRegistry",
+    "ResourceExtractionService",
+    "ResourceInput",
     "ResourceIntegrityStatus",
     "ResourceKind",
     "ResourcePermission",
@@ -138,71 +216,12 @@ __all__ = [
     "ResourceSourceKind",
     "ResourceTemporalScope",
     "ResourceTransformation",
+    "SQLiteKnowledgeStore",
     "SensitivityLevel",
-    "InvalidResourceError",
-    "InvalidResourcePermissionError",
-    "InvalidResourceProvenanceError",
-    "InvalidResourceTemporalScopeError",
-    # 8.3 enums
-    "AdaptationStatus",
-    "CandidateKind",
-    "ExtractionStatus",
-    # 8.3 errors
-    "ComponentNotCompatibleError",
-    "ComponentNotFoundError",
-    "DuplicateRegistryEntryError",
-    "InvalidAdaptationError",
-    "InvalidAdapterContractError",
-    "InvalidExtractionError",
-    "InvalidExtractionEvidenceError",
-    "InvalidResourceInputError",
-    # 8.3 adapters
-    "AdaptationContext",
-    "ExistingResourceAdapter",
-    "MappingResourceAdapter",
-    "PlainTextResourceAdapter",
-    "ResourceAdapter",
-    "ResourceAdaptationResult",
-    "ResourceInput",
-    # 8.3 extraction
-    "ExtractionCandidate",
-    "ExtractionContext",
-    "ExtractionEvidence",
-    "KnowledgeExtractionResult",
-    "KnowledgeExtractor",
-    "MappingKnowledgeExtractor",
-    "PlainTextKnowledgeExtractor",
-    # 8.3 registries
-    "KnowledgeExtractorRegistry",
-    "ResourceAdapterRegistry",
-    # 8.3 service
-    "AdaptAndExtractResult",
-    "ResourceExtractionService",
-    # 8.4 enums
-    "ContradictionSeverity",
-    "ContradictionStatus",
-    "EvidenceKind",
-    "EvidencePolarityKind",
-    "KnowledgeKind",
-    "KnowledgeRelationKind",
-    "KnowledgeStatus",
+    "TemporalScope",
     "TemporalScopeKind",
     "TemporalValidityStatus",
-    # 8.4 errors
-    "InvalidContradictionError",
-    "InvalidEvidenceError",
-    "InvalidKnowledgeBundleError",
-    "InvalidKnowledgeItemError",
-    "InvalidKnowledgeModelError",
-    "InvalidKnowledgeRelationError",
-    "InvalidTemporalValidityError",
-    # 8.4 knowledge model
-    "Contradiction",
-    "Evidence",
-    "KnowledgeBundle",
-    "KnowledgeItem",
-    "KnowledgeRelation",
-    "TemporalScope",
+    "generate_cognitive_id",
     # 8.4 materializer
     "materialise_candidate",
     "materialise_evidence",
