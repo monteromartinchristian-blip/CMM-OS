@@ -95,3 +95,52 @@ def test_integration_step_is_preserved_when_full_suite_is_required(
     assert step is not None
     assert step.name == "integration_tests"
     assert "tests/integration/test_service.py" in step.command
+
+
+def test_required_integration_step_is_audited_when_no_tests_exist(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "cmm").mkdir()
+    (tmp_path / "cmm" / "service.py").write_text(
+        "def execute() -> bool:\n    return True\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(
+        project_root=tmp_path,
+        changed_files=(Path("cmm/service.py"),),
+        change_type="public_api_change",
+        requested_policy="public_api_change",
+    )
+
+    step = integration_tests_step(context)
+
+    assert step is not None
+    assert step.name == "integration_tests"
+    assert step.metadata["not_applicable"] is True
+    assert step.metadata["not_applicable_reason"] == "no_integration_tests_discovered"
+    assert step.command[:3] == (
+        str(step.command[0]),
+        "-m",
+        "cmm.validation.testing.not_applicable",
+    )
+
+
+def test_optional_integration_step_remains_absent_when_no_tests_exist(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "cmm").mkdir()
+    (tmp_path / "cmm" / "service.py").write_text(
+        "def execute() -> bool:\n    return True\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(
+        project_root=tmp_path,
+        changed_files=(Path("cmm/service.py"),),
+        requested_policy="small_change",
+    )
+
+    step = integration_tests_step(context)
+
+    assert step is None

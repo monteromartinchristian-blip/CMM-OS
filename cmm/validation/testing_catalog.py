@@ -12,6 +12,59 @@ from .testing.escalation import decide_test_escalation
 from .testing.selection import TestSelection, select_affected_tests
 
 
+def _is_required_or_requested(
+    context: ValidationContext,
+    step_name: str,
+) -> bool:
+    from cmm.validation.policy import (
+        expand_validation_step_labels,
+        resolve_validation_policy,
+    )
+
+    if step_name in expand_validation_step_labels(context.requested_steps or ()):
+        return True
+
+    policy = resolve_validation_policy(context)
+    if policy is None:
+        return False
+
+    return step_name in expand_validation_step_labels(policy.required_steps)
+
+
+def _make_not_applicable_step(
+    *,
+    name: str,
+    context: ValidationContext,
+    scope: str,
+    reason: str,
+) -> ValidationStep:
+    from cmm.validation.security.contracts import default_command_policy
+
+    return ValidationStep(
+        name=name,
+        step_type=ValidationStepType.COMMAND,
+        command=(
+            sys.executable,
+            "-m",
+            "cmm.validation.testing.not_applicable",
+            name,
+            reason,
+        ),
+        required=True,
+        timeout_seconds=30,
+        stop_on_failure=True,
+        allowed_exit_codes=(0,),
+        working_directory=context.project_root,
+        metadata={
+            "test_scope": scope,
+            "not_applicable": True,
+            "not_applicable_reason": reason,
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
+        },
+    )
+
+
 def _make_pytest_step(
     *,
     name: str,
@@ -141,6 +194,18 @@ def integration_tests_step(context: ValidationContext) -> ValidationStep | None:
             path for path in discovered if classify_test_path(path) == "integration"
         ]
     suite_tests = sorted(dict.fromkeys(suite_tests), key=str)
+
+    if not suite_tests and _is_required_or_requested(
+        context,
+        "integration_tests",
+    ):
+        return _make_not_applicable_step(
+            name="integration_tests",
+            context=context,
+            scope="integration",
+            reason="no_integration_tests_discovered",
+        )
+
     return _make_pytest_step(
         name="integration_tests",
         context=context,
