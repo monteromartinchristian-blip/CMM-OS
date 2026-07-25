@@ -193,3 +193,18 @@ class KnowledgeContradictionConflictError(
 
 class ContradictionRegistrationError(KnowledgeContradictionDetectionError):
     """Raised when registering a contradiction fails."""
+
+
+# ── Phase 8.9 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeContradictionResolutionError(CognitiveError):
+    """Base error for knowledge contradiction resolution operations."""
+
+
+class InvalidResolutionProposalError(KnowledgeContradictionResolutionError, ValueError):
+    """Raised when a ContradictionResolutionProposal contract is invalid."""
+
+
+class ResolutionConflictError(KnowledgeContradictionResolutionError, ValueError):
+    """Raised when conflicts occur during contradiction resolution application."""

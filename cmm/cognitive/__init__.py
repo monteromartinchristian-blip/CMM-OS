@@ -78,6 +78,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeModelError,
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
+    InvalidResolutionProposalError,
     InvalidResourceError,
     InvalidResourceInputError,
     InvalidResourcePermissionError,
@@ -89,6 +90,7 @@ from cmm.cognitive.errors import (
     KnowledgeConsolidationError,
     KnowledgeContradictionConflictError,
     KnowledgeContradictionDetectionError,
+    KnowledgeContradictionResolutionError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
     KnowledgeStoreCorruptionError,
@@ -97,6 +99,7 @@ from cmm.cognitive.errors import (
     KnowledgeStoreSchemaError,
     KnowledgeStoreSerializationError,
     ManualReviewRequiredError,
+    ResolutionConflictError,
     UnsupportedKnowledgeQueryError,
 )
 from cmm.cognitive.extraction import (
@@ -134,6 +137,12 @@ from cmm.cognitive.query import (
 from cmm.cognitive.registries import (
     KnowledgeExtractorRegistry,
     ResourceAdapterRegistry,
+)
+from cmm.cognitive.resolution_contracts import (
+    ContradictionResolutionProposal,
+    ContradictionResolutionResult,
+    ResolutionDecision,
+    ResolutionStatus,
 )
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
@@ -193,6 +202,9 @@ __all__ = [
     "ContradictionDetectionResult",
     "ContradictionKind",
     "ContradictionRegistrationError",
+    # 8.9 contradiction resolution
+    "ContradictionResolutionProposal",
+    "ContradictionResolutionResult",
     "ContradictionSeverity",
     "ContradictionSignal",
     "ContradictionStatus",
@@ -226,6 +238,8 @@ __all__ = [
     "InvalidKnowledgeModelError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
+    # 8.9 errors
+    "InvalidResolutionProposalError",
     "InvalidResourceError",
     "InvalidResourceInputError",
     "InvalidResourcePermissionError",
@@ -240,6 +254,7 @@ __all__ = [
     "KnowledgeContradictionConflictError",
     "KnowledgeContradictionDetectionError",
     "KnowledgeContradictionDetector",
+    "KnowledgeContradictionResolutionError",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
     # 8.3 registries
@@ -267,6 +282,10 @@ __all__ = [
     "MappingResourceAdapter",
     "PlainTextKnowledgeExtractor",
     "PlainTextResourceAdapter",
+    # 8.9 enums
+    "ResolutionConflictError",
+    "ResolutionDecision",
+    "ResolutionStatus",
     # 8.2 resources
     "Resource",
     "ResourceAdaptationResult",
