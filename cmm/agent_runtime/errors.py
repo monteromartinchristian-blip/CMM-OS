@@ -47,3 +47,30 @@ class GoalCompletionError(GoalError, ValueError):
 
 class GoalDependencyError(GoalError, ValueError):
     """Raised when a goal dependency is invalid or violated."""
+
+
+# ── Phase 9.3 – Goal Intake Errors ───────────────────────────────────────────
+
+
+class GoalIntakeError(GoalError):
+    """Base exception for all Goal Intake operations."""
+
+
+class InvalidGoalProposalError(GoalIntakeError, ValueError):
+    """Raised when a GoalProposal contract is invalid or violates invariants."""
+
+
+class GoalProposalNotFoundError(GoalIntakeError, KeyError):
+    """Raised when a requested GoalProposal is not found in the repository."""
+
+
+class GoalProposalStateError(GoalIntakeError, ValueError):
+    """Raised when an invalid state operation is attempted on a GoalProposal."""
+
+
+class GoalNormalizationError(GoalIntakeError, ValueError):
+    """Raised when goal normalization fails or input is invalid/empty."""
+
+
+class GoalProposalConversionError(GoalIntakeError, ValueError):
+    """Raised when converting a GoalProposal into an operational Goal fails."""

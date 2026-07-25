@@ -165,3 +165,67 @@ class GoalDependencyType(str, Enum):
     ENABLES = "enables"
     SUPERSEDES = "supersedes"
     RELATED_TO = "related_to"
+
+
+# ── Phase 9.3 – Goal Intake Enumerations ──────────────────────────────────────
+
+
+class GoalProposalStatus(str, Enum):
+    """Lifecycle states for a GoalProposal."""
+
+    CREATED = "created"
+    NORMALIZING = "normalizing"
+    READY = "ready"
+    REQUIRES_CLARIFICATION = "requires_clarification"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    FAILED = "failed"
+
+
+class GoalSource(str, Enum):
+    """Origin sources for goal intake."""
+
+    USER_MESSAGE = "user_message"
+    WORKFLOW = "workflow"
+    AGENT = "agent"
+    KERNEL_EVENT = "kernel_event"
+    VALIDATION_RESULT = "validation_result"
+    ERROR_DETECTION = "error_detection"
+    RECURRING_GOAL = "recurring_goal"
+    MAINTENANCE_POLICY = "maintenance_policy"
+    PERIODIC_REVIEW = "periodic_review"
+    DOMAIN = "domain"
+    EXTERNAL_INTEGRATION = "external_integration"
+    SUBGOAL = "subgoal"
+    RECOVERY = "recovery"
+
+
+class GoalAmbiguityKind(str, Enum):
+    """Categories of ambiguity in goal proposals."""
+
+    OBJECTIVE = "objective"
+    SCOPE = "scope"
+    SUCCESS_CRITERIA = "success_criteria"
+    CONSTRAINT = "constraint"
+    DEADLINE = "deadline"
+    PRIORITY = "priority"
+    OWNER = "owner"
+    RESOURCE = "resource"
+    DEPENDENCY = "dependency"
+    SENSITIVITY = "sensitivity"
+    PERMISSION = "permission"
+    AUTONOMY = "autonomy"
+    CONFLICT = "conflict"
+    DUPLICATE = "duplicate"
+
+
+class GoalIntakeDecisionType(str, Enum):
+    """Decision types produced during goal intake and normalization."""
+
+    ACCEPT = "accept"
+    REQUEST_CLARIFICATION = "request_clarification"
+    REJECT = "reject"
+    DEFER = "defer"
+    CREATE_PROPOSED_GOAL = "create_proposed_goal"
+    MERGE_WITH_EXISTING = "merge_with_existing"
