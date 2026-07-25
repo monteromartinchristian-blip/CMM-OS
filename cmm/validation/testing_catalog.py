@@ -16,13 +16,20 @@ def _is_required_or_requested(
     context: ValidationContext,
     step_name: str,
 ) -> bool:
+    from cmm.validation.errors import ValidationContractError
     from cmm.validation.policy import (
         expand_validation_step_labels,
         resolve_validation_policy,
     )
 
-    if step_name in expand_validation_step_labels(context.requested_steps or ()):
-        return True
+    for requested_step in context.requested_steps or ():
+        try:
+            expanded = expand_validation_step_labels((requested_step,))
+        except ValidationContractError:
+            # Non-testing and custom labels are validated later by planning.
+            continue
+        if step_name in expanded:
+            return True
 
     policy = resolve_validation_policy(context)
     if policy is None:
@@ -124,6 +131,18 @@ def _make_pytest_step(
 
 def affected_tests_step(context: ValidationContext) -> ValidationStep | None:
     selection = select_affected_tests(context)
+
+    if not selection.selected_tests and _is_required_or_requested(
+        context,
+        "affected_tests",
+    ):
+        return _make_not_applicable_step(
+            name="affected_tests",
+            context=context,
+            scope="affected",
+            reason="no_affected_tests_selected",
+        )
+
     return _make_pytest_step(
         name="affected_tests",
         context=context,

@@ -144,3 +144,21 @@ def test_optional_integration_step_remains_absent_when_no_tests_exist(
     step = integration_tests_step(context)
 
     assert step is None
+
+
+def test_required_affected_tests_without_selection_is_not_applicable(
+    tmp_path: Path,
+) -> None:
+    context = ValidationContext(
+        project_root=tmp_path,
+        changed_files=(Path("cmm/unmatched.py"),),
+        requested_steps=("affected_tests",),
+    )
+
+    step = affected_tests_step(context)
+
+    assert step is not None
+    assert step.name == "affected_tests"
+    assert step.command is not None
+    assert "cmm.validation.testing.not_applicable" in step.command
+    assert "no_affected_tests_selected" in step.command

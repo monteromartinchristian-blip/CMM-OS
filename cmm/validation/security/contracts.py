@@ -82,6 +82,7 @@ class CommandPolicy:
         "pip-audit",
         "pip_audit",
         "git",
+        "cmm.validation.testing.not_applicable",
     )
     forbidden_arguments: tuple[str, ...] = ("-c",)
     allow_shell: bool = False

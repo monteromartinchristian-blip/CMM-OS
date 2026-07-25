@@ -243,13 +243,22 @@ def build_validation_plan(
                     "Requested step label must be a non-empty string."
                 )
 
-            # Reject un-prefixed names that refer to custom validators (e.g., 'project_manifest' instead of 'custom.project_manifest')
-            if raw_req in custom_reg.names():
+            # Reject un-prefixed names that refer to registered custom validators.
+            canonical_custom_name = f"custom.{raw_req}"
+            if (
+                not raw_req.startswith("custom.")
+                and canonical_custom_name in custom_steps_dict
+            ):
                 raise ValidationContractError(
-                    f"Invalid custom step name '{raw_req}'. Custom steps must use the canonical prefix 'custom.{raw_req}'."
+                    f"Invalid custom step name '{raw_req}'. "
+                    "Custom steps must use the canonical prefix "
+                    f"'{canonical_custom_name}'."
                 )
 
-            expanded = expand_validation_step_labels(raw_req, aliases=effective_aliases)
+            expanded = expand_validation_step_labels(
+                raw_req,
+                aliases=effective_aliases,
+            )
             for canonical_name in expanded:
                 if (
                     canonical_name not in all_available_steps_dict
