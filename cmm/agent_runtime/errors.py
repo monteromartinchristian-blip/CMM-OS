@@ -375,3 +375,90 @@ class ApprovalPolicyIntegrationError(ApprovalError, RuntimeError):
 
 class ApprovalAutonomyIntegrationError(ApprovalError, RuntimeError):
     """Raised when integrating Autonomy results into approval requirements fails or autonomy DENY is violated."""
+
+
+# ── Phase 9.11 – Action Budget Errors ───────────────────────────────────────
+
+
+class ActionBudgetError(AgentRuntimeError):
+    """Base exception for all Action Budget operations."""
+
+
+class InvalidActionBudgetContractError(ActionBudgetError, InvalidAgentContractError):
+    """Raised when an Action Budget contract is invalid, malformed, or violates invariants."""
+
+
+class ActionBudgetNotFoundError(ActionBudgetError, KeyError):
+    """Raised when a requested ActionBudget is not found in the repository."""
+
+
+class DuplicateActionBudgetError(ActionBudgetError, ValueError):
+    """Raised when attempting to add an ActionBudget with a duplicate ID."""
+
+
+class BudgetReservationNotFoundError(ActionBudgetError, KeyError):
+    """Raised when a requested BudgetReservation is not found in the repository."""
+
+
+class DuplicateBudgetReservationError(ActionBudgetError, ValueError):
+    """Raised when attempting to add a BudgetReservation with a duplicate ID."""
+
+
+class BudgetConsumptionNotFoundError(ActionBudgetError, KeyError):
+    """Raised when a requested BudgetConsumption is not found in the repository."""
+
+
+class DuplicateBudgetConsumptionError(ActionBudgetError, ValueError):
+    """Raised when attempting to add a BudgetConsumption with a duplicate ID."""
+
+
+class BudgetAdjustmentNotFoundError(ActionBudgetError, KeyError):
+    """Raised when a requested BudgetAdjustment is not found in the repository."""
+
+
+class DuplicateBudgetAdjustmentError(ActionBudgetError, ValueError):
+    """Raised when attempting to add a BudgetAdjustment with a duplicate ID."""
+
+
+class BudgetExhaustedError(ActionBudgetError, ValueError):
+    """Raised when an operation is requested on an exhausted budget."""
+
+
+class BudgetPausedError(ActionBudgetError, ValueError):
+    """Raised when an operation is requested on a paused budget."""
+
+
+class BudgetCancelledError(ActionBudgetError, ValueError):
+    """Raised when an operation is requested on a cancelled budget."""
+
+
+class InsufficientBudgetError(ActionBudgetError, ValueError):
+    """Raised when available budget is insufficient for requested allocations."""
+
+
+class InvalidBudgetAllocationError(ActionBudgetError, ValueError):
+    """Raised when a BudgetAllocation specifies an invalid resource type or amount."""
+
+
+class BudgetReservationExpiredError(ActionBudgetError, ValueError):
+    """Raised when attempting to operate on an expired reservation."""
+
+
+class BudgetReservationAlreadyResolvedError(ActionBudgetError, ValueError):
+    """Raised when attempting to resolve an already confirmed, released, or expired reservation."""
+
+
+class BudgetIncreaseNotAuthorizedError(ActionBudgetError, PermissionError):
+    """Raised when an unauthorized actor attempts to increase budget limits."""
+
+
+class BudgetApprovalIntegrationError(ActionBudgetError, RuntimeError):
+    """Raised when integrating Human Approval System into budget increases fails."""
+
+
+class BudgetPolicyIntegrationError(ActionBudgetError, RuntimeError):
+    """Raised when integrating Policy Engine results into budget evaluation fails."""
+
+
+class BudgetConcurrencyError(ActionBudgetError, ValueError):
+    """Raised when parallel operation limits are exceeded or invalid concurrency state is reached."""

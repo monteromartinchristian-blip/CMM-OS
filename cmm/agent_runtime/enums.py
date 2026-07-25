@@ -812,3 +812,70 @@ class ApprovalRequirementSource(str, Enum):
     BUDGET = "budget"
     RUNTIME = "runtime"
     MANUAL = "manual"
+
+
+# ── Phase 9.11 – Action Budget Enumerations ─────────────────────────────────
+
+
+class BudgetResourceType(str, Enum):
+    """Structured resource types monitored and restricted by ActionBudget."""
+
+    ITERATION = "iteration"
+    OPERATION = "operation"
+    WORKFLOW = "workflow"
+    PLAN = "plan"
+    REPLAN = "replan"
+    RETRY = "retry"
+    QUESTION = "question"
+    EXTERNAL_CALL = "external_call"
+    MODEL_CALL = "model_call"
+    TOKEN = "token"
+    COST = "cost"
+    DURATION_SECONDS = "duration_seconds"
+    PARALLEL_OPERATION = "parallel_operation"
+    STORAGE_BYTES = "storage_bytes"
+    MEMORY_WRITE = "memory_write"
+    OBSERVATION = "observation"
+    LOADED_RESOURCE = "loaded_resource"
+    DATA_VOLUME_BYTES = "data_volume_bytes"
+
+
+class ActionBudgetStatus(str, Enum):
+    """Lifecycle and operational states for an ActionBudget."""
+
+    ACTIVE = "active"
+    WARNING = "warning"
+    EXHAUSTED = "exhausted"
+    PAUSED = "paused"
+    INCREASED = "increased"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class BudgetReservationStatus(str, Enum):
+    """Lifecycle states for a BudgetReservation."""
+
+    RESERVED = "reserved"
+    CONFIRMED = "confirmed"
+    RELEASED = "released"
+    EXPIRED = "expired"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BudgetConsumptionOutcome(str, Enum):
+    """Functional outcome classification for a confirmed budget consumption."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    PARTIAL = "partial"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+
+
+class BudgetAdjustmentType(str, Enum):
+    """Types of authorized adjustments to ActionBudget limits."""
+
+    INCREASE = "increase"
+    DECREASE = "decrease"
+    RESET = "reset"

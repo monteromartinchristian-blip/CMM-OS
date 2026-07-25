@@ -906,3 +906,97 @@ __all__ += [
     "create_requirement_from_policy",
     "create_requirement_from_workflow_plan",
 ]
+
+# ── Phase 9.11 – Action Budget System Exports ────────────────────────────────
+
+from cmm.agent_runtime.action_budget_adapters import (
+    ActionBudgetApprovalAdapter,
+    ActionBudgetAutonomyAdapter,
+    ActionBudgetPolicyAdapter,
+)
+from cmm.agent_runtime.action_budget_contracts import (
+    ActionBudget,
+    BudgetAdjustment,
+    BudgetAllocation,
+    BudgetConsumption,
+    BudgetEvaluationResult,
+    BudgetReservation,
+)
+from cmm.agent_runtime.action_budget_repository import (
+    ActionBudgetRepository,
+    InMemoryActionBudgetRepository,
+)
+from cmm.agent_runtime.action_budget_service import (
+    ActionBudgetService,
+)
+from cmm.agent_runtime.enums import (
+    ActionBudgetStatus,
+    BudgetAdjustmentType,
+    BudgetConsumptionOutcome,
+    BudgetReservationStatus,
+    BudgetResourceType,
+)
+from cmm.agent_runtime.errors import (
+    ActionBudgetError,
+    ActionBudgetNotFoundError,
+    BudgetAdjustmentNotFoundError,
+    BudgetApprovalIntegrationError,
+    BudgetCancelledError,
+    BudgetConcurrencyError,
+    BudgetConsumptionNotFoundError,
+    BudgetExhaustedError,
+    BudgetIncreaseNotAuthorizedError,
+    BudgetPausedError,
+    BudgetPolicyIntegrationError,
+    BudgetReservationAlreadyResolvedError,
+    BudgetReservationExpiredError,
+    BudgetReservationNotFoundError,
+    DuplicateActionBudgetError,
+    DuplicateBudgetAdjustmentError,
+    DuplicateBudgetConsumptionError,
+    DuplicateBudgetReservationError,
+    InsufficientBudgetError,
+    InvalidActionBudgetContractError,
+    InvalidBudgetAllocationError,
+)
+
+__all__ += [
+    "ActionBudget",
+    "ActionBudgetApprovalAdapter",
+    "ActionBudgetAutonomyAdapter",
+    "ActionBudgetError",
+    "ActionBudgetNotFoundError",
+    "ActionBudgetPolicyAdapter",
+    "ActionBudgetRepository",
+    "ActionBudgetService",
+    "ActionBudgetStatus",
+    "BudgetAdjustment",
+    "BudgetAdjustmentNotFoundError",
+    "BudgetAdjustmentType",
+    "BudgetAllocation",
+    "BudgetApprovalIntegrationError",
+    "BudgetCancelledError",
+    "BudgetConcurrencyError",
+    "BudgetConsumption",
+    "BudgetConsumptionNotFoundError",
+    "BudgetConsumptionOutcome",
+    "BudgetEvaluationResult",
+    "BudgetExhaustedError",
+    "BudgetIncreaseNotAuthorizedError",
+    "BudgetPausedError",
+    "BudgetPolicyIntegrationError",
+    "BudgetReservation",
+    "BudgetReservationAlreadyResolvedError",
+    "BudgetReservationExpiredError",
+    "BudgetReservationNotFoundError",
+    "BudgetReservationStatus",
+    "BudgetResourceType",
+    "DuplicateActionBudgetError",
+    "DuplicateBudgetAdjustmentError",
+    "DuplicateBudgetConsumptionError",
+    "DuplicateBudgetReservationError",
+    "InMemoryActionBudgetRepository",
+    "InsufficientBudgetError",
+    "InvalidActionBudgetContractError",
+    "InvalidBudgetAllocationError",
+]
