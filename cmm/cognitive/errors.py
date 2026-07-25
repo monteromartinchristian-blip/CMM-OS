@@ -276,3 +276,18 @@ class InvalidReflectionReportError(KnowledgeReflectionError, ValueError):
 
 class ReflectionAnalysisConflictError(KnowledgeReflectionError, ValueError):
     """Raised when reflection analysis encounters a conflict or error."""
+
+
+# ── Phase 8.15 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeCognitiveCycleError(CognitiveError):
+    """Base error for cognitive integration cycle operations."""
+
+
+class InvalidCognitiveCycleError(KnowledgeCognitiveCycleError, ValueError):
+    """Raised when a CognitiveCycleRecord or cycle parameters are invalid."""
+
+
+class CognitiveCycleExecutionError(KnowledgeCognitiveCycleError, RuntimeError):
+    """Raised when execution of a cognitive cycle fails."""

@@ -68,8 +68,11 @@ from cmm.cognitive.errors import (
     InvalidAdaptationError,
     InvalidAdapterContractError,
     InvalidCognitiveContractError,
+    InvalidCognitiveCycleError,
     InvalidCognitiveIdentifierError,
     InvalidConfidenceError,
+    CognitiveCycleExecutionError,
+
     InvalidConsolidationCandidateError,
     InvalidConsolidationPlanError,
     InvalidContradictionDetectionError,
@@ -94,7 +97,9 @@ from cmm.cognitive.errors import (
     InvalidResourceProvenanceError,
     InvalidResourceTemporalScopeError,
     InvalidTemporalValidityError,
+    KnowledgeCognitiveCycleError,
     KnowledgeConsolidationApplicationError,
+
     KnowledgeConsolidationConflictError,
     KnowledgeConsolidationError,
     KnowledgeContradictionConflictError,
@@ -200,6 +205,15 @@ from cmm.cognitive.resolution_memory_contracts import (
     ResolutionMemoryResult,
     generate_resolution_memory_id,
 )
+
+# ── Phase 8.15 ────────────────────────────────────────────────────────────────
+from cmm.cognitive.cognitive_cycle import CognitiveCycleEngine
+from cmm.cognitive.cognitive_cycle_contracts import (
+    CognitiveCycleRecord,
+    CognitiveCycleStatus,
+    generate_cognitive_cycle_id,
+)
+
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
 from cmm.cognitive.resources import (
@@ -401,8 +415,17 @@ __all__ = [
     "TemporalScopeKind",
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
+    # 8.15 cycle
+    "CognitiveCycleEngine",
+    "CognitiveCycleRecord",
+    "CognitiveCycleStatus",
+    "CognitiveCycleExecutionError",
+    "InvalidCognitiveCycleError",
+    "KnowledgeCognitiveCycleError",
+    "generate_cognitive_cycle_id",
     "generate_cognitive_id",
     "generate_reflection_report_id",
+
     "generate_resolution_memory_id",
     "generate_resolution_proposal_id",
     "knowledge_fingerprint",
