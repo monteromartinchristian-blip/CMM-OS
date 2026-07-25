@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -50,7 +52,87 @@ jobs:
 
       - name: Run validation pipeline
         run: |
-          python -m cmm validation run --policy ci --git-changes --output json > validation-report.json
+          EVENT_NAME="${{ github.event_name }}"
+          BASE_SHA=""
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            BASE_SHA="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify "$BASE_SHA" >/dev/null 2>&1; then
+            if git rev-parse --verify "HEAD^" >/dev/null 2>&1; then
+              BASE_SHA="HEAD^"
+            else
+              BASE_SHA="$(git hash-object -t tree /dev/null)"
+            fi
+          fi
+
+          CURRENT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+
+          echo "Base SHA: $BASE_SHA"
+          echo "Current SHA: $CURRENT_SHA"
+
+          changed_files=()
+          while IFS= read -r file; do
+            [ -n "$file" ] && changed_files+=("$file")
+          done < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$CURRENT_SHA" -- '*.py')
+
+          echo "Selected files (${#changed_files[@]}):"
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            echo "  (none)"
+          else
+            for f in "${changed_files[@]}"; do
+              echo "  - $f"
+            done
+          fi
+
+          if [ "${#changed_files[@]}" -gt 0 ]; then
+            set +e
+            python -m cmm validation run \
+              --policy ci \
+              --files "${changed_files[@]}" \
+              --output json > validation-report.json
+            VALIDATION_EXIT_CODE=$?
+            set -e
+          else
+            cat << 'EOF' > validation-report.json
+          {
+            "schema_version": 1,
+            "command": "validation.run",
+            "success": true,
+            "exit_code": 0,
+            "validation_id": "val-skipped-no-python-changes",
+            "result": {
+              "validation_id": "val-skipped-no-python-changes",
+              "status": "passed",
+              "policy": "ci",
+              "steps": [],
+              "artifacts": [],
+              "blocking_findings": [],
+              "warnings": [],
+              "changed_files": [],
+              "affected_tests": [],
+              "duration_ms": 0,
+              "started_at": null,
+              "completed_at": null,
+              "can_commit": true,
+              "metadata": {
+                "skipped": true,
+                "reason": "No Python files modified between base and HEAD"
+              }
+            }
+          }
+          EOF
+            VALIDATION_EXIT_CODE=0
+          fi
+
+          echo "Validation Report JSON:"
+          cat validation-report.json
+          echo "Validation Exit Code: $VALIDATION_EXIT_CODE"
+
+          exit $VALIDATION_EXIT_CODE
 
       - name: Upload validation artifacts
         if: always()
