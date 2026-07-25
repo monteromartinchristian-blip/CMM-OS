@@ -432,13 +432,52 @@ class ExecuteHandler:
     """Handler for RuntimeStep.EXECUTE."""
 
     def __init__(
-        self, executor_func: Callable[[RuntimeStepContext], str] | None = None
+        self,
+        executor_func: Callable[[RuntimeStepContext], str] | None = None,
+        adapter: Any | None = None,
     ) -> None:
         self._executor_func = executor_func
+        self._adapter = adapter
 
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
-        exec_id = f"exec-{uuid.uuid4().hex[:8]}"
-        if self._executor_func:
+        if self._adapter is not None:
+            op_request = context.metadata.get("operation_request") or getattr(
+                context, "operation_request", None
+            )
+            if op_request is None:
+                raise RuntimeStepExecutionError(
+                    "ExecuteHandler invoked with adapter but no AgentOperationRequest was provided in context."
+                )
+            res = self._adapter.execute(op_request)
+            if res.success:
+                return _build_step_result(
+                    context,
+                    step=RuntimeStep.EXECUTE,
+                    next_status=AgentRuntimeStatus.VALIDATING,
+                    reason_codes=("runtime.execution_completed", *res.reason_codes),
+                    produced_ids=(res.id,),
+                    metadata={"execution_result": res.to_dict()},
+                )
+            else:
+                next_st = (
+                    AgentRuntimeStatus.BLOCKED
+                    if res.status == "blocked"
+                    else AgentRuntimeStatus.RECOVERING
+                )
+                return _build_step_result(
+                    context,
+                    step=RuntimeStep.EXECUTE,
+                    next_status=next_st,
+                    success=False,
+                    status=RuntimeStepStatus.FAILED,
+                    retryable=True,
+                    reason_codes=("runtime.execution_failed", *res.reason_codes),
+                    produced_ids=(res.id,),
+                    metadata={"execution_result": res.to_dict()},
+                )
+
+        if self._executor_func is not None:
+            exec_id = f"exec-{uuid.uuid4().hex[:8]}"
             try:
                 exec_id = self._executor_func(context)
             except Exception as exc:  # noqa: BLE001
@@ -451,13 +490,16 @@ class ExecuteHandler:
                     retryable=True,
                     reason_codes=("runtime.execution_failed", str(exc)),
                 )
+            return _build_step_result(
+                context,
+                step=RuntimeStep.EXECUTE,
+                next_status=AgentRuntimeStatus.VALIDATING,
+                reason_codes=("runtime.execution_completed",),
+                produced_ids=(exec_id,),
+            )
 
-        return _build_step_result(
-            context,
-            step=RuntimeStep.EXECUTE,
-            next_status=AgentRuntimeStatus.VALIDATING,
-            reason_codes=("runtime.execution_completed",),
-            produced_ids=(exec_id,),
+        raise RuntimeStepExecutionError(
+            "ExecuteHandler requires an injected AgentExecutionAdapter or explicit executor delegate; arbitrary execution is forbidden."
         )
 
 

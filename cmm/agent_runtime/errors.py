@@ -557,3 +557,112 @@ class RuntimeConcurrentExecutionError(AgentRuntimeLoopError, ValueError):
 
 class RuntimeRepositoryConsistencyError(AgentRuntimeLoopError, ValueError):
     """Raised when runtime repository encounters orphaned or inconsistent records."""
+
+
+# ── Phase 9.13 – Operation Execution Errors ───────────────────────────
+
+
+class AgentOperationError(AgentRuntimeError):
+    """Base error for all Operation Selection and Execution Adapter operations."""
+
+
+class InvalidAgentOperationContractError(
+    AgentOperationError, InvalidAgentContractError
+):
+    """Raised when an Operation Execution contract is invalid, malformed, or violates invariants."""
+
+
+class AgentOperationNotRegisteredError(AgentOperationError, KeyError):
+    """Raised when an operation name is not registered in the AgentOperationRegistry."""
+
+
+class AgentOperationVersionNotRegisteredError(AgentOperationError, KeyError):
+    """Raised when an exact operation version is not registered in the AgentOperationRegistry."""
+
+
+class DuplicateAgentOperationError(AgentOperationError, ValueError):
+    """Raised when attempting to register an operation descriptor with a duplicate name and version."""
+
+
+class AgentOperationRequestNotFoundError(AgentOperationError, KeyError):
+    """Raised when a requested AgentOperationRequest is not found in the repository."""
+
+
+class DuplicateAgentOperationRequestError(AgentOperationError, ValueError):
+    """Raised when attempting to store an AgentOperationRequest with a duplicate ID."""
+
+
+class AgentOperationResultNotFoundError(AgentOperationError, KeyError):
+    """Raised when a requested AgentOperationExecutionResult is not found in the repository."""
+
+
+class DuplicateAgentOperationResultError(AgentOperationError, ValueError):
+    """Raised when attempting to store an AgentOperationExecutionResult with a duplicate ID."""
+
+
+class AgentOperationCapabilityError(AgentOperationError, ValueError):
+    """Raised when an operation capability is disabled or invalid."""
+
+
+class AgentOperationCapabilityExceededError(AgentOperationError, ValueError):
+    """Raised when an operation exceeds its configured maximum uses limit."""
+
+
+class AgentOperationParameterValidationError(AgentOperationError, ValueError):
+    """Raised when operation parameters fail schema validation or contain disallowed keys/types."""
+
+
+class AgentOperationEnvironmentError(AgentOperationError, ValueError):
+    """Raised when an operation request targets an unauthorized environment."""
+
+
+class AgentOperationPermissionError(AgentOperationError, PermissionError):
+    """Raised when an operation request lacks required permissions."""
+
+
+class AgentOperationPolicyError(AgentOperationError, ValueError):
+    """Raised when Policy Engine denies an operation request."""
+
+
+class AgentOperationAutonomyError(AgentOperationError, ValueError):
+    """Raised when Autonomy Level denies an operation request."""
+
+
+class AgentOperationApprovalError(AgentOperationError, ValueError):
+    """Raised when Human Approval is missing, invalid, or expired for an operation request."""
+
+
+class AgentOperationBudgetError(AgentOperationError, ValueError):
+    """Raised when Action Budget is insufficient or exhausted for an operation request."""
+
+
+class AgentOperationCheckpointError(AgentOperationError, ValueError):
+    """Raised when a runtime checkpoint is stale, invalid, or missing for an operation request."""
+
+
+class AgentOperationResourceVersionError(AgentOperationError, ValueError):
+    """Raised when resource pre-versions do not match current resource versions."""
+
+
+class AgentOperationLockError(AgentOperationError, ValueError):
+    """Raised when lock acquisition conflicts or lock checks fail for an operation."""
+
+
+class AgentOperationRollbackError(AgentOperationError, ValueError):
+    """Raised when rollback guarantees cannot be satisfied or rollback operation fails."""
+
+
+class AgentOperationExecutionError(AgentOperationError, RuntimeError):
+    """Raised when execution by the underlying execution engine encounters an error."""
+
+
+class AgentOperationValidationError(AgentOperationError, ValueError):
+    """Raised when post-execution validations fail."""
+
+
+class AgentOperationIdempotencyConflictError(AgentOperationError, ValueError):
+    """Raised when re-invoking an idempotency key with a conflicting payload."""
+
+
+class AgentOperationRepositoryConsistencyError(AgentOperationError, ValueError):
+    """Raised when repository operation records are orphaned or inconsistent."""

@@ -1102,3 +1102,113 @@ __all__ += [
     "RuntimeTransitionNotAllowedError",
     "current_aware_iso",
 ]
+
+# ── Phase 9.13 – Operation Execution System Exports ──────────────────────────
+
+from cmm.agent_runtime.enums import (
+    AgentOperationExecutionStatus,
+    OperationEffectType,
+    OperationEnvironment,
+    OperationReversibility,
+)
+from cmm.agent_runtime.errors import (
+    AgentOperationApprovalError,
+    AgentOperationAutonomyError,
+    AgentOperationBudgetError,
+    AgentOperationCapabilityError,
+    AgentOperationCapabilityExceededError,
+    AgentOperationCheckpointError,
+    AgentOperationEnvironmentError,
+    AgentOperationError,
+    AgentOperationExecutionError,
+    AgentOperationIdempotencyConflictError,
+    AgentOperationLockError,
+    AgentOperationNotRegisteredError,
+    AgentOperationParameterValidationError,
+    AgentOperationPermissionError,
+    AgentOperationPolicyError,
+    AgentOperationRepositoryConsistencyError,
+    AgentOperationRequestNotFoundError,
+    AgentOperationResourceVersionError,
+    AgentOperationResultNotFoundError,
+    AgentOperationRollbackError,
+    AgentOperationValidationError,
+    AgentOperationVersionNotRegisteredError,
+    DuplicateAgentOperationError,
+    DuplicateAgentOperationRequestError,
+    DuplicateAgentOperationResultError,
+    InvalidAgentOperationContractError,
+)
+from cmm.agent_runtime.operation_execution_adapter import (
+    AgentExecutionAdapter,
+    AgentOperationResolver,
+)
+from cmm.agent_runtime.operation_execution_contracts import (
+    AgentOperationExecutionResult,
+    AgentOperationRequest,
+    OperationCapability,
+    OperationDescriptor,
+    OperationExecutionGateResult,
+)
+from cmm.agent_runtime.operation_execution_gates import (
+    OperationExecutionGateEvaluator,
+)
+from cmm.agent_runtime.operation_execution_integrations import (
+    InMemoryResourceVersionProvider,
+    TransformationExecutionEngineAdapter,
+)
+from cmm.agent_runtime.operation_execution_repository import (
+    AgentOperationExecutionRepository,
+    InMemoryAgentOperationExecutionRepository,
+)
+from cmm.agent_runtime.operation_registry import (
+    AgentOperationRegistry,
+    InMemoryAgentOperationRegistry,
+)
+
+__all__ += [
+    "AgentExecutionAdapter",
+    "AgentOperationApprovalError",
+    "AgentOperationAutonomyError",
+    "AgentOperationBudgetError",
+    "AgentOperationCapabilityError",
+    "AgentOperationCapabilityExceededError",
+    "AgentOperationCheckpointError",
+    "AgentOperationEnvironmentError",
+    "AgentOperationError",
+    "AgentOperationExecutionError",
+    "AgentOperationExecutionRepository",
+    "AgentOperationExecutionResult",
+    "AgentOperationExecutionStatus",
+    "AgentOperationIdempotencyConflictError",
+    "AgentOperationLockError",
+    "AgentOperationNotRegisteredError",
+    "AgentOperationParameterValidationError",
+    "AgentOperationPermissionError",
+    "AgentOperationPolicyError",
+    "AgentOperationRegistry",
+    "AgentOperationRepositoryConsistencyError",
+    "AgentOperationRequest",
+    "AgentOperationRequestNotFoundError",
+    "AgentOperationResolver",
+    "AgentOperationResourceVersionError",
+    "AgentOperationResultNotFoundError",
+    "AgentOperationRollbackError",
+    "AgentOperationValidationError",
+    "AgentOperationVersionNotRegisteredError",
+    "DuplicateAgentOperationError",
+    "DuplicateAgentOperationRequestError",
+    "DuplicateAgentOperationResultError",
+    "InMemoryAgentOperationExecutionRepository",
+    "InMemoryAgentOperationRegistry",
+    "InMemoryResourceVersionProvider",
+    "InvalidAgentOperationContractError",
+    "OperationCapability",
+    "OperationDescriptor",
+    "OperationEffectType",
+    "OperationEnvironment",
+    "OperationExecutionGateEvaluator",
+    "OperationExecutionGateResult",
+    "OperationReversibility",
+    "TransformationExecutionEngineAdapter",
+]

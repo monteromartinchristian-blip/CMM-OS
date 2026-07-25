@@ -966,3 +966,58 @@ class RuntimeLockStatus(str, Enum):
     RELEASED = "released"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+
+
+# ── Phase 9.13 – Operation Execution Enumerations ───────────────────────────
+
+
+class AgentOperationExecutionStatus(str, Enum):
+    """Lifecycle and execution status states for an AgentOperationExecution."""
+
+    PENDING = "pending"
+    VALIDATING = "validating"
+    BLOCKED = "blocked"
+    EXECUTING = "executing"
+    COMPLETED = "completed"
+    PARTIALLY_COMPLETED = "partially_completed"
+    FAILED = "failed"
+    VALIDATION_FAILED = "validation_failed"
+    ROLLBACK_REQUIRED = "rollback_required"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
+class OperationEffectType(str, Enum):
+    """Structured categories of operation effects and side effects."""
+
+    READ = "read"
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+    EXECUTE = "execute"
+    PUBLISH = "publish"
+    SEND = "send"
+    PERMISSION_CHANGE = "permission_change"
+    MEMORY_WRITE = "memory_write"
+    EXTERNAL_CALL = "external_call"
+    FINANCIAL_COMMITMENT = "financial_commitment"
+
+
+class OperationReversibility(str, Enum):
+    """Reversibility classification for an operation."""
+
+    REVERSIBLE = "reversible"
+    CONDITIONALLY_REVERSIBLE = "conditionally_reversible"
+    IRREVERSIBLE = "irreversible"
+    UNKNOWN = "unknown"
+
+
+class OperationEnvironment(str, Enum):
+    """Authorized environment targets for operation execution."""
+
+    LOCAL = "local"
+    CONTAINER = "container"
+    SANDBOX = "sandbox"
+    STAGING = "staging"
+    PRODUCTION = "production"
+    REMOTE = "remote"
