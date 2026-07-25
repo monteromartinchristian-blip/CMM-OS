@@ -55,6 +55,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeBundleError,
     InvalidKnowledgeItemError,
     InvalidKnowledgeModelError,
+    InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
     InvalidResourceError,
     InvalidResourceInputError,
@@ -62,12 +63,14 @@ from cmm.cognitive.errors import (
     InvalidResourceProvenanceError,
     InvalidResourceTemporalScopeError,
     InvalidTemporalValidityError,
+    KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
     KnowledgeStoreCorruptionError,
     KnowledgeStoreError,
     KnowledgeStoreNotFoundError,
     KnowledgeStoreSchemaError,
     KnowledgeStoreSerializationError,
+    UnsupportedKnowledgeQueryError,
 )
 from cmm.cognitive.extraction import (
     ExtractionCandidate,
@@ -95,6 +98,12 @@ from cmm.cognitive.knowledge_materializer import (
     materialise_evidence,
     materialise_result,
 )
+from cmm.cognitive.query import (
+    KnowledgeOrderField,
+    KnowledgeQuery,
+    KnowledgeQueryResult,
+    SortDirection,
+)
 from cmm.cognitive.registries import (
     KnowledgeExtractorRegistry,
     ResourceAdapterRegistry,
@@ -108,6 +117,7 @@ from cmm.cognitive.resources import (
     ResourceTemporalScope,
     ResourceTransformation,
 )
+from cmm.cognitive.retrieval import KnowledgeRetriever
 from cmm.cognitive.service import (
     AdaptAndExtractResult,
     ResourceExtractionService,
@@ -172,6 +182,7 @@ __all__ = [
     "InvalidKnowledgeBundleError",
     "InvalidKnowledgeItemError",
     "InvalidKnowledgeModelError",
+    "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
     "InvalidResourceError",
     "InvalidResourceInputError",
@@ -186,8 +197,13 @@ __all__ = [
     "KnowledgeExtractorRegistry",
     "KnowledgeItem",
     "KnowledgeKind",
+    "KnowledgeOrderField",
+    "KnowledgeQuery",
+    "KnowledgeQueryResult",
     "KnowledgeRelation",
     "KnowledgeRelationKind",
+    "KnowledgeRetrievalError",
+    "KnowledgeRetriever",
     "KnowledgeStatus",
     "KnowledgeStoreConflictError",
     "KnowledgeStoreCorruptionError",
@@ -218,9 +234,11 @@ __all__ = [
     "ResourceTransformation",
     "SQLiteKnowledgeStore",
     "SensitivityLevel",
+    "SortDirection",
     "TemporalScope",
     "TemporalScopeKind",
     "TemporalValidityStatus",
+    "UnsupportedKnowledgeQueryError",
     "generate_cognitive_id",
     # 8.4 materializer
     "materialise_candidate",

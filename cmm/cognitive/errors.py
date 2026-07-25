@@ -124,3 +124,18 @@ class KnowledgeStoreSchemaError(KnowledgeStoreError, ValueError):
 
 class KnowledgeStoreSerializationError(KnowledgeStoreError, ValueError):
     """Raised when serialization or deserialization fails in the store."""
+
+
+# ── Phase 8.6 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeRetrievalError(CognitiveError):
+    """Base error for knowledge retrieval operations."""
+
+
+class InvalidKnowledgeQueryError(KnowledgeRetrievalError, ValueError):
+    """Raised when a KnowledgeQuery contract or parameter is invalid."""
+
+
+class UnsupportedKnowledgeQueryError(KnowledgeRetrievalError, ValueError):
+    """Raised when a query operation or capability is not supported."""
