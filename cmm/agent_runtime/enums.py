@@ -308,3 +308,56 @@ class ObserverStatus(str, Enum):
     DEGRADED = "degraded"
     FAILED = "failed"
     DISABLED = "disabled"
+
+
+# ── Phase 9.5 – Cognitive Adapter Enumerations ───────────────────────────────
+
+
+class AgentCognitiveStatus(str, Enum):
+    """Execution and outcome status for agent cognitive analysis."""
+
+    PENDING = "pending"
+    PREPARING = "preparing"
+    REASONING = "reasoning"
+    WAITING_FOR_USER = "waiting_for_user"
+    WAITING_FOR_RESOURCE = "waiting_for_resource"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    INSUFFICIENT_INFORMATION = "insufficient_information"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AgentCognitiveDecision(str, Enum):
+    """Actionable runtime decisions translated from cognitive analysis."""
+
+    CONTINUE_REASONING = "continue_reasoning"
+    ASK_USER = "ask_user"
+    LOAD_RESOURCE = "load_resource"
+    SEARCH = "search"
+    PLAN = "plan"
+    PAUSE = "pause"
+    ESCALATE = "escalate"
+    COMPLETE_WITHOUT_ACTION = "complete_without_action"
+    INSUFFICIENT_INFORMATION = "insufficient_information"
+    FAIL = "fail"
+
+
+class CognitiveSessionMode(str, Enum):
+    """Session management modes for cognitive execution."""
+
+    NEW = "new"
+    RESUME = "resume"
+    FORK = "fork"
+    STATELESS = "stateless"
+
+
+class CognitiveResourceStrategy(str, Enum):
+    """Resource aggregation strategies for building reasoning context."""
+
+    OBSERVATIONS_ONLY = "observations_only"
+    KNOWLEDGE_ONLY = "knowledge_only"
+    OBSERVATIONS_AND_KNOWLEDGE = "observations_and_knowledge"
+    EXPLICIT_RESOURCES = "explicit_resources"
+    AUTOMATIC = "automatic"

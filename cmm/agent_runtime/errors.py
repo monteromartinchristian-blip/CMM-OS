@@ -111,3 +111,40 @@ class ObservationTimeoutError(ObservationEngineError, TimeoutError):
 
 class ObservationPermissionError(ObservationEngineError, PermissionError):
     """Raised when an Observation request lacks required permissions or sensitivity access."""
+
+
+# ── Phase 9.5 – Cognitive Adapter Errors ──────────────────────────────────────
+
+
+class CognitiveAdapterError(AgentRuntimeError):
+    """Base exception for all Cognitive Adapter operations."""
+
+
+class InvalidAgentCognitiveContractError(
+    CognitiveAdapterError, InvalidAgentContractError
+):
+    """Raised when an AgentCognitive contract is invalid or violates invariants."""
+
+
+class CognitiveSessionNotFoundError(CognitiveAdapterError, KeyError):
+    """Raised when a requested cognitive session is not found."""
+
+
+class CognitiveSessionMismatchError(CognitiveAdapterError, ValueError):
+    """Raised when a cognitive session belongs to another Goal or AgentRun without authorization."""
+
+
+class CognitiveProfileResolutionError(CognitiveAdapterError, ValueError):
+    """Raised when resolving a cognitive reasoning profile fails."""
+
+
+class CognitiveResourceAccessError(CognitiveAdapterError, PermissionError):
+    """Raised when accessing required cognitive resources lacks permission."""
+
+
+class CognitiveResultTranslationError(CognitiveAdapterError, ValueError):
+    """Raised when translating a CognitiveResult to AgentCognitiveResult fails."""
+
+
+class CognitiveAdapterExecutionError(CognitiveAdapterError, RuntimeError):
+    """Raised when an unhandled execution error occurs in Cognitive Adapter."""

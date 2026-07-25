@@ -1,8 +1,26 @@
 """Phase 9 – Autonomous Agent Runtime Package.
 
-Exports foundational contracts, enums, errors, goal system, intake, and Phase 9.4 Observation Engine.
+Exports foundational contracts, enums, errors, goal system, intake, Phase 9.4 Observation Engine,
+and Phase 9.5 Cognitive Adapter.
 """
 
+from cmm.agent_runtime.cognitive_adapter import (
+    AgentCognitiveService,
+    CognitiveRuntimeAdapter,
+    DefaultCognitiveRuntimeAdapter,
+)
+from cmm.agent_runtime.cognitive_adapter_contracts import (
+    AgentCognitiveConfiguration,
+    AgentCognitiveContext,
+    AgentCognitiveRequest,
+    AgentCognitiveResult,
+    AgentCognitiveSessionReference,
+    AgentCognitiveTraceReference,
+    AgentCognitiveWarning,
+    generate_cognitive_context_id,
+    generate_cognitive_request_id,
+    generate_cognitive_result_id,
+)
 from cmm.agent_runtime.contracts import (
     AgentDefinition,
     AgentResult,
@@ -10,8 +28,12 @@ from cmm.agent_runtime.contracts import (
     RuntimeDecision,
 )
 from cmm.agent_runtime.enums import (
+    AgentCognitiveDecision,
+    AgentCognitiveStatus,
     AgentResultOutcome,
     AgentRuntimeStatus,
+    CognitiveResourceStrategy,
+    CognitiveSessionMode,
     GoalAmbiguityKind,
     GoalConstraintKind,
     GoalDependencyType,
@@ -32,6 +54,13 @@ from cmm.agent_runtime.enums import (
 )
 from cmm.agent_runtime.errors import (
     AgentRuntimeError,
+    CognitiveAdapterError,
+    CognitiveAdapterExecutionError,
+    CognitiveProfileResolutionError,
+    CognitiveResourceAccessError,
+    CognitiveResultTranslationError,
+    CognitiveSessionMismatchError,
+    CognitiveSessionNotFoundError,
     DuplicateGoalError,
     DuplicateObserverError,
     GoalCompletionError,
@@ -43,6 +72,7 @@ from cmm.agent_runtime.errors import (
     GoalProposalConversionError,
     GoalProposalNotFoundError,
     GoalProposalStateError,
+    InvalidAgentCognitiveContractError,
     InvalidAgentContractError,
     InvalidAgentIdentifierError,
     InvalidGoalContractError,
@@ -111,12 +141,33 @@ from cmm.agent_runtime.observer_protocol import Observer, ObserverMetadataMixin
 from cmm.agent_runtime.observer_registry import ObserverRegistry
 
 __all__ = [
+    "AgentCognitiveConfiguration",
+    "AgentCognitiveContext",
+    "AgentCognitiveDecision",
+    "AgentCognitiveRequest",
+    "AgentCognitiveResult",
+    "AgentCognitiveService",
+    "AgentCognitiveSessionReference",
+    "AgentCognitiveStatus",
+    "AgentCognitiveTraceReference",
+    "AgentCognitiveWarning",
     "AgentDefinition",
     "AgentResult",
     "AgentResultOutcome",
     "AgentRun",
     "AgentRuntimeError",
     "AgentRuntimeStatus",
+    "CognitiveAdapterError",
+    "CognitiveAdapterExecutionError",
+    "CognitiveProfileResolutionError",
+    "CognitiveResourceAccessError",
+    "CognitiveResourceStrategy",
+    "CognitiveResultTranslationError",
+    "CognitiveRuntimeAdapter",
+    "CognitiveSessionMismatchError",
+    "CognitiveSessionMode",
+    "CognitiveSessionNotFoundError",
+    "DefaultCognitiveRuntimeAdapter",
     "DeterministicGoalNormalizer",
     "DuplicateGoalError",
     "DuplicateObserverError",
@@ -160,6 +211,7 @@ __all__ = [
     "GoalStatus",
     "InMemoryGoalProposalRepository",
     "InMemoryGoalRepository",
+    "InvalidAgentCognitiveContractError",
     "InvalidAgentContractError",
     "InvalidAgentIdentifierError",
     "InvalidGoalContractError",
@@ -201,4 +253,7 @@ __all__ = [
     "SystemHealthObserver",
     "ValidationObserver",
     "compare_snapshots",
+    "generate_cognitive_context_id",
+    "generate_cognitive_request_id",
+    "generate_cognitive_result_id",
 ]
