@@ -434,3 +434,97 @@ class InformationAcquisitionDecisionType(str, Enum):
     ACCEPT_UNCERTAINTY = "accept_uncertainty"
     PAUSE = "pause"
     ABORT = "abort"
+
+
+# ── Phase 9.7 – Workflow Planner Adapter Enumerations ─────────────────────────
+
+
+class AgentPlanningStatus(str, Enum):
+    """Execution status for an agent planning process."""
+
+    PENDING = "pending"
+    PREPARING = "preparing"
+    PLANNING = "planning"
+    VALIDATING = "validating"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AgentPlanningDecision(str, Enum):
+    """Actionable decisions resulting from agent planning."""
+
+    CREATE_PLAN = "create_plan"
+    REPLAN = "replan"
+    REQUEST_INFORMATION = "request_information"
+    REQUEST_APPROVAL = "request_approval"
+    PAUSE = "pause"
+    COMPLETE_WITHOUT_WORKFLOW = "complete_without_workflow"
+    FAIL = "fail"
+
+
+class WorkflowPlanStatus(str, Enum):
+    """Status lifecycle states for an AgentWorkflowPlan."""
+
+    DRAFT = "draft"
+    VALIDATING = "validating"
+    VALID = "valid"
+    INVALID = "invalid"
+    SUPERSEDED = "superseded"
+    APPROVED = "approved"
+    READY = "ready"
+    BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class WorkflowPlanValidationStatus(str, Enum):
+    """Validation status states for a workflow plan."""
+
+    PENDING = "pending"
+    PASSED = "passed"
+    PASSED_WITH_WARNINGS = "passed_with_warnings"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+
+
+class WorkflowPlanNodeKind(str, Enum):
+    """Functional node kinds inside an AgentWorkflowPlan DAG."""
+
+    TASK = "task"
+    OPERATION = "operation"
+    VALIDATION = "validation"
+    APPROVAL = "approval"
+    CHECKPOINT = "checkpoint"
+    DECISION = "decision"
+    WAIT = "wait"
+    COMPLETION = "completion"
+
+
+class WorkflowPlanRisk(str, Enum):
+    """Risk levels for workflow plans, nodes, and operations."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class WorkflowPlanChangeReason(str, Enum):
+    """Triggers and reasons for replanning or versioning a workflow plan."""
+
+    GOAL_CHANGED = "goal_changed"
+    NEW_INFORMATION = "new_information"
+    OPERATION_FAILED = "operation_failed"
+    VALIDATION_FAILED = "validation_failed"
+    RESOURCE_CHANGED = "resource_changed"
+    PERMISSION_CHANGED = "permission_changed"
+    BUDGET_CHANGED = "budget_changed"
+    APPROVAL_REJECTED = "approval_rejected"
+    OUTCOME_DIVERGED = "outcome_diverged"
+    SAFER_STRATEGY_FOUND = "safer_strategy_found"
+    MANUAL_REQUEST = "manual_request"

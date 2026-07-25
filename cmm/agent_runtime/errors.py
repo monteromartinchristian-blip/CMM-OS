@@ -185,3 +185,56 @@ class InformationAcquisitionResolutionError(InformationAcquisitionError, Runtime
 
 class InformationAcquisitionHandlerError(InformationAcquisitionError, RuntimeError):
     """Raised when an information acquisition handler fails during execution."""
+
+
+# ── Phase 9.7 – Workflow Planner Adapter Errors ───────────────────────────────
+
+
+class WorkflowPlannerAdapterError(AgentRuntimeError):
+    """Base exception for all Workflow Planner Adapter operations."""
+
+
+class InvalidAgentPlanningContractError(
+    WorkflowPlannerAdapterError, InvalidAgentContractError
+):
+    """Raised when an agent planning contract is invalid or violates invariants."""
+
+
+class PlannerUnavailableError(WorkflowPlannerAdapterError, RuntimeError):
+    """Raised when the underlying Planner is unavailable or not provided."""
+
+
+class PlannerExecutionError(WorkflowPlannerAdapterError, RuntimeError):
+    """Raised when the underlying Planner fails during planning execution."""
+
+
+class PlannerResultTranslationError(WorkflowPlannerAdapterError, ValueError):
+    """Raised when translating Planner result into AgentWorkflowPlan fails."""
+
+
+class WorkflowPlanValidationError(WorkflowPlannerAdapterError, ValueError):
+    """Raised when an AgentWorkflowPlan fails structural validation."""
+
+
+class WorkflowPlanCycleError(WorkflowPlanValidationError):
+    """Raised when a circular dependency or cycle is detected in the plan DAG."""
+
+
+class WorkflowOperationNotRegisteredError(WorkflowPlanValidationError):
+    """Raised when an operation in the plan is not registered in the OperationRegistry."""
+
+
+class WorkflowOperationNotAllowedError(WorkflowPlanValidationError):
+    """Raised when an operation is not in allowed_operations."""
+
+
+class WorkflowOperationProhibitedError(WorkflowPlanValidationError):
+    """Raised when an operation is in prohibited_operations."""
+
+
+class WorkflowPlanVersionError(WorkflowPlannerAdapterError, ValueError):
+    """Raised when versioning or version transition is invalid."""
+
+
+class WorkflowReplanningError(WorkflowPlannerAdapterError, RuntimeError):
+    """Raised when replanning fails or cannot produce a valid updated plan."""
