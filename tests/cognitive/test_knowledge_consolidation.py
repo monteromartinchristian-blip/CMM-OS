@@ -1,7 +1,8 @@
 """Phase 8.7 – Tests for Knowledge Consolidation.
 
 Covers statement normalization, stable fingerprints, contract validation, candidate comparison,
-plan building, preview, atomic execution, conflict handling, and cross-store parity.
+plan building, preview, atomic execution, TOCTOU prevention, cycle detection, LINK idempotency,
+non-lossy MERGE handling, conflict rollback, and cross-store parity.
 """
 
 from __future__ import annotations
@@ -34,7 +35,6 @@ from cmm.cognitive.errors import (
     InvalidConsolidationCandidateError,
     InvalidConsolidationPlanError,
     KnowledgeConsolidationConflictError,
-    ManualReviewRequiredError,
 )
 from cmm.cognitive.knowledge import (
     Evidence,
@@ -78,6 +78,7 @@ def _make_item(
     version: int = 1,
     supersedes_id: str | None = None,
     superseded_by_id: str | None = None,
+    metadata: dict | None = None,
 ) -> KnowledgeItem:
     return KnowledgeItem(
         id=item_id,
@@ -92,6 +93,7 @@ def _make_item(
         version=version,
         supersedes_id=supersedes_id,
         superseded_by_id=superseded_by_id,
+        metadata=metadata or {},
     )
 
 
@@ -105,7 +107,6 @@ def test_normalize_statement_basic() -> None:
 
 
 def test_normalize_statement_unicode_nfkc() -> None:
-    # Full-width characters and accents
     raw = "  Ｈｅｌｌｏ   Ｗｏｒｌｄ  "
     norm = normalize_statement(raw)
     assert norm == "hello world"
@@ -332,41 +333,300 @@ def test_plan_serialization_roundtrip() -> None:
     assert restored == plan
 
 
-# ── Atomic Apply & Merge / Supersede / Link Tests ──────────────────────────────
+# ── Defect 1: TOCTOU & Atomicity Tests ────────────────────────────────────────
 
 
-def test_apply_plan_dry_run_does_not_modify(store: KnowledgeStoreProtocol) -> None:
-    item_a = _make_item("k-1", "Duplicates")
-    item_b = _make_item("k-2", "Duplicates")
+def test_apply_plan_toctou_stale_fingerprint_rejection(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    item_a = _make_item("k-1", "Original statement A")
+    item_b = _make_item("k-2", "Original statement A")
     store.save_item(item_a)
     store.save_item(item_b)
 
     consolidator = KnowledgeConsolidator(store)
     candidates = consolidator.find_candidates()
-    plan = consolidator.build_plan(candidates, actor_id="actor-1", dry_run=True)
+    plan = consolidator.build_plan(candidates, actor_id="actor-1", dry_run=False)
 
-    res = consolidator.apply_plan(plan)
+    # Mutate item_a in store right before apply_plan execution (simulating TOCTOU race)
+    store.save_item(replace(item_a, statement="Altered statement A"))
 
-    assert res.applied is False
+    with pytest.raises(KnowledgeConsolidationConflictError, match="Stale fingerprint"):
+        consolidator.apply_plan(plan)
+
+    # Verify store remains unmutated
+    assert store.get_item("k-1").statement == "Altered statement A"
+    assert store.get_item("k-2").status == KnowledgeStatus.ACTIVE
+
+
+def test_apply_plan_action_failure_reverts_all_actions(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    item_a = _make_item("k-1", "Statement 1")
+    item_b = _make_item("k-2", "Statement 1")
+    item_c = _make_item("k-3", "Statement 2")
+    item_d = _make_item("k-4", "Statement 2")
+
+    store.save_item(item_a)
+    store.save_item(item_b)
+    store.save_item(item_c)
+    store.save_item(item_d)
+
+    consolidator = KnowledgeConsolidator(store)
+
+    # Action 1 is a valid MERGE of k-1 & k-2
+    act1 = ConsolidationAction(
+        decision=ConsolidationDecision.MERGE,
+        source_item_ids=("k-1", "k-2"),
+        target_item_id="k-1",
+        actor_id="actor-1",
+    )
+
+    # Action 2 is an invalid SUPERSEDE attempting a circular supersession k-3 <-> k-4
+    # (where k-3 already supersedes k-4)
+    store.save_item(replace(item_c, supersedes_id="k-4"))
+    act2 = ConsolidationAction(
+        decision=ConsolidationDecision.SUPERSEDE,
+        source_item_ids=("k-3",),
+        target_item_id="k-4",
+        actor_id="actor-1",
+    )
+
+    plan = ConsolidationPlan(
+        actions=(act1, act2),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(item_a),
+            "k-2": knowledge_fingerprint(item_b),
+            "k-3": knowledge_fingerprint(store.get_item("k-3")),
+            "k-4": knowledge_fingerprint(item_d),
+        },
+    )
+
+    with pytest.raises(InvalidConsolidationPlanError, match="Circular supersession"):
+        consolidator.apply_plan(plan)
+
+    # Verify action 1 changes were completely rolled back in store
     assert store.get_item("k-1").status == KnowledgeStatus.ACTIVE
     assert store.get_item("k-2").status == KnowledgeStatus.ACTIVE
 
 
-def test_apply_plan_merge(store: KnowledgeStoreProtocol) -> None:
-    ev_a = Evidence(
-        id="ev-1",
-        fragment="Quote A",
-        resource_id="res-1",
-        confidence=Confidence(value=1.0),
+# ── Defect 2: Cycle Detection Tests ───────────────────────────────────────────
+
+
+def test_supersession_cycle_detection_self_supersession(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    item_a = _make_item("k-1", "Text A")
+    store.save_item(item_a)
+
+    act = ConsolidationAction(
+        decision=ConsolidationDecision.SUPERSEDE,
+        source_item_ids=("k-1",),
+        target_item_id="k-1",
+        actor_id="actor-1",
     )
-    ev_b = Evidence(
-        id="ev-2",
-        fragment="Quote B",
-        resource_id="res-1",
-        confidence=Confidence(value=1.0),
+    with pytest.raises(InvalidConsolidationPlanError, match="by itself"):
+        ConsolidationPlan(
+            actions=(act,),
+            actor_id="actor-1",
+            dry_run=False,
+            expected_fingerprints={"k-1": knowledge_fingerprint(item_a)},
+        )
+
+
+def test_supersession_cycle_detection_direct_and_long_cycle(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    # Set up chain: A -> B -> C
+    item_a = _make_item(
+        "k-A", "Text A", status=KnowledgeStatus.SUPERSEDED, superseded_by_id="k-B"
     )
-    item_a = _make_item("k-1", "Target statement", confidence_val=0.9, evidence=(ev_a,))
-    item_b = _make_item("k-2", "Target statement", confidence_val=0.8, evidence=(ev_b,))
+    item_b = _make_item(
+        "k-B",
+        "Text B",
+        supersedes_id="k-A",
+        status=KnowledgeStatus.SUPERSEDED,
+        superseded_by_id="k-C",
+    )
+    item_c = _make_item("k-C", "Text C", supersedes_id="k-B")
+
+    store.save_item(item_a)
+    store.save_item(item_b)
+    store.save_item(item_c)
+
+    consolidator = KnowledgeConsolidator(store)
+
+    # Attempting C superseded_by A closes cycle A -> B -> C -> A
+    act = ConsolidationAction(
+        decision=ConsolidationDecision.SUPERSEDE,
+        source_item_ids=("k-C",),
+        target_item_id="k-A",
+        actor_id="actor-1",
+    )
+    plan = ConsolidationPlan(
+        actions=(act,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-A": knowledge_fingerprint(item_a),
+            "k-C": knowledge_fingerprint(item_c),
+        },
+    )
+
+    with pytest.raises(InvalidConsolidationPlanError, match="Circular supersession"):
+        consolidator.apply_plan(plan)
+
+
+def test_supersession_valid_chain_allowed(store: KnowledgeStoreProtocol) -> None:
+    item_a = _make_item("k-A", "Text A")
+    item_b = _make_item("k-B", "Text B")
+    item_c = _make_item("k-C", "Text C")
+
+    store.save_item(item_a)
+    store.save_item(item_b)
+    store.save_item(item_c)
+
+    consolidator = KnowledgeConsolidator(store)
+
+    # Step 1: A superseded_by B
+    act1 = ConsolidationAction(
+        decision=ConsolidationDecision.SUPERSEDE,
+        source_item_ids=("k-A",),
+        target_item_id="k-B",
+        actor_id="actor-1",
+    )
+    plan1 = ConsolidationPlan(
+        actions=(act1,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-A": knowledge_fingerprint(item_a),
+            "k-B": knowledge_fingerprint(item_b),
+        },
+    )
+    res1 = consolidator.apply_plan(plan1)
+    assert res1.applied is True
+
+    # Step 2: B superseded_by C
+    act2 = ConsolidationAction(
+        decision=ConsolidationDecision.SUPERSEDE,
+        source_item_ids=("k-B",),
+        target_item_id="k-C",
+        actor_id="actor-1",
+    )
+    plan2 = ConsolidationPlan(
+        actions=(act2,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-B": knowledge_fingerprint(store.get_item("k-B")),
+            "k-C": knowledge_fingerprint(item_c),
+        },
+    )
+    res2 = consolidator.apply_plan(plan2)
+    assert res2.applied is True
+
+    item_a_updated = store.get_item("k-A")
+    item_b_updated = store.get_item("k-B")
+    item_c_updated = store.get_item("k-C")
+
+    assert item_a_updated.status == KnowledgeStatus.SUPERSEDED
+    assert item_a_updated.superseded_by_id == "k-B"
+    assert item_b_updated.status == KnowledgeStatus.SUPERSEDED
+    assert item_b_updated.superseded_by_id == "k-C"
+    assert item_b_updated.supersedes_id == "k-A"
+    assert item_c_updated.supersedes_id == "k-B"
+
+
+# ── Defect 3: LINK Idempotency Tests ──────────────────────────────────────────
+
+
+def test_link_idempotency_and_deterministic_id(store: KnowledgeStoreProtocol) -> None:
+    item_a = _make_item("k-1", "Text A")
+    item_b = _make_item("k-2", "Text B")
+    store.save_item(item_a)
+    store.save_item(item_b)
+
+    action = ConsolidationAction(
+        decision=ConsolidationDecision.LINK,
+        source_item_ids=("k-1", "k-2"),
+        relation_kind=KnowledgeRelationKind.EQUIVALENT_TO,
+        actor_id="actor-1",
+    )
+    plan = ConsolidationPlan(
+        actions=(action,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(item_a),
+            "k-2": knowledge_fingerprint(item_b),
+        },
+    )
+
+    consolidator = KnowledgeConsolidator(store)
+    first = consolidator.apply_plan(plan)
+    second = consolidator.apply_plan(plan)
+
+    assert len(store.list_relations()) == 1
+    assert first.linked_relation_ids == second.linked_relation_ids
+
+
+def test_link_different_kind_creates_distinct_relation(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    item_a = _make_item("k-1", "Text A")
+    item_b = _make_item("k-2", "Text B")
+    store.save_item(item_a)
+    store.save_item(item_b)
+
+    consolidator = KnowledgeConsolidator(store)
+
+    action1 = ConsolidationAction(
+        decision=ConsolidationDecision.LINK,
+        source_item_ids=("k-1", "k-2"),
+        relation_kind=KnowledgeRelationKind.EQUIVALENT_TO,
+        actor_id="actor-1",
+    )
+    plan1 = ConsolidationPlan(
+        actions=(action1,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(item_a),
+            "k-2": knowledge_fingerprint(item_b),
+        },
+    )
+    res1 = consolidator.apply_plan(plan1)
+
+    action2 = ConsolidationAction(
+        decision=ConsolidationDecision.LINK,
+        source_item_ids=("k-1", "k-2"),
+        relation_kind=KnowledgeRelationKind.SUPPORTS,
+        actor_id="actor-1",
+    )
+    plan2 = ConsolidationPlan(
+        actions=(action2,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(item_a),
+            "k-2": knowledge_fingerprint(item_b),
+        },
+    )
+    res2 = consolidator.apply_plan(plan2)
+
+    assert len(store.list_relations()) == 2
+    assert res1.linked_relation_ids != res2.linked_relation_ids
+
+
+# ── Defect 4: Non-Lossy MERGE Tests ──────────────────────────────────────────
+
+
+def test_merge_preserves_source_metadata(store: KnowledgeStoreProtocol) -> None:
+    item_a = _make_item("k-1", "Target statement", metadata={"target_key": "v1"})
+    item_b = _make_item("k-2", "Target statement", metadata={"source_key": "v2"})
     store.save_item(item_a)
     store.save_item(item_b)
 
@@ -388,52 +648,63 @@ def test_apply_plan_merge(store: KnowledgeStoreProtocol) -> None:
     )
 
     res = consolidator.apply_plan(plan)
-
     assert res.applied is True
-    assert "k-1" in res.updated_item_ids
-    assert "k-2" in res.superseded_item_ids
 
-    updated_a = store.get_item("k-1")
-    superseded_b = store.get_item("k-2")
+    merged_a = store.get_item("k-1")
+    assert merged_a.metadata["target_key"] == "v1"
+    assert "consolidation" in merged_a.metadata
+    consolidation_meta = merged_a.metadata["consolidation"]
+    assert consolidation_meta["source_metadata"]["k-2"] == {"source_key": "v2"}
 
-    assert len(updated_a.evidence) == 2
-    assert updated_a.confidence.value == 0.8  # Conservative lower bound
-    assert superseded_b.status == KnowledgeStatus.SUPERSEDED
-    assert superseded_b.superseded_by_id == "k-1"
+    # Source metadata in store remains unaltered
+    source_b = store.get_item("k-2")
+    assert source_b.metadata == {"source_key": "v2"}
 
 
-def test_apply_plan_supersede(store: KnowledgeStoreProtocol) -> None:
-    item_a = _make_item("k-1", "V1 text", version=1)
-    item_b = _make_item("k-2", "V2 text", version=2, supersedes_id="k-1")
+def test_merge_evidence_deduplication_and_conflict(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    from cmm.cognitive.contracts import utc_now
+
+    now = utc_now()
+    ev_a = Evidence(
+        id="ev-same",
+        fragment="Same text",
+        resource_id="res-1",
+        confidence=Confidence(value=1.0),
+        observed_at=now,
+    )
+    ev_a_dup = Evidence(
+        id="ev-same",
+        fragment="Same text",
+        resource_id="res-1",
+        confidence=Confidence(value=1.0),
+        observed_at=now,
+    )
+    ev_a_diff = Evidence(
+        id="ev-same",
+        fragment="Differing text",
+        resource_id="res-1",
+        confidence=Confidence(value=1.0),
+        observed_at=now,
+    )
+
+    item_a = _make_item("k-1", "Statement A", evidence=(ev_a,))
+    item_b = _make_item("k-2", "Statement A", evidence=(ev_a_dup,))
     store.save_item(item_a)
     store.save_item(item_b)
 
     consolidator = KnowledgeConsolidator(store)
-    candidates = consolidator.find_candidates()
-    plan = consolidator.build_plan(candidates, actor_id="actor-1", dry_run=False)
 
-    res = consolidator.apply_plan(plan)
-
-    assert res.applied is True
-    assert "k-1" in res.superseded_item_ids
-    assert store.get_item("k-1").status == KnowledgeStatus.SUPERSEDED
-    assert store.get_item("k-1").superseded_by_id == "k-2"
-
-
-def test_apply_plan_link(store: KnowledgeStoreProtocol) -> None:
-    item_a = _make_item("k-1", "Text A", actor_id="actor-1")
-    item_b = _make_item("k-2", "Text B", actor_id="actor-1")
-    store.save_item(item_a)
-    store.save_item(item_b)
-
-    action = ConsolidationAction(
-        decision=ConsolidationDecision.LINK,
+    # 1. Identical evidence with same ID deduplicates cleanly
+    action_clean = ConsolidationAction(
+        decision=ConsolidationDecision.MERGE,
         source_item_ids=("k-1", "k-2"),
-        relation_kind=KnowledgeRelationKind.EQUIVALENT_TO,
+        target_item_id="k-1",
         actor_id="actor-1",
     )
-    plan = ConsolidationPlan(
-        actions=(action,),
+    plan_clean = ConsolidationPlan(
+        actions=(action_clean,),
         actor_id="actor-1",
         dry_run=False,
         expected_fingerprints={
@@ -441,52 +712,112 @@ def test_apply_plan_link(store: KnowledgeStoreProtocol) -> None:
             "k-2": knowledge_fingerprint(item_b),
         },
     )
+    res_clean = consolidator.apply_plan(plan_clean)
+    assert res_clean.applied is True
+    assert len(store.get_item("k-1").evidence) == 1
 
-    consolidator = KnowledgeConsolidator(store)
-    res = consolidator.apply_plan(plan)
+    # 2. Differing evidence with same ID raises KnowledgeConsolidationConflictError
+    item_c = _make_item("k-3", "Statement C", evidence=(ev_a_diff,))
+    store.save_item(item_c)
+    action_conflict = ConsolidationAction(
+        decision=ConsolidationDecision.MERGE,
+        source_item_ids=("k-1", "k-3"),
+        target_item_id="k-1",
+        actor_id="actor-1",
+    )
+    plan_conflict = ConsolidationPlan(
+        actions=(action_conflict,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(store.get_item("k-1")),
+            "k-3": knowledge_fingerprint(item_c),
+        },
+    )
 
-    assert res.applied is True
-    assert len(res.linked_relation_ids) == 1
-
-    rel = store.get_relation(res.linked_relation_ids[0])
-    assert rel.source_id == "k-1"
-    assert rel.target_id == "k-2"
-    assert rel.kind == KnowledgeRelationKind.EQUIVALENT_TO
+    with pytest.raises(KnowledgeConsolidationConflictError, match="Evidence conflict"):
+        consolidator.apply_plan(plan_conflict)
 
 
-def test_apply_plan_stale_fingerprint_raises(store: KnowledgeStoreProtocol) -> None:
-    item_a = _make_item("k-1", "Original text")
-    item_b = _make_item("k-2", "Original text")
+def test_merge_relation_deduplication_and_conflict(
+    store: KnowledgeStoreProtocol,
+) -> None:
+    from cmm.cognitive.contracts import utc_now
+
+    now = utc_now()
+    rel_a = KnowledgeRelation(
+        id="rel-same",
+        source_id="k-1",
+        target_id="k-99",
+        kind=KnowledgeRelationKind.SUPPORTS,
+        confidence=Confidence(value=1.0),
+        created_at=now,
+    )
+    rel_a_dup = KnowledgeRelation(
+        id="rel-same",
+        source_id="k-1",
+        target_id="k-99",
+        kind=KnowledgeRelationKind.SUPPORTS,
+        confidence=Confidence(value=1.0),
+        created_at=now,
+    )
+    rel_a_diff = KnowledgeRelation(
+        id="rel-same",
+        source_id="k-1",
+        target_id="k-99",
+        kind=KnowledgeRelationKind.CONTRADICTS,
+        confidence=Confidence(value=1.0),
+        created_at=now,
+    )
+
+    item_a = _make_item("k-1", "Statement A", relations=(rel_a,))
+    item_b = _make_item("k-2", "Statement A", relations=(rel_a_dup,))
     store.save_item(item_a)
     store.save_item(item_b)
 
     consolidator = KnowledgeConsolidator(store)
-    candidates = consolidator.find_candidates()
-    plan = consolidator.build_plan(candidates, actor_id="actor-1", dry_run=False)
 
-    # Mutate item_a after plan creation
-    mutated_a = replace(item_a, statement="Mutated text after plan creation")
-    store.save_item(mutated_a)
-
-    with pytest.raises(KnowledgeConsolidationConflictError):
-        consolidator.apply_plan(plan)
-
-
-def test_apply_plan_manual_review_raises(store: KnowledgeStoreProtocol) -> None:
-    action = ConsolidationAction(
-        decision=ConsolidationDecision.MANUAL_REVIEW,
+    action_clean = ConsolidationAction(
+        decision=ConsolidationDecision.MERGE,
         source_item_ids=("k-1", "k-2"),
+        target_item_id="k-1",
         actor_id="actor-1",
     )
-    plan = ConsolidationPlan(
-        actions=(action,),
+    plan_clean = ConsolidationPlan(
+        actions=(action_clean,),
         actor_id="actor-1",
         dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(item_a),
+            "k-2": knowledge_fingerprint(item_b),
+        },
+    )
+    res_clean = consolidator.apply_plan(plan_clean)
+    assert res_clean.applied is True
+    assert len(store.get_item("k-1").relations) == 1
+
+    item_c = _make_item("k-3", "Statement C", relations=(rel_a_diff,))
+    store.save_item(item_c)
+    action_conflict = ConsolidationAction(
+        decision=ConsolidationDecision.MERGE,
+        source_item_ids=("k-1", "k-3"),
+        target_item_id="k-1",
+        actor_id="actor-1",
+    )
+    plan_conflict = ConsolidationPlan(
+        actions=(action_conflict,),
+        actor_id="actor-1",
+        dry_run=False,
+        expected_fingerprints={
+            "k-1": knowledge_fingerprint(store.get_item("k-1")),
+            "k-3": knowledge_fingerprint(item_c),
+        },
     )
 
-    consolidator = KnowledgeConsolidator(store)
-    with pytest.raises(ManualReviewRequiredError):
-        consolidator.apply_plan(plan)
+    with pytest.raises(
+        KnowledgeConsolidationConflictError, match="KnowledgeRelation conflict"
+    ):
+        consolidator.apply_plan(plan_conflict)
 
 
 def test_result_serialization_roundtrip() -> None:

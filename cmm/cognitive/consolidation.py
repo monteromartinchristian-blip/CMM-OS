@@ -6,8 +6,10 @@ plan construction, preview, and atomic execution over KnowledgeStoreProtocol.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hashlib
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
+from typing import Any
 
 from cmm.cognitive.consolidation_contracts import (
     ConsolidationAction,
@@ -27,8 +29,7 @@ from cmm.cognitive.errors import (
     KnowledgeConsolidationConflictError,
     ManualReviewRequiredError,
 )
-from cmm.cognitive.identifiers import generate_cognitive_id
-from cmm.cognitive.knowledge import KnowledgeItem, KnowledgeRelation
+from cmm.cognitive.knowledge import Evidence, KnowledgeItem, KnowledgeRelation
 from cmm.cognitive.query import KnowledgeQuery
 from cmm.cognitive.retrieval import KnowledgeRetriever
 from cmm.cognitive.store_contracts import KnowledgeStoreProtocol, validate_store_id
@@ -38,6 +39,106 @@ def _token_set(text: str) -> set[str]:
     """Tokenize normalized text into simple Unicode token set."""
     norm = normalize_statement(text)
     return set(norm.split())
+
+
+def _consolidation_relation_id(
+    source_id: str,
+    target_id: str,
+    kind: KnowledgeRelationKind | str,
+) -> str:
+    """Generate a deterministic ID for a consolidation relation."""
+    kind_str = kind.value if isinstance(kind, KnowledgeRelationKind) else str(kind)
+    if kind_str in (
+        KnowledgeRelationKind.EQUIVALENT_TO.value,
+        KnowledgeRelationKind.RELATED_TO.value,
+    ):
+        src, tgt = (
+            (source_id, target_id) if source_id <= target_id else (target_id, source_id)
+        )
+    else:
+        src, tgt = source_id, target_id
+    payload = f"{src}:{tgt}:{kind_str}"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return f"rel:consolidation:{digest}"
+
+
+def _merge_evidence(
+    target: tuple[Evidence, ...],
+    sources: Iterable[tuple[Evidence, ...]],
+) -> tuple[Evidence, ...]:
+    """Merge evidence items cleanly without silent content loss."""
+    by_id: dict[str, Evidence] = {}
+    for ev in target:
+        by_id[ev.id] = ev
+
+    for source_evs in sources:
+        for ev in source_evs:
+            if ev.id in by_id:
+                existing = by_id[ev.id]
+                if existing.serialize() != ev.serialize():
+                    raise KnowledgeConsolidationConflictError(
+                        f"Evidence conflict on ID '{ev.id}': differing content between target and source"
+                    )
+            else:
+                by_id[ev.id] = ev
+
+    result = list(by_id.values())
+    result.sort(key=lambda e: (e.observed_at, e.id))
+    return tuple(result)
+
+
+def _merge_relations(
+    target: tuple[KnowledgeRelation, ...],
+    sources: Iterable[tuple[KnowledgeRelation, ...]],
+) -> tuple[KnowledgeRelation, ...]:
+    """Merge relation items cleanly without silent content loss."""
+    by_id: dict[str, KnowledgeRelation] = {}
+    for rel in target:
+        by_id[rel.id] = rel
+
+    for source_rels in sources:
+        for rel in source_rels:
+            if rel.id in by_id:
+                existing = by_id[rel.id]
+                if existing.serialize() != rel.serialize():
+                    raise KnowledgeConsolidationConflictError(
+                        f"KnowledgeRelation conflict on ID '{rel.id}': differing content between target and source"
+                    )
+            else:
+                by_id[rel.id] = rel
+
+    result = list(by_id.values())
+    result.sort(key=lambda r: (r.created_at, r.id))
+    return tuple(result)
+
+
+def _merge_metadata(
+    target_item: KnowledgeItem,
+    source_items: Sequence[KnowledgeItem],
+    plan_id: str,
+) -> dict[str, Any]:
+    """Merge metadata non-destructively, preserving target metadata and source metadata history."""
+    merged_metadata = dict(target_item.metadata)
+    new_entry = {
+        "plan_id": plan_id,
+        "source_item_ids": [s.id for s in source_items],
+        "source_metadata": {s.id: dict(s.metadata) for s in source_items},
+    }
+
+    if "consolidation" in merged_metadata:
+        existing = merged_metadata["consolidation"]
+        if isinstance(existing, list):
+            merged_metadata["consolidation"] = [*existing, new_entry]
+        elif isinstance(existing, dict):
+            merged_metadata["consolidation"] = [existing, new_entry]
+        else:
+            raise KnowledgeConsolidationConflictError(
+                f"Cannot merge metadata for item '{target_item.id}': invalid existing 'consolidation' metadata key"
+            )
+    else:
+        merged_metadata["consolidation"] = new_entry
+
+    return merged_metadata
 
 
 class KnowledgeConsolidator:
@@ -54,6 +155,47 @@ class KnowledgeConsolidator:
         self._retriever = (
             retriever if retriever is not None else KnowledgeRetriever(store)
         )
+
+    def _would_create_supersession_cycle(
+        self,
+        predecessor_id: str,
+        successor_id: str,
+    ) -> bool:
+        """Check if establishing predecessor_id -> successor_id supersession creates a lineage cycle."""
+        if predecessor_id == successor_id:
+            return True
+
+        # Trace forward lineage from successor_id (superseded_by_id)
+        visited: set[str] = {successor_id}
+        curr_id: str | None = successor_id
+        while curr_id and self._store.contains_item(curr_id):
+            curr_item = self._store.get_item(curr_id)
+            next_id = curr_item.superseded_by_id
+            if not next_id:
+                break
+            if next_id == predecessor_id:
+                return True
+            if next_id in visited:
+                break
+            visited.add(next_id)
+            curr_id = next_id
+
+        # Trace backward lineage from predecessor_id (supersedes_id)
+        visited = {predecessor_id}
+        curr_id = predecessor_id
+        while curr_id and self._store.contains_item(curr_id):
+            curr_item = self._store.get_item(curr_id)
+            prev_id = curr_item.supersedes_id
+            if not prev_id:
+                break
+            if prev_id == successor_id:
+                return True
+            if prev_id in visited:
+                break
+            visited.add(prev_id)
+            curr_id = prev_id
+
+        return False
 
     def compare(
         self,
@@ -194,7 +336,6 @@ class KnowledgeConsolidator:
 
         # 3. Normalized Duplicate Check
         if "statement_normalized" in matching_fields and "kind" in matching_fields:
-            # Check if all other critical fields match for automatic merge proposal
             substantially_identical = (
                 first.confidence.value == second.confidence.value
                 and first.temporal_scope == second.temporal_scope
@@ -261,7 +402,6 @@ class KnowledgeConsolidator:
             )
 
         # 5. Related Check
-        # Check if there is an explicit relation in store or item between first and second
         explicit_rel = any(
             r.source_id == first.id
             and r.target_id == second.id
@@ -318,7 +458,6 @@ class KnowledgeConsolidator:
         if len(items) < 2:
             return ()
 
-        # Deterministic sorting of items by ID
         sorted_items = sorted(items, key=lambda it: it.id)
         candidates_map: dict[str, ConsolidationCandidate] = {}
 
@@ -331,7 +470,6 @@ class KnowledgeConsolidator:
                     key = f"{candidate.item_a_id}:{candidate.item_b_id}"
                     candidates_map[key] = candidate
 
-        # Sort candidates deterministically
         sorted_candidates = sorted(
             candidates_map.values(),
             key=lambda c: (c.item_a_id, c.item_b_id, c.match_kind.value),
@@ -367,7 +505,6 @@ class KnowledgeConsolidator:
             cand_ref = f"{cand.item_a_id}:{cand.item_b_id}"
             candidate_refs.append(cand_ref)
 
-            # Record expected fingerprints for concurrency verification
             for item_id in (cand.item_a_id, cand.item_b_id):
                 if item_id not in expected_fps and self._store.contains_item(item_id):
                     it = self._store.get_item(item_id)
@@ -458,7 +595,13 @@ class KnowledgeConsolidator:
                 if act.target_item_id:
                     updated.append(act.target_item_id)
             elif act.decision == ConsolidationDecision.LINK:
-                dummy_rel_id = generate_cognitive_id("preview-rel", "relation")
+                dummy_rel_id = _consolidation_relation_id(
+                    act.source_item_ids[0],
+                    act.source_item_ids[1]
+                    if len(act.source_item_ids) > 1
+                    else act.source_item_ids[0],
+                    act.relation_kind or KnowledgeRelationKind.EQUIVALENT_TO,
+                )
                 linked.append(dummy_rel_id)
             elif act.decision in (
                 ConsolidationDecision.KEEP_SEPARATE,
@@ -480,24 +623,11 @@ class KnowledgeConsolidator:
             finished_at=utc_now(),
         )
 
-    def apply_plan(self, plan: ConsolidationPlan) -> ConsolidationResult:
-        """Apply a ConsolidationPlan atomically to the store."""
-        if not isinstance(plan, ConsolidationPlan):
-            raise TypeError("plan must be ConsolidationPlan")
-
-        if plan.dry_run:
-            return self.preview_plan(plan)
-
-        # 1. Pre-condition validations
-        for act in plan.actions:
-            if act.decision == ConsolidationDecision.MANUAL_REVIEW:
-                raise ManualReviewRequiredError(
-                    f"ConsolidationPlan '{plan.id}' contains actions requiring manual review"
-                )
-
-        started_at = utc_now()
-
-        # Validate existence and fingerprints of expected items
+    def _validate_plan_preconditions(
+        self,
+        plan: ConsolidationPlan,
+    ) -> None:
+        """Validate fingerprints, item existence, and action constraints within an active transaction."""
         for item_id, expected_fp in plan.expected_fingerprints.items():
             if not self._store.contains_item(item_id):
                 raise KnowledgeConsolidationConflictError(
@@ -510,6 +640,61 @@ class KnowledgeConsolidator:
                     f"Stale fingerprint for item '{item_id}': expected {expected_fp}, got {current_fp}"
                 )
 
+        for act in plan.actions:
+            if act.decision == ConsolidationDecision.MERGE:
+                if act.target_item_id is None or not self._store.contains_item(
+                    act.target_item_id
+                ):
+                    raise KnowledgeConsolidationConflictError(
+                        f"Target item '{act.target_item_id}' for merge action not found in store"
+                    )
+                for sid in act.source_item_ids:
+                    if not self._store.contains_item(sid):
+                        raise KnowledgeConsolidationConflictError(
+                            f"Source item '{sid}' for merge action not found in store"
+                        )
+            elif act.decision == ConsolidationDecision.SUPERSEDE:
+                if act.target_item_id is None or not self._store.contains_item(
+                    act.target_item_id
+                ):
+                    raise KnowledgeConsolidationConflictError(
+                        f"Successor item '{act.target_item_id}' for supersede action not found in store"
+                    )
+                for pred_id in act.source_item_ids:
+                    if not self._store.contains_item(pred_id):
+                        raise KnowledgeConsolidationConflictError(
+                            f"Predecessor item '{pred_id}' for supersede action not found in store"
+                        )
+                    if self._would_create_supersession_cycle(
+                        pred_id, act.target_item_id
+                    ):
+                        raise InvalidConsolidationPlanError(
+                            f"Circular supersession detected between '{pred_id}' and '{act.target_item_id}'"
+                        )
+            elif act.decision == ConsolidationDecision.LINK:
+                for sid in act.source_item_ids:
+                    if not self._store.contains_item(sid):
+                        raise KnowledgeConsolidationConflictError(
+                            f"Item '{sid}' for link action not found in store"
+                        )
+
+    def apply_plan(self, plan: ConsolidationPlan) -> ConsolidationResult:
+        """Apply a ConsolidationPlan atomically to the store."""
+        if not isinstance(plan, ConsolidationPlan):
+            raise TypeError("plan must be ConsolidationPlan")
+
+        if plan.dry_run:
+            return self.preview_plan(plan)
+
+        # 1. Pre-check non-store validations
+        for act in plan.actions:
+            if act.decision == ConsolidationDecision.MANUAL_REVIEW:
+                raise ManualReviewRequiredError(
+                    f"ConsolidationPlan '{plan.id}' contains actions requiring manual review"
+                )
+
+        started_at = utc_now()
+
         created_ids: list[str] = []
         updated_ids: list[str] = []
         superseded_ids: list[str] = []
@@ -517,49 +702,31 @@ class KnowledgeConsolidator:
         unchanged_ids: list[str] = []
         warnings_list: list[str] = list(plan.warnings)
 
-        # 2. Atomic execution
+        # 2. Atomic execution with internal precondition validation
         with self._store.transaction():
+            self._validate_plan_preconditions(plan)
+
             for act in plan.actions:
                 if act.decision == ConsolidationDecision.MERGE:
                     target_id = act.target_item_id
-                    if target_id is None or not self._store.contains_item(target_id):
-                        raise KnowledgeConsolidationConflictError(
-                            f"Target item '{target_id}' for merge action not found in store"
-                        )
                     target_item = self._store.get_item(target_id)
-                    source_items: list[KnowledgeItem] = []
+                    source_items = [
+                        self._store.get_item(sid)
+                        for sid in act.source_item_ids
+                        if sid != target_id
+                    ]
 
-                    for sid in act.source_item_ids:
-                        if sid == target_id:
-                            continue
-                        if not self._store.contains_item(sid):
-                            raise KnowledgeConsolidationConflictError(
-                                f"Source item '{sid}' for merge action not found in store"
-                            )
-                        source_items.append(self._store.get_item(sid))
+                    # Combine evidence and relations safely without silent loss
+                    merged_ev = _merge_evidence(
+                        target_item.evidence, [s.evidence for s in source_items]
+                    )
+                    merged_rel = _merge_relations(
+                        target_item.relations, [s.relations for s in source_items]
+                    )
 
-                    # Combine evidence
-                    ev_map = {e.id: e for e in target_item.evidence}
-                    for s_item in source_items:
-                        for e in s_item.evidence:
-                            if e.id not in ev_map:
-                                ev_map[e.id] = e
-                    merged_ev = tuple(ev_map.values())
+                    # Preserve metadata non-destructively
+                    merged_meta = _merge_metadata(target_item, source_items, plan.id)
 
-                    # Combine relations
-                    rel_map = {r.id: r for r in target_item.relations}
-                    for s_item in source_items:
-                        for r in s_item.relations:
-                            if r.id not in rel_map:
-                                rel_map[r.id] = r
-                    merged_rel = tuple(rel_map.values())
-
-                    # Combine metadata
-                    merged_meta = dict(target_item.metadata)
-                    merged_meta["consolidated_sources"] = list(act.source_item_ids)
-                    merged_meta["consolidation_plan_id"] = plan.id
-
-                    # Conservative confidence calculation
                     all_conf_vals = [target_item.confidence.value] + [
                         s.confidence.value for s in source_items
                     ]
@@ -572,7 +739,6 @@ class KnowledgeConsolidator:
                         ),
                     )
 
-                    # Update target item
                     updated_target = replace(
                         target_item,
                         evidence=merged_ev,
@@ -584,7 +750,6 @@ class KnowledgeConsolidator:
                     self._store.save_item(updated_target)
                     updated_ids.append(target_id)
 
-                    # Update sources to SUPERSEDE status
                     if act.preserve_sources:
                         for s_item in source_items:
                             superseded_source = replace(
@@ -597,32 +762,12 @@ class KnowledgeConsolidator:
                             superseded_ids.append(s_item.id)
 
                 elif act.decision == ConsolidationDecision.SUPERSEDE:
+                    successor_id = act.target_item_id
+                    successor = self._store.get_item(successor_id)
+
                     for pred_id in act.source_item_ids:
-                        if not self._store.contains_item(pred_id):
-                            raise KnowledgeConsolidationConflictError(
-                                f"Predecessor item '{pred_id}' for supersede action not found"
-                            )
-                        if act.target_item_id is None or not self._store.contains_item(
-                            act.target_item_id
-                        ):
-                            raise KnowledgeConsolidationConflictError(
-                                f"Successor item '{act.target_item_id}' for supersede action not found"
-                            )
-
                         predecessor = self._store.get_item(pred_id)
-                        successor = self._store.get_item(act.target_item_id)
 
-                        # Prevent self-supersession or circular supersession
-                        if predecessor.id == successor.id:
-                            raise InvalidConsolidationPlanError(
-                                f"Item '{predecessor.id}' cannot supersede itself"
-                            )
-                        if predecessor.supersedes_id == successor.id:
-                            raise InvalidConsolidationPlanError(
-                                f"Circular supersession detected between '{predecessor.id}' and '{successor.id}'"
-                            )
-
-                        # Mark predecessor as SUPERSEDE
                         updated_pred = replace(
                             predecessor,
                             status=KnowledgeStatus.SUPERSEDED,
@@ -632,14 +777,13 @@ class KnowledgeConsolidator:
                         self._store.save_item(updated_pred)
                         superseded_ids.append(pred_id)
 
-                        # Link successor to predecessor if not already linked
                         if successor.supersedes_id != pred_id:
-                            updated_succ = replace(
+                            successor = replace(
                                 successor,
                                 supersedes_id=pred_id,
                                 updated_at=started_at,
                             )
-                            self._store.save_item(updated_succ)
+                            self._store.save_item(successor)
                             updated_ids.append(successor.id)
 
                 elif act.decision == ConsolidationDecision.LINK:
@@ -649,26 +793,41 @@ class KnowledgeConsolidator:
                         )
                     src_id = act.source_item_ids[0]
                     tgt_id = act.source_item_ids[1]
-
                     rel_kind = (
                         act.relation_kind
                         if act.relation_kind is not None
                         else KnowledgeRelationKind.EQUIVALENT_TO
                     )
-                    rel_id = generate_cognitive_id("rel", "consolidation")
 
-                    relation = KnowledgeRelation(
-                        id=rel_id,
-                        source_id=src_id,
-                        target_id=tgt_id,
-                        kind=rel_kind,
-                        confidence=Confidence(value=1.0),
-                        actor_id=plan.actor_id,
-                        created_at=started_at,
-                        metadata={"consolidation_plan_id": plan.id},
+                    # Check if matching relation already exists in store (idempotency)
+                    existing_rels = self._store.list_relations(
+                        source_id=src_id, target_id=tgt_id, kind=rel_kind
                     )
-                    self._store.save_relation(relation)
-                    linked_rel_ids.append(relation.id)
+                    if not existing_rels and rel_kind in (
+                        KnowledgeRelationKind.EQUIVALENT_TO,
+                        KnowledgeRelationKind.RELATED_TO,
+                    ):
+                        existing_rels = self._store.list_relations(
+                            source_id=tgt_id, target_id=src_id, kind=rel_kind
+                        )
+
+                    if existing_rels:
+                        rel_id = existing_rels[0].id
+                    else:
+                        rel_id = _consolidation_relation_id(src_id, tgt_id, rel_kind)
+                        relation = KnowledgeRelation(
+                            id=rel_id,
+                            source_id=src_id,
+                            target_id=tgt_id,
+                            kind=rel_kind,
+                            confidence=Confidence(value=1.0),
+                            actor_id=plan.actor_id,
+                            created_at=started_at,
+                            metadata={"consolidation_plan_id": plan.id},
+                        )
+                        self._store.save_relation(relation)
+
+                    linked_rel_ids.append(rel_id)
 
                 elif act.decision in (
                     ConsolidationDecision.KEEP_SEPARATE,
