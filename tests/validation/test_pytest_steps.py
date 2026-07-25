@@ -66,3 +66,32 @@ def test_full_suite_step_is_returned_for_explicit_request(tmp_path: Path) -> Non
 
     assert step is not None
     assert step.metadata["pytest_full_suite"] is True
+
+
+def test_integration_step_is_preserved_when_full_suite_is_required(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "cmm").mkdir()
+    (tmp_path / "cmm" / "service.py").write_text(
+        "def execute() -> bool:\n    return True\n",
+        encoding="utf-8",
+    )
+    integration_dir = tmp_path / "tests" / "integration"
+    integration_dir.mkdir(parents=True)
+    (integration_dir / "test_service.py").write_text(
+        "def test_execute() -> None:\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(
+        project_root=tmp_path,
+        changed_files=(Path("cmm/service.py"),),
+        change_type="public_api_change",
+        requested_policy="public_api_change",
+    )
+
+    step = integration_tests_step(context)
+
+    assert step is not None
+    assert step.name == "integration_tests"
+    assert "tests/integration/test_service.py" in step.command

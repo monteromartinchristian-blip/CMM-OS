@@ -133,3 +133,91 @@ def test_service_artifacts_retrieval(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationNotFoundError):
         service.get_artifact(res.validation_id, "non-existent-artifact-999")
+
+
+def test_persisted_result_reconstruction_preserves_commit_gate_evidence(
+    tmp_path: Path,
+) -> None:
+    from datetime import datetime, timezone
+
+    from cmm.validation.commit_gate.evaluator import CommitGateEvaluator
+    from cmm.validation.observability import ValidationExecutionRecord
+    from cmm.validation.policy import (
+        DEFAULT_VALIDATION_POLICIES,
+        expand_validation_step_labels,
+    )
+
+    service = ValidationApplicationService(project_root=tmp_path)
+    policy = DEFAULT_VALIDATION_POLICIES["small_change"]
+    required_steps = expand_validation_step_labels(policy.required_steps)
+    timestamp = datetime.now(timezone.utc)
+
+    record = ValidationExecutionRecord(
+        id="val-persisted-gate-regression",
+        schema_version=1,
+        status="passed",
+        policy=policy.name,
+        changed_files=("cmm/example.py",),
+        affected_tests=("tests/test_example.py",),
+        step_results=tuple(
+            {
+                "name": step_name,
+                "status": "passed",
+                "exit_code": 0,
+                "duration_ms": 1,
+                "stdout": "",
+                "stderr": "",
+                "findings": [],
+                "artifacts": [],
+                "started_at": timestamp.isoformat(),
+                "completed_at": timestamp.isoformat(),
+                "metadata": {},
+            }
+            for step_name in required_steps
+        ),
+        findings=(
+            {
+                "code": "NON_BLOCKING_INFORMATION",
+                "message": "Persisted informational finding",
+                "severity": "info",
+                "source": "test",
+                "file_path": None,
+                "line": None,
+                "column": None,
+                "blocking": False,
+                "suggested_fix": None,
+                "documentation_url": None,
+                "metadata": {},
+            },
+        ),
+        artifacts=(
+            {
+                "id": "persisted-report",
+                "kind": "test_report",
+                "source": "pytest",
+                "path": None,
+                "content": {"tests_passed": 1},
+                "findings": [],
+                "metrics": {"tests_passed": 1},
+                "created_at": timestamp.isoformat(),
+                "metadata": {},
+            },
+        ),
+        metrics={"total_duration_ms": 123},
+        started_at=timestamp,
+        completed_at=timestamp,
+    )
+
+    reconstructed = service._record_to_validation_result(record)
+
+    assert tuple(step.name for step in reconstructed.steps) == required_steps
+    assert reconstructed.artifacts[0].id == "persisted-report"
+    assert reconstructed.warnings[0].code == "NON_BLOCKING_INFORMATION"
+    assert reconstructed.changed_files == (Path("cmm/example.py"),)
+    assert reconstructed.duration_ms == 123
+    assert reconstructed.can_commit is True
+
+    gate_result = CommitGateEvaluator.evaluate(reconstructed, policy)
+
+    assert gate_result.allowed is True
+    assert gate_result.reasons == ()

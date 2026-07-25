@@ -6,11 +6,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..artifacts import ValidationArtifact
 from ..catalog import build_default_validation_registry, select_python_files
 from ..commit_gate.evaluator import CommitGateEvaluator
 from ..context import ValidationContext
 from ..custom import build_custom_validation_step
-from ..enums import ValidationStatus
+from ..enums import ValidationSeverity, ValidationStatus
+from ..findings import ValidationFinding
 from ..impact import ChangeSetBuilder
 from ..observability import (
     LocalValidationRepository,
@@ -27,6 +29,7 @@ from ..policy import (
     resolve_validation_policy,
 )
 from ..results import ValidationResult
+from ..steps import ValidationStepResult
 from .cancellation import ValidationCancellationRegistry
 from .contracts import (
     StartValidationRequest,
@@ -490,25 +493,155 @@ class ValidationApplicationService:
     def _record_to_validation_result(
         self, record: ValidationExecutionRecord
     ) -> ValidationResult:
-        st = (
+        def parse_datetime(value: object) -> datetime | None:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            raise ValueError(f"Invalid persisted datetime value: {value!r}")
+
+        def parse_finding(payload: dict[str, object]) -> ValidationFinding:
+            severity_value = str(
+                payload.get("severity", ValidationSeverity.ERROR.value)
+            )
+            severity = (
+                ValidationSeverity(severity_value)
+                if severity_value in ValidationSeverity._value2member_map_
+                else ValidationSeverity.ERROR
+            )
+            file_path = payload.get("file_path")
+
+            return ValidationFinding(
+                code=str(payload.get("code", "persisted_finding")),
+                message=str(payload.get("message", "Persisted validation finding")),
+                severity=severity,
+                source=str(payload.get("source", "validation.persistence")),
+                file_path=Path(str(file_path)) if file_path else None,
+                line=payload.get("line")
+                if isinstance(payload.get("line"), int)
+                else None,
+                column=(
+                    payload.get("column")
+                    if isinstance(payload.get("column"), int)
+                    else None
+                ),
+                blocking=bool(payload.get("blocking", False)),
+                suggested_fix=(
+                    str(payload["suggested_fix"])
+                    if payload.get("suggested_fix") is not None
+                    else None
+                ),
+                documentation_url=(
+                    str(payload["documentation_url"])
+                    if payload.get("documentation_url") is not None
+                    else None
+                ),
+                metadata=dict(payload.get("metadata") or {}),
+            )
+
+        def parse_artifact(payload: dict[str, object]) -> ValidationArtifact:
+            artifact_path = payload.get("path")
+            return ValidationArtifact(
+                id=str(payload.get("id", "persisted-artifact")),
+                kind=str(payload.get("kind", "unknown")),
+                source=str(payload.get("source", "validation.persistence")),
+                path=Path(str(artifact_path)) if artifact_path else None,
+                content=dict(payload.get("content") or {}),
+                findings=tuple(
+                    parse_finding(dict(finding))
+                    for finding in payload.get("findings", ())
+                    if isinstance(finding, dict)
+                ),
+                metrics=dict(payload.get("metrics") or {}),
+                created_at=(parse_datetime(payload.get("created_at")) or _now_utc()),
+                metadata=dict(payload.get("metadata") or {}),
+            )
+
+        def parse_step(payload: dict[str, object]) -> ValidationStepResult:
+            status_value = str(payload.get("status", ValidationStatus.ERROR.value))
+            status = (
+                ValidationStatus(status_value)
+                if status_value in ValidationStatus._value2member_map_
+                else ValidationStatus.ERROR
+            )
+
+            return ValidationStepResult(
+                name=str(payload.get("name", "persisted_step")),
+                status=status,
+                exit_code=(
+                    payload.get("exit_code")
+                    if isinstance(payload.get("exit_code"), int)
+                    else None
+                ),
+                duration_ms=(
+                    payload.get("duration_ms")
+                    if isinstance(payload.get("duration_ms"), int)
+                    else 0
+                ),
+                stdout=str(payload.get("stdout", "")),
+                stderr=str(payload.get("stderr", "")),
+                findings=tuple(
+                    parse_finding(dict(finding))
+                    for finding in payload.get("findings", ())
+                    if isinstance(finding, dict)
+                ),
+                artifacts=tuple(
+                    parse_artifact(dict(artifact))
+                    for artifact in payload.get("artifacts", ())
+                    if isinstance(artifact, dict)
+                ),
+                started_at=parse_datetime(payload.get("started_at")),
+                completed_at=parse_datetime(payload.get("completed_at")),
+                metadata=dict(payload.get("metadata") or {}),
+            )
+
+        status = (
             ValidationStatus(record.status)
             if record.status in ValidationStatus._value2member_map_
             else ValidationStatus.ERROR
         )
+
+        findings = tuple(
+            parse_finding(dict(finding))
+            for finding in record.findings
+            if isinstance(finding, dict)
+        )
+        blocking_findings = tuple(finding for finding in findings if finding.blocking)
+        warnings = tuple(finding for finding in findings if not finding.blocking)
+        steps = tuple(
+            parse_step(dict(step))
+            for step in record.step_results
+            if isinstance(step, dict)
+        )
+        artifacts = tuple(
+            parse_artifact(dict(artifact))
+            for artifact in record.artifacts
+            if isinstance(artifact, dict)
+        )
+
+        can_commit = (
+            status in (ValidationStatus.PASSED, ValidationStatus.WARNING)
+            and not blocking_findings
+        )
+
         return ValidationResult(
             id=record.id,
-            status=st,
+            status=status,
             policy=record.policy or "full",
-            steps=(),
-            artifacts=(),
-            blocking_findings=(),
-            warnings=(),
-            changed_files=tuple(record.changed_files or ()),
+            steps=steps,
+            artifacts=artifacts,
+            blocking_findings=blocking_findings,
+            warnings=warnings,
+            changed_files=tuple(Path(path) for path in record.changed_files or ()),
             affected_tests=tuple(record.affected_tests or ()),
-            duration_ms=0,
+            duration_ms=(
+                int(record.metrics.get("total_duration_ms", 0)) if record.metrics else 0
+            ),
             started_at=record.started_at,
             completed_at=record.completed_at,
-            can_commit=bool(record.gate_result and record.gate_result.get("allowed")),
+            can_commit=can_commit,
             metadata=dict(record.metadata or {}),
         )
 

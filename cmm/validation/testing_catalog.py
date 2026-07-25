@@ -84,8 +84,6 @@ def affected_tests_step(context: ValidationContext) -> ValidationStep | None:
 def unit_tests_step(context: ValidationContext) -> ValidationStep | None:
     selection = select_affected_tests(context)
     escalation = decide_test_escalation(context, selection)
-    if escalation.requires_full_suite:
-        return None
 
     package_scopes = tuple(selection.metadata.get("package_scopes", ()))
     discovered = discover_tests(context.project_root)
@@ -103,6 +101,10 @@ def unit_tests_step(context: ValidationContext) -> ValidationStep | None:
             for path in selection.selected_tests
             if classify_test_path(path) == "unit"
         ]
+    if not suite_tests and escalation.requires_full_suite:
+        suite_tests = [
+            path for path in discovered if classify_test_path(path) == "unit"
+        ]
     suite_tests = sorted(dict.fromkeys(suite_tests), key=str)
     return _make_pytest_step(
         name="unit_tests",
@@ -117,8 +119,6 @@ def unit_tests_step(context: ValidationContext) -> ValidationStep | None:
 def integration_tests_step(context: ValidationContext) -> ValidationStep | None:
     selection = select_affected_tests(context)
     escalation = decide_test_escalation(context, selection)
-    if escalation.requires_full_suite:
-        return None
 
     package_scopes = tuple(selection.metadata.get("package_scopes", ()))
     discovered = discover_tests(context.project_root)
@@ -135,6 +135,10 @@ def integration_tests_step(context: ValidationContext) -> ValidationStep | None:
             path
             for path in selection.selected_tests
             if classify_test_path(path) == "integration"
+        ]
+    if not suite_tests and escalation.requires_full_suite:
+        suite_tests = [
+            path for path in discovered if classify_test_path(path) == "integration"
         ]
     suite_tests = sorted(dict.fromkeys(suite_tests), key=str)
     return _make_pytest_step(
@@ -180,13 +184,12 @@ def default_testing_steps(
     if affected is not None:
         steps.append(affected)
 
-    if not escalation.requires_full_suite:
-        unit = unit_tests_step(context)
-        integration = integration_tests_step(context)
-        if unit is not None:
-            steps.append(unit)
-        if integration is not None:
-            steps.append(integration)
+    unit = unit_tests_step(context)
+    integration = integration_tests_step(context)
+    if unit is not None:
+        steps.append(unit)
+    if integration is not None:
+        steps.append(integration)
 
     full_suite = full_suite_step(context)
     if require_full_suite and full_suite is None:
