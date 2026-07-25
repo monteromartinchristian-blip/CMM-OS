@@ -32,6 +32,11 @@ from cmm.cognitive.contradiction_detection_contracts import (
     ContradictionKind,
     ContradictionSignal,
 )
+from cmm.cognitive.contradiction_resolution import (
+    ContradictionResolutionEngine,
+    KnowledgeContradictionResolver,
+    generate_resolution_proposal_id,
+)
 from cmm.cognitive.enums import (
     AdaptationStatus,
     CandidateKind,
@@ -78,6 +83,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeModelError,
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
+    InvalidResolutionPolicyEvaluationError,
     InvalidResolutionProposalError,
     InvalidResourceError,
     InvalidResourceInputError,
@@ -91,6 +97,7 @@ from cmm.cognitive.errors import (
     KnowledgeContradictionConflictError,
     KnowledgeContradictionDetectionError,
     KnowledgeContradictionResolutionError,
+    KnowledgeResolutionPolicyError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
     KnowledgeStoreCorruptionError,
@@ -100,6 +107,7 @@ from cmm.cognitive.errors import (
     KnowledgeStoreSerializationError,
     ManualReviewRequiredError,
     ResolutionConflictError,
+    ResolutionPolicyConflictError,
     UnsupportedKnowledgeQueryError,
 )
 from cmm.cognitive.extraction import (
@@ -144,10 +152,13 @@ from cmm.cognitive.resolution_contracts import (
     ResolutionDecision,
     ResolutionStatus,
 )
-from cmm.cognitive.contradiction_resolution import (
-    ContradictionResolutionEngine,
-    KnowledgeContradictionResolver,
-    generate_resolution_proposal_id,
+from cmm.cognitive.resolution_policy import (
+    ContradictionResolutionPolicyEngine,
+)
+from cmm.cognitive.resolution_policy_contracts import (
+    PolicyDecision,
+    PolicySeverity,
+    ResolutionPolicyEvaluation,
 )
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
@@ -207,6 +218,9 @@ __all__ = [
     "ContradictionDetectionResult",
     "ContradictionKind",
     "ContradictionRegistrationError",
+    "ContradictionResolutionEngine",
+    # 8.11 resolution policy
+    "ContradictionResolutionPolicyEngine",
     # 8.9 contradiction resolution
     "ContradictionResolutionProposal",
     "ContradictionResolutionResult",
@@ -243,6 +257,7 @@ __all__ = [
     "InvalidKnowledgeModelError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
+    "InvalidResolutionPolicyEvaluationError",
     # 8.9 errors
     "InvalidResolutionProposalError",
     "InvalidResourceError",
@@ -261,8 +276,6 @@ __all__ = [
     "KnowledgeContradictionDetector",
     "KnowledgeContradictionResolutionError",
     "KnowledgeContradictionResolver",
-    "ContradictionResolutionEngine",
-    "generate_resolution_proposal_id",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
     # 8.3 registries
@@ -274,6 +287,7 @@ __all__ = [
     "KnowledgeQueryResult",
     "KnowledgeRelation",
     "KnowledgeRelationKind",
+    "KnowledgeResolutionPolicyError",
     "KnowledgeRetrievalError",
     "KnowledgeRetriever",
     "KnowledgeStatus",
@@ -290,9 +304,13 @@ __all__ = [
     "MappingResourceAdapter",
     "PlainTextKnowledgeExtractor",
     "PlainTextResourceAdapter",
+    "PolicyDecision",
+    "PolicySeverity",
     # 8.9 enums
     "ResolutionConflictError",
     "ResolutionDecision",
+    "ResolutionPolicyConflictError",
+    "ResolutionPolicyEvaluation",
     "ResolutionStatus",
     # 8.2 resources
     "Resource",
@@ -317,6 +335,7 @@ __all__ = [
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
     "generate_cognitive_id",
+    "generate_resolution_proposal_id",
     "knowledge_fingerprint",
     # 8.4 materializer
     "materialise_candidate",

@@ -208,3 +208,20 @@ class InvalidResolutionProposalError(KnowledgeContradictionResolutionError, Valu
 
 class ResolutionConflictError(KnowledgeContradictionResolutionError, ValueError):
     """Raised when conflicts occur during contradiction resolution application."""
+
+
+# ── Phase 8.11 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeResolutionPolicyError(CognitiveError):
+    """Base error for knowledge resolution policy operations."""
+
+
+class InvalidResolutionPolicyEvaluationError(
+    KnowledgeResolutionPolicyError, ValueError
+):
+    """Raised when a ResolutionPolicyEvaluation contract is invalid."""
+
+
+class ResolutionPolicyConflictError(KnowledgeResolutionPolicyError, ValueError):
+    """Raised when a resolution policy evaluation fails or encounters conflicting configuration."""
