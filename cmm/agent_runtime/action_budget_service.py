@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from .action_budget_adapters import ActionBudgetApprovalAdapter
 from .action_budget_contracts import (
     ActionBudget,
     BudgetAdjustment,
@@ -27,7 +28,6 @@ from .action_budget_repository import (
 from .approval_contracts import ApprovalRequirement, ApprovalResolution
 from .enums import (
     ActionBudgetStatus,
-    ApprovalRequestStatus,
     ApprovalRequirementSource,
     BudgetAdjustmentType,
     BudgetConsumptionOutcome,
@@ -36,13 +36,16 @@ from .enums import (
 )
 from .errors import (
     BudgetCancelledError,
+    BudgetConsumptionNotFoundError,
     BudgetExhaustedError,
     BudgetIncreaseNotAuthorizedError,
     BudgetPausedError,
     BudgetReservationAlreadyResolvedError,
     BudgetReservationExpiredError,
+    DuplicateBudgetReservationError,
     InsufficientBudgetError,
     InvalidActionBudgetContractError,
+    InvalidBudgetAllocationError,
 )
 
 
@@ -195,6 +198,17 @@ class ActionBudgetService:
         ref_now = now if now is not None else _now_utc()
         budget = self.repository.get_budget(budget_id)
 
+        if not allocations:
+            raise InvalidBudgetAllocationError("allocations sequence cannot be empty")
+
+        seen_types: set[BudgetResourceType] = set()
+        for alloc in allocations:
+            if alloc.resource_type in seen_types:
+                raise InvalidBudgetAllocationError(
+                    f"Duplicate resource_type {alloc.resource_type.value!r} in allocations"
+                )
+            seen_types.add(alloc.resource_type)
+
         reason_codes: list[str] = []
         is_allowed = True
         is_warning = False
@@ -309,6 +323,14 @@ class ActionBudgetService:
                 budget_id, idempotency_key
             )
             if existing:
+                if (
+                    tuple(existing.allocations) != tuple(allocations)
+                    or existing.operation_id != operation_id
+                    or existing.workflow_id != workflow_id
+                ):
+                    raise DuplicateBudgetReservationError(
+                        f"Idempotency key {idempotency_key!r} already used with different payload"
+                    )
                 return existing
 
         eval_res = self.evaluate(budget_id, allocations, now=ref_now)
@@ -390,12 +412,14 @@ class ActionBudgetService:
         reservation = self.repository.get_reservation(reservation_id)
 
         if reservation.status == BudgetReservationStatus.CONFIRMED:
-            # Idempotent return of existing consumption
             consumptions = self.repository.list_consumptions(
                 reservation_id=reservation_id
             )
-            if consumptions:
+            if len(consumptions) == 1:
                 return consumptions[0]
+            raise BudgetConsumptionNotFoundError(
+                f"Inconsistent state: reservation {reservation_id!r} is CONFIRMED but found {len(consumptions)} consumption records"
+            )
 
         if reservation.status in (
             BudgetReservationStatus.RELEASED,
@@ -526,12 +550,9 @@ class ActionBudgetService:
         ref_now = now if now is not None else _now_utc()
         reservation = self.repository.get_reservation(reservation_id)
 
-        if reservation.status == BudgetReservationStatus.RELEASED:
-            return reservation
-
-        if reservation.status == BudgetReservationStatus.CONFIRMED:
+        if reservation.status != BudgetReservationStatus.RESERVED:
             raise BudgetReservationAlreadyResolvedError(
-                f"Cannot release confirmed reservation {reservation_id!r}"
+                f"Reservation {reservation_id!r} is already resolved as {reservation.status.value}"
             )
 
         budget = self.repository.get_budget(reservation.budget_id)
@@ -919,28 +940,22 @@ class ActionBudgetService:
         )
         budget = self.repository.get_budget(budget_id)
 
-        if approval_resolution is not None:
-            if not isinstance(approval_resolution, ApprovalResolution):
-                raise BudgetIncreaseNotAuthorizedError(
-                    "approval_resolution must be an instance of ApprovalResolution"
-                )
-            if approval_resolution.status not in (
-                ApprovalRequestStatus.APPROVED,
-                ApprovalRequestStatus.APPROVED_WITH_CHANGES,
-            ):
-                raise BudgetIncreaseNotAuthorizedError(
-                    f"Approval resolution status is {approval_resolution.status.value}, not approved"
-                )
-            if not approval_resolution.may_execute:
-                raise BudgetIncreaseNotAuthorizedError(
-                    "Approval resolution does not permit execution"
-                )
-            if hasattr(
-                approval_resolution, "is_expired"
-            ) and approval_resolution.is_expired(ref_now):
-                raise BudgetIncreaseNotAuthorizedError(
-                    "Approval resolution has expired"
-                )
+        if approval_resolution is None:
+            raise BudgetIncreaseNotAuthorizedError(
+                "Action budget limit increase requires a valid ApprovalResolution"
+            )
+
+        if not isinstance(approval_resolution, ApprovalResolution):
+            raise BudgetIncreaseNotAuthorizedError(
+                "approval_resolution must be an instance of ApprovalResolution"
+            )
+
+        if not ActionBudgetApprovalAdapter.validate_approval_for_increase(
+            approval_resolution, budget.id, res_t, now=ref_now
+        ):
+            raise BudgetIncreaseNotAuthorizedError(
+                "Approval resolution is invalid or not authorized for this budget increase"
+            )
 
         if new_limit is None and delta is None:
             raise InvalidActionBudgetContractError(
@@ -1050,6 +1065,14 @@ class ActionBudgetService:
                     f"Cannot apply delta decrease to unlimited resource {res_t.value}"
                 )
             target_limit = prev_lim - delta  # type: ignore[operator]
+
+        curr_used = budget.used_for(res_t)
+        curr_res = budget.reserved_for(res_t)
+        committed = curr_used + curr_res
+        if target_limit is not None and target_limit < committed:
+            raise InvalidActionBudgetContractError(
+                f"Cannot decrease limit of {res_t.value} to {target_limit} below current committed usage ({committed})"
+            )
 
         new_limits = dict(budget.limits)
         new_limits[res_t] = target_limit
