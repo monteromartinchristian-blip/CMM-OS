@@ -66,3 +66,34 @@ class ComponentNotCompatibleError(CognitiveError, LookupError):
 
 class InvalidAdapterContractError(CognitiveError, ValueError):
     """Raised when an adapter object does not fulfil the required contract."""
+
+
+# ── Phase 8.4 errors ─────────────────────────────────────────────────────
+
+
+class InvalidKnowledgeItemError(CognitiveError, ValueError):
+    """Raised when a KnowledgeItem contract is incomplete or inconsistent."""
+
+
+class InvalidEvidenceError(CognitiveError, ValueError):
+    """Raised when an Evidence contract is invalid."""
+
+
+class InvalidTemporalValidityError(CognitiveError, ValueError):
+    """Raised when a TemporalScope is temporally inconsistent."""
+
+
+class InvalidKnowledgeRelationError(CognitiveError, ValueError):
+    """Raised when a KnowledgeRelation contract is invalid."""
+
+
+class InvalidContradictionError(CognitiveError, ValueError):
+    """Raised when a Contradiction contract is invalid."""
+
+
+class InvalidKnowledgeBundleError(CognitiveError, ValueError):
+    """Raised when a KnowledgeBundle contract is invalid."""
+
+
+# Alias kept for backward compatibility with WIP commit 32cea48
+InvalidKnowledgeModelError = InvalidKnowledgeItemError

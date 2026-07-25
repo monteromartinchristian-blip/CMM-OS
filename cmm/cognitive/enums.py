@@ -121,3 +121,76 @@ class CandidateKind(str, Enum):
     KEYWORD = "keyword"
     QUESTION = "question"
     UNKNOWN = "unknown"
+
+
+# ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
+
+
+class KnowledgeKind(str, Enum):
+    FACT = "fact"
+    INFERENCE = "inference"
+    HYPOTHESIS = "hypothesis"
+    OPINION = "opinion"
+    OBSERVATION = "observation"
+    DECISION = "decision"
+    QUESTION = "question"
+
+
+class KnowledgeStatus(str, Enum):
+    ACTIVE = "active"
+    UNVERIFIED = "unverified"
+    DISPUTED = "disputed"
+    SUPERSEDED = "superseded"
+    INVALIDATED = "invalidated"
+
+
+class TemporalScopeKind(str, Enum):
+    TIMELESS = "timeless"
+    CURRENT = "current"
+    INTERVAL = "interval"
+    POINT_IN_TIME = "point_in_time"
+    UNKNOWN = "unknown"
+
+
+class KnowledgeRelationKind(str, Enum):
+    SUPPORTS = "supports"
+    CONTRADICTS = "contradicts"
+    DERIVED_FROM = "derived_from"
+    REFINES = "refines"
+    SUPERSEDES = "supersedes"
+    EQUIVALENT_TO = "equivalent_to"
+    RELATED_TO = "related_to"
+    ANSWERS = "answers"
+    RAISES_QUESTION = "raises_question"
+
+
+class EvidenceKind(str, Enum):
+    DIRECT_QUOTE = "direct_quote"
+    PARAPHRASE = "paraphrase"
+    STATISTICAL = "statistical"
+    ANECDOTAL = "anecdotal"
+    EXPERT_OPINION = "expert_opinion"
+    LOGICAL_INFERENCE = "logical_inference"
+    DOCUMENT_REFERENCE = "document_reference"
+    EXTRACTION_CANDIDATE = "extraction_candidate"
+    UNKNOWN = "unknown"
+
+
+class EvidencePolarityKind(str, Enum):
+    SUPPORTING = "supporting"
+    CONTRADICTING = "contradicting"
+    NEUTRAL = "neutral"
+
+
+class ContradictionSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ContradictionStatus(str, Enum):
+    UNRESOLVED = "unresolved"
+    RESOLVED = "resolved"
+    DEFERRED = "deferred"
+    ACKNOWLEDGED = "acknowledged"

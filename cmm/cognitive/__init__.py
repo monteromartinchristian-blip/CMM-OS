@@ -77,6 +77,40 @@ from cmm.cognitive.service import (
     ResourceExtractionService,
 )
 
+# ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
+from cmm.cognitive.enums import (
+    ContradictionSeverity,
+    ContradictionStatus,
+    EvidenceKind,
+    EvidencePolarityKind,
+    KnowledgeKind,
+    KnowledgeRelationKind,
+    KnowledgeStatus,
+    TemporalScopeKind,
+)
+from cmm.cognitive.errors import (
+    InvalidContradictionError,
+    InvalidEvidenceError,
+    InvalidKnowledgeBundleError,
+    InvalidKnowledgeItemError,
+    InvalidKnowledgeModelError,
+    InvalidKnowledgeRelationError,
+    InvalidTemporalValidityError,
+)
+from cmm.cognitive.knowledge import (
+    Contradiction,
+    Evidence,
+    KnowledgeBundle,
+    KnowledgeItem,
+    KnowledgeRelation,
+    TemporalScope,
+)
+from cmm.cognitive.knowledge_materializer import (
+    materialise_candidate,
+    materialise_evidence,
+    materialise_result,
+)
+
 __all__ = [
     # 8.1 contracts
     "CognitiveActor",
@@ -142,4 +176,32 @@ __all__ = [
     # 8.3 service
     "AdaptAndExtractResult",
     "ResourceExtractionService",
+    # 8.4 enums
+    "ContradictionSeverity",
+    "ContradictionStatus",
+    "EvidenceKind",
+    "EvidencePolarityKind",
+    "KnowledgeKind",
+    "KnowledgeRelationKind",
+    "KnowledgeStatus",
+    "TemporalScopeKind",
+    # 8.4 errors
+    "InvalidContradictionError",
+    "InvalidEvidenceError",
+    "InvalidKnowledgeBundleError",
+    "InvalidKnowledgeItemError",
+    "InvalidKnowledgeModelError",
+    "InvalidKnowledgeRelationError",
+    "InvalidTemporalValidityError",
+    # 8.4 knowledge model
+    "Contradiction",
+    "Evidence",
+    "KnowledgeBundle",
+    "KnowledgeItem",
+    "KnowledgeRelation",
+    "TemporalScope",
+    # 8.4 materializer
+    "materialise_candidate",
+    "materialise_evidence",
+    "materialise_result",
 ]
