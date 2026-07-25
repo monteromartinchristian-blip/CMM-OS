@@ -19,6 +19,7 @@ openai = [
     "python-dotenv>=1.0,<2",
 ]
 validation = [
+    "ruff>=0.9,<1",
     "bandit>=1.7,<2",
     "pip-audit>=2.7,<3",
     "mypy>=1.10,<3",
@@ -26,6 +27,7 @@ validation = [
 ]
 dev = [
     "pytest>=9,<10",
+    "ruff>=0.9,<1",
     "bandit>=1.7,<2",
     "pip-audit>=2.7,<3",
     "mypy>=1.10,<3",
