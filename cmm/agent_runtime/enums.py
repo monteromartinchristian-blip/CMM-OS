@@ -772,3 +772,43 @@ class AutonomyTransitionReason(str, Enum):
     RECOVERY_MODE = "recovery_mode"
     FAILSAFE = "failsafe"
     SYSTEM_REQUEST = "system_request"
+
+
+# ── Phase 9.10 – Human Approval System Enumerations ─────────────────────────
+
+
+class ApprovalRequestStatus(str, Enum):
+    """Lifecycle and resolution status states for an ApprovalRequest."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    APPROVED_WITH_CHANGES = "approved_with_changes"
+    REJECTED = "rejected"
+    POSTPONED = "postponed"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+    SUPERSEDED = "superseded"
+
+
+class ApprovalDecisionType(str, Enum):
+    """Explicit, structured decision types submitted by an authorized human actor."""
+
+    APPROVE = "approve"
+    APPROVE_WITH_CHANGES = "approve_with_changes"
+    REJECT = "reject"
+    POSTPONE = "postpone"
+    CANCEL = "cancel"
+
+
+class ApprovalRequirementSource(str, Enum):
+    """Origin sources that can mandate a human approval requirement."""
+
+    POLICY = "policy"
+    AUTONOMY = "autonomy"
+    WORKFLOW = "workflow"
+    OPERATION = "operation"
+    VALIDATION = "validation"
+    SECURITY = "security"
+    BUDGET = "budget"
+    RUNTIME = "runtime"
+    MANUAL = "manual"

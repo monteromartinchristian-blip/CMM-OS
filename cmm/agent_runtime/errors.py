@@ -320,3 +320,58 @@ class AutonomyEscalationNotAuthorizedError(AutonomyError, PermissionError):
 
 class AutonomyPolicyIntegrationError(AutonomyError, RuntimeError):
     """Raised when integrating Autonomy Evaluator with Policy Engine fails or is inconsistent."""
+
+
+# ── Phase 9.10 – Human Approval System Errors ────────────────────────────────
+
+
+class ApprovalError(AgentRuntimeError):
+    """Base exception for all Human Approval System operations."""
+
+
+class InvalidApprovalContractError(ApprovalError, InvalidAgentContractError):
+    """Raised when an Approval contract is invalid, malformed, or violates invariants."""
+
+
+class ApprovalRequestNotFoundError(ApprovalError, KeyError):
+    """Raised when a requested ApprovalRequest is not found in the repository."""
+
+
+class ApprovalDecisionNotFoundError(ApprovalError, KeyError):
+    """Raised when a requested ApprovalDecision is not found in the repository."""
+
+
+class DuplicateApprovalRequestError(ApprovalError, ValueError):
+    """Raised when attempting to store an ApprovalRequest with a duplicate ID."""
+
+
+class DuplicateApprovalDecisionError(ApprovalError, ValueError):
+    """Raised when attempting to store an ApprovalDecision with a duplicate ID."""
+
+
+class ApprovalAlreadyResolvedError(ApprovalError, ValueError):
+    """Raised when submitting a decision on an already resolved or terminal ApprovalRequest."""
+
+
+class ApprovalActorNotAuthorizedError(ApprovalError, PermissionError):
+    """Raised when a decision actor is not in required_approvers or unauthorized."""
+
+
+class ApprovalExpiredError(ApprovalError, ValueError):
+    """Raised when operating on an expired approval request."""
+
+
+class InvalidApprovalTransitionError(ApprovalError, ValueError):
+    """Raised when an invalid status transition is attempted on an ApprovalRequest."""
+
+
+class ApprovalSupersessionError(ApprovalError, ValueError):
+    """Raised when superseding an approval request is invalid or malformed."""
+
+
+class ApprovalPolicyIntegrationError(ApprovalError, RuntimeError):
+    """Raised when integrating Policy Engine results into approval requirements fails or policy DENY is violated."""
+
+
+class ApprovalAutonomyIntegrationError(ApprovalError, RuntimeError):
+    """Raised when integrating Autonomy results into approval requirements fails or autonomy DENY is violated."""

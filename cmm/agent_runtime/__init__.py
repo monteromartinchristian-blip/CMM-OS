@@ -836,3 +836,73 @@ __all__ += [
     "list_canonical_levels",
     "policy_decision_default",
 ]
+
+# ── Phase 9.10 – Human Approval System Exports ────────────────────────────────
+
+from cmm.agent_runtime.approval_adapters import (
+    create_requirement_from_autonomy,
+    create_requirement_from_policy,
+    create_requirement_from_workflow_plan,
+)
+from cmm.agent_runtime.approval_contracts import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalRequirement,
+    ApprovalResolution,
+)
+from cmm.agent_runtime.approval_repository import (
+    ApprovalRepository,
+    InMemoryApprovalRepository,
+)
+from cmm.agent_runtime.approval_service import (
+    ApprovalService,
+)
+from cmm.agent_runtime.enums import (
+    ApprovalDecisionType,
+    ApprovalRequestStatus,
+    ApprovalRequirementSource,
+)
+from cmm.agent_runtime.errors import (
+    ApprovalActorNotAuthorizedError,
+    ApprovalAlreadyResolvedError,
+    ApprovalAutonomyIntegrationError,
+    ApprovalDecisionNotFoundError,
+    ApprovalError,
+    ApprovalExpiredError,
+    ApprovalPolicyIntegrationError,
+    ApprovalRequestNotFoundError,
+    ApprovalSupersessionError,
+    DuplicateApprovalDecisionError,
+    DuplicateApprovalRequestError,
+    InvalidApprovalContractError,
+    InvalidApprovalTransitionError,
+)
+
+__all__ += [
+    "ApprovalActorNotAuthorizedError",
+    "ApprovalAlreadyResolvedError",
+    "ApprovalAutonomyIntegrationError",
+    "ApprovalDecision",
+    "ApprovalDecisionNotFoundError",
+    "ApprovalDecisionType",
+    "ApprovalError",
+    "ApprovalExpiredError",
+    "ApprovalPolicyIntegrationError",
+    "ApprovalRepository",
+    "ApprovalRequest",
+    "ApprovalRequestNotFoundError",
+    "ApprovalRequestStatus",
+    "ApprovalRequirement",
+    "ApprovalRequirementSource",
+    "ApprovalResolution",
+    "ApprovalService",
+    "ApprovalSupersessionError",
+    "DuplicateApprovalDecisionError",
+    "DuplicateApprovalRequestError",
+    "InMemoryApprovalRepository",
+    "InvalidApprovalContractError",
+    "InvalidApprovalTransitionError",
+    "create_requirement_from_autonomy",
+    "create_requirement_from_policy",
+    "create_requirement_from_workflow_plan",
+]
