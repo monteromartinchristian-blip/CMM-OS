@@ -83,6 +83,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeModelError,
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
+    InvalidReflectionReportError,
     InvalidResolutionExecutionError,
     InvalidResolutionMemoryEntryError,
     InvalidResolutionPolicyEvaluationError,
@@ -99,6 +100,7 @@ from cmm.cognitive.errors import (
     KnowledgeContradictionConflictError,
     KnowledgeContradictionDetectionError,
     KnowledgeContradictionResolutionError,
+    KnowledgeReflectionError,
     KnowledgeResolutionExecutionError,
     KnowledgeResolutionMemoryError,
     KnowledgeResolutionPolicyError,
@@ -110,6 +112,7 @@ from cmm.cognitive.errors import (
     KnowledgeStoreSchemaError,
     KnowledgeStoreSerializationError,
     ManualReviewRequiredError,
+    ReflectionAnalysisConflictError,
     ResolutionConflictError,
     ResolutionExecutionConflictError,
     ResolutionExecutionRollbackError,
@@ -148,6 +151,15 @@ from cmm.cognitive.query import (
     KnowledgeQuery,
     KnowledgeQueryResult,
     SortDirection,
+)
+from cmm.cognitive.reflection import (
+    CognitiveReflectionEngine,
+)
+from cmm.cognitive.reflection_contracts import (
+    CognitiveReflectionReport,
+    ReflectionFinding,
+    ReflectionQuery,
+    generate_reflection_report_id,
 )
 from cmm.cognitive.registries import (
     KnowledgeExtractorRegistry,
@@ -290,6 +302,8 @@ __all__ = [
     "InvalidKnowledgeModelError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
+    # 8.14 reflection
+    "InvalidReflectionReportError",
     "InvalidResolutionExecutionError",
     "InvalidResolutionMemoryEntryError",
     "InvalidResolutionPolicyEvaluationError",
@@ -320,6 +334,7 @@ __all__ = [
     "KnowledgeOrderField",
     "KnowledgeQuery",
     "KnowledgeQueryResult",
+    "KnowledgeReflectionError",
     "KnowledgeRelation",
     "KnowledgeRelationKind",
     "KnowledgeResolutionExecutionError",
@@ -343,6 +358,11 @@ __all__ = [
     "PlainTextResourceAdapter",
     "PolicyDecision",
     "PolicySeverity",
+    "ReflectionAnalysisConflictError",
+    "ReflectionFinding",
+    "ReflectionQuery",
+    "CognitiveReflectionEngine",
+    "CognitiveReflectionReport",
     "ResolutionAuditRecord",
     # 8.9 enums
     "ResolutionConflictError",
@@ -382,6 +402,7 @@ __all__ = [
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
     "generate_cognitive_id",
+    "generate_reflection_report_id",
     "generate_resolution_memory_id",
     "generate_resolution_proposal_id",
     "knowledge_fingerprint",

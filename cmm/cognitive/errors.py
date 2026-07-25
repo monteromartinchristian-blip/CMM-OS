@@ -261,3 +261,18 @@ class ResolutionMemoryConflictError(
     KnowledgeResolutionMemoryError, LookupError, ValueError
 ):
     """Raised when a resolution memory entry conflict occurs."""
+
+
+# ── Phase 8.14 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeReflectionError(CognitiveError):
+    """Base error for cognitive reflection operations."""
+
+
+class InvalidReflectionReportError(KnowledgeReflectionError, ValueError):
+    """Raised when a CognitiveReflectionReport or related contract is invalid."""
+
+
+class ReflectionAnalysisConflictError(KnowledgeReflectionError, ValueError):
+    """Raised when reflection analysis encounters a conflict or error."""
