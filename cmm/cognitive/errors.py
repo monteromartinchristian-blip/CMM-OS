@@ -242,7 +242,22 @@ class ResolutionExecutionConflictError(KnowledgeResolutionExecutionError, ValueE
     """Raised when execution encounters conflicting knowledge or state in the store."""
 
 
-class ResolutionExecutionRollbackError(
-    KnowledgeResolutionExecutionError, RuntimeError
-):
+class ResolutionExecutionRollbackError(KnowledgeResolutionExecutionError, RuntimeError):
     """Raised when an execution fails and forces a transaction rollback."""
+
+
+# ── Phase 8.13 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeResolutionMemoryError(CognitiveError):
+    """Base error for knowledge resolution memory operations."""
+
+
+class InvalidResolutionMemoryEntryError(KnowledgeResolutionMemoryError, ValueError):
+    """Raised when a ResolutionMemoryEntry or Query contract is invalid."""
+
+
+class ResolutionMemoryConflictError(
+    KnowledgeResolutionMemoryError, LookupError, ValueError
+):
+    """Raised when a resolution memory entry conflict occurs."""

@@ -84,6 +84,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
     InvalidResolutionExecutionError,
+    InvalidResolutionMemoryEntryError,
     InvalidResolutionPolicyEvaluationError,
     InvalidResolutionProposalError,
     InvalidResourceError,
@@ -99,6 +100,7 @@ from cmm.cognitive.errors import (
     KnowledgeContradictionDetectionError,
     KnowledgeContradictionResolutionError,
     KnowledgeResolutionExecutionError,
+    KnowledgeResolutionMemoryError,
     KnowledgeResolutionPolicyError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
@@ -111,6 +113,7 @@ from cmm.cognitive.errors import (
     ResolutionConflictError,
     ResolutionExecutionConflictError,
     ResolutionExecutionRollbackError,
+    ResolutionMemoryConflictError,
     ResolutionPolicyConflictError,
     UnsupportedKnowledgeQueryError,
 )
@@ -171,6 +174,19 @@ from cmm.cognitive.resolution_policy_contracts import (
     PolicyDecision,
     PolicySeverity,
     ResolutionPolicyEvaluation,
+)
+
+# ── Phase 8.13 ────────────────────────────────────────────────────────────────
+from cmm.cognitive.resolution_memory import (
+    InMemoryResolutionMemoryStore,
+    ResolutionMemoryStore,
+    memory_from_execution_result,
+)
+from cmm.cognitive.resolution_memory_contracts import (
+    ResolutionMemoryEntry,
+    ResolutionMemoryQuery,
+    ResolutionMemoryResult,
+    generate_resolution_memory_id,
 )
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
@@ -253,6 +269,8 @@ __all__ = [
     "ExtractionEvidence",
     "ExtractionStatus",
     "InMemoryKnowledgeStore",
+    # 8.13 memory store
+    "InMemoryResolutionMemoryStore",
     "InvalidAdaptationError",
     "InvalidAdapterContractError",
     "InvalidCognitiveContractError",
@@ -273,6 +291,7 @@ __all__ = [
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
     "InvalidResolutionExecutionError",
+    "InvalidResolutionMemoryEntryError",
     "InvalidResolutionPolicyEvaluationError",
     # 8.9 errors
     "InvalidResolutionProposalError",
@@ -304,6 +323,7 @@ __all__ = [
     "KnowledgeRelation",
     "KnowledgeRelationKind",
     "KnowledgeResolutionExecutionError",
+    "KnowledgeResolutionMemoryError",
     "KnowledgeResolutionPolicyError",
     "KnowledgeRetrievalError",
     "KnowledgeRetriever",
@@ -330,6 +350,12 @@ __all__ = [
     "ResolutionExecutionConflictError",
     "ResolutionExecutionResult",
     "ResolutionExecutionRollbackError",
+    # 8.13 memory
+    "ResolutionMemoryConflictError",
+    "ResolutionMemoryEntry",
+    "ResolutionMemoryQuery",
+    "ResolutionMemoryResult",
+    "ResolutionMemoryStore",
     "ResolutionPolicyConflictError",
     "ResolutionPolicyEvaluation",
     "ResolutionStatus",
@@ -356,11 +382,13 @@ __all__ = [
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
     "generate_cognitive_id",
+    "generate_resolution_memory_id",
     "generate_resolution_proposal_id",
     "knowledge_fingerprint",
     # 8.4 materializer
     "materialise_candidate",
     "materialise_evidence",
     "materialise_result",
+    "memory_from_execution_result",
     "normalize_statement",
 ]
