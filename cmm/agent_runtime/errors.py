@@ -462,3 +462,98 @@ class BudgetPolicyIntegrationError(ActionBudgetError, RuntimeError):
 
 class BudgetConcurrencyError(ActionBudgetError, ValueError):
     """Raised when parallel operation limits are exceeded or invalid concurrency state is reached."""
+
+
+# ── Phase 9.12 – Agent Runtime Loop Errors ────────────────────────────────────
+
+
+class AgentRuntimeLoopError(AgentRuntimeError):
+    """Base exception for all Agent Runtime Loop operations."""
+
+
+class InvalidRuntimeContractError(AgentRuntimeLoopError, InvalidAgentContractError):
+    """Raised when a Runtime Loop contract is invalid or violates invariants."""
+
+
+class AgentIterationNotFoundError(AgentRuntimeLoopError, KeyError):
+    """Raised when a requested AgentIteration is not found in the repository."""
+
+
+class DuplicateAgentIterationError(AgentRuntimeLoopError, ValueError):
+    """Raised when attempting to store an AgentIteration with a duplicate ID."""
+
+
+class RuntimeCheckpointNotFoundError(AgentRuntimeLoopError, KeyError):
+    """Raised when a requested RuntimeCheckpoint is not found in the repository."""
+
+
+class DuplicateRuntimeCheckpointError(AgentRuntimeLoopError, ValueError):
+    """Raised when attempting to store a RuntimeCheckpoint with a duplicate ID."""
+
+
+class RuntimeTransitionNotAllowedError(AgentRuntimeLoopError, ValueError):
+    """Raised when an invalid state transition is attempted on an AgentRun."""
+
+
+class DuplicateRuntimeTransitionError(AgentRuntimeLoopError, ValueError):
+    """Raised when attempting to store a RuntimeTransition with a duplicate ID."""
+
+
+class RuntimeStepHandlerNotFoundError(AgentRuntimeLoopError, KeyError):
+    """Raised when no handler is registered for a requested RuntimeStep."""
+
+
+class RuntimeStepExecutionError(AgentRuntimeLoopError, RuntimeError):
+    """Raised when executing a runtime step fails during execution."""
+
+
+class RuntimeIdempotencyConflictError(AgentRuntimeLoopError, ValueError):
+    """Raised when an operation with an existing idempotency key is re-invoked with conflicting payload."""
+
+
+class RuntimeResumeError(AgentRuntimeLoopError, ValueError):
+    """Raised when resuming an AgentRun fails due to invalid checkpoint or state."""
+
+
+class RuntimeCheckpointVersionError(AgentRuntimeLoopError, ValueError):
+    """Raised when checkpoint state version is obsolete or incompatible."""
+
+
+class RuntimeLockError(AgentRuntimeLoopError, ValueError):
+    """Base exception for all Runtime Lock operations."""
+
+
+class RuntimeLockConflictError(RuntimeLockError, ValueError):
+    """Raised when acquiring a lock conflicts with an existing active lock."""
+
+
+class RuntimeLockNotFoundError(RuntimeLockError, KeyError):
+    """Raised when operating on a non-existent lock."""
+
+
+class DuplicateRuntimeLockError(RuntimeLockError, ValueError):
+    """Raised when attempting to create a lock with a duplicate ID."""
+
+
+class RuntimeHeartbeatError(AgentRuntimeLoopError, ValueError):
+    """Base exception for Heartbeat operations."""
+
+
+class RuntimeHeartbeatExpiredError(RuntimeHeartbeatError, ValueError):
+    """Raised when operating on an expired heartbeat."""
+
+
+class RuntimeAbandonedError(AgentRuntimeLoopError, ValueError):
+    """Raised when an AgentRun is detected as abandoned or stalled beyond thresholds."""
+
+
+class RuntimeAlreadyTerminalError(AgentRuntimeLoopError, ValueError):
+    """Raised when attempting an active transition or step on an already terminal run."""
+
+
+class RuntimeConcurrentExecutionError(AgentRuntimeLoopError, ValueError):
+    """Raised when concurrent incompatible operations are attempted on an AgentRun."""
+
+
+class RuntimeRepositoryConsistencyError(AgentRuntimeLoopError, ValueError):
+    """Raised when runtime repository encounters orphaned or inconsistent records."""

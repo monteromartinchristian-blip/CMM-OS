@@ -879,3 +879,90 @@ class BudgetAdjustmentType(str, Enum):
     INCREASE = "increase"
     DECREASE = "decrease"
     RESET = "reset"
+
+
+# ── Phase 9.12 – Agent Runtime Loop Enumerations ─────────────────────────────
+
+
+class AgentIterationStatus(str, Enum):
+    """Execution status states for an AgentIteration."""
+
+    CREATED = "created"
+    RUNNING = "running"
+    WAITING = "waiting"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    PARTIALLY_COMPLETED = "partially_completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    RECOVERED = "recovered"
+
+
+class RuntimeStep(str, Enum):
+    """Operational steps executed during an Agent Runtime cycle."""
+
+    LOAD_GOAL = "load_goal"
+    VALIDATE_GOAL = "validate_goal"
+    CHECK_DEPENDENCIES = "check_dependencies"
+    OBSERVE = "observe"
+    LOAD_KNOWLEDGE = "load_knowledge"
+    REASON = "reason"
+    RESOLVE_INFORMATION_GAPS = "resolve_information_gaps"
+    DECIDE = "decide"
+    PLAN = "plan"
+    EVALUATE_POLICIES = "evaluate_policies"
+    REQUEST_APPROVAL = "request_approval"
+    RESERVE_BUDGET = "reserve_budget"
+    EXECUTE = "execute"
+    VALIDATE = "validate"
+    EVALUATE_OUTCOME = "evaluate_outcome"
+    UPDATE_GOAL = "update_goal"
+    UPDATE_KNOWLEDGE = "update_knowledge"
+    CONTINUE_CYCLE = "continue_cycle"
+    RECOVER = "recover"
+    COMPLETE = "complete"
+
+
+class RuntimeStepStatus(str, Enum):
+    """Execution status for a specific runtime step."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+    WAITING = "waiting"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class RuntimeHealthStatus(str, Enum):
+    """Health classification levels for an AgentRun heartbeat and process."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    STALLED = "stalled"
+    ABANDONED = "abandoned"
+    RECOVERING = "recovering"
+    FAILED = "failed"
+
+
+class RuntimeLockType(str, Enum):
+    """Lock semantics supported by RuntimeLockManager."""
+
+    SHARED = "shared"
+    EXCLUSIVE = "exclusive"
+    GOAL = "goal"
+    RESOURCE = "resource"
+    WRITE = "write"
+    ROLLBACK = "rollback"
+    COMPLETION = "completion"
+    BUDGET = "budget"
+
+
+class RuntimeLockStatus(str, Enum):
+    """Lifecycle status states for a RuntimeLock."""
+
+    ACTIVE = "active"
+    RELEASED = "released"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
