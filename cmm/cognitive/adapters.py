@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
+from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import (
     AdaptationStatus,
     ResourceIntegrityStatus,
@@ -37,12 +38,10 @@ from cmm.cognitive.errors import (
 from cmm.cognitive.identifiers import generate_cognitive_id
 from cmm.cognitive.resources import (
     Resource,
-    ResourcePermission,
     ResourceProvenance,
     ResourceTemporalScope,
     ResourceTransformation,
 )
-from cmm.cognitive.contracts import Confidence
 
 
 def _utc_now() -> datetime:

@@ -8,6 +8,14 @@ from cmm.cognitive.adapters import (
     ResourceAdapter,
     ResourceInput,
 )
+
+# ── Phase 8.15 ────────────────────────────────────────────────────────────────
+from cmm.cognitive.cognitive_cycle import CognitiveCycleEngine
+from cmm.cognitive.cognitive_cycle_contracts import (
+    CognitiveCycleRecord,
+    CognitiveCycleStatus,
+    generate_cognitive_cycle_id,
+)
 from cmm.cognitive.consolidation import KnowledgeConsolidator
 from cmm.cognitive.consolidation_contracts import (
     ConsolidationAction,
@@ -60,6 +68,7 @@ from cmm.cognitive.enums import (
     TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
+    CognitiveCycleExecutionError,
     CognitiveError,
     ComponentNotCompatibleError,
     ComponentNotFoundError,
@@ -71,8 +80,6 @@ from cmm.cognitive.errors import (
     InvalidCognitiveCycleError,
     InvalidCognitiveIdentifierError,
     InvalidConfidenceError,
-    CognitiveCycleExecutionError,
-
     InvalidConsolidationCandidateError,
     InvalidConsolidationPlanError,
     InvalidContradictionDetectionError,
@@ -99,7 +106,6 @@ from cmm.cognitive.errors import (
     InvalidTemporalValidityError,
     KnowledgeCognitiveCycleError,
     KnowledgeConsolidationApplicationError,
-
     KnowledgeConsolidationConflictError,
     KnowledgeConsolidationError,
     KnowledgeContradictionConflictError,
@@ -184,14 +190,6 @@ from cmm.cognitive.resolution_executor_contracts import (
     ResolutionAuditRecord,
     ResolutionExecutionResult,
 )
-from cmm.cognitive.resolution_policy import (
-    ContradictionResolutionPolicyEngine,
-)
-from cmm.cognitive.resolution_policy_contracts import (
-    PolicyDecision,
-    PolicySeverity,
-    ResolutionPolicyEvaluation,
-)
 
 # ── Phase 8.13 ────────────────────────────────────────────────────────────────
 from cmm.cognitive.resolution_memory import (
@@ -205,15 +203,14 @@ from cmm.cognitive.resolution_memory_contracts import (
     ResolutionMemoryResult,
     generate_resolution_memory_id,
 )
-
-# ── Phase 8.15 ────────────────────────────────────────────────────────────────
-from cmm.cognitive.cognitive_cycle import CognitiveCycleEngine
-from cmm.cognitive.cognitive_cycle_contracts import (
-    CognitiveCycleRecord,
-    CognitiveCycleStatus,
-    generate_cognitive_cycle_id,
+from cmm.cognitive.resolution_policy import (
+    ContradictionResolutionPolicyEngine,
 )
-
+from cmm.cognitive.resolution_policy_contracts import (
+    PolicyDecision,
+    PolicySeverity,
+    ResolutionPolicyEvaluation,
+)
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
 from cmm.cognitive.resources import (
@@ -237,29 +234,28 @@ from cmm.cognitive.store import (
 )
 
 __all__ = [
-    # 8.5 store
     "KNOWLEDGE_STORE_SCHEMA_VERSION",
-    # 8.3 service
     "AdaptAndExtractResult",
-    # 8.3 adapters
     "AdaptationContext",
-    # 8.3 enums
     "AdaptationStatus",
     "CandidateKind",
-    # 8.1 contracts
     "CognitiveActor",
     "CognitiveActorKind",
+    "CognitiveCycleEngine",
+    "CognitiveCycleExecutionError",
+    "CognitiveCycleRecord",
+    "CognitiveCycleStatus",
     "CognitiveError",
     "CognitiveFinding",
     "CognitiveIdentifier",
+    "CognitiveReflectionEngine",
+    "CognitiveReflectionReport",
     "CognitiveResult",
     "CognitiveSeverity",
     "CognitiveStatus",
-    # 8.3 errors
     "ComponentNotCompatibleError",
     "ComponentNotFoundError",
     "Confidence",
-    # 8.7 consolidation
     "ConsolidationAction",
     "ConsolidationCandidate",
     "ConsolidationDecision",
@@ -267,17 +263,13 @@ __all__ = [
     "ConsolidationPlan",
     "ConsolidationResult",
     "Contradiction",
-    # 8.8 contradiction detection
     "ContradictionDetection",
     "ContradictionDetectionResult",
     "ContradictionKind",
     "ContradictionRegistrationError",
     "ContradictionResolutionEngine",
-    # 8.12 resolution executor
     "ContradictionResolutionExecutor",
-    # 8.11 resolution policy
     "ContradictionResolutionPolicyEngine",
-    # 8.9 contradiction resolution
     "ContradictionResolutionProposal",
     "ContradictionResolutionResult",
     "ContradictionSeverity",
@@ -289,22 +281,20 @@ __all__ = [
     "EvidencePolarityKind",
     "ExecutionStatus",
     "ExistingResourceAdapter",
-    # 8.3 extraction
     "ExtractionCandidate",
     "ExtractionContext",
     "ExtractionEvidence",
     "ExtractionStatus",
     "InMemoryKnowledgeStore",
-    # 8.13 memory store
     "InMemoryResolutionMemoryStore",
     "InvalidAdaptationError",
     "InvalidAdapterContractError",
     "InvalidCognitiveContractError",
+    "InvalidCognitiveCycleError",
     "InvalidCognitiveIdentifierError",
     "InvalidConfidenceError",
     "InvalidConsolidationCandidateError",
     "InvalidConsolidationPlanError",
-    # 8.8 errors
     "InvalidContradictionDetectionError",
     "InvalidContradictionError",
     "InvalidContradictionSignalError",
@@ -316,12 +306,10 @@ __all__ = [
     "InvalidKnowledgeModelError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
-    # 8.14 reflection
     "InvalidReflectionReportError",
     "InvalidResolutionExecutionError",
     "InvalidResolutionMemoryEntryError",
     "InvalidResolutionPolicyEvaluationError",
-    # 8.9 errors
     "InvalidResolutionProposalError",
     "InvalidResourceError",
     "InvalidResourceInputError",
@@ -330,6 +318,7 @@ __all__ = [
     "InvalidResourceTemporalScopeError",
     "InvalidTemporalValidityError",
     "KnowledgeBundle",
+    "KnowledgeCognitiveCycleError",
     "KnowledgeConsolidationApplicationError",
     "KnowledgeConsolidationConflictError",
     "KnowledgeConsolidationError",
@@ -341,7 +330,6 @@ __all__ = [
     "KnowledgeContradictionResolver",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
-    # 8.3 registries
     "KnowledgeExtractorRegistry",
     "KnowledgeItem",
     "KnowledgeKind",
@@ -375,16 +363,12 @@ __all__ = [
     "ReflectionAnalysisConflictError",
     "ReflectionFinding",
     "ReflectionQuery",
-    "CognitiveReflectionEngine",
-    "CognitiveReflectionReport",
     "ResolutionAuditRecord",
-    # 8.9 enums
     "ResolutionConflictError",
     "ResolutionDecision",
     "ResolutionExecutionConflictError",
     "ResolutionExecutionResult",
     "ResolutionExecutionRollbackError",
-    # 8.13 memory
     "ResolutionMemoryConflictError",
     "ResolutionMemoryEntry",
     "ResolutionMemoryQuery",
@@ -393,7 +377,6 @@ __all__ = [
     "ResolutionPolicyConflictError",
     "ResolutionPolicyEvaluation",
     "ResolutionStatus",
-    # 8.2 resources
     "Resource",
     "ResourceAdaptationResult",
     "ResourceAdapter",
@@ -415,21 +398,12 @@ __all__ = [
     "TemporalScopeKind",
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
-    # 8.15 cycle
-    "CognitiveCycleEngine",
-    "CognitiveCycleRecord",
-    "CognitiveCycleStatus",
-    "CognitiveCycleExecutionError",
-    "InvalidCognitiveCycleError",
-    "KnowledgeCognitiveCycleError",
     "generate_cognitive_cycle_id",
     "generate_cognitive_id",
     "generate_reflection_report_id",
-
     "generate_resolution_memory_id",
     "generate_resolution_proposal_id",
     "knowledge_fingerprint",
-    # 8.4 materializer
     "materialise_candidate",
     "materialise_evidence",
     "materialise_result",

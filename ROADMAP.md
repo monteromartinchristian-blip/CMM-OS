@@ -8,10 +8,10 @@ The roadmap distinguishes clearly between:
 - **planned architecture**;
 - **future implementation work**.
 
-> **Current release:** `v0.7.0`  
-> **Completed:** Phases 0–6  
-> **Current test baseline:** 642 passing tests  
-> **Next phase:** Phase 7 — Continuous Validation
+> **Current release:** `v0.8.0`<br>
+> **Completed:** Phases 0–8<br>
+> **Current test baseline:** 1758 passing tests<br>
+> **Next phase:** Phase 9 — Goal & Agency Layer (Autonomous Agent Runtime)
 
 ---
 
@@ -46,8 +46,8 @@ Integrate everything into a stable local platform
 | 4 | Persistent Technical Memory | Complete |
 | 5 | Development Execution Layer | Complete |
 | 6 | Architectural Transformation Engine | Complete |
-| 7 | Continuous Validation | Planned |
-| 8 | Cognitive Layer | Planned |
+| 7 | Continuous Validation | Complete |
+| 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Planned |
 | 10 | Domain Intelligence | Planned |
 | 11 | Stable Integrated Platform | Planned |

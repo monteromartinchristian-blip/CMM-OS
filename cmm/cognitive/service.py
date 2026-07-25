@@ -31,7 +31,6 @@ from cmm.cognitive.adapters import (
     ResourceAdaptationResult,
     ResourceInput,
 )
-from cmm.cognitive.enums import AdaptationStatus
 from cmm.cognitive.errors import InvalidExtractionError
 from cmm.cognitive.extraction import (
     ExtractionContext,

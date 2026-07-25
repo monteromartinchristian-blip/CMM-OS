@@ -25,7 +25,6 @@ from cmm.cognitive import (
     InvalidEvidenceError,
     InvalidKnowledgeBundleError,
     InvalidKnowledgeItemError,
-    InvalidKnowledgeModelError,
     InvalidKnowledgeRelationError,
     InvalidTemporalValidityError,
     KnowledgeBundle,
@@ -44,7 +43,6 @@ from cmm.cognitive import (
 )
 from cmm.cognitive.enums import CandidateKind, ExtractionStatus
 from cmm.cognitive.extraction import KnowledgeExtractionResult
-
 
 NOW = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
 FUTURE = NOW + timedelta(days=30)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 
@@ -28,7 +28,6 @@ from cmm.cognitive import (
 )
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.resources import ResourceProvenance, ResourceTemporalScope
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -201,7 +200,6 @@ class TestResourceExtractionService:
     def test_adapt_and_extract_with_infer_permission_succeeds(self) -> None:
         """Use ExistingResourceAdapter to pass a resource with INFER permission."""
         from cmm.cognitive import ExistingResourceAdapter
-        from cmm.cognitive.adapters import ResourceAdaptationResult
 
         # Build a resource that explicitly allows INFER
         resource = Resource(
@@ -298,7 +296,6 @@ class TestResourceExtractionService:
         assert result.extraction.candidate_count <= 2
 
     def test_extract_directly(self) -> None:
-        from cmm.cognitive import ExistingResourceAdapter
 
         resource = Resource(
             domain="test",

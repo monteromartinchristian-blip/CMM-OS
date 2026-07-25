@@ -23,14 +23,11 @@ from cmm.cognitive.contradiction_detection_contracts import (
 )
 from cmm.cognitive.enums import (
     ContradictionSeverity,
-    ContradictionStatus,
-    KnowledgeKind,
     KnowledgeStatus,
     TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
     InvalidResolutionProposalError,
-    KnowledgeContradictionResolutionError,
     KnowledgeStoreNotFoundError,
     ResolutionConflictError,
 )
@@ -54,13 +51,17 @@ def generate_resolution_proposal_id(
 ) -> str:
     """Generate a deterministic cognitive identifier for a resolution proposal."""
     if not isinstance(contradiction_id, str) or not contradiction_id.strip():
-        raise InvalidResolutionProposalError("contradiction_id must be a non-empty string")
+        raise InvalidResolutionProposalError(
+            "contradiction_id must be a non-empty string"
+        )
     if not isinstance(item_a_id, str) or not item_a_id.strip():
         raise InvalidResolutionProposalError("item_a_id must be a non-empty string")
     if not isinstance(item_b_id, str) or not item_b_id.strip():
         raise InvalidResolutionProposalError("item_b_id must be a non-empty string")
 
-    dec_val = decision.value if isinstance(decision, ResolutionDecision) else str(decision)
+    dec_val = (
+        decision.value if isinstance(decision, ResolutionDecision) else str(decision)
+    )
     if not dec_val.strip():
         raise InvalidResolutionProposalError("decision must be a valid non-empty value")
 
@@ -104,7 +105,9 @@ class KnowledgeContradictionResolver:
         if not isinstance(item_b, KnowledgeItem):
             raise InvalidResolutionProposalError("item_b must be a valid KnowledgeItem")
         if item_a.id == item_b.id:
-            raise InvalidResolutionProposalError("item_a and item_b must be distinct items")
+            raise InvalidResolutionProposalError(
+                "item_a and item_b must be distinct items"
+            )
 
         if created_at is not None:
             _require_aware(created_at, "created_at")
@@ -146,7 +149,9 @@ class KnowledgeContradictionResolver:
                     f"Unsupported contradiction type: {type(contradiction)}"
                 )
         else:
-            contradiction_id = f"cntr-{min(item_a.id, item_b.id)}-{max(item_a.id, item_b.id)}"
+            contradiction_id = (
+                f"cntr-{min(item_a.id, item_b.id)}-{max(item_a.id, item_b.id)}"
+            )
 
         # Collect evidence IDs
         ev_ids_set: set[str] = set()
@@ -192,7 +197,10 @@ class KnowledgeContradictionResolver:
             human_conf = 0.75
 
         prop_human_id = generate_resolution_proposal_id(
-            contradiction_id, ResolutionDecision.REQUEST_HUMAN_REVIEW, item_a.id, item_b.id
+            contradiction_id,
+            ResolutionDecision.REQUEST_HUMAN_REVIEW,
+            item_a.id,
+            item_b.id,
         )
         candidates.append(
             ContradictionResolutionProposal(
@@ -220,10 +228,16 @@ class KnowledgeContradictionResolver:
         resource_diff = item_a.resource_id != item_b.resource_id
         actor_diff = item_a.actor_id != item_b.actor_id
 
-        if temporal_diff or resource_diff or actor_diff or cntr_kind in (
-            ContradictionKind.TEMPORAL,
-            ContradictionKind.POSSIBLE,
-            ContradictionKind.RELATIONAL,
+        if (
+            temporal_diff
+            or resource_diff
+            or actor_diff
+            or cntr_kind
+            in (
+                ContradictionKind.TEMPORAL,
+                ContradictionKind.POSSIBLE,
+                ContradictionKind.RELATIONAL,
+            )
         ):
             keep_rationale: list[str] = []
             if temporal_diff or cntr_kind == ContradictionKind.TEMPORAL:
@@ -235,9 +249,14 @@ class KnowledgeContradictionResolver:
                     "Items originate from different resources or actors and may represent coexisting contextual truths."
                 )
             if not keep_rationale:
-                keep_rationale.append("Both items may be preserved under scoped context definitions.")
+                keep_rationale.append(
+                    "Both items may be preserved under scoped context definitions."
+                )
 
-            if temporal_diff and item_a.temporal_scope.kind == item_b.temporal_scope.kind:
+            if (
+                temporal_diff
+                and item_a.temporal_scope.kind == item_b.temporal_scope.kind
+            ):
                 keep_conf = 0.90
             elif resource_diff or actor_diff:
                 keep_conf = 0.75
@@ -318,7 +337,10 @@ class KnowledgeContradictionResolver:
                     decision=ResolutionDecision.PREFER_ITEM_A,
                     status=ResolutionStatus.PROPOSED,
                     confidence=pref_a_conf,
-                    rationale=tuple(pref_a_rationale or ["Item A exhibits higher epistemic priority."]),
+                    rationale=tuple(
+                        pref_a_rationale
+                        or ["Item A exhibits higher epistemic priority."]
+                    ),
                     evidence_ids=evidence_ids,
                     actor_id=actor_id,
                     created_at=ts,
@@ -375,7 +397,10 @@ class KnowledgeContradictionResolver:
                     decision=ResolutionDecision.PREFER_ITEM_B,
                     status=ResolutionStatus.PROPOSED,
                     confidence=pref_b_conf,
-                    rationale=tuple(pref_b_rationale or ["Item B exhibits higher epistemic priority."]),
+                    rationale=tuple(
+                        pref_b_rationale
+                        or ["Item B exhibits higher epistemic priority."]
+                    ),
                     evidence_ids=evidence_ids,
                     actor_id=actor_id,
                     created_at=ts,
@@ -393,9 +418,17 @@ class KnowledgeContradictionResolver:
                 f"Items share the same epistemic kind ('{item_a.kind.value}') and can be consolidated "
                 "into a merged knowledge item unifying evidence.",
             )
-            merge_conf = 0.85 if cntr_kind in (ContradictionKind.QUANTITATIVE, ContradictionKind.LINEAGE) else 0.70
+            merge_conf = (
+                0.85
+                if cntr_kind
+                in (ContradictionKind.QUANTITATIVE, ContradictionKind.LINEAGE)
+                else 0.70
+            )
             prop_merge_id = generate_resolution_proposal_id(
-                contradiction_id, ResolutionDecision.MERGE_INFORMATION, item_a.id, item_b.id
+                contradiction_id,
+                ResolutionDecision.MERGE_INFORMATION,
+                item_a.id,
+                item_b.id,
             )
             candidates.append(
                 ContradictionResolutionProposal(
@@ -415,27 +448,50 @@ class KnowledgeContradictionResolver:
             )
 
         # 6. MARK_ONE_INVALID
-        expired_a = item_a.temporal_scope.validity_status == TemporalValidityStatus.EXPIRED
-        expired_b = item_b.temporal_scope.validity_status == TemporalValidityStatus.EXPIRED
+        expired_a = (
+            item_a.temporal_scope.validity_status == TemporalValidityStatus.EXPIRED
+        )
+        expired_b = (
+            item_b.temporal_scope.validity_status == TemporalValidityStatus.EXPIRED
+        )
         superseded_a = item_a.status == KnowledgeStatus.SUPERSEDED
         superseded_b = item_b.status == KnowledgeStatus.SUPERSEDED
         invalid_a = item_a.status == KnowledgeStatus.INVALIDATED
         invalid_b = item_b.status == KnowledgeStatus.INVALIDATED
 
-        if expired_a or expired_b or superseded_a or superseded_b or invalid_a or invalid_b or abs(conf_a - conf_b) >= 0.50:
+        if (
+            expired_a
+            or expired_b
+            or superseded_a
+            or superseded_b
+            or invalid_a
+            or invalid_b
+            or abs(conf_a - conf_b) >= 0.50
+        ):
             inv_rationale: list[str] = []
             if expired_a or superseded_a or invalid_a:
-                inv_rationale.append(f"Item A ({item_a.id}) is expired, superseded, or invalidated.")
+                inv_rationale.append(
+                    f"Item A ({item_a.id}) is expired, superseded, or invalidated."
+                )
             if expired_b or superseded_b or invalid_b:
-                inv_rationale.append(f"Item B ({item_b.id}) is expired, superseded, or invalidated.")
+                inv_rationale.append(
+                    f"Item B ({item_b.id}) is expired, superseded, or invalidated."
+                )
             if abs(conf_a - conf_b) >= 0.50:
                 inv_rationale.append(
                     f"Significant confidence disparity ({conf_a:.2f} vs {conf_b:.2f}) indicates potential item invalidation."
                 )
 
-            inv_conf = 0.90 if (expired_a or expired_b or superseded_a or superseded_b) else 0.75
+            inv_conf = (
+                0.90
+                if (expired_a or expired_b or superseded_a or superseded_b)
+                else 0.75
+            )
             prop_inv_id = generate_resolution_proposal_id(
-                contradiction_id, ResolutionDecision.MARK_ONE_INVALID, item_a.id, item_b.id
+                contradiction_id,
+                ResolutionDecision.MARK_ONE_INVALID,
+                item_a.id,
+                item_b.id,
             )
             candidates.append(
                 ContradictionResolutionProposal(
@@ -455,7 +511,11 @@ class KnowledgeContradictionResolver:
             )
 
         # 7. DEFER (Applicable when confidence is low or evidence is lacking)
-        if conf_a < 0.50 and conf_b < 0.50 or (not item_a.evidence and not item_b.evidence):
+        if (
+            conf_a < 0.50
+            and conf_b < 0.50
+            or (not item_a.evidence and not item_b.evidence)
+        ):
             defer_rationale = (
                 "Insufficient evidence or low confidence on both sides to recommend immediate resolution preference.",
             )
@@ -603,7 +663,9 @@ class KnowledgeContradictionResolver:
                     metadata=metadata,
                 )
             else:
-                raise InvalidResolutionProposalError(f"Unsupported batch entry format: {entry}")
+                raise InvalidResolutionProposalError(
+                    f"Unsupported batch entry format: {entry}"
+                )
 
             all_proposals.extend(props)
 

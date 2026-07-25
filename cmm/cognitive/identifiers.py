@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from cmm.cognitive.errors import InvalidCognitiveIdentifierError
 
-
 _IDENTIFIER_PART_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 

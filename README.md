@@ -4,9 +4,9 @@
 
 Instead of allowing an AI model to edit a repository through unstructured text or arbitrary commands, CMM OS separates reasoning, planning, execution, validation, memory, and rollback behind explicit contracts.
 
-> **Current release:** `v0.7.0`  
-> **Implemented:** Phases 0–6  
-> **Automated test baseline:** 642 passing tests  
+> **Current release:** `v0.8.0`<br>
+> **Implemented:** Phases 0–8<br>
+> **Automated test baseline:** 1758 passing tests<br>
 > **License:** Apache-2.0
 
 ## Why CMM OS
@@ -361,11 +361,16 @@ A dedicated `SECURITY.md` will define supported versions and the private disclos
 
 ## Release
 
-Current release: **v0.7.0**
+Current release: **v0.8.0**
 
-This release closes Phases 0–6 and integrates the completed architectural transformation engine.
+This release closes Phase 8 (Cognitive Layer), providing structured, typed, auditable, and deterministic knowledge processing.
 
-Release notes, changelog, compatibility information, and migration guidance will be maintained alongside future tagged releases.
+For detailed documentation, see:
+- [Cognitive Layer Architecture](docs/architecture/cognitive-layer.md)
+- [Cognitive Layer Invariants](docs/architecture/cognitive-layer-invariants.md)
+- [Cognitive Layer Public API Reference](docs/reference/cognitive-api.md)
+- [Phase 8 Completion Audit](docs/audits/phase-8-completion.md)
+- [Release Notes v0.8.0](docs/releases/v0.8.0.md)
 
 ## Project identity
 

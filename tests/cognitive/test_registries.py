@@ -22,11 +22,10 @@ from cmm.cognitive import (
     ResourceKind,
     ResourceSourceKind,
 )
-from cmm.cognitive.adapters import AdaptationContext, ResourceAdapter
+from cmm.cognitive.adapters import AdaptationContext
 from cmm.cognitive.contracts import Confidence
-from cmm.cognitive.extraction import ExtractionContext, KnowledgeExtractor
+from cmm.cognitive.extraction import ExtractionContext
 from cmm.cognitive.resources import ResourceProvenance, ResourceTemporalScope
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -12,8 +12,8 @@ from typing import Any
 
 from cmm.cognitive.adapters import (
     AdaptationContext,
-    ResourceAdapter,
     ResourceAdaptationResult,
+    ResourceAdapter,
     ResourceInput,
 )
 from cmm.cognitive.errors import (
@@ -28,7 +28,6 @@ from cmm.cognitive.extraction import (
     KnowledgeExtractor,
 )
 from cmm.cognitive.resources import Resource
-
 
 # ── Validation helpers ────────────────────────────────────────────────────────
 

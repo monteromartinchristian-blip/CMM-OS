@@ -22,7 +22,6 @@ from cmm.cognitive import (
     SensitivityLevel,
 )
 
-
 NOW = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
 
 

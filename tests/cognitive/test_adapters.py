@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 import pytest
 
 from cmm.cognitive import (
-    AdaptationStatus,
     AdaptationContext,
+    AdaptationStatus,
     ExistingResourceAdapter,
+    InvalidResourceInputError,
     MappingResourceAdapter,
     PlainTextResourceAdapter,
     Resource,
@@ -20,11 +21,9 @@ from cmm.cognitive import (
     ResourcePermissionOperation,
     ResourceSourceKind,
     SensitivityLevel,
-    InvalidResourceInputError,
 )
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.resources import ResourceProvenance, ResourceTemporalScope
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -210,7 +209,7 @@ class TestPlainTextResourceAdapter:
         inp = ResourceInput(
             id="b2",
             source_kind=ResourceSourceKind.USER_INPUT,
-            payload="Encoded content".encode("utf-8"),
+            payload=b"Encoded content",
         )
         result = self.adapter.adapt(inp)
         assert result.status is AdaptationStatus.COMPLETED

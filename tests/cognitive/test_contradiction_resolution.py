@@ -1,6 +1,6 @@
 """Tests for Phase 8.10 Contradiction Resolution Engine."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -17,7 +17,6 @@ from cmm.cognitive.contradiction_resolution import (
 )
 from cmm.cognitive.enums import (
     ContradictionSeverity,
-    ContradictionStatus,
     EvidenceKind,
     EvidencePolarityKind,
     KnowledgeKind,
@@ -106,8 +105,12 @@ def test_basic_proposal_generation():
     ev_a = create_test_evidence("ev-a")
     ev_b = create_test_evidence("ev-b")
 
-    item_a = create_test_item("item-a", "El contrato está activo.", confidence_val=0.9, evidence=(ev_a,))
-    item_b = create_test_item("item-b", "El contrato está extinguido.", confidence_val=0.5, evidence=(ev_b,))
+    item_a = create_test_item(
+        "item-a", "El contrato está activo.", confidence_val=0.9, evidence=(ev_a,)
+    )
+    item_b = create_test_item(
+        "item-b", "El contrato está extinguido.", confidence_val=0.5, evidence=(ev_b,)
+    )
 
     cntr = Contradiction(
         id="cntr-1",
@@ -179,7 +182,10 @@ def test_decision_scenarios():
     item_a = create_test_item("item-1", "Fact A", confidence_val=0.8)
     item_b = create_test_item("item-2", "Fact B", confidence_val=0.8)
     cntr_high = Contradiction(
-        id="cntr-high", item_a_id="item-1", item_b_id="item-2", severity=ContradictionSeverity.HIGH
+        id="cntr-high",
+        item_a_id="item-1",
+        item_b_id="item-2",
+        severity=ContradictionSeverity.HIGH,
     )
     props_high = resolver.propose_resolutions(cntr_high, item_a, item_b)
     assert props_high[0].decision == ResolutionDecision.REQUEST_HUMAN_REVIEW
@@ -251,7 +257,10 @@ def test_propose_for_detection_record():
     props = resolver.propose_for_detection(detection, item_a, item_b)
     assert len(props) > 0
     decisions = [p.decision for p in props]
-    assert ResolutionDecision.MERGE_INFORMATION in decisions or ResolutionDecision.REQUEST_HUMAN_REVIEW in decisions
+    assert (
+        ResolutionDecision.MERGE_INFORMATION in decisions
+        or ResolutionDecision.REQUEST_HUMAN_REVIEW in decisions
+    )
 
 
 def test_propose_for_contradiction_with_store():
@@ -263,7 +272,9 @@ def test_propose_for_contradiction_with_store():
     store.save_item(item_a)
     store.save_item(item_b)
 
-    cntr = Contradiction(id="cntr-store", item_a_id="item-store-a", item_b_id="item-store-b")
+    cntr = Contradiction(
+        id="cntr-store", item_a_id="item-store-a", item_b_id="item-store-b"
+    )
     store.save_contradiction(cntr)
 
     props = resolver.propose_for_contradiction(cntr)
@@ -301,7 +312,9 @@ def test_error_validations():
     item_b = create_test_item("item-b", "Fact B")
 
     # Mismatched item IDs between contradiction and items
-    cntr_mismatch = Contradiction(id="cntr-mis", item_a_id="item-a", item_b_id="item-other")
+    cntr_mismatch = Contradiction(
+        id="cntr-mis", item_a_id="item-a", item_b_id="item-other"
+    )
     with pytest.raises(ResolutionConflictError):
         resolver.propose_resolutions(cntr_mismatch, item_a, item_b)
 
