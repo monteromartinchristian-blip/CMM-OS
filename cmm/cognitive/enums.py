@@ -126,6 +126,15 @@ class CandidateKind(str, Enum):
 # ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
 
 
+class TemporalValidityStatus(str, Enum):
+    VALID = "valid"
+    EXPIRED = "expired"
+    FUTURE = "future"
+    UNKNOWN = "unknown"
+    TIMELESS = "timeless"
+    POTENTIALLY_OBSOLETE = "potentially_obsolete"
+
+
 class KnowledgeKind(str, Enum):
     FACT = "fact"
     INFERENCE = "inference"

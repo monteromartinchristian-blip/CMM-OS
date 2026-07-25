@@ -2,8 +2,8 @@
 
 Immutable, validated, serialisable cognitive contracts.  No persistence,
 no search, no agents.  Every contract validates its invariants in
-``__post_init__`` and exposes a deterministic ``to_dict()`` / ``from_dict()``
-pair.
+``__post_init__`` and exposes a deterministic ``serialize()`` / ``from_mapping()``
+pair (with ``to_dict()`` / ``from_dict()`` compatibility aliases).
 
 Public surface
 --------------
@@ -19,7 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import (
@@ -30,7 +31,9 @@ from cmm.cognitive.enums import (
     KnowledgeKind,
     KnowledgeRelationKind,
     KnowledgeStatus,
+    SensitivityLevel,
     TemporalScopeKind,
+    TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
     InvalidContradictionError,
@@ -67,7 +70,7 @@ class TemporalScope:
     valid_until: datetime | None = None
     expires_at: datetime | None = None
     last_verified_at: datetime | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_aware(self.observed_at, "TemporalScope.observed_at")
@@ -97,7 +100,9 @@ class TemporalScope:
                 "POINT_IN_TIME temporal scope requires observed_at"
             )
 
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
     def is_valid_at(self, moment: datetime) -> bool:
         """Return True if ``moment`` falls within this scope."""
@@ -121,22 +126,23 @@ class TemporalScope:
         return self.is_valid_at(moment)
 
     @property
-    def validity_status(self) -> str:
+    def validity_status(self) -> TemporalValidityStatus:
         """Broad status label: valid / expired / future / unknown / timeless."""
         now = _utc_now()
         if self.kind is TemporalScopeKind.TIMELESS:
-            return "timeless"
+            return TemporalValidityStatus.TIMELESS
         if self.kind is TemporalScopeKind.UNKNOWN:
-            return "unknown"
+            return TemporalValidityStatus.UNKNOWN
         if self.valid_until is not None and now > self.valid_until:
-            return "expired"
+            return TemporalValidityStatus.EXPIRED
         if self.valid_from is not None and now < self.valid_from:
-            return "future"
+            return TemporalValidityStatus.FUTURE
         if self.expires_at is not None and now > self.expires_at:
-            return "potentially_obsolete"
-        return "valid"
+            return TemporalValidityStatus.POTENTIALLY_OBSOLETE
+        return TemporalValidityStatus.VALID
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "kind": self.kind.value,
             "observed_at": (
@@ -156,25 +162,62 @@ class TemporalScope:
                 if self.last_verified_at is not None
                 else None
             ),
-            "validity_status": self.validity_status,
+            "validity_status": self.validity_status.value,
             "metadata": dict(self.metadata),
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TemporalScope:
+    def from_mapping(cls, payload: Mapping[str, Any]) -> TemporalScope:
+        """Canonical deserialization from mapping."""
+
         def _parse(key: str) -> datetime | None:
-            raw = data.get(key)
-            return datetime.fromisoformat(raw) if raw is not None else None
+            raw = payload.get(key)
+            if raw is None:
+                return None
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise InvalidTemporalValidityError(
+                        f"Invalid ISO timestamp for {key}: {raw}"
+                    ) from exc
+            raise InvalidTemporalValidityError(
+                f"Expected timestamp string for {key}: {raw}"
+            )
+
+        kind_raw = payload.get("kind", TemporalScopeKind.UNKNOWN.value)
+        if isinstance(kind_raw, TemporalScopeKind):
+            kind_val = kind_raw
+        elif isinstance(kind_raw, str):
+            try:
+                kind_val = TemporalScopeKind(kind_raw)
+            except ValueError as exc:
+                raise InvalidTemporalValidityError(
+                    f"Unknown TemporalScopeKind: {kind_raw}"
+                ) from exc
+        else:
+            raise InvalidTemporalValidityError(f"Invalid kind: {kind_raw}")
 
         return cls(
-            kind=TemporalScopeKind(data["kind"]),
+            kind=kind_val,
             observed_at=_parse("observed_at"),
             valid_from=_parse("valid_from"),
             valid_until=_parse("valid_until"),
             expires_at=_parse("expires_at"),
             last_verified_at=_parse("last_verified_at"),
-            metadata=dict(data.get("metadata") or {}),
+            metadata=dict(payload.get("metadata") or {}),
         )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TemporalScope:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)
 
 
 # ── Evidence ──────────────────────────────────────────────────────────────────
@@ -205,7 +248,7 @@ class Evidence:
     extraction_candidate_id: str | None = None
     resource_provenance_id: str | None = None
     observed_at: datetime = field(default_factory=_utc_now)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -229,9 +272,12 @@ class Evidence:
                 "Evidence.char_end must not be less than char_start"
             )
         _require_aware(self.observed_at, "Evidence.observed_at")
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "id": self.id,
             "resource_id": self.resource_id,
@@ -251,34 +297,89 @@ class Evidence:
             "metadata": dict(self.metadata),
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Evidence:
-        return cls(
-            id=data["id"],
-            resource_id=data["resource_id"],
-            fragment=data["fragment"],
-            confidence=Confidence(
+    def from_mapping(cls, payload: Mapping[str, Any]) -> Evidence:
+        """Canonical deserialization from mapping."""
+        conf_data = payload.get("confidence")
+        if isinstance(conf_data, Confidence):
+            conf = conf_data
+        elif isinstance(conf_data, Mapping):
+            conf = Confidence(
                 **{
                     k: v
-                    for k, v in data["confidence"].items()
+                    for k, v in conf_data.items()
                     if k in ("value", "source", "reasons", "metadata")
                 }
-            ),
-            kind=EvidenceKind(data.get("kind", EvidenceKind.UNKNOWN.value)),
-            polarity=EvidencePolarityKind(
-                data.get("polarity", EvidencePolarityKind.NEUTRAL.value)
-            ),
-            locator=data.get("locator"),
-            section=data.get("section"),
-            page=data.get("page"),
-            char_start=data.get("char_start"),
-            char_end=data.get("char_end"),
-            actor_id=data.get("actor_id"),
-            extraction_candidate_id=data.get("extraction_candidate_id"),
-            resource_provenance_id=data.get("resource_provenance_id"),
-            observed_at=datetime.fromisoformat(data["observed_at"]),
-            metadata=dict(data.get("metadata") or {}),
+            )
+        else:
+            raise InvalidEvidenceError(
+                f"Invalid confidence payload in Evidence: {conf_data}"
+            )
+
+        kind_raw = payload.get("kind", EvidenceKind.UNKNOWN.value)
+        if isinstance(kind_raw, EvidenceKind):
+            kind_val = kind_raw
+        elif isinstance(kind_raw, str):
+            try:
+                kind_val = EvidenceKind(kind_raw)
+            except ValueError as exc:
+                raise InvalidEvidenceError(f"Unknown EvidenceKind: {kind_raw}") from exc
+        else:
+            raise InvalidEvidenceError(f"Invalid kind: {kind_raw}")
+
+        polarity_raw = payload.get("polarity", EvidencePolarityKind.NEUTRAL.value)
+        if isinstance(polarity_raw, EvidencePolarityKind):
+            polarity_val = polarity_raw
+        elif isinstance(polarity_raw, str):
+            try:
+                polarity_val = EvidencePolarityKind(polarity_raw)
+            except ValueError as exc:
+                raise InvalidEvidenceError(
+                    f"Unknown EvidencePolarityKind: {polarity_raw}"
+                ) from exc
+        else:
+            raise InvalidEvidenceError(f"Invalid polarity: {polarity_raw}")
+
+        obs_at_raw = payload.get("observed_at")
+        if isinstance(obs_at_raw, datetime):
+            obs_at = obs_at_raw
+        elif isinstance(obs_at_raw, str):
+            try:
+                obs_at = datetime.fromisoformat(obs_at_raw)
+            except ValueError as exc:
+                raise InvalidEvidenceError(
+                    f"Invalid ISO timestamp for observed_at: {obs_at_raw}"
+                ) from exc
+        else:
+            raise InvalidEvidenceError(f"Expected timestamp string: {obs_at_raw}")
+
+        return cls(
+            id=payload["id"],
+            resource_id=payload["resource_id"],
+            fragment=payload["fragment"],
+            confidence=conf,
+            kind=kind_val,
+            polarity=polarity_val,
+            locator=payload.get("locator"),
+            section=payload.get("section"),
+            page=payload.get("page"),
+            char_start=payload.get("char_start"),
+            char_end=payload.get("char_end"),
+            actor_id=payload.get("actor_id"),
+            extraction_candidate_id=payload.get("extraction_candidate_id"),
+            resource_provenance_id=payload.get("resource_provenance_id"),
+            observed_at=obs_at,
+            metadata=dict(payload.get("metadata") or {}),
         )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Evidence:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)
 
 
 # ── KnowledgeRelation ─────────────────────────────────────────────────────────
@@ -298,7 +399,7 @@ class KnowledgeRelation:
     actor_id: str | None = None
     provenance: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -318,9 +419,12 @@ class KnowledgeRelation:
                 "KnowledgeRelation cannot reference its own source as target"
             )
         _require_aware(self.created_at, "KnowledgeRelation.created_at")
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "id": self.id,
             "source_id": self.source_id,
@@ -333,25 +437,71 @@ class KnowledgeRelation:
             "metadata": dict(self.metadata),
         }
 
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> KnowledgeRelation:
-        return cls(
-            id=data["id"],
-            source_id=data["source_id"],
-            target_id=data["target_id"],
-            kind=KnowledgeRelationKind(data["kind"]),
-            confidence=Confidence(
+    def from_mapping(cls, payload: Mapping[str, Any]) -> KnowledgeRelation:
+        """Canonical deserialization from mapping."""
+        conf_data = payload.get("confidence")
+        if isinstance(conf_data, Confidence):
+            conf = conf_data
+        elif isinstance(conf_data, Mapping):
+            conf = Confidence(
                 **{
                     k: v
-                    for k, v in data["confidence"].items()
+                    for k, v in conf_data.items()
                     if k in ("value", "source", "reasons", "metadata")
                 }
-            ),
-            actor_id=data.get("actor_id"),
-            provenance=data.get("provenance"),
-            created_at=datetime.fromisoformat(data["created_at"]),
-            metadata=dict(data.get("metadata") or {}),
+            )
+        else:
+            raise InvalidKnowledgeRelationError(
+                f"Invalid confidence payload in KnowledgeRelation: {conf_data}"
+            )
+
+        kind_raw = payload["kind"]
+        if isinstance(kind_raw, KnowledgeRelationKind):
+            kind_val = kind_raw
+        elif isinstance(kind_raw, str):
+            try:
+                kind_val = KnowledgeRelationKind(kind_raw)
+            except ValueError as exc:
+                raise InvalidKnowledgeRelationError(
+                    f"Unknown KnowledgeRelationKind: {kind_raw}"
+                ) from exc
+        else:
+            raise InvalidKnowledgeRelationError(f"Invalid kind: {kind_raw}")
+
+        created_at_raw = payload.get("created_at")
+        if isinstance(created_at_raw, datetime):
+            created_at = created_at_raw
+        elif isinstance(created_at_raw, str):
+            try:
+                created_at = datetime.fromisoformat(created_at_raw)
+            except ValueError as exc:
+                raise InvalidKnowledgeRelationError(
+                    f"Invalid ISO timestamp for created_at: {created_at_raw}"
+                ) from exc
+        else:
+            created_at = _utc_now()
+
+        return cls(
+            id=payload["id"],
+            source_id=payload["source_id"],
+            target_id=payload["target_id"],
+            kind=kind_val,
+            confidence=conf,
+            actor_id=payload.get("actor_id"),
+            provenance=payload.get("provenance"),
+            created_at=created_at,
+            metadata=dict(payload.get("metadata") or {}),
         )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KnowledgeRelation:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)
 
 
 # ── KnowledgeItem ─────────────────────────────────────────────────────────────
@@ -376,7 +526,7 @@ class KnowledgeItem:
     evidence: tuple[Evidence, ...] = ()
     relations: tuple[KnowledgeRelation, ...] = ()
     temporal_scope: TemporalScope = field(default_factory=TemporalScope)
-    sensitivity: str | None = None
+    sensitivity: SensitivityLevel | None = None
     actor_id: str | None = None
     resource_id: str | None = None
     version: int = 1
@@ -386,7 +536,7 @@ class KnowledgeItem:
     invalidation_reason: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -444,9 +594,11 @@ class KnowledgeItem:
                 "KnowledgeItem.relations must not contain duplicate ids"
             )
 
-        object.__setattr__(self, "evidence", tuple(self.evidence))
-        object.__setattr__(self, "relations", tuple(self.relations))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "evidence", tuple(self.evidence or ()))
+        object.__setattr__(self, "relations", tuple(self.relations or ()))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
     @property
     def is_active(self) -> bool:
@@ -485,7 +637,7 @@ class KnowledgeItem:
         relations: tuple[KnowledgeRelation, ...] | None = None,
         temporal_scope: TemporalScope | None = None,
         actor_id: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
         created_at: datetime | None = None,
     ) -> KnowledgeItem:
         """Return a new KnowledgeItem with incremented version linked to self."""
@@ -528,17 +680,20 @@ class KnowledgeItem:
             updated_at=ts,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "id": self.id,
             "statement": self.statement,
             "kind": self.kind.value,
             "status": self.status.value,
             "confidence": self.confidence.to_dict(),
-            "evidence": [e.to_dict() for e in self.evidence],
-            "relations": [r.to_dict() for r in self.relations],
-            "temporal_scope": self.temporal_scope.to_dict(),
-            "sensitivity": self.sensitivity,
+            "evidence": [e.serialize() for e in self.evidence],
+            "relations": [r.serialize() for r in self.relations],
+            "temporal_scope": self.temporal_scope.serialize(),
+            "sensitivity": (
+                self.sensitivity.value if self.sensitivity is not None else None
+            ),
             "actor_id": self.actor_id,
             "resource_id": self.resource_id,
             "version": self.version,
@@ -555,6 +710,141 @@ class KnowledgeItem:
             "is_active": self.is_active,
             "metadata": dict(self.metadata),
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> KnowledgeItem:
+        """Canonical deserialization from mapping."""
+
+        def _parse_dt(raw: Any, field_name: str) -> datetime | None:
+            if raw is None:
+                return None
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise InvalidKnowledgeItemError(
+                        f"Invalid ISO timestamp for {field_name}: {raw}"
+                    ) from exc
+            raise InvalidKnowledgeItemError(
+                f"Expected timestamp string for {field_name}: {raw}"
+            )
+
+        kind_raw = payload["kind"]
+        if isinstance(kind_raw, KnowledgeKind):
+            kind_val = kind_raw
+        elif isinstance(kind_raw, str):
+            try:
+                kind_val = KnowledgeKind(kind_raw)
+            except ValueError as exc:
+                raise InvalidKnowledgeItemError(
+                    f"Unknown KnowledgeKind: {kind_raw}"
+                ) from exc
+        else:
+            raise InvalidKnowledgeItemError(f"Invalid kind: {kind_raw}")
+
+        status_raw = payload.get("status", KnowledgeStatus.ACTIVE.value)
+        if isinstance(status_raw, KnowledgeStatus):
+            status_val = status_raw
+        elif isinstance(status_raw, str):
+            try:
+                status_val = KnowledgeStatus(status_raw)
+            except ValueError as exc:
+                raise InvalidKnowledgeItemError(
+                    f"Unknown KnowledgeStatus: {status_raw}"
+                ) from exc
+        else:
+            raise InvalidKnowledgeItemError(f"Invalid status: {status_raw}")
+
+        conf_data = payload.get("confidence")
+        if isinstance(conf_data, Confidence):
+            conf = conf_data
+        elif isinstance(conf_data, Mapping):
+            conf = Confidence(
+                **{
+                    k: v
+                    for k, v in conf_data.items()
+                    if k in ("value", "source", "reasons", "metadata")
+                }
+            )
+        else:
+            raise InvalidKnowledgeItemError(
+                f"Invalid confidence payload in KnowledgeItem: {conf_data}"
+            )
+
+        ev_raw = payload.get("evidence", ())
+        ev_list = []
+        for item in ev_raw:
+            if isinstance(item, Evidence):
+                ev_list.append(item)
+            elif isinstance(item, Mapping):
+                ev_list.append(Evidence.from_mapping(item))
+
+        rel_raw = payload.get("relations", ())
+        rel_list = []
+        for item in rel_raw:
+            if isinstance(item, KnowledgeRelation):
+                rel_list.append(item)
+            elif isinstance(item, Mapping):
+                rel_list.append(KnowledgeRelation.from_mapping(item))
+
+        ts_raw = payload.get("temporal_scope")
+        if isinstance(ts_raw, TemporalScope):
+            ts_val = ts_raw
+        elif isinstance(ts_raw, Mapping):
+            ts_val = TemporalScope.from_mapping(ts_raw)
+        else:
+            ts_val = TemporalScope()
+
+        sens_raw = payload.get("sensitivity")
+        sens_val: SensitivityLevel | None = None
+        if sens_raw is not None:
+            if isinstance(sens_raw, SensitivityLevel):
+                sens_val = sens_raw
+            elif isinstance(sens_raw, str):
+                try:
+                    sens_val = SensitivityLevel(sens_raw)
+                except ValueError as exc:
+                    raise InvalidKnowledgeItemError(
+                        f"Unknown SensitivityLevel: {sens_raw}"
+                    ) from exc
+            else:
+                raise InvalidKnowledgeItemError(f"Invalid sensitivity: {sens_raw}")
+
+        created_at = _parse_dt(payload.get("created_at"), "created_at") or _utc_now()
+        updated_at = _parse_dt(payload.get("updated_at"), "updated_at") or created_at
+
+        return cls(
+            id=payload["id"],
+            statement=payload["statement"],
+            kind=kind_val,
+            confidence=conf,
+            status=status_val,
+            evidence=tuple(ev_list),
+            relations=tuple(rel_list),
+            temporal_scope=ts_val,
+            sensitivity=sens_val,
+            actor_id=payload.get("actor_id"),
+            resource_id=payload.get("resource_id"),
+            version=payload.get("version", 1),
+            supersedes_id=payload.get("supersedes_id"),
+            superseded_by_id=payload.get("superseded_by_id"),
+            invalidated_at=_parse_dt(payload.get("invalidated_at"), "invalidated_at"),
+            invalidation_reason=payload.get("invalidation_reason"),
+            created_at=created_at,
+            updated_at=updated_at,
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KnowledgeItem:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)
 
 
 # ── Contradiction ─────────────────────────────────────────────────────────────
@@ -582,7 +872,7 @@ class Contradiction:
     remaining_uncertainty: str | None = None
     actor_id: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -607,17 +897,22 @@ class Contradiction:
                 )
 
         _require_aware(self.created_at, "Contradiction.created_at")
-        object.__setattr__(self, "supporting_evidence", tuple(self.supporting_evidence))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(
+            self, "supporting_evidence", tuple(self.supporting_evidence or ())
+        )
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "id": self.id,
             "item_a_id": self.item_a_id,
             "item_b_id": self.item_b_id,
             "severity": self.severity.value,
             "status": self.status.value,
-            "supporting_evidence": [e.to_dict() for e in self.supporting_evidence],
+            "supporting_evidence": [e.serialize() for e in self.supporting_evidence],
             "explanation": self.explanation,
             "preferred_id": self.preferred_id,
             "preference_reason": self.preference_reason,
@@ -626,6 +921,87 @@ class Contradiction:
             "created_at": self.created_at.isoformat(),
             "metadata": dict(self.metadata),
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> Contradiction:
+        """Canonical deserialization from mapping."""
+
+        def _parse_dt(raw: Any, field_name: str) -> datetime | None:
+            if raw is None:
+                return None
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise InvalidContradictionError(
+                        f"Invalid ISO timestamp for {field_name}: {raw}"
+                    ) from exc
+            raise InvalidContradictionError(
+                f"Expected timestamp string for {field_name}: {raw}"
+            )
+
+        sev_raw = payload.get("severity", ContradictionSeverity.MEDIUM.value)
+        if isinstance(sev_raw, ContradictionSeverity):
+            sev_val = sev_raw
+        elif isinstance(sev_raw, str):
+            try:
+                sev_val = ContradictionSeverity(sev_raw)
+            except ValueError as exc:
+                raise InvalidContradictionError(
+                    f"Unknown ContradictionSeverity: {sev_raw}"
+                ) from exc
+        else:
+            raise InvalidContradictionError(f"Invalid severity: {sev_raw}")
+
+        stat_raw = payload.get("status", ContradictionStatus.UNRESOLVED.value)
+        if isinstance(stat_raw, ContradictionStatus):
+            stat_val = stat_raw
+        elif isinstance(stat_raw, str):
+            try:
+                stat_val = ContradictionStatus(stat_raw)
+            except ValueError as exc:
+                raise InvalidContradictionError(
+                    f"Unknown ContradictionStatus: {stat_raw}"
+                ) from exc
+        else:
+            raise InvalidContradictionError(f"Invalid status: {stat_raw}")
+
+        ev_raw = payload.get("supporting_evidence", ())
+        ev_list = []
+        for item in ev_raw:
+            if isinstance(item, Evidence):
+                ev_list.append(item)
+            elif isinstance(item, Mapping):
+                ev_list.append(Evidence.from_mapping(item))
+
+        created_at = _parse_dt(payload.get("created_at"), "created_at") or _utc_now()
+
+        return cls(
+            id=payload["id"],
+            item_a_id=payload["item_a_id"],
+            item_b_id=payload["item_b_id"],
+            severity=sev_val,
+            status=stat_val,
+            supporting_evidence=tuple(ev_list),
+            explanation=payload.get("explanation"),
+            preferred_id=payload.get("preferred_id"),
+            preference_reason=payload.get("preference_reason"),
+            remaining_uncertainty=payload.get("remaining_uncertainty"),
+            actor_id=payload.get("actor_id"),
+            created_at=created_at,
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Contradiction:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)
 
 
 # ── KnowledgeBundle ───────────────────────────────────────────────────────────
@@ -650,7 +1026,7 @@ class KnowledgeBundle:
     actor_id: str | None = None
     status: str = "complete"
     created_at: datetime = field(default_factory=_utc_now)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -667,13 +1043,15 @@ class KnowledgeBundle:
                 "KnowledgeBundle.items must not contain duplicate ids"
             )
 
-        object.__setattr__(self, "items", tuple(self.items))
-        object.__setattr__(self, "evidence", tuple(self.evidence))
-        object.__setattr__(self, "relations", tuple(self.relations))
-        object.__setattr__(self, "contradictions", tuple(self.contradictions))
-        object.__setattr__(self, "open_questions", tuple(self.open_questions))
-        object.__setattr__(self, "findings", tuple(self.findings))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "items", tuple(self.items or ()))
+        object.__setattr__(self, "evidence", tuple(self.evidence or ()))
+        object.__setattr__(self, "relations", tuple(self.relations or ()))
+        object.__setattr__(self, "contradictions", tuple(self.contradictions or ()))
+        object.__setattr__(self, "open_questions", tuple(self.open_questions or ()))
+        object.__setattr__(self, "findings", tuple(self.findings or ()))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
     @property
     def item_count(self) -> int:
@@ -687,13 +1065,14 @@ class KnowledgeBundle:
     def has_open_questions(self) -> bool:
         return bool(self.open_questions)
 
-    def to_dict(self) -> dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
+        """Canonical JSON-safe serialization."""
         return {
             "id": self.id,
-            "items": [i.to_dict() for i in self.items],
-            "evidence": [e.to_dict() for e in self.evidence],
-            "relations": [r.to_dict() for r in self.relations],
-            "contradictions": [c.to_dict() for c in self.contradictions],
+            "items": [i.serialize() for i in self.items],
+            "evidence": [e.serialize() for e in self.evidence],
+            "relations": [r.serialize() for r in self.relations],
+            "contradictions": [c.serialize() for c in self.contradictions],
             "open_questions": list(self.open_questions),
             "findings": list(self.findings),
             "actor_id": self.actor_id,
@@ -704,3 +1083,80 @@ class KnowledgeBundle:
             "has_open_questions": self.has_open_questions,
             "metadata": dict(self.metadata),
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Compatibility alias for :meth:`serialize`."""
+        return self.serialize()
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> KnowledgeBundle:
+        """Canonical deserialization from mapping."""
+
+        def _parse_dt(raw: Any, field_name: str) -> datetime | None:
+            if raw is None:
+                return None
+            if isinstance(raw, datetime):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    return datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise InvalidKnowledgeBundleError(
+                        f"Invalid ISO timestamp for {field_name}: {raw}"
+                    ) from exc
+            raise InvalidKnowledgeBundleError(
+                f"Expected timestamp string for {field_name}: {raw}"
+            )
+
+        items_raw = payload.get("items", ())
+        items_list = []
+        for item in items_raw:
+            if isinstance(item, KnowledgeItem):
+                items_list.append(item)
+            elif isinstance(item, Mapping):
+                items_list.append(KnowledgeItem.from_mapping(item))
+
+        ev_raw = payload.get("evidence", ())
+        ev_list = []
+        for item in ev_raw:
+            if isinstance(item, Evidence):
+                ev_list.append(item)
+            elif isinstance(item, Mapping):
+                ev_list.append(Evidence.from_mapping(item))
+
+        rel_raw = payload.get("relations", ())
+        rel_list = []
+        for item in rel_raw:
+            if isinstance(item, KnowledgeRelation):
+                rel_list.append(item)
+            elif isinstance(item, Mapping):
+                rel_list.append(KnowledgeRelation.from_mapping(item))
+
+        contra_raw = payload.get("contradictions", ())
+        contra_list = []
+        for item in contra_raw:
+            if isinstance(item, Contradiction):
+                contra_list.append(item)
+            elif isinstance(item, Mapping):
+                contra_list.append(Contradiction.from_mapping(item))
+
+        created_at = _parse_dt(payload.get("created_at"), "created_at") or _utc_now()
+
+        return cls(
+            id=payload["id"],
+            items=tuple(items_list),
+            evidence=tuple(ev_list),
+            relations=tuple(rel_list),
+            contradictions=tuple(contra_list),
+            open_questions=tuple(payload.get("open_questions") or ()),
+            findings=tuple(payload.get("findings") or ()),
+            actor_id=payload.get("actor_id"),
+            status=payload.get("status", "complete"),
+            created_at=created_at,
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KnowledgeBundle:
+        """Compatibility alias for :meth:`from_mapping`."""
+        return cls.from_mapping(data)

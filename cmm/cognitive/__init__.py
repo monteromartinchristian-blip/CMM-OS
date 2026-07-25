@@ -77,6 +77,7 @@ from cmm.cognitive.service import (
     ResourceExtractionService,
 )
 
+
 # ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
 from cmm.cognitive.enums import (
     ContradictionSeverity,
@@ -87,6 +88,7 @@ from cmm.cognitive.enums import (
     KnowledgeRelationKind,
     KnowledgeStatus,
     TemporalScopeKind,
+    TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
     InvalidContradictionError,
@@ -185,6 +187,7 @@ __all__ = [
     "KnowledgeRelationKind",
     "KnowledgeStatus",
     "TemporalScopeKind",
+    "TemporalValidityStatus",
     # 8.4 errors
     "InvalidContradictionError",
     "InvalidEvidenceError",

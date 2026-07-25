@@ -1,9 +1,9 @@
 """Phase 8.4 – Knowledge Materializer.
 
-Pure, stateless conversion layer that promotes Phase 8.3 extraction
+Pure, stateless conversion layer that materializes Phase 8.3 extraction
 contracts into Phase 8.4 Knowledge Model contracts.
 
-No persistence, no reasoning, no automatic fact promotion.
+No persistence, no reasoning, no automatic fact creation.
 All provenance, confidence, actor, and timestamps are preserved verbatim.
 
 Public surface
@@ -21,7 +21,6 @@ from typing import Any
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import (
     CandidateKind,
-    ContradictionStatus,
     EvidenceKind,
     EvidencePolarityKind,
     KnowledgeKind,
@@ -46,11 +45,15 @@ def _utc_now() -> datetime:
 
 
 # ── CandidateKind → KnowledgeKind mapping ─────────────────────────────────────
+# Epistemological mapping: textual extractions represent observations, questions,
+# or hypotheses, but NEVER automatic facts.
+# RELATIONSHIP_MENTION is mapped to OBSERVATION because textual extraction of a
+# relationship mention is an observation from text rather than a validated inference.
 
 _CANDIDATE_TO_KNOWLEDGE_KIND: dict[CandidateKind, KnowledgeKind] = {
-    CandidateKind.STATEMENT: KnowledgeKind.FACT,
+    CandidateKind.STATEMENT: KnowledgeKind.OBSERVATION,
     CandidateKind.ENTITY_MENTION: KnowledgeKind.OBSERVATION,
-    CandidateKind.RELATIONSHIP_MENTION: KnowledgeKind.INFERENCE,
+    CandidateKind.RELATIONSHIP_MENTION: KnowledgeKind.OBSERVATION,
     CandidateKind.TEMPORAL_REFERENCE: KnowledgeKind.OBSERVATION,
     CandidateKind.QUANTITY: KnowledgeKind.OBSERVATION,
     CandidateKind.KEYWORD: KnowledgeKind.OBSERVATION,
@@ -62,9 +65,11 @@ _CANDIDATE_TO_KNOWLEDGE_KIND: dict[CandidateKind, KnowledgeKind] = {
 def _candidate_kind_to_knowledge_kind(kind: CandidateKind) -> KnowledgeKind:
     """Map an extraction CandidateKind to a KnowledgeKind.
 
-    STATEMENT candidates become FACT; QUESTION becomes QUESTION.
-    All others default to OBSERVATION or INFERENCE, never FACT, to
-    avoid auto-promotion of unverified content.
+    STATEMENT, ENTITY_MENTION, RELATIONSHIP_MENTION, TEMPORAL_REFERENCE,
+    QUANTITY, and KEYWORD candidates become OBSERVATION; QUESTION becomes QUESTION;
+    UNKNOWN becomes HYPOTHESIS.
+    No CandidateKind ever materializes automatically as FACT to prevent epistemological
+    invention of unverified content.
     """
     return _CANDIDATE_TO_KNOWLEDGE_KIND.get(kind, KnowledgeKind.HYPOTHESIS)
 
@@ -118,9 +123,9 @@ def materialise_candidate(
     resource_provenance_id: str | None = None,
     observed_at: datetime | None = None,
 ) -> KnowledgeItem:
-    """Promote an :class:`ExtractionCandidate` to a :class:`KnowledgeItem`.
+    """Materialize an :class:`ExtractionCandidate` into a :class:`KnowledgeItem`.
 
-    The resulting item is always UNVERIFIED: no automatic fact promotion.
+    The resulting item is always UNVERIFIED: no automatic fact creation.
     Confidence, actor, resource_id, and candidate id are preserved verbatim.
     """
     ts = observed_at or _utc_now()

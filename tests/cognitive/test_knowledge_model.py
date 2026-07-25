@@ -1,8 +1,8 @@
 """Phase 8.4 – Knowledge Model tests.
 
 Covers: TemporalScope, Evidence, KnowledgeRelation, KnowledgeItem,
-Contradiction, KnowledgeBundle, materializer, public API, and
-compatibility with Phase 8.3 extraction contracts.
+Contradiction, KnowledgeBundle, materializer, public API, deep immutability,
+canonical serialize/from_mapping round-trips, and compatibility with Phase 8.3.
 """
 
 from __future__ import annotations
@@ -34,8 +34,10 @@ from cmm.cognitive import (
     KnowledgeRelation,
     KnowledgeRelationKind,
     KnowledgeStatus,
+    SensitivityLevel,
     TemporalScope,
     TemporalScopeKind,
+    TemporalValidityStatus,
     materialise_candidate,
     materialise_evidence,
     materialise_result,
@@ -74,7 +76,7 @@ def make_evidence(
 def make_item(
     statement: str = "The project has a Cognitive Layer.",
     *,
-    kind: KnowledgeKind = KnowledgeKind.FACT,
+    kind: KnowledgeKind = KnowledgeKind.OBSERVATION,
     item_id: str | None = None,
 ) -> KnowledgeItem:
     kwargs: dict = dict(
@@ -191,36 +193,39 @@ def test_temporal_scope_serialization_round_trip() -> None:
         valid_until=FUTURE,
         metadata={"source": "test"},
     )
-    payload = scope.to_dict()
+    payload = scope.serialize()
     assert payload["kind"] == "interval"
     assert payload["valid_from"] == NOW.isoformat()
     assert payload["valid_until"] == FUTURE.isoformat()
     assert payload["metadata"] == {"source": "test"}
 
+    restored = TemporalScope.from_mapping(payload)
+    assert restored == scope
 
-def test_temporal_scope_from_dict_round_trip() -> None:
+
+def test_temporal_scope_from_dict_and_from_mapping_alias() -> None:
     scope = TemporalScope(
         kind=TemporalScopeKind.INTERVAL,
         valid_from=NOW,
         valid_until=FUTURE,
     )
-    restored = TemporalScope.from_dict(scope.to_dict())
-    assert restored.kind is scope.kind
-    assert restored.valid_from == scope.valid_from
-    assert restored.valid_until == scope.valid_until
+    payload = scope.to_dict()
+    restored_from_dict = TemporalScope.from_dict(payload)
+    restored_from_mapping = TemporalScope.from_mapping(payload)
+    assert restored_from_dict == scope
+    assert restored_from_mapping == scope
 
 
-def test_temporal_scope_validity_status_timeless() -> None:
-    assert TemporalScope(kind=TemporalScopeKind.TIMELESS).validity_status == "timeless"
+def test_temporal_scope_validity_status_enum() -> None:
+    timeless = TemporalScope(kind=TemporalScopeKind.TIMELESS)
+    assert timeless.validity_status is TemporalValidityStatus.TIMELESS
 
-
-def test_temporal_scope_validity_status_expired() -> None:
-    scope = TemporalScope(
+    expired = TemporalScope(
         kind=TemporalScopeKind.INTERVAL,
         valid_from=PAST - timedelta(days=10),
         valid_until=PAST,
     )
-    assert scope.validity_status == "expired"
+    assert expired.validity_status is TemporalValidityStatus.EXPIRED
 
 
 def test_temporal_scope_immutable() -> None:
@@ -257,7 +262,7 @@ def test_evidence_serializes_all_traceability_fields() -> None:
         observed_at=NOW,
         metadata={"tag": "verified"},
     )
-    payload = ev.to_dict()
+    payload = ev.serialize()
     assert payload["id"] == "evidence:knowledge:e1"
     assert payload["kind"] == "direct_quote"
     assert payload["polarity"] == "supporting"
@@ -270,8 +275,11 @@ def test_evidence_serializes_all_traceability_fields() -> None:
     assert payload["resource_provenance_id"] == "resource:prov:abc"
     assert payload["observed_at"] == NOW.isoformat()
 
+    restored = Evidence.from_mapping(payload)
+    assert restored == ev
 
-def test_evidence_from_dict_round_trip() -> None:
+
+def test_evidence_from_dict_and_from_mapping_alias() -> None:
     ev = Evidence(
         id="evidence:knowledge:e2",
         resource_id="resource:test:doc",
@@ -279,10 +287,9 @@ def test_evidence_from_dict_round_trip() -> None:
         confidence=confidence(0.7),
         observed_at=NOW,
     )
-    restored = Evidence.from_dict(ev.to_dict())
-    assert restored.id == ev.id
-    assert restored.resource_id == ev.resource_id
-    assert restored.confidence.value == ev.confidence.value
+    restored = Evidence.from_mapping(ev.serialize())
+    assert restored == ev
+    assert Evidence.from_dict(ev.to_dict()) == ev
 
 
 def test_evidence_rejects_empty_resource_id() -> None:
@@ -399,13 +406,16 @@ def test_relation_serialization_preserves_semantics() -> None:
         provenance="extraction-run-42",
         created_at=NOW,
     )
-    payload = rel.to_dict()
+    payload = rel.serialize()
     assert payload["kind"] == "contradicts"
     assert payload["actor_id"] == "agent:test"
     assert payload["provenance"] == "extraction-run-42"
 
+    restored = KnowledgeRelation.from_mapping(payload)
+    assert restored == rel
 
-def test_relation_from_dict_round_trip() -> None:
+
+def test_relation_from_dict_and_from_mapping_alias() -> None:
     rel = KnowledgeRelation(
         id="knowledge-relation:knowledge:r1",
         source_id="knowledge-item:knowledge:a",
@@ -414,9 +424,9 @@ def test_relation_from_dict_round_trip() -> None:
         confidence=confidence(),
         created_at=NOW,
     )
-    restored = KnowledgeRelation.from_dict(rel.to_dict())
-    assert restored.id == rel.id
-    assert restored.kind is rel.kind
+    restored = KnowledgeRelation.from_mapping(rel.serialize())
+    assert restored == rel
+    assert KnowledgeRelation.from_dict(rel.to_dict()) == rel
 
 
 def test_relation_all_kinds_constructible() -> None:
@@ -467,7 +477,24 @@ def test_knowledge_item_supports_actor_and_resource() -> None:
     assert item.resource_id == "resource:test:doc"
 
 
-def test_knowledge_item_serialization_complete() -> None:
+def test_knowledge_item_sensitivity_level() -> None:
+    item = KnowledgeItem(
+        statement="Sensitive information.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=confidence(),
+        sensitivity=SensitivityLevel.HIGHLY_SENSITIVE,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    assert item.sensitivity is SensitivityLevel.HIGHLY_SENSITIVE
+    payload = item.serialize()
+    assert payload["sensitivity"] == "highly_sensitive"
+
+    restored = KnowledgeItem.from_mapping(payload)
+    assert restored == item
+
+
+def test_knowledge_item_serialization_and_round_trip() -> None:
     item = KnowledgeItem(
         id="knowledge-item:knowledge:serialized",
         statement="Serializable knowledge.",
@@ -478,29 +505,35 @@ def test_knowledge_item_serialization_complete() -> None:
             kind=TemporalScopeKind.CURRENT,
             valid_from=NOW,
         ),
+        sensitivity=SensitivityLevel.SENSITIVE,
         actor_id="agent:test",
         resource_id="resource:test:doc",
         created_at=NOW,
         updated_at=NOW,
         metadata={"domain": "testing"},
     )
-    payload = item.to_dict()
+    payload = item.serialize()
     assert payload["id"] == "knowledge-item:knowledge:serialized"
     assert payload["kind"] == "inference"
     assert payload["status"] == "active"
     assert payload["version"] == 1
     assert payload["is_active"] is True
+    assert payload["sensitivity"] == "sensitive"
     assert payload["actor_id"] == "agent:test"
     assert payload["resource_id"] == "resource:test:doc"
     assert payload["evidence"][0]["resource_id"] == "resource:test:doc"
     assert payload["metadata"] == {"domain": "testing"}
+
+    restored = KnowledgeItem.from_mapping(payload)
+    assert restored == item
+    assert KnowledgeItem.from_dict(item.to_dict()) == item
 
 
 def test_knowledge_item_rejects_empty_statement() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="   ",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             created_at=NOW,
             updated_at=NOW,
@@ -510,8 +543,8 @@ def test_knowledge_item_rejects_empty_statement() -> None:
 def test_knowledge_item_rejects_version_zero() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
-            statement="A fact.",
-            kind=KnowledgeKind.FACT,
+            statement="A statement.",
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             version=0,
             created_at=NOW,
@@ -523,7 +556,7 @@ def test_knowledge_item_rejects_updated_at_before_created_at() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Timestamp issue.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             created_at=NOW,
             updated_at=NOW - timedelta(seconds=1),
@@ -535,7 +568,7 @@ def test_knowledge_item_rejects_duplicate_evidence() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Duplicated.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             evidence=(ev, ev),
             created_at=NOW,
@@ -555,7 +588,7 @@ def test_knowledge_item_rejects_duplicate_relations() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Duplicated rel.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             relations=(rel, rel),
             created_at=NOW,
@@ -567,7 +600,7 @@ def test_knowledge_item_invalidated_requires_audit_fields() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Missing audit.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             status=KnowledgeStatus.INVALIDATED,
             created_at=NOW,
@@ -579,7 +612,7 @@ def test_knowledge_item_active_rejects_invalidation_fields() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Inconsistent.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             invalidated_at=NOW,
             invalidation_reason="Unexpected.",
@@ -592,7 +625,7 @@ def test_knowledge_item_superseded_requires_successor() -> None:
     with pytest.raises(InvalidKnowledgeItemError):
         KnowledgeItem(
             statement="Superseded without successor.",
-            kind=KnowledgeKind.FACT,
+            kind=KnowledgeKind.OBSERVATION,
             confidence=confidence(),
             status=KnowledgeStatus.SUPERSEDED,
             created_at=NOW,
@@ -724,10 +757,13 @@ def test_contradiction_preserves_supporting_evidence() -> None:
         remaining_uncertainty="±2 days",
         created_at=NOW,
     )
-    payload = c.to_dict()
+    payload = c.serialize()
     assert len(payload["supporting_evidence"]) == 1
     assert payload["explanation"] == "Sources disagree on the date."
     assert payload["remaining_uncertainty"] == "±2 days"
+
+    restored = Contradiction.from_mapping(payload)
+    assert restored == c
 
 
 def test_contradiction_does_not_auto_resolve() -> None:
@@ -739,7 +775,7 @@ def test_contradiction_does_not_auto_resolve() -> None:
     assert c.status is ContradictionStatus.UNRESOLVED
 
 
-def test_contradiction_serialization() -> None:
+def test_contradiction_serialization_and_round_trip() -> None:
     c = Contradiction(
         id="contradiction:knowledge:c1",
         item_a_id="knowledge-item:knowledge:a",
@@ -747,10 +783,14 @@ def test_contradiction_serialization() -> None:
         severity=ContradictionSeverity.HIGH,
         created_at=NOW,
     )
-    payload = c.to_dict()
+    payload = c.serialize()
     assert payload["id"] == "contradiction:knowledge:c1"
     assert payload["severity"] == "high"
     assert payload["status"] == "unresolved"
+
+    restored = Contradiction.from_mapping(payload)
+    assert restored == c
+    assert Contradiction.from_dict(c.to_dict()) == c
 
 
 def test_contradiction_immutable() -> None:
@@ -805,7 +845,7 @@ def test_bundle_rejects_empty_status() -> None:
         KnowledgeBundle(status="   ", created_at=NOW)
 
 
-def test_bundle_serialization_complete() -> None:
+def test_bundle_serialization_and_round_trip() -> None:
     item = make_item(item_id="knowledge-item:knowledge:s1")
     bundle = KnowledgeBundle(
         id="knowledge-bundle:knowledge:b1",
@@ -817,13 +857,17 @@ def test_bundle_serialization_complete() -> None:
         created_at=NOW,
         metadata={"run": "42"},
     )
-    payload = bundle.to_dict()
+    payload = bundle.serialize()
     assert payload["id"] == "knowledge-bundle:knowledge:b1"
     assert payload["item_count"] == 1
     assert payload["has_contradictions"] is False
     assert payload["open_questions"] == ["Open Q1"]
     assert payload["status"] == "partial"
     assert payload["metadata"] == {"run": "42"}
+
+    restored = KnowledgeBundle.from_mapping(payload)
+    assert restored == bundle
+    assert KnowledgeBundle.from_dict(bundle.to_dict()) == bundle
 
 
 def test_bundle_immutable() -> None:
@@ -832,7 +876,68 @@ def test_bundle_immutable() -> None:
         bundle.status = "mutated"  # type: ignore[misc]
 
 
-# ── Materializer ──────────────────────────────────────────────────────────────
+# ── Metadata Deep Immutability Tests ──────────────────────────────────────────
+
+
+def test_metadata_immutability_input_dict_mutation() -> None:
+    input_meta = {"key": "initial"}
+    item = make_item()
+    scope = TemporalScope(metadata=input_meta)
+
+    # Mutate original dictionary
+    input_meta["key"] = "mutated"
+
+    assert scope.metadata["key"] == "initial"
+
+
+def test_metadata_immutability_attribute_mutation_fails() -> None:
+    item = make_item()
+    with pytest.raises(TypeError):
+        item.metadata["new_key"] = "value"  # type: ignore[index]
+
+
+def test_metadata_immutability_serialized_dict_mutation() -> None:
+    item = KnowledgeItem(
+        statement="A statement.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=confidence(),
+        metadata={"nested": {"value": 1}},
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    serialized = item.serialize()
+    serialized["metadata"]["nested"] = "mutated"
+
+    assert item.metadata["nested"] == {"value": 1}
+
+
+# ── Epistemological Materializer Guarantees ───────────────────────────────────
+
+
+def test_no_candidate_kind_materializes_as_fact() -> None:
+    for candidate_kind in CandidateKind:
+        candidate = make_candidate(kind=candidate_kind)
+        item = materialise_candidate(candidate, observed_at=NOW)
+        assert item.kind is not KnowledgeKind.FACT, (
+            f"CandidateKind.{candidate_kind.name} must never materialize as FACT"
+        )
+
+
+def test_candidate_kind_materialization_epistemological_mapping() -> None:
+    expected_mappings = {
+        CandidateKind.STATEMENT: KnowledgeKind.OBSERVATION,
+        CandidateKind.ENTITY_MENTION: KnowledgeKind.OBSERVATION,
+        CandidateKind.RELATIONSHIP_MENTION: KnowledgeKind.OBSERVATION,
+        CandidateKind.TEMPORAL_REFERENCE: KnowledgeKind.OBSERVATION,
+        CandidateKind.QUANTITY: KnowledgeKind.OBSERVATION,
+        CandidateKind.KEYWORD: KnowledgeKind.OBSERVATION,
+        CandidateKind.QUESTION: KnowledgeKind.QUESTION,
+        CandidateKind.UNKNOWN: KnowledgeKind.HYPOTHESIS,
+    }
+    for candidate_kind, expected_kind in expected_mappings.items():
+        candidate = make_candidate(kind=candidate_kind)
+        item = materialise_candidate(candidate, observed_at=NOW)
+        assert item.kind is expected_kind
 
 
 def test_materialise_evidence_preserves_all_provenance_fields() -> None:
@@ -873,7 +978,7 @@ def test_materialise_candidate_produces_unverified_item() -> None:
 
     assert item.status is KnowledgeStatus.UNVERIFIED
     assert item.statement == "The system is operational."
-    assert item.kind is KnowledgeKind.FACT
+    assert item.kind is KnowledgeKind.OBSERVATION
     assert item.actor_id == "agent:test"
     assert item.resource_id == "resource:test:doc"
     assert len(item.evidence) == 1
@@ -897,7 +1002,6 @@ def test_materialise_candidate_preserves_confidence() -> None:
 def test_materialise_candidate_does_not_invent_facts() -> None:
     candidate = make_candidate(kind=CandidateKind.UNKNOWN, value="Unclear signal.")
     item = materialise_candidate(candidate, observed_at=NOW)
-    # UNKNOWN candidates become HYPOTHESIS, never FACT
     assert item.kind is KnowledgeKind.HYPOTHESIS
 
 
@@ -914,7 +1018,7 @@ def test_materialise_result_produces_bundle_with_items() -> None:
         extractor_name="plain-text-extractor",
         extractor_version="1.0",
         status=ExtractionStatus.COMPLETED,
-        candidates=(make_candidate(), make_candidate(value="Second fact.")),
+        candidates=(make_candidate(), make_candidate(value="Second candidate.")),
         created_at=NOW,
     )
     bundle = materialise_result(result, actor_id="agent:test")
@@ -987,8 +1091,29 @@ def test_materialise_result_no_contradictions_introduced() -> None:
         created_at=NOW,
     )
     bundle = materialise_result(result)
-    # materializer must never auto-detect contradictions
     assert bundle.has_contradictions is False
+
+
+# ── Deserialization Error Handling Tests ──────────────────────────────────────
+
+
+def test_deserialization_unknown_enum_raises_error() -> None:
+    item_payload = make_item().serialize()
+    item_payload["kind"] = "invalid_kind_value"
+    with pytest.raises(InvalidKnowledgeItemError):
+        KnowledgeItem.from_mapping(item_payload)
+
+    with pytest.raises(InvalidKnowledgeItemError):
+        item_payload2 = make_item().serialize()
+        item_payload2["sensitivity"] = "invalid_sensitivity"
+        KnowledgeItem.from_mapping(item_payload2)
+
+
+def test_deserialization_invalid_timestamp_raises_error() -> None:
+    item_payload = make_item().serialize()
+    item_payload["created_at"] = "not-a-timestamp"
+    with pytest.raises(InvalidKnowledgeItemError):
+        KnowledgeItem.from_mapping(item_payload)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -1019,6 +1144,7 @@ def test_public_api_exports_8_4_enums() -> None:
     assert hasattr(cog, "EvidencePolarityKind")
     assert hasattr(cog, "ContradictionSeverity")
     assert hasattr(cog, "ContradictionStatus")
+    assert hasattr(cog, "TemporalValidityStatus")
 
 
 def test_public_api_exports_8_4_errors() -> None:
