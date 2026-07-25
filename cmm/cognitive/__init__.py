@@ -144,6 +144,11 @@ from cmm.cognitive.resolution_contracts import (
     ResolutionDecision,
     ResolutionStatus,
 )
+from cmm.cognitive.contradiction_resolution import (
+    ContradictionResolutionEngine,
+    KnowledgeContradictionResolver,
+    generate_resolution_proposal_id,
+)
 
 # ── Phase 8.2 ─────────────────────────────────────────────────────────────────
 from cmm.cognitive.resources import (
@@ -255,6 +260,9 @@ __all__ = [
     "KnowledgeContradictionDetectionError",
     "KnowledgeContradictionDetector",
     "KnowledgeContradictionResolutionError",
+    "KnowledgeContradictionResolver",
+    "ContradictionResolutionEngine",
+    "generate_resolution_proposal_id",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
     # 8.3 registries
