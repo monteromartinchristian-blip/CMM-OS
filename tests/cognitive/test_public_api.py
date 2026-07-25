@@ -30,7 +30,11 @@ class TestPublicApiExports:
 
     def test_all_is_sorted(self) -> None:
         exports = list(cognitive.__all__)
-        assert exports == sorted(exports), "__all__ is not sorted"
+        expected = sorted(
+            exports,
+            key=lambda name: (not name.isupper(), name),
+        )
+        assert exports == expected, "__all__ is not Ruff/isort sorted"
 
     def test_minimum_export_count(self) -> None:
         assert len(cognitive.__all__) >= 170, (
