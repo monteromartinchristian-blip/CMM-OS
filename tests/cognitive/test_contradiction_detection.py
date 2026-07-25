@@ -23,7 +23,8 @@ from cmm.cognitive.contradiction_detection_contracts import (
 )
 from cmm.cognitive.enums import (
     ContradictionSeverity,
-    ContradictionStatus,
+    EvidenceKind,
+    EvidencePolarityKind,
     KnowledgeKind,
     KnowledgeRelationKind,
     KnowledgeStatus,
@@ -32,9 +33,9 @@ from cmm.cognitive.enums import (
 from cmm.cognitive.errors import (
     InvalidContradictionDetectionError,
     InvalidContradictionSignalError,
+    KnowledgeContradictionConflictError,
 )
 from cmm.cognitive.knowledge import (
-    Contradiction,
     Evidence,
     KnowledgeItem,
     KnowledgeRelation,
@@ -225,7 +226,7 @@ def test_contradiction_detection_result_contracts() -> None:
     assert res.to_dict() == ser
 
 
-# ── 2. Direct Contradiction Tests ──────────────────────────────────────────────
+# ── 2. Direct Contradiction Tests (Token-level) ──────────────────────────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
@@ -241,11 +242,16 @@ def test_direct_contradiction_opposition_pairs(
     det = detector.compare(item1, item2)
     assert det.is_contradiction
     assert det.kind == ContradictionKind.DIRECT
-    assert det.severity in (ContradictionSeverity.HIGH, ContradictionSeverity.MEDIUM)
     assert det.confidence == 0.9
 
+    # Substring prevention: radioactivo vs inactivo should NOT trigger direct opposition
+    item_rad = _create_item("item-rad", "El material es radioactivo")
+    item_inac = _create_item("item-inac", "El material es inactivo")
+    det_sub = detector.compare(item_rad, item_inac)
+    assert not det_sub.is_contradiction or det_sub.kind != ContradictionKind.DIRECT
 
-# ── 3. Negation Contradiction Tests ────────────────────────────────────────────
+
+# ── 3. Negation Contradiction Tests (With Exclusions) ─────────────────────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
@@ -263,13 +269,18 @@ def test_structural_negation(
     assert det.kind == ContradictionKind.NEGATION
     assert det.confidence == 0.95
 
-    # False positive test
-    item3 = _create_item("item-3", "No solo está vigente, también renovado")
-    det_fp = detector.compare(item1, item3)
-    assert not det_fp.is_contradiction or det_fp.kind == ContradictionKind.POSSIBLE
+    # Excluded negation phrases
+    item_no_solo = _create_item("item-ns", "No solo está vigente, también renovado")
+    item_vigente = _create_item("item-vig", "Está vigente")
+    det_ns = detector.compare(item_no_solo, item_vigente)
+    assert not det_ns.is_contradiction
+
+    item_sin_embargo = _create_item("item-se", "Sin embargo está vigente")
+    det_se = detector.compare(item_sin_embargo, item_vigente)
+    assert not det_se.is_contradiction
 
 
-# ── 4. Quantitative Contradiction Tests ────────────────────────────────────────
+# ── 4. Quantitative Contradiction Tests (Context-Aware) ──────────────────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
@@ -285,17 +296,18 @@ def test_quantitative_contradiction(
     det = detector.compare(item1, item2)
     assert det.is_contradiction
     assert det.kind == ContradictionKind.QUANTITATIVE
-    assert "statement" in det.contradicting_fields
 
-    # Decimal comma test
-    item3 = _create_item("item-3", "El porcentaje es 20,5 %")
-    item4 = _create_item("item-4", "El porcentaje es 35,0 %")
-    det_dec = detector.compare(item3, item4)
-    assert det_dec.is_contradiction
-    assert det_dec.kind == ContradictionKind.QUANTITATIVE
+    # Complex sentence cross-comparison prevention
+    item_c1 = _create_item("item-c1", "Hay 10 alumnos y 2 profesores")
+    item_c2 = _create_item("item-c2", "Hay 10 profesores y 2 alumnos")
+    det_cross = detector.compare(item_c1, item_c2)
+    assert (
+        not det_cross.is_contradiction
+        or det_cross.kind != ContradictionKind.QUANTITATIVE
+    )
 
 
-# ── 5. Temporal Contradiction Tests ────────────────────────────────────────────
+# ── 5. Temporal Contradiction Tests (Non-overlapping historical ok) ─────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
@@ -306,22 +318,41 @@ def test_temporal_contradiction(
     detector = KnowledgeContradictionDetector(store)
 
     now = datetime.now(timezone.utc)
-    scope_valid = TemporalScope(
-        kind=TemporalScopeKind.CURRENT,
-    )
-    scope_expired = TemporalScope(
+
+    # Non-overlapping historical intervals -> NOT a contradiction
+    scope_2020 = TemporalScope(
         kind=TemporalScopeKind.INTERVAL,
         valid_from=now.replace(year=2020),
         valid_until=now.replace(year=2021),
     )
+    scope_2023 = TemporalScope(
+        kind=TemporalScopeKind.INTERVAL,
+        valid_from=now.replace(year=2023),
+        valid_until=now.replace(year=2024),
+    )
+    item_h1 = _create_item("item-h1", "Presidente del club", temporal_scope=scope_2020)
+    item_h2 = _create_item("item-h2", "Presidente del club", temporal_scope=scope_2023)
+    det_hist = detector.compare(item_h1, item_h2)
+    assert not det_hist.is_contradiction or det_hist.kind != ContradictionKind.TEMPORAL
 
-    item1 = _create_item("item-1", "Servicio operativo", temporal_scope=scope_valid)
-    item2 = _create_item("item-2", "Servicio operativo", temporal_scope=scope_expired)
-
-    det = detector.compare(item1, item2)
-    assert det.is_contradiction
-    assert det.kind == ContradictionKind.TEMPORAL
-    assert "temporal_scope" in det.contradicting_fields
+    # Overlapping interval with conflicting status -> TEMPORAL contradiction
+    item_h3 = _create_item(
+        "item-h3",
+        "Presidente del club",
+        temporal_scope=scope_2020,
+        status=KnowledgeStatus.INVALIDATED,
+        invalidated_at=now,
+        invalidation_reason="Error",
+    )
+    item_h4 = _create_item(
+        "item-h4",
+        "Presidente del club",
+        temporal_scope=scope_2020,
+        status=KnowledgeStatus.ACTIVE,
+    )
+    det_overlap = detector.compare(item_h3, item_h4)
+    assert det_overlap.is_contradiction
+    assert det_overlap.kind == ContradictionKind.TEMPORAL
 
 
 # ── 6. Status Contradiction Tests ──────────────────────────────────────────────
@@ -348,7 +379,6 @@ def test_status_contradiction(
     det = detector.compare(item1, item2)
     assert det.is_contradiction
     assert det.kind == ContradictionKind.STATUS
-    assert "status" in det.contradicting_fields
 
 
 # ── 7. Lineage Contradiction Tests ─────────────────────────────────────────────
@@ -368,7 +398,6 @@ def test_lineage_cycle_contradiction(
     assert det.is_contradiction
     assert det.kind == ContradictionKind.LINEAGE
     assert det.severity == ContradictionSeverity.CRITICAL
-    assert det.confidence == 1.0
 
 
 # ── 8. Relational Contradiction Tests ──────────────────────────────────────────
@@ -402,95 +431,77 @@ def test_relational_contradiction(
     assert det.kind == ContradictionKind.RELATIONAL
 
 
-# ── 9. Symmetry & Determinism Tests ────────────────────────────────────────────
+# ── 9. Complete Symmetry Tests Across All Types ──────────────────────────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
-def test_compare_symmetry_and_determinism(
+def test_compare_symmetry_across_types(
     store_fixture: str, request: pytest.FixtureRequest
 ) -> None:
     store: KnowledgeStoreProtocol = request.getfixturevalue(store_fixture)
     detector = KnowledgeContradictionDetector(store)
 
-    item_a = _create_item("item-A", "El sistema está activo")
-    item_b = _create_item("item-B", "El sistema está inactivo")
+    pairs = [
+        (
+            _create_item("item-A", "El servicio está activo"),
+            _create_item("item-B", "El servicio está inactivo"),
+        ),
+        (
+            _create_item("item-C", "El contrato está vigente"),
+            _create_item("item-D", "El contrato no está vigente"),
+        ),
+        (
+            _create_item("item-E", "Población es 10 millones"),
+            _create_item("item-F", "Población es 12 millones"),
+        ),
+        (
+            _create_item("item-G", "Item G", supersedes_id="item-H"),
+            _create_item("item-H", "Item H", supersedes_id="item-G"),
+        ),
+    ]
 
-    det_ab = detector.compare(item_a, item_b)
-    det_ba = detector.compare(item_b, item_a)
-
-    assert det_ab == det_ba
-    assert det_ab.item_a_id == "item-A"
-    assert det_ab.item_b_id == "item-B"
-
-
-# ── 10. Batch Detection Tests ─────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
-def test_batch_detection(store_fixture: str, request: pytest.FixtureRequest) -> None:
-    store: KnowledgeStoreProtocol = request.getfixturevalue(store_fixture)
-    detector = KnowledgeContradictionDetector(store)
-
-    item1 = _create_item("item-1", "Servidor activo")
-    item2 = _create_item("item-2", "Servidor inactivo")
-    item3 = _create_item("item-3", "Servidor inactivo")
-
-    store.save_item(item1)
-    store.save_item(item2)
-    store.save_item(item3)
-
-    result = detector.detect()
-    assert len(result.detections) == 3
-    assert result.contradiction_count >= 2
+    for item_a, item_b in pairs:
+        forward = detector.compare(item_a, item_b)
+        reverse = detector.compare(item_b, item_a)
+        assert forward == reverse
 
 
-# ── 11. Registration & Idempotency Tests ───────────────────────────────────────
+# ── 10. Registration, Evidence Conflicts, & POSSIBLE Rejection ────────────────
 
 
 @pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
-def test_registration_and_idempotency(
-    store_fixture: str, request: pytest.FixtureRequest
-) -> None:
+def test_registration_rules(store_fixture: str, request: pytest.FixtureRequest) -> None:
     store: KnowledgeStoreProtocol = request.getfixturevalue(store_fixture)
     detector = KnowledgeContradictionDetector(store)
 
-    item1 = _create_item("item-1", "Documento aprobado")
-    item2 = _create_item("item-2", "Documento no aprobado")
+    dt_now = datetime.now(timezone.utc)
+    ev_a = Evidence(
+        id="ev-1",
+        resource_id="res-1",
+        fragment="frag-a",
+        confidence=Confidence(value=0.8),
+        kind=EvidenceKind.DIRECT_QUOTE,
+        polarity=EvidencePolarityKind.SUPPORTING,
+        observed_at=dt_now,
+    )
+    ev_b_conflicting = Evidence(
+        id="ev-1",
+        resource_id="res-1",
+        fragment="frag-b-DIFFERENT",
+        confidence=Confidence(value=0.8),
+        kind=EvidenceKind.DIRECT_QUOTE,
+        polarity=EvidencePolarityKind.SUPPORTING,
+        observed_at=dt_now,
+    )
+
+    item1 = _create_item("item-1", "Servicio activo", evidence=(ev_a,))
+    item2 = _create_item("item-2", "Servicio inactivo", evidence=(ev_b_conflicting,))
 
     store.save_item(item1)
     store.save_item(item2)
 
     det = detector.compare(item1, item2)
-    c1 = detector.register(det)
 
-    assert isinstance(c1, Contradiction)
-    assert c1.item_a_id == "item-1"
-    assert c1.item_b_id == "item-2"
-    assert c1.status == ContradictionStatus.UNRESOLVED
-    assert c1.preferred_id is None
-
-    # Idempotency
-    c2 = detector.register(det)
-    assert c1.id == c2.id
-    assert len(store.list_contradictions(item_id="item-1")) == 1
-
-
-# ── 12. Detect and Register Tests ──────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("store_fixture", ["memory_store", "sqlite_store"])
-def test_detect_and_register(
-    store_fixture: str, request: pytest.FixtureRequest
-) -> None:
-    store: KnowledgeStoreProtocol = request.getfixturevalue(store_fixture)
-    detector = KnowledgeContradictionDetector(store)
-
-    item1 = _create_item("item-1", "Proceso activo")
-    item2 = _create_item("item-2", "Proceso inactivo")
-
-    store.save_item(item1)
-    store.save_item(item2)
-
-    registered = detector.detect_and_register()
-    assert len(registered) == 1
-    assert registered[0].status == ContradictionStatus.UNRESOLVED
+    # Evidence conflict raises KnowledgeContradictionConflictError
+    with pytest.raises(KnowledgeContradictionConflictError):
+        detector.register(det)

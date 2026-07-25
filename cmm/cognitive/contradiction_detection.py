@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 
 from cmm.cognitive.consolidation_contracts import (
     knowledge_fingerprint,
@@ -25,7 +26,6 @@ from cmm.cognitive.enums import (
     KnowledgeRelationKind,
     KnowledgeStatus,
     TemporalScopeKind,
-    TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
     InvalidContradictionDetectionError,
@@ -42,22 +42,73 @@ from cmm.cognitive.query import KnowledgeQuery
 from cmm.cognitive.retrieval import KnowledgeRetriever
 from cmm.cognitive.store_contracts import KnowledgeStoreProtocol
 
-OPPOSITION_PAIRS: set[tuple[str, str]] = {
-    ("activo", "inactivo"),
-    ("válido", "inválido"),
-    ("verdadero", "falso"),
-    ("permitido", "prohibido"),
-    ("presente", "ausente"),
-    ("existe", "no existe"),
-}
+OPPOSITION_PAIRS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("activo",), ("inactivo",)),
+    (("válido",), ("inválido",)),
+    (("verdadero",), ("falso",)),
+    (("permitido",), ("prohibido",)),
+    (("presente",), ("ausente",)),
+    (("existe",), ("no", "existe")),
+)
 
 NEGATION_TOKENS: set[str] = {"no", "nunca", "jamás", "sin"}
 
+NEGATION_EXCLUSIONS: set[tuple[str, ...]] = {
+    ("no", "solo"),
+    ("no", "obstante"),
+    ("sin", "embargo"),
+}
+
 MIN_CONTRADICTION_CONTEXT: float = 0.75
 
+WORD_REGEX: re.Pattern[str] = re.compile(r"\b[\wáéíóúüñ]+\b", re.UNICODE)
+
 QUANTITY_REGEX: re.Pattern[str] = re.compile(
-    r"(?P<value>-?\d+(?:[\.,]\d+)?)\s*(?P<unit>%|[a-zA-Záéíóúñ]+)?"
+    r"(?P<value>-?\d+(?:[\.,]\d+)?)\s*(?P<unit>%|[a-zA-Záéíóúüñ]+)?"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExtractedQuantity:
+    value: float
+    unit: str
+    prefix_tokens: tuple[str, ...]
+    statement_mask: tuple[str, ...]
+
+
+def _tokenize(text: str) -> tuple[str, ...]:
+    """Extract normalized word tokens from text."""
+    normalized = normalize_statement(text)
+    return tuple(WORD_REGEX.findall(normalized))
+
+
+def _contains_token_sequence(
+    tokens: tuple[str, ...],
+    sequence: tuple[str, ...],
+) -> bool:
+    """Check if a sequence of tokens appears as a contiguous subsequence within tokens."""
+    if not sequence or len(sequence) > len(tokens):
+        return False
+    seq_len = len(sequence)
+    for i in range(len(tokens) - seq_len + 1):
+        if tokens[i : i + seq_len] == sequence:
+            return True
+    return False
+
+
+def _substitute_token_sequence(
+    tokens: tuple[str, ...],
+    target: tuple[str, ...],
+    replacement: tuple[str, ...],
+) -> tuple[str, ...] | None:
+    """Replace target token sequence with replacement sequence if present."""
+    if not _contains_token_sequence(tokens, target):
+        return None
+    seq_len = len(target)
+    for i in range(len(tokens) - seq_len + 1):
+        if tokens[i : i + seq_len] == target:
+            return tokens[:i] + replacement + tokens[i + seq_len :]
+    return None
 
 
 def _context_compatibility(item_a: KnowledgeItem, item_b: KnowledgeItem) -> float:
@@ -70,20 +121,26 @@ def _context_compatibility(item_a: KnowledgeItem, item_b: KnowledgeItem) -> floa
     ):
         return 1.0
 
+    tokens_a = set(_tokenize(item_a.statement))
+    tokens_b = set(_tokenize(item_b.statement))
+
     score = 0.0
     if item_a.kind == item_b.kind:
         score += 0.25
 
-    if item_a.resource_id is not None and item_a.resource_id == item_b.resource_id:
+    if item_a.resource_id == item_b.resource_id:
         score += 0.25
 
-    if item_a.actor_id is not None and item_a.actor_id == item_b.actor_id:
+    if item_a.actor_id == item_b.actor_id:
         score += 0.25
 
-    words_a = set(stmt_a.split())
-    words_b = set(stmt_b.split())
-    common_words = words_a.intersection(words_b) - NEGATION_TOKENS
-    if common_words and len(common_words) >= min(len(words_a), len(words_b)) // 2:
+    common_tokens = (tokens_a.intersection(tokens_b)) - NEGATION_TOKENS
+    min_tokens_len = max(1, min(len(tokens_a), len(tokens_b)))
+    overlap_ratio = len(common_tokens) / min_tokens_len
+
+    if overlap_ratio >= 0.70:
+        score += 0.50
+    elif overlap_ratio >= 0.40:
         score += 0.25
 
     if score >= 0.875:
@@ -97,9 +154,11 @@ def _context_compatibility(item_a: KnowledgeItem, item_b: KnowledgeItem) -> floa
     return 0.0
 
 
-def _extract_quantities(statement: str) -> list[tuple[float, str]]:
-    """Extract (value, unit) pairs from a statement."""
-    results: list[tuple[float, str]] = []
+def _extract_quantities(statement: str) -> list[_ExtractedQuantity]:
+    """Extract contextual quantities from a statement."""
+    tokens = _tokenize(statement)
+    results: list[_ExtractedQuantity] = []
+
     for match in QUANTITY_REGEX.finditer(statement):
         val_str = match.group("value").replace(",", ".")
         try:
@@ -107,7 +166,29 @@ def _extract_quantities(statement: str) -> list[tuple[float, str]]:
         except ValueError:
             continue
         unit = (match.group("unit") or "").strip().casefold()
-        results.append((val, unit))
+
+        raw_num = match.group("value").casefold()
+        idx = -1
+        for i, t in enumerate(tokens):
+            if t == raw_num or t.replace(",", ".") == val_str:
+                idx = i
+                break
+
+        prefix = tokens[max(0, idx - 3) : idx] if idx >= 0 else ()
+        mask = list(tokens)
+        if idx >= 0:
+            mask[idx] = "<quantity>"
+            if idx + 1 < len(mask) and mask[idx + 1] == unit:
+                mask.pop(idx + 1)
+
+        results.append(
+            _ExtractedQuantity(
+                value=val,
+                unit=unit,
+                prefix_tokens=prefix,
+                statement_mask=tuple(mask),
+            )
+        )
     return results
 
 
@@ -118,17 +199,26 @@ def _temporal_scopes_conflict(
     item_b: KnowledgeItem,
 ) -> tuple[bool, str]:
     """Evaluate whether two temporal scopes conflict for compatible statements."""
+    if scope_a.kind in (
+        TemporalScopeKind.UNKNOWN,
+        TemporalScopeKind.TIMELESS,
+    ) or scope_b.kind in (TemporalScopeKind.UNKNOWN, TemporalScopeKind.TIMELESS):
+        return False, ""
+
     if (
-        (
-            scope_a.validity_status == TemporalValidityStatus.VALID
-            and scope_b.validity_status == TemporalValidityStatus.EXPIRED
+        scope_a.kind == TemporalScopeKind.POINT_IN_TIME
+        and scope_b.kind == TemporalScopeKind.POINT_IN_TIME
+        and scope_a.observed_at is not None
+        and scope_a.observed_at == scope_b.observed_at
+        and (
+            scope_a.validity_status != scope_b.validity_status
+            or item_a.status != item_b.status
         )
-        or (
-            scope_a.validity_status == TemporalValidityStatus.EXPIRED
-            and scope_b.validity_status == TemporalValidityStatus.VALID
+    ):
+        return (
+            True,
+            f"Identical point in time ({scope_a.observed_at.isoformat()}) has conflicting status",
         )
-    ) and _context_compatibility(item_a, item_b) >= MIN_CONTRADICTION_CONTEXT:
-        return True, "One item is marked VALID while the other is marked EXPIRED"
 
     if (
         scope_a.kind == TemporalScopeKind.INTERVAL
@@ -150,6 +240,28 @@ def _temporal_scopes_conflict(
             )
 
     return False, ""
+
+
+def _merge_detection_evidence(
+    item_a: KnowledgeItem | None,
+    item_b: KnowledgeItem | None,
+) -> tuple[Evidence, ...]:
+    """Merge evidence from item_a and item_b, checking for evidence payload conflicts."""
+    ev_map: dict[str, Evidence] = {}
+    items = [it for it in (item_a, item_b) if it is not None]
+
+    for item in items:
+        for ev in item.evidence:
+            if ev.id in ev_map:
+                existing = ev_map[ev.id]
+                if existing.serialize() != ev.serialize():
+                    raise KnowledgeContradictionConflictError(
+                        f"Conflicting Evidence payload for evidence_id '{ev.id}'"
+                    )
+            else:
+                ev_map[ev.id] = ev
+
+    return tuple(sorted(ev_map.values(), key=lambda e: e.id))
 
 
 class KnowledgeContradictionDetector:
@@ -196,6 +308,9 @@ class KnowledgeContradictionDetector:
 
         signals: list[ContradictionSignal] = []
         ctx_score = _context_compatibility(first, second)
+
+        tokens_first = _tokenize(first.statement)
+        tokens_second = _tokenize(second.statement)
 
         # ── 1. Lineage contradiction ──────────────────────────────────────────
         lineage_conflict = False
@@ -250,18 +365,20 @@ class KnowledgeContradictionDetector:
                 )
             )
 
-        # ── 2. Direct contradiction ────────────────────────────────────────────
-        stmt_first = normalize_statement(first.statement)
-        stmt_second = normalize_statement(second.statement)
+        # ── 2. Direct contradiction (Token-sequence matching) ─────────────────
+        for seq1, seq2 in OPPOSITION_PAIRS:
+            match_forward = _contains_token_sequence(
+                tokens_first, seq1
+            ) and _contains_token_sequence(tokens_second, seq2)
+            match_reverse = _contains_token_sequence(
+                tokens_first, seq2
+            ) and _contains_token_sequence(tokens_second, seq1)
 
-        # ── 2. Direct contradiction ────────────────────────────────────────────
-        stmt_first = normalize_statement(first.statement)
-        stmt_second = normalize_statement(second.statement)
-
-        for p1, p2 in OPPOSITION_PAIRS:
-            if p1 in stmt_first and p2 in stmt_second:
-                replaced = stmt_first.replace(p1, p2)
-                if replaced == stmt_second or ctx_score >= MIN_CONTRADICTION_CONTEXT:
+            if match_forward:
+                subst = _substitute_token_sequence(tokens_first, seq1, seq2)
+                if (
+                    subst is not None and subst == tokens_second
+                ) or ctx_score >= MIN_CONTRADICTION_CONTEXT:
                     kind = (
                         ContradictionKind.DIRECT
                         if ctx_score >= MIN_CONTRADICTION_CONTEXT
@@ -274,13 +391,15 @@ class KnowledgeContradictionDetector:
                             value_a=first.statement,
                             value_b=second.statement,
                             strength=0.90 if kind == ContradictionKind.DIRECT else 0.60,
-                            reason=f"Explicit opposition pair ('{p1}', '{p2}') in statements",
+                            reason=f"Explicit token opposition sequence ({' '.join(seq1)}, {' '.join(seq2)}) in statements",
                         )
                     )
                     break
-            elif p2 in stmt_first and p1 in stmt_second:
-                replaced = stmt_first.replace(p2, p1)
-                if replaced == stmt_second or ctx_score >= MIN_CONTRADICTION_CONTEXT:
+            elif match_reverse:
+                subst = _substitute_token_sequence(tokens_first, seq2, seq1)
+                if (
+                    subst is not None and subst == tokens_second
+                ) or ctx_score >= MIN_CONTRADICTION_CONTEXT:
                     kind = (
                         ContradictionKind.DIRECT
                         if ctx_score >= MIN_CONTRADICTION_CONTEXT
@@ -293,68 +412,85 @@ class KnowledgeContradictionDetector:
                             value_a=first.statement,
                             value_b=second.statement,
                             strength=0.90 if kind == ContradictionKind.DIRECT else 0.60,
-                            reason=f"Explicit opposition pair ('{p2}', '{p1}') in statements",
+                            reason=f"Explicit token opposition sequence ({' '.join(seq2)}, {' '.join(seq1)}) in statements",
                         )
                     )
                     break
 
-        # ── 3. Structural negation ─────────────────────────────────────────────
-        words_first = stmt_first.split()
-        words_second = stmt_second.split()
+        # ── 3. Structural negation (Token-level with exclusions) ──────────────
+        if abs(len(tokens_first) - len(tokens_second)) == 1:
+            shorter_tokens, longer_tokens = (
+                (tokens_first, tokens_second)
+                if len(tokens_first) < len(tokens_second)
+                else (tokens_second, tokens_first)
+            )
 
-        if abs(len(words_first) - len(words_second)) == 1:
-            if len(words_second) == len(words_first) + 1:
-                shorter, longer = words_first, words_second
-            else:
-                shorter, longer = words_second, words_first
-
-            for i in range(len(longer)):
-                if longer[i] in NEGATION_TOKENS:
-                    reconstructed = longer[:i] + longer[i + 1 :]
-                    if reconstructed == shorter:
-                        kind = (
-                            ContradictionKind.NEGATION
-                            if ctx_score >= MIN_CONTRADICTION_CONTEXT
-                            else ContradictionKind.POSSIBLE
+            for i in range(len(longer_tokens)):
+                token = longer_tokens[i]
+                if token in NEGATION_TOKENS:
+                    # Check exclusions
+                    is_excluded = False
+                    if (
+                        i + 1 < len(longer_tokens)
+                        and (
+                            token,
+                            longer_tokens[i + 1],
                         )
-                        signals.append(
-                            ContradictionSignal(
-                                kind=kind,
-                                field="statement",
-                                value_a=first.statement,
-                                value_b=second.statement,
-                                strength=0.95
-                                if kind == ContradictionKind.NEGATION
-                                else 0.65,
-                                reason=f"Structural negation via token '{longer[i]}'",
+                        in NEGATION_EXCLUSIONS
+                    ) or (
+                        i > 0
+                        and (
+                            longer_tokens[i - 1],
+                            token,
+                        )
+                        in NEGATION_EXCLUSIONS
+                    ):
+                        is_excluded = True
+
+                    if not is_excluded:
+                        reconstructed = longer_tokens[:i] + longer_tokens[i + 1 :]
+                        if reconstructed == shorter_tokens:
+                            kind = (
+                                ContradictionKind.NEGATION
+                                if ctx_score >= MIN_CONTRADICTION_CONTEXT
+                                else ContradictionKind.POSSIBLE
                             )
-                        )
-                        break
+                            signals.append(
+                                ContradictionSignal(
+                                    kind=kind,
+                                    field="statement",
+                                    value_a=first.statement,
+                                    value_b=second.statement,
+                                    strength=0.95
+                                    if kind == ContradictionKind.NEGATION
+                                    else 0.65,
+                                    reason=f"Structural negation via token '{token}'",
+                                )
+                            )
+                            break
 
-        # ── 4. Quantitative contradiction ─────────────────────────────────────
+        # ── 4. Quantitative contradiction (Context-aware) ─────────────────────
         q_first = _extract_quantities(first.statement)
         q_second = _extract_quantities(second.statement)
         if q_first and q_second:
-            for val_a, unit_a in q_first:
-                for val_b, unit_b in q_second:
-                    if unit_a == unit_b and val_a != val_b:
-                        kind = (
-                            ContradictionKind.QUANTITATIVE
-                            if ctx_score >= MIN_CONTRADICTION_CONTEXT
-                            else ContradictionKind.POSSIBLE
+            for q1 in q_first:
+                for q2 in q_second:
+                    if q1.unit == q2.unit and q1.value != q2.value:
+                        matching_context = (
+                            q1.statement_mask == q2.statement_mask
+                            or q1.prefix_tokens == q2.prefix_tokens
                         )
-                        signals.append(
-                            ContradictionSignal(
-                                kind=kind,
-                                field="statement",
-                                value_a=f"{val_a} {unit_a}".strip(),
-                                value_b=f"{val_b} {unit_b}".strip(),
-                                strength=0.90
-                                if kind == ContradictionKind.QUANTITATIVE
-                                else 0.60,
-                                reason=f"Quantitative conflict for unit '{unit_a}': {val_a} vs {val_b}",
+                        if matching_context and ctx_score >= MIN_CONTRADICTION_CONTEXT:
+                            signals.append(
+                                ContradictionSignal(
+                                    kind=ContradictionKind.QUANTITATIVE,
+                                    field="statement",
+                                    value_a=f"{q1.value} {q1.unit}".strip(),
+                                    value_b=f"{q2.value} {q2.unit}".strip(),
+                                    strength=0.90,
+                                    reason=f"Quantitative conflict for unit '{q1.unit}': {q1.value} vs {q2.value}",
+                                )
                             )
-                        )
 
         # ── 5. Status contradiction ────────────────────────────────────────────
         incompatible_statuses = {
@@ -364,7 +500,7 @@ class KnowledgeContradictionDetector:
             (KnowledgeStatus.SUPERSEDED, KnowledgeStatus.ACTIVE),
         }
         if (first.status, second.status) in incompatible_statuses and (
-            stmt_first == stmt_second or ctx_score >= MIN_CONTRADICTION_CONTEXT
+            tokens_first == tokens_second or ctx_score >= MIN_CONTRADICTION_CONTEXT
         ):
             signals.append(
                 ContradictionSignal(
@@ -438,6 +574,9 @@ class KnowledgeContradictionDetector:
                 )
             )
 
+        # Sort signals deterministically by kind, field, and reason
+        signals.sort(key=lambda s: (s.kind.value, s.field, s.reason))
+
         # Determine existing contradiction in store
         existing_id: str | None = None
         existing_list = self._store.list_contradictions(item_id=first.id)
@@ -483,14 +622,14 @@ class KnowledgeContradictionDetector:
             overall_kind = ContradictionKind.DIRECT
         elif any(s.kind == ContradictionKind.NEGATION for s in signals):
             overall_kind = ContradictionKind.NEGATION
+        elif any(s.kind == ContradictionKind.TEMPORAL for s in signals):
+            overall_kind = ContradictionKind.TEMPORAL
         elif any(s.kind == ContradictionKind.STATUS for s in signals):
             overall_kind = ContradictionKind.STATUS
         elif any(s.kind == ContradictionKind.RELATIONAL for s in signals):
             overall_kind = ContradictionKind.RELATIONAL
         elif any(s.kind == ContradictionKind.QUANTITATIVE for s in signals):
             overall_kind = ContradictionKind.QUANTITATIVE
-        elif any(s.kind == ContradictionKind.TEMPORAL for s in signals):
-            overall_kind = ContradictionKind.TEMPORAL
 
         # Determine overall severity
         if overall_kind == ContradictionKind.LINEAGE and lineage_conflict:
@@ -590,6 +729,7 @@ class KnowledgeContradictionDetector:
         detection: ContradictionDetection,
         *,
         actor_id: str | None = None,
+        allow_possible: bool = False,
     ) -> Contradiction:
         """Register a detected contradiction explicitly in the store."""
         if not isinstance(detection, ContradictionDetection):
@@ -599,6 +739,11 @@ class KnowledgeContradictionDetector:
         if not detection.is_contradiction:
             raise InvalidContradictionDetectionError(
                 "Cannot register a non-contradiction detection"
+            )
+
+        if detection.kind == ContradictionKind.POSSIBLE and not allow_possible:
+            raise InvalidContradictionDetectionError(
+                "Cannot register a POSSIBLE contradiction"
             )
 
         # Deterministic SHA-256 ID from pair, kind, and fields
@@ -628,21 +773,17 @@ class KnowledgeContradictionDetector:
                     )
 
         # Collect and deduplicate supporting evidence from items in store
-        evidence_list: list[Evidence] = []
-        if self._store.contains_item(detection.item_a_id):
-            item_a = self._store.get_item(detection.item_a_id)
-            evidence_list.extend(item_a.evidence)
-
-        if self._store.contains_item(detection.item_b_id):
-            item_b = self._store.get_item(detection.item_b_id)
-            evidence_list.extend(item_b.evidence)
-
-        seen_ev_ids: set[str] = set()
-        dedup_evidence: list[Evidence] = []
-        for ev in evidence_list:
-            if ev.id not in seen_ev_ids:
-                seen_ev_ids.add(ev.id)
-                dedup_evidence.append(ev)
+        item_a = (
+            self._store.get_item(detection.item_a_id)
+            if self._store.contains_item(detection.item_a_id)
+            else None
+        )
+        item_b = (
+            self._store.get_item(detection.item_b_id)
+            if self._store.contains_item(detection.item_b_id)
+            else None
+        )
+        dedup_evidence = _merge_detection_evidence(item_a, item_b)
 
         contradiction = Contradiction(
             id=contradiction_id,
@@ -650,7 +791,7 @@ class KnowledgeContradictionDetector:
             item_b_id=detection.item_b_id,
             severity=detection.severity,
             status=ContradictionStatus.UNRESOLVED,
-            supporting_evidence=tuple(dedup_evidence),
+            supporting_evidence=dedup_evidence,
             explanation="; ".join(detection.reasons),
             preferred_id=None,
             preference_reason=None,
@@ -682,6 +823,8 @@ class KnowledgeContradictionDetector:
                 continue
             if det.kind == ContradictionKind.POSSIBLE and not include_possible:
                 continue
-            registered.append(self.register(det, actor_id=actor_id))
+            registered.append(
+                self.register(det, actor_id=actor_id, allow_possible=include_possible)
+            )
 
         return tuple(registered)
