@@ -5,7 +5,7 @@ Defines the core enums for agent runtime status, decision types, and result outc
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, IntEnum
 
 
 class AgentRuntimeStatus(str, Enum):
@@ -691,3 +691,84 @@ class PolicyFailureMode(str, Enum):
     DENY = "deny"
     PAUSE = "pause"
     REQUIRE_APPROVAL = "require_approval"
+
+
+# ── Phase 9.9 – Autonomy Level Enumerations ──────────────────────────────────
+
+
+class AgentAutonomyLevel(IntEnum):
+    """Canonical autonomy levels for AgentDefinition and AgentRun.
+
+    Implemented as IntEnum to preserve backward compatibility with the
+    integer-based construction patterns used throughout the codebase:
+
+        AgentDefinition(..., autonomy_level=2)
+        AgentRun(..., autonomy_level=3)
+    """
+
+    ANALYZE_ONLY = 0
+    PROPOSE_ACTIONS = 1
+    REVERSIBLE_EXECUTION = 2
+    SUPERVISED_AUTONOMY = 3
+    POLICY_BOUNDED_AUTONOMY = 4
+
+
+class AutonomyDecision(str, Enum):
+    """Explicit, structured decisions emitted by the Autonomy Evaluator.
+
+    Autonomy decisions are intentionally distinct from ``PolicyDecision``.
+    Policy Engine can deny an operation that autonomy would otherwise allow,
+    but autonomy itself is a binding, structural constraint: an operation
+    denied by autonomy cannot be elevated solely by a permissive policy.
+    """
+
+    ALLOW = "allow"
+    DENY = "deny"
+    REQUIRE_APPROVAL = "require_approval"
+    REQUIRE_VALIDATION = "require_validation"
+    REQUIRE_ROLLBACK = "require_rollback"
+    PAUSE = "pause"
+
+
+class AutonomyCapability(str, Enum):
+    """Canonical capabilities addressable by the Autonomy Evaluator.
+
+    Capabilities are explicit, non-ambiguous verbs. They are evaluated
+    against the structured characteristics of an operation (mutation,
+    reversibility, externality, sensitivity, …) and the current
+    autonomy level. Capabilities are not operations: a single operation
+    may require multiple capabilities depending on its effects.
+    """
+
+    OBSERVE = "observe"
+    LOAD_KNOWLEDGE = "load_knowledge"
+    REASON = "reason"
+    RECOMMEND = "recommend"
+    PROPOSE_PLAN = "propose_plan"
+    PROPOSE_OPERATION = "propose_operation"
+    REQUEST_APPROVAL = "request_approval"
+    EXECUTE_READ_ONLY = "execute_read_only"
+    EXECUTE_VALIDATION = "execute_validation"
+    EXECUTE_REVERSIBLE = "execute_reversible"
+    EXECUTE_WORKFLOW = "execute_workflow"
+    EXECUTE_IRREVERSIBLE = "execute_irreversible"
+    PUBLISH = "publish"
+    COMMUNICATE_EXTERNAL = "communicate_external"
+    SPEND_BUDGET = "spend_budget"
+    MODIFY_PERMISSIONS = "modify_permissions"
+    MODIFY_POLICY = "modify_policy"
+
+
+class AutonomyTransitionReason(str, Enum):
+    """Canonical reasons for an autonomy level transition."""
+
+    INITIAL_LEVEL = "initial_level"
+    MANUAL_REDUCTION = "manual_reduction"
+    MANUAL_ESCALATION = "manual_escalation"
+    POLICY_VIOLATION = "policy_violation"
+    APPROVAL_REJECTED = "approval_rejected"
+    VALIDATION_FAILED = "validation_failed"
+    ROLLBACK_TRIGGERED = "rollback_triggered"
+    RECOVERY_MODE = "recovery_mode"
+    FAILSAFE = "failsafe"
+    SYSTEM_REQUEST = "system_request"

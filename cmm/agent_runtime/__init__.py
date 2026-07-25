@@ -754,3 +754,85 @@ __all__ = [
     "generate_workflow_task_id",
     "generate_workflow_validation_node_id",
 ]
+
+from cmm.agent_runtime.autonomy_adapters import (
+    create_autonomy_request_from_policy_result,
+)
+from cmm.agent_runtime.autonomy_contracts import (
+    AutonomyEvaluationRequest,
+    AutonomyEvaluationResult,
+    AutonomyProfile,
+    AutonomyTransitionRecord,
+    AutonomyTransitionRequest,
+    AutonomyTransitionResult,
+    coerce_autonomy_level,
+    generate_autonomy_profile_id,
+    generate_autonomy_request_id,
+    generate_autonomy_result_id,
+    generate_autonomy_transition_id,
+)
+from cmm.agent_runtime.autonomy_evaluator import (
+    AutonomyEvaluator,
+    DefaultAutonomyEvaluator,
+    policy_decision_default,
+)
+from cmm.agent_runtime.autonomy_manager import (
+    apply_autonomy_transition,
+    build_transition_record,
+    build_transition_request,
+    derive_new_agent_run,
+)
+from cmm.agent_runtime.autonomy_profiles import (
+    get_autonomy_profile,
+    list_canonical_levels,
+)
+from cmm.agent_runtime.enums import (
+    AgentAutonomyLevel,
+    AutonomyCapability,
+    AutonomyDecision,
+    AutonomyTransitionReason,
+)
+from cmm.agent_runtime.errors import (
+    AutonomyCapabilityError,
+    AutonomyError,
+    AutonomyEscalationNotAuthorizedError,
+    AutonomyLevelError,
+    AutonomyPolicyIntegrationError,
+    AutonomyTransitionError,
+    InvalidAutonomyContractError,
+)
+
+__all__ += [
+    "AgentAutonomyLevel",
+    "AutonomyCapability",
+    "AutonomyCapabilityError",
+    "AutonomyDecision",
+    "AutonomyError",
+    "AutonomyEscalationNotAuthorizedError",
+    "AutonomyEvaluationRequest",
+    "AutonomyEvaluationResult",
+    "AutonomyEvaluator",
+    "AutonomyLevelError",
+    "AutonomyPolicyIntegrationError",
+    "AutonomyProfile",
+    "AutonomyTransitionError",
+    "AutonomyTransitionReason",
+    "AutonomyTransitionRecord",
+    "AutonomyTransitionRequest",
+    "AutonomyTransitionResult",
+    "DefaultAutonomyEvaluator",
+    "InvalidAutonomyContractError",
+    "apply_autonomy_transition",
+    "build_transition_record",
+    "build_transition_request",
+    "coerce_autonomy_level",
+    "create_autonomy_request_from_policy_result",
+    "derive_new_agent_run",
+    "generate_autonomy_profile_id",
+    "generate_autonomy_request_id",
+    "generate_autonomy_result_id",
+    "generate_autonomy_transition_id",
+    "get_autonomy_profile",
+    "list_canonical_levels",
+    "policy_decision_default",
+]

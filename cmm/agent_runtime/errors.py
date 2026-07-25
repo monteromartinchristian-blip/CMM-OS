@@ -289,3 +289,34 @@ class PolicyVersionError(PolicyEngineError, ValueError):
 
 class PolicyEvaluationError(PolicyEngineError, RuntimeError):
     """Raised when policy evaluation encounters an unhandled runtime error."""
+
+
+# ── Phase 9.9 – Autonomy Level Errors ────────────────────────────────────────
+
+
+class AutonomyError(AgentRuntimeError):
+    """Base exception for all Autonomy Level operations."""
+
+
+class InvalidAutonomyContractError(AutonomyError, ValueError):
+    """Raised when an Autonomy contract is invalid, malformed, or violates invariants."""
+
+
+class AutonomyLevelError(AutonomyError, ValueError):
+    """Raised when an autonomy level value is outside the supported range or malformed."""
+
+
+class AutonomyCapabilityError(AutonomyError, ValueError):
+    """Raised when an autonomy capability is invalid, unknown, or not allowed by the profile."""
+
+
+class AutonomyTransitionError(AutonomyError, ValueError):
+    """Raised when an autonomy transition is invalid for the current state or configuration."""
+
+
+class AutonomyEscalationNotAuthorizedError(AutonomyError, PermissionError):
+    """Raised when an autonomy escalation is attempted without explicit authorization."""
+
+
+class AutonomyPolicyIntegrationError(AutonomyError, RuntimeError):
+    """Raised when integrating Autonomy Evaluator with Policy Engine fails or is inconsistent."""

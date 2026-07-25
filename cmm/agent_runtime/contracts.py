@@ -12,12 +12,20 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
+# Re-exported for convenience; this module re-uses the shared coercion
+# helper from the autonomy contracts so the integer 0..4 construction
+# pattern (e.g. ``AgentDefinition(..., autonomy_level=2)``) keeps working.
+from cmm.agent_runtime.autonomy_contracts import (  # noqa: F401
+    coerce_autonomy_level as _coerce_autonomy_level,
+)
 from cmm.agent_runtime.enums import (
     AgentResultOutcome,
     AgentRuntimeStatus,
     RuntimeDecisionType,
 )
-from cmm.agent_runtime.errors import InvalidAgentContractError
+from cmm.agent_runtime.errors import (
+    InvalidAgentContractError,
+)
 
 
 def _ensure_tz_aware(dt: datetime, field_name: str) -> datetime:
