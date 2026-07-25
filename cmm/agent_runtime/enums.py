@@ -1,0 +1,65 @@
+"""Phase 9.1 – Agent Runtime Enumerations.
+
+Defines the core enums for agent runtime status, decision types, and result outcomes.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+
+
+class AgentRuntimeStatus(str, Enum):
+    """General runtime execution states for an autonomous agent run."""
+
+    CREATED = "created"
+    INITIALIZING = "initializing"
+    OBSERVING = "observing"
+    REASONING = "reasoning"
+    WAITING_FOR_USER = "waiting_for_user"
+    WAITING_FOR_RESOURCE = "waiting_for_resource"
+    PLANNING = "planning"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    EXECUTING = "executing"
+    VALIDATING = "validating"
+    EVALUATING = "evaluating"
+    RECOVERING = "recovering"
+    PAUSED = "paused"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    ABORTED = "aborted"
+
+
+class RuntimeDecisionType(str, Enum):
+    """Structured decision types emitted during runtime step transitions."""
+
+    OBSERVE = "observe"
+    LOAD_KNOWLEDGE = "load_knowledge"
+    REASON = "reason"
+    ASK_USER = "ask_user"
+    LOAD_RESOURCE = "load_resource"
+    SEARCH = "search"
+    PLAN = "plan"
+    EXECUTE = "execute"
+    VALIDATE = "validate"
+    EVALUATE = "evaluate"
+    CONTINUE = "continue"
+    RETRY = "retry"
+    REPLAN = "replan"
+    ROLLBACK = "rollback"
+    PAUSE = "pause"
+    ESCALATE = "escalate"
+    COMPLETE = "complete"
+    FAIL = "fail"
+    ABORT = "abort"
+
+
+class AgentResultOutcome(str, Enum):
+    """High-level outcome status for an agent run result."""
+
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    FAILURE = "failure"
+    CANCELLED = "cancelled"
+    ABORTED = "aborted"
