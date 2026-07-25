@@ -258,3 +258,94 @@ def test_test_layout_module_named_test_misplaced_with_test_function_is_finding(
     assert len(misplaced) == 1
     assert misplaced[0].file_path == "cmm/test_misplaced.py"
     assert "cmm/test_misplaced.py" in result.artifacts[0].content["source_tree_tests"]
+
+
+def test_test_layout_class_named_test_without_test_methods_is_not_a_test_class(
+    tmp_path: Path,
+) -> None:
+    """Regression: a class whose name starts with 'Test' but that contains no
+    test_* method must NOT be counted as a test class by the AST heuristic.
+    """
+    cmm_dir = tmp_path / "cmm"
+    cmm_dir.mkdir()
+    (cmm_dir / "test_layout.py").write_text(
+        "from cmm.validation.custom import CustomValidator\n"
+        "\n"
+        "class TestLayoutValidator(CustomValidator):\n"
+        "    name = 'test_layout'\n"
+        "    def validate(self, context):\n"
+        "        return None\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(project_root=tmp_path)
+    validator = TestLayoutValidator()
+    result = validator.validate(context)
+
+    misplaced = [f for f in result.findings if f.code == "TEST_LAYOUT_TEST_IN_SOURCE"]
+    assert misplaced == []
+    assert "cmm/test_layout.py" not in result.artifacts[0].content["source_tree_tests"]
+
+
+def test_test_layout_class_named_test_with_test_method_is_a_test_class(
+    tmp_path: Path,
+) -> None:
+    """Regression: a class whose name starts with 'Test' and that contains a
+    test_* method MUST be counted as a test class.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_valid.py").write_text(
+        "def test_ok(): pass\n",
+        encoding="utf-8",
+    )
+
+    cmm_dir = tmp_path / "cmm"
+    cmm_dir.mkdir()
+    (cmm_dir / "test_misplaced_class.py").write_text(
+        "class TestExample:\n    def test_something(self):\n        assert True\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(project_root=tmp_path)
+    validator = TestLayoutValidator()
+    result = validator.validate(context)
+
+    misplaced = [f for f in result.findings if f.code == "TEST_LAYOUT_TEST_IN_SOURCE"]
+    assert len(misplaced) == 1
+    assert misplaced[0].file_path == "cmm/test_misplaced_class.py"
+
+
+def test_test_layout_real_validator_file_is_not_finding(tmp_path: Path) -> None:
+    """Regression: the real cmm/validation/custom_validators/test_layout.py
+    implementation file, whose name starts with 'test_' and which contains
+    'class TestLayoutValidator(...)', must NOT produce a
+    TEST_LAYOUT_TEST_IN_SOURCE finding when the validator is run against a
+    project root that contains the actual cmm/ tree.
+    """
+    # Build a project_root that mirrors the real cmm/ tree in tmp_path
+    # so we exercise the real file content without depending on the
+    # process working directory or a network of side effects.
+    import shutil
+
+    real_cmm = Path(__file__).resolve().parents[3] / "cmm"
+    mirrored_cmm = tmp_path / "cmm"
+    shutil.copytree(real_cmm, mirrored_cmm)
+
+    # Provide a tests/ directory with a single canonical test so the
+    # overall validation can run without TEST_LAYOUT_NO_TESTS.
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_valid.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+
+    context = ValidationContext(project_root=tmp_path)
+    validator = TestLayoutValidator()
+    result = validator.validate(context)
+
+    misplaced = [f for f in result.findings if f.code == "TEST_LAYOUT_TEST_IN_SOURCE"]
+    real_rel = "cmm/validation/custom_validators/test_layout.py"
+    assert not any(f.file_path == real_rel for f in misplaced), (
+        f"Real validator file {real_rel!r} was incorrectly flagged: "
+        f"{[f.message for f in misplaced]}"
+    )
+    assert real_rel not in result.artifacts[0].content["source_tree_tests"]

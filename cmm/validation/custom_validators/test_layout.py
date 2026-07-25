@@ -47,7 +47,13 @@ def _count_tests_in_ast(tree: ast.AST) -> Tuple[int, int, bool]:
             self.generic_visit(node)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            if node.name.startswith("Test"):
+            if node.name.startswith("Test") and any(
+                (
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and child.name.startswith("test_")
+                )
+                for child in node.body
+            ):
                 self.class_count += 1
             self.generic_visit(node)
 
