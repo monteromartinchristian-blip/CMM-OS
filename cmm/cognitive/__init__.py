@@ -8,12 +8,21 @@ from cmm.cognitive.enums import (
     CognitiveActorKind,
     CognitiveSeverity,
     CognitiveStatus,
+    ResourceIntegrityStatus,
+    ResourceKind,
+    ResourcePermissionOperation,
+    ResourceSourceKind,
+    SensitivityLevel,
 )
 from cmm.cognitive.errors import (
     CognitiveError,
     InvalidCognitiveContractError,
     InvalidCognitiveIdentifierError,
     InvalidConfidenceError,
+    InvalidResourceError,
+    InvalidResourcePermissionError,
+    InvalidResourceProvenanceError,
+    InvalidResourceTemporalScopeError,
 )
 from cmm.cognitive.identifiers import (
     CognitiveIdentifier,
@@ -35,3 +44,11 @@ __all__ = [
     "InvalidConfidenceError",
     "generate_cognitive_id",
 ]
+
+from cmm.cognitive.resources import (
+    Resource,
+    ResourcePermission,
+    ResourceProvenance,
+    ResourceTemporalScope,
+    ResourceTransformation,
+)
