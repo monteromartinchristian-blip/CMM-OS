@@ -148,3 +148,40 @@ class CognitiveResultTranslationError(CognitiveAdapterError, ValueError):
 
 class CognitiveAdapterExecutionError(CognitiveAdapterError, RuntimeError):
     """Raised when an unhandled execution error occurs in Cognitive Adapter."""
+
+
+# ── Phase 9.6 – Information Acquisition Errors ────────────────────────────────
+
+
+class InformationAcquisitionError(AgentRuntimeError):
+    """Base exception for all Information Acquisition operations."""
+
+
+class InvalidInformationAcquisitionContractError(
+    InformationAcquisitionError, InvalidAgentContractError
+):
+    """Raised when an Information Acquisition contract is invalid or violates invariants."""
+
+
+class InformationAcquisitionPermissionError(
+    InformationAcquisitionError, PermissionError
+):
+    """Raised when an acquisition strategy lacks required permissions or sensitivity level."""
+
+
+class InformationAcquisitionStrategyUnavailableError(
+    InformationAcquisitionError, RuntimeError
+):
+    """Raised when a requested strategy is unavailable or lacks configured capability."""
+
+
+class InformationAcquisitionLimitError(InformationAcquisitionError, ValueError):
+    """Raised when information acquisition limits (calls, questions, cost) are exceeded."""
+
+
+class InformationAcquisitionResolutionError(InformationAcquisitionError, RuntimeError):
+    """Raised when strategy resolution or evaluation fails to make a valid decision."""
+
+
+class InformationAcquisitionHandlerError(InformationAcquisitionError, RuntimeError):
+    """Raised when an information acquisition handler fails during execution."""

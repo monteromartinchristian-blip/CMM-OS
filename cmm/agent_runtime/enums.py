@@ -361,3 +361,76 @@ class CognitiveResourceStrategy(str, Enum):
     OBSERVATIONS_AND_KNOWLEDGE = "observations_and_knowledge"
     EXPLICIT_RESOURCES = "explicit_resources"
     AUTOMATIC = "automatic"
+
+
+# ── Phase 9.6 – Information Acquisition Enumerations ──────────────────────────
+
+
+class InformationAcquisitionStrategy(str, Enum):
+    """Available strategies for acquiring information to resolve a gap."""
+
+    ASK_USER = "ask_user"
+    LOAD_INTERNAL_RESOURCE = "load_internal_resource"
+    SEARCH_KNOWLEDGE = "search_knowledge"
+    SEARCH_REPOSITORY = "search_repository"
+    SEARCH_EXTERNAL_SOURCE = "search_external_source"
+    INFER_WITH_PERMISSION = "infer_with_permission"
+    REQUEST_HUMAN_REVIEW = "request_human_review"
+    ACCEPT_UNCERTAINTY = "accept_uncertainty"
+    PAUSE = "pause"
+    ABORT = "abort"
+
+
+class InformationAcquisitionStatus(str, Enum):
+    """Status lifecycle for an information acquisition process."""
+
+    PENDING = "pending"
+    EVALUATING = "evaluating"
+    SELECTED = "selected"
+    WAITING_FOR_USER = "waiting_for_user"
+    WAITING_FOR_RESOURCE = "waiting_for_resource"
+    SEARCHING = "searching"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class InformationAcquisitionSource(str, Enum):
+    """Origin sources from which information can be acquired."""
+
+    USER = "user"
+    KNOWLEDGE_STORE = "knowledge_store"
+    REPOSITORY = "repository"
+    MEMORY = "memory"
+    OBSERVATION = "observation"
+    INTERNAL_SERVICE = "internal_service"
+    EXTERNAL_SOURCE = "external_source"
+    HUMAN_REVIEWER = "human_reviewer"
+    INFERENCE = "inference"
+    UNKNOWN = "unknown"
+
+
+class InformationAcquisitionRisk(str, Enum):
+    """Risk levels associated with information acquisition strategies."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class InformationAcquisitionDecisionType(str, Enum):
+    """Actionable decision types emitted by the Information Acquisition Resolver."""
+
+    SELECT_STRATEGY = "select_strategy"
+    ASK_USER = "ask_user"
+    LOAD_RESOURCE = "load_resource"
+    SEARCH = "search"
+    INFER = "infer"
+    REQUEST_HUMAN_REVIEW = "request_human_review"
+    ACCEPT_UNCERTAINTY = "accept_uncertainty"
+    PAUSE = "pause"
+    ABORT = "abort"
