@@ -95,3 +95,29 @@ class ResourcePermissionOperation(str, Enum):
     EXPORT = "export"
     TRANSFORM = "transform"
     RELATE = "relate"
+
+
+class AdaptationStatus(str, Enum):
+    COMPLETED = "completed"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+    PARTIAL = "partial"
+
+
+class ExtractionStatus(str, Enum):
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+    EMPTY = "empty"
+
+
+class CandidateKind(str, Enum):
+    STATEMENT = "statement"
+    ENTITY_MENTION = "entity_mention"
+    RELATIONSHIP_MENTION = "relationship_mention"
+    TEMPORAL_REFERENCE = "temporal_reference"
+    QUANTITY = "quantity"
+    KEYWORD = "keyword"
+    QUESTION = "question"
+    UNKNOWN = "unknown"
