@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from cmm.agent_runtime.enums import (
     AgentRuntimeStatus,
+    AgentValidationDecision,
     ApprovalRequestStatus,
     PolicyDecision,
     RuntimeStep,
@@ -21,6 +22,7 @@ from cmm.agent_runtime.runtime_loop_contracts import (
     RuntimeStepContext,
     RuntimeStepResult,
 )
+from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
 
 
 class RuntimeStepHandler(Protocol):
@@ -506,7 +508,56 @@ class ExecuteHandler:
 class ValidateHandler:
     """Handler for RuntimeStep.VALIDATE."""
 
+    def __init__(
+        self,
+        adapter: AgentValidationAdapter | None = None,
+    ) -> None:
+        self._adapter = adapter
+
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
+        if self._adapter is not None:
+            val_req = context.metadata.get("validation_request") or getattr(
+                context, "validation_request", None
+            )
+            if val_req is not None:
+                res = self._adapter.validate(val_req)
+                if res.decision == AgentValidationDecision.CONTINUE:
+                    next_st = AgentRuntimeStatus.EVALUATING
+                elif res.decision == AgentValidationDecision.BLOCK:
+                    next_st = AgentRuntimeStatus.BLOCKED
+                elif res.decision in (
+                    AgentValidationDecision.RETRY,
+                    AgentValidationDecision.ROLLBACK,
+                ):
+                    next_st = AgentRuntimeStatus.RECOVERING
+                elif res.decision == AgentValidationDecision.REPLAN:
+                    next_st = AgentRuntimeStatus.PLANNING
+                elif res.decision == AgentValidationDecision.ESCALATE:
+                    next_st = AgentRuntimeStatus.WAITING_FOR_APPROVAL
+                elif res.decision == AgentValidationDecision.PAUSE:
+                    next_st = AgentRuntimeStatus.PAUSED
+                elif res.decision == AgentValidationDecision.ABORT:
+                    next_st = AgentRuntimeStatus.FAILED
+                else:
+                    raise RuntimeStepExecutionError(
+                        f"Unknown or unmapped AgentValidationDecision '{res.decision}' "
+                        "cannot be translated into a runtime transition."
+                    )
+
+                success = res.decision == AgentValidationDecision.CONTINUE
+                return _build_step_result(
+                    context,
+                    step=RuntimeStep.VALIDATE,
+                    next_status=next_st,
+                    success=success,
+                    status=RuntimeStepStatus.COMPLETED
+                    if success
+                    else RuntimeStepStatus.FAILED,
+                    reason_codes=("runtime.validation_completed", res.decision.value),
+                    produced_ids=(res.request_id,),
+                    metadata={"validation_result": res.to_dict()},
+                )
+
         val_id = f"val-{uuid.uuid4().hex[:8]}"
         return _build_step_result(
             context,

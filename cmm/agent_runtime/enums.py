@@ -1021,3 +1021,77 @@ class OperationEnvironment(str, Enum):
     STAGING = "staging"
     PRODUCTION = "production"
     REMOTE = "remote"
+
+
+# ── Phase 9.14 – Validation Integration Enumerations ──────────────────────────
+
+
+class AgentValidationStage(str, Enum):
+    """Lifecycle stages for agent operation validation execution."""
+
+    PRE_EXECUTION = "pre_execution"
+    POST_EXECUTION = "post_execution"
+    PRE_COMMIT = "pre_commit"
+    POST_ROLLBACK = "post_rollback"
+
+
+class AgentValidationStatus(str, Enum):
+    """Execution status states for an AgentValidationResult."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PASSED = "passed"
+    PASSED_WITH_WARNINGS = "passed_with_warnings"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
+class AgentValidationDecision(str, Enum):
+    """Explicit, closed decision outcomes resulting from validation evaluation."""
+
+    CONTINUE = "continue"
+    BLOCK = "block"
+    RETRY = "retry"
+    REPLAN = "replan"
+    ROLLBACK = "rollback"
+    ESCALATE = "escalate"
+    PAUSE = "pause"
+    ABORT = "abort"
+
+
+class ValidationFailureClass(str, Enum):
+    """Classification categories for validation findings and failures."""
+
+    POLICY = "policy"
+    FORMAT = "format"
+    LINT = "lint"
+    STATIC_ANALYSIS = "static_analysis"
+    SYNTAX = "syntax"
+    AST = "ast"
+    UNIT_TEST = "unit_test"
+    INTEGRATION_TEST = "integration_test"
+    SECURITY = "security"
+    COMMIT_GATE = "commit_gate"
+    REGRESSION = "regression"
+    INFRASTRUCTURE = "infrastructure"
+    UNKNOWN = "unknown"
+
+
+class ValidationRequirementKind(str, Enum):
+    """Functional categories of validation requirements."""
+
+    PREVENTATIVE = "preventative"
+    SANITY = "sanity"
+    SECURITY = "security"
+    SYNTAX = "syntax"
+    AST = "ast"
+    LINT = "lint"
+    UNIT_TEST = "unit_test"
+    INTEGRATION_TEST = "integration_test"
+    COMMIT_GATE = "commit_gate"
+    POST_CONDITION = "post_condition"
+    REGRESSION = "regression"
+    CUSTOM = "custom"

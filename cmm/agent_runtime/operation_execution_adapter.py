@@ -11,13 +11,18 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from cmm.agent_runtime.enums import AgentOperationExecutionStatus
+from cmm.agent_runtime.enums import (
+    AgentOperationExecutionStatus,
+    AgentValidationDecision,
+    AgentValidationStage,
+)
 from cmm.agent_runtime.errors import (
     AgentOperationCapabilityError,
     AgentOperationCapabilityExceededError,
     AgentOperationIdempotencyConflictError,
     AgentOperationRequestNotFoundError,
     DuplicateAgentOperationRequestError,
+    ValidationAdapterError,
 )
 from cmm.agent_runtime.operation_execution_contracts import (
     AgentOperationExecutionResult,
@@ -34,6 +39,11 @@ from cmm.agent_runtime.operation_execution_repository import (
 from cmm.agent_runtime.operation_registry import (
     AgentOperationRegistry,
     InMemoryAgentOperationRegistry,
+)
+from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+from cmm.agent_runtime.validation_integration_contracts import (
+    AgentValidationRequest,
+    ValidationExecutionContext,
 )
 
 
@@ -98,6 +108,7 @@ class AgentExecutionAdapter:
         execution_delegate: Callable[[AgentOperationRequest], dict[str, Any]]
         | None = None,
         capabilities: dict[tuple[str, str], OperationCapability] | None = None,
+        validation_adapter: AgentValidationAdapter | None = None,
     ) -> None:
         self._registry = registry or InMemoryAgentOperationRegistry()
         self._repository = repository or InMemoryAgentOperationExecutionRepository()
@@ -106,6 +117,7 @@ class AgentExecutionAdapter:
         )
         self._execution_delegate = execution_delegate
         self._resolver = AgentOperationResolver(self._registry, capabilities)
+        self._validation_adapter = validation_adapter
 
     @property
     def registry(self) -> AgentOperationRegistry:
@@ -114,6 +126,10 @@ class AgentExecutionAdapter:
     @property
     def repository(self) -> AgentOperationExecutionRepository:
         return self._repository
+
+    @property
+    def validation_adapter(self) -> AgentValidationAdapter | None:
+        return self._validation_adapter
 
     def register_operation(
         self,
@@ -181,6 +197,13 @@ class AgentExecutionAdapter:
             self._repository.add_result(res)
             return res
 
+        # Check fail-safe validation adapter requirement
+        requires_val = bool(request.metadata.get("requires_validation", False))
+        if requires_val and self._validation_adapter is None:
+            raise ValidationAdapterError(
+                f"Operation '{request.operation_name}' mandates validation, but no AgentValidationAdapter was injected."
+            )
+
         # Step 3: Security Gate Evaluation
         gate_res: OperationExecutionGateResult = self._gate_evaluator.evaluate(
             request, capability=cap, uses_count=uses_count
@@ -211,6 +234,53 @@ class AgentExecutionAdapter:
             self._repository.add_result(res)
             return res
 
+        # Step 3b: Pre-Validation Check
+        val_result_ids: list[str] = []
+        if self._validation_adapter is not None:
+            pre_req = AgentValidationRequest(
+                id=f"val-req-pre-{uuid.uuid4().hex[:8]}",
+                run_id=request.agent_run_id,
+                iteration_id=request.task_id,
+                operation_request_id=request.id,
+                stage=AgentValidationStage.PRE_EXECUTION,
+                idempotency_key=f"pre-{request.idempotency_key}"
+                if request.idempotency_key
+                else "",
+            )
+            pre_res = self._validation_adapter.validate(
+                pre_req,
+                exec_context=ValidationExecutionContext(
+                    run_id=request.agent_run_id,
+                    iteration_id=request.task_id,
+                    operation_name=request.operation_name,
+                    environment=request.environment,
+                ),
+            )
+            val_result_ids.append(pre_res.request_id)
+            if pre_res.decision != AgentValidationDecision.CONTINUE:
+                res_id = f"op-res-{uuid.uuid4().hex[:8]}"
+                res = AgentOperationExecutionResult(
+                    id=res_id,
+                    request_id=request.id,
+                    agent_run_id=request.agent_run_id,
+                    workflow_id=request.workflow_id,
+                    task_id=request.task_id,
+                    operation_name=request.operation_name,
+                    operation_version=request.operation_version,
+                    idempotency_key=request.idempotency_key,
+                    status=AgentOperationExecutionStatus.BLOCKED,
+                    success=False,
+                    validation_result_ids=tuple(val_result_ids),
+                    reason_codes=(
+                        "operation.pre_validation_blocked",
+                        pre_res.decision.value,
+                    ),
+                    started_at=started_at,
+                    completed_at=_now_iso(),
+                )
+                self._repository.add_result(res)
+                return res
+
         # Step 4: Delegate to Execution Engine
         if not self._execution_delegate:
             res_id = f"op-res-{uuid.uuid4().hex[:8]}"
@@ -225,6 +295,7 @@ class AgentExecutionAdapter:
                 idempotency_key=request.idempotency_key,
                 status=AgentOperationExecutionStatus.FAILED,
                 success=False,
+                validation_result_ids=tuple(val_result_ids),
                 reason_codes=("operation.no_execution_delegate",),
                 started_at=started_at,
                 completed_at=_now_iso(),
@@ -247,6 +318,7 @@ class AgentExecutionAdapter:
                 idempotency_key=request.idempotency_key,
                 status=AgentOperationExecutionStatus.FAILED,
                 success=False,
+                validation_result_ids=tuple(val_result_ids),
                 reason_codes=("operation.execution_failed", str(exc)),
                 started_at=started_at,
                 completed_at=_now_iso(),
@@ -254,17 +326,49 @@ class AgentExecutionAdapter:
             self._repository.add_result(res)
             return res
 
+        # Step 4b: Post-Validation Check
+        success = exec_output.get("success", True)
+        validation_failed = False
+        if self._validation_adapter is not None and success:
+            post_req = AgentValidationRequest(
+                id=f"val-req-post-{uuid.uuid4().hex[:8]}",
+                run_id=request.agent_run_id,
+                iteration_id=request.task_id,
+                operation_request_id=request.id,
+                stage=AgentValidationStage.POST_EXECUTION,
+                idempotency_key=f"post-{request.idempotency_key}"
+                if request.idempotency_key
+                else "",
+            )
+            post_res = self._validation_adapter.validate(
+                post_req,
+                exec_context=ValidationExecutionContext(
+                    run_id=request.agent_run_id,
+                    iteration_id=request.task_id,
+                    operation_name=request.operation_name,
+                    environment=request.environment,
+                ),
+            )
+            val_result_ids.append(post_res.request_id)
+            if post_res.decision != AgentValidationDecision.CONTINUE:
+                success = False
+                validation_failed = True
+
         # Capture outputs
         effects = tuple(exec_output.get("effects", ()))
         side_effects = tuple(exec_output.get("side_effects", ()))
         artifacts = tuple(exec_output.get("artifacts", ()))
-        validations = tuple(exec_output.get("validation_result_ids", ()))
-        success = exec_output.get("success", True)
-        status = (
-            AgentOperationExecutionStatus.COMPLETED
-            if success
-            else AgentOperationExecutionStatus.FAILED
-        )
+        del_validations = exec_output.get("validation_result_ids", ())
+        for v_id in del_validations:
+            if v_id not in val_result_ids:
+                val_result_ids.append(v_id)
+
+        if success:
+            status = AgentOperationExecutionStatus.COMPLETED
+        elif validation_failed:
+            status = AgentOperationExecutionStatus.VALIDATION_FAILED
+        else:
+            status = AgentOperationExecutionStatus.FAILED
 
         res_id = f"op-res-{uuid.uuid4().hex[:8]}"
         res = AgentOperationExecutionResult(
@@ -282,7 +386,7 @@ class AgentExecutionAdapter:
             effects=effects,
             side_effects=side_effects,
             artifacts=artifacts,
-            validation_result_ids=validations,
+            validation_result_ids=tuple(val_result_ids),
             budget_consumption_id=exec_output.get("budget_consumption_id"),
             rollback_available=desc.reversible if desc else True,
             rollback_reference=exec_output.get("rollback_reference"),

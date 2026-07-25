@@ -1107,9 +1107,14 @@ __all__ += [
 
 from cmm.agent_runtime.enums import (
     AgentOperationExecutionStatus,
+    AgentValidationDecision,
+    AgentValidationStage,
+    AgentValidationStatus,
     OperationEffectType,
     OperationEnvironment,
     OperationReversibility,
+    ValidationFailureClass,
+    ValidationRequirementKind,
 )
 from cmm.agent_runtime.errors import (
     AgentOperationApprovalError,
@@ -1134,10 +1139,24 @@ from cmm.agent_runtime.errors import (
     AgentOperationRollbackError,
     AgentOperationValidationError,
     AgentOperationVersionNotRegisteredError,
+    AgentValidationError,
     DuplicateAgentOperationError,
     DuplicateAgentOperationRequestError,
     DuplicateAgentOperationResultError,
     InvalidAgentOperationContractError,
+    ValidationAdapterError,
+    ValidationCommitGateError,
+    ValidationDecisionError,
+    ValidationExecutionError,
+    ValidationInfrastructureError,
+    ValidationPolicySelectionError,
+    ValidationPostExecutionBlockedError,
+    ValidationPreExecutionBlockedError,
+    ValidationRepositoryError,
+    ValidationRequirementError,
+    ValidationResultInvalidError,
+    ValidationRollbackRequiredError,
+    ValidationTimeoutError,
 )
 from cmm.agent_runtime.operation_execution_adapter import (
     AgentExecutionAdapter,
@@ -1164,6 +1183,29 @@ from cmm.agent_runtime.operation_execution_repository import (
 from cmm.agent_runtime.operation_registry import (
     AgentOperationRegistry,
     InMemoryAgentOperationRegistry,
+)
+from cmm.agent_runtime.validation_execution_adapter import (
+    AgentValidationAdapter,
+    ValidationDecisionResolver,
+)
+from cmm.agent_runtime.validation_integration_contracts import (
+    AgentValidationEvent,
+    AgentValidationRequest,
+    AgentValidationResult,
+    CommitGateEvaluation,
+    ValidationDecision,
+    ValidationExecutionContext,
+    ValidationFinding,
+    ValidationPolicySelection,
+    ValidationRequirement,
+)
+from cmm.agent_runtime.validation_integration_repository import (
+    AgentValidationRepository,
+    InMemoryAgentValidationRepository,
+)
+from cmm.agent_runtime.validation_policy_adapter import (
+    AgentValidationPolicyAdapter,
+    ValidationRequirementResolver,
 )
 
 __all__ += [
@@ -1196,11 +1238,23 @@ __all__ += [
     "AgentOperationRollbackError",
     "AgentOperationValidationError",
     "AgentOperationVersionNotRegisteredError",
+    "AgentValidationAdapter",
+    "AgentValidationDecision",
+    "AgentValidationError",
+    "AgentValidationEvent",
+    "AgentValidationPolicyAdapter",
+    "AgentValidationRepository",
+    "AgentValidationRequest",
+    "AgentValidationResult",
+    "AgentValidationStage",
+    "AgentValidationStatus",
+    "CommitGateEvaluation",
     "DuplicateAgentOperationError",
     "DuplicateAgentOperationRequestError",
     "DuplicateAgentOperationResultError",
     "InMemoryAgentOperationExecutionRepository",
     "InMemoryAgentOperationRegistry",
+    "InMemoryAgentValidationRepository",
     "InMemoryResourceVersionProvider",
     "InvalidAgentOperationContractError",
     "OperationCapability",
@@ -1211,4 +1265,26 @@ __all__ += [
     "OperationExecutionGateResult",
     "OperationReversibility",
     "TransformationExecutionEngineAdapter",
+    "ValidationAdapterError",
+    "ValidationCommitGateError",
+    "ValidationDecision",
+    "ValidationDecisionError",
+    "ValidationDecisionResolver",
+    "ValidationExecutionContext",
+    "ValidationExecutionError",
+    "ValidationFailureClass",
+    "ValidationFinding",
+    "ValidationInfrastructureError",
+    "ValidationPolicySelection",
+    "ValidationPolicySelectionError",
+    "ValidationPostExecutionBlockedError",
+    "ValidationPreExecutionBlockedError",
+    "ValidationRepositoryError",
+    "ValidationRequirement",
+    "ValidationRequirementError",
+    "ValidationRequirementKind",
+    "ValidationRequirementResolver",
+    "ValidationResultInvalidError",
+    "ValidationRollbackRequiredError",
+    "ValidationTimeoutError",
 ]

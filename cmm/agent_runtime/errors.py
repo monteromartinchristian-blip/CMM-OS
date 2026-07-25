@@ -666,3 +666,62 @@ class AgentOperationIdempotencyConflictError(AgentOperationError, ValueError):
 
 class AgentOperationRepositoryConsistencyError(AgentOperationError, ValueError):
     """Raised when repository operation records are orphaned or inconsistent."""
+
+
+# ── Phase 9.14 – Validation Integration Errors ────────────────────────────────
+
+
+class AgentValidationError(AgentRuntimeError):
+    """Base exception for all Validation Integration operations."""
+
+
+class ValidationRequirementError(AgentValidationError, ValueError):
+    """Raised when a ValidationRequirement is invalid or violates invariants."""
+
+
+class ValidationPolicySelectionError(AgentValidationError, ValueError):
+    """Raised when selecting or building validation requirements fails."""
+
+
+class ValidationAdapterError(AgentValidationError, RuntimeError):
+    """Raised when an error occurs within the Validation Execution Adapter."""
+
+
+class ValidationExecutionError(AgentValidationError, RuntimeError):
+    """Raised when executing validation rules or pipeline encounters an error."""
+
+
+class ValidationResultInvalidError(AgentValidationError, ValueError):
+    """Raised when a ValidationResult is malformed or invalid."""
+
+
+class ValidationRepositoryError(AgentValidationError, ValueError):
+    """Raised when repository operation for validation records fails or conflicts."""
+
+
+class ValidationDecisionError(AgentValidationError, ValueError):
+    """Raised when evaluating or mapping a validation decision fails."""
+
+
+class ValidationTimeoutError(AgentValidationError, TimeoutError):
+    """Raised when a validation execution times out."""
+
+
+class ValidationCommitGateError(AgentValidationError, ValueError):
+    """Raised when Commit Gate evaluation fails or is denied."""
+
+
+class ValidationPreExecutionBlockedError(AgentValidationError, ValueError):
+    """Raised when pre-execution validation blocks operation execution."""
+
+
+class ValidationPostExecutionBlockedError(AgentValidationError, ValueError):
+    """Raised when post-execution validation blocks operation completion."""
+
+
+class ValidationRollbackRequiredError(AgentValidationError, ValueError):
+    """Raised when validation failure mandates a rollback."""
+
+
+class ValidationInfrastructureError(AgentValidationError, RuntimeError):
+    """Raised when an unexpected infrastructure exception occurs during validation."""
