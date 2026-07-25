@@ -814,7 +814,7 @@ A policy may be selected through:
 
 ---
 
-# 7.9 — CMM OS Custom Validations
+# 7.9 — Validaciones personalizadas de CMM OS
 
 ## Objective
 
@@ -829,8 +829,7 @@ class CustomValidator:
     def validate(
         self,
         context: ValidationContext,
-    ) -> ValidationStepResult:
-        ...
+    ) -> ValidationStepResult: ...
 ```
 
 ## Initial Validators
@@ -856,77 +855,84 @@ Custom validators must be loaded through a registry or plugin system.
 
 # 7.10 — Commit Gate
 
+
 ## Objective
 
-Prevent an invalid change from being marked as safe or converted into a provisional commit.
+Prevent an invalid change from being marked as safe or converted into a provisional commit by enforcing a strict, structured, four-tier commit barrier:
+Validation Approved → Gate Approved → Express Authorization → Optional Provisional Commit.
 
 ## Flow
 
 ```text
 ValidationResult
         ↓
-Validation Policy
+Resolved ValidationPolicy
         ↓
-Blocking Findings
+Completeness & Required Step Check
         ↓
-Can Commit?
+Blocking Findings & Security Check
         ↓
-Human Authorization
+Critical Errors & Timeout Check
         ↓
-Optional Commit
+Required Artifacts Check
+        ↓
+Cancellation Check
+        ↓
+Policy Permission Check (allow_commit)
+        ↓
+CommitGateResult (allowed: bool, reasons: tuple)
+        ↓
+Explicit Human Authorization (CommitAuthorization)
+        ↓
+Safe Repository Inspection (RepositoryState)
+        ↓
+Optional Provisional Commit (ProvisionalCommitService)
 ```
 
-## Rules
+## Gate Evaluation Rules & Blocking Reasons
 
-A change must not pass the gate when:
+A change is denied approval by `CommitGateEvaluator` when ANY of the following occurs:
 
-- a required step fails;
-- a blocking finding exists;
-- a critical error exists;
-- a required timeout expires;
-- a required artifact is missing;
-- the policy was not completed;
-- a security violation is detected;
-- the result is incomplete;
-- the pipeline was cancelled;
-- the policy forbids commits.
+- a required step fails (`REQUIRED_STEP_FAILED`);
+- a required step is missing or unexecuted (`REQUIRED_STEP_MISSING`);
+- a required step was skipped (`REQUIRED_STEP_SKIPPED`);
+- a required step timed out (`REQUIRED_STEP_TIMEOUT`);
+- a blocking finding or critical severity finding exists (`BLOCKING_FINDING`);
+- a security violation is detected (`SECURITY_VIOLATION`);
+- a critical pipeline execution error occurred (`CRITICAL_ERROR`);
+- a required artifact is missing (`REQUIRED_ARTIFACT_MISSING`);
+- the validation policy is unresolved (`POLICY_UNRESOLVED`) or incomplete (`POLICY_INCOMPLETE`);
+- the policy forbids commits via `allow_commit=False` (`POLICY_FORBIDS_COMMIT`);
+- the validation result is incomplete / in-progress (`VALIDATION_INCOMPLETE`);
+- the pipeline execution was cancelled (`PIPELINE_CANCELLED`);
+- the contract or validation result ID is invalid or corrupt (`INVALID_CONTRACT`).
 
-## Optional Commit
+## Optional Provisional Commit & Git Safety
 
-The pipeline must validate without modifying Git by default.
+The validation infrastructure is **read-only with respect to Git by default**. Creating a provisional commit requires explicit, opt-in execution via `ProvisionalCommitService`.
 
-Creating a provisional commit requires:
+Creating a provisional commit strictly requires:
+1. `CommitGateResult` with `allowed=True`;
+2. `CommitAuthorization` with `authorized=True`, valid actor, and matching `validation_result_id`;
+3. Safe repository state (`is_git_repository=True`, `work_tree_exists=True`, no merge, rebase, cherry-pick, revert, or index lock in progress);
+4. Valid, non-empty commit message (with automated trailers for auditability);
+5. Staged files restricted strictly to the authorized/validated scope (no indiscriminate `git add -A`).
 
-- successful validation;
-- a policy that allows commit;
-- explicit authorization;
-- a clean repository or controlled state;
-- a valid commit message;
-- no blocking errors.
+The system strictly forbids automatic execution of:
+`git push`, `git pull`, `git merge`, `git rebase`, `git reset --hard`, `git clean`, `git checkout`, `git switch`, `git tag`, `git release`, `git cherry-pick`, `git revert`, publishing, or deployment.
 
-The pipeline must not automatically perform:
+## Key Public Contracts
 
-- push;
-- merge;
-- rebase;
-- publishing;
-- release;
-- deployment.
-
-## Gate Result
-
-```python
-CommitGateResult(
-    allowed=True,
-    reasons=[],
-    blocking_findings=[],
-    validation_result_id="...",
-    commit_created=False,
-    commit_hash=None,
-)
-```
+- `CommitGateReasonCode`: Enum of structured denial and operational reasons.
+- `CommitGateReason`: Immutable dataclass representing a structured evaluation reason.
+- `CommitGateResult`: Frozen, slotted, serializable contract representing gate evaluation state.
+- `CommitAuthorization`: Explicit contract capturing actor, timestamp, reason, and target validation ID.
+- `CommitGateEvaluator`: Pure, side-effect-free evaluator.
+- `GitRepositoryProtocol` / `SubprocessGitRepository`: Safe Git process wrapper (without `shell=True`).
+- `ProvisionalCommitService`: Isolated service for creating provisional commits.
 
 ---
+
 
 # 7.11 — Observability and Persistence
 
@@ -993,7 +999,93 @@ The initial implementation may be local and evolve later.
 
 ---
 
+# 7.11 — Observability and Persistence
+
+> **Status: Implemented** (commit `feat(validation): add phase 7.11 observability and persistence`)
+
+## Objective
+
+Build the observability and persistence layer for the validation
+infrastructure so that every execution can be identified unambiguously,
+reconstructed, queried, audited, and consumed by future interfaces
+(CLI, API, CI) and phases 8 and 9.
+
+## Components Implemented
+
+### `ValidationExecutionRecord`
+
+Immutable, versionable, serializable snapshot of a validation run.
+Contains ID, schema version, status, policy, actor, context, branch,
+changed files, step results, findings, artifacts, metrics, gate result,
+commit hash, timestamps, and metadata.  Round-trip safe via
+`serialize()` / `from_mapping()`.
+
+### `ValidationLogEntry`
+
+Structured log event tied to a validation execution.  Fields: ID,
+validation ID, timestamp, level, component, event (stable identifier),
+message, step name, duration, status, correlation ID, metadata.
+
+### `ValidationMetrics` / `ValidationMetricsCalculator`
+
+Immutable aggregated statistics.  Pure, I/O-free calculator derives
+metrics from `ValidationResult` + optional `CommitGateResult`.
+
+### `ValidationRepositoryProtocol`
+
+`typing.Protocol` (runtime-checkable) defining the storage interface.
+Allows plug-in of any backend without changing consumers.
+
+### `LocalValidationRepository`
+
+File-system implementation:
+
+```text
+.cmm/validation/
+├── executions/<validation-id>.json  ← atomic JSON per execution
+├── logs/<validation-id>.jsonl       ← append-only JSONL
+├── artifacts/<validation-id>/<artifact-id>.json
+└── index.json                       ← compact searchable index
+```
+
+Features: atomic writes (`tempfile` + `os.replace`), idempotence,
+conflict detection (status regression, cleared commit_hash, timestamp
+regression), path traversal guard, JSONL corruption resilience,
+index rebuild from disk, artifact content size limit.
+
+### `ValidationObservabilityService`
+
+Coordinator for record construction, metrics calculation, sanitisation,
+and persistence.  Does not execute validations.  Persistence failures
+are surfaced as structured log entries without altering validation results.
+
+### `sanitize_validation_data`
+
+Recursive sanitisation utility.  Redacts values for sensitive keys
+(`token`, `api_key`, `password`, `authorization`, `cookie`, etc.)
+and URL-embedded credentials.  Never mutates input objects.
+
+### `ValidationHistoryQuery` / `ValidationHistoryPage`
+
+Immutable filter and paginated result contracts.  Filters: policy,
+status, actor, branch, time range, gate decision, commit presence.
+Default order: most recent first.
+
+## Pipeline Integration
+
+`ValidationPipeline` accepts an optional `observability` field
+(`None` by default).  When provided, it records execution start and
+completion and assigns a stable `validation-<uuid>` ID.  Persistence
+failures do not alter the validation result.
+
+## Documentation
+
+See `docs/validation/observability-and-persistence.md`.
+
+---
+
 # 7.12 — CLI, API, and CI
+
 
 ## CLI
 
@@ -1123,6 +1215,10 @@ Artifacts and results must be structured enough for Phase 8 to distinguish:
 - uncertainty;
 - missing information;
 - commit-gate decisions.
+
+## Documentation
+
+See `docs/validation/cli-api-ci.md`.
 
 ## Future Autonomous Agent
 
@@ -1442,3 +1538,25 @@ Each modification will produce verifiable evidence showing:
 - whether it may pass the commit gate.
 
 Phase 7 will turn validation into a cross-cutting system capability and establish the trust foundation required for the Cognitive Layer, future autonomous agents, and the complete evolution of CMM OS.
+
+---
+
+# Phase 7 Completion
+
+- **Baseline Commit**: `7571534 feat(validation): add phase 7.12 CLI API and CI`
+- **Validation Tests**: 517 passing
+- **Global Test Suite**: 1170 passing (0 failing)
+- **CLI**: Implemented (`cmm validation run/inspect/artifacts/gate`)
+- **API**: `ValidationApplicationService`
+- **CI**: GitHub Actions workflow `.github/workflows/continuous-validation.yml`
+- **Semantic Integration**: `SemanticValidationAdapter`
+- **Execution Integration**: `ExecutionValidationCoordinator`
+- **Planner Integration**: `PlannerValidationAdapter`
+- **Kernel Events**: `KernelEventPublisher` (`kernel.events.event.Event`)
+- **Memory Integration**: `ValidationMemoryAdapter` (`TechnicalMemory`)
+- **Commit Gate**: `CommitGateEvaluator` & `ProvisionalCommitService`
+- **Observability**: `ValidationObservabilityService` & metrics
+- **Persistence**: `LocalValidationRepository` (`.cmm/validation/`)
+- **Security**: Secret sanitization, path traversal prevention, command policies
+- **E2E Validation**: End-to-end integration scenarios passing
+- **Declared Limitations**: Legacy execution paths operate in opt-in mode when validation is disabled; TechnicalMemory persistence stores structured summaries without forcing graph migrations.
