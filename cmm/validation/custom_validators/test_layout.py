@@ -127,6 +127,18 @@ class TestLayoutValidator(CustomValidator):
                     name.endswith("_test.py") and name != "conftest.py"
                 ):
                     rel_source_test = serialize_path(p, context.project_root)
+                    read_res = read_file_safe(p)
+                    if read_res.content is None or not read_res.content.strip():
+                        # Cannot confirm file actually contains tests; skip emission.
+                        continue
+                    try:
+                        tree = ast.parse(read_res.content, filename=str(p))
+                    except SyntaxError:
+                        # Cannot confirm file actually contains tests; skip emission.
+                        continue
+                    fn_count, class_count, has_pytest_ref = _count_tests_in_ast(tree)
+                    if fn_count == 0 and class_count == 0 and not has_pytest_ref:
+                        continue
                     source_tree_tests.append(rel_source_test)
                     findings.append(
                         ValidationFinding(

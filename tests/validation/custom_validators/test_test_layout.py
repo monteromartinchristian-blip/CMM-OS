@@ -204,3 +204,57 @@ def test_test_layout_serialization(tmp_path: Path) -> None:
     serialized = result.serialize()
     assert serialized["name"] == "custom.test_layout"
     assert serialized["artifacts"][0]["kind"] == "test_layout_report"
+
+
+def test_test_layout_module_named_test_layout_without_tests_is_not_finding(
+    tmp_path: Path,
+) -> None:
+    """Regression: a cmm/ module whose name starts with test_ but contains no
+    test_* functions, Test* classes, or pytest references must not produce a
+    TEST_LAYOUT_TEST_IN_SOURCE finding.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_valid.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+
+    cmm_dir = tmp_path / "cmm"
+    cmm_dir.mkdir()
+    (cmm_dir / "test_layout.py").write_text(
+        "def helper():\n    return 42\n\nCONST = 1\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(project_root=tmp_path)
+    validator = TestLayoutValidator()
+    result = validator.validate(context)
+
+    misplaced = [f for f in result.findings if f.code == "TEST_LAYOUT_TEST_IN_SOURCE"]
+    assert misplaced == []
+    assert "cmm/test_layout.py" not in result.artifacts[0].content["source_tree_tests"]
+
+
+def test_test_layout_module_named_test_misplaced_with_test_function_is_finding(
+    tmp_path: Path,
+) -> None:
+    """Regression: a cmm/ module whose name starts with test_ and that does
+    contain a test_* function must produce a TEST_LAYOUT_TEST_IN_SOURCE finding.
+    """
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_valid.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+
+    cmm_dir = tmp_path / "cmm"
+    cmm_dir.mkdir()
+    (cmm_dir / "test_misplaced.py").write_text(
+        "def test_example():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    context = ValidationContext(project_root=tmp_path)
+    validator = TestLayoutValidator()
+    result = validator.validate(context)
+
+    misplaced = [f for f in result.findings if f.code == "TEST_LAYOUT_TEST_IN_SOURCE"]
+    assert len(misplaced) == 1
+    assert misplaced[0].file_path == "cmm/test_misplaced.py"
+    assert "cmm/test_misplaced.py" in result.artifacts[0].content["source_tree_tests"]
