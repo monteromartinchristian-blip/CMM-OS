@@ -238,3 +238,54 @@ class WorkflowPlanVersionError(WorkflowPlannerAdapterError, ValueError):
 
 class WorkflowReplanningError(WorkflowPlannerAdapterError, RuntimeError):
     """Raised when replanning fails or cannot produce a valid updated plan."""
+
+
+# ── Phase 9.8 – Policy Engine Errors ──────────────────────────────────────────
+
+
+class PolicyEngineError(AgentRuntimeError):
+    """Base exception for all Policy Engine operations."""
+
+
+class InvalidPolicyContractError(PolicyEngineError, InvalidAgentContractError):
+    """Raised when a policy contract or component is invalid or violates invariants."""
+
+
+class PolicyNotFoundError(PolicyEngineError, KeyError):
+    """Raised when a requested policy is not found in the repository."""
+
+
+class PolicySetNotFoundError(PolicyEngineError, KeyError):
+    """Raised when a requested policy set is not found in the repository."""
+
+
+class DuplicatePolicyError(PolicyEngineError, ValueError):
+    """Raised when attempting to add a policy with a duplicate ID and version."""
+
+
+class DuplicatePolicySetError(PolicyEngineError, ValueError):
+    """Raised when attempting to add a policy set with a duplicate ID."""
+
+
+class PolicyConditionEvaluationError(PolicyEngineError, ValueError):
+    """Raised when evaluating a policy condition fails due to invalid fields or syntax."""
+
+
+class PolicyTargetEvaluationError(PolicyEngineError, ValueError):
+    """Raised when evaluating a policy target fails."""
+
+
+class PolicyCombiningError(PolicyEngineError, ValueError):
+    """Raised when policy decision combining fails or algorithm encounters unexpected state."""
+
+
+class PolicyResolutionError(PolicyEngineError, RuntimeError):
+    """Raised when resolving policy sets or applicable policies fails."""
+
+
+class PolicyVersionError(PolicyEngineError, ValueError):
+    """Raised when policy versioning or version comparison is invalid."""
+
+
+class PolicyEvaluationError(PolicyEngineError, RuntimeError):
+    """Raised when policy evaluation encounters an unhandled runtime error."""

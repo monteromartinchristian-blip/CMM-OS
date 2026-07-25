@@ -528,3 +528,166 @@ class WorkflowPlanChangeReason(str, Enum):
     OUTCOME_DIVERGED = "outcome_diverged"
     SAFER_STRATEGY_FOUND = "safer_strategy_found"
     MANUAL_REQUEST = "manual_request"
+
+
+# ── Phase 9.8 – Policy Engine Enumerations ────────────────────────────────────
+
+
+class PolicyDecision(str, Enum):
+    """Decision outcomes from Policy Engine evaluation."""
+
+    ALLOW = "allow"
+    DENY = "deny"
+    ALLOW_WITH_RESTRICTIONS = "allow_with_restrictions"
+    REQUIRE_APPROVAL = "require_approval"
+    REQUIRE_VALIDATION = "require_validation"
+    REQUIRE_INFORMATION = "require_information"
+    PAUSE = "pause"
+    NOT_APPLICABLE = "not_applicable"
+    INDETERMINATE = "indeterminate"
+
+
+class PolicyEvaluationStatus(str, Enum):
+    """Evaluation status for policy evaluation requests and results."""
+
+    PENDING = "pending"
+    EVALUATING = "evaluating"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PolicyEffect(str, Enum):
+    """Consequence effects declared on policy rules and policies."""
+
+    PERMIT = "permit"
+    DENY = "deny"
+    OBLIGATION = "obligation"
+    ADVICE = "advice"
+    RESTRICTION = "restriction"
+
+
+class PolicyScope(str, Enum):
+    """Granular target scopes for policies."""
+
+    GLOBAL = "global"
+    SYSTEM = "system"
+    ENVIRONMENT = "environment"
+    AGENT = "agent"
+    GOAL = "goal"
+    RUN = "run"
+    WORKFLOW = "workflow"
+    TASK = "task"
+    OPERATION = "operation"
+    RESOURCE = "resource"
+    ACTOR = "actor"
+    DOMAIN = "domain"
+
+
+class PolicySubjectKind(str, Enum):
+    """Categories of actors and execution entities subject to policy evaluation."""
+
+    AGENT = "agent"
+    USER = "user"
+    SYSTEM = "system"
+    ROLE = "role"
+    SERVICE = "service"
+    EXTERNAL = "external"
+
+
+class PolicyResourceKind(str, Enum):
+    """Categories of resources evaluated in policy checks."""
+
+    FILE = "file"
+    REPOSITORY = "repository"
+    OPERATION = "operation"
+    WORKFLOW = "workflow"
+    GOAL = "goal"
+    KNOWLEDGE = "knowledge"
+    MEMORY = "memory"
+    SYSTEM = "system"
+    NETWORK = "network"
+    EXTERNAL = "external"
+    SECRET = "secret"
+    ACQUISITION_STRATEGY = "acquisition_strategy"
+
+
+class PolicyRiskLevel(str, Enum):
+    """Risk classification levels for policy evaluation."""
+
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class PolicySeverity(str, Enum):
+    """Severity levels for violations, obligations, and restrictions."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    BLOCKING = "blocking"
+    CRITICAL = "critical"
+
+
+class PolicyConditionOperator(str, Enum):
+    """Comparison operators supported by PolicyCondition."""
+
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    IN = "in"
+    NOT_IN = "not_in"
+    CONTAINS = "contains"
+    NOT_CONTAINS = "not_contains"
+    GREATER_THAN = "greater_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN = "less_than"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    EXISTS = "exists"
+    NOT_EXISTS = "not_exists"
+    MATCHES = "matches"
+    STARTS_WITH = "starts_with"
+    ENDS_WITH = "ends_with"
+    INTERSECTS = "intersects"
+    SUBSET_OF = "subset_of"
+
+
+class PolicyCombiningAlgorithm(str, Enum):
+    """Combining algorithms for resolving policy evaluation decisions."""
+
+    DENY_OVERRIDES = "deny_overrides"
+    PERMIT_OVERRIDES = "permit_overrides"
+    FIRST_APPLICABLE = "first_applicable"
+    ONLY_ONE_APPLICABLE = "only_one_applicable"
+    ORDERED_DENY_OVERRIDES = "ordered_deny_overrides"
+    ORDERED_PERMIT_OVERRIDES = "ordered_permit_overrides"
+
+
+class PolicyObligationKind(str, Enum):
+    """Types of obligations that policies can enforce."""
+
+    REQUIRE_VALIDATION = "require_validation"
+    REQUIRE_APPROVAL = "require_approval"
+    LOG_AUDIT = "log_audit"
+    USE_CHECKPOINT = "use_checkpoint"
+    LIMIT_SCOPE = "limit_scope"
+    ENFORCE_ROLLBACK = "enforce_rollback"
+    MASK_DATA = "mask_data"
+    REQUEST_INFORMATION = "request_information"
+    RESTRICT_TIMEOUT = "restrict_timeout"
+    RESTRICT_COST = "restrict_cost"
+    LIMIT_OPERATIONS = "limit_operations"
+    REQUIRE_HUMAN_INTERVENTION = "require_human_intervention"
+    STOP_ON_CONDITION_CHANGE = "stop_on_condition_change"
+
+
+class PolicyFailureMode(str, Enum):
+    """Fail-safe default decision when evaluation encounters errors or indeterminate state."""
+
+    DENY = "deny"
+    PAUSE = "pause"
+    REQUIRE_APPROVAL = "require_approval"
