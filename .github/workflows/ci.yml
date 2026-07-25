@@ -46,9 +46,7 @@ jobs:
 
       - name: Install project and test dependencies
         run: |
-          python -m pip install -e .
-          python -m pip install pytest
-
+          python -m pip install -e ".[validation]"
       - name: Compile Python sources
         run: python -m compileall -q cmm cmm_agent kernel tests
 
