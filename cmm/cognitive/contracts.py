@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -39,7 +40,7 @@ class Confidence:
 
         object.__setattr__(self, "value", normalized)
         object.__setattr__(self, "reasons", tuple(self.reasons))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,7 +69,7 @@ class CognitiveActor:
             )
 
         object.__setattr__(self, "permissions", tuple(self.permissions))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,7 +108,7 @@ class CognitiveFinding:
             )
 
         object.__setattr__(self, "related_ids", tuple(self.related_ids))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,7 +154,7 @@ class CognitiveResult:
             )
 
         object.__setattr__(self, "findings", tuple(self.findings))
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     @property
     def blocking_findings(self) -> tuple[CognitiveFinding, ...]:

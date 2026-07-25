@@ -203,3 +203,50 @@ def test_default_result_identifier_is_valid() -> None:
 
     assert parsed.namespace == "cognitive-result"
     assert parsed.kind == "general"
+
+
+def test_base_contracts_metadata_defensive_copy_and_immutability() -> None:
+    # 1. Confidence
+    src1 = {"key": "original_value"}
+    conf = Confidence(value=0.9, metadata=src1)
+    src1["key"] = "mutated"
+    assert conf.metadata["key"] == "original_value"
+    with pytest.raises(TypeError):
+        conf.metadata["new_key"] = "forbidden"  # type: ignore[index]
+
+    # 2. CognitiveActor
+    src2 = {"key": "original_value"}
+    actor = CognitiveActor(
+        id="actor-1",
+        kind=CognitiveActorKind.USER,
+        metadata=src2,
+    )
+    src2["key"] = "mutated"
+    assert actor.metadata["key"] == "original_value"
+    with pytest.raises(TypeError):
+        actor.metadata["new_key"] = "forbidden"  # type: ignore[index]
+
+    # 3. CognitiveFinding
+    src3 = {"key": "original_value"}
+    finding = CognitiveFinding(
+        code="code-1",
+        message="msg",
+        metadata=src3,
+    )
+    src3["key"] = "mutated"
+    assert finding.metadata["key"] == "original_value"
+    with pytest.raises(TypeError):
+        finding.metadata["new_key"] = "forbidden"  # type: ignore[index]
+
+    # 4. CognitiveResult
+    src4 = {"key": "original_value"}
+    result = CognitiveResult(
+        objective="obj",
+        status=CognitiveStatus.COMPLETED,
+        confidence=conf,
+        metadata=src4,
+    )
+    src4["key"] = "mutated"
+    assert result.metadata["key"] == "original_value"
+    with pytest.raises(TypeError):
+        result.metadata["new_key"] = "forbidden"  # type: ignore[index]
