@@ -38,11 +38,17 @@ def read_file_safe(path: Path, encoding: str = "utf-8") -> FileReadResult:
         content = path.read_text(encoding=encoding)
         return FileReadResult(content=content)
     except UnicodeDecodeError:
-        return FileReadResult(content=None, is_unreadable=True, error_type="UnicodeDecodeError")
+        return FileReadResult(
+            content=None, is_unreadable=True, error_type="UnicodeDecodeError"
+        )
     except PermissionError:
-        return FileReadResult(content=None, is_unreadable=True, error_type="PermissionError")
+        return FileReadResult(
+            content=None, is_unreadable=True, error_type="PermissionError"
+        )
     except OSError as exc:
-        return FileReadResult(content=None, is_unreadable=True, error_type=type(exc).__name__)
+        return FileReadResult(
+            content=None, is_unreadable=True, error_type=type(exc).__name__
+        )
 
 
 def safe_read_text(path: Path, encoding: str = "utf-8") -> str | None:
@@ -62,7 +68,8 @@ def is_ignored_path(path: Path | str) -> bool:
 def aggregate_status(findings: Sequence[ValidationFinding]) -> ValidationStatus:
     """Determine ValidationStatus based on finding severities and blocking status."""
     if any(
-        f.blocking or f.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL)
+        f.blocking
+        or f.severity in (ValidationSeverity.ERROR, ValidationSeverity.CRITICAL)
         for f in findings
     ):
         return ValidationStatus.FAILED
@@ -81,7 +88,9 @@ def serialize_path(path: Path | str, project_root: Path) -> str:
         return p.as_posix()
 
 
-def format_syntax_error_info(rel_path: str, exc: SyntaxError) -> Tuple[str, Dict[str, Any]]:
+def format_syntax_error_info(
+    rel_path: str, exc: SyntaxError
+) -> Tuple[str, Dict[str, Any]]:
     """Format bounded syntax error message and metadata without exposing source code snippets."""
     line = exc.lineno or 1
     col = exc.offset or 1

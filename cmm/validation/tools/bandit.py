@@ -11,7 +11,9 @@ from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 
 
-def _safe_path(path_value: str | Path | None, project_root: Path | None = None) -> Path | None:
+def _safe_path(
+    path_value: str | Path | None, project_root: Path | None = None
+) -> Path | None:
     if path_value is None:
         return None
     path = Path(str(path_value))
@@ -62,7 +64,14 @@ def parse_bandit_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     try:
         payload = json.loads(text or "{}")
@@ -89,14 +98,23 @@ def parse_bandit_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     findings: list[ValidationFinding] = []
     if isinstance(payload, Mapping):
         for item in payload.get("results", []) or []:
             if not isinstance(item, Mapping):
                 continue
-            issue_text = str(item.get("issue_text") or "Bandit reported a security issue")
+            issue_text = str(
+                item.get("issue_text") or "Bandit reported a security issue"
+            )
             confidence = str(item.get("issue_confidence") or "").lower()
             severity = str(item.get("issue_severity") or "").lower()
             path = _safe_path(item.get("filename"), project_root)
@@ -113,7 +131,9 @@ def parse_bandit_results(
                 ValidationFinding(
                     code=code,
                     message=issue_text,
-                    severity=ValidationSeverity.ERROR if severity in {"high", "medium"} else ValidationSeverity.WARNING,
+                    severity=ValidationSeverity.ERROR
+                    if severity in {"high", "medium"}
+                    else ValidationSeverity.WARNING,
                     source="bandit",
                     file_path=path,
                     line=_coerce_int(item.get("line_number")),
@@ -131,13 +151,29 @@ def parse_bandit_results(
             "files": list(selected),
             "diagnostics": [finding.serialize() for finding in findings],
             "status": "diagnostics" if findings else "passed",
-            "metrics": {"diagnostic_count": len(findings), "files_checked": len(selected)},
+            "metrics": {
+                "diagnostic_count": len(findings),
+                "files_checked": len(selected),
+            },
         },
         findings=tuple(findings),
         metrics={"diagnostic_count": len(findings), "files_checked": len(selected)},
     )
-    status = ValidationStatus.FAILED if any(f.blocking for f in findings) else ValidationStatus.WARNING if findings else ValidationStatus.PASSED
-    return {"status": status, "findings": findings, "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    status = (
+        ValidationStatus.FAILED
+        if any(f.blocking for f in findings)
+        else ValidationStatus.WARNING
+        if findings
+        else ValidationStatus.PASSED
+    )
+    return {
+        "status": status,
+        "findings": findings,
+        "artifacts": [artifact],
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+    }
 
 
 def _tool_unavailable(stderr: str) -> bool:

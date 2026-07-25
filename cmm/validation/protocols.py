@@ -15,7 +15,9 @@ class InternalValidator(Protocol):
 
     name: str
 
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:  # noqa: D401
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:  # noqa: D401
         """Execute validation and return a structured result for this step."""
 
 

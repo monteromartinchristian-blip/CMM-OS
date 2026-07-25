@@ -14,10 +14,21 @@ from cmm.validation.tools.vulture import parse_vulture_results
 
 
 class CommandResultParser:
-    def parse(self, context: ValidationContext, step: ValidationStep, result: ValidationStepResult) -> ValidationStepResult:
+    def parse(
+        self,
+        context: ValidationContext,
+        step: ValidationStep,
+        result: ValidationStepResult,
+    ) -> ValidationStepResult:
         parser = str(step.metadata.get("result_parser") or step.name)
         selected_files = tuple(select_files(step))
-        if parser in {"ruff", "formatter_check", "formatter_fix", "lint_check", "lint_fix"}:
+        if parser in {
+            "ruff",
+            "formatter_check",
+            "formatter_fix",
+            "lint_check",
+            "lint_fix",
+        }:
             mode = "formatter" if step.name.startswith("formatter") else "lint"
             parsed = parse_ruff_results(
                 result.stdout,

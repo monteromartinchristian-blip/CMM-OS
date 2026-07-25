@@ -23,7 +23,9 @@ class GitSnapshotBundle:
 class GitChangeSetAdapter:
     def snapshot_pair(self, project_root: Path, ref: str) -> GitSnapshotBundle:
         root = Path(project_root).resolve(strict=True)
-        statuses = self._run(root, "diff", "--name-status", "-M", ref, "--").splitlines()
+        statuses = self._run(
+            root, "diff", "--name-status", "-M", ref, "--"
+        ).splitlines()
         before_files: list[FileVersion] = []
         after_files: list[FileVersion] = []
         rename_hints: list[tuple[str, str]] = []
@@ -36,28 +38,52 @@ class GitChangeSetAdapter:
             if status.startswith("R") and len(parts) >= 3:
                 old_path, new_path = parts[1], parts[2]
                 rename_hints.append((old_path, new_path))
-                before_files.append(self._version_from_git(root, ref, old_path, source="before"))
-                after_files.append(self._version_from_worktree(root, new_path, source="after"))
+                before_files.append(
+                    self._version_from_git(root, ref, old_path, source="before")
+                )
+                after_files.append(
+                    self._version_from_worktree(root, new_path, source="after")
+                )
                 continue
             if len(parts) < 2:
                 continue
             path = parts[1]
             if status == "D":
-                before_files.append(self._version_from_git(root, ref, path, source="before"))
+                before_files.append(
+                    self._version_from_git(root, ref, path, source="before")
+                )
             elif status == "A":
-                after_files.append(self._version_from_worktree(root, path, source="after"))
+                after_files.append(
+                    self._version_from_worktree(root, path, source="after")
+                )
             else:
-                before_files.append(self._version_from_git(root, ref, path, source="before"))
-                after_files.append(self._version_from_worktree(root, path, source="after"))
+                before_files.append(
+                    self._version_from_git(root, ref, path, source="before")
+                )
+                after_files.append(
+                    self._version_from_worktree(root, path, source="after")
+                )
 
         return GitSnapshotBundle(
-            before=ProjectSnapshot(root=root, source="git", files=tuple(before_files), metadata={"ref": ref, "side": "before"}),
-            after=ProjectSnapshot(root=root, source="git", files=tuple(after_files), metadata={"ref": ref, "side": "after"}),
+            before=ProjectSnapshot(
+                root=root,
+                source="git",
+                files=tuple(before_files),
+                metadata={"ref": ref, "side": "before"},
+            ),
+            after=ProjectSnapshot(
+                root=root,
+                source="git",
+                files=tuple(after_files),
+                metadata={"ref": ref, "side": "after"},
+            ),
             rename_hints=tuple(rename_hints),
             metadata={"ref": ref, "changed_paths": len(statuses)},
         )
 
-    def _version_from_git(self, root: Path, ref: str, relative_path: str, *, source: str) -> FileVersion:
+    def _version_from_git(
+        self, root: Path, ref: str, relative_path: str, *, source: str
+    ) -> FileVersion:
         try:
             content = self._run(root, "show", f"{ref}:{relative_path}")
             exists = True
@@ -74,7 +100,9 @@ class GitChangeSetAdapter:
             metadata={"git_ref": ref},
         )
 
-    def _version_from_worktree(self, root: Path, relative_path: str, *, source: str) -> FileVersion:
+    def _version_from_worktree(
+        self, root: Path, relative_path: str, *, source: str
+    ) -> FileVersion:
         path = root / relative_path
         if not path.exists() or not path.is_file():
             return FileVersion(
@@ -108,7 +136,9 @@ class GitChangeSetAdapter:
         except FileNotFoundError as exc:
             raise GitChangeSetError("git is not available") from exc
         if completed.returncode != 0:
-            raise GitChangeSetError((completed.stderr or completed.stdout or "git command failed").strip())
+            raise GitChangeSetError(
+                (completed.stderr or completed.stdout or "git command failed").strip()
+            )
         return completed.stdout or ""
 
     def _sha256(self, data: bytes) -> str:

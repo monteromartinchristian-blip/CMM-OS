@@ -74,9 +74,13 @@ class FileVersion:
 
     def __post_init__(self) -> None:
         if self.source not in {"before", "after"}:
-            raise ValidationContractError("FileVersion.source must be 'before' or 'after'")
+            raise ValidationContractError(
+                "FileVersion.source must be 'before' or 'after'"
+            )
         if not self.content_hash and self.exists:
-            raise ValidationContractError("FileVersion.content_hash must not be empty for existing files")
+            raise ValidationContractError(
+                "FileVersion.content_hash must not be empty for existing files"
+            )
         object.__setattr__(self, "path", Path(str(self.path)))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
@@ -98,7 +102,9 @@ class FileVersion:
             content_hash=str(payload.get("content_hash", "")),
             source=str(payload.get("source", "after")),
             content=payload.get("content"),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -115,10 +121,14 @@ class FileChange:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("FileChange.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "FileChange.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "before_path", _as_path(self.before_path))
         object.__setattr__(self, "after_path", _as_path(self.after_path))
-        object.__setattr__(self, "reasons", tuple(str(item) for item in self.reasons or ()))
+        object.__setattr__(
+            self, "reasons", tuple(str(item) for item in self.reasons or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -145,7 +155,9 @@ class FileChange:
             after=None if after is None else FileVersion.from_mapping(after),
             confidence=float(payload.get("confidence", 0.0)),
             reasons=tuple(str(item) for item in payload.get("reasons", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -168,12 +180,18 @@ class SymbolChange:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("SymbolChange.confidence must be between 0 and 1")
-        object.__setattr__(self, "before_decorators", tuple(self.before_decorators or ()))
+            raise ValidationContractError(
+                "SymbolChange.confidence must be between 0 and 1"
+            )
+        object.__setattr__(
+            self, "before_decorators", tuple(self.before_decorators or ())
+        )
         object.__setattr__(self, "after_decorators", tuple(self.after_decorators or ()))
         object.__setattr__(self, "before_bases", tuple(self.before_bases or ()))
         object.__setattr__(self, "after_bases", tuple(self.after_bases or ()))
-        object.__setattr__(self, "reasons", tuple(str(item) for item in self.reasons or ()))
+        object.__setattr__(
+            self, "reasons", tuple(str(item) for item in self.reasons or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -203,14 +221,20 @@ class SymbolChange:
             confidence=float(payload.get("confidence", 0.0)),
             before_signature=payload.get("before_signature"),
             after_signature=payload.get("after_signature"),
-            before_decorators=tuple(str(item) for item in payload.get("before_decorators", ())),
-            after_decorators=tuple(str(item) for item in payload.get("after_decorators", ())),
+            before_decorators=tuple(
+                str(item) for item in payload.get("before_decorators", ())
+            ),
+            after_decorators=tuple(
+                str(item) for item in payload.get("after_decorators", ())
+            ),
             before_bases=tuple(str(item) for item in payload.get("before_bases", ())),
             after_bases=tuple(str(item) for item in payload.get("after_bases", ())),
             public_before=bool(payload.get("public_before", True)),
             public_after=bool(payload.get("public_after", True)),
             reasons=tuple(str(item) for item in payload.get("reasons", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -229,8 +253,12 @@ class ImportChange:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("ImportChange.confidence must be between 0 and 1")
-        object.__setattr__(self, "reasons", tuple(str(item) for item in self.reasons or ()))
+            raise ValidationContractError(
+                "ImportChange.confidence must be between 0 and 1"
+            )
+        object.__setattr__(
+            self, "reasons", tuple(str(item) for item in self.reasons or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -259,7 +287,9 @@ class ImportChange:
             before=payload.get("before"),
             after=payload.get("after"),
             reasons=tuple(str(item) for item in payload.get("reasons", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -275,11 +305,19 @@ class PublicAPIChange:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("PublicAPIChange.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "PublicAPIChange.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "added", tuple(str(item) for item in self.added or ()))
-        object.__setattr__(self, "removed", tuple(str(item) for item in self.removed or ()))
-        object.__setattr__(self, "changed", tuple(str(item) for item in self.changed or ()))
-        object.__setattr__(self, "reasons", tuple(str(item) for item in self.reasons or ()))
+        object.__setattr__(
+            self, "removed", tuple(str(item) for item in self.removed or ())
+        )
+        object.__setattr__(
+            self, "changed", tuple(str(item) for item in self.changed or ())
+        )
+        object.__setattr__(
+            self, "reasons", tuple(str(item) for item in self.reasons or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -302,7 +340,9 @@ class PublicAPIChange:
             changed=tuple(str(item) for item in payload.get("changed", ())),
             confidence=float(payload.get("confidence", 0.0)),
             reasons=tuple(str(item) for item in payload.get("reasons", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -340,16 +380,24 @@ class DependencyGraph:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("DependencyGraph.confidence must be between 0 and 1")
-        object.__setattr__(self, "modules", tuple(sorted(str(item) for item in self.modules)))
+            raise ValidationContractError(
+                "DependencyGraph.confidence must be between 0 and 1"
+            )
+        object.__setattr__(
+            self, "modules", tuple(sorted(str(item) for item in self.modules))
+        )
         object.__setattr__(self, "edges", tuple(self.edges or ()))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def dependencies_of(self, module: str) -> tuple[str, ...]:
-        return tuple(sorted(edge.target for edge in self.edges if edge.source == module))
+        return tuple(
+            sorted(edge.target for edge in self.edges if edge.source == module)
+        )
 
     def dependents_of(self, module: str) -> tuple[str, ...]:
-        return tuple(sorted(edge.source for edge in self.edges if edge.target == module))
+        return tuple(
+            sorted(edge.source for edge in self.edges if edge.target == module)
+        )
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -363,9 +411,13 @@ class DependencyGraph:
     def from_mapping(cls, payload: Mapping[str, Any]) -> "DependencyGraph":
         return cls(
             modules=tuple(str(item) for item in payload.get("modules", ())),
-            edges=tuple(DependencyEdge.from_mapping(item) for item in payload.get("edges", ())),
+            edges=tuple(
+                DependencyEdge.from_mapping(item) for item in payload.get("edges", ())
+            ),
             confidence=float(payload.get("confidence", 1.0)),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -394,8 +446,12 @@ class ProjectSnapshot:
         return cls(
             root=Path(str(payload["root"])),
             source=str(payload.get("source", "snapshot")),
-            files=tuple(FileVersion.from_mapping(item) for item in payload.get("files", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            files=tuple(
+                FileVersion.from_mapping(item) for item in payload.get("files", ())
+            ),
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -418,15 +474,21 @@ class ChangeSet:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("ChangeSet.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "ChangeSet.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "project_root", Path(str(self.project_root)))
         object.__setattr__(self, "before_root", _as_path(self.before_root))
         object.__setattr__(self, "after_root", _as_path(self.after_root))
         object.__setattr__(self, "file_changes", tuple(self.file_changes or ()))
         object.__setattr__(self, "symbol_changes", tuple(self.symbol_changes or ()))
         object.__setattr__(self, "import_changes", tuple(self.import_changes or ()))
-        object.__setattr__(self, "public_api_changes", tuple(self.public_api_changes or ()))
-        object.__setattr__(self, "uncertainty", tuple(str(item) for item in self.uncertainty or ()))
+        object.__setattr__(
+            self, "public_api_changes", tuple(self.public_api_changes or ())
+        )
+        object.__setattr__(
+            self, "uncertainty", tuple(str(item) for item in self.uncertainty or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     @property
@@ -450,8 +512,12 @@ class ChangeSet:
             "source": self.source,
             "symbol_changes": [item.serialize() for item in self.symbol_changes],
             "import_changes": [item.serialize() for item in self.import_changes],
-            "public_api_changes": [item.serialize() for item in self.public_api_changes],
-            "dependency_graph": None if self.dependency_graph is None else self.dependency_graph.serialize(),
+            "public_api_changes": [
+                item.serialize() for item in self.public_api_changes
+            ],
+            "dependency_graph": None
+            if self.dependency_graph is None
+            else self.dependency_graph.serialize(),
             "uncertainty": list(self.uncertainty),
             "metadata": dict(self.metadata or {}),
             "changed_files": [str(path) for path in self.changed_files],
@@ -464,17 +530,33 @@ class ChangeSet:
             project_root=Path(str(payload["project_root"])),
             before_root=payload.get("before_root"),
             after_root=payload.get("after_root"),
-            file_changes=tuple(FileChange.from_mapping(item) for item in payload.get("file_changes", ())),
+            file_changes=tuple(
+                FileChange.from_mapping(item)
+                for item in payload.get("file_changes", ())
+            ),
             change_type=ChangeType(str(payload.get("change_type", "unknown"))),
             confidence=float(payload.get("confidence", 0.0)),
             requires_full_suite=bool(payload.get("requires_full_suite", False)),
             source=str(payload.get("source", "snapshots")),
-            symbol_changes=tuple(SymbolChange.from_mapping(item) for item in payload.get("symbol_changes", ())),
-            import_changes=tuple(ImportChange.from_mapping(item) for item in payload.get("import_changes", ())),
-            public_api_changes=tuple(PublicAPIChange.from_mapping(item) for item in payload.get("public_api_changes", ())),
-            dependency_graph=None if dependency_graph is None else DependencyGraph.from_mapping(dependency_graph),
+            symbol_changes=tuple(
+                SymbolChange.from_mapping(item)
+                for item in payload.get("symbol_changes", ())
+            ),
+            import_changes=tuple(
+                ImportChange.from_mapping(item)
+                for item in payload.get("import_changes", ())
+            ),
+            public_api_changes=tuple(
+                PublicAPIChange.from_mapping(item)
+                for item in payload.get("public_api_changes", ())
+            ),
+            dependency_graph=None
+            if dependency_graph is None
+            else DependencyGraph.from_mapping(dependency_graph),
             uncertainty=tuple(str(item) for item in payload.get("uncertainty", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -494,13 +576,29 @@ class ChangeImpactResult:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("ChangeImpactResult.confidence must be between 0 and 1")
-        object.__setattr__(self, "affected_modules", tuple(sorted(str(item) for item in self.affected_modules or ())))
-        object.__setattr__(self, "affected_symbols", tuple(sorted(str(item) for item in self.affected_symbols or ())))
-        object.__setattr__(self, "affected_tests", tuple(sorted(str(item) for item in self.affected_tests or ())))
+            raise ValidationContractError(
+                "ChangeImpactResult.confidence must be between 0 and 1"
+            )
+        object.__setattr__(
+            self,
+            "affected_modules",
+            tuple(sorted(str(item) for item in self.affected_modules or ())),
+        )
+        object.__setattr__(
+            self,
+            "affected_symbols",
+            tuple(sorted(str(item) for item in self.affected_symbols or ())),
+        )
+        object.__setattr__(
+            self,
+            "affected_tests",
+            tuple(sorted(str(item) for item in self.affected_tests or ())),
+        )
         object.__setattr__(self, "findings", tuple(self.findings or ()))
         object.__setattr__(self, "artifacts", tuple(self.artifacts or ()))
-        object.__setattr__(self, "uncertainty", tuple(str(item) for item in self.uncertainty or ()))
+        object.__setattr__(
+            self, "uncertainty", tuple(str(item) for item in self.uncertainty or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -522,14 +620,30 @@ class ChangeImpactResult:
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ChangeImpactResult":
         return cls(
             change_type=ChangeType(str(payload.get("change_type", "unknown"))),
-            affected_modules=tuple(str(item) for item in payload.get("affected_modules", ())),
-            affected_symbols=tuple(str(item) for item in payload.get("affected_symbols", ())),
-            affected_tests=tuple(str(item) for item in payload.get("affected_tests", ())),
+            affected_modules=tuple(
+                str(item) for item in payload.get("affected_modules", ())
+            ),
+            affected_symbols=tuple(
+                str(item) for item in payload.get("affected_symbols", ())
+            ),
+            affected_tests=tuple(
+                str(item) for item in payload.get("affected_tests", ())
+            ),
             public_api_changed=bool(payload.get("public_api_changed", False)),
             confidence=float(payload.get("confidence", 0.0)),
             requires_full_suite=bool(payload.get("requires_full_suite", False)),
-            findings=tuple(item for item in payload.get("findings", ()) if isinstance(item, ValidationFinding)),
-            artifacts=tuple(item for item in payload.get("artifacts", ()) if isinstance(item, ValidationArtifact)),
+            findings=tuple(
+                item
+                for item in payload.get("findings", ())
+                if isinstance(item, ValidationFinding)
+            ),
+            artifacts=tuple(
+                item
+                for item in payload.get("artifacts", ())
+                if isinstance(item, ValidationArtifact)
+            ),
             uncertainty=tuple(str(item) for item in payload.get("uncertainty", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )

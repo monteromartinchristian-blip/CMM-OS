@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from cmm.validation.context import ValidationContext
-from cmm.validation.testing.escalation import TestEscalationDecision as _TestEscalationDecision, decide_test_escalation
+from cmm.validation.testing.escalation import (
+    TestEscalationDecision as _TestEscalationDecision,
+    decide_test_escalation,
+)
 from cmm.validation.testing.selection import TestSelection as _TestSelection
 
 
@@ -36,7 +39,9 @@ def test_low_confidence_selection_requires_full_suite(tmp_path: Path) -> None:
 
 def test_explicit_full_suite_request_wins(tmp_path: Path) -> None:
     context = ValidationContext(project_root=tmp_path, requested_steps=("full_suite",))
-    selection = _TestSelection(selected_tests=(Path("tests/test_sample.py"),), confidence=0.95)
+    selection = _TestSelection(
+        selected_tests=(Path("tests/test_sample.py"),), confidence=0.95
+    )
 
     decision = decide_test_escalation(context, selection)
 

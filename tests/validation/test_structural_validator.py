@@ -15,7 +15,9 @@ def test_structural_validator_detects_duplicates(tmp_path: Path):
     )
     ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("module.py"),))
 
-    result = PythonStructuralValidator().validate(ctx, ValidationStep(name="structural", step_type=ValidationStepType.INTERNAL))
+    result = PythonStructuralValidator().validate(
+        ctx, ValidationStep(name="structural", step_type=ValidationStepType.INTERNAL)
+    )
 
     assert result.status.value == "failed"
     assert any(f.code == "DUPLICATE_TOP_LEVEL_CLASS" for f in result.findings)
@@ -30,7 +32,9 @@ def test_structural_validator_detects_duplicate_imports_and_methods(tmp_path: Pa
     )
     ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("module.py"),))
 
-    result = PythonStructuralValidator().validate(ctx, ValidationStep(name="structural", step_type=ValidationStepType.INTERNAL))
+    result = PythonStructuralValidator().validate(
+        ctx, ValidationStep(name="structural", step_type=ValidationStepType.INTERNAL)
+    )
 
     assert any(f.code == "DUPLICATE_IMPORT" for f in result.findings)
     assert any(f.code == "DUPLICATE_CLASS_METHOD" for f in result.findings)

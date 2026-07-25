@@ -14,7 +14,12 @@ def test_syntax_validator_passes_valid_file(tmp_path: Path):
     ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("ok.py"),))
 
     validator = PythonSyntaxValidator()
-    step = ValidationStep(name="syntax", step_type=__import__("cmm.validation.steps", fromlist=["ValidationStepType"]).ValidationStepType.INTERNAL)
+    step = ValidationStep(
+        name="syntax",
+        step_type=__import__(
+            "cmm.validation.steps", fromlist=["ValidationStepType"]
+        ).ValidationStepType.INTERNAL,
+    )
     result = validator.validate(ctx, step)
 
     assert result.status.value == "passed"
@@ -29,7 +34,12 @@ def test_syntax_validator_reports_syntax_error(tmp_path: Path):
     ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("bad.py"),))
 
     validator = PythonSyntaxValidator()
-    step = ValidationStep(name="syntax", step_type=__import__("cmm.validation.steps", fromlist=["ValidationStepType"]).ValidationStepType.INTERNAL)
+    step = ValidationStep(
+        name="syntax",
+        step_type=__import__(
+            "cmm.validation.steps", fromlist=["ValidationStepType"]
+        ).ValidationStepType.INTERNAL,
+    )
     result = validator.validate(ctx, step)
 
     assert result.status.value == "failed"

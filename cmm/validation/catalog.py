@@ -52,7 +52,9 @@ def select_python_files(context: ValidationContext) -> list[Path]:
     return files
 
 
-def select_python_files_with_errors(context: ValidationContext) -> tuple[list[Path], tuple[ValidationFinding, ...]]:
+def select_python_files_with_errors(
+    context: ValidationContext,
+) -> tuple[list[Path], tuple[ValidationFinding, ...]]:
     project_root = context.project_root.resolve(strict=False)
     python_paths: list[Path] = []
     seen: set[Path] = set()
@@ -102,7 +104,11 @@ def select_python_files_with_errors(context: ValidationContext) -> tuple[list[Pa
                     rel_path = rel_path.relative_to(project_root)
                 except Exception:
                     rel_path = Path(raw_str)
-            if candidate_path.exists() and candidate_path.is_file() and not candidate_path.is_symlink():
+            if (
+                candidate_path.exists()
+                and candidate_path.is_file()
+                and not candidate_path.is_symlink()
+            ):
                 rel_path = candidate_path.relative_to(project_root)
             else:
                 errors.append(
@@ -125,7 +131,11 @@ def select_python_files_with_errors(context: ValidationContext) -> tuple[list[Pa
             return sorted(python_paths), tuple(errors)
 
     for root, dirs, files in os.walk(project_root, topdown=True, followlinks=False):
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d)) and d not in _EXCLUDED_DIRS]
+        dirs[:] = [
+            d
+            for d in dirs
+            if not os.path.islink(os.path.join(root, d)) and d not in _EXCLUDED_DIRS
+        ]
         for name in sorted(files):
             if not name.endswith(".py"):
                 continue
@@ -160,7 +170,12 @@ def formatter_check_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": False, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
+        metadata={
+            "fix": False,
+            "scope": files or None,
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
+        },
     )
 
 
@@ -181,7 +196,12 @@ def formatter_fix_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0,),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": True, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
+        metadata={
+            "fix": True,
+            "scope": files or None,
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
+        },
     )
 
 
@@ -202,7 +222,12 @@ def lint_check_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": False, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
+        metadata={
+            "fix": False,
+            "scope": files or None,
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
+        },
     )
 
 
@@ -223,7 +248,12 @@ def lint_fix_step(context: ValidationContext) -> ValidationStep:
         allowed_exit_codes=(0, 1),
         working_directory=context.project_root,
         dependencies=("syntax",),
-        metadata={"fix": True, "scope": files or None, "security_profile": "validation", "command_policy": default_command_policy().serialize()},
+        metadata={
+            "fix": True,
+            "scope": files or None,
+            "security_profile": "validation",
+            "command_policy": default_command_policy().serialize(),
+        },
     )
 
 
@@ -264,35 +294,51 @@ def structural_step() -> ValidationStep:
 
 
 def change_impact_step(context: ValidationContext) -> ValidationStep:
-    from cmm.validation.impact.validation import change_impact_step as _change_impact_step
+    from cmm.validation.impact.validation import (
+        change_impact_step as _change_impact_step,
+    )
 
     return _change_impact_step(context)
 
 
-def static_type_check_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+def static_type_check_step(
+    context: ValidationContext, *, change_impact_step: ValidationStep | None = None
+) -> ValidationStep | None:
     from cmm.validation.static_analysis.validation import default_static_analysis_steps
 
-    steps = default_static_analysis_steps(context, change_impact_step=change_impact_step)
+    steps = default_static_analysis_steps(
+        context, change_impact_step=change_impact_step
+    )
     for step in steps:
         if step.name == "type_check":
             return step
     return None
 
 
-def static_dead_code_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+def static_dead_code_step(
+    context: ValidationContext, *, change_impact_step: ValidationStep | None = None
+) -> ValidationStep | None:
     from cmm.validation.static_analysis.validation import default_static_analysis_steps
 
-    steps = default_static_analysis_steps(context, change_impact_step=change_impact_step)
+    steps = default_static_analysis_steps(
+        context, change_impact_step=change_impact_step
+    )
     for step in steps:
         if step.name == "dead_code":
             return step
     return None
 
 
-def default_static_analysis_steps(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> tuple[ValidationStep, ...]:
-    from cmm.validation.static_analysis.validation import default_static_analysis_steps as _default_static_analysis_steps
+def default_static_analysis_steps(
+    context: ValidationContext, *, change_impact_step: ValidationStep | None = None
+) -> tuple[ValidationStep, ...]:
+    from cmm.validation.static_analysis.validation import (
+        default_static_analysis_steps as _default_static_analysis_steps,
+    )
 
-    return _default_static_analysis_steps(context, change_impact_step=change_impact_step)
+    return _default_static_analysis_steps(
+        context, change_impact_step=change_impact_step
+    )
 
 
 def security_step(
@@ -303,7 +349,9 @@ def security_step(
 ) -> ValidationStep:
     from cmm.validation.security.validation import security_step as _security_step
 
-    return _security_step(context, change_impact_step=change_impact_step, planned_steps=planned_steps)
+    return _security_step(
+        context, change_impact_step=change_impact_step, planned_steps=planned_steps
+    )
 
 
 def default_security_steps(
@@ -312,18 +360,26 @@ def default_security_steps(
     change_impact_step: ValidationStep | None = None,
     planned_steps: tuple[ValidationStep, ...] = (),
 ) -> tuple[ValidationStep, ...]:
-    from cmm.validation.security.validation import default_security_steps as _default_security_steps
+    from cmm.validation.security.validation import (
+        default_security_steps as _default_security_steps,
+    )
 
-    return _default_security_steps(context, change_impact_step=change_impact_step, planned_steps=planned_steps)
+    return _default_security_steps(
+        context, change_impact_step=change_impact_step, planned_steps=planned_steps
+    )
 
 
-def bandit_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+def bandit_step(
+    context: ValidationContext, *, change_impact_step: ValidationStep | None = None
+) -> ValidationStep | None:
     from cmm.validation.security.validation import bandit_step as _bandit_step
 
     return _bandit_step(context, change_impact_step=change_impact_step)
 
 
-def pip_audit_step(context: ValidationContext, *, change_impact_step: ValidationStep | None = None) -> ValidationStep | None:
+def pip_audit_step(
+    context: ValidationContext, *, change_impact_step: ValidationStep | None = None
+) -> ValidationStep | None:
     from cmm.validation.security.validation import pip_audit_step as _pip_audit_step
 
     return _pip_audit_step(context, change_impact_step=change_impact_step)

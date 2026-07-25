@@ -50,7 +50,9 @@ class CustomValidatorAdapter:
     def name(self) -> str:
         return self._step_name
 
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         started_at = datetime.now(timezone.utc)
         t0 = time.monotonic()
 
@@ -186,7 +188,9 @@ def build_custom_validation_step(
             message="Custom validator must have a 'name' attribute",
         )
     val_name = _validate_name_string(getattr(validator, "name"))
-    if not hasattr(validator, "validate") or not callable(getattr(validator, "validate")):
+    if not hasattr(validator, "validate") or not callable(
+        getattr(validator, "validate")
+    ):
         raise ValidationRegistryError(
             code="invalid_custom_validator",
             message="Custom validator must implement a callable 'validate(context)' method",
@@ -207,7 +211,10 @@ def build_custom_validation_step(
         adapter = CustomValidatorAdapter(validator, step_name)
         if validation_registry.has(step_name):
             existing = validation_registry.get(step_name)
-            if isinstance(existing, CustomValidatorAdapter) and existing._validator is validator:
+            if (
+                isinstance(existing, CustomValidatorAdapter)
+                and existing._validator is validator
+            ):
                 # Idempotent re-registration of the exact same custom validator
                 pass
             else:
@@ -239,7 +246,9 @@ class CustomValidatorRegistry:
                 message="Custom validator must have a 'name' attribute",
             )
         name = _validate_name_string(getattr(validator, "name"))
-        if not hasattr(validator, "validate") or not callable(getattr(validator, "validate")):
+        if not hasattr(validator, "validate") or not callable(
+            getattr(validator, "validate")
+        ):
             raise ValidationRegistryError(
                 code="invalid_custom_validator",
                 message="Custom validator must implement a callable 'validate(context)' method",

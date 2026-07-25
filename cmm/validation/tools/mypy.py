@@ -15,7 +15,9 @@ _LINE_PATTERN = re.compile(
 )
 
 
-def _safe_path(path_value: str | Path | None, project_root: Path | None = None) -> Path | None:
+def _safe_path(
+    path_value: str | Path | None, project_root: Path | None = None
+) -> Path | None:
     if path_value is None:
         return None
     path = Path(str(path_value))
@@ -68,7 +70,9 @@ def parse_mypy_results(
             "exit_code": exit_code,
         }
 
-    if stderr and ("no module named mypy" in stderr.lower() or "not found" in stderr.lower()):
+    if stderr and (
+        "no module named mypy" in stderr.lower() or "not found" in stderr.lower()
+    ):
         finding = ValidationFinding(
             code="TOOL_NOT_AVAILABLE",
             message="mypy is not available in the current environment.",
@@ -92,7 +96,14 @@ def parse_mypy_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     findings: list[ValidationFinding] = []
     for line in text.splitlines():
@@ -132,14 +143,24 @@ def parse_mypy_results(
             "diagnostics": [item.serialize() for item in findings],
             "complete": True,
             "reason": "diagnostics" if findings else "unknown_failure",
-            "metrics": {"diagnostic_count": len(findings), "files_checked": len(selected)},
+            "metrics": {
+                "diagnostic_count": len(findings),
+                "files_checked": len(selected),
+            },
         },
         findings=tuple(findings),
         metrics={"diagnostic_count": len(findings), "files_checked": len(selected)},
     )
     status = ValidationStatus.WARNING if findings else ValidationStatus.ERROR
     if findings:
-        return {"status": status, "findings": findings, "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": status,
+            "findings": findings,
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     finding = ValidationFinding(
         code="MYPY_EXECUTION_ERROR",
@@ -164,7 +185,14 @@ def parse_mypy_results(
         findings=(finding,),
         metrics={"diagnostic_count": 0, "files_checked": len(selected)},
     )
-    return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    return {
+        "status": ValidationStatus.ERROR,
+        "findings": [finding],
+        "artifacts": [artifact],
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+    }
 
 
 def _categorize(code: str, message: str) -> str:
@@ -173,7 +201,18 @@ def _categorize(code: str, message: str) -> str:
         return "MYPY_UNDEFINED_REFERENCE"
     if normalized in {"return_value", "return"}:
         return "MYPY_INCONSISTENT_RETURN"
-    if normalized in {"call_arg", "arg_type", "call_overload", "assignment", "operator", "union_attr", "valid_type", "typeddict_item", "index", "misc"}:
+    if normalized in {
+        "call_arg",
+        "arg_type",
+        "call_overload",
+        "assignment",
+        "operator",
+        "union_attr",
+        "valid_type",
+        "typeddict_item",
+        "index",
+        "misc",
+    }:
         return "MYPY_TYPE_ERROR"
     if normalized in {"override", "no_overload_impl"}:
         return "MYPY_SIGNATURE_INCOMPATIBLE"

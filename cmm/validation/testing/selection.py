@@ -71,7 +71,9 @@ def _is_python_file(path: Path) -> bool:
 
 def _is_test_filename(name: str) -> bool:
     lower = name.lower()
-    return (lower.startswith("test_") and lower.endswith(".py")) or lower.endswith("_test.py")
+    return (lower.startswith("test_") and lower.endswith(".py")) or lower.endswith(
+        "_test.py"
+    )
 
 
 def _is_config_change(path: Path) -> bool:
@@ -85,7 +87,11 @@ def _is_cross_cutting_change(path: Path) -> bool:
         return True
     if lower.startswith("cmm/validation/"):
         return True
-    if lower.endswith("/executor.py") or lower.endswith("/pipeline.py") or lower.endswith("/registry.py"):
+    if (
+        lower.endswith("/executor.py")
+        or lower.endswith("/pipeline.py")
+        or lower.endswith("/registry.py")
+    ):
         return True
     return False
 
@@ -96,12 +102,21 @@ def _candidate_test_paths(change: Path, discovered: set[Path]) -> tuple[Path, ..
         if not scope:
             return ()
         prefix = Path("tests") / scope
-        matches = [test for test in discovered if str(test).replace("\\", "/").startswith(str(prefix).replace("\\", "/") + "/")]
+        matches = [
+            test
+            for test in discovered
+            if str(test)
+            .replace("\\", "/")
+            .startswith(str(prefix).replace("\\", "/") + "/")
+        ]
         return tuple(matches)
 
     stem = change.stem
     scope = _package_scope_for_change(change)
-    candidates: list[Path] = [Path("tests") / f"test_{stem}.py", Path("tests") / f"{stem}_test.py"]
+    candidates: list[Path] = [
+        Path("tests") / f"test_{stem}.py",
+        Path("tests") / f"{stem}_test.py",
+    ]
     if scope:
         scope_dir = Path("tests") / scope
         candidates.extend(
@@ -141,15 +156,21 @@ class TestSelection:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("TestSelection.confidence must be between 0.0 and 1.0")
+            raise ValidationContractError(
+                "TestSelection.confidence must be between 0.0 and 1.0"
+            )
         normalized_tests = tuple(Path(str(path)) for path in self.selected_tests)
         if any(path.is_absolute() for path in normalized_tests):
-            raise ValidationContractError("TestSelection.selected_tests must be relative paths")
+            raise ValidationContractError(
+                "TestSelection.selected_tests must be relative paths"
+            )
         normalized_related: dict[str, tuple[str, ...]] = {
             str(key): tuple(str(item) for item in value)
             for key, value in dict(self.related_changes or {}).items()
         }
-        object.__setattr__(self, "selected_tests", tuple(sorted(normalized_tests, key=str)))
+        object.__setattr__(
+            self, "selected_tests", tuple(sorted(normalized_tests, key=str))
+        )
         object.__setattr__(self, "related_changes", normalized_related)
         object.__setattr__(self, "reasons", tuple(self.reasons or ()))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
@@ -157,7 +178,9 @@ class TestSelection:
     def serialize(self) -> dict[str, Any]:
         return {
             "selected_tests": [str(path) for path in self.selected_tests],
-            "related_changes": {key: list(value) for key, value in self.related_changes.items()},
+            "related_changes": {
+                key: list(value) for key, value in self.related_changes.items()
+            },
             "confidence": self.confidence,
             "requires_full_suite": self.requires_full_suite,
             "reasons": list(self.reasons),
@@ -165,13 +188,17 @@ class TestSelection:
         }
 
 
-def _select_from_changed_tests(change: Path, discovered: set[Path]) -> tuple[list[Path], float, list[str]]:
+def _select_from_changed_tests(
+    change: Path, discovered: set[Path]
+) -> tuple[list[Path], float, list[str]]:
     if change in discovered:
         return [change], 1.0, ["direct_test_change"]
     return [], 0.0, []
 
 
-def _select_for_change(change: Path, discovered: set[Path]) -> tuple[list[Path], float, list[str]]:
+def _select_for_change(
+    change: Path, discovered: set[Path]
+) -> tuple[list[Path], float, list[str]]:
     if change.name == "__init__.py":
         direct = list(_candidate_test_paths(change, discovered))
         if direct:
@@ -180,7 +207,9 @@ def _select_for_change(change: Path, discovered: set[Path]) -> tuple[list[Path],
 
     direct = list(_candidate_test_paths(change, discovered))
     if direct:
-        if len(direct) == 1 and (change.stem in direct[0].name or direct[0].name == f"test_{change.stem}.py"):
+        if len(direct) == 1 and (
+            change.stem in direct[0].name or direct[0].name == f"test_{change.stem}.py"
+        ):
             return direct, 0.9, ["direct_path_match"]
         return direct, 0.85, ["package_path_match"]
 
@@ -225,8 +254,14 @@ def select_affected_tests(context: ValidationContext) -> TestSelection:
             except Exception:
                 normalized = change
         key = str(normalized)
-        if normalized.parts and normalized.parts[0] == "tests" and _is_test_filename(normalized.name):
-            matched, score, change_reasons = _select_from_changed_tests(normalized, discovered)
+        if (
+            normalized.parts
+            and normalized.parts[0] == "tests"
+            and _is_test_filename(normalized.name)
+        ):
+            matched, score, change_reasons = _select_from_changed_tests(
+                normalized, discovered
+            )
             if matched:
                 test_changes.append(key)
                 related_changes[key] = tuple(str(path) for path in matched)
@@ -265,10 +300,18 @@ def select_affected_tests(context: ValidationContext) -> TestSelection:
     selected_unique = tuple(dict.fromkeys(sorted(selected_tests, key=str)))
     requires_full_suite = False
     full_suite_reasons: list[str] = []
-    if any(_is_config_change(Path(change)) for change in changed_files if _is_python_file(Path(change)) or Path(change).suffix):
+    if any(
+        _is_config_change(Path(change))
+        for change in changed_files
+        if _is_python_file(Path(change)) or Path(change).suffix
+    ):
         requires_full_suite = True
         full_suite_reasons.append("pytest_or_packaging_config_change")
-    if any(_is_cross_cutting_change(Path(change)) for change in changed_files if _is_python_file(Path(change))):
+    if any(
+        _is_cross_cutting_change(Path(change))
+        for change in changed_files
+        if _is_python_file(Path(change))
+    ):
         requires_full_suite = True
         full_suite_reasons.append("cross_cutting_validation_change")
     if "kernel" in package_scopes:
@@ -288,7 +331,9 @@ def select_affected_tests(context: ValidationContext) -> TestSelection:
 
     metadata = {
         "strategy": "phase_7_4_basic_heuristics",
-        "package_scopes": tuple(sorted(scope for scope in package_scopes if scope is not None)),
+        "package_scopes": tuple(
+            sorted(scope for scope in package_scopes if scope is not None)
+        ),
         "python_changes": tuple(python_changes),
         "test_changes": tuple(test_changes),
         "selected_count": len(selected_unique),

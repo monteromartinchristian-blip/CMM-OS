@@ -19,7 +19,9 @@ def build_dependency_graph(
     root = Path(project_root).resolve(strict=False)
     analyzer = ProjectAnalyzer(root)
     python_index = PythonIndex()
-    module_paths = {module_name_from_path(root, path): path for path in analyzer.python_files()}
+    module_paths = {
+        module_name_from_path(root, path): path for path in analyzer.python_files()
+    }
     module_names = tuple(sorted(module_paths))
     edges: set[DependencyEdge] = set()
 
@@ -29,16 +31,22 @@ def build_dependency_graph(
             data = python_index.index(path)
         except Exception:
             continue
-        for target in _resolve_import_targets(module_name, data.get("import_targets", ()), set(module_names)):
+        for target in _resolve_import_targets(
+            module_name, data.get("import_targets", ()), set(module_names)
+        ):
             if target != module_name:
-                edges.add(DependencyEdge(source=module_name, target=target, kind="import"))
+                edges.add(
+                    DependencyEdge(source=module_name, target=target, kind="import")
+                )
 
     if project_index is not None:
         _augment_from_project_index(project_index, edges, module_names)
 
     return DependencyGraph(
         modules=module_names,
-        edges=tuple(sorted(edges, key=lambda edge: (edge.source, edge.target, edge.kind))),
+        edges=tuple(
+            sorted(edges, key=lambda edge: (edge.source, edge.target, edge.kind))
+        ),
         confidence=0.9 if edges else 1.0,
         metadata={"project_root": str(root)},
     )
@@ -72,7 +80,9 @@ def affected_dependents(graph: DependencyGraph, modules: set[str]) -> set[str]:
     return impacted
 
 
-def _resolve_import_targets(module_name: str, import_targets: Any, project_modules: set[str]) -> tuple[str, ...]:
+def _resolve_import_targets(
+    module_name: str, import_targets: Any, project_modules: set[str]
+) -> tuple[str, ...]:
     resolved: list[str] = []
     package_parts = module_name.split(".")
     for item in import_targets:
@@ -103,8 +113,12 @@ def _resolve_import_targets(module_name: str, import_targets: Any, project_modul
     return tuple(dict.fromkeys(resolved))
 
 
-def _augment_from_project_index(project_index: Any, edges: set[DependencyEdge], module_names: tuple[str, ...]) -> None:
-    if not hasattr(project_index, "find_module") or not hasattr(project_index, "find_imported_by"):
+def _augment_from_project_index(
+    project_index: Any, edges: set[DependencyEdge], module_names: tuple[str, ...]
+) -> None:
+    if not hasattr(project_index, "find_module") or not hasattr(
+        project_index, "find_imported_by"
+    ):
         return
     for module_name in module_names:
         try:
@@ -118,7 +132,16 @@ def _augment_from_project_index(project_index: Any, edges: set[DependencyEdge], 
         except Exception:
             continue
         for dependent in dependents or ():
-            dependent_name = getattr(dependent, "title", None) or getattr(dependent, "identifier", None)
+            dependent_name = getattr(dependent, "title", None) or getattr(
+                dependent, "identifier", None
+            )
             if not dependent_name or dependent_name == module_name:
                 continue
-            edges.add(DependencyEdge(source=str(dependent_name), target=module_name, kind="technical_memory", confidence=0.6))
+            edges.add(
+                DependencyEdge(
+                    source=str(dependent_name),
+                    target=module_name,
+                    kind="technical_memory",
+                    confidence=0.6,
+                )
+            )

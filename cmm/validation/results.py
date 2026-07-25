@@ -33,12 +33,20 @@ class ValidationResult:
             raise ValueError("ValidationResult.id must not be empty")
         if self.duration_ms < 0:
             raise ValueError("ValidationResult.duration_ms must be non-negative")
-        if self.started_at and self.completed_at and self.completed_at < self.started_at:
-            raise ValueError("ValidationResult.completed_at cannot be before started_at")
+        if (
+            self.started_at
+            and self.completed_at
+            and self.completed_at < self.started_at
+        ):
+            raise ValueError(
+                "ValidationResult.completed_at cannot be before started_at"
+            )
         # defensive copies
         object.__setattr__(self, "steps", tuple(self.steps or ()))
         object.__setattr__(self, "artifacts", tuple(self.artifacts or ()))
-        object.__setattr__(self, "blocking_findings", tuple(self.blocking_findings or ()))
+        object.__setattr__(
+            self, "blocking_findings", tuple(self.blocking_findings or ())
+        )
         object.__setattr__(self, "warnings", tuple(self.warnings or ()))
         object.__setattr__(self, "changed_files", tuple(self.changed_files or ()))
         object.__setattr__(self, "affected_tests", tuple(self.affected_tests or ()))
@@ -90,8 +98,12 @@ class ValidationResult:
             "changed_files": [str(p) for p in self.changed_files],
             "affected_tests": list(self.affected_tests),
             "duration_ms": self.duration_ms,
-            "started_at": None if self.started_at is None else self.started_at.isoformat(),
-            "completed_at": None if self.completed_at is None else self.completed_at.isoformat(),
+            "started_at": None
+            if self.started_at is None
+            else self.started_at.isoformat(),
+            "completed_at": None
+            if self.completed_at is None
+            else self.completed_at.isoformat(),
             "can_commit": self.can_commit,
             "metadata": dict(self.metadata or {}),
         }

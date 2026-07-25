@@ -13,7 +13,9 @@ from cmm.validation.findings import ValidationFinding
 _LINE_PATTERN = re.compile(r"^(?P<path>.+?):(?P<line>\d+): (?P<message>.*)$")
 
 
-def _safe_path(path_value: str | Path | None, project_root: Path | None = None) -> Path | None:
+def _safe_path(
+    path_value: str | Path | None, project_root: Path | None = None
+) -> Path | None:
     if path_value is None:
         return None
     path = Path(str(path_value))
@@ -66,7 +68,9 @@ def parse_vulture_results(
             "exit_code": exit_code,
         }
 
-    if stderr and ("no module named vulture" in stderr.lower() or "not found" in stderr.lower()):
+    if stderr and (
+        "no module named vulture" in stderr.lower() or "not found" in stderr.lower()
+    ):
         finding = ValidationFinding(
             code="TOOL_NOT_AVAILABLE",
             message="vulture is not available in the current environment.",
@@ -90,7 +94,14 @@ def parse_vulture_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     findings: list[ValidationFinding] = []
     for line in text.splitlines():
@@ -122,7 +133,10 @@ def parse_vulture_results(
             "diagnostics": [item.serialize() for item in findings],
             "complete": True,
             "reason": "diagnostics" if findings else "unknown_failure",
-            "metrics": {"diagnostic_count": len(findings), "files_checked": len(selected)},
+            "metrics": {
+                "diagnostic_count": len(findings),
+                "files_checked": len(selected),
+            },
         },
         findings=tuple(findings),
         metrics={"diagnostic_count": len(findings), "files_checked": len(selected)},
@@ -160,7 +174,14 @@ def parse_vulture_results(
         findings=(finding,),
         metrics={"diagnostic_count": 0, "files_checked": len(selected)},
     )
-    return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    return {
+        "status": ValidationStatus.ERROR,
+        "findings": [finding],
+        "artifacts": [artifact],
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+    }
 
 
 def _categorize(message: str) -> tuple[str, str]:

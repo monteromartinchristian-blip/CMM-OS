@@ -12,10 +12,14 @@ from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.protocols import InternalValidator
 from cmm.validation.steps import ValidationStep, ValidationStepResult
+
+
 class PythonSyntaxValidator(InternalValidator):
     name = "syntax"
 
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         from cmm.validation.catalog import select_python_files
 
         files = select_python_files(context)

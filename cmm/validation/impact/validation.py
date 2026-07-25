@@ -7,7 +7,11 @@ from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
-from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepResult,
+    ValidationStepType,
+)
 
 from .analyzer import ChangeImpactAnalyzer
 from .contracts import ChangeSet
@@ -15,7 +19,9 @@ from .snapshots import ChangeSetBuilder
 
 
 class ChangeImpactValidator:
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         change_set = self._load_change_set(context, step.metadata)
         analyzer = ChangeImpactAnalyzer(
             project_index=step.metadata.get("project_index"),
@@ -39,7 +45,9 @@ class ChangeImpactValidator:
             },
         )
 
-    def _load_change_set(self, context: ValidationContext, metadata: Mapping[str, Any]) -> ChangeSet:
+    def _load_change_set(
+        self, context: ValidationContext, metadata: Mapping[str, Any]
+    ) -> ChangeSet:
         payload = metadata.get("change_set")
         if isinstance(payload, Mapping):
             return ChangeSet.from_mapping(payload)
@@ -52,7 +60,9 @@ class ChangeImpactValidator:
             project_root=context.project_root,
             before_root=Path(str(before_root)) if before_root is not None else None,
             after_root=Path(str(after_root)) if after_root is not None else None,
-            changed_files=tuple(changed_files) if isinstance(changed_files, (list, tuple)) else context.changed_files,
+            changed_files=tuple(changed_files)
+            if isinstance(changed_files, (list, tuple))
+            else context.changed_files,
             git_ref=None if git_ref is None else str(git_ref),
         )
 

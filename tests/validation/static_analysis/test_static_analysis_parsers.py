@@ -7,7 +7,7 @@ from cmm.validation.tools.vulture import parse_vulture_results
 
 
 def test_parse_mypy_results_detects_undefined_reference() -> None:
-    payload = "/tmp/project/pkg/module.py:2:12: error: Name \"missing\" is not defined  [name-defined]"
+    payload = '/tmp/project/pkg/module.py:2:12: error: Name "missing" is not defined  [name-defined]'
 
     result = parse_mypy_results(
         payload,

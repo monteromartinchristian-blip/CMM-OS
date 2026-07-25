@@ -8,7 +8,11 @@ from cmm.validation.catalog import (
 )
 from cmm.validation.context import ValidationContext
 from cmm.validation.errors import ValidationContractError
-from cmm.validation.policy import ValidationPolicy, expand_validation_step_labels, resolve_validation_policy
+from cmm.validation.policy import (
+    ValidationPolicy,
+    expand_validation_step_labels,
+    resolve_validation_policy,
+)
 from cmm.validation.security import bandit_step, pip_audit_step
 from cmm.validation.steps import ValidationStep
 from .testing_catalog import default_testing_steps
@@ -28,7 +32,9 @@ def _build_broad_validation_steps(
     impact_step = change_impact_step(context)
     steps.append(impact_step)
     steps.extend(default_static_analysis_steps(context, change_impact_step=impact_step))
-    testing_steps = default_testing_steps(context, require_full_suite=require_full_suite)
+    testing_steps = default_testing_steps(
+        context, require_full_suite=require_full_suite
+    )
     steps.extend(
         default_security_steps(
             context,

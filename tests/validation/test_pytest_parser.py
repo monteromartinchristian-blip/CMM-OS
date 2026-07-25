@@ -6,7 +6,11 @@ import pytest
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationStatus
-from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepResult,
+    ValidationStepType,
+)
 from cmm.validation.testing.pytest_parser import parse_pytest_result
 
 
@@ -24,13 +28,25 @@ def _step(project_root: Path) -> ValidationStep:
             "pytest_confidence": 1.0,
             "pytest_junitxml": str(project_root / "report.xml"),
             "project_root": str(project_root),
-            "selection": {"selected_tests": ["tests/test_sample.py"], "related_changes": {"cmm/sample.py": ["tests/test_sample.py"]}},
+            "selection": {
+                "selected_tests": ["tests/test_sample.py"],
+                "related_changes": {"cmm/sample.py": ["tests/test_sample.py"]},
+            },
         },
     )
 
 
-def _generic_result(status: ValidationStatus = ValidationStatus.PASSED, exit_code: int = 0) -> ValidationStepResult:
-    return ValidationStepResult(name="affected_tests", status=status, exit_code=exit_code, duration_ms=5, stdout="out", stderr="err")
+def _generic_result(
+    status: ValidationStatus = ValidationStatus.PASSED, exit_code: int = 0
+) -> ValidationStepResult:
+    return ValidationStepResult(
+        name="affected_tests",
+        status=status,
+        exit_code=exit_code,
+        duration_ms=5,
+        stdout="out",
+        stderr="err",
+    )
 
 
 def test_parse_pytest_result_handles_testsuites_root(tmp_path: Path) -> None:
@@ -50,7 +66,11 @@ def test_parse_pytest_result_handles_testsuites_root(tmp_path: Path) -> None:
 """
     (project_root / "report.xml").write_text(xml, encoding="utf-8")
 
-    result = parse_pytest_result(step=_step(project_root), generic_result=_generic_result(), junit_xml=project_root / "report.xml")
+    result = parse_pytest_result(
+        step=_step(project_root),
+        generic_result=_generic_result(),
+        junit_xml=project_root / "report.xml",
+    )
 
     assert result.status == ValidationStatus.FAILED
     assert result.exit_code == 0
@@ -67,7 +87,11 @@ def test_parse_pytest_result_handles_invalid_xml(tmp_path: Path) -> None:
     bad_xml = "<testsuites><broken>"
     (project_root / "report.xml").write_text(bad_xml, encoding="utf-8")
 
-    result = parse_pytest_result(step=_step(project_root), generic_result=_generic_result(), junit_xml=project_root / "report.xml")
+    result = parse_pytest_result(
+        step=_step(project_root),
+        generic_result=_generic_result(),
+        junit_xml=project_root / "report.xml",
+    )
 
     assert result.status == ValidationStatus.ERROR
     assert any(f.code == "PYTEST_REPORT_PARSE_ERROR" for f in result.findings)
@@ -76,7 +100,11 @@ def test_parse_pytest_result_handles_invalid_xml(tmp_path: Path) -> None:
 def test_parse_pytest_result_handles_missing_report(tmp_path: Path) -> None:
     project_root = tmp_path
 
-    result = parse_pytest_result(step=_step(project_root), generic_result=_generic_result(exit_code=1), junit_xml=project_root / "missing.xml")
+    result = parse_pytest_result(
+        step=_step(project_root),
+        generic_result=_generic_result(exit_code=1),
+        junit_xml=project_root / "missing.xml",
+    )
 
     assert result.status == ValidationStatus.ERROR
     assert any(f.code == "PYTEST_REPORT_MISSING" for f in result.findings)
@@ -91,11 +119,20 @@ def test_parse_pytest_result_handles_missing_report(tmp_path: Path) -> None:
         (5, ValidationStatus.FAILED, "PYTEST_NO_TESTS_COLLECTED"),
     ],
 )
-def test_parse_pytest_result_maps_exit_codes(tmp_path: Path, exit_code: int, expected_status: ValidationStatus, expected_code: str) -> None:
+def test_parse_pytest_result_maps_exit_codes(
+    tmp_path: Path,
+    exit_code: int,
+    expected_status: ValidationStatus,
+    expected_code: str,
+) -> None:
     project_root = tmp_path
     (project_root / "report.xml").write_text("<testsuites />", encoding="utf-8")
 
-    result = parse_pytest_result(step=_step(project_root), generic_result=_generic_result(exit_code=exit_code), junit_xml=project_root / "report.xml")
+    result = parse_pytest_result(
+        step=_step(project_root),
+        generic_result=_generic_result(exit_code=exit_code),
+        junit_xml=project_root / "report.xml",
+    )
 
     assert result.status == expected_status
     assert any(f.code == expected_code for f in result.findings)

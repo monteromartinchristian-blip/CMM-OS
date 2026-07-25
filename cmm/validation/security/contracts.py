@@ -71,7 +71,18 @@ class SecurityScope(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class CommandPolicy:
-    allowed_executables: tuple[str, ...] = ("python*", "pytest", "ruff", "mypy", "vulture", "pyright", "bandit", "pip-audit", "pip_audit", "git")
+    allowed_executables: tuple[str, ...] = (
+        "python*",
+        "pytest",
+        "ruff",
+        "mypy",
+        "vulture",
+        "pyright",
+        "bandit",
+        "pip-audit",
+        "pip_audit",
+        "git",
+    )
     forbidden_arguments: tuple[str, ...] = ("-c",)
     allow_shell: bool = False
     allow_network: bool = False
@@ -105,18 +116,34 @@ class CommandPolicy:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "allowed_executables", _as_tuple(self.allowed_executables))
-        object.__setattr__(self, "forbidden_arguments", _as_tuple(self.forbidden_arguments))
-        object.__setattr__(self, "allowed_working_directories", _as_tuple(self.allowed_working_directories))
-        object.__setattr__(self, "environment_allowlist", _as_tuple(self.environment_allowlist))
+        object.__setattr__(
+            self, "allowed_executables", _as_tuple(self.allowed_executables)
+        )
+        object.__setattr__(
+            self, "forbidden_arguments", _as_tuple(self.forbidden_arguments)
+        )
+        object.__setattr__(
+            self,
+            "allowed_working_directories",
+            _as_tuple(self.allowed_working_directories),
+        )
+        object.__setattr__(
+            self, "environment_allowlist", _as_tuple(self.environment_allowlist)
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def allows_executable(self, executable: str) -> bool:
         candidate = Path(executable).name
-        return any(_matches_pattern(candidate, pattern) or _matches_pattern(executable, pattern) for pattern in self.allowed_executables)
+        return any(
+            _matches_pattern(candidate, pattern)
+            or _matches_pattern(executable, pattern)
+            for pattern in self.allowed_executables
+        )
 
     def allows_environment_key(self, key: str) -> bool:
-        return any(_matches_pattern(key, pattern) for pattern in self.environment_allowlist)
+        return any(
+            _matches_pattern(key, pattern) for pattern in self.environment_allowlist
+        )
 
     def allows_working_directory(self, cwd: Path, project_root: Path) -> bool:
         try:
@@ -128,13 +155,17 @@ class CommandPolicy:
             candidate = Path(allowed)
             if candidate.is_absolute():
                 try:
-                    cwd.resolve(strict=False).relative_to(candidate.resolve(strict=False))
+                    cwd.resolve(strict=False).relative_to(
+                        candidate.resolve(strict=False)
+                    )
                     return True
                 except Exception:
                     continue
             else:
                 try:
-                    cwd.resolve(strict=False).relative_to((project_root / candidate).resolve(strict=False))
+                    cwd.resolve(strict=False).relative_to(
+                        (project_root / candidate).resolve(strict=False)
+                    )
                     return True
                 except Exception:
                     continue
@@ -158,9 +189,13 @@ class CommandPolicy:
             forbidden_arguments=_as_tuple(payload.get("forbidden_arguments", ())),
             allow_shell=bool(payload.get("allow_shell", False)),
             allow_network=bool(payload.get("allow_network", False)),
-            allowed_working_directories=_as_tuple(payload.get("allowed_working_directories", ())),
+            allowed_working_directories=_as_tuple(
+                payload.get("allowed_working_directories", ())
+            ),
             environment_allowlist=_as_tuple(payload.get("environment_allowlist", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 
@@ -185,12 +220,20 @@ class SecurityAnalysisPlan:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "project_root", Path(self.project_root).resolve(strict=False))
+        object.__setattr__(
+            self, "project_root", Path(self.project_root).resolve(strict=False)
+        )
         object.__setattr__(self, "files", _as_path_tuple(self.files))
         object.__setattr__(self, "uncertainty", _as_tuple(self.uncertainty))
-        object.__setattr__(self, "planned_steps", tuple(dict(step) for step in (self.planned_steps or ())))
+        object.__setattr__(
+            self,
+            "planned_steps",
+            tuple(dict(step) for step in (self.planned_steps or ())),
+        )
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("SecurityAnalysisPlan.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "SecurityAnalysisPlan.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -214,7 +257,9 @@ class SecurityAnalysisPlan:
     def from_mapping(cls, payload: Mapping[str, Any]) -> "SecurityAnalysisPlan":
         return cls(
             project_root=Path(str(payload["project_root"])),
-            scope=SecurityScope(str(payload.get("scope", SecurityScope.AFFECTED.value))),
+            scope=SecurityScope(
+                str(payload.get("scope", SecurityScope.AFFECTED.value))
+            ),
             complete=bool(payload.get("complete", True)),
             reason=str(payload.get("reason", "")),
             files=_as_path_tuple(payload.get("files", ())),
@@ -227,9 +272,13 @@ class SecurityAnalysisPlan:
             if isinstance(payload.get("command_policy"), Mapping)
             else default_command_policy(),
             planned_steps=tuple(
-                dict(step) for step in payload.get("planned_steps", ()) if isinstance(step, Mapping)
+                dict(step)
+                for step in payload.get("planned_steps", ())
+                if isinstance(step, Mapping)
             ),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )
 
 

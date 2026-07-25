@@ -10,7 +10,9 @@ from cmm.validation.custom import (
     CustomValidatorRegistry,
     build_custom_validation_step,
 )
-from cmm.validation.custom_validators.defaults import build_default_custom_validator_registry
+from cmm.validation.custom_validators.defaults import (
+    build_default_custom_validator_registry,
+)
 from cmm.validation.errors import ValidationContractError
 from cmm.validation.policy import (
     _STEP_ALIASES,
@@ -57,16 +59,26 @@ class ValidationPlan:
         return {
             "policy": self.policy.serialize() if self.policy is not None else None,
             "step_names": [step.name for step in self.steps],
-            "custom_step_names": [step.name for step in self.steps if step.name.startswith("custom.")],
-            "required_step_names": list(self.policy.required_steps) if self.policy is not None else [],
-            "optional_step_names": list(self.policy.optional_steps) if self.policy is not None else [],
+            "custom_step_names": [
+                step.name for step in self.steps if step.name.startswith("custom.")
+            ],
+            "required_step_names": list(self.policy.required_steps)
+            if self.policy is not None
+            else [],
+            "optional_step_names": list(self.policy.optional_steps)
+            if self.policy is not None
+            else [],
             "excluded_step_names": list(self.excluded_steps),
             "selected_custom_validators": list(self.selected_custom_validators),
-            "missing_optional_custom_validators": list(self.missing_optional_custom_validators),
+            "missing_optional_custom_validators": list(
+                self.missing_optional_custom_validators
+            ),
         }
 
 
-def _build_effective_aliases(custom_reg: CustomValidatorRegistry) -> Dict[str, Tuple[str, ...]]:
+def _build_effective_aliases(
+    custom_reg: CustomValidatorRegistry,
+) -> Dict[str, Tuple[str, ...]]:
     """Build step aliases mapping including registered custom validators."""
     aliases = dict(_STEP_ALIASES)
     for name in custom_reg.names():
@@ -75,7 +87,9 @@ def _build_effective_aliases(custom_reg: CustomValidatorRegistry) -> Dict[str, T
     return aliases
 
 
-def _sort_steps_deterministically(steps: Sequence[ValidationStep]) -> Tuple[ValidationStep, ...]:
+def _sort_steps_deterministically(
+    steps: Sequence[ValidationStep],
+) -> Tuple[ValidationStep, ...]:
     """Sort validation steps into a stable, execution-optimal order."""
     order_groups: Dict[str, int] = {
         "syntax": 10,
@@ -116,10 +130,16 @@ def validate_custom_policy(
     custom_registry: Optional[CustomValidatorRegistry] = None,
 ) -> ValidationPolicy:
     """Validate that a ValidationPolicy only references valid labels and registered custom validators."""
-    custom_reg = custom_registry if custom_registry is not None else build_default_custom_validator_registry()
+    custom_reg = (
+        custom_registry
+        if custom_registry is not None
+        else build_default_custom_validator_registry()
+    )
     effective_aliases = _build_effective_aliases(custom_reg)
 
-    req_expanded = expand_validation_step_labels(policy.required_steps, aliases=effective_aliases)
+    req_expanded = expand_validation_step_labels(
+        policy.required_steps, aliases=effective_aliases
+    )
     expand_validation_step_labels(policy.optional_steps, aliases=effective_aliases)
 
     for step_name in req_expanded:
@@ -141,17 +161,25 @@ def build_validation_plan(
     custom_registry: Optional[CustomValidatorRegistry] = None,
 ) -> ValidationPlan:
     """Build a complete, explicit ValidationPlan linking steps and registry handlers."""
-    resolved_policy = policy if policy is not None else resolve_validation_policy(context)
+    resolved_policy = (
+        policy if policy is not None else resolve_validation_policy(context)
+    )
 
     val_registry = registry if registry is not None else ValidationRegistry()
-    custom_reg = custom_registry if custom_registry is not None else build_default_custom_validator_registry()
+    custom_reg = (
+        custom_registry
+        if custom_registry is not None
+        else build_default_custom_validator_registry()
+    )
     effective_aliases = _build_effective_aliases(custom_reg)
 
     if resolved_policy is not None:
         validate_custom_policy(resolved_policy, custom_registry=custom_reg)
 
     # 1. Build built-in steps
-    require_full = resolved_policy.require_full_suite if resolved_policy is not None else False
+    require_full = (
+        resolved_policy.require_full_suite if resolved_policy is not None else False
+    )
     built_in_steps = _build_broad_validation_steps(
         context,
         require_full_suite=require_full,
@@ -165,16 +193,22 @@ def build_validation_plan(
         step = build_custom_validation_step(validator, validation_registry=val_registry)
         custom_steps_dict[step.name] = step
 
-    all_available_steps_dict: Dict[str, ValidationStep] = {s.name: s for s in built_in_steps}
+    all_available_steps_dict: Dict[str, ValidationStep] = {
+        s.name: s for s in built_in_steps
+    }
     all_available_steps_dict.update(custom_steps_dict)
 
     # 3. Handle explicit step exclusion (context.excluded_steps)
     excluded_canonical_names: Set[str] = set()
     if context.excluded_steps:
         try:
-            expanded_excluded = expand_validation_step_labels(context.excluded_steps, aliases=effective_aliases)
+            expanded_excluded = expand_validation_step_labels(
+                context.excluded_steps, aliases=effective_aliases
+            )
         except ValidationContractError as exc:
-            raise ValidationContractError(f"Invalid excluded step label: {exc}") from exc
+            raise ValidationContractError(
+                f"Invalid excluded step label: {exc}"
+            ) from exc
         excluded_canonical_names = set(expanded_excluded)
 
     # 4. Handle requested steps vs policy selection
@@ -193,7 +227,11 @@ def build_validation_plan(
         for dep in step.dependencies:
             add_step_with_deps(dep, is_required=is_required)
         if name not in selected_step_names and name not in excluded_canonical_names:
-            final_step = replace(step, required=is_required) if step.required != is_required else step
+            final_step = (
+                replace(step, required=is_required)
+                if step.required != is_required
+                else step
+            )
             selected_steps_list.append(final_step)
             selected_step_names.add(name)
 
@@ -201,7 +239,9 @@ def build_validation_plan(
         # Explicit step selection via context.requested_steps
         for raw_req in context.requested_steps:
             if not isinstance(raw_req, str) or not raw_req.strip():
-                raise ValidationContractError("Requested step label must be a non-empty string.")
+                raise ValidationContractError(
+                    "Requested step label must be a non-empty string."
+                )
 
             # Reject un-prefixed names that refer to custom validators (e.g., 'project_manifest' instead of 'custom.project_manifest')
             if raw_req in custom_reg.names():
@@ -211,12 +251,19 @@ def build_validation_plan(
 
             expanded = expand_validation_step_labels(raw_req, aliases=effective_aliases)
             for canonical_name in expanded:
-                if canonical_name not in all_available_steps_dict and canonical_name not in _DYNAMIC_TEST_SCOPES:
-                    raise ValidationContractError(f"Requested validation step '{canonical_name}' is unknown or unavailable.")
+                if (
+                    canonical_name not in all_available_steps_dict
+                    and canonical_name not in _DYNAMIC_TEST_SCOPES
+                ):
+                    raise ValidationContractError(
+                        f"Requested validation step '{canonical_name}' is unknown or unavailable."
+                    )
                 add_step_with_deps(canonical_name, is_required=True)
     elif resolved_policy is not None:
         # Selection via policy
-        req_expanded = expand_validation_step_labels(resolved_policy.required_steps, aliases=effective_aliases)
+        req_expanded = expand_validation_step_labels(
+            resolved_policy.required_steps, aliases=effective_aliases
+        )
         for req_name in req_expanded:
             if req_name in excluded_canonical_names:
                 raise ValidationContractError(
@@ -230,7 +277,9 @@ def build_validation_plan(
                 )
             add_step_with_deps(req_name, is_required=True)
 
-        opt_expanded = expand_validation_step_labels(resolved_policy.optional_steps, aliases=effective_aliases)
+        opt_expanded = expand_validation_step_labels(
+            resolved_policy.optional_steps, aliases=effective_aliases
+        )
         for opt_name in opt_expanded:
             if opt_name in excluded_canonical_names:
                 continue
@@ -240,7 +289,9 @@ def build_validation_plan(
                 missing_optional_custom.append(opt_name)
     else:
         # Default: all broad steps
-        for step in _sort_steps_deterministically(tuple(all_available_steps_dict.values())):
+        for step in _sort_steps_deterministically(
+            tuple(all_available_steps_dict.values())
+        ):
             if step.name not in excluded_canonical_names:
                 add_step_with_deps(step.name, is_required=step.required)
 

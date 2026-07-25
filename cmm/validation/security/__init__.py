@@ -1,8 +1,20 @@
 from __future__ import annotations
 
-from .contracts import CommandPolicy, SecurityAnalysisPlan, SecurityScope, default_command_policy
+from .contracts import (
+    CommandPolicy,
+    SecurityAnalysisPlan,
+    SecurityScope,
+    default_command_policy,
+)
 from .defaults import default_security_steps
-from .validation import SecurityValidator, bandit_step, build_security_plan, evaluate_command_policy, pip_audit_step, security_step
+from .validation import (
+    SecurityValidator,
+    bandit_step,
+    build_security_plan,
+    evaluate_command_policy,
+    pip_audit_step,
+    security_step,
+)
 
 __all__ = [
     "CommandPolicy",

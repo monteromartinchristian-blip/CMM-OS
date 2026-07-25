@@ -25,19 +25,34 @@ from .security.validation import evaluate_command_policy
 class ValidationExecutor:
     """Executes validation steps (command or internal)."""
 
-    def _build_environment(self, context_env: Mapping[str, str], step_env: Mapping[str, str], policy: CommandPolicy, *, strict: bool) -> Mapping[str, str]:
+    def _build_environment(
+        self,
+        context_env: Mapping[str, str],
+        step_env: Mapping[str, str],
+        policy: CommandPolicy,
+        *,
+        strict: bool,
+    ) -> Mapping[str, str]:
         if strict:
-            env = {key: value for key, value in os.environ.items() if policy.allows_environment_key(key)}  # base is filtered
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if policy.allows_environment_key(key)
+            }  # base is filtered
         else:
             env = dict(os.environ)
         env.update(context_env or {})
         env.update(step_env or {})  # step has priority
         return env
 
-    def _select_cwd(self, context: ValidationContext, step: ValidationStep) -> Optional[Path]:
+    def _select_cwd(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> Optional[Path]:
         return step.working_directory or context.project_root
 
-    def _resolve_command_policy(self, context: ValidationContext, step: ValidationStep) -> CommandPolicy:
+    def _resolve_command_policy(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> CommandPolicy:
         for candidate in (
             step.metadata.get("command_policy"),
             context.metadata.get("command_policy"),
@@ -46,7 +61,9 @@ class ValidationExecutor:
                 return CommandPolicy.from_mapping(candidate)
         return default_command_policy()
 
-    def _security_profile(self, context: ValidationContext, step: ValidationStep) -> str | None:
+    def _security_profile(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> str | None:
         for candidate in (
             step.metadata.get("security_profile"),
             context.metadata.get("security_profile"),
@@ -55,7 +72,12 @@ class ValidationExecutor:
                 return str(candidate)
         return None
 
-    def execute(self, context: ValidationContext, step: ValidationStep, registry: Optional[ValidationRegistry] = None) -> ValidationStepResult:
+    def execute(
+        self,
+        context: ValidationContext,
+        step: ValidationStep,
+        registry: Optional[ValidationRegistry] = None,
+    ) -> ValidationStepResult:
         if step.step_type == ValidationStepType.COMMAND:
             return self._execute_command(context, step)
         elif step.step_type == ValidationStepType.INTERNAL:
@@ -68,13 +90,24 @@ class ValidationExecutor:
                 )
             return self._execute_internal(context, step, registry)
         else:  # pragma: no cover - defensive
-            return ValidationStepResult(name=step.name, status=ValidationStatus.ERROR, stderr="Unknown step type")
+            return ValidationStepResult(
+                name=step.name,
+                status=ValidationStatus.ERROR,
+                stderr="Unknown step type",
+            )
 
-    def _execute_command(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def _execute_command(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         profile = self._security_profile(context, step)
         policy = self._resolve_command_policy(context, step)
         cwd = self._select_cwd(context, step)
-        env = self._build_environment(context.environment, step.environment, policy, strict=profile == "validation")
+        env = self._build_environment(
+            context.environment,
+            step.environment,
+            policy,
+            strict=profile == "validation",
+        )
         started_at = datetime.now(timezone.utc)
         start = time.monotonic()
         violations = ()
@@ -132,7 +165,11 @@ class ValidationExecutor:
                 shell=False,
             )
             duration_ms = int((time.monotonic() - start) * 1000)
-            status = ValidationStatus.PASSED if completed.returncode in step.allowed_exit_codes else ValidationStatus.FAILED
+            status = (
+                ValidationStatus.PASSED
+                if completed.returncode in step.allowed_exit_codes
+                else ValidationStatus.FAILED
+            )
             result = ValidationStepResult(
                 name=step.name,
                 status=status,
@@ -156,7 +193,10 @@ class ValidationExecutor:
                 stderr=(exc.stderr or "") + f"\nTimeout after {step.timeout_seconds}s",
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),
-                metadata={"executor": "command", "timeout_seconds": step.timeout_seconds},
+                metadata={
+                    "executor": "command",
+                    "timeout_seconds": step.timeout_seconds,
+                },
             )
         except FileNotFoundError as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
@@ -185,7 +225,12 @@ class ValidationExecutor:
                 metadata={"executor": "command", "error": "unexpected_exception"},
             )
 
-    def _execute_internal(self, context: ValidationContext, step: ValidationStep, registry: ValidationRegistry) -> ValidationStepResult:
+    def _execute_internal(
+        self,
+        context: ValidationContext,
+        step: ValidationStep,
+        registry: ValidationRegistry,
+    ) -> ValidationStepResult:
         started_at = datetime.now(timezone.utc)
         start = time.monotonic()
         try:
@@ -206,7 +251,10 @@ class ValidationExecutor:
             result = validator.validate(context, step)
             # ensure result is of expected type and with correct name
             if not isinstance(result, ValidationStepResult):  # type: ignore
-                raise ValidationExecutionError(code="invalid_result", message="Internal validator returned invalid result type")
+                raise ValidationExecutionError(
+                    code="invalid_result",
+                    message="Internal validator returned invalid result type",
+                )
             if result.name != step.name:
                 # normalize and attach a structured warning finding
                 name_mismatch_finding = ValidationFinding(
@@ -221,17 +269,25 @@ class ValidationExecutor:
                     name=step.name,
                     status=result.status,
                     exit_code=result.exit_code,
-                    duration_ms=result.duration_ms or int((time.monotonic() - start) * 1000),
+                    duration_ms=result.duration_ms
+                    or int((time.monotonic() - start) * 1000),
                     stdout=result.stdout,
                     stderr=result.stderr,
                     findings=tuple(result.findings) + (name_mismatch_finding,),
                     artifacts=result.artifacts,
                     started_at=result.started_at or started_at,
                     completed_at=result.completed_at or datetime.now(timezone.utc),
-                    metadata={**dict(result.metadata or {}), "original_step_name": result.name},
+                    metadata={
+                        **dict(result.metadata or {}),
+                        "original_step_name": result.name,
+                    },
                 )
             # ensure timestamps and duration are set
-            duration_ms = result.duration_ms if result.duration_ms >= 0 else int((time.monotonic() - start) * 1000)
+            duration_ms = (
+                result.duration_ms
+                if result.duration_ms >= 0
+                else int((time.monotonic() - start) * 1000)
+            )
             if result.started_at is None or result.completed_at is None:
                 result = ValidationStepResult(
                     name=result.name,

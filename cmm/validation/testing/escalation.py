@@ -20,7 +20,9 @@ class TestEscalationDecision:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("TestEscalationDecision.confidence must be between 0.0 and 1.0")
+            raise ValidationContractError(
+                "TestEscalationDecision.confidence must be between 0.0 and 1.0"
+            )
         object.__setattr__(self, "reasons", tuple(self.reasons or ()))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
@@ -46,7 +48,9 @@ class TestEscalationDecision:
         }
 
 
-def decide_test_escalation(context: ValidationContext, selection: TestSelection) -> TestEscalationDecision:
+def decide_test_escalation(
+    context: ValidationContext, selection: TestSelection
+) -> TestEscalationDecision:
     package_scopes = tuple(selection.metadata.get("package_scopes", ()))
     include_unit = bool(selection.selected_tests) and not selection.requires_full_suite
     include_integration = False
@@ -89,5 +93,8 @@ def decide_test_escalation(context: ValidationContext, selection: TestSelection)
         requires_full_suite=selection.requires_full_suite,
         confidence=selection.confidence,
         reasons=tuple(reasons),
-        metadata={"scope": "full" if selection.requires_full_suite else "reduced", "selection": selection.serialize()},
+        metadata={
+            "scope": "full" if selection.requires_full_suite else "reduced",
+            "selection": selection.serialize(),
+        },
     )

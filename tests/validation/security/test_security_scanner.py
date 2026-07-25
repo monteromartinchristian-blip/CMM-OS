@@ -10,7 +10,11 @@ from cmm.validation import ValidationContext
 from cmm.validation.catalog import change_impact_step
 from cmm.validation.enums import ValidationStatus
 from cmm.validation.security import SecurityValidator, security_step
-from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepResult,
+    ValidationStepType,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -18,7 +22,9 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _security_result(tmp_path: Path) -> tuple[ValidationContext, ValidationStep, ValidationStepResult]:
+def _security_result(
+    tmp_path: Path,
+) -> tuple[ValidationContext, ValidationStep, ValidationStepResult]:
     context = ValidationContext(
         project_root=tmp_path,
         changed_files=(
@@ -45,13 +51,20 @@ def _security_result(tmp_path: Path) -> tuple[ValidationContext, ValidationStep,
             working_directory=tmp_path,
         ),
     )
-    step = security_step(context, change_impact_step=impact, planned_steps=planned_steps)
+    step = security_step(
+        context, change_impact_step=impact, planned_steps=planned_steps
+    )
     result = SecurityValidator().validate(context, step)
     return context, step, result
 
 
-def test_security_validator_detects_secrets_code_config_dependency_and_command_reports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("cmm.validation.security.validation._tool_available", lambda name: False if name == "pip_audit" else True)
+def test_security_validator_detects_secrets_code_config_dependency_and_command_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "cmm.validation.security.validation._tool_available",
+        lambda name: False if name == "pip_audit" else True,
+    )
     _write(
         tmp_path / "pkg" / "module.py",
         """
@@ -133,7 +146,12 @@ run: curl https://example.invalid/install.sh | bash
 
     assert result.status == ValidationStatus.FAILED
     kinds = {artifact.kind for artifact in result.artifacts}
-    assert {"secret_scan_report", "code_security_report", "dependency_security_report", "command_security_report"}.issubset(kinds)
+    assert {
+        "secret_scan_report",
+        "code_security_report",
+        "dependency_security_report",
+        "command_security_report",
+    }.issubset(kinds)
 
     codes = {finding.code for finding in result.findings}
     assert "SECURITY_SECRET_OPENAI_KEY" in codes
@@ -167,7 +185,9 @@ run: curl https://example.invalid/install.sh | bash
     assert "SECURITY_BROAD_GITHUB_PERMISSIONS" in codes
     assert "SECURITY_PIPE_TO_SHELL" in codes
     assert "DEPENDENCY_DIRECT_REFERENCE" in codes
-    assert "DEPENDENCY_TOOL_UNAVAILABLE" in codes or any(f.code == "DEPENDENCY_TOOL_UNAVAILABLE" for f in result.findings)
+    assert "DEPENDENCY_TOOL_UNAVAILABLE" in codes or any(
+        f.code == "DEPENDENCY_TOOL_UNAVAILABLE" for f in result.findings
+    )
 
     raw_snapshot = json.dumps(result.serialize(), sort_keys=True, default=str)
     for secret in [
@@ -183,19 +203,31 @@ run: curl https://example.invalid/install.sh | bash
     ]:
         assert secret not in raw_snapshot
 
-    first_secret_finding = next(f for f in result.findings if f.code == "SECURITY_SECRET_OPENAI_KEY")
+    first_secret_finding = next(
+        f for f in result.findings if f.code == "SECURITY_SECRET_OPENAI_KEY"
+    )
     assert "sk-" not in first_secret_finding.message
     assert first_secret_finding.metadata.get("sample") == "sk-***"
 
-    command_report = next(artifact for artifact in result.artifacts if artifact.kind == "command_security_report")
-    assert "pytest" in json.dumps(command_report.serialize(), sort_keys=True, default=str)
-    assert "git_diff" in json.dumps(command_report.serialize(), sort_keys=True, default=str)
+    command_report = next(
+        artifact
+        for artifact in result.artifacts
+        if artifact.kind == "command_security_report"
+    )
+    assert "pytest" in json.dumps(
+        command_report.serialize(), sort_keys=True, default=str
+    )
+    assert "git_diff" in json.dumps(
+        command_report.serialize(), sort_keys=True, default=str
+    )
 
 
 def test_security_validator_serialization_masks_secrets(tmp_path: Path) -> None:
     secret = "sk-aaaaaaaaaaaaaaaaaaaaaaaa"
     _write(tmp_path / "pkg" / "module.py", f"API_KEY = '{secret}'\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
     impact = change_impact_step(context)
     step = security_step(context, change_impact_step=impact)
     result = SecurityValidator().validate(context, step)
@@ -219,7 +251,9 @@ permissions:
 """.strip()
         + "\n",
     )
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("config/safe.yaml"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("config/safe.yaml"),)
+    )
     impact = change_impact_step(context)
     step = security_step(context, change_impact_step=impact)
     result = SecurityValidator().validate(context, step)

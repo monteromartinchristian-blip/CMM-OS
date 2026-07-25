@@ -4,7 +4,14 @@ from pathlib import Path
 
 from cmm.validation.catalog import change_impact_step
 from cmm.validation.context import ValidationContext
-from cmm.validation.impact import ChangeSet, ChangeType, FileChange, FileChangeKind, FileVersion, PublicAPIChange
+from cmm.validation.impact import (
+    ChangeSet,
+    ChangeType,
+    FileChange,
+    FileChangeKind,
+    FileVersion,
+    PublicAPIChange,
+)
 from cmm.validation.static_analysis import (
     StaticAnalysisPlan,
     StaticAnalysisScope,
@@ -79,9 +86,13 @@ def test_static_analysis_plan_escalates_on_public_api_change(tmp_path: Path) -> 
     assert plan.reason == "public_api_change"
 
 
-def test_default_static_analysis_steps_reuse_change_impact_metadata(tmp_path: Path) -> None:
+def test_default_static_analysis_steps_reuse_change_impact_metadata(
+    tmp_path: Path,
+) -> None:
     _write(tmp_path / "pkg" / "module.py", "def func(x):\n    return x\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
     impact_step = change_impact_step(context)
 
     steps = default_static_analysis_steps(context, change_impact_step=impact_step)
@@ -89,4 +100,7 @@ def test_default_static_analysis_steps_reuse_change_impact_metadata(tmp_path: Pa
     assert [step.name for step in steps] == ["type_check", "dead_code"]
     assert steps[0].metadata["analysis_scope"] == "full"
     assert steps[0].metadata["analysis_complete"] is True
-    assert steps[0].metadata["analysis_plan"]["change_type"] == impact_step.metadata["change_type"]
+    assert (
+        steps[0].metadata["analysis_plan"]["change_type"]
+        == impact_step.metadata["change_type"]
+    )

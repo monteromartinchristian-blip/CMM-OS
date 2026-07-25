@@ -82,7 +82,9 @@ def test_project_manifest_missing_project_section(tmp_path: Path) -> None:
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    assert any(f.code == "PROJECT_MANIFEST_PROJECT_SECTION_MISSING" for f in result.findings)
+    assert any(
+        f.code == "PROJECT_MANIFEST_PROJECT_SECTION_MISSING" for f in result.findings
+    )
 
 
 def test_project_manifest_missing_name_version(tmp_path: Path) -> None:
@@ -125,7 +127,9 @@ version = "0.1.0"
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    assert any(f.code == "PROJECT_MANIFEST_ENTRY_POINT_MISSING" for f in result.findings)
+    assert any(
+        f.code == "PROJECT_MANIFEST_ENTRY_POINT_MISSING" for f in result.findings
+    )
 
 
 def test_project_manifest_invalid_entry_point(tmp_path: Path) -> None:
@@ -150,7 +154,9 @@ cmm = "cmm.cli:wrong_main"
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    assert any(f.code == "PROJECT_MANIFEST_ENTRY_POINT_INVALID" for f in result.findings)
+    assert any(
+        f.code == "PROJECT_MANIFEST_ENTRY_POINT_INVALID" for f in result.findings
+    )
 
 
 def test_project_manifest_missing_dev_and_val_dependencies(tmp_path: Path) -> None:
@@ -211,7 +217,9 @@ validation = ["bandit>=1.7", "pip-audit>=2.7", "mypy>=1.10", "vulture>=2.14"]
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.WARNING
-    assert any(f.code == "PROJECT_MANIFEST_DUPLICATE_DEPENDENCY" for f in result.findings)
+    assert any(
+        f.code == "PROJECT_MANIFEST_DUPLICATE_DEPENDENCY" for f in result.findings
+    )
 
 
 def test_project_manifest_artifact_serialization(tmp_path: Path) -> None:

@@ -48,13 +48,19 @@ class ChangeImpactAnalyzer:
         uncertainty = list(change_set.uncertainty)
 
         for file_change in change_set.file_changes:
-            module_name = self._module_name_for_change(change_set.project_root, file_change)
+            module_name = self._module_name_for_change(
+                change_set.project_root, file_change
+            )
             if module_name is None:
                 continue
 
             affected_modules.add(module_name)
-            before_source = file_change.before.content if file_change.before is not None else None
-            after_source = file_change.after.content if file_change.after is not None else None
+            before_source = (
+                file_change.before.content if file_change.before is not None else None
+            )
+            after_source = (
+                file_change.after.content if file_change.after is not None else None
+            )
             if before_source is None and after_source is None:
                 uncertainty.append(f"missing_content:{module_name}")
                 continue
@@ -64,15 +70,21 @@ class ChangeImpactAnalyzer:
                     module_name=module_name,
                     before_source=before_source,
                     after_source=after_source,
-                    before_path=None if file_change.before is None else file_change.before.path,
-                    after_path=None if file_change.after is None else file_change.after.path,
+                    before_path=None
+                    if file_change.before is None
+                    else file_change.before.path,
+                    after_path=None
+                    if file_change.after is None
+                    else file_change.after.path,
                 )
                 module_diffs.append(module_diff)
                 affected_symbols.update(
                     f"{module_name}:{item.symbol}"
                     for item in module_diff.symbol_changes
                 )
-                public_api_changed = public_api_changed or module_diff.public_api_changed
+                public_api_changed = (
+                    public_api_changed or module_diff.public_api_changed
+                )
 
         public_api_changed = public_api_changed or bool(change_set.public_api_changes)
 
@@ -88,18 +100,32 @@ class ChangeImpactAnalyzer:
         self._augment_with_project_index(affected_modules, set(affected_modules))
 
         selected_tests = self._select_tests(change_set)
-        requires_full_suite = bool(change_set.requires_full_suite or public_api_changed or any(diff.public_api_changed for diff in module_diffs))
+        requires_full_suite = bool(
+            change_set.requires_full_suite
+            or public_api_changed
+            or any(diff.public_api_changed for diff in module_diffs)
+        )
         if not module_diffs and change_set.has_python_changes:
             requires_full_suite = True
             uncertainty.append("python_change_without_diff")
 
-        confidence = self._confidence(change_set, module_diffs, len(affected_modules), len(selected_tests), len(uncertainty))
+        confidence = self._confidence(
+            change_set,
+            module_diffs,
+            len(affected_modules),
+            len(selected_tests),
+            len(uncertainty),
+        )
         if confidence < 0.7:
             requires_full_suite = True
             uncertainty.append("low_confidence")
 
-        change_type = self._result_change_type(change_set, module_diffs, public_api_changed)
-        findings = self._findings(change_set, public_api_changed, requires_full_suite, confidence, uncertainty)
+        change_type = self._result_change_type(
+            change_set, module_diffs, public_api_changed
+        )
+        findings = self._findings(
+            change_set, public_api_changed, requires_full_suite, confidence, uncertainty
+        )
         artifacts = (
             ValidationArtifact(
                 id="change-impact-result",
@@ -142,7 +168,9 @@ class ChangeImpactAnalyzer:
             },
         )
 
-    def _module_name_for_change(self, project_root: Path, file_change: Any) -> str | None:
+    def _module_name_for_change(
+        self, project_root: Path, file_change: Any
+    ) -> str | None:
         candidate = file_change.after_path or file_change.before_path
         if candidate is None:
             return None
@@ -160,19 +188,27 @@ class ChangeImpactAnalyzer:
         )
         selector = self.test_selector
         if selector is None:
-            from cmm.validation.testing.selection import select_affected_tests as default_selector
+            from cmm.validation.testing.selection import (
+                select_affected_tests as default_selector,
+            )
 
             selector = default_selector
         try:
             selection = selector(context)
         except Exception:
             return ()
-        return tuple(str(path) for path in getattr(selection, "selected_tests", ()) or ())
+        return tuple(
+            str(path) for path in getattr(selection, "selected_tests", ()) or ()
+        )
 
-    def _augment_with_project_index(self, impacted_modules: set[str], original_modules: set[str]) -> None:
+    def _augment_with_project_index(
+        self, impacted_modules: set[str], original_modules: set[str]
+    ) -> None:
         if self.project_index is None:
             return
-        if not hasattr(self.project_index, "find_module") or not hasattr(self.project_index, "find_imported_by"):
+        if not hasattr(self.project_index, "find_module") or not hasattr(
+            self.project_index, "find_imported_by"
+        ):
             return
         for module_name in tuple(original_modules):
             try:
@@ -186,11 +222,18 @@ class ChangeImpactAnalyzer:
             except Exception:
                 continue
             for dependent in dependents or ():
-                name = getattr(dependent, "title", None) or getattr(dependent, "identifier", None)
+                name = getattr(dependent, "title", None) or getattr(
+                    dependent, "identifier", None
+                )
                 if name:
                     impacted_modules.add(str(name))
 
-    def _result_change_type(self, change_set: ChangeSet, module_diffs: list[PythonModuleDiff], public_api_changed: bool) -> ChangeType:
+    def _result_change_type(
+        self,
+        change_set: ChangeSet,
+        module_diffs: list[PythonModuleDiff],
+        public_api_changed: bool,
+    ) -> ChangeType:
         if public_api_changed:
             return ChangeType.PUBLIC_API_CHANGE
         if any(item.kind == FileChangeKind.RENAMED for item in change_set.file_changes):
@@ -255,7 +298,10 @@ class ChangeImpactAnalyzer:
                     severity=ValidationSeverity.INFO,
                     source="validation.impact",
                     blocking=False,
-                    metadata={"confidence": confidence, "uncertainty": tuple(sorted(dict.fromkeys(uncertainty)))},
+                    metadata={
+                        "confidence": confidence,
+                        "uncertainty": tuple(sorted(dict.fromkeys(uncertainty))),
+                    },
                 )
             )
         return tuple(findings)

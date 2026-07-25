@@ -10,7 +10,9 @@ def test_select_python_files_prefers_changed_python(tmp_path: Path):
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "a.py").write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "src" / "b.txt").write_text("skip\n", encoding="utf-8")
-    ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("src/a.py"), Path("src/b.txt")))
+    ctx = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("src/a.py"), Path("src/b.txt"))
+    )
 
     files = select_python_files(ctx)
 
@@ -43,10 +45,15 @@ def test_select_python_files_excludes_common_dirs_and_is_deterministic(tmp_path:
     assert files == [Path("pkg/a.py"), Path("pkg/b.py")]
 
 
-def test_select_python_files_handles_missing_and_outside_project(tmp_path: Path, monkeypatch):
+def test_select_python_files_handles_missing_and_outside_project(
+    tmp_path: Path, monkeypatch
+):
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "ok.py").write_text("print('ok')\n", encoding="utf-8")
-    ctx = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/ok.py"), Path("missing.py"), Path("../outside.py")))
+    ctx = ValidationContext(
+        project_root=tmp_path,
+        changed_files=(Path("pkg/ok.py"), Path("missing.py"), Path("../outside.py")),
+    )
 
     files = select_python_files(ctx)
 

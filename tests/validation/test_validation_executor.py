@@ -24,7 +24,9 @@ def _script(tmp_path: Path, name: str, body: str) -> Path:
 def test_execute_command_success_and_streams(tmp_path: Path):
     ex = ValidationExecutor()
     ctx = _context(tmp_path)
-    script = _script(tmp_path, "success.py", "import sys\nprint('out')\nsys.stderr.write('err\\n')\n")
+    script = _script(
+        tmp_path, "success.py", "import sys\nprint('out')\nsys.stderr.write('err\\n')\n"
+    )
     step = ValidationStep(
         name="py",
         step_type=ValidationStepType.COMMAND,
@@ -66,7 +68,11 @@ def test_execute_command_exit_code_and_timeout(tmp_path: Path):
         allowed_exit_codes=(0,),
     )
     res_timeout = ex.execute(ctx, step_timeout)
-    assert res_timeout.status in (ValidationStatus.PASSED, ValidationStatus.FAILED, ValidationStatus.TIMED_OUT)
+    assert res_timeout.status in (
+        ValidationStatus.PASSED,
+        ValidationStatus.FAILED,
+        ValidationStatus.TIMED_OUT,
+    )
 
 
 def test_execute_command_working_directory_and_env(tmp_path: Path, monkeypatch):
@@ -171,8 +177,12 @@ class WarnValidator:
         from cmm.validation.findings import ValidationFinding
         from cmm.validation.enums import ValidationSeverity
 
-        f = ValidationFinding(code="W", message="w", severity=ValidationSeverity.WARNING, source="int")
-        return ValidationStepResult(name=step.name, status=ValidationStatus.WARNING, findings=(f,))
+        f = ValidationFinding(
+            code="W", message="w", severity=ValidationSeverity.WARNING, source="int"
+        )
+        return ValidationStepResult(
+            name=step.name, status=ValidationStatus.WARNING, findings=(f,)
+        )
 
 
 class ErrorValidator:

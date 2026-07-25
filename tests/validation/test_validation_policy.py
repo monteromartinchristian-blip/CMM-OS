@@ -33,7 +33,13 @@ def test_validation_policy_contract_serializes_roundtrip() -> None:
 
     assert policy.serialize() == {
         "name": "small_change",
-        "required_steps": ["formatter_check", "lint", "syntax", "ast", "affected_tests"],
+        "required_steps": [
+            "formatter_check",
+            "lint",
+            "syntax",
+            "ast",
+            "affected_tests",
+        ],
         "optional_steps": [],
         "stop_on_blocking_failure": True,
         "require_full_suite": False,
@@ -75,7 +81,13 @@ def test_requested_policy_wins_over_change_type(tmp_path: Path) -> None:
 
     assert policy is not None
     assert policy.name == "small_change"
-    assert policy.required_steps == ("formatter_check", "lint", "syntax", "ast", "affected_tests")
+    assert policy.required_steps == (
+        "formatter_check",
+        "lint",
+        "syntax",
+        "ast",
+        "affected_tests",
+    )
 
 
 def test_change_type_can_select_validation_policy(tmp_path: Path) -> None:
@@ -120,9 +132,14 @@ def test_small_change_policy_limits_validation_steps(tmp_path: Path) -> None:
     ]
 
 
-def test_structural_change_policy_includes_static_analysis_and_test_scopes(tmp_path: Path) -> None:
+def test_structural_change_policy_includes_static_analysis_and_test_scopes(
+    tmp_path: Path,
+) -> None:
     _write(tmp_path / "cmm" / "core" / "module.py", "def func(x):\n    return x\n")
-    _write(tmp_path / "tests" / "core" / "test_module.py", "def test_unit():\n    assert True\n")
+    _write(
+        tmp_path / "tests" / "core" / "test_module.py",
+        "def test_unit():\n    assert True\n",
+    )
     _write(
         tmp_path / "tests" / "core" / "test_module_integration.py",
         "def test_integration():\n    assert True\n",
@@ -147,7 +164,9 @@ def test_structural_change_policy_includes_static_analysis_and_test_scopes(tmp_p
     assert names.index("type_check") < names.index("dead_code")
 
 
-def test_imports_change_policy_uses_lint_alias_and_change_impact(tmp_path: Path) -> None:
+def test_imports_change_policy_uses_lint_alias_and_change_impact(
+    tmp_path: Path,
+) -> None:
     _write(tmp_path / "pkg" / "module.py", "from pkg.other import thing\n")
     _write(tmp_path / "tests" / "test_module.py", "def test_func():\n    assert True\n")
     ctx = ValidationContext(
@@ -198,7 +217,11 @@ def test_policy_context_can_authorize_commit_after_success(tmp_path: Path) -> No
     from cmm.validation import ValidationExecutor, ValidationPipeline
     from cmm.validation.enums import ValidationStatus
     from cmm.validation.registry import ValidationRegistry
-    from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+    from cmm.validation.steps import (
+        ValidationStep,
+        ValidationStepResult,
+        ValidationStepType,
+    )
 
     class PassValidator:
         def validate(self, context: ValidationContext, step: ValidationStep):
@@ -211,9 +234,19 @@ def test_policy_context_can_authorize_commit_after_success(tmp_path: Path) -> No
     pipeline = ValidationPipeline(executor=ValidationExecutor(), registry=registry)
     steps = (
         ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),
-        ValidationStep(name="formatter_check", step_type=ValidationStepType.INTERNAL, dependencies=("syntax",)),
-        ValidationStep(name="lint_check", step_type=ValidationStepType.INTERNAL, dependencies=("syntax",)),
-        ValidationStep(name="ast", step_type=ValidationStepType.INTERNAL, dependencies=("syntax",)),
+        ValidationStep(
+            name="formatter_check",
+            step_type=ValidationStepType.INTERNAL,
+            dependencies=("syntax",),
+        ),
+        ValidationStep(
+            name="lint_check",
+            step_type=ValidationStepType.INTERNAL,
+            dependencies=("syntax",),
+        ),
+        ValidationStep(
+            name="ast", step_type=ValidationStepType.INTERNAL, dependencies=("syntax",)
+        ),
         ValidationStep(name="affected_tests", step_type=ValidationStepType.INTERNAL),
     )
     result = pipeline.run(ctx, steps)
@@ -236,25 +269,42 @@ def test_policy_alias_resolution() -> None:
 
 
 def test_unknown_policy_alias_rejected() -> None:
-    ctx = ValidationContext(project_root=Path("."), requested_policy="completely_unknown_policy_xyz")
+    ctx = ValidationContext(
+        project_root=Path("."), requested_policy="completely_unknown_policy_xyz"
+    )
     with pytest.raises(ValidationContractError, match="Unknown validation policy"):
         resolve_validation_policy(ctx)
 
 
 def test_unknown_step_label_raises_contract_error() -> None:
     from cmm.validation.policy import expand_validation_step_labels
-    with pytest.raises(ValidationContractError, match="Unknown validation step label 'nonexistent_label'"):
+
+    with pytest.raises(
+        ValidationContractError,
+        match="Unknown validation step label 'nonexistent_label'",
+    ):
         expand_validation_step_labels("nonexistent_label")
 
 
 def test_expand_step_labels_deduplication_and_order() -> None:
     from cmm.validation.policy import expand_validation_step_labels
-    expanded = expand_validation_step_labels(("lint", "lint_check", "static_analysis", "syntax"))
-    assert expanded == ("formatter_check", "lint_check", "change_impact", "type_check", "dead_code", "syntax")
+
+    expanded = expand_validation_step_labels(
+        ("lint", "lint_check", "static_analysis", "syntax")
+    )
+    assert expanded == (
+        "formatter_check",
+        "lint_check",
+        "change_impact",
+        "type_check",
+        "dead_code",
+        "syntax",
+    )
 
 
 def test_expand_step_labels_cyclic_alias_detection() -> None:
     from cmm.validation.policy import expand_validation_step_labels
+
     custom_aliases = {
         "step_a": ("step_b",),
         "step_b": ("step_a",),
@@ -266,26 +316,35 @@ def test_expand_step_labels_cyclic_alias_detection() -> None:
 def test_missing_required_step_raises_contract_error(tmp_path: Path) -> None:
     from cmm.validation.steps import ValidationStep, ValidationStepType
     from cmm.validation.testing_defaults import _select_policy_steps
+
     policy = ValidationPolicy(
         name="custom_strict",
         required_steps=("syntax", "ast"),
         optional_steps=(),
     )
     # Only provide syntax step, missing ast
-    available_steps = (ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),)
-    with pytest.raises(ValidationContractError, match="Required validation step 'ast' for policy 'custom_strict' is missing"):
+    available_steps = (
+        ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),
+    )
+    with pytest.raises(
+        ValidationContractError,
+        match="Required validation step 'ast' for policy 'custom_strict' is missing",
+    ):
         _select_policy_steps(available_steps, policy)
 
 
 def test_missing_optional_step_omitted_silently(tmp_path: Path) -> None:
     from cmm.validation.steps import ValidationStep, ValidationStepType
     from cmm.validation.testing_defaults import _select_policy_steps
+
     policy = ValidationPolicy(
         name="custom_optional",
         required_steps=("syntax",),
         optional_steps=("bandit",),
     )
-    available_steps = (ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),)
+    available_steps = (
+        ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),
+    )
     selected = _select_policy_steps(available_steps, policy)
     assert [s.name for s in selected] == ["syntax"]
 
@@ -293,13 +352,18 @@ def test_missing_optional_step_omitted_silently(tmp_path: Path) -> None:
 def test_select_policy_steps_includes_dependencies(tmp_path: Path) -> None:
     from cmm.validation.steps import ValidationStep, ValidationStepType
     from cmm.validation.testing_defaults import _select_policy_steps
+
     policy = ValidationPolicy(
         name="dep_test",
         required_steps=("formatter_check",),
     )
     available_steps = (
         ValidationStep(name="syntax", step_type=ValidationStepType.INTERNAL),
-        ValidationStep(name="formatter_check", step_type=ValidationStepType.INTERNAL, dependencies=("syntax",)),
+        ValidationStep(
+            name="formatter_check",
+            step_type=ValidationStepType.INTERNAL,
+            dependencies=("syntax",),
+        ),
     )
     selected = _select_policy_steps(available_steps, policy)
     assert [s.name for s in selected] == ["syntax", "formatter_check"]
@@ -309,7 +373,11 @@ def test_can_commit_denied_by_policy(tmp_path: Path) -> None:
     from cmm.validation import ValidationExecutor, ValidationPipeline
     from cmm.validation.enums import ValidationStatus
     from cmm.validation.registry import ValidationRegistry
-    from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+    from cmm.validation.steps import (
+        ValidationStep,
+        ValidationStepResult,
+        ValidationStepType,
+    )
 
     ctx = ValidationContext(
         project_root=tmp_path,
@@ -345,7 +413,11 @@ def test_can_commit_denied_by_failed_result(tmp_path: Path) -> None:
     from cmm.validation.enums import ValidationStatus
     from cmm.validation.findings import ValidationFinding, ValidationSeverity
     from cmm.validation.registry import ValidationRegistry
-    from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+    from cmm.validation.steps import (
+        ValidationStep,
+        ValidationStepResult,
+        ValidationStepType,
+    )
 
     ctx = ValidationContext(
         project_root=tmp_path,

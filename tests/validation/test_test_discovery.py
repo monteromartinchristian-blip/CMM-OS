@@ -15,8 +15,12 @@ def test_discover_tests_is_deterministic_and_relative(tmp_path: Path) -> None:
     cache_dir.mkdir()
     venv_dir.mkdir(parents=True)
 
-    (tests_dir / "test_alpha.py").write_text("def test_alpha():\n    assert True\n", encoding="utf-8")
-    (nested_dir / "beta_test.py").write_text("def test_beta():\n    assert True\n", encoding="utf-8")
+    (tests_dir / "test_alpha.py").write_text(
+        "def test_alpha():\n    assert True\n", encoding="utf-8"
+    )
+    (nested_dir / "beta_test.py").write_text(
+        "def test_beta():\n    assert True\n", encoding="utf-8"
+    )
     (cache_dir / "test_cache.py").write_text("", encoding="utf-8")
     (venv_dir / "test_ignored.py").write_text("", encoding="utf-8")
 

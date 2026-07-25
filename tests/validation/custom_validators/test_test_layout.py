@@ -22,7 +22,9 @@ def test_test_layout_valid(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (tests_dir / "conftest.py").write_text("import pytest\n", encoding="utf-8")
-    (tests_dir / "helpers.py").write_text("def helper_fn(): return 42\n", encoding="utf-8")
+    (tests_dir / "helpers.py").write_text(
+        "def helper_fn(): return 42\n", encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = TestLayoutValidator()
@@ -46,7 +48,9 @@ def test_test_layout_only_auxiliary_files_produces_no_tests(tmp_path: Path) -> N
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     (tests_dir / "conftest.py").write_text("import pytest\n", encoding="utf-8")
-    (tests_dir / "helpers.py").write_text("def fixture_helper(): pass\n", encoding="utf-8")
+    (tests_dir / "helpers.py").write_text(
+        "def fixture_helper(): pass\n", encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = TestLayoutValidator()
@@ -112,7 +116,9 @@ def test_test_layout_syntax_error_sanitized(tmp_path: Path) -> None:
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    syntax_finding = next(f for f in result.findings if f.code == "TEST_LAYOUT_SYNTAX_ERROR")
+    syntax_finding = next(
+        f for f in result.findings if f.code == "TEST_LAYOUT_SYNTAX_ERROR"
+    )
     assert "line" in syntax_finding.metadata
     assert "column" in syntax_finding.metadata
     assert "def test_broken(:" not in syntax_finding.message
@@ -122,7 +128,9 @@ def test_test_layout_syntax_error_sanitized(tmp_path: Path) -> None:
 def test_test_layout_nonstandard_name_warnings(tmp_path: Path) -> None:
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
-    (tests_dir / "test_ok.py").write_text("def test_something(): pass\n", encoding="utf-8")
+    (tests_dir / "test_ok.py").write_text(
+        "def test_something(): pass\n", encoding="utf-8"
+    )
     (tests_dir / "tests.py").write_text("x = 1\n", encoding="utf-8")
     (tests_dir / "example_tests.py").write_text("y = 2\n", encoding="utf-8")
 
@@ -135,7 +143,9 @@ def test_test_layout_nonstandard_name_warnings(tmp_path: Path) -> None:
     assert len(warnings) == 2
 
 
-def test_test_layout_distinct_basenames_in_different_dirs_do_not_collide(tmp_path: Path) -> None:
+def test_test_layout_distinct_basenames_in_different_dirs_do_not_collide(
+    tmp_path: Path,
+) -> None:
     tests_dir = tmp_path / "tests"
     unit_dir = tests_dir / "unit"
     integration_dir = tests_dir / "integration"
@@ -143,7 +153,9 @@ def test_test_layout_distinct_basenames_in_different_dirs_do_not_collide(tmp_pat
     integration_dir.mkdir(parents=True)
 
     (unit_dir / "test_foo.py").write_text("def test_u(): pass\n", encoding="utf-8")
-    (integration_dir / "test_foo.py").write_text("def test_i(): pass\n", encoding="utf-8")
+    (integration_dir / "test_foo.py").write_text(
+        "def test_i(): pass\n", encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = TestLayoutValidator()
@@ -154,7 +166,9 @@ def test_test_layout_distinct_basenames_in_different_dirs_do_not_collide(tmp_pat
     assert result.artifacts[0].content["test_file_count"] == 2
 
 
-def test_test_layout_case_insensitive_module_collision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_test_layout_case_insensitive_module_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     f1 = tests_dir / "API" / "test_x.py"
@@ -172,7 +186,9 @@ def test_test_layout_case_insensitive_module_collision(tmp_path: Path, monkeypat
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    collision_finding = next(f for f in result.findings if f.code == "TEST_LAYOUT_MODULE_COLLISION")
+    collision_finding = next(
+        f for f in result.findings if f.code == "TEST_LAYOUT_MODULE_COLLISION"
+    )
     assert "colliding_file" in collision_finding.metadata
 
 

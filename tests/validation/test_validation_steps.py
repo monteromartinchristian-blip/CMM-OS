@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from cmm.validation.steps import ValidationStep, ValidationStepType, ValidationStepResult
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepType,
+    ValidationStepResult,
+)
 from cmm.validation.enums import ValidationStatus, ValidationSeverity
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.errors import ValidationContractError
@@ -47,7 +51,9 @@ def test_validation_step_invalids():
 
 
 def test_step_result_properties_and_validation():
-    f = ValidationFinding(code="F", message="m", severity=ValidationSeverity.WARNING, source="s")
+    f = ValidationFinding(
+        code="F", message="m", severity=ValidationSeverity.WARNING, source="s"
+    )
     # note: ValidationStatus used as severity intentionally incorrect type to ensure typing
     start = datetime.now(timezone.utc)
     end = start + timedelta(milliseconds=100)
@@ -71,12 +77,18 @@ def test_step_result_properties_and_validation():
     with pytest.raises(ValidationContractError):
         ValidationStepResult(name="x", status=ValidationStatus.PASSED, duration_ms=-1)
     with pytest.raises(ValidationContractError):
-        ValidationStepResult(name="x", status=ValidationStatus.PASSED, started_at=end, completed_at=start)
+        ValidationStepResult(
+            name="x", status=ValidationStatus.PASSED, started_at=end, completed_at=start
+        )
 
 
 def test_step_result_is_successful_matrix():
     name = "chk"
-    successful = {ValidationStatus.PASSED, ValidationStatus.WARNING, ValidationStatus.SKIPPED}
+    successful = {
+        ValidationStatus.PASSED,
+        ValidationStatus.WARNING,
+        ValidationStatus.SKIPPED,
+    }
     for st in ValidationStatus:
         r = ValidationStepResult(name=name, status=st)
         assert r.is_successful == (st in successful)

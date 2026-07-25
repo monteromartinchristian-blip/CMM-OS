@@ -61,7 +61,10 @@ def test_pytest_case_result_is_frozen_and_serializable() -> None:
 
 
 def test_pytest_run_summary_is_frozen_and_serializable() -> None:
-    from cmm.validation.testing.pytest_parser import PytestRunSummary, PytestTestCaseResult
+    from cmm.validation.testing.pytest_parser import (
+        PytestRunSummary,
+        PytestTestCaseResult,
+    )
 
     case = PytestTestCaseResult(
         nodeid="tests/example/test_sample.py::test_sample",
@@ -125,7 +128,9 @@ def test_test_escalation_decision_is_serializable() -> None:
 @pytest.mark.parametrize(
     "factory",
     [
-        lambda: __import__("cmm.validation.testing.discovery", fromlist=["discover_tests"]).discover_tests(Path(".")),
+        lambda: __import__(
+            "cmm.validation.testing.discovery", fromlist=["discover_tests"]
+        ).discover_tests(Path(".")),
     ],
 )
 def test_testing_modules_importable(factory) -> None:

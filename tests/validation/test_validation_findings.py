@@ -53,11 +53,17 @@ def test_invalid_line_column():
 
 def test_required_fields_invalid():
     with pytest.raises(ValidationContractError):
-        ValidationFinding(code="", message="m", severity=ValidationSeverity.INFO, source="s")
+        ValidationFinding(
+            code="", message="m", severity=ValidationSeverity.INFO, source="s"
+        )
     with pytest.raises(ValidationContractError):
-        ValidationFinding(code="C", message="", severity=ValidationSeverity.INFO, source="s")
+        ValidationFinding(
+            code="C", message="", severity=ValidationSeverity.INFO, source="s"
+        )
     with pytest.raises(ValidationContractError):
-        ValidationFinding(code="C", message="m", severity=ValidationSeverity.INFO, source="")
+        ValidationFinding(
+            code="C", message="m", severity=ValidationSeverity.INFO, source=""
+        )
 
 
 def test_metadata_isolation():

@@ -321,7 +321,9 @@ def test_custom_prefix_rejected_at_validator_creation():
         name = "custom.foo"
 
         def validate(self, context: ValidationContext) -> ValidationStepResult:
-            return ValidationStepResult(name="custom.foo", status=ValidationStatus.PASSED)
+            return ValidationStepResult(
+                name="custom.foo", status=ValidationStatus.PASSED
+            )
 
     with pytest.raises(ValidationRegistryError) as exc_info:
         build_custom_validation_step(CustomPrefixedValidator())
@@ -347,7 +349,9 @@ def test_no_silent_overwrite_in_validation_registry():
         name = "passing_rule"
 
         def validate(self, context: ValidationContext) -> ValidationStepResult:
-            return ValidationStepResult(name="passing_rule", status=ValidationStatus.PASSED)
+            return ValidationStepResult(
+                name="passing_rule", status=ValidationStatus.PASSED
+            )
 
     val2 = CollidingPassingValidator()
     with pytest.raises(ValidationRegistryError) as exc_info:
@@ -437,7 +441,9 @@ def test_pipeline_integration_passing(tmp_path: Path):
     )
 
     pipeline = ValidationPipeline(executor=ValidationExecutor(), registry=val_reg)
-    ctx = ValidationContext(project_root=tmp_path, allow_commit=True, requested_policy="small_change")
+    ctx = ValidationContext(
+        project_root=tmp_path, allow_commit=True, requested_policy="small_change"
+    )
 
     result = pipeline.run(ctx, steps)
     assert result.status == ValidationStatus.PASSED
@@ -460,7 +466,9 @@ def test_pipeline_integration_secret_exploding_sanitized_in_pipeline(tmp_path: P
     step = custom_reg.build_step("secret_exploding_rule", validation_registry=val_reg)
 
     pipeline = ValidationPipeline(executor=ValidationExecutor(), registry=val_reg)
-    ctx = ValidationContext(project_root=tmp_path, allow_commit=True, requested_policy="small_change")
+    ctx = ValidationContext(
+        project_root=tmp_path, allow_commit=True, requested_policy="small_change"
+    )
 
     result = pipeline.run(ctx, [step])
     assert result.status == ValidationStatus.ERROR

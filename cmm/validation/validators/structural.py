@@ -13,10 +13,14 @@ from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 from cmm.validation.protocols import InternalValidator
 from cmm.validation.steps import ValidationStep, ValidationStepResult
+
+
 class PythonStructuralValidator(InternalValidator):
     name = "structural"
 
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         from cmm.validation.catalog import select_python_files
 
         files = select_python_files(context)
@@ -37,8 +41,14 @@ class PythonStructuralValidator(InternalValidator):
                 tree = ast.parse(source, filename=str(abs_path))
             except SyntaxError:
                 continue
-            top_level_classes = Counter(node.name for node in tree.body if isinstance(node, ast.ClassDef))
-            top_level_functions = Counter(node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)))
+            top_level_classes = Counter(
+                node.name for node in tree.body if isinstance(node, ast.ClassDef)
+            )
+            top_level_functions = Counter(
+                node.name
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
             for name, count in top_level_classes.items():
                 if count > 1:
                     findings.append(
@@ -52,7 +62,9 @@ class PythonStructuralValidator(InternalValidator):
                             metadata={"symbol": name},
                         )
                     )
-                    duplicates.append({"kind": "class", "name": name, "path": str(rel_path)})
+                    duplicates.append(
+                        {"kind": "class", "name": name, "path": str(rel_path)}
+                    )
                     classes_found.append(name)
             for name, count in top_level_functions.items():
                 if count > 1:
@@ -67,7 +79,9 @@ class PythonStructuralValidator(InternalValidator):
                             metadata={"symbol": name},
                         )
                     )
-                    duplicates.append({"kind": "function", "name": name, "path": str(rel_path)})
+                    duplicates.append(
+                        {"kind": "function", "name": name, "path": str(rel_path)}
+                    )
                     functions_found.append(name)
 
             for node in ast.walk(tree):
@@ -99,16 +113,22 @@ class PythonStructuralValidator(InternalValidator):
                             metadata={"import": name},
                         )
                     )
-                    duplicates.append({"kind": "import", "name": name, "path": str(rel_path)})
+                    duplicates.append(
+                        {"kind": "import", "name": name, "path": str(rel_path)}
+                    )
 
-            def collect_class_methods(class_node: ast.ClassDef) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+            def collect_class_methods(
+                class_node: ast.ClassDef,
+            ) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
                 methods: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
                 for child in class_node.body:
                     if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
                         methods.append((child.name, child))
                 return methods
 
-            for class_node in [node for node in tree.body if isinstance(node, ast.ClassDef)]:
+            for class_node in [
+                node for node in tree.body if isinstance(node, ast.ClassDef)
+            ]:
                 method_counter: Counter[str] = Counter()
                 for name, _ in collect_class_methods(class_node):
                     method_counter[name] += 1
@@ -125,7 +145,14 @@ class PythonStructuralValidator(InternalValidator):
                                 metadata={"class": class_node.name, "method": name},
                             )
                         )
-                        duplicates.append({"kind": "method", "name": name, "path": str(rel_path), "class": class_node.name})
+                        duplicates.append(
+                            {
+                                "kind": "method",
+                                "name": name,
+                                "path": str(rel_path),
+                                "class": class_node.name,
+                            }
+                        )
                         methods_found.append(name)
 
         artifact = ValidationArtifact(

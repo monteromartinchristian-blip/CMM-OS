@@ -19,7 +19,9 @@ def test_change_impact_step_is_in_default_validation_steps(tmp_path: Path) -> No
     from cmm.validation.catalog import change_impact_step
 
     _write(tmp_path / "pkg" / "module.py", "def func(x):\n    return x\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
 
     step = change_impact_step(context)
 
@@ -32,9 +34,13 @@ def test_change_impact_step_is_in_default_validation_steps(tmp_path: Path) -> No
 def test_change_impact_runs_through_validation_pipeline(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "module.py", "def func(x):\n    return x\n")
     _write(tmp_path / "tests" / "test_module.py", "def test_func():\n    assert True\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
 
-    pipeline = ValidationPipeline(executor=ValidationExecutor(), registry=build_default_validation_registry())
+    pipeline = ValidationPipeline(
+        executor=ValidationExecutor(), registry=build_default_validation_registry()
+    )
     result = pipeline.run(context, default_validation_steps(context))
 
     assert result.status.value in {"passed", "warning"}

@@ -14,7 +14,9 @@ def _write_test(path: Path) -> None:
 def test_default_testing_steps_do_not_duplicate_names(tmp_path: Path) -> None:
     _write_test(tmp_path / "tests" / "test_sample.py")
 
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("tests/test_sample.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("tests/test_sample.py"),)
+    )
     steps = default_testing_steps(context)
 
     names = [step.name for step in steps]

@@ -4,11 +4,24 @@ from pathlib import Path
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStepType
-from cmm.validation.testing_catalog import affected_tests_step, full_suite_step, integration_tests_step, unit_tests_step
+from cmm.validation.testing_catalog import (
+    affected_tests_step,
+    full_suite_step,
+    integration_tests_step,
+    unit_tests_step,
+)
 
 
-def _context(project_root: Path, *changed_files: str, requested_steps: tuple[str, ...] | None = None) -> ValidationContext:
-    return ValidationContext(project_root=project_root, changed_files=tuple(Path(item) for item in changed_files), requested_steps=requested_steps)
+def _context(
+    project_root: Path,
+    *changed_files: str,
+    requested_steps: tuple[str, ...] | None = None,
+) -> ValidationContext:
+    return ValidationContext(
+        project_root=project_root,
+        changed_files=tuple(Path(item) for item in changed_files),
+        requested_steps=requested_steps,
+    )
 
 
 def _write_test(path: Path) -> None:
@@ -38,13 +51,18 @@ def test_unit_and_integration_steps_follow_discovered_scope(tmp_path: Path) -> N
     integration_step = integration_tests_step(_context(tmp_path, "cmm/core/module.py"))
 
     assert unit_step is not None
-    assert integration_step is None or integration_step.step_type == ValidationStepType.COMMAND
+    assert (
+        integration_step is None
+        or integration_step.step_type == ValidationStepType.COMMAND
+    )
 
 
 def test_full_suite_step_is_returned_for_explicit_request(tmp_path: Path) -> None:
     _write_test(tmp_path / "tests" / "test_sample.py")
 
-    step = full_suite_step(_context(tmp_path, "README.md", requested_steps=("full_suite",)))
+    step = full_suite_step(
+        _context(tmp_path, "README.md", requested_steps=("full_suite",))
+    )
 
     assert step is not None
     assert step.metadata["pytest_full_suite"] is True

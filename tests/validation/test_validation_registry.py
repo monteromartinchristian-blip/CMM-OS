@@ -3,7 +3,11 @@ import pytest
 from cmm.validation import ValidationRegistry, ValidationRegistryError
 from cmm.validation.protocols import InternalValidator
 from cmm.validation.context import ValidationContext
-from cmm.validation.steps import ValidationStep, ValidationStepType, ValidationStepResult
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepType,
+    ValidationStepResult,
+)
 from cmm.validation.enums import ValidationStatus
 from pathlib import Path
 
@@ -11,7 +15,9 @@ from pathlib import Path
 class DummyValidator:
     name = "dummy"
 
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         return ValidationStepResult(name=step.name, status=ValidationStatus.PASSED)
 
 

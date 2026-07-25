@@ -8,7 +8,11 @@ from cmm.validation import (
     CancellationToken,
 )
 from cmm.validation.context import ValidationContext
-from cmm.validation.steps import ValidationStep, ValidationStepType, ValidationStepResult
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepType,
+    ValidationStepResult,
+)
 from cmm.validation.enums import ValidationStatus, ValidationSeverity
 from cmm.validation.findings import ValidationFinding
 
@@ -24,16 +28,28 @@ class WarnValidator:
     name = "warn"
 
     def validate(self, context: ValidationContext, step: ValidationStep):
-        f = ValidationFinding(code="W1", message="warn", severity=ValidationSeverity.WARNING, source="int")
-        return ValidationStepResult(name=step.name, status=ValidationStatus.WARNING, findings=(f,))
+        f = ValidationFinding(
+            code="W1", message="warn", severity=ValidationSeverity.WARNING, source="int"
+        )
+        return ValidationStepResult(
+            name=step.name, status=ValidationStatus.WARNING, findings=(f,)
+        )
 
 
 class BlockValidator:
     name = "block"
 
     def validate(self, context: ValidationContext, step: ValidationStep):
-        f = ValidationFinding(code="B1", message="block", severity=ValidationSeverity.ERROR, source="int", blocking=True)
-        return ValidationStepResult(name=step.name, status=ValidationStatus.FAILED, findings=(f,))
+        f = ValidationFinding(
+            code="B1",
+            message="block",
+            severity=ValidationSeverity.ERROR,
+            source="int",
+            blocking=True,
+        )
+        return ValidationStepResult(
+            name=step.name, status=ValidationStatus.FAILED, findings=(f,)
+        )
 
 
 class SlowValidator:
@@ -87,7 +103,11 @@ def test_pipeline_all_pass(tmp_path: Path):
     ctx = _context(tmp_path)
     s1 = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
     script = _script(tmp_path, "pass2.py", "print('ok')\n")
-    s2 = ValidationStep(name="pass2", step_type=ValidationStepType.COMMAND, command=(sys.executable, str(script)))
+    s2 = ValidationStep(
+        name="pass2",
+        step_type=ValidationStepType.COMMAND,
+        command=(sys.executable, str(script)),
+    )
     steps = (s1, s2)
     result = pl.run(ctx, steps)
     assert result.status == ValidationStatus.PASSED
@@ -106,7 +126,12 @@ def test_pipeline_warning_aggregation(tmp_path: Path):
 def test_pipeline_stop_on_failure_and_blocker(tmp_path: Path):
     pl = _pipeline()
     ctx = _context(tmp_path)
-    s1 = ValidationStep(name="block", step_type=ValidationStepType.INTERNAL, required=True, stop_on_failure=True)
+    s1 = ValidationStep(
+        name="block",
+        step_type=ValidationStepType.INTERNAL,
+        required=True,
+        stop_on_failure=True,
+    )
     s2 = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
     result = pl.run(ctx, (s1, s2))
     assert result.status in (ValidationStatus.FAILED, ValidationStatus.ERROR)
@@ -116,7 +141,12 @@ def test_pipeline_stop_on_failure_and_blocker(tmp_path: Path):
 def test_optional_failed_continues_and_warn_aggregate(tmp_path: Path):
     pl = _pipeline()
     ctx = _context(tmp_path)
-    s_opt_fail = ValidationStep(name="fail", step_type=ValidationStepType.INTERNAL, required=False, stop_on_failure=False)
+    s_opt_fail = ValidationStep(
+        name="fail",
+        step_type=ValidationStepType.INTERNAL,
+        required=False,
+        stop_on_failure=False,
+    )
     s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
     res = pl.run(ctx, (s_opt_fail, s_next))
     assert [r.name for r in res.steps] == ["fail", "pass"]
@@ -128,7 +158,12 @@ def test_optional_failed_continues_and_warn_aggregate(tmp_path: Path):
 def test_required_failed_stops_without_blocking_finding(tmp_path: Path):
     pl = _pipeline()
     ctx = _context(tmp_path)
-    s_req_fail = ValidationStep(name="fail", step_type=ValidationStepType.INTERNAL, required=True, stop_on_failure=True)
+    s_req_fail = ValidationStep(
+        name="fail",
+        step_type=ValidationStepType.INTERNAL,
+        required=True,
+        stop_on_failure=True,
+    )
     s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
     res = pl.run(ctx, (s_req_fail, s_next))
     assert any(r.status == ValidationStatus.SKIPPED for r in res.steps)
@@ -138,7 +173,12 @@ def test_required_failed_stops_without_blocking_finding(tmp_path: Path):
 def test_optional_blocking_finding_stops(tmp_path: Path):
     pl = _pipeline()
     ctx = _context(tmp_path)
-    s_opt_block = ValidationStep(name="block", step_type=ValidationStepType.INTERNAL, required=False, stop_on_failure=False)
+    s_opt_block = ValidationStep(
+        name="block",
+        step_type=ValidationStepType.INTERNAL,
+        required=False,
+        stop_on_failure=False,
+    )
     s_next = ValidationStep(name="pass", step_type=ValidationStepType.INTERNAL)
     res = pl.run(ctx, (s_opt_block, s_next))
     assert any(r.status == ValidationStatus.SKIPPED for r in res.steps)
@@ -198,6 +238,7 @@ def test_pipeline_cancellation(tmp_path: Path):
 
     # cancel after first step
     token2 = CancellationToken()
+
     def delayed_cancel(context: ValidationContext, step: ValidationStep):
         out = SlowValidator().validate(context, step)
         token2.cancel()

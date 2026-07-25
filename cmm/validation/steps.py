@@ -36,12 +36,18 @@ class ValidationStep:
         if not self.name:
             raise ValidationContractError("ValidationStep.name must not be empty")
         if self.timeout_seconds <= 0:
-            raise ValidationContractError("ValidationStep.timeout_seconds must be positive")
+            raise ValidationContractError(
+                "ValidationStep.timeout_seconds must be positive"
+            )
         if self.step_type == ValidationStepType.COMMAND and not self.command:
-            raise ValidationContractError("ValidationStep.command must be provided for command steps and must be a tuple of strings")
+            raise ValidationContractError(
+                "ValidationStep.command must be provided for command steps and must be a tuple of strings"
+            )
         # enforce uniqueness of dependencies
         if len(set(self.dependencies)) != len(self.dependencies):
-            raise ValidationContractError("ValidationStep.dependencies must not contain duplicates")
+            raise ValidationContractError(
+                "ValidationStep.dependencies must not contain duplicates"
+            )
         # defensive copies
         object.__setattr__(self, "environment", dict(self.environment or {}))
         object.__setattr__(self, "dependencies", tuple(self.dependencies or ()))
@@ -58,7 +64,9 @@ class ValidationStep:
             "stop_on_failure": self.stop_on_failure,
             "allowed_exit_codes": list(self.allowed_exit_codes),
             "environment": dict(self.environment or {}),
-            "working_directory": None if self.working_directory is None else str(self.working_directory),
+            "working_directory": None
+            if self.working_directory is None
+            else str(self.working_directory),
             "dependencies": list(self.dependencies),
             "tags": list(self.tags),
             "metadata": dict(self.metadata or {}),
@@ -83,9 +91,17 @@ class ValidationStepResult:
         if not self.name:
             raise ValidationContractError("ValidationStepResult.name must not be empty")
         if self.duration_ms < 0:
-            raise ValidationContractError("ValidationStepResult.duration_ms must be non-negative")
-        if self.started_at and self.completed_at and self.completed_at < self.started_at:
-            raise ValidationContractError("ValidationStepResult.completed_at cannot be before started_at")
+            raise ValidationContractError(
+                "ValidationStepResult.duration_ms must be non-negative"
+            )
+        if (
+            self.started_at
+            and self.completed_at
+            and self.completed_at < self.started_at
+        ):
+            raise ValidationContractError(
+                "ValidationStepResult.completed_at cannot be before started_at"
+            )
         # defensive copies
         object.__setattr__(self, "findings", tuple(self.findings or ()))
         object.__setattr__(self, "artifacts", tuple(self.artifacts or ()))
@@ -97,7 +113,11 @@ class ValidationStepResult:
 
     @property
     def is_successful(self) -> bool:
-        return self.status in (ValidationStatus.PASSED, ValidationStatus.WARNING, ValidationStatus.SKIPPED)
+        return self.status in (
+            ValidationStatus.PASSED,
+            ValidationStatus.WARNING,
+            ValidationStatus.SKIPPED,
+        )
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -109,7 +129,11 @@ class ValidationStepResult:
             "stderr": self.stderr,
             "findings": [f.serialize() for f in self.findings],
             "artifacts": [a.serialize() for a in self.artifacts],
-            "started_at": None if self.started_at is None else self.started_at.isoformat(),
-            "completed_at": None if self.completed_at is None else self.completed_at.isoformat(),
+            "started_at": None
+            if self.started_at is None
+            else self.started_at.isoformat(),
+            "completed_at": None
+            if self.completed_at is None
+            else self.completed_at.isoformat(),
             "metadata": dict(self.metadata or {}),
         }

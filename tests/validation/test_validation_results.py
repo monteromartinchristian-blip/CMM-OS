@@ -10,11 +10,23 @@ from cmm.validation.enums import ValidationSeverity
 
 
 def test_validation_result_aggregation_and_serialization():
-    f_block = ValidationFinding(code="B1", message="blocker", severity=ValidationSeverity.ERROR, source="s", blocking=True)
-    f_warn = ValidationFinding(code="W1", message="warn", severity=ValidationSeverity.WARNING, source="s")
+    f_block = ValidationFinding(
+        code="B1",
+        message="blocker",
+        severity=ValidationSeverity.ERROR,
+        source="s",
+        blocking=True,
+    )
+    f_warn = ValidationFinding(
+        code="W1", message="warn", severity=ValidationSeverity.WARNING, source="s"
+    )
 
-    step_res = ValidationStepResult(name="lint", status=ValidationStatus.PASSED, findings=(f_warn,))
-    artifact = ValidationArtifact(id="a1", kind="report", source="s", findings=(f_block,))
+    step_res = ValidationStepResult(
+        name="lint", status=ValidationStatus.PASSED, findings=(f_warn,)
+    )
+    artifact = ValidationArtifact(
+        id="a1", kind="report", source="s", findings=(f_block,)
+    )
 
     start = datetime.now(timezone.utc)
     end = start + timedelta(seconds=1)

@@ -26,7 +26,9 @@ class ValidationContext:
 
     def __post_init__(self) -> None:
         if not self.project_root:
-            raise ValidationContractError("ValidationContext.project_root must be provided")
+            raise ValidationContractError(
+                "ValidationContext.project_root must be provided"
+            )
         # normalize changed_files into Paths; keep them relative where possible
         normalized: list[Path] = []
         for p in self.changed_files:
@@ -42,7 +44,9 @@ class ValidationContext:
         object.__setattr__(self, "changed_files", tuple(normalized))
         # defensive copies & normalization
         if isinstance(self.excluded_steps, (list, tuple, set)):
-            object.__setattr__(self, "excluded_steps", tuple(str(s) for s in self.excluded_steps))
+            object.__setattr__(
+                self, "excluded_steps", tuple(str(s) for s in self.excluded_steps)
+            )
         else:
             object.__setattr__(self, "excluded_steps", (str(self.excluded_steps),))
         object.__setattr__(self, "environment", dict(self.environment or {}))
@@ -54,7 +58,9 @@ class ValidationContext:
             "changed_files": [str(p) for p in self.changed_files],
             "change_type": self.change_type,
             "execution_mode": self.execution_mode,
-            "requested_steps": list(self.requested_steps) if self.requested_steps is not None else None,
+            "requested_steps": list(self.requested_steps)
+            if self.requested_steps is not None
+            else None,
             "excluded_steps": list(self.excluded_steps),
             "environment": dict(self.environment or {}),
             "allow_commit": self.allow_commit,

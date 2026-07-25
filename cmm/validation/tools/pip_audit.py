@@ -11,7 +11,9 @@ from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 
 
-def _safe_path(path_value: str | Path | None, project_root: Path | None = None) -> Path | None:
+def _safe_path(
+    path_value: str | Path | None, project_root: Path | None = None
+) -> Path | None:
     if path_value is None:
         return None
     path = Path(str(path_value))
@@ -62,7 +64,14 @@ def parse_pip_audit_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     try:
         payload = json.loads(text or "[]")
@@ -89,10 +98,19 @@ def parse_pip_audit_results(
             findings=(finding,),
             metrics={"diagnostic_count": 0, "files_checked": len(selected)},
         )
-        return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.ERROR,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     findings: list[ValidationFinding] = []
-    dependencies = payload.get("dependencies") if isinstance(payload, Mapping) else payload
+    dependencies = (
+        payload.get("dependencies") if isinstance(payload, Mapping) else payload
+    )
     if isinstance(dependencies, list):
         for dep in dependencies:
             if not isinstance(dep, Mapping):
@@ -107,8 +125,12 @@ def parse_pip_audit_results(
                     continue
                 advisory_id = str(vuln.get("id") or vuln.get("advisory") or "PIP-AUDIT")
                 aliases = tuple(str(item) for item in vuln.get("aliases", ()) or ())
-                fixed_versions = tuple(str(item) for item in vuln.get("fix_versions", ()) or ())
-                message = str(vuln.get("description") or f"{name} has a known vulnerability")
+                fixed_versions = tuple(
+                    str(item) for item in vuln.get("fix_versions", ()) or ()
+                )
+                message = str(
+                    vuln.get("description") or f"{name} has a known vulnerability"
+                )
                 metadata = {
                     "package": name,
                     "installed_version": version,
@@ -137,13 +159,23 @@ def parse_pip_audit_results(
             "files": list(selected),
             "diagnostics": [finding.serialize() for finding in findings],
             "status": "vulnerabilities" if findings else "passed",
-            "metrics": {"diagnostic_count": len(findings), "files_checked": len(selected)},
+            "metrics": {
+                "diagnostic_count": len(findings),
+                "files_checked": len(selected),
+            },
         },
         findings=tuple(findings),
         metrics={"diagnostic_count": len(findings), "files_checked": len(selected)},
     )
     status = ValidationStatus.FAILED if findings else ValidationStatus.PASSED
-    return {"status": status, "findings": findings, "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    return {
+        "status": status,
+        "findings": findings,
+        "artifacts": [artifact],
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+    }
 
 
 def _tool_unavailable(stderr: str) -> bool:

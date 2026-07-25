@@ -31,7 +31,12 @@ def test_default_custom_validators_instantiation() -> None:
     assert len(validators) == 4
 
     names = [v.name for v in validators]
-    assert names == ["project_manifest", "validation_contract", "public_api", "test_layout"]
+    assert names == [
+        "project_manifest",
+        "validation_contract",
+        "public_api",
+        "test_layout",
+    ]
     assert len(set(names)) == 4
 
     for v in validators:
@@ -78,11 +83,15 @@ cmm = "cmm.cli:main"
 
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
-    (tests_dir / "test_main.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+    (tests_dir / "test_main.py").write_text(
+        "def test_ok(): assert True\n", encoding="utf-8"
+    )
 
     cmm_dir = tmp_path / "cmm"
     cmm_dir.mkdir()
-    (cmm_dir / "__init__.py").write_text('__all__ = ["__version__"]\n__version__ = "0.1.0"\n', encoding="utf-8")
+    (cmm_dir / "__init__.py").write_text(
+        '__all__ = ["__version__"]\n__version__ = "0.1.0"\n', encoding="utf-8"
+    )
 
     val_dir = cmm_dir / "validation"
     val_dir.mkdir()

@@ -29,6 +29,7 @@ def _count_tests_in_ast(tree: ast.AST) -> Tuple[int, int, bool]:
     Returns:
         (test_function_count, test_class_count, has_pytest_references)
     """
+
     class Visitor(ast.NodeVisitor):
         def __init__(self) -> None:
             self.fn_count = 0
@@ -122,7 +123,9 @@ class TestLayoutValidator(CustomValidator):
                 if is_ignored_path(p):
                     continue
                 name = p.name
-                if name.startswith("test_") or (name.endswith("_test.py") and name != "conftest.py"):
+                if name.startswith("test_") or (
+                    name.endswith("_test.py") and name != "conftest.py"
+                ):
                     rel_source_test = serialize_path(p, context.project_root)
                     source_tree_tests.append(rel_source_test)
                     findings.append(
@@ -150,7 +153,9 @@ class TestLayoutValidator(CustomValidator):
             rel_p = serialize_path(p, context.project_root)
 
             # Non-standard names
-            if fname == "tests.py" or (fname.endswith("_tests.py") and not fname.startswith("test_")):
+            if fname == "tests.py" or (
+                fname.endswith("_tests.py") and not fname.startswith("test_")
+            ):
                 naming_issues.append(rel_p)
                 findings.append(
                     ValidationFinding(
@@ -215,7 +220,10 @@ class TestLayoutValidator(CustomValidator):
                         source=source_name,
                         file_path=rel_p,
                         blocking=True,
-                        metadata={"module": importable_mod, "colliding_file": prev_path},
+                        metadata={
+                            "module": importable_mod,
+                            "colliding_file": prev_path,
+                        },
                     )
                 )
             else:

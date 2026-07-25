@@ -19,7 +19,9 @@ _EXCLUDED_DIRS = {
 
 def _is_test_filename(name: str) -> bool:
     lower = name.lower()
-    return (lower.startswith("test_") and lower.endswith(".py")) or lower.endswith("_test.py")
+    return (lower.startswith("test_") and lower.endswith(".py")) or lower.endswith(
+        "_test.py"
+    )
 
 
 def discover_tests(project_root: Path) -> tuple[Path, ...]:
@@ -31,11 +33,14 @@ def discover_tests(project_root: Path) -> tuple[Path, ...]:
     discovered: list[Path] = []
     seen: set[Path] = set()
 
-    for current_root, dirs, files in os.walk(tests_root, topdown=True, followlinks=False):
+    for current_root, dirs, files in os.walk(
+        tests_root, topdown=True, followlinks=False
+    ):
         dirs[:] = [
             d
             for d in sorted(dirs)
-            if d not in _EXCLUDED_DIRS and not os.path.islink(os.path.join(current_root, d))
+            if d not in _EXCLUDED_DIRS
+            and not os.path.islink(os.path.join(current_root, d))
         ]
         for filename in sorted(files):
             if not _is_test_filename(filename):

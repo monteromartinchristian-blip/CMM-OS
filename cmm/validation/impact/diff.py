@@ -44,11 +44,17 @@ class PythonModuleDiff:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("PythonModuleDiff.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "PythonModuleDiff.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "symbol_changes", tuple(self.symbol_changes or ()))
         object.__setattr__(self, "import_changes", tuple(self.import_changes or ()))
-        object.__setattr__(self, "public_api_changes", tuple(self.public_api_changes or ()))
-        object.__setattr__(self, "uncertainty", tuple(str(item) for item in self.uncertainty or ()))
+        object.__setattr__(
+            self, "public_api_changes", tuple(self.public_api_changes or ())
+        )
+        object.__setattr__(
+            self, "uncertainty", tuple(str(item) for item in self.uncertainty or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -57,7 +63,9 @@ class PythonModuleDiff:
             "change_type": self.change_type.value,
             "symbol_changes": [item.serialize() for item in self.symbol_changes],
             "import_changes": [item.serialize() for item in self.import_changes],
-            "public_api_changes": [item.serialize() for item in self.public_api_changes],
+            "public_api_changes": [
+                item.serialize() for item in self.public_api_changes
+            ],
             "signature_changed": self.signature_changed,
             "decorator_changed": self.decorator_changed,
             "public_api_changed": self.public_api_changed,
@@ -126,7 +134,10 @@ def diff_python_sources(
             public_api_changed = public_api_changed or before_item.public
             continue
         assert before_item is not None and after_item is not None
-        changed_signature = before_item.signature != after_item.signature or before_item.bases != after_item.bases
+        changed_signature = (
+            before_item.signature != after_item.signature
+            or before_item.bases != after_item.bases
+        )
         changed_decorators = before_item.decorators != after_item.decorators
         if changed_signature or changed_decorators:
             symbol_changes.append(
@@ -189,11 +200,15 @@ def diff_python_sources(
     if public_api_changed:
         added = tuple(sorted(after_public - before_public))
         removed = tuple(sorted(before_public - after_public))
-        changed = tuple(sorted(
-            name
-            for name in before_symbols.keys() & after_symbols.keys()
-            if before_symbols[name].public and after_symbols[name].public and before_symbols[name].signature != after_symbols[name].signature
-        ))
+        changed = tuple(
+            sorted(
+                name
+                for name in before_symbols.keys() & after_symbols.keys()
+                if before_symbols[name].public
+                and after_symbols[name].public
+                and before_symbols[name].signature != after_symbols[name].signature
+            )
+        )
         public_api_changes.append(
             PublicAPIChange(
                 module=module_name,
@@ -253,18 +268,35 @@ def diff_python_sources(
     )
 
 
-def _module_snapshot(module_name: str, source: str | None, path: Path | None) -> dict[str, Any]:
+def _module_snapshot(
+    module_name: str, source: str | None, path: Path | None
+) -> dict[str, Any]:
     if source is None:
-        return {"symbols": tuple(), "imports": tuple(), "public_api": tuple(), "parsed": False}
+        return {
+            "symbols": tuple(),
+            "imports": tuple(),
+            "public_api": tuple(),
+            "parsed": False,
+        }
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return {"symbols": tuple(), "imports": tuple(), "public_api": tuple(), "parsed": False}
+        return {
+            "symbols": tuple(),
+            "imports": tuple(),
+            "public_api": tuple(),
+            "parsed": False,
+        }
 
     imports = tuple(sorted(_collect_imports(tree)))
     symbols = tuple(sorted(_collect_symbols(tree), key=lambda item: item.name))
     public_api = _collect_public_api(tree, symbols)
-    return {"symbols": symbols, "imports": imports, "public_api": public_api, "parsed": True}
+    return {
+        "symbols": symbols,
+        "imports": imports,
+        "public_api": public_api,
+        "parsed": True,
+    }
 
 
 def _collect_imports(tree: ast.Module) -> set[str]:
@@ -295,7 +327,9 @@ def _collect_symbols(tree: ast.Module) -> set[PythonSymbolSnapshot]:
                     name=node.name,
                     kind="function",
                     signature=_function_signature(node),
-                    decorators=tuple(_format_decorator(item) for item in node.decorator_list),
+                    decorators=tuple(
+                        _format_decorator(item) for item in node.decorator_list
+                    ),
                     bases=(),
                     public=not node.name.startswith("_"),
                 )
@@ -306,7 +340,9 @@ def _collect_symbols(tree: ast.Module) -> set[PythonSymbolSnapshot]:
                     name=node.name,
                     kind="class",
                     signature=_class_signature(node),
-                    decorators=tuple(_format_decorator(item) for item in node.decorator_list),
+                    decorators=tuple(
+                        _format_decorator(item) for item in node.decorator_list
+                    ),
                     bases=tuple(_format_expr(item) for item in node.bases),
                     public=not node.name.startswith("_"),
                 )
@@ -314,7 +350,9 @@ def _collect_symbols(tree: ast.Module) -> set[PythonSymbolSnapshot]:
     return symbols
 
 
-def _collect_public_api(tree: ast.Module, symbols: tuple[PythonSymbolSnapshot, ...]) -> tuple[str, ...]:
+def _collect_public_api(
+    tree: ast.Module, symbols: tuple[PythonSymbolSnapshot, ...]
+) -> tuple[str, ...]:
     exports: list[str] = [item.name for item in symbols if item.public]
     for node in tree.body:
         if isinstance(node, ast.Assign):
@@ -338,7 +376,9 @@ def _extract_string_sequence(node: ast.AST) -> tuple[str, ...]:
 def _function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     parts: list[str] = []
     positional = list(node.args.posonlyargs) + list(node.args.args)
-    defaults = [None] * (len(positional) - len(node.args.defaults)) + list(node.args.defaults)
+    defaults = [None] * (len(positional) - len(node.args.defaults)) + list(
+        node.args.defaults
+    )
     for arg, default in zip(positional, defaults, strict=False):
         parts.append(_format_arg(arg, default))
     if node.args.posonlyargs:
@@ -352,7 +392,9 @@ def _function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     if node.args.kwarg is not None:
         parts.append("**" + _format_arg(node.args.kwarg))
     signature = ", ".join(item for item in parts if item)
-    return_annotation = f" -> {_format_expr(node.returns)}" if node.returns is not None else ""
+    return_annotation = (
+        f" -> {_format_expr(node.returns)}" if node.returns is not None else ""
+    )
     prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
     return f"{prefix} {node.name}({signature}){return_annotation}"
 
@@ -360,7 +402,9 @@ def _function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
 def _class_signature(node: ast.ClassDef) -> str:
     bases = ", ".join(_format_expr(base) for base in node.bases)
     keywords = ", ".join(
-        f"{kw.arg}={_format_expr(kw.value)}" if kw.arg else f"**{_format_expr(kw.value)}"
+        f"{kw.arg}={_format_expr(kw.value)}"
+        if kw.arg
+        else f"**{_format_expr(kw.value)}"
         for kw in node.keywords
     )
     signature_items = [item for item in (bases, keywords) if item]

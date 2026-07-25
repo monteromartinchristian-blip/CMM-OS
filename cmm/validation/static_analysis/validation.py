@@ -15,6 +15,7 @@ from cmm.validation.impact.snapshots import ChangeSetBuilder
 
 from .contracts import StaticAnalysisPlan, StaticAnalysisScope
 
+
 def build_static_analysis_plan(
     *,
     project_root: Path,
@@ -45,7 +46,9 @@ def build_static_analysis_plan(
     )
 
 
-def static_type_check_step(context: ValidationContext, plan: StaticAnalysisPlan) -> ValidationStep | None:
+def static_type_check_step(
+    context: ValidationContext, plan: StaticAnalysisPlan
+) -> ValidationStep | None:
     if not plan.files:
         return None
     from cmm.validation.security.contracts import default_command_policy
@@ -88,7 +91,9 @@ def static_type_check_step(context: ValidationContext, plan: StaticAnalysisPlan)
     )
 
 
-def static_dead_code_step(context: ValidationContext, plan: StaticAnalysisPlan) -> ValidationStep | None:
+def static_dead_code_step(
+    context: ValidationContext, plan: StaticAnalysisPlan
+) -> ValidationStep | None:
     if not plan.files:
         return None
     from cmm.validation.security.contracts import default_command_policy
@@ -131,7 +136,9 @@ def default_static_analysis_steps(
     change_impact_step: ValidationStep | None = None,
 ) -> tuple[ValidationStep, ...]:
     change_set = _load_change_set(context, change_impact_step)
-    plan = build_static_analysis_plan(project_root=context.project_root, change_set=change_set)
+    plan = build_static_analysis_plan(
+        project_root=context.project_root, change_set=change_set
+    )
     steps: list[ValidationStep] = []
     type_check = static_type_check_step(context, plan)
     dead_code = static_dead_code_step(context, plan)
@@ -142,17 +149,24 @@ def default_static_analysis_steps(
     return tuple(steps)
 
 
-def _load_change_set(context: ValidationContext, change_impact_step: ValidationStep | None) -> ChangeSet:
+def _load_change_set(
+    context: ValidationContext, change_impact_step: ValidationStep | None
+) -> ChangeSet:
     if change_impact_step is not None:
         payload = change_impact_step.metadata.get("change_set")
         if isinstance(payload, Mapping):
             return ChangeSet.from_mapping(payload)
     builder = ChangeSetBuilder()
-    return builder.build(project_root=context.project_root, changed_files=context.changed_files)
+    return builder.build(
+        project_root=context.project_root, changed_files=context.changed_files
+    )
 
 
 def _resolve_scope(change_set: ChangeSet) -> tuple[StaticAnalysisScope, str]:
-    if change_set.change_type == ChangeType.PUBLIC_API_CHANGE or change_set.public_api_changes:
+    if (
+        change_set.change_type == ChangeType.PUBLIC_API_CHANGE
+        or change_set.public_api_changes
+    ):
         return StaticAnalysisScope.FULL, "public_api_change"
     if change_set.requires_full_suite:
         return StaticAnalysisScope.FULL, "requires_full_suite"
@@ -163,7 +177,9 @@ def _resolve_scope(change_set: ChangeSet) -> tuple[StaticAnalysisScope, str]:
     return StaticAnalysisScope.AFFECTED, "affected_scope"
 
 
-def _select_files(project_root: Path, change_set: ChangeSet, scope: StaticAnalysisScope) -> list[Path]:
+def _select_files(
+    project_root: Path, change_set: ChangeSet, scope: StaticAnalysisScope
+) -> list[Path]:
     if scope == StaticAnalysisScope.FULL:
         return list(select_python_files(ValidationContext(project_root=project_root)))
 

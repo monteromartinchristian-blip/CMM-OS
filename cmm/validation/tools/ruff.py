@@ -11,7 +11,9 @@ from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 
 
-def _safe_path(path_value: str | Path | None, project_root: Path | None = None) -> Path | None:
+def _safe_path(
+    path_value: str | Path | None, project_root: Path | None = None
+) -> Path | None:
     if path_value is None:
         return None
     path = Path(str(path_value))
@@ -74,7 +76,9 @@ def parse_ruff_results(
         }
 
     if mode == "formatter":
-        if stderr and ("no module named ruff" in stderr.lower() or "not found" in stderr.lower()):
+        if stderr and (
+            "no module named ruff" in stderr.lower() or "not found" in stderr.lower()
+        ):
             finding = ValidationFinding(
                 code="TOOL_NOT_AVAILABLE",
                 message="Ruff is not available in the current environment.",
@@ -87,31 +91,64 @@ def parse_ruff_results(
                 id="ruff-result",
                 kind="formatter_report",
                 source="ruff",
-                content={"command": list(command_tuple), "files": list(selected), "diagnostics": [], "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0}},
+                content={
+                    "command": list(command_tuple),
+                    "files": list(selected),
+                    "diagnostics": [],
+                    "metrics": {
+                        "diagnostic_count": 0,
+                        "files_checked": len(selected) or 0,
+                    },
+                },
                 findings=(finding,),
                 metrics={"diagnostic_count": 0, "files_checked": len(selected) or 0},
             )
-            return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+            return {
+                "status": ValidationStatus.ERROR,
+                "findings": [finding],
+                "artifacts": [artifact],
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+            }
         finding = ValidationFinding(
             code="FORMAT_REQUIRED",
             message="Formatting changes are required.",
             severity=ValidationSeverity.ERROR,
             source="ruff",
             blocking=True,
-            metadata={"command": list(command_tuple), "stdout": stdout, "stderr": stderr},
+            metadata={
+                "command": list(command_tuple),
+                "stdout": stdout,
+                "stderr": stderr,
+            },
         )
         artifact = ValidationArtifact(
             id="ruff-result",
             kind="formatter_report",
             source="ruff",
-            content={"command": list(command_tuple), "files": list(selected), "diagnostics": [{"code": finding.code, "message": finding.message}], "metrics": {"diagnostic_count": 1, "files_checked": len(selected) or 0}},
+            content={
+                "command": list(command_tuple),
+                "files": list(selected),
+                "diagnostics": [{"code": finding.code, "message": finding.message}],
+                "metrics": {"diagnostic_count": 1, "files_checked": len(selected) or 0},
+            },
             findings=(finding,),
             metrics={"diagnostic_count": 1, "files_checked": len(selected) or 0},
         )
-        return {"status": ValidationStatus.FAILED, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": ValidationStatus.FAILED,
+            "findings": [finding],
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     if mode == "lint":
-        if stderr and ("no module named ruff" in stderr.lower() or "not found" in stderr.lower()):
+        if stderr and (
+            "no module named ruff" in stderr.lower() or "not found" in stderr.lower()
+        ):
             finding = ValidationFinding(
                 code="TOOL_NOT_AVAILABLE",
                 message="Ruff is not available in the current environment.",
@@ -124,11 +161,26 @@ def parse_ruff_results(
                 id="ruff-result",
                 kind="lint_report",
                 source="ruff",
-                content={"command": list(command_tuple), "files": list(selected), "diagnostics": [], "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0}},
+                content={
+                    "command": list(command_tuple),
+                    "files": list(selected),
+                    "diagnostics": [],
+                    "metrics": {
+                        "diagnostic_count": 0,
+                        "files_checked": len(selected) or 0,
+                    },
+                },
                 findings=(finding,),
                 metrics={"diagnostic_count": 0, "files_checked": len(selected) or 0},
             )
-            return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+            return {
+                "status": ValidationStatus.ERROR,
+                "findings": [finding],
+                "artifacts": [artifact],
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+            }
 
         if not raw_output.strip():
             finding = ValidationFinding(
@@ -143,11 +195,26 @@ def parse_ruff_results(
                 id="ruff-result",
                 kind="lint_report",
                 source="ruff",
-                content={"command": list(command_tuple), "files": list(selected), "diagnostics": [], "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0}},
+                content={
+                    "command": list(command_tuple),
+                    "files": list(selected),
+                    "diagnostics": [],
+                    "metrics": {
+                        "diagnostic_count": 0,
+                        "files_checked": len(selected) or 0,
+                    },
+                },
                 findings=(finding,),
                 metrics={"diagnostic_count": 0, "files_checked": len(selected) or 0},
             )
-            return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+            return {
+                "status": ValidationStatus.ERROR,
+                "findings": [finding],
+                "artifacts": [artifact],
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+            }
 
         try:
             payload = json.loads(raw_output)
@@ -164,11 +231,26 @@ def parse_ruff_results(
                 id="ruff-result",
                 kind="lint_report",
                 source="ruff",
-                content={"command": list(command_tuple), "files": list(selected), "diagnostics": [], "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0}},
+                content={
+                    "command": list(command_tuple),
+                    "files": list(selected),
+                    "diagnostics": [],
+                    "metrics": {
+                        "diagnostic_count": 0,
+                        "files_checked": len(selected) or 0,
+                    },
+                },
                 findings=(finding,),
                 metrics={"diagnostic_count": 0, "files_checked": len(selected) or 0},
             )
-            return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+            return {
+                "status": ValidationStatus.ERROR,
+                "findings": [finding],
+                "artifacts": [artifact],
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": exit_code,
+            }
 
         messages = payload.get("messages") if isinstance(payload, Mapping) else None
         findings: list[ValidationFinding] = []
@@ -178,15 +260,27 @@ def parse_ruff_results(
                     continue
                 code = str(item.get("code") or "RUFF")
                 message = str(item.get("message") or "Ruff reported a diagnostic")
-                location = item.get("location") if isinstance(item.get("location"), Mapping) else {}
+                location = (
+                    item.get("location")
+                    if isinstance(item.get("location"), Mapping)
+                    else {}
+                )
                 row = _coerce_int(item.get("line_number") or location.get("row"))
-                column = _coerce_int(item.get("column_number") or location.get("column"))
+                column = _coerce_int(
+                    item.get("column_number") or location.get("column")
+                )
                 filename = item.get("filename") or item.get("path")
                 path = _safe_path(filename, project_root)
-                end_location = item.get("end_location") if isinstance(item.get("end_location"), Mapping) else None
+                end_location = (
+                    item.get("end_location")
+                    if isinstance(item.get("end_location"), Mapping)
+                    else None
+                )
                 metadata: dict[str, Any] = {
                     "rule_code": code,
-                    "fix_applicability": item.get("fix", {}).get("applicability") if isinstance(item.get("fix"), Mapping) else None,
+                    "fix_applicability": item.get("fix", {}).get("applicability")
+                    if isinstance(item.get("fix"), Mapping)
+                    else None,
                     "end_location": end_location,
                     "raw": dict(item),
                 }
@@ -211,13 +305,26 @@ def parse_ruff_results(
                 "command": list(command_tuple),
                 "files": list(selected),
                 "diagnostics": [f.serialize() for f in findings],
-                "metrics": {"diagnostic_count": len(findings), "files_checked": len(selected) or 0},
+                "metrics": {
+                    "diagnostic_count": len(findings),
+                    "files_checked": len(selected) or 0,
+                },
             },
             findings=tuple(findings),
-            metrics={"diagnostic_count": len(findings), "files_checked": len(selected) or 0},
+            metrics={
+                "diagnostic_count": len(findings),
+                "files_checked": len(selected) or 0,
+            },
         )
         status = ValidationStatus.FAILED if findings else ValidationStatus.PASSED
-        return {"status": status, "findings": findings, "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        return {
+            "status": status,
+            "findings": findings,
+            "artifacts": [artifact],
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+        }
 
     finding = ValidationFinding(
         code="RUFF_EXECUTION_ERROR",
@@ -231,8 +338,20 @@ def parse_ruff_results(
         id="ruff-result",
         kind="lint_report" if mode == "lint" else "formatter_report",
         source="ruff",
-        content={"command": list(command_tuple), "files": list(selected), "diagnostics": [], "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0}},
+        content={
+            "command": list(command_tuple),
+            "files": list(selected),
+            "diagnostics": [],
+            "metrics": {"diagnostic_count": 0, "files_checked": len(selected) or 0},
+        },
         findings=(finding,),
         metrics={"diagnostic_count": 0, "files_checked": len(selected) or 0},
     )
-    return {"status": ValidationStatus.ERROR, "findings": [finding], "artifacts": [artifact], "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+    return {
+        "status": ValidationStatus.ERROR,
+        "findings": [finding],
+        "artifacts": [artifact],
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+    }

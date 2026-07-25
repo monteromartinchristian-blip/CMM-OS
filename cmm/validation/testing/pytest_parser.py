@@ -102,7 +102,16 @@ class PytestRunSummary:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for field_name in ("collected", "passed", "failed", "errors", "skipped", "xfailed", "xpassed", "duration_ms"):
+        for field_name in (
+            "collected",
+            "passed",
+            "failed",
+            "errors",
+            "skipped",
+            "xfailed",
+            "xpassed",
+            "duration_ms",
+        ):
             if getattr(self, field_name) < 0:
                 raise ValueError(f"PytestRunSummary.{field_name} must be non-negative")
         object.__setattr__(self, "test_cases", tuple(self.test_cases or ()))
@@ -151,7 +160,9 @@ def _case_status(case: ET.Element) -> tuple[str, str | None, str | None]:
     return "passed", None, None
 
 
-def _case_nodeid(case: ET.Element, fallback_classname: str | None, fallback_name: str) -> str:
+def _case_nodeid(
+    case: ET.Element, fallback_classname: str | None, fallback_name: str
+) -> str:
     if case.attrib.get("nodeid"):
         return str(case.attrib["nodeid"])
     file_attr = case.attrib.get("file")
@@ -166,7 +177,9 @@ def _case_file_path(case: ET.Element, project_root: Path | None) -> Path | None:
     return _parse_path(case.attrib.get("file"), project_root)
 
 
-def _summary_from_cases(cases: list[PytestTestCaseResult], duration_ms: int, metadata: Mapping[str, Any]) -> PytestRunSummary:
+def _summary_from_cases(
+    cases: list[PytestTestCaseResult], duration_ms: int, metadata: Mapping[str, Any]
+) -> PytestRunSummary:
     counts = {
         "passed": 0,
         "failed": 0,
@@ -192,32 +205,45 @@ def _summary_from_cases(cases: list[PytestTestCaseResult], duration_ms: int, met
     )
 
 
-def _find_related_changes(selection: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
+def _find_related_changes(
+    selection: Mapping[str, Any],
+) -> Mapping[str, tuple[str, ...]]:
     related = selection.get("related_changes") if isinstance(selection, Mapping) else {}
     if not isinstance(related, Mapping):
         return {}
-    return {str(key): tuple(str(item) for item in value) for key, value in related.items()}
+    return {
+        str(key): tuple(str(item) for item in value) for key, value in related.items()
+    }
 
 
 def _selection_from_step(step: ValidationStep) -> TestSelection:
     selection = step.metadata.get("selection")
     if isinstance(selection, Mapping):
-        selected = tuple(Path(str(item)) for item in selection.get("selected_tests", ()))
+        selected = tuple(
+            Path(str(item)) for item in selection.get("selected_tests", ())
+        )
         related = selection.get("related_changes", {})
         if not isinstance(related, Mapping):
             related = {}
         return TestSelection(
             selected_tests=selected,
-            related_changes={str(key): tuple(str(item) for item in value) for key, value in related.items()},
+            related_changes={
+                str(key): tuple(str(item) for item in value)
+                for key, value in related.items()
+            },
             confidence=float(selection.get("confidence", 0.0)),
             requires_full_suite=bool(selection.get("requires_full_suite", False)),
             reasons=tuple(str(item) for item in selection.get("reasons", ())),
-            metadata=dict(selection.get("metadata", {})) if isinstance(selection.get("metadata"), Mapping) else {},
+            metadata=dict(selection.get("metadata", {}))
+            if isinstance(selection.get("metadata"), Mapping)
+            else {},
         )
     return TestSelection()
 
 
-def _extract_report_path(step: ValidationStep, junit_xml: str | bytes | Path | None) -> tuple[Path | None, Path | None]:
+def _extract_report_path(
+    step: ValidationStep, junit_xml: str | bytes | Path | None
+) -> tuple[Path | None, Path | None]:
     report_path: Path | None = None
     temp_dir: Path | None = None
     if junit_xml is not None:
@@ -242,7 +268,9 @@ def _extract_report_path(step: ValidationStep, junit_xml: str | bytes | Path | N
     return report_path, temp_dir
 
 
-def _parse_report_xml(xml_text: str, *, project_root: Path | None) -> tuple[list[PytestTestCaseResult], dict[str, Any]]:
+def _parse_report_xml(
+    xml_text: str, *, project_root: Path | None
+) -> tuple[list[PytestTestCaseResult], dict[str, Any]]:
     root = ET.fromstring(xml_text)
     cases: list[PytestTestCaseResult] = []
     root_metadata = {
@@ -312,8 +340,12 @@ def parse_pytest_result(
 
         if xml_text is not None:
             try:
-                cases, root_metadata = _parse_report_xml(xml_text, project_root=project_root)
-                summary = _summary_from_cases(cases, generic_result.duration_ms, root_metadata)
+                cases, root_metadata = _parse_report_xml(
+                    xml_text, project_root=project_root
+                )
+                summary = _summary_from_cases(
+                    cases, generic_result.duration_ms, root_metadata
+                )
             except ET.ParseError as exc:
                 parse_error = True
                 findings.append(
@@ -323,7 +355,12 @@ def parse_pytest_result(
                         severity=ValidationSeverity.ERROR,
                         source="pytest",
                         blocking=True,
-                        metadata={"report_path": None if report_path is None else str(report_path), "error": str(exc)},
+                        metadata={
+                            "report_path": None
+                            if report_path is None
+                            else str(report_path),
+                            "error": str(exc),
+                        },
                     )
                 )
                 status = ValidationStatus.ERROR
@@ -337,16 +374,24 @@ def parse_pytest_result(
 
         failed_cases = [case for case in cases if case.status == "failed"]
         error_cases = [case for case in cases if case.status == "error"]
-        collection_error_cases = [case for case in error_cases if "collect" in case.nodeid.lower() or case.file_path is None]
+        collection_error_cases = [
+            case
+            for case in error_cases
+            if "collect" in case.nodeid.lower() or case.file_path is None
+        ]
 
-        def _add_case_finding(case: PytestTestCaseResult, code: str, message: str | None) -> None:
+        def _add_case_finding(
+            case: PytestTestCaseResult, code: str, message: str | None
+        ) -> None:
             related = []
             if case.file_path is not None:
                 related = list(selection_related.get(str(case.file_path), ()))
             findings.append(
                 ValidationFinding(
                     code=code,
-                    message=message or case.message or f"Pytest reported {case.status} for {case.nodeid}",
+                    message=message
+                    or case.message
+                    or f"Pytest reported {case.status} for {case.nodeid}",
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     file_path=case.file_path,
@@ -372,7 +417,10 @@ def parse_pytest_result(
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     blocking=True,
-                    metadata={"timeout_seconds": step.timeout_seconds, "scope": step.metadata.get("pytest_scope")},
+                    metadata={
+                        "timeout_seconds": step.timeout_seconds,
+                        "scope": step.metadata.get("pytest_scope"),
+                    },
                 )
             )
             status = ValidationStatus.TIMED_OUT
@@ -396,7 +444,10 @@ def parse_pytest_result(
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     blocking=True,
-                    metadata={"stdout": generic_result.stdout, "stderr": generic_result.stderr},
+                    metadata={
+                        "stdout": generic_result.stdout,
+                        "stderr": generic_result.stderr,
+                    },
                 )
             )
             status = ValidationStatus.ERROR
@@ -408,7 +459,10 @@ def parse_pytest_result(
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     blocking=True,
-                    metadata={"stdout": generic_result.stdout, "stderr": generic_result.stderr},
+                    metadata={
+                        "stdout": generic_result.stdout,
+                        "stderr": generic_result.stderr,
+                    },
                 )
             )
             status = ValidationStatus.ERROR
@@ -423,7 +477,9 @@ def parse_pytest_result(
                     metadata={"scope": step.metadata.get("pytest_scope")},
                 )
             )
-            status = ValidationStatus.FAILED if step.required else ValidationStatus.WARNING
+            status = (
+                ValidationStatus.FAILED if step.required else ValidationStatus.WARNING
+            )
         elif report_path is not None and not report_path.exists():
             findings.append(
                 ValidationFinding(
@@ -432,7 +488,10 @@ def parse_pytest_result(
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     blocking=True,
-                    metadata={"report_path": str(report_path), "exit_code": generic_result.exit_code},
+                    metadata={
+                        "report_path": str(report_path),
+                        "exit_code": generic_result.exit_code,
+                    },
                 )
             )
             status = ValidationStatus.ERROR
@@ -444,7 +503,12 @@ def parse_pytest_result(
                     severity=ValidationSeverity.ERROR,
                     source="pytest",
                     blocking=True,
-                    metadata={"report_path": None if report_path is None else str(report_path), "exit_code": generic_result.exit_code},
+                    metadata={
+                        "report_path": None
+                        if report_path is None
+                        else str(report_path),
+                        "exit_code": generic_result.exit_code,
+                    },
                 )
             )
             status = ValidationStatus.ERROR
@@ -453,7 +517,11 @@ def parse_pytest_result(
                 code = "PYTEST_TEST_FAILED"
                 _add_case_finding(case, code, case.message)
             for case in error_cases:
-                code = "PYTEST_COLLECTION_ERROR" if case in collection_error_cases else "PYTEST_TEST_ERROR"
+                code = (
+                    "PYTEST_COLLECTION_ERROR"
+                    if case in collection_error_cases
+                    else "PYTEST_TEST_ERROR"
+                )
                 _add_case_finding(case, code, case.message)
             if generic_result.exit_code == 1 and not findings:
                 findings.append(
@@ -466,7 +534,11 @@ def parse_pytest_result(
                     )
                 )
                 status = ValidationStatus.ERROR
-            elif failed_cases or error_cases or any(case.status in {"xpassed"} for case in cases):
+            elif (
+                failed_cases
+                or error_cases
+                or any(case.status in {"xpassed"} for case in cases)
+            ):
                 status = ValidationStatus.FAILED
             elif generic_result.exit_code == 0:
                 status = ValidationStatus.PASSED

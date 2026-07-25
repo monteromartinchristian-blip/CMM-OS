@@ -4,7 +4,13 @@ from pathlib import Path
 
 from cmm.validation import ValidationContext
 from cmm.validation.catalog import build_default_validation_registry, change_impact_step
-from cmm.validation.security import SecurityScope, bandit_step, default_security_steps, pip_audit_step, security_step
+from cmm.validation.security import (
+    SecurityScope,
+    bandit_step,
+    default_security_steps,
+    pip_audit_step,
+    security_step,
+)
 from cmm.validation.testing_defaults import default_validation_steps
 
 
@@ -15,7 +21,9 @@ def _write(path: Path, content: str) -> None:
 
 def test_security_step_uses_change_impact_metadata(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "module.py", "def func(x):\n    return x\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
 
     impact = change_impact_step(context)
     step = security_step(context, change_impact_step=impact, planned_steps=(impact,))
@@ -24,13 +32,18 @@ def test_security_step_uses_change_impact_metadata(tmp_path: Path) -> None:
     assert step.step_type.value == "internal"
     assert step.dependencies == ("change_impact",)
     assert step.metadata["validator"] == "security"
-    assert step.metadata["security_plan"]["scope"] in {SecurityScope.AFFECTED.value, SecurityScope.FULL.value}
+    assert step.metadata["security_plan"]["scope"] in {
+        SecurityScope.AFFECTED.value,
+        SecurityScope.FULL.value,
+    }
 
 
 def test_security_step_is_inserted_before_tests(tmp_path: Path) -> None:
     _write(tmp_path / "pkg" / "module.py", "def func(x):\n    return x\n")
     _write(tmp_path / "tests" / "test_module.py", "def test_func():\n    assert True\n")
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
 
     steps = default_validation_steps(context)
     names = [step.name for step in steps]
@@ -45,11 +58,17 @@ def test_default_security_steps_returns_internal_step(tmp_path: Path) -> None:
     assert steps[0].step_type.value == "internal"
 
 
-def test_optional_security_steps_include_profile_when_tools_are_available(tmp_path: Path, monkeypatch) -> None:
-    context = ValidationContext(project_root=tmp_path, changed_files=(Path("pkg/module.py"),))
+def test_optional_security_steps_include_profile_when_tools_are_available(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = ValidationContext(
+        project_root=tmp_path, changed_files=(Path("pkg/module.py"),)
+    )
     impact = change_impact_step(context)
 
-    monkeypatch.setattr("cmm.validation.security.validation._tool_available", lambda name: True)
+    monkeypatch.setattr(
+        "cmm.validation.security.validation._tool_available", lambda name: True
+    )
 
     bandit = bandit_step(context, change_impact_step=impact)
     pip_audit = pip_audit_step(context, change_impact_step=impact)

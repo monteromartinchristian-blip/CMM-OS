@@ -6,14 +6,22 @@ import pytest
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.testing.discovery import discover_tests
-from cmm.validation.testing.selection import TestSelection as _TestSelection, select_affected_tests
+from cmm.validation.testing.selection import (
+    TestSelection as _TestSelection,
+    select_affected_tests,
+)
 
 
 def _context(project_root: Path, *changed_files: str) -> ValidationContext:
-    return ValidationContext(project_root=project_root, changed_files=tuple(Path(item) for item in changed_files))
+    return ValidationContext(
+        project_root=project_root,
+        changed_files=tuple(Path(item) for item in changed_files),
+    )
 
 
-def _write_test(path: Path, content: str = "def test_sample():\n    assert True\n") -> None:
+def _write_test(
+    path: Path, content: str = "def test_sample():\n    assert True\n"
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
@@ -23,7 +31,9 @@ def test_direct_test_change_is_selected_with_full_confidence(tmp_path: Path) -> 
     test_path = project_root / "tests" / "pkg" / "test_changed.py"
     _write_test(test_path)
 
-    selection = select_affected_tests(_context(project_root, "tests/pkg/test_changed.py"))
+    selection = select_affected_tests(
+        _context(project_root, "tests/pkg/test_changed.py")
+    )
 
     assert selection.selected_tests == (Path("tests/pkg/test_changed.py"),)
     assert selection.confidence == 1.0
@@ -54,11 +64,20 @@ def test_package_equivalent_change_selects_scoped_tests(tmp_path: Path) -> None:
 
 def test_token_match_is_supported(tmp_path: Path) -> None:
     project_root = tmp_path
-    _write_test(project_root / "tests" / "validation" / "test_validation_pipeline_executor_registry.py")
+    _write_test(
+        project_root
+        / "tests"
+        / "validation"
+        / "test_validation_pipeline_executor_registry.py"
+    )
 
-    selection = select_affected_tests(_context(project_root, "cmm/feature/pipeline_executor_registry.py"))
+    selection = select_affected_tests(
+        _context(project_root, "cmm/feature/pipeline_executor_registry.py")
+    )
 
-    assert selection.selected_tests == (Path("tests/validation/test_validation_pipeline_executor_registry.py"),)
+    assert selection.selected_tests == (
+        Path("tests/validation/test_validation_pipeline_executor_registry.py"),
+    )
     assert selection.confidence == 0.75
 
 
@@ -92,7 +111,9 @@ def test_cross_cutting_validation_change_requires_full_suite(tmp_path: Path) -> 
     project_root = tmp_path
     _write_test(project_root / "tests" / "test_pipeline.py")
 
-    selection = select_affected_tests(_context(project_root, "cmm/validation/executor.py"))
+    selection = select_affected_tests(
+        _context(project_root, "cmm/validation/executor.py")
+    )
 
     assert selection.requires_full_suite
     assert "cross_cutting_validation_change" in selection.reasons
@@ -108,7 +129,9 @@ def test_kernel_change_requires_full_suite(tmp_path: Path) -> None:
     assert "kernel_change" in selection.reasons
 
 
-def test_python_change_without_selection_falls_back_to_full_suite(tmp_path: Path) -> None:
+def test_python_change_without_selection_falls_back_to_full_suite(
+    tmp_path: Path,
+) -> None:
     project_root = tmp_path
     _write_test(project_root / "tests" / "test_other.py")
 
@@ -133,7 +156,9 @@ def test_multiple_packages_require_full_suite(tmp_path: Path) -> None:
     _write_test(project_root / "tests" / "core" / "test_core.py")
     _write_test(project_root / "tests" / "planner" / "test_planner.py")
 
-    selection = select_affected_tests(_context(project_root, "cmm/core/module.py", "cmm/planner/module.py"))
+    selection = select_affected_tests(
+        _context(project_root, "cmm/core/module.py", "cmm/planner/module.py")
+    )
 
     assert selection.requires_full_suite
     assert "multiple_packages" in selection.reasons

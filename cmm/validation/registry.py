@@ -13,27 +13,42 @@ class ValidationRegistry:
 
     _validators: Dict[str, InternalValidator] = field(default_factory=dict)
 
-    def register(self, name: str, validator: InternalValidator, *, replace: bool = False) -> None:
+    def register(
+        self, name: str, validator: InternalValidator, *, replace: bool = False
+    ) -> None:
         if not name:
-            raise ValidationRegistryError(code="invalid_name", message="Validator name must not be empty")
+            raise ValidationRegistryError(
+                code="invalid_name", message="Validator name must not be empty"
+            )
         if not hasattr(validator, "validate"):
-            raise ValidationRegistryError(code="invalid_validator", message="Validator must implement validate(context, step)")
+            raise ValidationRegistryError(
+                code="invalid_validator",
+                message="Validator must implement validate(context, step)",
+            )
         if name in self._validators and not replace:
-            raise ValidationRegistryError(code="duplicate", message=f"Validator '{name}' already registered")
+            raise ValidationRegistryError(
+                code="duplicate", message=f"Validator '{name}' already registered"
+            )
         self._validators[name] = validator
 
     def unregister(self, name: str) -> None:
         if not name:
-            raise ValidationRegistryError(code="invalid_name", message="Validator name must not be empty")
+            raise ValidationRegistryError(
+                code="invalid_name", message="Validator name must not be empty"
+            )
         self._validators.pop(name, None)
 
     def get(self, name: str) -> InternalValidator:
         if not name:
-            raise ValidationRegistryError(code="invalid_name", message="Validator name must not be empty")
+            raise ValidationRegistryError(
+                code="invalid_name", message="Validator name must not be empty"
+            )
         try:
             return self._validators[name]
         except KeyError as exc:
-            raise ValidationRegistryError(code="not_found", message=f"Validator '{name}' not found") from exc
+            raise ValidationRegistryError(
+                code="not_found", message=f"Validator '{name}' not found"
+            ) from exc
 
     def has(self, name: str) -> bool:
         if not name:

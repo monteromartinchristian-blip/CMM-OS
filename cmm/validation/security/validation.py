@@ -13,12 +13,21 @@ from cmm.validation.artifacts import ValidationArtifact
 from cmm.validation.context import ValidationContext
 from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
-from cmm.validation.steps import ValidationStep, ValidationStepResult, ValidationStepType
+from cmm.validation.steps import (
+    ValidationStep,
+    ValidationStepResult,
+    ValidationStepType,
+)
 
 from cmm.validation.impact.contracts import ChangeSet, ChangeType
 from cmm.validation.impact.snapshots import ChangeSetBuilder
 
-from .contracts import CommandPolicy, SecurityAnalysisPlan, SecurityScope, default_command_policy
+from .contracts import (
+    CommandPolicy,
+    SecurityAnalysisPlan,
+    SecurityScope,
+    default_command_policy,
+)
 
 _EXCLUDED_DIRS = {
     ".git",
@@ -51,7 +60,9 @@ _TEXT_SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)^\s*(?P<key>[A-Z0-9_]*?(?:API_KEY|SECRET_KEY|SECRET_ACCESS_KEY|ACCESS_KEY|ACCESS_TOKEN|AUTH_TOKEN|PRIVATE_KEY|CLIENT_SECRET|CLIENT_KEY|PASSWORD|PASSWD|TOKEN)[A-Z0-9_]*)\s*[:=]\s*(?P<value>.+?)\s*$"
 )
 _URL_RE = re.compile(r"(?i)\b(?:https?|ftp|ssh)://")
-_DIRECT_DEP_RE = re.compile(r"(?i)@\s*(?:git\+|file:|https?://|ssh://)|^\s*(?:-e|--editable)\b")
+_DIRECT_DEP_RE = re.compile(
+    r"(?i)@\s*(?:git\+|file:|https?://|ssh://)|^\s*(?:-e|--editable)\b"
+)
 
 
 def build_security_plan(
@@ -100,7 +111,8 @@ def security_step(
     plan = build_security_plan(
         project_root=context.project_root,
         change_set=change_set,
-        command_policy=command_policy or _load_command_policy(context, change_impact_step),
+        command_policy=command_policy
+        or _load_command_policy(context, change_impact_step),
         planned_steps=planned_steps,
     )
     return ValidationStep(
@@ -175,7 +187,9 @@ def pip_audit_step(
         return None
     change_set = _load_change_set(context, change_impact_step)
     plan = build_security_plan(project_root=context.project_root, change_set=change_set)
-    dependency_files = [str(path) for path in plan.files if _is_dependency_manifest(path)]
+    dependency_files = [
+        str(path) for path in plan.files if _is_dependency_manifest(path)
+    ]
     command = (sys.executable, "-m", "pip_audit", "-f", "json", *dependency_files)
     return ValidationStep(
         name="pip_audit",
@@ -240,7 +254,9 @@ def evaluate_command_policy(
         )
 
     if any(arg in policy.forbidden_arguments for arg in command_tuple[1:]):
-        forbidden = [arg for arg in command_tuple[1:] if arg in policy.forbidden_arguments]
+        forbidden = [
+            arg for arg in command_tuple[1:] if arg in policy.forbidden_arguments
+        ]
         findings.append(
             ValidationFinding(
                 code="SECURITY_FORBIDDEN_ARGUMENT",
@@ -267,7 +283,9 @@ def evaluate_command_policy(
 
     if _is_python_executable(executable):
         module_name = _python_module_name(command_tuple)
-        if module_name is not None and not _matches_any(module_name, policy.allowed_executables):
+        if module_name is not None and not _matches_any(
+            module_name, policy.allowed_executables
+        ):
             findings.append(
                 ValidationFinding(
                     code="SECURITY_PYTHON_MODULE_NOT_ALLOWED",
@@ -290,7 +308,10 @@ def evaluate_command_policy(
                             severity=ValidationSeverity.ERROR,
                             source="validation.security",
                             blocking=True,
-                            metadata={"step_name": step_name, "script": str(script_path)},
+                            metadata={
+                                "step_name": step_name,
+                                "script": str(script_path),
+                            },
                         )
                     )
 
@@ -310,7 +331,9 @@ def evaluate_command_policy(
 
     if working_directory is not None:
         cwd = Path(working_directory).resolve(strict=False)
-        if not _working_directory_allowed(cwd, Path(project_root).resolve(strict=False), policy):
+        if not _working_directory_allowed(
+            cwd, Path(project_root).resolve(strict=False), policy
+        ):
             findings.append(
                 ValidationFinding(
                     code="SECURITY_WORKING_DIRECTORY_OUTSIDE_PROJECT",
@@ -326,7 +349,9 @@ def evaluate_command_policy(
                 )
             )
 
-    if not policy.allow_network and any(_URL_RE.search(arg) for arg in command_tuple[1:]):
+    if not policy.allow_network and any(
+        _URL_RE.search(arg) for arg in command_tuple[1:]
+    ):
         findings.append(
             ValidationFinding(
                 code="SECURITY_NETWORK_ARGUMENT",
@@ -351,7 +376,10 @@ def evaluate_command_policy(
                 severity=ValidationSeverity.ERROR,
                 source="validation.security",
                 blocking=True,
-                metadata={"step_name": step_name, "environment_keys": sorted(sensitive_env)},
+                metadata={
+                    "step_name": step_name,
+                    "environment_keys": sorted(sensitive_env),
+                },
             )
         )
 
@@ -359,17 +387,26 @@ def evaluate_command_policy(
 
 
 class SecurityValidator:
-    def validate(self, context: ValidationContext, step: ValidationStep) -> ValidationStepResult:
+    def validate(
+        self, context: ValidationContext, step: ValidationStep
+    ) -> ValidationStepResult:
         plan = self._load_plan(context, step.metadata)
         secret_findings, secret_artifact = _scan_secret_files(plan)
         code_findings, code_artifact = _scan_code_files(plan)
         dependency_findings, dependency_artifact = _scan_dependency_security(plan)
         command_findings, command_artifact = _scan_command_policy(plan)
 
-        findings = _dedupe_findings((*secret_findings, *code_findings, *dependency_findings, *command_findings))
+        findings = _dedupe_findings(
+            (*secret_findings, *code_findings, *dependency_findings, *command_findings)
+        )
         artifacts = tuple(
             artifact
-            for artifact in (secret_artifact, code_artifact, dependency_artifact, command_artifact)
+            for artifact in (
+                secret_artifact,
+                code_artifact,
+                dependency_artifact,
+                command_artifact,
+            )
             if artifact is not None
         )
 
@@ -392,14 +429,20 @@ class SecurityValidator:
                 "security_plan": plan.serialize(),
                 "finding_count": len(findings),
                 "blocking_count": sum(1 for finding in findings if finding.blocking),
-                "warning_count": sum(1 for finding in findings if finding.severity == ValidationSeverity.WARNING),
+                "warning_count": sum(
+                    1
+                    for finding in findings
+                    if finding.severity == ValidationSeverity.WARNING
+                ),
                 "source_file_count": len(plan.files),
                 "planned_step_count": len(plan.planned_steps),
                 "command_policy": plan.command_policy.serialize(),
             },
         )
 
-    def _load_plan(self, context: ValidationContext, metadata: Mapping[str, Any]) -> SecurityAnalysisPlan:
+    def _load_plan(
+        self, context: ValidationContext, metadata: Mapping[str, Any]
+    ) -> SecurityAnalysisPlan:
         payload = metadata.get("security_plan")
         if isinstance(payload, Mapping):
             return SecurityAnalysisPlan.from_mapping(payload)
@@ -408,9 +451,15 @@ class SecurityValidator:
             change_set = ChangeSet.from_mapping(change_set_payload)
         else:
             builder = ChangeSetBuilder()
-            change_set = builder.build(project_root=context.project_root, changed_files=context.changed_files)
+            change_set = builder.build(
+                project_root=context.project_root, changed_files=context.changed_files
+            )
         policy_payload = metadata.get("command_policy")
-        policy = CommandPolicy.from_mapping(policy_payload) if isinstance(policy_payload, Mapping) else default_command_policy()
+        policy = (
+            CommandPolicy.from_mapping(policy_payload)
+            if isinstance(policy_payload, Mapping)
+            else default_command_policy()
+        )
         return build_security_plan(
             project_root=context.project_root,
             change_set=change_set,
@@ -419,7 +468,9 @@ class SecurityValidator:
         )
 
 
-def _scan_command_policy(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
+def _scan_command_policy(
+    plan: SecurityAnalysisPlan,
+) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
     findings: list[ValidationFinding] = []
     summaries: list[dict[str, Any]] = []
     for step in plan.planned_steps:
@@ -427,7 +478,9 @@ def _scan_command_policy(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFi
             continue
         if str(step.get("step_type", "command")) != ValidationStepType.COMMAND.value:
             continue
-        command = tuple(str(item) for item in (step.get("command") or ()) if item is not None)
+        command = tuple(
+            str(item) for item in (step.get("command") or ()) if item is not None
+        )
         working_directory = step.get("working_directory")
         environment = step.get("environment")
         env_map = environment if isinstance(environment, Mapping) else {}
@@ -436,11 +489,15 @@ def _scan_command_policy(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFi
             env_map = {str(key): "" for key in environment_keys}
         step_findings = evaluate_command_policy(
             command=command,
-            working_directory=Path(str(working_directory)) if working_directory else None,
+            working_directory=Path(str(working_directory))
+            if working_directory
+            else None,
             project_root=plan.project_root,
             environment={str(key): str(value) for key, value in env_map.items()},
             policy=plan.command_policy,
-            security_profile=str(step.get("metadata", {}).get("security_profile")) if isinstance(step.get("metadata"), Mapping) else None,
+            security_profile=str(step.get("metadata", {}).get("security_profile"))
+            if isinstance(step.get("metadata"), Mapping)
+            else None,
             step_name=str(step.get("name", "unknown")),
         )
         findings.extend(step_findings)
@@ -450,7 +507,9 @@ def _scan_command_policy(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFi
                 "step_type": str(step.get("step_type", "")),
                 "executable": Path(command[0]).name if command else None,
                 "command_length": len(command),
-                "working_directory": None if working_directory is None else str(working_directory),
+                "working_directory": None
+                if working_directory is None
+                else str(working_directory),
                 "violation_codes": [finding.code for finding in step_findings],
             }
         )
@@ -475,7 +534,9 @@ def _scan_command_policy(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFi
     return tuple(findings), artifact
 
 
-def _scan_secret_files(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
+def _scan_secret_files(
+    plan: SecurityAnalysisPlan,
+) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
     findings: list[ValidationFinding] = []
     files: list[str] = []
     for path in plan.files:
@@ -508,7 +569,9 @@ def _scan_secret_files(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFind
     return tuple(findings), artifact
 
 
-def _scan_code_files(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
+def _scan_code_files(
+    plan: SecurityAnalysisPlan,
+) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
     findings: list[ValidationFinding] = []
     scanned_files: list[str] = []
     for path in plan.files:
@@ -541,7 +604,9 @@ def _scan_code_files(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFindin
     return tuple(findings), artifact
 
 
-def _scan_dependency_security(plan: SecurityAnalysisPlan) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
+def _scan_dependency_security(
+    plan: SecurityAnalysisPlan,
+) -> tuple[tuple[ValidationFinding, ...], ValidationArtifact | None]:
     findings: list[ValidationFinding] = []
     manifests: list[str] = []
     tool_status = {
@@ -610,7 +675,9 @@ def _scan_secret_text(text: str, relative_path: Path) -> tuple[ValidationFinding
         for detector in _SECRET_DETECTORS:
             for match in detector["pattern"].finditer(line):
                 secret = match.group(0)
-                if detector["name"] == "generic_high_entropy" and not _looks_high_entropy(secret):
+                if detector[
+                    "name"
+                ] == "generic_high_entropy" and not _looks_high_entropy(secret):
                     continue
                 findings.append(
                     ValidationFinding(
@@ -632,7 +699,9 @@ def _scan_secret_text(text: str, relative_path: Path) -> tuple[ValidationFinding
     return tuple(_dedupe_findings(findings))
 
 
-def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFinding, ...]:
+def _scan_python_file(
+    relative_path: Path, resolved: Path
+) -> tuple[ValidationFinding, ...]:
     text = resolved.read_text(encoding="utf-8", errors="replace")
     findings: list[ValidationFinding] = []
     try:
@@ -657,7 +726,9 @@ def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFi
                         metadata={"call": dotted},
                     )
                 )
-            if dotted.startswith("subprocess.") and any(_keyword_is_true(keyword, "shell") for keyword in node.keywords):
+            if dotted.startswith("subprocess.") and any(
+                _keyword_is_true(keyword, "shell") for keyword in node.keywords
+            ):
                 findings.append(
                     ValidationFinding(
                         code="SECURITY_SHELL_TRUE",
@@ -755,7 +826,9 @@ def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFi
                         metadata={"call": dotted},
                     )
                 )
-            if dotted.startswith("requests.") and any(_keyword_is_false(keyword, "verify") for keyword in node.keywords):
+            if dotted.startswith("requests.") and any(
+                _keyword_is_false(keyword, "verify") for keyword in node.keywords
+            ):
                 findings.append(
                     ValidationFinding(
                         code="SECURITY_TLS_VERIFICATION_DISABLED",
@@ -797,10 +870,14 @@ def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFi
             self._scan_secret_assignment(targets, node.value, node)
             self.generic_visit(node)
 
-        def _scan_secret_assignment(self, targets: Sequence[ast.AST], value: ast.AST | None, node: ast.AST) -> None:
+        def _scan_secret_assignment(
+            self, targets: Sequence[ast.AST], value: ast.AST | None, node: ast.AST
+        ) -> None:
             if value is None:
                 return
-            if not isinstance(value, ast.Constant) or not isinstance(value.value, (str, bytes)):
+            if not isinstance(value, ast.Constant) or not isinstance(
+                value.value, (str, bytes)
+            ):
                 return
             for target in targets:
                 identifier = _assignment_name(target)
@@ -816,9 +893,21 @@ def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFi
                         source="validation.security",
                         file_path=relative_path,
                         line=getattr(node, "lineno", None),
-                        column=getattr(node, "col_offset", None) + 1 if getattr(node, "col_offset", None) is not None else None,
+                        column=getattr(node, "col_offset", None) + 1
+                        if getattr(node, "col_offset", None) is not None
+                        else None,
                         blocking=True,
-                        metadata={"name": identifier, "value_length": len(value.value) if isinstance(value.value, (str, bytes)) else None, "fingerprint": _fingerprint(value.value if isinstance(value.value, str) else str(value.value))},
+                        metadata={
+                            "name": identifier,
+                            "value_length": len(value.value)
+                            if isinstance(value.value, (str, bytes))
+                            else None,
+                            "fingerprint": _fingerprint(
+                                value.value
+                                if isinstance(value.value, str)
+                                else str(value.value)
+                            ),
+                        },
                     )
                 )
 
@@ -826,7 +915,9 @@ def _scan_python_file(relative_path: Path, resolved: Path) -> tuple[ValidationFi
     return tuple(findings)
 
 
-def _scan_configuration_text(relative_path: Path, resolved: Path) -> tuple[ValidationFinding, ...]:
+def _scan_configuration_text(
+    relative_path: Path, resolved: Path
+) -> tuple[ValidationFinding, ...]:
     text = resolved.read_text(encoding="utf-8", errors="replace")
     findings: list[ValidationFinding] = []
     for line_no, line in enumerate(text.splitlines(), start=1):
@@ -964,23 +1055,31 @@ def _scan_configuration_text(relative_path: Path, resolved: Path) -> tuple[Valid
     return tuple(findings)
 
 
-def _load_change_set(context: ValidationContext, change_impact_step: ValidationStep | None) -> ChangeSet:
+def _load_change_set(
+    context: ValidationContext, change_impact_step: ValidationStep | None
+) -> ChangeSet:
     if change_impact_step is not None:
         payload = change_impact_step.metadata.get("change_set")
         if isinstance(payload, Mapping):
             return ChangeSet.from_mapping(payload)
     builder = ChangeSetBuilder()
-    return builder.build(project_root=context.project_root, changed_files=context.changed_files)
+    return builder.build(
+        project_root=context.project_root, changed_files=context.changed_files
+    )
 
 
 def _tool_available(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
 
 
-def _load_command_policy(context: ValidationContext, change_impact_step: ValidationStep | None) -> CommandPolicy:
+def _load_command_policy(
+    context: ValidationContext, change_impact_step: ValidationStep | None
+) -> CommandPolicy:
     for candidate in (
         context.metadata.get("command_policy"),
-        None if change_impact_step is None else change_impact_step.metadata.get("command_policy"),
+        None
+        if change_impact_step is None
+        else change_impact_step.metadata.get("command_policy"),
     ):
         if isinstance(candidate, Mapping):
             return CommandPolicy.from_mapping(candidate)
@@ -1000,7 +1099,10 @@ def _summarize_change_set(change_set: ChangeSet) -> dict[str, Any]:
 
 
 def _resolve_scope(change_set: ChangeSet) -> tuple[SecurityScope, str]:
-    if change_set.change_type == ChangeType.PUBLIC_API_CHANGE or change_set.public_api_changes:
+    if (
+        change_set.change_type == ChangeType.PUBLIC_API_CHANGE
+        or change_set.public_api_changes
+    ):
         return SecurityScope.FULL, "public_api_change"
     if change_set.requires_full_suite:
         return SecurityScope.FULL, "requires_full_suite"
@@ -1011,7 +1113,9 @@ def _resolve_scope(change_set: ChangeSet) -> tuple[SecurityScope, str]:
     return SecurityScope.AFFECTED, "affected_scope"
 
 
-def _select_files(project_root: Path, change_set: ChangeSet, scope: SecurityScope) -> list[Path]:
+def _select_files(
+    project_root: Path, change_set: ChangeSet, scope: SecurityScope
+) -> list[Path]:
     if scope == SecurityScope.FULL:
         return _collect_full_scope_files(project_root)
 
@@ -1037,7 +1141,11 @@ def _collect_full_scope_files(project_root: Path) -> list[Path]:
     selected: list[Path] = []
     seen: set[Path] = set()
     for root, dirs, files in os.walk(project_root, topdown=True, followlinks=False):
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d)) and d not in _EXCLUDED_DIRS]
+        dirs[:] = [
+            d
+            for d in dirs
+            if not os.path.islink(os.path.join(root, d)) and d not in _EXCLUDED_DIRS
+        ]
         for name in sorted(files):
             full_path = Path(root) / name
             if full_path.is_symlink() or not full_path.is_file():
@@ -1157,7 +1265,9 @@ def _python_script_allowed(project_root: Path, script_path: Path) -> bool:
         return False
 
 
-def _working_directory_allowed(cwd: Path, project_root: Path, policy: CommandPolicy) -> bool:
+def _working_directory_allowed(
+    cwd: Path, project_root: Path, policy: CommandPolicy
+) -> bool:
     try:
         cwd.relative_to(project_root)
         return True
@@ -1218,7 +1328,9 @@ def _keyword_is_false(keyword: ast.keyword, name: str) -> bool:
     return isinstance(keyword.value, ast.Constant) and keyword.value.value is False
 
 
-def _dedupe_findings(findings: Sequence[ValidationFinding]) -> tuple[ValidationFinding, ...]:
+def _dedupe_findings(
+    findings: Sequence[ValidationFinding],
+) -> tuple[ValidationFinding, ...]:
     seen: set[tuple[Any, ...]] = set()
     unique: list[ValidationFinding] = []
     for finding in findings:
@@ -1241,7 +1353,14 @@ def _dedupe_findings(findings: Sequence[ValidationFinding]) -> tuple[ValidationF
 def _is_dependency_manifest(path: Path) -> bool:
     name = path.name
     lower = name.lower()
-    if name in {"pyproject.toml", "Pipfile", "Pipfile.lock", "poetry.lock", "tox.ini", "setup.cfg"}:
+    if name in {
+        "pyproject.toml",
+        "Pipfile",
+        "Pipfile.lock",
+        "poetry.lock",
+        "tox.ini",
+        "setup.cfg",
+    }:
         return True
     if lower.startswith("requirements") and path.suffix.lower() == ".txt":
         return True
@@ -1296,7 +1415,9 @@ _SECRET_DETECTORS = (
         "code": "SECURITY_SECRET_JWT",
         "message": "Potential JSON Web Token detected.",
         "sample": "eyJ***.***.***",
-        "pattern": re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+        "pattern": re.compile(
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+        ),
     },
     {
         "name": "bearer_token",
@@ -1317,7 +1438,9 @@ _SECRET_DETECTORS = (
         "code": "SECURITY_SECRET_PASSWORD",
         "message": "Potential hardcoded password detected.",
         "sample": "password=***",
-        "pattern": re.compile(r"(?i)\b(?:password|passwd|secret|token)\b\s*[:=]\s*['\"][^'\"]{8,}['\"]"),
+        "pattern": re.compile(
+            r"(?i)\b(?:password|passwd|secret|token)\b\s*[:=]\s*['\"][^'\"]{8,}['\"]"
+        ),
     },
     {
         "name": "generic_high_entropy",
@@ -1359,7 +1482,10 @@ def _looks_sql_fstring(node: ast.JoinedStr) -> bool:
     if not has_interpolation:
         return False
     text = " ".join(piece.lower() for piece in pieces)
-    return any(keyword in text for keyword in ("select ", "insert ", "update ", "delete ", "drop ", "where "))
+    return any(
+        keyword in text
+        for keyword in ("select ", "insert ", "update ", "delete ", "drop ", "where ")
+    )
 
 
 def _looks_debug_enabled(lower: str) -> bool:
@@ -1367,15 +1493,30 @@ def _looks_debug_enabled(lower: str) -> bool:
 
 
 def _looks_wildcard_host(lower: str) -> bool:
-    return ("allowed_hosts" in lower and "*" in lower) or "host: \"*\"" in lower or "host='*'" in lower or "host = '*'" in lower or "0.0.0.0" in lower
+    return (
+        ("allowed_hosts" in lower and "*" in lower)
+        or 'host: "*"' in lower
+        or "host='*'" in lower
+        or "host = '*'" in lower
+        or "0.0.0.0" in lower
+    )
 
 
 def _looks_wildcard_cors(lower: str) -> bool:
-    return ("cors" in lower and "*" in lower) or ("allow_origin" in lower and "*" in lower) or ("allow_origins" in lower and "*" in lower)
+    return (
+        ("cors" in lower and "*" in lower)
+        or ("allow_origin" in lower and "*" in lower)
+        or ("allow_origins" in lower and "*" in lower)
+    )
 
 
 def _looks_tls_disabled(lower: str) -> bool:
-    return "verify=false" in lower or "ssl: false" in lower or "tls: false" in lower or "insecure: true" in lower
+    return (
+        "verify=false" in lower
+        or "ssl: false" in lower
+        or "tls: false" in lower
+        or "insecure: true" in lower
+    )
 
 
 def _looks_docker_secret(lower: str) -> bool:
@@ -1383,7 +1524,12 @@ def _looks_docker_secret(lower: str) -> bool:
 
 
 def _looks_root_user(lower: str) -> bool:
-    return "user root" in lower or "user: root" in lower or "runasuser: 0" in lower or "run_as_user: 0" in lower
+    return (
+        "user root" in lower
+        or "user: root" in lower
+        or "runasuser: 0" in lower
+        or "run_as_user: 0" in lower
+    )
 
 
 def _looks_unpinned_image(lower: str) -> bool:
@@ -1395,7 +1541,16 @@ def _looks_unpinned_image(lower: str) -> bool:
 
 
 def _looks_broad_github_permissions(lower: str) -> bool:
-    return any(token in lower for token in ("write-all", "contents: write", "actions: write", "issues: write", "pull-requests: write"))
+    return any(
+        token in lower
+        for token in (
+            "write-all",
+            "contents: write",
+            "actions: write",
+            "issues: write",
+            "pull-requests: write",
+        )
+    )
 
 
 __all__ = [

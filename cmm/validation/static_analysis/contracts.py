@@ -29,10 +29,16 @@ class StaticAnalysisPlan:
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
-            raise ValidationContractError("StaticAnalysisPlan.confidence must be between 0 and 1")
+            raise ValidationContractError(
+                "StaticAnalysisPlan.confidence must be between 0 and 1"
+            )
         object.__setattr__(self, "project_root", Path(str(self.project_root)))
-        object.__setattr__(self, "files", tuple(Path(str(item)) for item in self.files or ()))
-        object.__setattr__(self, "uncertainty", tuple(str(item) for item in self.uncertainty or ()))
+        object.__setattr__(
+            self, "files", tuple(Path(str(item)) for item in self.files or ())
+        )
+        object.__setattr__(
+            self, "uncertainty", tuple(str(item) for item in self.uncertainty or ())
+        )
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
 
     def serialize(self) -> dict[str, Any]:
@@ -63,5 +69,7 @@ class StaticAnalysisPlan:
             requires_full_suite=bool(payload.get("requires_full_suite", False)),
             confidence=float(payload.get("confidence", 0.0)),
             uncertainty=tuple(str(item) for item in payload.get("uncertainty", ())),
-            metadata=dict(payload.get("metadata", {})) if isinstance(payload.get("metadata"), Mapping) else {},
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata"), Mapping)
+            else {},
         )

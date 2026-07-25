@@ -77,28 +77,41 @@ class DummyFailCustomValidator:
 # 1. FINDINGS BLOQUEANTES EN CUSTOM VALIDATORS
 # ============================================================================
 
-def test_custom_validators_emit_blocking_findings_when_files_missing(tmp_path: Path) -> None:
+
+def test_custom_validators_emit_blocking_findings_when_files_missing(
+    tmp_path: Path,
+) -> None:
     context = ValidationContext(project_root=tmp_path)
 
     # 1. ProjectManifestValidator
     res_manifest = ProjectManifestValidator().validate(context)
     assert res_manifest.status == ValidationStatus.FAILED
-    assert any(f.blocking is True and f.code == "PROJECT_MANIFEST_MISSING" for f in res_manifest.findings)
+    assert any(
+        f.blocking is True and f.code == "PROJECT_MANIFEST_MISSING"
+        for f in res_manifest.findings
+    )
 
     # 2. ValidationContractValidator
     res_contract = ValidationContractValidator().validate(context)
     assert res_contract.status == ValidationStatus.FAILED
-    assert any(f.blocking is True and f.code == "VALIDATION_MODULE_MISSING" for f in res_contract.findings)
+    assert any(
+        f.blocking is True and f.code == "VALIDATION_MODULE_MISSING"
+        for f in res_contract.findings
+    )
 
     # 3. TestLayoutValidator
     res_layout = TestLayoutValidator().validate(context)
     assert res_layout.status == ValidationStatus.FAILED
-    assert any(f.blocking is True and f.code == "TEST_LAYOUT_DIRECTORY_MISSING" for f in res_layout.findings)
+    assert any(
+        f.blocking is True and f.code == "TEST_LAYOUT_DIRECTORY_MISSING"
+        for f in res_layout.findings
+    )
 
 
 # ============================================================================
 # 2. REGISTRO DE HANDLERS EN CATALOG & PLAN
 # ============================================================================
+
 
 def test_build_default_validation_registry_has_no_custom_handlers() -> None:
     registry = build_default_validation_registry()
@@ -116,12 +129,17 @@ def test_build_default_validation_plan_contains_custom_handlers(tmp_path: Path) 
 # 3. COMPATIBILIDAD DE default_validation_steps
 # ============================================================================
 
-def test_default_validation_steps_returns_historical_builtins_no_custom(tmp_path: Path) -> None:
+
+def test_default_validation_steps_returns_historical_builtins_no_custom(
+    tmp_path: Path,
+) -> None:
     context = ValidationContext(project_root=tmp_path, change_type="small_change")
     steps = default_validation_steps(context)
 
     step_names = [s.name for s in steps]
-    assert set(step_names).issubset({"syntax", "formatter_check", "lint_check", "ast", "affected_tests"})
+    assert set(step_names).issubset(
+        {"syntax", "formatter_check", "lint_check", "ast", "affected_tests"}
+    )
     assert not any(name.startswith("custom.") for name in step_names)
 
 
@@ -140,6 +158,7 @@ def test_build_default_validation_plan_contains_selected_custom(tmp_path: Path) 
 # 4. UN SOLO ALIAS AGREGADO custom_checks & RESTRICCIÓN DE NOMBRES
 # ============================================================================
 
+
 def test_custom_checks_alias_expands_four_canonical_steps() -> None:
     expanded = expand_validation_step_labels("custom_checks")
     assert expanded == (
@@ -152,7 +171,10 @@ def test_custom_checks_alias_expands_four_canonical_steps() -> None:
 
 def test_removed_aliases_raise_unknown_label_error() -> None:
     for removed_alias in ("custom_validations", "cmm_contracts", "project_contracts"):
-        with pytest.raises(ValidationContractError, match=f"Unknown validation step label '{removed_alias}'"):
+        with pytest.raises(
+            ValidationContractError,
+            match=f"Unknown validation step label '{removed_alias}'",
+        ):
             expand_validation_step_labels(removed_alias)
 
 
@@ -181,18 +203,23 @@ def test_canonical_custom_name_works(tmp_path: Path) -> None:
 # 5. DETECCIÓN DE CICLOS REALES
 # ============================================================================
 
+
 def test_real_circular_alias_raises_error() -> None:
     custom_aliases = {
         "step_a": ("step_b",),
         "step_b": ("step_a",),
     }
-    with pytest.raises(ValidationContractError, match="Circular alias detected in validation step labels: step_a -> step_b -> step_a"):
+    with pytest.raises(
+        ValidationContractError,
+        match="Circular alias detected in validation step labels: step_a -> step_b -> step_a",
+    ):
         expand_validation_step_labels("step_a", aliases=custom_aliases)
 
 
 # ============================================================================
 # 6. POLÍTICAS PREDETERMINADAS Y ASIGNACIÓN
 # ============================================================================
+
 
 def test_default_policy_table_custom_step_assignments() -> None:
     policies = default_validation_policies()
@@ -241,9 +268,12 @@ def test_default_policy_table_custom_step_assignments() -> None:
 # 7. REQUISITOS DE ValidationPlan Y REGISTRY CUSTOM EXPLÍCITO
 # ============================================================================
 
+
 def test_validation_plan_custom_registry_explicit_empty(tmp_path: Path) -> None:
     empty_reg = CustomValidatorRegistry()
-    policy = ValidationPolicy(name="p", required_steps=(), optional_steps=("custom_checks",))
+    policy = ValidationPolicy(
+        name="p", required_steps=(), optional_steps=("custom_checks",)
+    )
     context = ValidationContext(project_root=tmp_path)
     plan = build_validation_plan(context, policy=policy, custom_registry=empty_reg)
 
@@ -251,17 +281,23 @@ def test_validation_plan_custom_registry_explicit_empty(tmp_path: Path) -> None:
     assert len(plan.missing_optional_custom_validators) == 4
 
 
-def test_validation_plan_custom_registry_explicit_missing_required_raises(tmp_path: Path) -> None:
+def test_validation_plan_custom_registry_explicit_missing_required_raises(
+    tmp_path: Path,
+) -> None:
     empty_reg = CustomValidatorRegistry()
     policy = ValidationPolicy(name="p", required_steps=("custom.project_manifest",))
     context = ValidationContext(project_root=tmp_path)
-    with pytest.raises(ValidationContractError, match="Required custom validator 'project_manifest' for policy 'p' is not registered"):
+    with pytest.raises(
+        ValidationContractError,
+        match="Required custom validator 'project_manifest' for policy 'p' is not registered",
+    ):
         build_validation_plan(context, policy=policy, custom_registry=empty_reg)
 
 
 # ============================================================================
 # 8. EJECUCIÓN PIPELINE END-TO-END
 # ============================================================================
+
 
 def test_pipeline_execution_with_custom_validators(tmp_path: Path) -> None:
     custom_reg = CustomValidatorRegistry()

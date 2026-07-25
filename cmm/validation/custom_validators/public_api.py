@@ -171,7 +171,10 @@ class PublicApiValidator(CustomValidator):
                         if isinstance(target, ast.Name) and target.id == "__all__":
                             all_assigns.append(stmt.value)
                 elif isinstance(stmt, ast.AnnAssign):
-                    if isinstance(stmt.target, ast.Name) and stmt.target.id == "__all__":
+                    if (
+                        isinstance(stmt.target, ast.Name)
+                        and stmt.target.id == "__all__"
+                    ):
                         if stmt.value is not None:
                             all_assigns.append(stmt.value)
 
@@ -255,7 +258,9 @@ class PublicApiValidator(CustomValidator):
                     continue
 
                 # Check private export (exclude standard dunders like __version__)
-                if exp.startswith("_") and not (exp.startswith("__") and exp.endswith("__")):
+                if exp.startswith("_") and not (
+                    exp.startswith("__") and exp.endswith("__")
+                ):
                     private_exports.append(f"{rel_path}:{exp}")
                     findings.append(
                         ValidationFinding(

@@ -50,7 +50,9 @@ def _make_pytest_step(
         "project_root": str(context.project_root),
         "selection": selection.serialize(),
         "affected_tests": [str(path) for path in selection.selected_tests],
-        "related_changes": {key: list(value) for key, value in selection.related_changes.items()},
+        "related_changes": {
+            key: list(value) for key, value in selection.related_changes.items()
+        },
         "security_profile": "validation",
         "command_policy": default_command_policy().serialize(),
     }
@@ -96,7 +98,11 @@ def unit_tests_step(context: ValidationContext) -> ValidationStep | None:
             if prefix in test.parents or prefix == test.parent:
                 suite_tests.append(test)
     if not suite_tests:
-        suite_tests = [path for path in selection.selected_tests if classify_test_path(path) == "unit"]
+        suite_tests = [
+            path
+            for path in selection.selected_tests
+            if classify_test_path(path) == "unit"
+        ]
     suite_tests = sorted(dict.fromkeys(suite_tests), key=str)
     return _make_pytest_step(
         name="unit_tests",
@@ -125,7 +131,11 @@ def integration_tests_step(context: ValidationContext) -> ValidationStep | None:
             if prefix in test.parents or prefix == test.parent:
                 suite_tests.append(test)
     if not suite_tests:
-        suite_tests = [path for path in selection.selected_tests if classify_test_path(path) == "integration"]
+        suite_tests = [
+            path
+            for path in selection.selected_tests
+            if classify_test_path(path) == "integration"
+        ]
     suite_tests = sorted(dict.fromkeys(suite_tests), key=str)
     return _make_pytest_step(
         name="integration_tests",
@@ -152,7 +162,9 @@ def full_suite_step(context: ValidationContext) -> ValidationStep | None:
     )
 
 
-def default_testing_steps(context: ValidationContext, *, require_full_suite: bool = False) -> tuple[ValidationStep, ...]:
+def default_testing_steps(
+    context: ValidationContext, *, require_full_suite: bool = False
+) -> tuple[ValidationStep, ...]:
     selection = select_affected_tests(context)
     escalation = decide_test_escalation(context, selection)
 

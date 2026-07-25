@@ -13,7 +13,9 @@ def test_topological_sort_and_missing_dep():
 
     # missing dependency
     with pytest.raises(Exception):
-        _topological_sort((ValidationStep(name="x", command=("echo",), dependencies=("missing",)),))
+        _topological_sort(
+            (ValidationStep(name="x", command=("echo",), dependencies=("missing",)),)
+        )
 
 
 def test_cycle_and_duplicates():

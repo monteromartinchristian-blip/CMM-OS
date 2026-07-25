@@ -239,7 +239,10 @@ class ProjectManifestValidator(CustomValidator):
                             source=source_name,
                             file_path=rel_manifest_path,
                             blocking=True,
-                            metadata={"expected": "cmm.cli:main", "actual": str(cmm_ep)},
+                            metadata={
+                                "expected": "cmm.cli:main",
+                                "actual": str(cmm_ep),
+                            },
                         )
                     )
             else:
@@ -279,7 +282,10 @@ class ProjectManifestValidator(CustomValidator):
                                             source=source_name,
                                             file_path=rel_manifest_path,
                                             blocking=False,
-                                            metadata={"group": grp, "dependency": norm_pkg},
+                                            metadata={
+                                                "group": grp,
+                                                "dependency": norm_pkg,
+                                            },
                                         )
                                     )
                                 seen_in_group.add(norm_pkg)

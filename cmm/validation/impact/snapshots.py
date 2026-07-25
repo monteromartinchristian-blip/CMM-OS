@@ -103,12 +103,16 @@ class ChangeSetBuilder:
             after_version = after_map.get(key)
             if after_version is None:
                 if (project_root / raw_path).exists():
-                    after_version = _version_from_path(project_root / raw_path, source="after")
+                    after_version = _version_from_path(
+                        project_root / raw_path, source="after"
+                    )
             file_changes.append(
                 FileChange(
                     before_path=None,
                     after_path=raw_path,
-                    kind=FileChangeKind.MODIFIED if after_version is not None else FileChangeKind.UNKNOWN,
+                    kind=FileChangeKind.MODIFIED
+                    if after_version is not None
+                    else FileChangeKind.UNKNOWN,
                     before=None,
                     after=after_version,
                     confidence=0.6 if after_version is not None else 0.4,
@@ -142,8 +146,14 @@ class ChangeSetBuilder:
     ) -> ChangeSet:
         before_map = {str(item.path): item for item in before.files}
         after_map = {str(item.path): item for item in after.files}
-        deleted = {path: before_map[path] for path in sorted(before_map.keys() - after_map.keys())}
-        added = {path: after_map[path] for path in sorted(after_map.keys() - before_map.keys())}
+        deleted = {
+            path: before_map[path]
+            for path in sorted(before_map.keys() - after_map.keys())
+        }
+        added = {
+            path: after_map[path]
+            for path in sorted(after_map.keys() - before_map.keys())
+        }
         modified = {
             path
             for path in sorted(before_map.keys() & after_map.keys())
@@ -166,7 +176,10 @@ class ChangeSetBuilder:
                 for new_path in sorted(added):
                     if new_path in used_added:
                         continue
-                    if old_version.content_hash and old_version.content_hash == added[new_path].content_hash:
+                    if (
+                        old_version.content_hash
+                        and old_version.content_hash == added[new_path].content_hash
+                    ):
                         rename_pairs.append((old_path, new_path))
                         used_deleted.add(old_path)
                         used_added.add(new_path)
@@ -238,7 +251,12 @@ class ChangeSetBuilder:
             project_root=project_root,
             before_root=before.root,
             after_root=after.root,
-            file_changes=tuple(sorted(file_changes, key=lambda item: str(item.after_path or item.before_path))),
+            file_changes=tuple(
+                sorted(
+                    file_changes,
+                    key=lambda item: str(item.after_path or item.before_path),
+                )
+            ),
             change_type=change_type,
             confidence=confidence,
             requires_full_suite=requires_full_suite,
@@ -257,8 +275,15 @@ def _scan_project_snapshot(root: Path, *, source: str) -> ProjectSnapshot:
     files: list[FileVersion] = []
     if not project_root.exists():
         return ProjectSnapshot(root=project_root, source=source, files=tuple())
-    for current_root, dirs, filenames in os.walk(project_root, topdown=True, followlinks=False):
-        dirs[:] = [d for d in sorted(dirs) if d not in _EXCLUDED_DIRS and not os.path.islink(os.path.join(current_root, d))]
+    for current_root, dirs, filenames in os.walk(
+        project_root, topdown=True, followlinks=False
+    ):
+        dirs[:] = [
+            d
+            for d in sorted(dirs)
+            if d not in _EXCLUDED_DIRS
+            and not os.path.islink(os.path.join(current_root, d))
+        ]
         for filename in sorted(filenames):
             path = Path(current_root) / filename
             if path.is_symlink() or not path.is_file():
@@ -267,11 +292,19 @@ def _scan_project_snapshot(root: Path, *, source: str) -> ProjectSnapshot:
                 relative = path.relative_to(project_root)
             except ValueError:
                 continue
-            files.append(_version_from_path(path, source=source, relative_path=relative))
-    return ProjectSnapshot(root=project_root, source=source, files=tuple(sorted(files, key=lambda item: str(item.path))))
+            files.append(
+                _version_from_path(path, source=source, relative_path=relative)
+            )
+    return ProjectSnapshot(
+        root=project_root,
+        source=source,
+        files=tuple(sorted(files, key=lambda item: str(item.path))),
+    )
 
 
-def _snapshot_selected_files(root: Path, changed_files: Iterable[Path | str], *, source: str) -> ProjectSnapshot:
+def _snapshot_selected_files(
+    root: Path, changed_files: Iterable[Path | str], *, source: str
+) -> ProjectSnapshot:
     project_root = Path(root).resolve(strict=False)
     files: list[FileVersion] = []
     for raw_path in sorted({Path(str(item)) for item in changed_files}, key=str):
@@ -288,12 +321,20 @@ def _snapshot_selected_files(root: Path, changed_files: Iterable[Path | str], *,
                 )
             )
             continue
-        relative = raw_path if not raw_path.is_absolute() else path.relative_to(project_root)
+        relative = (
+            raw_path if not raw_path.is_absolute() else path.relative_to(project_root)
+        )
         files.append(_version_from_path(path, source=source, relative_path=relative))
-    return ProjectSnapshot(root=project_root, source=source, files=tuple(sorted(files, key=lambda item: str(item.path))))
+    return ProjectSnapshot(
+        root=project_root,
+        source=source,
+        files=tuple(sorted(files, key=lambda item: str(item.path))),
+    )
 
 
-def _version_from_path(path: Path, *, source: str, relative_path: Path | None = None) -> FileVersion:
+def _version_from_path(
+    path: Path, *, source: str, relative_path: Path | None = None
+) -> FileVersion:
     current = Path(path)
     data = current.read_bytes()
     content = data.decode("utf-8", errors="replace")

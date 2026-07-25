@@ -87,14 +87,18 @@ def test_validation_contract_missing_module(tmp_path: Path) -> None:
 
 def test_validation_contract_syntax_error_sanitized(tmp_path: Path) -> None:
     _create_mock_validation_structure(tmp_path)
-    (tmp_path / "cmm" / "validation" / "__init__.py").write_text("invalid python syntax (", encoding="utf-8")
+    (tmp_path / "cmm" / "validation" / "__init__.py").write_text(
+        "invalid python syntax (", encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = ValidationContractValidator()
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    syntax_finding = next(f for f in result.findings if f.code == "VALIDATION_INIT_SYNTAX_ERROR")
+    syntax_finding = next(
+        f for f in result.findings if f.code == "VALIDATION_INIT_SYNTAX_ERROR"
+    )
     assert "line" in syntax_finding.metadata
     assert "column" in syntax_finding.metadata
     assert "invalid python syntax" not in syntax_finding.message
@@ -103,7 +107,9 @@ def test_validation_contract_syntax_error_sanitized(tmp_path: Path) -> None:
 
 def test_validation_contract_all_missing(tmp_path: Path) -> None:
     _create_mock_validation_structure(tmp_path)
-    (tmp_path / "cmm" / "validation" / "__init__.py").write_text("# No __all__ defined\n", encoding="utf-8")
+    (tmp_path / "cmm" / "validation" / "__init__.py").write_text(
+        "# No __all__ defined\n", encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = ValidationContractValidator()
@@ -115,7 +121,9 @@ def test_validation_contract_all_missing(tmp_path: Path) -> None:
 
 def test_validation_contract_all_not_literal(tmp_path: Path) -> None:
     _create_mock_validation_structure(tmp_path)
-    (tmp_path / "cmm" / "validation" / "__init__.py").write_text('exports = ["ValidationContext"]\n__all__ = exports\n', encoding="utf-8")
+    (tmp_path / "cmm" / "validation" / "__init__.py").write_text(
+        'exports = ["ValidationContext"]\n__all__ = exports\n', encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = ValidationContractValidator()
@@ -127,7 +135,9 @@ def test_validation_contract_all_not_literal(tmp_path: Path) -> None:
 
 def test_validation_contract_all_invalid_item(tmp_path: Path) -> None:
     _create_mock_validation_structure(tmp_path)
-    (tmp_path / "cmm" / "validation" / "__init__.py").write_text('__all__ = ["ValidationContext", 123]\n', encoding="utf-8")
+    (tmp_path / "cmm" / "validation" / "__init__.py").write_text(
+        '__all__ = ["ValidationContext", 123]\n', encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = ValidationContractValidator()
@@ -139,7 +149,9 @@ def test_validation_contract_all_invalid_item(tmp_path: Path) -> None:
 
 def test_validation_contract_all_multiple_assignments(tmp_path: Path) -> None:
     _create_mock_validation_structure(tmp_path)
-    (tmp_path / "cmm" / "validation" / "__init__.py").write_text('__all__ = ["a"]\n__all__ = ["b"]\n', encoding="utf-8")
+    (tmp_path / "cmm" / "validation" / "__init__.py").write_text(
+        '__all__ = ["a"]\n__all__ = ["b"]\n', encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = ValidationContractValidator()
@@ -156,7 +168,9 @@ def test_validation_contract_relative_import_package_and_module(tmp_path: Path) 
     # Create nested package inside cmm/validation/
     pkg_dir = val_dir / "impact"
     pkg_dir.mkdir(parents=True, exist_ok=True)
-    (pkg_dir / "__init__.py").write_text("class ChangeImpactAnalyzer: pass\n", encoding="utf-8")
+    (pkg_dir / "__init__.py").write_text(
+        "class ChangeImpactAnalyzer: pass\n", encoding="utf-8"
+    )
 
     exports_str = ",\n    ".join(f'"{exp}"' for exp in REQUIRED_EXPORTS)
     init_content = f"""
@@ -189,7 +203,9 @@ __all__ = [
     assert len(result.findings) == 0
 
 
-def test_validation_contract_read_error_simulated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validation_contract_read_error_simulated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _create_mock_validation_structure(tmp_path)
     init_file = tmp_path / "cmm" / "validation" / "__init__.py"
 

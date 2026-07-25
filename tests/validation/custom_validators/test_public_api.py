@@ -43,21 +43,30 @@ def test_public_api_valid(tmp_path: Path) -> None:
 def test_public_api_scope_limiting(tmp_path: Path) -> None:
     cmm_dir = tmp_path / "cmm"
     cmm_dir.mkdir()
-    (cmm_dir / "__init__.py").write_text('__all__ = ["__version__"]\n__version__ = "0.1.0"\n', encoding="utf-8")
+    (cmm_dir / "__init__.py").write_text(
+        '__all__ = ["__version__"]\n__version__ = "0.1.0"\n', encoding="utf-8"
+    )
 
     val_dir = cmm_dir / "validation"
     val_dir.mkdir()
-    (val_dir / "__init__.py").write_text('__all__ = ["ValidationContext"]\nclass ValidationContext: pass\n', encoding="utf-8")
+    (val_dir / "__init__.py").write_text(
+        '__all__ = ["ValidationContext"]\nclass ValidationContext: pass\n',
+        encoding="utf-8",
+    )
 
     # Internal package without __all__
     internal_dir = cmm_dir / "internal_pkg"
     internal_dir.mkdir()
-    (internal_dir / "__init__.py").write_text("x = 1\n# No __all__ defined\n", encoding="utf-8")
+    (internal_dir / "__init__.py").write_text(
+        "x = 1\n# No __all__ defined\n", encoding="utf-8"
+    )
 
     # Public package with __all__
     public_pkg_dir = cmm_dir / "public_pkg"
     public_pkg_dir.mkdir()
-    (public_pkg_dir / "__init__.py").write_text('class Feature: pass\n__all__ = ["Feature"]\n', encoding="utf-8")
+    (public_pkg_dir / "__init__.py").write_text(
+        'class Feature: pass\n__all__ = ["Feature"]\n', encoding="utf-8"
+    )
 
     context = ValidationContext(project_root=tmp_path)
     validator = PublicApiValidator()
@@ -90,7 +99,8 @@ def test_public_api_all_multiple_assignments(tmp_path: Path) -> None:
     cmm_dir = tmp_path / "cmm"
     cmm_dir.mkdir()
     (cmm_dir / "__init__.py").write_text(
-        '__all__ = ["a"]\n__all__ = ["b"]\nclass a: pass\nclass b: pass\n', encoding="utf-8"
+        '__all__ = ["a"]\n__all__ = ["b"]\nclass a: pass\nclass b: pass\n',
+        encoding="utf-8",
     )
 
     context = ValidationContext(project_root=tmp_path)
@@ -149,16 +159,16 @@ def test_public_api_unresolved_export(tmp_path: Path) -> None:
 def test_public_api_syntax_error_sanitized(tmp_path: Path) -> None:
     cmm_dir = tmp_path / "cmm"
     cmm_dir.mkdir()
-    (cmm_dir / "__init__.py").write_text(
-        "invalid python code !!!", encoding="utf-8"
-    )
+    (cmm_dir / "__init__.py").write_text("invalid python code !!!", encoding="utf-8")
 
     context = ValidationContext(project_root=tmp_path)
     validator = PublicApiValidator()
     result = validator.validate(context)
 
     assert result.status == ValidationStatus.FAILED
-    syntax_finding = next(f for f in result.findings if f.code == "PUBLIC_API_SYNTAX_ERROR")
+    syntax_finding = next(
+        f for f in result.findings if f.code == "PUBLIC_API_SYNTAX_ERROR"
+    )
     assert "line" in syntax_finding.metadata
     assert "column" in syntax_finding.metadata
     assert "invalid python code" not in syntax_finding.message

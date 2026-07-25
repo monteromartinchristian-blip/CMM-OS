@@ -17,11 +17,23 @@ def _write_test(path: Path, body: str) -> None:
 
 def test_pipeline_includes_affected_tests_in_result(tmp_path: Path) -> None:
     project_root = tmp_path
-    _write_test(project_root / "tests" / "test_sample.py", "def test_sample():\n    assert True\n")
+    _write_test(
+        project_root / "tests" / "test_sample.py",
+        "def test_sample():\n    assert True\n",
+    )
 
-    context = ValidationContext(project_root=project_root, changed_files=(Path("tests/test_sample.py"),))
-    pipeline = ValidationPipeline(executor=ValidationExecutor(), registry=ValidationRegistry())
+    context = ValidationContext(
+        project_root=project_root, changed_files=(Path("tests/test_sample.py"),)
+    )
+    pipeline = ValidationPipeline(
+        executor=ValidationExecutor(), registry=ValidationRegistry()
+    )
     result = pipeline.run(context, default_testing_steps(context))
 
-    assert result.status in {ValidationStatus.PASSED, ValidationStatus.WARNING, ValidationStatus.FAILED, ValidationStatus.ERROR}
+    assert result.status in {
+        ValidationStatus.PASSED,
+        ValidationStatus.WARNING,
+        ValidationStatus.FAILED,
+        ValidationStatus.ERROR,
+    }
     assert result.affected_tests == ("tests/test_sample.py",)

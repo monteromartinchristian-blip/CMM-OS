@@ -51,7 +51,9 @@ REQUIRED_EXPORTS = (
 )
 
 
-def _extract_module_symbols(tree: ast.AST) -> Tuple[Set[str], Dict[str, Tuple[str | None, int, str]]]:
+def _extract_module_symbols(
+    tree: ast.AST,
+) -> Tuple[Set[str], Dict[str, Tuple[str | None, int, str]]]:
     """Extract top-level defined/imported symbols and relative imports from AST.
 
     Returns:
