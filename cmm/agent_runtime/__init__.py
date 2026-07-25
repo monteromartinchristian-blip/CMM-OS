@@ -1,6 +1,6 @@
 """Phase 9 – Autonomous Agent Runtime Package.
 
-Exports foundational contracts, enums, errors, repository, and GoalManager for Phase 9.1 and Phase 9.2.
+Exports foundational contracts, enums, errors, goal system, intake, and Phase 9.4 Observation Engine.
 """
 
 from cmm.agent_runtime.contracts import (
@@ -20,13 +20,20 @@ from cmm.agent_runtime.enums import (
     GoalProposalStatus,
     GoalSource,
     GoalStatus,
+    ObservationKind,
+    ObservationSignificance,
+    ObservationStatus,
+    ObservedChangeKind,
+    ObserverStatus,
     RuntimeDecisionType,
+    Significance,
     SuccessCriterionKind,
     SuccessCriterionStatus,
 )
 from cmm.agent_runtime.errors import (
     AgentRuntimeError,
     DuplicateGoalError,
+    DuplicateObserverError,
     GoalCompletionError,
     GoalDependencyError,
     GoalError,
@@ -41,6 +48,13 @@ from cmm.agent_runtime.errors import (
     InvalidGoalContractError,
     InvalidGoalProposalError,
     InvalidGoalTransitionError,
+    InvalidObservationContractError,
+    ObservationEngineError,
+    ObservationPermissionError,
+    ObservationTimeoutError,
+    ObserverDisabledError,
+    ObserverExecutionError,
+    ObserverNotFoundError,
 )
 from cmm.agent_runtime.goal_contracts import (
     Goal,
@@ -72,6 +86,29 @@ from cmm.agent_runtime.goal_intake_service import (
 )
 from cmm.agent_runtime.goal_manager import GoalManager
 from cmm.agent_runtime.goal_repository import GoalRepository, InMemoryGoalRepository
+from cmm.agent_runtime.observation_cognitive_adapter import ObservationResourceAdapter
+from cmm.agent_runtime.observation_contracts import (
+    Observation,
+    ObservationError,
+    ObservationQuery,
+    ObservationRequest,
+    ObservationResult,
+    ObservationSnapshot,
+    ObservationSourceVersion,
+    ObservedChange,
+)
+from cmm.agent_runtime.observation_diff import compare_snapshots
+from cmm.agent_runtime.observation_engine import ObservationEngine
+from cmm.agent_runtime.observation_observers import (
+    GitObserver,
+    GoalObserver,
+    MemoryObserver,
+    RepositoryObserver,
+    SystemHealthObserver,
+    ValidationObserver,
+)
+from cmm.agent_runtime.observer_protocol import Observer, ObserverMetadataMixin
+from cmm.agent_runtime.observer_registry import ObserverRegistry
 
 __all__ = [
     "AgentDefinition",
@@ -82,6 +119,8 @@ __all__ = [
     "AgentRuntimeStatus",
     "DeterministicGoalNormalizer",
     "DuplicateGoalError",
+    "DuplicateObserverError",
+    "GitObserver",
     "Goal",
     "GoalAmbiguity",
     "GoalAmbiguityKind",
@@ -105,6 +144,7 @@ __all__ = [
     "GoalNormalizationResult",
     "GoalNormalizer",
     "GoalNotFoundError",
+    "GoalObserver",
     "GoalPriority",
     "GoalProposal",
     "GoalProposalConversionError",
@@ -125,9 +165,40 @@ __all__ = [
     "InvalidGoalContractError",
     "InvalidGoalProposalError",
     "InvalidGoalTransitionError",
+    "InvalidObservationContractError",
+    "MemoryObserver",
+    "Observation",
+    "ObservationEngine",
+    "ObservationEngineError",
+    "ObservationError",
+    "ObservationKind",
+    "ObservationPermissionError",
+    "ObservationQuery",
+    "ObservationRequest",
+    "ObservationResourceAdapter",
+    "ObservationResult",
+    "ObservationSignificance",
+    "ObservationSnapshot",
+    "ObservationSourceVersion",
+    "ObservationStatus",
+    "ObservationTimeoutError",
+    "ObservedChange",
+    "ObservedChangeKind",
+    "Observer",
+    "ObserverDisabledError",
+    "ObserverExecutionError",
+    "ObserverMetadataMixin",
+    "ObserverNotFoundError",
+    "ObserverRegistry",
+    "ObserverStatus",
+    "RepositoryObserver",
     "RuntimeDecision",
     "RuntimeDecisionType",
+    "Significance",
     "SuccessCriterion",
     "SuccessCriterionKind",
     "SuccessCriterionStatus",
+    "SystemHealthObserver",
+    "ValidationObserver",
+    "compare_snapshots",
 ]

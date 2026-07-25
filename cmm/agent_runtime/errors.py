@@ -74,3 +74,40 @@ class GoalNormalizationError(GoalIntakeError, ValueError):
 
 class GoalProposalConversionError(GoalIntakeError, ValueError):
     """Raised when converting a GoalProposal into an operational Goal fails."""
+
+
+# ── Phase 9.4 – Observation Engine Errors ─────────────────────────────────────
+
+
+class ObservationEngineError(AgentRuntimeError):
+    """Base exception for all Observation Engine operations."""
+
+
+class InvalidObservationContractError(
+    ObservationEngineError, InvalidAgentContractError
+):
+    """Raised when an Observation contract or snapshot is invalid or violates invariants."""
+
+
+class ObserverNotFoundError(ObservationEngineError, KeyError):
+    """Raised when a requested Observer is not registered or found."""
+
+
+class DuplicateObserverError(ObservationEngineError, ValueError):
+    """Raised when attempting to register an Observer with a duplicate name."""
+
+
+class ObserverDisabledError(ObservationEngineError, ValueError):
+    """Raised when attempting to execute a disabled Observer."""
+
+
+class ObserverExecutionError(ObservationEngineError, RuntimeError):
+    """Raised when an Observer encounters an unhandled runtime error during execution."""
+
+
+class ObservationTimeoutError(ObservationEngineError, TimeoutError):
+    """Raised when an Observation operation or Observer execution times out."""
+
+
+class ObservationPermissionError(ObservationEngineError, PermissionError):
+    """Raised when an Observation request lacks required permissions or sensitivity access."""

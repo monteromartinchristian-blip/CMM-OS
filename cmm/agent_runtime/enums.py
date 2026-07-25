@@ -229,3 +229,82 @@ class GoalIntakeDecisionType(str, Enum):
     DEFER = "defer"
     CREATE_PROPOSED_GOAL = "create_proposed_goal"
     MERGE_WITH_EXISTING = "merge_with_existing"
+
+
+# ── Phase 9.4 – Observation Engine Enumerations ───────────────────────────────
+
+
+class ObservationStatus(str, Enum):
+    """Lifecycle and execution status of an observation or observation snapshot."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class ObservationKind(str, Enum):
+    """Functional categories for individual observations."""
+
+    STATE = "state"
+    METRIC = "metric"
+    STRUCTURE = "structure"
+    EVENT = "event"
+    CHANGE = "change"
+    VALIDATION = "validation"
+    MEMORY = "memory"
+    HEALTH = "health"
+    GOAL = "goal"
+    REPOSITORY = "repository"
+    GIT = "git"
+    CONFIGURATION = "configuration"
+    EXTERNAL = "external"
+
+
+class ObservedChangeKind(str, Enum):
+    """Types of state changes detected between snapshots or observations."""
+
+    CREATED = "created"
+    MODIFIED = "modified"
+    DELETED = "deleted"
+    RENAMED = "renamed"
+    MOVED = "moved"
+    STATUS_CHANGED = "status_changed"
+    VALIDATION_CHANGED = "validation_changed"
+    METRIC_CHANGED = "metric_changed"
+    DEPENDENCY_CHANGED = "dependency_changed"
+    KNOWLEDGE_CHANGED = "knowledge_changed"
+    PERMISSION_CHANGED = "permission_changed"
+    CONFIGURATION_CHANGED = "configuration_changed"
+    EXTERNAL_STATE_CHANGED = "external_state_changed"
+
+
+class ObservationSignificance(str, Enum):
+    """Impact or significance level of an observed change or state."""
+
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+# Alias for backward compatibility / specification equivalence
+Significance = ObservationSignificance
+
+
+class ObserverStatus(str, Enum):
+    """Lifecycle and operational state of an individual Observer."""
+
+    REGISTERED = "registered"
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    DISABLED = "disabled"
