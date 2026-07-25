@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 from types import TracebackType
@@ -103,6 +105,32 @@ class SQLiteKnowledgeStore:
     def _ensure_open(self) -> None:
         if self._closed:
             raise KnowledgeStoreError("Knowledge store database is closed")
+
+    @contextmanager
+    def transaction(self) -> Iterator[SQLiteKnowledgeStore]:
+        """Provide atomic transaction boundary."""
+        with self._lock:
+            self._ensure_open()
+            if self._conn.in_transaction:
+                yield self
+            else:
+                self._conn.execute("BEGIN TRANSACTION")
+                try:
+                    yield self
+                except Exception:
+                    self._conn.execute("ROLLBACK")
+                    raise
+                else:
+                    self._conn.execute("COMMIT")
+
+    @contextmanager
+    def _tx_cursor(self) -> Iterator[sqlite3.Cursor]:
+        """Provide cursor under active transaction context or temporary connection transaction."""
+        if self._conn.in_transaction:
+            yield self._conn.cursor()
+        else:
+            with self._conn:
+                yield self._conn.cursor()
 
     def _init_db(self) -> None:
         with self._lock:
@@ -234,8 +262,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     self._check_record_type_conflict(cursor, item.id, "item")
                     cursor.execute(
                         """
@@ -308,8 +335,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     cursor.execute(
                         "DELETE FROM knowledge_records WHERE record_id = ? AND record_type = 'item'",
                         (item_id,),
@@ -456,8 +482,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     self._check_record_type_conflict(cursor, evidence.id, "evidence")
                     cursor.execute(
                         """
@@ -527,8 +552,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     cursor.execute(
                         "DELETE FROM knowledge_records WHERE record_id = ? AND record_type = 'evidence'",
                         (evidence_id,),
@@ -606,8 +630,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     self._check_record_type_conflict(cursor, relation.id, "relation")
                     cursor.execute(
                         """
@@ -683,8 +706,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     cursor.execute(
                         "DELETE FROM knowledge_records WHERE record_id = ? AND record_type = 'relation'",
                         (relation_id,),
@@ -767,8 +789,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     self._check_record_type_conflict(
                         cursor, contradiction.id, "contradiction"
                     )
@@ -848,8 +869,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     cursor.execute(
                         "DELETE FROM knowledge_records WHERE record_id = ? AND record_type = 'contradiction'",
                         (contradiction_id,),
@@ -936,9 +956,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                # Execute full bundle transaction atomically using SQLite connection context manager
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     self._check_record_type_conflict(cursor, bundle.id, "bundle")
 
                     # Internal entities
@@ -1114,8 +1132,7 @@ class SQLiteKnowledgeStore:
         with self._lock:
             self._ensure_open()
             try:
-                with self._conn:
-                    cursor = self._conn.cursor()
+                with self._tx_cursor() as cursor:
                     cursor.execute(
                         "DELETE FROM knowledge_records WHERE record_id = ? AND record_type = 'bundle'",
                         (bundle_id,),

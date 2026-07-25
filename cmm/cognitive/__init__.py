@@ -8,14 +8,23 @@ from cmm.cognitive.adapters import (
     ResourceAdapter,
     ResourceInput,
 )
+from cmm.cognitive.consolidation import KnowledgeConsolidator
+from cmm.cognitive.consolidation_contracts import (
+    ConsolidationAction,
+    ConsolidationCandidate,
+    ConsolidationDecision,
+    ConsolidationMatchKind,
+    ConsolidationPlan,
+    ConsolidationResult,
+    knowledge_fingerprint,
+    normalize_statement,
+)
 from cmm.cognitive.contracts import (
     CognitiveActor,
     CognitiveFinding,
     CognitiveResult,
     Confidence,
 )
-
-# ── Phase 8.4 – Knowledge Model ───────────────────────────────────────────────
 from cmm.cognitive.enums import (
     AdaptationStatus,
     CandidateKind,
@@ -48,6 +57,8 @@ from cmm.cognitive.errors import (
     InvalidCognitiveContractError,
     InvalidCognitiveIdentifierError,
     InvalidConfidenceError,
+    InvalidConsolidationCandidateError,
+    InvalidConsolidationPlanError,
     InvalidContradictionError,
     InvalidEvidenceError,
     InvalidExtractionError,
@@ -63,6 +74,9 @@ from cmm.cognitive.errors import (
     InvalidResourceProvenanceError,
     InvalidResourceTemporalScopeError,
     InvalidTemporalValidityError,
+    KnowledgeConsolidationApplicationError,
+    KnowledgeConsolidationConflictError,
+    KnowledgeConsolidationError,
     KnowledgeRetrievalError,
     KnowledgeStoreConflictError,
     KnowledgeStoreCorruptionError,
@@ -70,6 +84,7 @@ from cmm.cognitive.errors import (
     KnowledgeStoreNotFoundError,
     KnowledgeStoreSchemaError,
     KnowledgeStoreSerializationError,
+    ManualReviewRequiredError,
     UnsupportedKnowledgeQueryError,
 )
 from cmm.cognitive.extraction import (
@@ -153,7 +168,13 @@ __all__ = [
     "ComponentNotCompatibleError",
     "ComponentNotFoundError",
     "Confidence",
-    # 8.4 knowledge model
+    # 8.7 consolidation
+    "ConsolidationAction",
+    "ConsolidationCandidate",
+    "ConsolidationDecision",
+    "ConsolidationMatchKind",
+    "ConsolidationPlan",
+    "ConsolidationResult",
     "Contradiction",
     # 8.4 enums
     "ContradictionSeverity",
@@ -174,6 +195,8 @@ __all__ = [
     "InvalidCognitiveContractError",
     "InvalidCognitiveIdentifierError",
     "InvalidConfidenceError",
+    "InvalidConsolidationCandidateError",
+    "InvalidConsolidationPlanError",
     # 8.4 errors
     "InvalidContradictionError",
     "InvalidEvidenceError",
@@ -191,6 +214,10 @@ __all__ = [
     "InvalidResourceTemporalScopeError",
     "InvalidTemporalValidityError",
     "KnowledgeBundle",
+    "KnowledgeConsolidationApplicationError",
+    "KnowledgeConsolidationConflictError",
+    "KnowledgeConsolidationError",
+    "KnowledgeConsolidator",
     "KnowledgeExtractionResult",
     "KnowledgeExtractor",
     # 8.3 registries
@@ -213,6 +240,7 @@ __all__ = [
     "KnowledgeStoreSchemaError",
     "KnowledgeStoreSerializationError",
     "LocalKnowledgeStore",
+    "ManualReviewRequiredError",
     "MappingKnowledgeExtractor",
     "MappingResourceAdapter",
     "PlainTextKnowledgeExtractor",
@@ -240,8 +268,10 @@ __all__ = [
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
     "generate_cognitive_id",
+    "knowledge_fingerprint",
     # 8.4 materializer
     "materialise_candidate",
     "materialise_evidence",
     "materialise_result",
+    "normalize_statement",
 ]

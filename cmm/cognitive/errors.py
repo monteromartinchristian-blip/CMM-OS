@@ -139,3 +139,30 @@ class InvalidKnowledgeQueryError(KnowledgeRetrievalError, ValueError):
 
 class UnsupportedKnowledgeQueryError(KnowledgeRetrievalError, ValueError):
     """Raised when a query operation or capability is not supported."""
+
+
+# ── Phase 8.7 errors ─────────────────────────────────────────────────────────
+
+
+class KnowledgeConsolidationError(CognitiveError):
+    """Base error for knowledge consolidation operations."""
+
+
+class InvalidConsolidationCandidateError(KnowledgeConsolidationError, ValueError):
+    """Raised when a ConsolidationCandidate contract or comparison input is invalid."""
+
+
+class InvalidConsolidationPlanError(KnowledgeConsolidationError, ValueError):
+    """Raised when a ConsolidationPlan contract or action sequence is invalid."""
+
+
+class KnowledgeConsolidationConflictError(KnowledgeConsolidationError, ValueError):
+    """Raised when a consolidation plan encounters stale or conflicting store state."""
+
+
+class KnowledgeConsolidationApplicationError(KnowledgeConsolidationError, RuntimeError):
+    """Raised when applying a consolidation plan fails."""
+
+
+class ManualReviewRequiredError(KnowledgeConsolidationError, ValueError):
+    """Raised when trying to automatically apply a plan containing manual review actions."""

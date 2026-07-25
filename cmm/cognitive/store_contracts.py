@@ -5,6 +5,7 @@ Defines the explicit, typed interface for local Knowledge Store implementations.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import Any, Protocol, runtime_checkable
 
 from cmm.cognitive.enums import (
@@ -44,6 +45,8 @@ def validate_store_id(id_value: Any, param_name: str = "id") -> str:
 @runtime_checkable
 class KnowledgeStoreProtocol(Protocol):
     """Protocol for local deterministic Knowledge Store implementations."""
+
+    def transaction(self) -> AbstractContextManager[KnowledgeStoreProtocol]: ...
 
     # ── KnowledgeItem ────────────────────────────────────────────────────────
 

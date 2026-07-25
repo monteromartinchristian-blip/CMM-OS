@@ -5,6 +5,8 @@ Thread-safe, deterministic, defensive copy in-memory implementation of Knowledge
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from threading import RLock
 from typing import Any
 
@@ -53,6 +55,25 @@ class InMemoryKnowledgeStore:
     def __init__(self) -> None:
         self._records: dict[str, _Record] = {}
         self._lock = RLock()
+
+    @contextmanager
+    def transaction(self) -> Iterator[InMemoryKnowledgeStore]:
+        """Provide atomic transaction boundary with snapshot rollback capability."""
+        with self._lock:
+            snapshot = {
+                k: _Record(
+                    r.id,
+                    r.record_type,
+                    dict(r.payload),
+                    r.created_at_iso,
+                )
+                for k, r in self._records.items()
+            }
+            try:
+                yield self
+            except Exception:
+                self._records = snapshot
+                raise
 
     def _check_record_type(self, record_id: str, expected_type: str) -> None:
         rec = self._records.get(record_id)
