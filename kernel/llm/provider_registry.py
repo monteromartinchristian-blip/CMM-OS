@@ -107,3 +107,14 @@ register_provider(
         base_url_env="NVIDIA_BASE_URL",
     )
 )
+
+register_provider(
+    ProviderSpec(
+        name="openrouter",
+        api_style="chat_completions",
+        default_model="openrouter/free",
+        api_key_env="OPENROUTER_API_KEY",
+        base_url="https://openrouter.ai/api/v1",
+        base_url_env="OPENROUTER_BASE_URL",
+    )
+)

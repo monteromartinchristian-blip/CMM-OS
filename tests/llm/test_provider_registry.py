@@ -46,3 +46,13 @@ def test_duplicate_registration_is_rejected() -> None:
                 api_key_env="OTHER_API_KEY",
             )
         )
+
+
+def test_openrouter_is_registered() -> None:
+    spec = get_provider_spec("openrouter")
+
+    assert spec.name == "openrouter"
+    assert spec.api_style == "chat_completions"
+    assert spec.default_model == "openrouter/free"
+    assert spec.api_key_env == "OPENROUTER_API_KEY"
+    assert spec.resolve_base_url() == "https://openrouter.ai/api/v1"

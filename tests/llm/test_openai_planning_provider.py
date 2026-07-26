@@ -147,3 +147,20 @@ def test_factory_uses_requested_registered_provider_model() -> None:
 
     assert provider.model == "custom/model"
     assert provider.provider.source == "nvidia"
+
+
+def test_factory_creates_registered_openrouter_provider() -> None:
+    from cmm.development.providers import OpenAICompatiblePlanningProvider
+
+    provider = create_planning_provider("openrouter")
+
+    assert isinstance(provider, OpenAICompatiblePlanningProvider)
+    assert provider.model == "openrouter/free"
+    assert provider.provider.source == "openrouter"
+
+
+def test_factory_uses_requested_openrouter_model() -> None:
+    provider = create_planning_provider("openrouter:deepseek/deepseek-chat")
+
+    assert provider.model == "deepseek/deepseek-chat"
+    assert provider.provider.source == "openrouter"

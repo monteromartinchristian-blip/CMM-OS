@@ -52,3 +52,5 @@ dist/
 Thumbs.db
 # CMM OS local runtime state
 .cmm/
+
+!.env.example
