@@ -1599,3 +1599,47 @@ class AgentTraceExportFormat(str, Enum):
     JSONL = "jsonl"
     NDJSON = "ndjson"
     SUMMARY = "summary"
+
+
+# ── Phase 9.20 – Runtime Event Bus Enumerations ───────────────────────────────
+
+
+class EventSensitivity(str, Enum):
+    """Sensitivity classification for events."""
+
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+
+
+class EventDeliveryStatus(str, Enum):
+    """Status of event delivery to a subscriber."""
+
+    DELIVERED = "delivered"
+    SKIPPED = "skipped"
+    FILTERED = "filtered"
+    DUPLICATE = "duplicate"
+    FAILED = "failed"
+    DEAD_LETTERED = "dead_lettered"
+
+
+class EventTypeCategory(str, Enum):
+    """Category of event types for organization."""
+
+    GOAL = "goal"
+    RUNTIME = "runtime"
+    ITERATION = "iteration"
+    OBSERVATION = "observation"
+    KNOWLEDGE = "knowledge"
+    PLANNING = "planning"
+    POLICY = "policy"
+    APPROVAL = "approval"
+    BUDGET = "budget"
+    EXECUTION = "execution"
+    VALIDATION = "validation"
+    RECOVERY = "recovery"
+    OUTCOME = "outcome"
+    MEMORY = "memory"
+    TRACE = "trace"
+    RUNTIME_SYSTEM = "runtime_system"

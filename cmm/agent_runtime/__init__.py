@@ -2015,3 +2015,96 @@ __all__ += [
     "OperationalLessonKind",
     "RejectedKnowledgeItem",
 ]
+
+# ── Phase 9.20 – Runtime Event Bus Exports ────────────────────────────────────
+
+from cmm.agent_runtime.runtime_event_bus import AgentRuntimeEventBus
+from cmm.agent_runtime.runtime_event_contracts import (
+    AgentRuntimeEvent,
+    AgentRuntimeEventBatch,
+    AgentRuntimeEventBusStats,
+    AgentRuntimeEventDeadLetter,
+    AgentRuntimeEventDelivery,
+    AgentRuntimeEventEnvelope,
+    AgentRuntimeEventFilter,
+    AgentRuntimeEventHeader,
+    AgentRuntimeEventPayload,
+    AgentRuntimeEventReplayRequest,
+    AgentRuntimeEventReplayResult,
+    AgentRuntimeEventSubscription,
+    EventDeliveryStatus,
+    EventSensitivity,
+    EventTypeCategory,
+)
+from cmm.agent_runtime.runtime_event_dead_letter import (
+    InMemoryAgentRuntimeDeadLetterQueue,
+)
+from cmm.agent_runtime.runtime_event_errors import (
+    AgentRuntimeEventBusClosedError,
+    AgentRuntimeEventContractError,
+    AgentRuntimeEventDeadLetterQueueError,
+    AgentRuntimeEventDeliveryError,
+    AgentRuntimeEventDuplicateError,
+    AgentRuntimeEventError,
+    AgentRuntimeEventPermissionError,
+    AgentRuntimeEventQueueFullError,
+    AgentRuntimeEventRegistryError,
+    AgentRuntimeEventReplayError,
+    AgentRuntimeEventRepositoryError,
+    AgentRuntimeEventSensitivityError,
+    AgentRuntimeEventSerializationError,
+    AgentRuntimeEventTraceSubscriberError,
+    AgentRuntimeEventUnknownTypeError,
+    AgentRuntimeEventValidationError,
+)
+from cmm.agent_runtime.runtime_event_factory import AgentRuntimeEventFactory
+from cmm.agent_runtime.runtime_event_registry import AgentRuntimeEventRegistry
+from cmm.agent_runtime.runtime_event_replay import AgentRuntimeEventReplayer
+from cmm.agent_runtime.runtime_event_repository import (
+    AgentRuntimeEventRepository,
+    InMemoryAgentRuntimeEventRepository,
+)
+from cmm.agent_runtime.runtime_event_types import EventType
+
+__all__ += [
+    "AgentRuntimeEvent",
+    "AgentRuntimeEventBatch",
+    "AgentRuntimeEventBus",
+    "AgentRuntimeEventBusClosedError",
+    "AgentRuntimeEventBusStats",
+    "AgentRuntimeEventContractError",
+    "AgentRuntimeEventDeadLetter",
+    "AgentRuntimeEventDeadLetterQueue",
+    "AgentRuntimeEventDeadLetterQueueError",
+    "AgentRuntimeEventDelivery",
+    "AgentRuntimeEventDeliveryError",
+    "AgentRuntimeEventDuplicateError",
+    "AgentRuntimeEventEnvelope",
+    "AgentRuntimeEventError",
+    "AgentRuntimeEventFactory",
+    "AgentRuntimeEventFilter",
+    "AgentRuntimeEventHeader",
+    "AgentRuntimeEventPayload",
+    "AgentRuntimeEventPermissionError",
+    "AgentRuntimeEventQueueFullError",
+    "AgentRuntimeEventRegistry",
+    "AgentRuntimeEventRegistryError",
+    "AgentRuntimeEventReplayError",
+    "AgentRuntimeEventReplayRequest",
+    "AgentRuntimeEventReplayResult",
+    "AgentRuntimeEventReplayer",
+    "AgentRuntimeEventRepository",
+    "AgentRuntimeEventRepositoryError",
+    "AgentRuntimeEventSensitivityError",
+    "AgentRuntimeEventSerializationError",
+    "AgentRuntimeEventSubscription",
+    "AgentRuntimeEventTraceSubscriberError",
+    "AgentRuntimeEventUnknownTypeError",
+    "AgentRuntimeEventValidationError",
+    "EventDeliveryStatus",
+    "EventSensitivity",
+    "EventType",
+    "EventTypeCategory",
+    "InMemoryAgentRuntimeDeadLetterQueue",
+    "InMemoryAgentRuntimeEventRepository",
+]
