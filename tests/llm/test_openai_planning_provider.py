@@ -125,3 +125,25 @@ def test_generate_plan_accepts_exact_explicit_path() -> None:
     )
 
     assert result["operations"][0]["parameters"]["path"] == "requested.py"
+
+
+def test_factory_creates_registered_nvidia_provider() -> None:
+    from cmm.development.providers import (
+        OpenAICompatiblePlanningProvider,
+    )
+
+    provider = create_planning_provider("nvidia")
+
+    assert isinstance(
+        provider,
+        OpenAICompatiblePlanningProvider,
+    )
+    assert provider.model == "z-ai/glm-5.2"
+    assert provider.provider.source == "nvidia"
+
+
+def test_factory_uses_requested_registered_provider_model() -> None:
+    provider = create_planning_provider("nvidia:custom/model")
+
+    assert provider.model == "custom/model"
+    assert provider.provider.source == "nvidia"
