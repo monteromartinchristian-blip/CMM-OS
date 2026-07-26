@@ -181,3 +181,22 @@ def test_factory_uses_requested_groq_model() -> None:
 
     assert provider.model == "openai/gpt-oss-120b"
     assert provider.provider.source == "groq"
+
+
+def test_factory_creates_registered_together_provider() -> None:
+    from cmm.development.providers import OpenAICompatiblePlanningProvider
+
+    provider = create_planning_provider("together")
+
+    assert isinstance(provider, OpenAICompatiblePlanningProvider)
+    assert provider.model == "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    assert provider.provider.source == "together"
+
+
+def test_factory_uses_requested_together_model() -> None:
+    provider = create_planning_provider(
+        "together:Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
+    )
+
+    assert provider.model == "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"
+    assert provider.provider.source == "together"

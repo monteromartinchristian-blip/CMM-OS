@@ -152,3 +152,23 @@ register_provider(
         ),
     )
 )
+
+register_provider(
+    ProviderSpec(
+        name="together",
+        api_style="chat_completions",
+        default_model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        api_key_env="TOGETHER_API_KEY",
+        base_url="https://api.together.xyz/v1",
+        base_url_env="TOGETHER_BASE_URL",
+        capabilities=ProviderCapabilities(
+            streaming=True,
+            tool_calling=True,
+            vision=True,
+            reasoning=True,
+            json_mode=True,
+            json_schema=True,
+            embeddings=True,
+        ),
+    )
+)

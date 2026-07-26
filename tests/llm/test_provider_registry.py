@@ -117,3 +117,19 @@ def test_provider_name_normalization_preserves_capabilities() -> None:
     registered = get_provider_spec("test-capabilities")
 
     assert registered.capabilities == capabilities
+
+
+def test_together_is_registered_with_capabilities() -> None:
+    spec = get_provider_spec("together")
+
+    assert spec.name == "together"
+    assert spec.api_style == "chat_completions"
+    assert spec.default_model == "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    assert spec.api_key_env == "TOGETHER_API_KEY"
+    assert spec.resolve_base_url() == "https://api.together.xyz/v1"
+
+    assert spec.capabilities.streaming
+    assert spec.capabilities.tool_calling
+    assert spec.capabilities.vision
+    assert spec.capabilities.reasoning
+    assert spec.capabilities.embeddings
