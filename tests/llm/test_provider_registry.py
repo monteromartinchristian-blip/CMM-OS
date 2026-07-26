@@ -66,3 +66,54 @@ def test_groq_is_registered() -> None:
     assert spec.default_model == "llama-3.3-70b-versatile"
     assert spec.api_key_env == "GROQ_API_KEY"
     assert spec.resolve_base_url() == "https://api.groq.com/openai/v1"
+
+
+def test_registered_providers_expose_capabilities() -> None:
+    from kernel.llm.provider_registry import get_provider_spec
+
+    nvidia = get_provider_spec("nvidia")
+    openrouter = get_provider_spec("openrouter")
+    groq = get_provider_spec("groq")
+
+    assert nvidia.capabilities.streaming
+    assert nvidia.capabilities.tool_calling
+    assert nvidia.capabilities.max_context_tokens == 131_072
+
+    assert openrouter.capabilities.streaming
+    assert openrouter.capabilities.tool_calling
+    assert openrouter.capabilities.vision
+
+    assert groq.capabilities.streaming
+    assert groq.capabilities.tool_calling
+    assert not groq.capabilities.responses_api
+    assert groq.capabilities.max_context_tokens == 131_072
+
+
+def test_provider_name_normalization_preserves_capabilities() -> None:
+    from kernel.llm.provider_capabilities import ProviderCapabilities
+    from kernel.llm.provider_registry import (
+        ProviderSpec,
+        get_provider_spec,
+        register_provider,
+    )
+
+    capabilities = ProviderCapabilities(
+        reasoning=True,
+        local=True,
+        max_context_tokens=32_768,
+    )
+
+    register_provider(
+        ProviderSpec(
+            name="  TEST-CAPABILITIES  ",
+            api_style="chat_completions",
+            default_model="test-model",
+            api_key_env="TEST_CAPABILITIES_API_KEY",
+            capabilities=capabilities,
+        ),
+        replace=True,
+    )
+
+    registered = get_provider_spec("test-capabilities")
+
+    assert registered.capabilities == capabilities

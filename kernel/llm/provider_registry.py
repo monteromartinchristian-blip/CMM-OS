@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from kernel.llm.exceptions import ProviderError
+from kernel.llm.provider_capabilities import ProviderCapabilities
 
 APIStyle = Literal["chat_completions", "responses"]
 
@@ -21,6 +22,7 @@ class ProviderSpec:
     api_key_env: str
     base_url: str | None = None
     base_url_env: str | None = None
+    capabilities: ProviderCapabilities = field(default_factory=ProviderCapabilities)
 
     def resolve_api_key(self) -> str | None:
         """Resolve the provider API key from its environment variable."""
@@ -69,6 +71,7 @@ def register_provider(
             api_key_env=spec.api_key_env,
             base_url=spec.base_url,
             base_url_env=spec.base_url_env,
+            capabilities=spec.capabilities,
         )
 
     _PROVIDER_REGISTRY[normalized_name] = spec
@@ -105,6 +108,13 @@ register_provider(
         api_key_env="NVIDIA_API_KEY",
         base_url="https://integrate.api.nvidia.com/v1",
         base_url_env="NVIDIA_BASE_URL",
+        capabilities=ProviderCapabilities(
+            streaming=True,
+            tool_calling=True,
+            json_mode=True,
+            json_schema=True,
+            max_context_tokens=131_072,
+        ),
     )
 )
 
@@ -116,6 +126,13 @@ register_provider(
         api_key_env="OPENROUTER_API_KEY",
         base_url="https://openrouter.ai/api/v1",
         base_url_env="OPENROUTER_BASE_URL",
+        capabilities=ProviderCapabilities(
+            streaming=True,
+            tool_calling=True,
+            vision=True,
+            json_mode=True,
+            json_schema=True,
+        ),
     )
 )
 
@@ -127,5 +144,11 @@ register_provider(
         api_key_env="GROQ_API_KEY",
         base_url="https://api.groq.com/openai/v1",
         base_url_env="GROQ_BASE_URL",
+        capabilities=ProviderCapabilities(
+            streaming=True,
+            tool_calling=True,
+            json_mode=True,
+            max_context_tokens=131_072,
+        ),
     )
 )
