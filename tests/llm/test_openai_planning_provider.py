@@ -164,3 +164,20 @@ def test_factory_uses_requested_openrouter_model() -> None:
 
     assert provider.model == "deepseek/deepseek-chat"
     assert provider.provider.source == "openrouter"
+
+
+def test_factory_creates_registered_groq_provider() -> None:
+    from cmm.development.providers import OpenAICompatiblePlanningProvider
+
+    provider = create_planning_provider("groq")
+
+    assert isinstance(provider, OpenAICompatiblePlanningProvider)
+    assert provider.model == "llama-3.3-70b-versatile"
+    assert provider.provider.source == "groq"
+
+
+def test_factory_uses_requested_groq_model() -> None:
+    provider = create_planning_provider("groq:openai/gpt-oss-120b")
+
+    assert provider.model == "openai/gpt-oss-120b"
+    assert provider.provider.source == "groq"

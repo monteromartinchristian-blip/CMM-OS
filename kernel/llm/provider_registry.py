@@ -118,3 +118,14 @@ register_provider(
         base_url_env="OPENROUTER_BASE_URL",
     )
 )
+
+register_provider(
+    ProviderSpec(
+        name="groq",
+        api_style="chat_completions",
+        default_model="llama-3.3-70b-versatile",
+        api_key_env="GROQ_API_KEY",
+        base_url="https://api.groq.com/openai/v1",
+        base_url_env="GROQ_BASE_URL",
+    )
+)

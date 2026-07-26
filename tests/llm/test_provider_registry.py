@@ -56,3 +56,13 @@ def test_openrouter_is_registered() -> None:
     assert spec.default_model == "openrouter/free"
     assert spec.api_key_env == "OPENROUTER_API_KEY"
     assert spec.resolve_base_url() == "https://openrouter.ai/api/v1"
+
+
+def test_groq_is_registered() -> None:
+    spec = get_provider_spec("groq")
+
+    assert spec.name == "groq"
+    assert spec.api_style == "chat_completions"
+    assert spec.default_model == "llama-3.3-70b-versatile"
+    assert spec.api_key_env == "GROQ_API_KEY"
+    assert spec.resolve_base_url() == "https://api.groq.com/openai/v1"
