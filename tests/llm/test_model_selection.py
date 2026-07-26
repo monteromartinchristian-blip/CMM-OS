@@ -216,3 +216,24 @@ def test_selection_raises_when_no_model_matches() -> None:
                 local_only=True,
             )
         )
+
+
+def test_find_matching_models_uses_explicit_ranking_policy() -> None:
+    from kernel.llm.model_ranking import ModelRankingPolicy
+
+    _register_selection_models()
+
+    matches = [
+        model
+        for model in find_matching_models(
+            ModelRequirements(streaming=True),
+            ranking_policy=ModelRankingPolicy(strategy="largest_context"),
+        )
+        if model.id.startswith("selection-")
+    ]
+
+    assert [model.qualified_id for model in matches] == [
+        "openrouter:selection-unknown-cost",
+        "together:selection-reasoning",
+        "groq:selection-fast",
+    ]

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from kernel.llm.model_catalog import ModelSpec, list_model_specs
+from kernel.llm.model_ranking import ModelRankingPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,16 +103,19 @@ def model_matches_requirements(
 
 def find_matching_models(
     requirements: ModelRequirements,
+    *,
+    ranking_policy: ModelRankingPolicy | None = None,
 ) -> tuple[ModelSpec, ...]:
     """Return all catalog models satisfying the request constraints."""
 
-    matches = (
+    matches = tuple(
         model
         for model in list_model_specs()
         if model_matches_requirements(model, requirements)
     )
 
-    return tuple(sorted(matches, key=_model_sort_key))
+    policy = ranking_policy or ModelRankingPolicy()
+    return policy.rank(matches)
 
 
 def _cost_is_within_limit(
@@ -127,28 +131,17 @@ def _cost_is_within_limit(
     return model_cost <= maximum_cost
 
 
-def _model_sort_key(
-    model: ModelSpec,
-) -> tuple[bool, Decimal, str]:
-    input_cost = model.input_cost_per_million
-    output_cost = model.output_cost_per_million
-
-    has_unknown_cost = input_cost is None or output_cost is None
-    total_cost = (input_cost or Decimal(0)) + (output_cost or Decimal(0))
-
-    return (
-        has_unknown_cost,
-        total_cost,
-        model.qualified_id.lower(),
-    )
-
-
 def select_model(
     requirements: ModelRequirements,
+    *,
+    ranking_policy: ModelRankingPolicy | None = None,
 ) -> ModelSpec:
     """Return the highest-ranked model satisfying all requirements."""
 
-    matches = find_matching_models(requirements)
+    matches = find_matching_models(
+        requirements,
+        ranking_policy=ranking_policy,
+    )
 
     if not matches:
         from kernel.llm.exceptions import ModelSelectionError
