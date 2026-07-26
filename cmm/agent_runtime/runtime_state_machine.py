@@ -119,7 +119,22 @@ VALID_TRANSITIONS: Mapping[str, frozenset[str]] = {
             "aborted",
         }
     ),
-    "recovering": frozenset({"planning", "executing", "paused", "failed", "aborted"}),
+    "recovering": frozenset(
+        {
+            "observing",
+            "reasoning",
+            "planning",
+            "executing",
+            "validating",
+            "waiting_for_user",
+            "waiting_for_approval",
+            "recovering",
+            "blocked",
+            "paused",
+            "failed",
+            "aborted",
+        }
+    ),
     "paused": frozenset(
         {
             "observing",

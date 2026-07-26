@@ -828,3 +828,102 @@ class MemoryStateRestorationError(CheckpointError, RuntimeError):
 
 class KnowledgeStateRestorationError(CheckpointError, RuntimeError):
     """Raised when restoring knowledge state fails."""
+
+
+# ── Phase 9.16 – Recovery Manager Errors ──────────────────────────────────────
+
+
+class RecoveryError(AgentRuntimeError):
+    """Base exception for all Recovery Manager operations."""
+
+
+class RecoveryContextError(RecoveryError, ValueError):
+    """Raised when a RecoveryContext contract is invalid or violates invariants."""
+
+
+class RecoveryDecisionError(RecoveryError, ValueError):
+    """Raised when a RecoveryDecision is invalid or violates invariants."""
+
+
+class RecoveryPolicyError(RecoveryError, ValueError):
+    """Raised when recovery policies conflict or are violated."""
+
+
+class RecoveryStrategyError(RecoveryError, ValueError):
+    """Raised when a recovery strategy cannot be resolved or fails execution."""
+
+
+class RecoveryRepositoryError(RecoveryError, ValueError):
+    """Raised when recovery repository operations fail or violate invariants."""
+
+
+class RecoveryExecutionError(RecoveryError, RuntimeError):
+    """Raised when execution of a recovery strategy encounters an unhandled runtime error."""
+
+
+class RecoveryBlockedError(RecoveryError, ValueError):
+    """Raised when recovery execution is blocked by safety checks or state."""
+
+
+class RecoveryEscalationError(RecoveryError, RuntimeError):
+    """Raised when escalation processing encounters an error."""
+
+
+class RecoveryBudgetError(RecoveryError, ValueError):
+    """Raised when recovery execution exceeds allocated budget limits."""
+
+
+class RecoveryRetryError(RecoveryError, RuntimeError):
+    """Raised when a retry attempt fails."""
+
+
+class RecoveryRetryExhaustedError(RecoveryRetryError, ValueError):
+    """Raised when maximum retry attempts have been reached."""
+
+
+class RecoveryNonRetryableError(RecoveryRetryError, ValueError):
+    """Raised when a retry is attempted on an error classified as non-retryable."""
+
+
+class RecoveryBackoffError(RecoveryError, ValueError):
+    """Raised when backoff delay calculation parameters are invalid."""
+
+
+class RecoveryReplanError(RecoveryError, RuntimeError):
+    """Raised when requesting or building a recovery replan fails."""
+
+
+class RecoveryRollbackError(RecoveryError, RuntimeError):
+    """Raised when executing a recovery rollback fails."""
+
+
+class RecoveryCompensationError(RecoveryError, RuntimeError):
+    """Raised when executing a recovery compensation fails."""
+
+
+class RecoveryApprovalRequiredError(RecoveryError, PermissionError):
+    """Raised when a recovery strategy requires human approval that is missing or expired."""
+
+
+class RecoveryPermissionError(RecoveryError, PermissionError):
+    """Raised when a recovery strategy lacks required execution permissions."""
+
+
+class RecoveryInconsistentStateError(RecoveryError, ValueError):
+    """Raised when runtime or resource state is inconsistent, blocking continuation."""
+
+
+class RecoveryEvidenceError(RecoveryError, ValueError):
+    """Raised when required recovery evidence or artifact is missing or corrupted."""
+
+
+class RecoveryIdempotencyError(RecoveryError, ValueError):
+    """Raised when an idempotency key conflict occurs with mismatched metadata."""
+
+
+class RecoveryStrategyUnavailableError(RecoveryError, ValueError):
+    """Raised when a requested recovery strategy is not supported or registered."""
+
+
+class RecoveryValidationError(RecoveryError, ValueError):
+    """Raised when post-recovery validation fails."""

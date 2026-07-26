@@ -1170,3 +1170,106 @@ class OperationRecoveryKind(str, Enum):
     COMPENSABLE = "compensable"
     IRREVERSIBLE = "irreversible"
     UNKNOWN = "unknown"
+
+
+# ── Phase 9.16 – Recovery Manager Enumerations ────────────────────────────────
+
+
+class RecoveryStrategy(str, Enum):
+    """Explicit recovery strategies available to the Recovery Decision Engine."""
+
+    RETRY = "retry"
+    RETRY_WITH_MODIFIED_PARAMETERS = "retry_with_modified_parameters"
+    RETRY_LATER = "retry_later"
+    REOBSERVE = "reobserve"
+    RELOAD_RESOURCE = "reload_resource"
+    RERUN_VALIDATION = "rerun_validation"
+    REPLAN = "replan"
+    ROLLBACK = "rollback"
+    COMPENSATE = "compensate"
+    ASK_USER = "ask_user"
+    REQUEST_APPROVAL = "request_approval"
+    ESCALATE = "escalate"
+    PAUSE = "pause"
+    SKIP_OPTIONAL_TASK = "skip_optional_task"
+    COMPLETE_PARTIALLY = "complete_partially"
+    ABORT = "abort"
+    FAIL = "fail"
+
+
+class RecoveryStatus(str, Enum):
+    """Execution and lifecycle status states for a Recovery Context or Execution."""
+
+    PENDING = "pending"
+    DECIDING = "deciding"
+    WAITING = "waiting"
+    EXECUTING = "executing"
+    SUCCEEDED = "succeeded"
+    PARTIALLY_SUCCEEDED = "partially_succeeded"
+    BLOCKED = "blocked"
+    ESCALATED = "escalated"
+    ABORTED = "aborted"
+    FAILED = "failed"
+
+
+class RecoveryReasonCode(str, Enum):
+    """Reason codes motivating a RecoveryDecision or Classification."""
+
+    TRANSIENT_ERROR = "transient_error"
+    VALIDATION_FAILED = "validation_failed"
+    RESOURCE_STALE = "resource_stale"
+    RESOURCE_MISSING = "resource_missing"
+    RESOURCE_VERSION_MISMATCH = "resource_version_mismatch"
+    PERMISSION_MISSING = "permission_missing"
+    APPROVAL_REQUIRED = "approval_required"
+    CHECKPOINT_AVAILABLE = "checkpoint_available"
+    CHECKPOINT_INVALID = "checkpoint_invalid"
+    ROLLBACK_AVAILABLE = "rollback_available"
+    ROLLBACK_FAILED = "rollback_failed"
+    COMPENSATION_AVAILABLE = "compensation_available"
+    COMPENSATION_FAILED = "compensation_failed"
+    RETRIES_EXHAUSTED = "retries_exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    INCONSISTENT_STATE = "inconsistent_state"
+    PARTIAL_SIDE_EFFECTS = "partial_side_effects"
+    NON_RETRYABLE_ERROR = "non_retryable_error"
+    HIGH_IMPACT_DECISION = "high_impact_decision"
+    POLICY_CONFLICT = "policy_conflict"
+    CONTRADICTION_UNRESOLVED = "contradiction_unresolved"
+    PROFESSIONAL_JUDGMENT_REQUIRED = "professional_judgment_required"
+    UNKNOWN_FAILURE = "unknown_failure"
+
+
+class BackoffStrategy(str, Enum):
+    """Backoff delay calculation strategy for retries."""
+
+    NONE = "none"
+    CONSTANT = "constant"
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+
+
+class RecoveryErrorClass(str, Enum):
+    """High-level classification categories for Agent Runtime errors."""
+
+    TRANSIENT = "transient"
+    PERMANENT = "permanent"
+    VALIDATION = "validation"
+    PERMISSION = "permission"
+    CONCURRENCY = "concurrency"
+    RESOURCE = "resource"
+    BUDGET = "budget"
+    POLICY = "policy"
+    EXTERNAL_SIDE_EFFECT = "external_side_effect"
+    INCONSISTENT_STATE = "inconsistent_state"
+    UNKNOWN = "unknown"
+
+
+class EscalationTarget(str, Enum):
+    """Target roles for recovery escalation."""
+
+    USER = "user"
+    OPERATOR = "operator"
+    APPROVER = "approver"
+    DOMAIN_EXPERT = "domain_expert"
+    SYSTEM_ADMINISTRATOR = "system_administrator"
