@@ -95,3 +95,44 @@ def test_router_propagates_selection_failure() -> None:
                 audio_input=True,
             )
         )
+
+
+def test_returns_ranked_fallback_routes() -> None:
+    _register_router_models()
+
+    routes = ModelRouter().route_candidates(
+        ModelRequirements(
+            streaming=True,
+            tool_calling=True,
+        )
+    )
+
+    assert [route.qualified_model for route in routes] == [
+        "groq:router-fast",
+        "together:router-reasoning",
+    ]
+    assert [route.provider.name for route in routes] == [
+        "groq",
+        "together",
+    ]
+
+
+def test_limits_fallback_routes() -> None:
+    _register_router_models()
+
+    routes = ModelRouter().route_candidates(
+        ModelRequirements(streaming=True),
+        limit=1,
+    )
+
+    assert len(routes) == 1
+    assert routes[0].qualified_model == "groq:router-fast"
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_rejects_invalid_fallback_limit(limit: int) -> None:
+    with pytest.raises(ValueError, match="limit must be greater than zero"):
+        ModelRouter().route_candidates(
+            ModelRequirements(),
+            limit=limit,
+        )
