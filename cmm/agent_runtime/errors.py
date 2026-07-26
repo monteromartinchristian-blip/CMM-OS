@@ -725,3 +725,106 @@ class ValidationRollbackRequiredError(AgentValidationError, ValueError):
 
 class ValidationInfrastructureError(AgentValidationError, RuntimeError):
     """Raised when an unexpected infrastructure exception occurs during validation."""
+
+
+# ── Phase 9.15 – Checkpoint and Transaction Boundary Errors ───────────────────
+
+
+class CheckpointError(AgentRuntimeError):
+    """Base exception for all Checkpoint and Transaction Boundary operations."""
+
+
+class CheckpointCreationError(CheckpointError, ValueError):
+    """Raised when creating a checkpoint fails."""
+
+
+class CheckpointNotFoundError(CheckpointError, KeyError):
+    """Raised when a requested checkpoint is not found."""
+
+
+class CheckpointAlreadyExistsError(CheckpointError, ValueError):
+    """Raised when creating or saving a checkpoint with a conflicting ID occurs."""
+
+
+class CheckpointInvalidError(CheckpointError, ValueError):
+    """Raised when a checkpoint contract or state is invalid."""
+
+
+class CheckpointExpiredError(CheckpointError, ValueError):
+    """Raised when attempting to restore or access an expired checkpoint."""
+
+
+class CheckpointIntegrityError(CheckpointError, ValueError):
+    """Raised when checkpoint integrity verification fails."""
+
+
+class CheckpointRepositoryError(CheckpointError, ValueError):
+    """Raised when repository operations for checkpoints fail or violate constraints."""
+
+
+class CheckpointRestorationError(CheckpointError, RuntimeError):
+    """Raised when checkpoint restoration execution encounters an error."""
+
+
+class CheckpointRestorationBlockedError(CheckpointError, ValueError):
+    """Raised when checkpoint restoration is blocked by locks or policy."""
+
+
+class CheckpointRestorationValidationError(CheckpointError, ValueError):
+    """Raised when post-restoration validation fails."""
+
+
+class CheckpointConcurrencyError(CheckpointError, RuntimeError):
+    """Raised when concurrent restoration or lock conflicts occur."""
+
+
+class TransactionBoundaryError(CheckpointError, ValueError):
+    """Raised when transaction boundary rules or capabilities are violated."""
+
+
+class TransactionStateError(CheckpointError, ValueError):
+    """Raised when an invalid transition or operation is attempted on a Transaction."""
+
+
+class TransactionCommitError(CheckpointError, RuntimeError):
+    """Raised when committing a transaction fails."""
+
+
+class TransactionRollbackError(CheckpointError, RuntimeError):
+    """Raised when rolling back a transaction encounters an unrecoverable error."""
+
+
+class CompensationError(CheckpointError, RuntimeError):
+    """Raised when executing a compensation action fails."""
+
+
+class IrreversibleOperationError(CheckpointError, PermissionError):
+    """Raised when an irreversible operation lacks required approval or safety checks."""
+
+
+class BackupRequiredError(CheckpointError, ValueError):
+    """Raised when mandatory backup is missing or required before transaction."""
+
+
+class ResourceSnapshotError(CheckpointError, RuntimeError):
+    """Raised when snapshot capture of a resource fails."""
+
+
+class ResourceVersionMismatchError(CheckpointError, ValueError):
+    """Raised when resource versions diverge unexpectedly before restoration or commit."""
+
+
+class GitStateRestorationError(CheckpointError, RuntimeError):
+    """Raised when restoring Git repository state fails."""
+
+
+class StorageSnapshotRestorationError(CheckpointError, RuntimeError):
+    """Raised when restoring external storage snapshot fails."""
+
+
+class MemoryStateRestorationError(CheckpointError, RuntimeError):
+    """Raised when restoring memory state fails."""
+
+
+class KnowledgeStateRestorationError(CheckpointError, RuntimeError):
+    """Raised when restoring knowledge state fails."""

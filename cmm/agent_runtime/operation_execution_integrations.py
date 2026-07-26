@@ -21,7 +21,7 @@ class ResourceVersionProvider(Protocol):
 
 
 class InMemoryResourceVersionProvider:
-    """In-memory dictionary provider for resource version checking."""
+    """In-memory dictionary provider for resource version checking and restoration."""
 
     def __init__(self, versions: dict[str, str] | None = None) -> None:
         self._versions = versions or {}
@@ -30,7 +30,17 @@ class InMemoryResourceVersionProvider:
         self._versions[resource_uri] = version
 
     def get_version(self, resource_uri: str) -> str:
-        return self._versions.get(resource_uri, "unknown")
+        return self._versions.get(resource_uri, "v1.0.0")
+
+    def capture_version(self, resource_uri: str) -> str:
+        return self.get_version(resource_uri)
+
+    def verify_version(self, resource_uri: str, expected_version: str) -> bool:
+        return self.get_version(resource_uri) == expected_version
+
+    def restore_version(self, resource_uri: str, target_version: str) -> bool:
+        self._versions[resource_uri] = target_version
+        return True
 
 
 class TransformationExecutionEngineAdapter:

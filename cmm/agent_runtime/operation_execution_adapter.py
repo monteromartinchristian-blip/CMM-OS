@@ -98,7 +98,7 @@ class AgentOperationResolver:
 
 
 class AgentExecutionAdapter:
-    """Adapter for validating gates, reserving budget/locks, and executing registered operations."""
+    """Adapter for validating gates, reserving budget/locks, creating checkpoints, and executing registered operations."""
 
     def __init__(
         self,
@@ -109,6 +109,8 @@ class AgentExecutionAdapter:
         | None = None,
         capabilities: dict[tuple[str, str], OperationCapability] | None = None,
         validation_adapter: AgentValidationAdapter | None = None,
+        checkpoint_manager: Any | None = None,
+        transaction_manager: Any | None = None,
     ) -> None:
         self._registry = registry or InMemoryAgentOperationRegistry()
         self._repository = repository or InMemoryAgentOperationExecutionRepository()
@@ -118,6 +120,8 @@ class AgentExecutionAdapter:
         self._execution_delegate = execution_delegate
         self._resolver = AgentOperationResolver(self._registry, capabilities)
         self._validation_adapter = validation_adapter
+        self._checkpoint_manager = checkpoint_manager
+        self._transaction_manager = transaction_manager
 
     @property
     def registry(self) -> AgentOperationRegistry:
@@ -130,6 +134,14 @@ class AgentExecutionAdapter:
     @property
     def validation_adapter(self) -> AgentValidationAdapter | None:
         return self._validation_adapter
+
+    @property
+    def checkpoint_manager(self) -> Any | None:
+        return self._checkpoint_manager
+
+    @property
+    def transaction_manager(self) -> Any | None:
+        return self._transaction_manager
 
     def register_operation(
         self,
@@ -203,6 +215,48 @@ class AgentExecutionAdapter:
             raise ValidationAdapterError(
                 f"Operation '{request.operation_name}' mandates validation, but no AgentValidationAdapter was injected."
             )
+
+        # Step 2b: Checkpoint Creation (if required or manager present)
+        checkpoint_id: str | None = request.checkpoint_id
+        txb_id: str | None = request.metadata.get("transaction_boundary_id")
+        requires_checkpoint = bool(request.metadata.get("requires_checkpoint", False))
+
+        if requires_checkpoint and not checkpoint_id and self._checkpoint_manager:
+            try:
+                from cmm.agent_runtime.checkpoint_contracts import (
+                    CheckpointCreationRequest,
+                )
+
+                cp_req = CheckpointCreationRequest(
+                    agent_run_id=request.agent_run_id,
+                    goal_id=request.metadata.get("goal_id", "goal-default"),
+                    workflow_id=request.workflow_id,
+                    iteration_id=request.task_id,
+                    name=f"auto-cp-{request.operation_name}",
+                    transaction_boundary_id=txb_id or f"txb-{request.id}",
+                    resource_keys=tuple(request.resource_versions.keys()),
+                )
+                cp_res = self._checkpoint_manager.create_checkpoint(cp_req)
+                checkpoint_id = cp_res.checkpoint_id
+            except Exception as exc:  # noqa: BLE001
+                res_id = f"op-res-{uuid.uuid4().hex[:8]}"
+                res = AgentOperationExecutionResult(
+                    id=res_id,
+                    request_id=request.id,
+                    agent_run_id=request.agent_run_id,
+                    workflow_id=request.workflow_id,
+                    task_id=request.task_id,
+                    operation_name=request.operation_name,
+                    operation_version=request.operation_version,
+                    idempotency_key=request.idempotency_key,
+                    status=AgentOperationExecutionStatus.BLOCKED,
+                    success=False,
+                    reason_codes=("operation.checkpoint_creation_failed", str(exc)),
+                    started_at=started_at,
+                    completed_at=_now_iso(),
+                )
+                self._repository.add_result(res)
+                return res
 
         # Step 3: Security Gate Evaluation
         gate_res: OperationExecutionGateResult = self._gate_evaluator.evaluate(
@@ -388,6 +442,8 @@ class AgentExecutionAdapter:
             artifacts=artifacts,
             validation_result_ids=tuple(val_result_ids),
             budget_consumption_id=exec_output.get("budget_consumption_id"),
+            checkpoint_id=checkpoint_id,
+            transaction_boundary_id=txb_id,
             rollback_available=desc.reversible if desc else True,
             rollback_reference=exec_output.get("rollback_reference"),
             resource_versions_before=exec_output.get("resource_versions_before", {}),

@@ -1095,3 +1095,78 @@ class ValidationRequirementKind(str, Enum):
     POST_CONDITION = "post_condition"
     REGRESSION = "regression"
     CUSTOM = "custom"
+
+
+# ── Phase 9.15 – Checkpoints and Transaction Boundaries Enumerations ───────────
+
+
+class CheckpointStatus(str, Enum):
+    """Lifecycle and execution status states for a Runtime Checkpoint."""
+
+    CREATING = "creating"
+    ACTIVE = "active"
+    RESTORING = "restoring"
+    RESTORED = "restored"
+    EXPIRED = "expired"
+    INVALID = "invalid"
+    DELETED = "deleted"
+    FAILED = "failed"
+
+
+class CheckpointIntegrityStatus(str, Enum):
+    """Integrity verification states for a Checkpoint."""
+
+    UNKNOWN = "unknown"
+    VALID = "valid"
+    INVALID = "invalid"
+    STALE = "stale"
+    MISSING_RESOURCE = "missing_resource"
+    VERSION_MISMATCH = "version_mismatch"
+    CORRUPTED = "corrupted"
+
+
+class TransactionBoundaryKind(str, Enum):
+    """Functional categories of transaction boundaries and failure semantics."""
+
+    ATOMIC = "atomic"
+    COMPENSABLE = "compensable"
+    CHECKPOINT_SEQUENCE = "checkpoint_sequence"
+    INDEPENDENT = "independent"
+    IRREVERSIBLE_WITH_APPROVAL = "irreversible_with_approval"
+
+
+class TransactionStatus(str, Enum):
+    """Lifecycle execution status states for a Runtime Transaction."""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    COMMITTING = "committing"
+    COMMITTED = "committed"
+    ROLLING_BACK = "rolling_back"
+    ROLLED_BACK = "rolled_back"
+    COMPENSATING = "compensating"
+    COMPENSATED = "compensated"
+    FAILED = "failed"
+    PARTIALLY_RESTORED = "partially_restored"
+    ABORTED = "aborted"
+
+
+class RestorationStatus(str, Enum):
+    """Outcome status states for checkpoint restoration operations."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    RESTORED = "restored"
+    PARTIALLY_RESTORED = "partially_restored"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    VALIDATION_FAILED = "validation_failed"
+
+
+class OperationRecoveryKind(str, Enum):
+    """Classification of recovery characteristics for a given operation."""
+
+    REVERSIBLE = "reversible"
+    COMPENSABLE = "compensable"
+    IRREVERSIBLE = "irreversible"
+    UNKNOWN = "unknown"

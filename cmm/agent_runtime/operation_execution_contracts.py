@@ -391,6 +391,8 @@ class AgentOperationExecutionResult:
     artifacts: tuple[str, ...] = ()
     validation_result_ids: tuple[str, ...] = ()
     budget_consumption_id: str | None = None
+    checkpoint_id: str | None = None
+    transaction_boundary_id: str | None = None
     rollback_available: bool = True
     rollback_reference: str | None = None
     resource_versions_before: Mapping[str, str] = field(default_factory=dict)
