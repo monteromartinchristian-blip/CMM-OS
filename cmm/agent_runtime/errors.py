@@ -1117,3 +1117,90 @@ class KnowledgeUpdateExecutionError(KnowledgeUpdateError, RuntimeError):
 
 class KnowledgeFingerprintError(KnowledgeUpdateError, ValueError):
     """Raised when a fingerprint mismatch or conflict occurs during proposal persistence."""
+
+
+# ── Phase 9.19 – Agent Runtime Trace Errors ─────────────────────────────────────
+
+
+class AgentTraceError(AgentRuntimeError):
+    """Base exception for all Agent Runtime Trace operations."""
+
+
+class AgentTraceContractError(AgentTraceError, ValueError):
+    """Raised when a trace contract is invalid or violates invariants."""
+
+
+class AgentTraceContextError(AgentTraceError, ValueError):
+    """Raised when trace context is missing or invalid."""
+
+
+class AgentTraceBuildError(AgentTraceError, RuntimeError):
+    """Raised when trace assembly or building fails."""
+
+
+class AgentTraceRepositoryError(AgentTraceError, RuntimeError):
+    """Raised when trace repository operations fail."""
+
+
+class AgentTraceNotFoundError(AgentTraceError, KeyError):
+    """Raised when a requested trace is not found."""
+
+
+class AgentTraceConflictError(AgentTraceError, ValueError):
+    """Raised when a trace conflict occurs (e.g., fingerprint mismatch on existing)."""
+
+
+class AgentTraceIntegrityError(AgentTraceError, ValueError):
+    """Raised when trace integrity verification fails."""
+
+
+class AgentTraceOrderingError(AgentTraceError, ValueError):
+    """Raised when trace events are out of order."""
+
+
+class AgentTraceCausalityError(AgentTraceError, ValueError):
+    """Raised when trace causation chain is broken."""
+
+
+class AgentTraceRedactionError(AgentTraceError, RuntimeError):
+    """Raised when trace redaction fails."""
+
+
+class AgentTracePermissionError(AgentTraceError, PermissionError):
+    """Raised when trace access lacks required permissions."""
+
+
+class AgentTraceSensitivityError(AgentTraceError, ValueError):
+    """Raised when trace content violates sensitivity policies."""
+
+
+class AgentTraceRetentionError(AgentTraceError, ValueError):
+    """Raised when trace retention policy is violated."""
+
+
+class AgentTraceExportError(AgentTraceError, RuntimeError):
+    """Raised when trace export fails."""
+
+
+class AgentTraceQueryError(AgentTraceError, ValueError):
+    """Raised when a trace query is invalid."""
+
+
+class AgentTraceSerializationError(AgentTraceError, ValueError):
+    """Raised when trace serialization or deserialization fails."""
+
+
+class AgentTraceFingerprintError(AgentTraceError, ValueError):
+    """Raised when trace fingerprint computation or verification fails."""
+
+
+class AgentTraceUnsupportedEventError(AgentTraceError, ValueError):
+    """Raised when an event type is not supported for tracing."""
+
+
+class AgentTraceSourceError(AgentTraceError, ValueError):
+    """Raised when a source event reference is invalid or missing."""
+
+
+class AgentTraceFinalizedError(AgentTraceError, ValueError):
+    """Raised when attempting to modify a finalized trace."""

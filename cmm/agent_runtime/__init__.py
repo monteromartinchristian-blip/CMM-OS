@@ -1718,6 +1718,92 @@ __all__ += [
 
 # ── Phase 9.18 – Knowledge and Memory Update Exports ─────────────────────────
 
+# ── Phase 9.19 – Agent Runtime Trace Exports ─────────────────────────────────
+from cmm.agent_runtime.agent_trace_assembler import AgentTraceAssembler
+from cmm.agent_runtime.agent_trace_collector import AgentTraceCollector
+from cmm.agent_runtime.agent_trace_contracts import (
+    AgentTrace,
+    AgentTraceApprovalDecision,
+    AgentTraceApprovalRequest,
+    AgentTraceBudgetEvent,
+    AgentTraceCheckpoint,
+    AgentTraceCognitiveProfile,
+    AgentTraceError,
+    AgentTraceExportRequest,
+    AgentTraceExportResult,
+    AgentTraceHeader,
+    AgentTraceInformationGap,
+    AgentTraceIntegrityReport,
+    AgentTraceIteration,
+    AgentTraceKnowledgeLoad,
+    AgentTraceKnowledgeUpdate,
+    AgentTraceMemoryUpdate,
+    AgentTraceObservation,
+    AgentTraceOperation,
+    AgentTraceOutcomeEvaluation,
+    AgentTracePage,
+    AgentTracePlanReference,
+    AgentTracePolicyDecision,
+    AgentTraceQuery,
+    AgentTraceQueryResult,
+    AgentTraceQuestion,
+    AgentTraceReasoningReference,
+    AgentTraceRecoveryDecision,
+    AgentTraceRecoveryExecution,
+    AgentTraceRedactionReport,
+    AgentTraceResourceChange,
+    AgentTraceRetentionPolicy,
+    AgentTraceRuntimeDecision,
+    AgentTraceStopDecision,
+    AgentTraceSummary,
+    AgentTraceTransaction,
+    AgentTraceValidation,
+    AgentTraceWarning,
+)
+from cmm.agent_runtime.agent_trace_event_normalizer import AgentTraceEventNormalizer
+from cmm.agent_runtime.agent_trace_event_registry import AgentTraceEventRegistry
+from cmm.agent_runtime.agent_trace_integrity import AgentTraceIntegrityVerifier
+from cmm.agent_runtime.agent_trace_redactor import AgentTraceRedactor
+from cmm.agent_runtime.agent_trace_repository import (
+    AgentTraceRepository,
+    InMemoryAgentTraceRepository,
+)
+from cmm.agent_runtime.agent_trace_service import AgentTraceService
+from cmm.agent_runtime.agent_trace_summary_builder import AgentTraceSummaryBuilder
+from cmm.agent_runtime.enums import (
+    AgentTraceDecisionKind,
+    AgentTraceErrorKind,
+    AgentTraceExportFormat,
+    AgentTraceIntegrityStatus,
+    AgentTraceRecordKind,
+    AgentTraceRedactionReason,
+    AgentTraceStatus,
+)
+from cmm.agent_runtime.errors import (
+    AgentTraceBuildError,
+    AgentTraceCausalityError,
+    AgentTraceConflictError,
+    AgentTraceContextError,
+    AgentTraceContractError,
+    AgentTraceExportError,
+    AgentTraceFinalizedError,
+    AgentTraceFingerprintError,
+    AgentTraceIntegrityError,
+    AgentTraceNotFoundError,
+    AgentTraceOrderingError,
+    AgentTracePermissionError,
+    AgentTraceQueryError,
+    AgentTraceRedactionError,
+    AgentTraceRepositoryError,
+    AgentTraceRetentionError,
+    AgentTraceSensitivityError,
+    AgentTraceSerializationError,
+    AgentTraceSourceError,
+    AgentTraceUnsupportedEventError,
+)
+from cmm.agent_runtime.errors import (
+    AgentTraceError as AgentTraceErrorClass,
+)
 from cmm.agent_runtime.knowledge_candidate_extractor import KnowledgeCandidateExtractor
 from cmm.agent_runtime.knowledge_confidence_evaluator import (
     KnowledgeConfidenceAssessment,
@@ -1775,6 +1861,85 @@ from cmm.agent_runtime.knowledge_update_repository import (
 )
 from cmm.agent_runtime.memory_update_policy_adapter import MemoryUpdatePolicyAdapter
 from cmm.agent_runtime.operational_lesson_extractor import OperationalLessonExtractor
+
+__all__ += [
+    # Phase 9.19 – Agent Runtime Trace
+    "AgentTrace",
+    "AgentTraceApprovalDecision",
+    "AgentTraceApprovalRequest",
+    "AgentTraceAssembler",
+    "AgentTraceBudgetEvent",
+    "AgentTraceBuildError",
+    "AgentTraceCausalityError",
+    "AgentTraceCheckpoint",
+    "AgentTraceCognitiveProfile",
+    "AgentTraceCollector",
+    "AgentTraceConflictError",
+    "AgentTraceContextError",
+    "AgentTraceContractError",
+    "AgentTraceDecisionKind",
+    "AgentTraceError",
+    "AgentTraceErrorClass",
+    "AgentTraceErrorKind",
+    "AgentTraceEventNormalizer",
+    "AgentTraceEventRegistry",
+    "AgentTraceExportError",
+    "AgentTraceExportFormat",
+    "AgentTraceExportRequest",
+    "AgentTraceExportResult",
+    "AgentTraceFinalizedError",
+    "AgentTraceFingerprintError",
+    "AgentTraceHeader",
+    "AgentTraceInformationGap",
+    "AgentTraceIntegrityError",
+    "AgentTraceIntegrityReport",
+    "AgentTraceIntegrityStatus",
+    "AgentTraceIntegrityVerifier",
+    "AgentTraceIteration",
+    "AgentTraceKnowledgeLoad",
+    "AgentTraceKnowledgeUpdate",
+    "AgentTraceMemoryUpdate",
+    "AgentTraceNotFoundError",
+    "AgentTraceObservation",
+    "AgentTraceOperation",
+    "AgentTraceOrderingError",
+    "AgentTraceOutcomeEvaluation",
+    "AgentTracePage",
+    "AgentTracePermissionError",
+    "AgentTracePlanReference",
+    "AgentTracePolicyDecision",
+    "AgentTraceQuery",
+    "AgentTraceQueryError",
+    "AgentTraceQueryResult",
+    "AgentTraceQuestion",
+    "AgentTraceReasoningReference",
+    "AgentTraceRecordKind",
+    "AgentTraceRecoveryDecision",
+    "AgentTraceRecoveryExecution",
+    "AgentTraceRedactionError",
+    "AgentTraceRedactionReason",
+    "AgentTraceRedactionReport",
+    "AgentTraceRedactor",
+    "AgentTraceRepository",
+    "AgentTraceRepositoryError",
+    "AgentTraceResourceChange",
+    "AgentTraceRetentionError",
+    "AgentTraceRetentionPolicy",
+    "AgentTraceRuntimeDecision",
+    "AgentTraceSensitivityError",
+    "AgentTraceSerializationError",
+    "AgentTraceService",
+    "AgentTraceSourceError",
+    "AgentTraceStatus",
+    "AgentTraceStopDecision",
+    "AgentTraceSummary",
+    "AgentTraceSummaryBuilder",
+    "AgentTraceTransaction",
+    "AgentTraceUnsupportedEventError",
+    "AgentTraceValidation",
+    "AgentTraceWarning",
+    "InMemoryAgentTraceRepository",
+]
 
 __all__ += [
     "AgentDecisionRecord",

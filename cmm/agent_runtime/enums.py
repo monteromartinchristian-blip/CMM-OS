@@ -1481,3 +1481,121 @@ class KnowledgeConfidenceLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     VERIFIED = "verified"
+
+
+# ── Phase 9.19 – Agent Runtime Trace Enumerations ──────────────────────────────
+
+
+class AgentTraceStatus(str, Enum):
+    """Lifecycle and integrity status for an AgentTrace."""
+
+    OPEN = "open"
+    BUILDING = "building"
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    CORRUPTED = "corrupted"
+    REDACTED = "redacted"
+    ARCHIVED = "archived"
+
+
+class AgentTraceRecordKind(str, Enum):
+    """Kinds of records that can appear in a trace."""
+
+    HEADER = "header"
+    ITERATION = "iteration"
+    OBSERVATION = "observation"
+    KNOWLEDGE_LOAD = "knowledge_load"
+    COGNITIVE_PROFILE = "cognitive_profile"
+    INFORMATION_GAP = "information_gap"
+    QUESTION = "question"
+    REASONING_REFERENCE = "reasoning_reference"
+    RUNTIME_DECISION = "runtime_decision"
+    PLAN = "plan"
+    POLICY_DECISION = "policy_decision"
+    APPROVAL_REQUEST = "approval_request"
+    APPROVAL_DECISION = "approval_decision"
+    OPERATION = "operation"
+    RESOURCE_CHANGE = "resource_change"
+    VALIDATION = "validation"
+    RECOVERY_DECISION = "recovery_decision"
+    RECOVERY_EXECUTION = "recovery_execution"
+    CHECKPOINT = "checkpoint"
+    TRANSACTION = "transaction"
+    OUTCOME_EVALUATION = "outcome_evaluation"
+    KNOWLEDGE_UPDATE = "knowledge_update"
+    MEMORY_UPDATE = "memory_update"
+    BUDGET_EVENT = "budget_event"
+    WARNING = "warning"
+    ERROR = "error"
+    STOP_DECISION = "stop_decision"
+
+
+class AgentTraceDecisionKind(str, Enum):
+    """Decision kinds expressed in trace runtime decisions."""
+
+    CONTINUE = "continue"
+    STOP = "stop"
+    PAUSE = "pause"
+    RETRY = "retry"
+    REPLAN = "replan"
+    ROLLBACK = "rollback"
+    ESCALATE = "escalate"
+    COMPLETE = "complete"
+    FAIL = "fail"
+    CANCEL = "cancel"
+
+
+class AgentTraceErrorKind(str, Enum):
+    """Classification of errors captured in traces."""
+
+    OPERATION = "operation"
+    VALIDATION = "validation"
+    POLICY = "policy"
+    APPROVAL = "approval"
+    RECOVERY = "recovery"
+    BUDGET = "budget"
+    KNOWLEDGE = "knowledge"
+    MEMORY = "memory"
+    TRACE = "trace"
+    UNKNOWN = "unknown"
+
+
+class AgentTraceRedactionReason(str, Enum):
+    """Reasons for redacting a field from a trace."""
+
+    SECRET = "secret"
+    CREDENTIAL = "credential"
+    PRIVATE_PROMPT = "private_prompt"
+    INTERNAL_REASONING = "internal_reasoning"
+    PERSONAL_DATA = "personal_data"
+    HEALTH_DATA = "health_data"
+    FINANCIAL_DATA = "financial_data"
+    PRECISE_LOCATION = "precise_location"
+    OUTSIDE_PERMISSION = "outside_permission"
+    UNRELATED_CONTENT = "unrelated_content"
+    OVERSIZED_CONTENT = "oversized_content"
+    UNSAFE_METADATA = "unsafe_metadata"
+    UNKNOWN = "unknown"
+
+
+class AgentTraceIntegrityStatus(str, Enum):
+    """Integrity verification status for traces."""
+
+    VALID = "valid"
+    PARTIAL = "partial"
+    MISSING_EVENTS = "missing_events"
+    DUPLICATE_EVENTS = "duplicate_events"
+    ORDERING_ERROR = "ordering_error"
+    CAUSALITY_ERROR = "causality_error"
+    FINGERPRINT_MISMATCH = "fingerprint_mismatch"
+    CORRUPTED = "corrupted"
+
+
+class AgentTraceExportFormat(str, Enum):
+    """Export formats for traces."""
+
+    JSON = "json"
+    JSONL = "jsonl"
+    NDJSON = "ndjson"
+    SUMMARY = "summary"
