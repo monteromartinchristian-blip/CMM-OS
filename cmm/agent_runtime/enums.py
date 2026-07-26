@@ -1362,3 +1362,122 @@ class OutcomeReasonCode(str, Enum):
     CHECKPOINT_RECOMMENDED = "checkpoint_recommended"
     INCONSISTENT_STATE = "inconsistent_state"
     UNKNOWN_OUTCOME = "unknown_outcome"
+
+
+# ── Phase 9.18 – Knowledge and Memory Update Enumerations ─────────────────────
+
+
+class KnowledgeCandidateKind(str, Enum):
+    """Functional category of candidate knowledge extracted from runtime outcome."""
+
+    CREATED_GOAL = "created_goal"
+    COMPLETED_GOAL = "completed_goal"
+    OPERATION_RESULT = "operation_result"
+    VALIDATED_STATE = "validated_state"
+    STRUCTURAL_CHANGE = "structural_change"
+    DECISION = "decision"
+    CONSTRAINT = "constraint"
+    EXPLICIT_PREFERENCE = "explicit_preference"
+    REPRODUCIBLE_ERROR = "reproducible_error"
+    FAILED_STRATEGY = "failed_strategy"
+    SUCCESSFUL_STRATEGY = "successful_strategy"
+    DEPENDENCY = "dependency"
+    CONTRADICTION = "contradiction"
+    TECHNICAL_DEBT = "technical_debt"
+    GENERATED_ARTIFACT = "generated_artifact"
+    NEW_CAPABILITY = "new_capability"
+    UPDATED_RESOURCE = "updated_resource"
+
+
+class OperationalLessonKind(str, Enum):
+    """Categorization of reusable operational lessons derived from execution."""
+
+    SUCCESS_PATTERN = "success_pattern"
+    FAILURE_PATTERN = "failure_pattern"
+    RECOVERY_PATTERN = "recovery_pattern"
+    ENVIRONMENT_CONSTRAINT = "environment_constraint"
+    TOOL_LIMITATION = "tool_limitation"
+    VALIDATION_REQUIREMENT = "validation_requirement"
+    DEPENDENCY_BEHAVIOR = "dependency_behavior"
+    USER_PREFERENCE = "user_preference"
+    WORKFLOW_OPTIMIZATION = "workflow_optimization"
+
+
+class KnowledgeProposalStatus(str, Enum):
+    """Lifecycle status of a knowledge update proposal."""
+
+    PENDING = "pending"
+    EVALUATING = "evaluating"
+    APPROVAL_REQUIRED = "approval_required"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    APPLIED = "applied"
+    PARTIALLY_APPLIED = "partially_applied"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class MemoryWriteDecisionKind(str, Enum):
+    """Policy decision for writing memory candidates to memory store."""
+
+    ALLOW = "allow"
+    ALLOW_WITH_CONFIRMATION = "allow_with_confirmation"
+    ALLOW_WITH_REDACTION = "allow_with_redaction"
+    REJECT = "reject"
+    DEFER = "defer"
+    ESCALATE = "escalate"
+
+
+class KnowledgeWriteDecisionKind(str, Enum):
+    """Policy decision for writing knowledge candidates to knowledge store."""
+
+    ADD = "add"
+    UPDATE = "update"
+    INVALIDATE = "invalidate"
+    LINK = "link"
+    MERGE = "merge"
+    REJECT = "reject"
+    DEFER = "defer"
+    REQUIRE_APPROVAL = "require_approval"
+
+
+class KnowledgeRejectionReason(str, Enum):
+    """Explicit justification reason codes for rejecting knowledge candidates."""
+
+    INTERNAL_REASONING = "internal_reasoning"
+    TRIVIAL_ATTEMPT = "trivial_attempt"
+    WEAK_HYPOTHESIS = "weak_hypothesis"
+    SECRET = "secret"
+    TEMPORARY_LOW_UTILITY = "temporary_low_utility"
+    UNREPRODUCED_ERROR = "unreproduced_error"
+    INVALIDATED_RESULT = "invalidated_result"
+    INFERRED_PREFERENCE = "inferred_preference"
+    UNCONFIRMED_PERSONAL_DECISION = "unconfirmed_personal_decision"
+    OUTSIDE_PERMISSION = "outside_permission"
+    DUPLICATE = "duplicate"
+    LOW_CONFIDENCE = "low_confidence"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    SENSITIVE_DATA = "sensitive_data"
+    CONFLICTING_INFORMATION = "conflicting_information"
+    EXPIRED_INFORMATION = "expired_information"
+    UNKNOWN = "unknown"
+
+
+class KnowledgeSensitivityLevel(str, Enum):
+    """Sensitivity levels for knowledge governance and permissions."""
+
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+    SECRET = "secret"
+
+
+class KnowledgeConfidenceLevel(str, Enum):
+    """Confidence classification levels for knowledge validation state."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    VERIFIED = "verified"

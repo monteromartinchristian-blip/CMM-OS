@@ -1715,3 +1715,138 @@ __all__ += [
     "OutcomeUserConfirmationRequirement",
     "StateComparisonDiff",
 ]
+
+# ── Phase 9.18 – Knowledge and Memory Update Exports ─────────────────────────
+
+from cmm.agent_runtime.knowledge_candidate_extractor import KnowledgeCandidateExtractor
+from cmm.agent_runtime.knowledge_confidence_evaluator import (
+    KnowledgeConfidenceAssessment,
+    KnowledgeConfidenceEvaluator,
+)
+from cmm.agent_runtime.knowledge_contradiction_resolver import (
+    ContradictionResolutionProposal,
+    KnowledgeContradictionResolver,
+)
+from cmm.agent_runtime.knowledge_deduplicator import KnowledgeDeduplicator
+from cmm.agent_runtime.knowledge_memory_update_manager import (
+    KnowledgeMemoryUpdateManager,
+)
+from cmm.agent_runtime.knowledge_relevance_evaluator import (
+    KnowledgeRelevanceAssessment,
+    KnowledgeRelevanceEvaluator,
+)
+from cmm.agent_runtime.knowledge_sensitivity_policy import (
+    KnowledgeSensitivityPolicyAdapter,
+)
+from cmm.agent_runtime.knowledge_update_contracts import (
+    AgentDecisionRecord,
+    AgentKnowledgeUpdateProposal,
+    KnowledgeAddition,
+    KnowledgeConfirmationRequirement,
+    KnowledgeDeduplicationResult,
+    KnowledgeExpirationPolicy,
+    KnowledgeInvalidation,
+    KnowledgeProvenance,
+    KnowledgeRelation,
+    KnowledgeSensitivityAssessment,
+    KnowledgeUpdate,
+    KnowledgeUpdateCandidate,
+    KnowledgeUpdateContext,
+    KnowledgeUpdateDecision,
+    KnowledgeUpdateResult,
+    KnowledgeVersionReference,
+    MemoryUpdateCandidate,
+    MemoryUpdateProposal,
+    MemoryUpdateResult,
+    MemoryWriteDecision,
+    OperationalLesson,
+    OperationFact,
+    RejectedKnowledgeItem,
+)
+from cmm.agent_runtime.knowledge_update_policy_adapter import (
+    KnowledgeUpdatePolicyAdapter,
+)
+from cmm.agent_runtime.knowledge_update_proposal_engine import (
+    KnowledgeUpdateProposalEngine,
+)
+from cmm.agent_runtime.knowledge_update_repository import (
+    InMemoryKnowledgeUpdateRepository,
+    KnowledgeUpdateRepository,
+)
+from cmm.agent_runtime.memory_update_policy_adapter import MemoryUpdatePolicyAdapter
+from cmm.agent_runtime.operational_lesson_extractor import OperationalLessonExtractor
+
+__all__ += [
+    "AgentDecisionRecord",
+    "AgentKnowledgeUpdateProposal",
+    "ContradictionResolutionProposal",
+    "InMemoryKnowledgeUpdateRepository",
+    "KnowledgeAddition",
+    "KnowledgeApprovalRequiredError",
+    "KnowledgeCandidateError",
+    "KnowledgeCandidateExtractor",
+    "KnowledgeCandidateKind",
+    "KnowledgeCandidateRejectedError",
+    "KnowledgeConfidenceAssessment",
+    "KnowledgeConfidenceEvaluator",
+    "KnowledgeConfidenceLevel",
+    "KnowledgeConfirmationRequirement",
+    "KnowledgeContradictionResolver",
+    "KnowledgeDeduplicationError",
+    "KnowledgeDeduplicationResult",
+    "KnowledgeDeduplicator",
+    "KnowledgeExpirationPolicy",
+    "KnowledgeFingerprintError",
+    "KnowledgeInvalidation",
+    "KnowledgeInvalidationError",
+    "KnowledgeMemoryUpdateManager",
+    "KnowledgePermissionError",
+    "KnowledgePolicyError",
+    "KnowledgeProposalError",
+    "KnowledgeProposalStatus",
+    "KnowledgeProvenance",
+    "KnowledgeProvenanceError",
+    "KnowledgeRejectionReason",
+    "KnowledgeRelation",
+    "KnowledgeRelationError",
+    "KnowledgeRelevanceAssessment",
+    "KnowledgeRelevanceEvaluator",
+    "KnowledgeSensitivityAssessment",
+    "KnowledgeSensitivityError",
+    "KnowledgeSensitivityLevel",
+    "KnowledgeSensitivityPolicyAdapter",
+    "KnowledgeUpdate",
+    "KnowledgeUpdateCandidate",
+    "KnowledgeUpdateContext",
+    "KnowledgeUpdateContextError",
+    "KnowledgeUpdateDecision",
+    "KnowledgeUpdateError",
+    "KnowledgeUpdateExecutionError",
+    "KnowledgeUpdatePolicyAdapter",
+    "KnowledgeUpdateProposalEngine",
+    "KnowledgeUpdateRepository",
+    "KnowledgeUpdateRepositoryError",
+    "KnowledgeUpdateResult",
+    "KnowledgeVersionReference",
+    "KnowledgeVersioningError",
+    "KnowledgeWriteDecisionKind",
+    "KnowledgeWriteError",
+    "MemoryConfirmationRequiredError",
+    "MemoryDeduplicationError",
+    "MemoryPermissionError",
+    "MemorySensitivityError",
+    "MemoryUpdateCandidate",
+    "MemoryUpdateError",
+    "MemoryUpdatePolicyAdapter",
+    "MemoryUpdateProposal",
+    "MemoryUpdateResult",
+    "MemoryWriteBlockedError",
+    "MemoryWriteDecision",
+    "MemoryWriteDecisionKind",
+    "OperationFact",
+    "OperationalLesson",
+    "OperationalLessonError",
+    "OperationalLessonExtractor",
+    "OperationalLessonKind",
+    "RejectedKnowledgeItem",
+]

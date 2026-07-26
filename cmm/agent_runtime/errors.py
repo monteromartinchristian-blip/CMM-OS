@@ -1014,3 +1014,106 @@ class OutcomeStateComparisonError(OutcomeEvaluationError, ValueError):
 
 class OutcomeFingerprintError(OutcomeEvaluationError, ValueError):
     """Raised when a fingerprint mismatch or conflict occurs."""
+
+
+# ── Phase 9.18 – Knowledge and Memory Update Errors ───────────────────────────
+
+
+class KnowledgeUpdateError(AgentRuntimeError):
+    """Base exception for all Knowledge and Memory Update operations."""
+
+
+class KnowledgeUpdateContextError(KnowledgeUpdateError, ValueError):
+    """Raised when a KnowledgeUpdateContext is invalid or missing required context."""
+
+
+class KnowledgeProposalError(KnowledgeUpdateError, ValueError):
+    """Raised when a KnowledgeUpdateProposal contract or operation is invalid."""
+
+
+class KnowledgeCandidateError(KnowledgeUpdateError, ValueError):
+    """Raised when a KnowledgeUpdateCandidate is invalid or malformed."""
+
+
+class KnowledgeCandidateRejectedError(KnowledgeCandidateError, ValueError):
+    """Raised when a Knowledge candidate is explicitly rejected during processing."""
+
+
+class KnowledgePolicyError(KnowledgeUpdateError, ValueError):
+    """Raised when a knowledge update policy evaluation fails."""
+
+
+class KnowledgePermissionError(KnowledgeUpdateError, PermissionError):
+    """Raised when knowledge update operations exceed authorized permissions."""
+
+
+class KnowledgeSensitivityError(KnowledgeUpdateError, ValueError):
+    """Raised when sensitivity classification or privacy policy fails or blocks write."""
+
+
+class KnowledgeDeduplicationError(KnowledgeUpdateError, ValueError):
+    """Raised when deduplication processing fails or detects unresolvable duplication conflicts."""
+
+
+class KnowledgeVersioningError(KnowledgeUpdateError, ValueError):
+    """Raised when knowledge version references or versioning operations fail."""
+
+
+class KnowledgeInvalidationError(KnowledgeUpdateError, ValueError):
+    """Raised when knowledge invalidation logic fails or invalid state transitions occur."""
+
+
+class KnowledgeRelationError(KnowledgeUpdateError, ValueError):
+    """Raised when knowledge relationship creation or linking fails."""
+
+
+class KnowledgeProvenanceError(KnowledgeUpdateError, ValueError):
+    """Raised when knowledge provenance or source evidence metadata is missing or invalid."""
+
+
+class OperationalLessonError(KnowledgeUpdateError, ValueError):
+    """Raised when operational lesson extraction or validation fails."""
+
+
+class MemoryUpdateError(AgentRuntimeError):
+    """Base exception for all Memory Update operations."""
+
+
+class MemoryWriteBlockedError(MemoryUpdateError, ValueError):
+    """Raised when a memory update is blocked by policy or validation rules."""
+
+
+class MemoryConfirmationRequiredError(MemoryUpdateError, PermissionError):
+    """Raised when a memory update requires explicit user confirmation."""
+
+
+class MemoryPermissionError(MemoryUpdateError, PermissionError):
+    """Raised when memory write operations violate permission boundaries."""
+
+
+class MemorySensitivityError(MemoryUpdateError, ValueError):
+    """Raised when memory sensitivity classification blocks an update."""
+
+
+class MemoryDeduplicationError(MemoryUpdateError, ValueError):
+    """Raised when memory deduplication encounters unresolvable conflicts."""
+
+
+class KnowledgeApprovalRequiredError(KnowledgeUpdateError, PermissionError):
+    """Raised when a knowledge update requires explicit approval before application."""
+
+
+class KnowledgeWriteError(KnowledgeUpdateError, RuntimeError):
+    """Raised when writing knowledge updates to the underlying knowledge store fails."""
+
+
+class KnowledgeUpdateRepositoryError(KnowledgeUpdateError, RuntimeError):
+    """Raised when repository persistence or retrieval operations encounter errors."""
+
+
+class KnowledgeUpdateExecutionError(KnowledgeUpdateError, RuntimeError):
+    """Raised when applying knowledge/memory updates encounters execution failures."""
+
+
+class KnowledgeFingerprintError(KnowledgeUpdateError, ValueError):
+    """Raised when a fingerprint mismatch or conflict occurs during proposal persistence."""
