@@ -161,3 +161,10 @@ def list_model_specs(
         specs = (spec for spec in specs if spec.provider == normalized_provider)
 
     return tuple(sorted(specs, key=lambda spec: spec.qualified_id))
+
+
+def clear_model_catalog() -> None:
+    """Remove all registered models and aliases from the catalog."""
+
+    _MODEL_CATALOG.clear()
+    _MODEL_ALIASES.clear()
