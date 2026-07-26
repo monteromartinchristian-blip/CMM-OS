@@ -141,3 +141,20 @@ def _model_sort_key(
         total_cost,
         model.qualified_id.lower(),
     )
+
+
+def select_model(
+    requirements: ModelRequirements,
+) -> ModelSpec:
+    """Return the highest-ranked model satisfying all requirements."""
+
+    matches = find_matching_models(requirements)
+
+    if not matches:
+        from kernel.llm.exceptions import ModelSelectionError
+
+        raise ModelSelectionError(
+            "No registered model satisfies the supplied requirements"
+        )
+
+    return matches[0]

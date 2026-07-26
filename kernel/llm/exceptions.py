@@ -11,3 +11,7 @@ class ProviderError(LLMError):
 
 class ParserError(LLMError):
     """Raised when a model response cannot be parsed into a plan."""
+
+
+class ModelSelectionError(ProviderError):
+    """Raised when no registered model satisfies the request."""

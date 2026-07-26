@@ -167,3 +167,52 @@ def test_rejects_negative_maximum_cost() -> None:
         match="cost cannot be negative",
     ):
         ModelRequirements(maximum_input_cost_per_million=Decimal("-0.01"))
+
+
+def test_selects_lowest_cost_matching_model() -> None:
+    from kernel.llm.model_selection import select_model
+
+    _register_selection_models()
+
+    selected = select_model(
+        ModelRequirements(
+            streaming=True,
+            tool_calling=True,
+        )
+    )
+
+    assert selected.qualified_id == "groq:selection-fast"
+
+
+def test_selection_respects_capability_requirements() -> None:
+    from kernel.llm.model_selection import select_model
+
+    _register_selection_models()
+
+    selected = select_model(
+        ModelRequirements(
+            reasoning=True,
+            vision=True,
+            maximum_input_cost_per_million=Decimal("0.75"),
+        )
+    )
+
+    assert selected.qualified_id == "together:selection-reasoning"
+
+
+def test_selection_raises_when_no_model_matches() -> None:
+    from kernel.llm.exceptions import ModelSelectionError
+    from kernel.llm.model_selection import select_model
+
+    _register_selection_models()
+
+    with pytest.raises(
+        ModelSelectionError,
+        match="No registered model satisfies",
+    ):
+        select_model(
+            ModelRequirements(
+                audio_input=True,
+                local_only=True,
+            )
+        )
