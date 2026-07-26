@@ -111,6 +111,8 @@ VALID_TRANSITIONS: Mapping[str, frozenset[str]] = {
     "evaluating": frozenset(
         {
             "observing",
+            "planning",
+            "executing",
             "completed",
             "recovering",
             "paused",

@@ -1273,3 +1273,92 @@ class EscalationTarget(str, Enum):
     APPROVER = "approver"
     DOMAIN_EXPERT = "domain_expert"
     SYSTEM_ADMINISTRATOR = "system_administrator"
+
+
+# ── Phase 9.17 – Outcome Evaluation Enumerations ───────────────────────────
+
+
+class OutcomeEvaluationStatus(str, Enum):
+    """Status lifecycle of an Outcome Evaluation."""
+
+    PENDING = "pending"
+    EVALUATING = "evaluating"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+    INCONCLUSIVE = "inconclusive"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class Outcome(str, Enum):
+    """Satisfaction outcome of a Goal evaluation."""
+
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    NO_CHANGE = "no_change"
+    FAILURE = "failure"
+    REGRESSION = "regression"
+    INCONCLUSIVE = "inconclusive"
+    CANCELLED = "cancelled"
+
+
+class GoalCompletionDecisionKind(str, Enum):
+    """Decision kind determining the terminal or next lifecycle action for a Goal."""
+
+    COMPLETE = "complete"
+    COMPLETE_PARTIALLY = "complete_partially"
+    CONTINUE = "continue"
+    RETRY = "retry"
+    REPLAN = "replan"
+    ROLLBACK = "rollback"
+    PAUSE = "pause"
+    ESCALATE = "escalate"
+    FAIL = "fail"
+
+
+class CriterionEvaluationStatus(str, Enum):
+    """Evaluation status of a specific Success Criterion."""
+
+    SATISFIED = "satisfied"
+    UNSATISFIED = "unsatisfied"
+    PARTIALLY_SATISFIED = "partially_satisfied"
+    WAIVED = "waived"
+    NOT_EVALUATED = "not_evaluated"
+    INCONCLUSIVE = "inconclusive"
+    BLOCKED = "blocked"
+
+
+class CriterionImportance(str, Enum):
+    """Importance level of a Success Criterion."""
+
+    MANDATORY = "mandatory"
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+    ADVISORY = "advisory"
+
+
+class OutcomeReasonCode(str, Enum):
+    """Reason codes explaining evaluation results and completion decisions."""
+
+    ALL_MANDATORY_CRITERIA_SATISFIED = "all_mandatory_criteria_satisfied"
+    MANDATORY_CRITERION_UNSATISFIED = "mandatory_criterion_unsatisfied"
+    REQUIRED_CRITERION_UNSATISFIED = "required_criterion_unsatisfied"
+    OPTIONAL_CRITERION_UNSATISFIED = "optional_criterion_unsatisfied"
+    VALIDATION_FAILED = "validation_failed"
+    REGRESSION_DETECTED = "regression_detected"
+    DEBT_GENERATED = "debt_generated"
+    SIDE_EFFECT_DETECTED = "side_effect_detected"
+    HIGH_RESIDUAL_RISK = "high_residual_risk"
+    EVIDENCE_INSUFFICIENT = "evidence_insufficient"
+    METRIC_THRESHOLD_NOT_MET = "metric_threshold_not_met"
+    USER_CONFIRMATION_REQUIRED = "user_confirmation_required"
+    USER_EXPECTATION_UNCERTAIN = "user_expectation_uncertain"
+    PARTIAL_PROGRESS = "partial_progress"
+    NO_PROGRESS = "no_progress"
+    REMAINING_TASKS = "remaining_tasks"
+    REMAINING_GAPS = "remaining_gaps"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    RECOVERY_REQUIRED = "recovery_required"
+    CHECKPOINT_RECOMMENDED = "checkpoint_recommended"
+    INCONSISTENT_STATE = "inconsistent_state"
+    UNKNOWN_OUTCOME = "unknown_outcome"

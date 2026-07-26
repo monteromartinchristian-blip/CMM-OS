@@ -927,3 +927,90 @@ class RecoveryStrategyUnavailableError(RecoveryError, ValueError):
 
 class RecoveryValidationError(RecoveryError, ValueError):
     """Raised when post-recovery validation fails."""
+
+
+# ── Phase 9.17 – Outcome Evaluation Errors ───────────────────────────────────
+
+
+class OutcomeEvaluationError(AgentRuntimeError):
+    """Base exception for all Outcome Evaluation operations."""
+
+
+class OutcomeEvaluationContextError(OutcomeEvaluationError, ValueError):
+    """Raised when an OutcomeEvaluationContext is invalid or missing required resources."""
+
+
+class OutcomeEvaluationRepositoryError(OutcomeEvaluationError, RuntimeError):
+    """Raised when repository storage, retrieval, or concurrency operations fail."""
+
+
+class OutcomeEvaluationPolicyError(OutcomeEvaluationError, ValueError):
+    """Raised when an outcome evaluation policy is violated."""
+
+
+class OutcomeEvaluationExecutionError(OutcomeEvaluationError, RuntimeError):
+    """Raised when outcome evaluation execution fails unexpectedly."""
+
+
+class OutcomeCriterionError(OutcomeEvaluationError):
+    """Base exception for outcome criterion evaluation issues."""
+
+
+class OutcomeCriterionNotFoundError(OutcomeCriterionError, KeyError):
+    """Raised when a requested success criterion is not found."""
+
+
+class OutcomeCriterionEvaluationError(OutcomeCriterionError, ValueError):
+    """Raised when evaluating a criterion fails or encounters an invalid state."""
+
+
+class OutcomeEvidenceError(OutcomeEvaluationError, ValueError):
+    """Raised when evidence verification fails or evidence format is invalid."""
+
+
+class OutcomeEvidenceInsufficientError(OutcomeEvidenceError):
+    """Raised when required evidence is missing or insufficient to verify outcome."""
+
+
+class OutcomeMetricError(OutcomeEvaluationError, ValueError):
+    """Raised when evaluating outcome metrics fails or metric threshold is invalid."""
+
+
+class OutcomeRegressionError(OutcomeEvaluationError, ValueError):
+    """Raised when a regression is detected or cannot be safely analyzed."""
+
+
+class OutcomeDebtError(OutcomeEvaluationError, ValueError):
+    """Raised when technical/operational debt analysis encounters errors or unaccepted critical debt."""
+
+
+class OutcomeSideEffectError(OutcomeEvaluationError, ValueError):
+    """Raised when unexpected or unauthorized side effects are detected."""
+
+
+class OutcomeKnowledgeError(OutcomeEvaluationError, ValueError):
+    """Raised when knowledge acquisition analysis fails."""
+
+
+class GoalCompletionDecisionError(OutcomeEvaluationError, ValueError):
+    """Base exception for goal completion decision errors."""
+
+
+class GoalCompletionBlockedError(GoalCompletionDecisionError):
+    """Raised when goal completion is blocked by unsatisfied mandatory criteria or critical regression."""
+
+
+class OutcomeInconclusiveError(OutcomeEvaluationError, ValueError):
+    """Raised when evidence or state comparison is inconclusive."""
+
+
+class OutcomeUserConfirmationRequiredError(OutcomeEvaluationError, PermissionError):
+    """Raised when user confirmation is required to finalize goal completion."""
+
+
+class OutcomeStateComparisonError(OutcomeEvaluationError, ValueError):
+    """Raised when state comparison fails or states are incomparable."""
+
+
+class OutcomeFingerprintError(OutcomeEvaluationError, ValueError):
+    """Raised when a fingerprint mismatch or conflict occurs."""
