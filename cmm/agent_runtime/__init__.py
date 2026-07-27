@@ -2398,3 +2398,74 @@ __all__ += [
     "AgentVersionValidator",
     "InMemoryAgentRegistryStore",
 ]
+
+# Phase 9.24 Agent Delegation
+from cmm.agent_runtime.agent_delegation_enums import (
+    DelegationErrorCode,
+    DelegationEventType,
+    DelegationStatus,
+)
+from cmm.agent_runtime.agent_delegation_errors import (
+    AgentDelegationAgentsIncompatibleError,
+    AgentDelegationAutonomyEscalationError,
+    AgentDelegationChildGoalIncompatibleError,
+    AgentDelegationCycleDetectedError,
+    AgentDelegationDuplicateError,
+    AgentDelegationError,
+    AgentDelegationExpiredError,
+    AgentDelegationInvalidStateTransitionError,
+    AgentDelegationMaxDepthExceededError,
+    AgentDelegationParentGoalNotFoundError,
+    AgentDelegationParentGoalTerminalError,
+    AgentDelegationPermissionEscalationError,
+    AgentDelegationPolicyDeniedError,
+    AgentDelegationSourceAgentNotFoundError,
+    AgentDelegationTargetAgentNotFoundError,
+    AgentDelegationTargetUnsupportedGoalError,
+    AgentDelegationValidationError,
+)
+from cmm.agent_runtime.agent_delegation_contracts import (
+    DelegatedGoal,
+    DelegationProposal,
+    DelegationResult,
+    create_delegation,
+)
+from cmm.agent_runtime.agent_delegation_store import (
+    AgentDelegationStore,
+    InMemoryAgentDelegationStore,
+)
+from cmm.agent_runtime.agent_delegation_service import (
+    AgentDelegationService,
+    AgentDelegationServiceConfig,
+)
+
+__all__ += [
+    "AgentDelegationAutonomyEscalationError",
+    "AgentDelegationChildGoalIncompatibleError",
+    "AgentDelegationCycleDetectedError",
+    "AgentDelegationDuplicateError",
+    "AgentDelegationError",
+    "AgentDelegationExpiredError",
+    "AgentDelegationInvalidStateTransitionError",
+    "AgentDelegationMaxDepthExceededError",
+    "AgentDelegationParentGoalNotFoundError",
+    "AgentDelegationParentGoalTerminalError",
+    "AgentDelegationPermissionEscalationError",
+    "AgentDelegationPolicyDeniedError",
+    "AgentDelegationService",
+    "AgentDelegationServiceConfig",
+    "AgentDelegationSourceAgentNotFoundError",
+    "AgentDelegationStore",
+    "AgentDelegationTargetAgentNotFoundError",
+    "AgentDelegationTargetUnsupportedGoalError",
+    "AgentDelegationValidationError",
+    "AgentDelegationAgentsIncompatibleError",
+    "DelegatedGoal",
+    "DelegationErrorCode",
+    "DelegationEventType",
+    "DelegationProposal",
+    "DelegationResult",
+    "DelegationStatus",
+    "InMemoryAgentDelegationStore",
+    "create_delegation",
+]
