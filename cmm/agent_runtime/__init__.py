@@ -2271,3 +2271,130 @@ __all__ += [
     "main",
     "run",
 ]
+
+# ── Phase 9.23 – Agent Registry & Factory Exports ───────────────────────────
+
+from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
+from cmm.agent_runtime.agent_factory_contracts import (
+    AgentFactory,
+    AgentFactoryRegistration,
+    AgentFactoryRegistrySnapshot,
+)
+from cmm.agent_runtime.agent_registry import AgentRegistry, AgentRegistrySnapshot
+from cmm.agent_runtime.agent_registry_contracts import (
+    AgentCapability,
+    AgentCompatibilityResult,
+    AgentDescriptor,
+    AgentFactoryContext,
+    AgentInstance,
+    AgentProvisioningResult,
+    AgentRequirement,
+    AgentResolution,
+    AgentResolutionCandidate,
+    AgentVersion,
+)
+from cmm.agent_runtime.agent_registry_enums import (
+    AgentAvailability,
+    AgentCapabilityKind,
+    AgentCompatibilityStatus,
+    AgentFactoryScope,
+    AgentKind,
+    AgentLifecycle,
+    AgentRegistrationStatus,
+    AgentResolutionStrategy,
+    AgentVersionStatus,
+)
+from cmm.agent_runtime.agent_registry_errors import (
+    AgentDependencyUnavailableError,
+    AgentFactoryCompatibilityError,
+    AgentFactoryCreationError,
+    AgentFactoryError,
+    AgentFactoryNotFoundError,
+    AgentRegistryAliasConflictError,
+    AgentRegistryConflictError,
+    AgentRegistryDisabledError,
+    AgentRegistryError,
+    AgentRegistryNotFoundError,
+    AgentRegistryValidationError,
+    AgentRegistryVersionError,
+    AgentResolutionAmbiguousError,
+    AgentResolutionError,
+    AgentResolutionNotFoundError,
+)
+from cmm.agent_runtime.agent_registry_service import (
+    AgentRegistryHealth,
+    AgentRegistryService,
+    AgentRegistryStats,
+)
+from cmm.agent_runtime.agent_registry_store import (
+    AgentRegistryStore,
+    InMemoryAgentRegistryStore,
+)
+from cmm.agent_runtime.agent_registry_validation import (
+    AgentCapabilityValidator,
+    AgentDescriptorValidator,
+    AgentFactoryValidator,
+    AgentRequirementValidator,
+    AgentVersionValidator,
+)
+from cmm.agent_runtime.agent_resolver import (
+    AgentCandidateScorer,
+    AgentCompatibilityChecker,
+    AgentResolver,
+)
+
+__all__ += [
+    "AgentAvailability",
+    "AgentCandidateScorer",
+    "AgentCapability",
+    "AgentCapabilityKind",
+    "AgentCapabilityValidator",
+    "AgentCompatibilityChecker",
+    "AgentCompatibilityResult",
+    "AgentCompatibilityStatus",
+    "AgentDependencyUnavailableError",
+    "AgentDescriptor",
+    "AgentDescriptorValidator",
+    "AgentFactory",
+    "AgentFactoryCompatibilityError",
+    "AgentFactoryContext",
+    "AgentFactoryCreationError",
+    "AgentFactoryError",
+    "AgentFactoryNotFoundError",
+    "AgentFactoryRegistration",
+    "AgentFactoryRegistry",
+    "AgentFactoryRegistrySnapshot",
+    "AgentFactoryScope",
+    "AgentFactoryValidator",
+    "AgentInstance",
+    "AgentKind",
+    "AgentLifecycle",
+    "AgentProvisioningResult",
+    "AgentRegistrationStatus",
+    "AgentRegistry",
+    "AgentRegistryAliasConflictError",
+    "AgentRegistryConflictError",
+    "AgentRegistryDisabledError",
+    "AgentRegistryError",
+    "AgentRegistryHealth",
+    "AgentRegistryNotFoundError",
+    "AgentRegistryService",
+    "AgentRegistrySnapshot",
+    "AgentRegistryStats",
+    "AgentRegistryStore",
+    "AgentRegistryValidationError",
+    "AgentRegistryVersionError",
+    "AgentRequirement",
+    "AgentRequirementValidator",
+    "AgentResolution",
+    "AgentResolutionAmbiguousError",
+    "AgentResolutionCandidate",
+    "AgentResolutionError",
+    "AgentResolutionNotFoundError",
+    "AgentResolutionStrategy",
+    "AgentResolver",
+    "AgentVersion",
+    "AgentVersionStatus",
+    "AgentVersionValidator",
+    "InMemoryAgentRegistryStore",
+]
