@@ -2245,3 +2245,29 @@ __all__ += [
     "compute_fingerprint",
     "create_default_middleware_chain",
 ]
+
+# ── Phase 9.22 – Agent Runtime CLI Exports ───────────────────────────────────
+
+from cmm.agent_runtime.agent_runtime_cli import (
+    AgentRuntimeCliContextBuilder,
+    AgentRuntimeCliResult,
+    AgentRuntimeCliRunner,
+    HumanFormatter,
+    JsonFormatter,
+    JsonLinesFormatter,
+    QuietFormatter,
+    main,
+    run,
+)
+
+__all__ += [
+    "AgentRuntimeCliContextBuilder",
+    "AgentRuntimeCliResult",
+    "AgentRuntimeCliRunner",
+    "HumanFormatter",
+    "JsonFormatter",
+    "JsonLinesFormatter",
+    "QuietFormatter",
+    "main",
+    "run",
+]

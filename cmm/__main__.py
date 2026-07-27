@@ -25,6 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_validation_cli(subparsers)
 
+    # Phase 9.22 - Agent Runtime CLI (`cmm agent ...`). Listed here only for
+    # discoverability in `cmm --help`; actual dispatch happens earlier in
+    # main() via a raw argv prefix check, before this parser ever runs, since
+    # the agent subtree owns its own independent argparse parser (see
+    # agent_runtime_cli_commands.build_root_parser) and argparse's
+    # ``nargs=REMAINDER`` cannot reliably forward a leading ``-`` token (e.g.
+    # ``--help``) through a nested subparsers action.
+    subparsers.add_parser("agent", help="Agent Runtime CLI (Phase 9.22)")
+
     run_parser = subparsers.add_parser(
         "run", help="Run a natural-language goal against a Python project"
     )
@@ -131,8 +140,20 @@ def _print_result(result, elapsed_seconds: float) -> None:
 def main(argv: list[str] | None = None) -> int:
     """Run the official CMM OS CLI."""
 
+    resolved_argv = sys.argv[1:] if argv is None else list(argv)
+
+    # Dispatched before the top-level parser runs: the agent subtree owns its
+    # own independent argparse parser (see
+    # agent_runtime_cli_commands.build_root_parser) and must see its raw argv,
+    # including leading `-`/`--` tokens like `--help`, which a nested
+    # subparsers + ``nargs=REMAINDER`` cannot reliably forward.
+    if resolved_argv[:1] == ["agent"]:
+        from cmm.agent_runtime.agent_runtime_cli import main as agent_main
+
+        return agent_main(resolved_argv[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(resolved_argv)
 
     if args.command == "validation":
         return handle_validation_cli(args)
