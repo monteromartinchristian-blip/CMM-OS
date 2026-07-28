@@ -9,9 +9,10 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Completed:** Phases 0–8<br>
-> **Current test baseline:** 1758 passing tests<br>
-> **Next phase:** Phase 9 — Goal & Agency Layer (Autonomous Agent Runtime)
+> **Implemented:** Phases 0–9<br>
+> **Audited and published:** Phases 0–8<br>
+> **Current test baseline:** 4989 passing tests<br>
+> **Next milestone:** Rigorous cross-phase audit of Phases 7–9 before publication
 
 ---
 
@@ -48,7 +49,7 @@ Integrate everything into a stable local platform
 | 6 | Architectural Transformation Engine | Complete |
 | 7 | Continuous Validation | Complete |
 | 8 | Cognitive Layer | Complete |
-| 9 | Autonomous Agent Runtime | Planned |
+| 9 | Autonomous Agent Runtime | Implementation complete — audit pending |
 | 10 | Domain Intelligence | Planned |
 | 11 | Stable Integrated Platform | Planned |
 
@@ -394,7 +395,7 @@ CMM OS will be able to explain:
 
 ## Phase 9 — Autonomous Agent Runtime
 
-**Status:** Planned.
+**Status:** Implementation complete — pending cross-phase audit and publication.
 
 ### Objective
 
