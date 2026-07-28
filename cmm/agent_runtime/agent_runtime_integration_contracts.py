@@ -565,8 +565,9 @@ class IntegratedAgentExecutionRequest:
             raise ValueError("workflow must be an AgentWorkflowPlan")
         if operations and self.workflow is not None:
             raise ValueError("provide operations or workflow, not both")
-        if not operations and self.workflow is None:
-            raise ValueError("operations or workflow is required")
+        # Neither operations nor a workflow is permitted: it signals that a
+        # configured planning_service must produce the workflow before
+        # execution (see AgentRuntimeIntegrationService planner wiring).
         if self.permission_context is not None and not isinstance(
             self.permission_context, AgentPermissionContext
         ):

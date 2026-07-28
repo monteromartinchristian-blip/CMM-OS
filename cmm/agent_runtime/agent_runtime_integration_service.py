@@ -45,22 +45,52 @@ from cmm.agent_runtime.agent_security_contracts import (
 from cmm.agent_runtime.agent_security_enums import PermissionEffect
 from cmm.agent_runtime.agent_security_errors import PromptInjectionBlockedError
 from cmm.agent_runtime.checkpoint_contracts import CheckpointCreationRequest
-from cmm.agent_runtime.enums import BudgetResourceType, GoalKind, GoalStatus
+from cmm.agent_runtime.cognitive_adapter_contracts import (
+    AgentCognitiveRequest,
+    AgentCognitiveResult,
+)
+from cmm.agent_runtime.enums import (
+    AgentCognitiveStatus,
+    AgentValidationDecision,
+    AgentValidationStage,
+    BudgetResourceType,
+    GoalKind,
+    GoalStatus,
+    WorkflowPlanChangeReason,
+)
 from cmm.agent_runtime.errors import (
     AgentOperationNotRegisteredError,
     AgentOperationVersionNotRegisteredError,
     BudgetReservationAlreadyResolvedError,
     InvalidRuntimeContractError,
 )
-from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+from cmm.agent_runtime.operation_execution_contracts import (
+    AgentOperationRequest,
+    OperationDescriptor,
+)
 from cmm.agent_runtime.runtime_event_factory import AgentRuntimeEventFactory
 from cmm.agent_runtime.runtime_event_types import EventType
+from cmm.agent_runtime.validation_integration_contracts import (
+    AgentValidationRequest,
+    ValidationExecutionContext,
+    ValidationRequirement,
+)
+from cmm.agent_runtime.workflow_planner_contracts import (
+    AgentPlanningRequest,
+    AgentReplanningRequest,
+    AgentWorkflowOperation,
+    AgentWorkflowPlan,
+)
 
 _IDEMPOTENT_COMPENSATION_ERRORS: tuple[type[Exception], ...] = (
     InvalidRuntimeContractError,
     BudgetReservationAlreadyResolvedError,
     AgentDelegationInvalidStateTransitionError,
 )
+
+
+def _operation_failure_message(operation: AgentOperationRequest, result: Any) -> str:
+    return f"operation {operation.operation_name} failed: {result.reason_codes}"
 
 
 class _ObservabilityContext:
@@ -225,6 +255,10 @@ class AgentRuntimeIntegrationService:
         recovery_service: Any | None = None,
         delegation_service: Any | None = None,
         memory_service: Any | None = None,
+        cognitive_service: Any | None = None,
+        planning_service: Any | None = None,
+        validation_service: Any | None = None,
+        validation_policy_service: Any | None = None,
     ) -> None:
         self._store = store
         self._goal_manager = goal_manager
@@ -240,6 +274,10 @@ class AgentRuntimeIntegrationService:
         self._recovery_service = recovery_service
         self._delegation_service = delegation_service
         self._memory_service = memory_service
+        self._cognitive_service = cognitive_service
+        self._planning_service = planning_service
+        self._validation_service = validation_service
+        self._validation_policy_service = validation_policy_service
         self._event_factory = AgentRuntimeEventFactory()
         self._lock = threading.RLock()
 
@@ -262,6 +300,7 @@ class AgentRuntimeIntegrationService:
         self._validate_deadlines(request)
         self._validate_prompt_injection(request)
         self._validate_operations(request)
+        self._validate_cognitive_availability(request)
 
     def get_status(self, execution_id: str) -> IntegrationExecutionRecord | None:
         """Return the persisted execution record snapshot."""
@@ -560,12 +599,69 @@ class AgentRuntimeIntegrationService:
             record = self._store.transition(
                 execution_id, IntegrationExecutionState.PLANNING
             )
+        elif record.state is IntegrationExecutionState.WAITING_APPROVAL:
+            record = self._store.resume(
+                execution_id, IntegrationExecutionState.PLANNING
+            )
+
+        operations = request.operations
+        validation_results: list[Mapping[str, Any]] = []
         if record.state is IntegrationExecutionState.PLANNING:
+            needs_planning = not request.operations and request.workflow is None
+            require_cognitive = bool(
+                request.policy.metadata.get("require_cognitive", False)
+            )
+            cognitive_result = None
+            if needs_planning or require_cognitive:
+                record, cognitive_result = self._run_cognitive_analysis(
+                    record, request, obs
+                )
+                if cognitive_result is not None and self._cognitive_blocks_execution(
+                    cognitive_result
+                ):
+                    obs.complete_trace()
+                    return self._save_snapshot(
+                        execution_id,
+                        IntegrationExecutionState.FAILED,
+                        warnings=tuple(obs.warnings),
+                        event_ids=tuple(obs.record_ids),
+                        errors=self._cognitive_failure_reasons(cognitive_result),
+                    )
+
+            try:
+                operations, record = self._resolve_operations(
+                    record, request, obs, cognitive_result
+                )
+            except AgentRuntimeIntegrationError as exc:
+                compensation_warnings = self._run_compensations(execution_id)
+                obs.complete_trace()
+                return self._save_snapshot(
+                    execution_id,
+                    IntegrationExecutionState.FAILED,
+                    warnings=tuple(obs.warnings) + compensation_warnings,
+                    event_ids=tuple(obs.record_ids),
+                    errors=(str(exc),),
+                )
+
+            pre_ok, pre_validation = self._run_pre_execution_validation(
+                record, request, obs, operations
+            )
+            if pre_validation:
+                validation_results.append(pre_validation)
+            if not pre_ok:
+                obs.complete_trace()
+                return self._save_snapshot(
+                    execution_id,
+                    IntegrationExecutionState.FAILED,
+                    validation_results=tuple(validation_results),
+                    warnings=tuple(obs.warnings),
+                    event_ids=tuple(obs.record_ids),
+                    errors=("pre-execution validation blocked",),
+                )
+
             record = self._store.transition(
                 execution_id, IntegrationExecutionState.RUNNING
             )
-        elif record.state is IntegrationExecutionState.WAITING_APPROVAL:
-            record = self._store.resume(execution_id, IntegrationExecutionState.RUNNING)
 
         record, retry_count, recovery_attempts, checkpoint_errors = (
             self._ensure_checkpoint(record, request, obs)
@@ -593,14 +689,18 @@ class AgentRuntimeIntegrationService:
                 retry_count=retry_count,
                 recovery_attempts=recovery_attempts,
                 checkpoint_ids=record.checkpoint_ids,
+                validation_results=tuple(validation_results),
                 warnings=tuple(obs.warnings) + compensation_warnings,
                 event_ids=tuple(obs.record_ids),
                 errors=checkpoint_errors,
             )
 
-        operation_results = []
-        operation_result_ids = []
-        reservation = self._reserve_budget(record, request)
+        operation_results: list[Any] = []
+        operation_result_ids: list[str] = []
+        attempted_operations: list[AgentOperationRequest] = list(operations)
+        reservation = self._reserve_budget(
+            record, request, operation_count=len(operations)
+        )
         if reservation is not None:
             obs.telemetry(
                 AgentTelemetryKind.BUDGET_RESERVED,
@@ -608,7 +708,166 @@ class AgentRuntimeIntegrationService:
                 agent_run_id=record.agent_run_id,
                 goal_id=request.goal_id,
             )
-        for operation in request.operations:
+
+        record, failed_operation, failed_result = self._run_operation_batch(
+            execution_id,
+            record,
+            request,
+            obs,
+            operations,
+            operation_results,
+            operation_result_ids,
+        )
+        if failed_operation is not None:
+            record, replanned = self._attempt_replan(
+                record, request, obs, failed_operation
+            )
+            if replanned is not None:
+                attempted_operations.extend(replanned)
+                record, failed_operation, failed_result = self._run_operation_batch(
+                    execution_id,
+                    record,
+                    request,
+                    obs,
+                    replanned,
+                    operation_results,
+                    operation_result_ids,
+                )
+
+        if failed_operation is not None:
+            compensation_warnings = self._run_compensations(execution_id)
+            obs.telemetry(
+                AgentTelemetryKind.RUN_FAILED,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                goal_id=request.goal_id,
+                reason_codes=failed_result.reason_codes,
+            )
+            obs.event(
+                EventType.AGENT_RUN_FAILED,
+                request=request,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                payload={"operation_id": failed_operation.id},
+            )
+            obs.complete_trace()
+            return self._save_snapshot(
+                execution_id,
+                IntegrationExecutionState.FAILED,
+                operation_results=tuple(operation_results),
+                operation_request_ids=tuple(item.id for item in attempted_operations),
+                checkpoint_ids=record.checkpoint_ids,
+                retry_count=retry_count,
+                recovery_attempts=recovery_attempts,
+                validation_results=tuple(validation_results),
+                warnings=tuple(obs.warnings) + compensation_warnings,
+                event_ids=tuple(obs.record_ids),
+                errors=(_operation_failure_message(failed_operation, failed_result),),
+            )
+
+        post_ok, post_validation, commit_validation = (
+            self._run_post_execution_validation(record, request, obs, operations)
+        )
+        if post_validation:
+            validation_results.append(post_validation)
+        if commit_validation:
+            validation_results.append(commit_validation)
+        if not post_ok:
+            compensation_warnings = self._run_compensations(execution_id)
+            obs.telemetry(
+                AgentTelemetryKind.RUN_FAILED,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                goal_id=request.goal_id,
+            )
+            obs.event(
+                EventType.AGENT_RUN_FAILED,
+                request=request,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                payload={"reason": "post_execution_validation_blocked"},
+            )
+            obs.complete_trace()
+            return self._save_snapshot(
+                execution_id,
+                IntegrationExecutionState.FAILED,
+                operation_results=tuple(operation_results),
+                operation_request_ids=tuple(item.id for item in attempted_operations),
+                checkpoint_ids=record.checkpoint_ids,
+                retry_count=retry_count,
+                recovery_attempts=recovery_attempts,
+                validation_results=tuple(validation_results),
+                warnings=tuple(obs.warnings) + compensation_warnings,
+                event_ids=tuple(obs.record_ids),
+                errors=("post-execution validation blocked",),
+            )
+
+        consumption_id = self._confirm_budget(reservation)
+        if consumption_id:
+            obs.telemetry(
+                AgentTelemetryKind.BUDGET_CONSUMED,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                goal_id=request.goal_id,
+            )
+
+        if operation_result_ids:
+            record = self._store.update(
+                replace(
+                    self._require_record(execution_id),
+                    operation_result_ids=tuple(operation_result_ids),
+                )
+            )
+
+        record, delegations = self._attempt_delegation(record, request, obs)
+
+        memory_ids = self._record_memory(request, operation_results)
+        obs.telemetry(
+            AgentTelemetryKind.RUN_COMPLETED,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            goal_id=request.goal_id,
+        )
+        obs.event(
+            EventType.AGENT_RUN_COMPLETED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+        )
+        obs.complete_trace()
+        return self._save_snapshot(
+            execution_id,
+            IntegrationExecutionState.COMPLETED,
+            operation_results=tuple(operation_results),
+            operation_request_ids=tuple(item.id for item in attempted_operations),
+            budget_consumption_ids=(consumption_id,) if consumption_id else (),
+            memory_updates=tuple({"id": memory_id} for memory_id in memory_ids),
+            checkpoint_ids=record.checkpoint_ids,
+            delegations=delegations,
+            retry_count=retry_count,
+            recovery_attempts=recovery_attempts,
+            validation_results=tuple(validation_results),
+            warnings=tuple(obs.warnings),
+            event_ids=tuple(obs.record_ids),
+        )
+
+    def _run_operation_batch(
+        self,
+        execution_id: str,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        operations: tuple[AgentOperationRequest, ...],
+        operation_results: list[Any],
+        operation_result_ids: list[str],
+    ) -> tuple[IntegrationExecutionRecord, AgentOperationRequest | None, Any | None]:
+        """Execute ``operations`` sequentially, appending to the given lists.
+
+        Returns ``(record, None, None)`` on full success, or
+        ``(record, failed_operation, failed_result)`` on the first failure.
+        """
+
+        for operation in operations:
             prepared = self._operation_for_run(operation, record.agent_run_id)
             span_id = obs.span(prepared.id, f"operation:{prepared.operation_name}")
             obs.telemetry(
@@ -654,83 +913,8 @@ class AgentRuntimeIntegrationService:
                         operation_result_ids=tuple(operation_result_ids),
                     )
                 )
-                compensation_warnings = self._run_compensations(execution_id)
-                obs.telemetry(
-                    AgentTelemetryKind.RUN_FAILED,
-                    agent_id=record.agent_id,
-                    agent_run_id=record.agent_run_id,
-                    goal_id=request.goal_id,
-                    reason_codes=result.reason_codes,
-                )
-                obs.event(
-                    EventType.AGENT_RUN_FAILED,
-                    request=request,
-                    agent_id=record.agent_id,
-                    agent_run_id=record.agent_run_id,
-                    payload={"operation_id": prepared.id},
-                )
-                obs.complete_trace()
-                return self._save_snapshot(
-                    execution_id,
-                    IntegrationExecutionState.FAILED,
-                    operation_results=tuple(operation_results),
-                    operation_request_ids=tuple(item.id for item in request.operations),
-                    checkpoint_ids=record.checkpoint_ids,
-                    retry_count=retry_count,
-                    recovery_attempts=recovery_attempts,
-                    warnings=tuple(obs.warnings) + compensation_warnings,
-                    event_ids=tuple(obs.record_ids),
-                    errors=(
-                        f"operation {prepared.operation_name} failed: {result.reason_codes}",
-                    ),
-                )
-        consumption_id = self._confirm_budget(reservation)
-        if consumption_id:
-            obs.telemetry(
-                AgentTelemetryKind.BUDGET_CONSUMED,
-                agent_id=record.agent_id,
-                agent_run_id=record.agent_run_id,
-                goal_id=request.goal_id,
-            )
-
-        if operation_result_ids:
-            record = self._store.update(
-                replace(
-                    self._require_record(execution_id),
-                    operation_result_ids=tuple(operation_result_ids),
-                )
-            )
-
-        record, delegations = self._attempt_delegation(record, request, obs)
-
-        memory_ids = self._record_memory(request, operation_results)
-        obs.telemetry(
-            AgentTelemetryKind.RUN_COMPLETED,
-            agent_id=record.agent_id,
-            agent_run_id=record.agent_run_id,
-            goal_id=request.goal_id,
-        )
-        obs.event(
-            EventType.AGENT_RUN_COMPLETED,
-            request=request,
-            agent_id=record.agent_id,
-            agent_run_id=record.agent_run_id,
-        )
-        obs.complete_trace()
-        return self._save_snapshot(
-            execution_id,
-            IntegrationExecutionState.COMPLETED,
-            operation_results=tuple(operation_results),
-            operation_request_ids=tuple(item.id for item in request.operations),
-            budget_consumption_ids=(consumption_id,) if consumption_id else (),
-            memory_updates=tuple({"id": memory_id} for memory_id in memory_ids),
-            checkpoint_ids=record.checkpoint_ids,
-            delegations=delegations,
-            retry_count=retry_count,
-            recovery_attempts=recovery_attempts,
-            warnings=tuple(obs.warnings),
-            event_ids=tuple(obs.record_ids),
-        )
+                return record, prepared, result
+        return record, None, None
 
     def _pause_for_approval(
         self,
@@ -776,6 +960,7 @@ class AgentRuntimeIntegrationService:
         delegations: tuple[Mapping[str, Any], ...] = (),
         retry_count: int = 0,
         recovery_attempts: tuple[Mapping[str, Any], ...] = (),
+        validation_results: tuple[Mapping[str, Any], ...] = (),
         warnings: tuple[str, ...] = (),
         event_ids: tuple[str, ...] = (),
         errors: tuple[str, ...] = (),
@@ -794,6 +979,7 @@ class AgentRuntimeIntegrationService:
             final_state=state,
             operation_request_ids=operation_request_ids,
             operation_results=operation_results,
+            validation_results=validation_results,
             approval_ids=approval_ids,
             budget_consumption_ids=budget_consumption_ids,
             memory_updates=memory_updates,
@@ -807,6 +993,7 @@ class AgentRuntimeIntegrationService:
             event_ids=merged_event_ids,
             created_at=request.created_at,
             completed_at=self._now() if state in TERMINAL_INTEGRATION_STATES else None,
+            metadata=dict(record.metadata),
         )
         if state in (
             IntegrationExecutionState.WAITING_APPROVAL,
@@ -899,6 +1086,16 @@ class AgentRuntimeIntegrationService:
             ) from exc
 
     def _validate_operations(self, request: IntegratedAgentExecutionRequest) -> None:
+        if (
+            not request.operations
+            and request.workflow is None
+            and self._planning_service is None
+        ):
+            raise AgentRuntimeIntegrationError(
+                "operations or workflow is required when no planning service"
+                " is configured",
+                failure_mode=IntegrationFailureMode.MANDATORY_FAIL_CLOSED,
+            )
         if len(request.operations) > request.policy.max_operations:
             raise AgentRuntimeIntegrationError("policy max_operations exceeded")
         for operation in request.operations:
@@ -915,6 +1112,468 @@ class AgentRuntimeIntegrationService:
                     "operation is not registered",
                     failure_mode=IntegrationFailureMode.MANDATORY_FAIL_CLOSED,
                 ) from exc
+
+    def _validate_cognitive_availability(
+        self, request: IntegratedAgentExecutionRequest
+    ) -> None:
+        require_cognitive = bool(
+            request.policy.metadata.get("require_cognitive", False)
+        )
+        if require_cognitive and self._cognitive_service is None:
+            raise AgentRuntimeIntegrationError(
+                "cognitive service is required by policy but not configured",
+                failure_mode=IntegrationFailureMode.MANDATORY_FAIL_CLOSED,
+            )
+
+    # ── Cognitive integration (Phase 9.28) ───────────────────────────────────
+
+    def _run_cognitive_analysis(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+    ) -> tuple[IntegrationExecutionRecord, AgentCognitiveResult | None]:
+        """Invoke the Cognitive Layer adapter before planning/execution.
+
+        Persists result id, session/trace references, warnings, gaps,
+        questions, contradictions, and confidence into ``record.metadata``
+        (which flows into the final result via ``_save_snapshot``). Returns
+        ``(record, None)`` when no cognitive service is configured, allowing
+        direct execution when the request already carries operations.
+        """
+
+        if self._cognitive_service is None:
+            return record, None
+
+        cognitive_request = AgentCognitiveRequest(
+            agent_run_id=record.agent_run_id or "",
+            goal_id=request.goal_id,
+            objective=str(request.metadata.get("objective") or request.goal_id),
+            actor_id=request.actor_id,
+            permissions=(
+                request.permission_context.allowed_domains
+                if request.permission_context
+                else ()
+            ),
+            metadata={
+                "resources": dict(request.resources),
+                "cognitive_context": dict(request.cognitive_context),
+                "correlation_id": request.correlation_id,
+                "causation_id": request.causation_id,
+            },
+        )
+        result = self._cognitive_service.analyze(cognitive_request)
+
+        for warning in result.warnings:
+            obs.warnings.append(f"cognitive:{warning.code}: {warning.message}")
+
+        cognitive_summary = {
+            "cognitive_result_id": result.id,
+            "cognitive_session_id": result.reasoning_session_id,
+            "cognitive_trace_id": result.reasoning_trace_id,
+            "cognitive_status": result.status.value,
+            "cognitive_decision": result.recommended_decision.value,
+            "cognitive_confidence": result.confidence,
+            "cognitive_gap_count": len(result.information_gaps),
+            "cognitive_question_count": len(result.questions),
+            "cognitive_contradiction_count": len(result.contradictions),
+        }
+        record = self._store.update(
+            replace(record, metadata={**record.metadata, **cognitive_summary})
+        )
+        obs.event(
+            EventType.COGNITIVE_ANALYSIS_COMPLETED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={"cognitive_result_id": result.id, "status": result.status.value},
+        )
+        if result.questions:
+            obs.event(
+                EventType.QUESTION_CREATED,
+                request=request,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                payload={"count": len(result.questions)},
+            )
+        if result.information_gaps:
+            obs.event(
+                EventType.INFORMATION_GAP_DETECTED,
+                request=request,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                payload={"count": len(result.information_gaps)},
+            )
+        return record, result
+
+    @staticmethod
+    def _cognitive_blocks_execution(result: AgentCognitiveResult) -> bool:
+        return result.blocked or result.status in (
+            AgentCognitiveStatus.WAITING_FOR_USER,
+            AgentCognitiveStatus.WAITING_FOR_RESOURCE,
+            AgentCognitiveStatus.INSUFFICIENT_INFORMATION,
+            AgentCognitiveStatus.BLOCKED,
+            AgentCognitiveStatus.FAILED,
+        )
+
+    @staticmethod
+    def _cognitive_failure_reasons(result: AgentCognitiveResult) -> tuple[str, ...]:
+        if result.errors:
+            return tuple(result.errors)
+        return (f"cognitive analysis blocked: {result.status.value}",)
+
+    # ── Planner integration (Phase 9.28) ─────────────────────────────────────
+
+    def _build_planning_request(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        cognitive_result: AgentCognitiveResult | None,
+    ) -> AgentPlanningRequest:
+        return AgentPlanningRequest(
+            id=f"plan-req-{request.execution_id}",
+            goal_id=request.goal_id,
+            agent_run_id=record.agent_run_id or "",
+            objective=str(request.metadata.get("objective") or request.goal_id),
+            cognitive_result_id=cognitive_result.id if cognitive_result else None,
+            permissions=(
+                list(request.permission_context.allowed_operations)
+                if request.permission_context
+                else []
+            ),
+            autonomy_level=request.max_autonomy_level,
+            actor_id=request.actor_id,
+            metadata={
+                "correlation_id": request.correlation_id,
+                "causation_id": request.causation_id,
+            },
+        )
+
+    def _operations_from_workflow_plan(
+        self,
+        plan: AgentWorkflowPlan,
+        record: IntegrationExecutionRecord,
+    ) -> tuple[AgentOperationRequest, ...]:
+        """Translate a canonical workflow plan into executable operations.
+
+        Task ordering (already a linearization of the plan's dependency
+        chain, produced by the Workflow Planner Adapter) is reused as-is;
+        no DAG is recomputed here.
+        """
+
+        by_id = {operation.id: operation for operation in plan.operations}
+        ordered: list[AgentWorkflowOperation] = []
+        seen: set[str] = set()
+        for task in plan.tasks:
+            for operation_id in task.operation_ids:
+                operation = by_id.get(operation_id)
+                if operation is not None and operation_id not in seen:
+                    ordered.append(operation)
+                    seen.add(operation_id)
+        for operation in plan.operations:
+            if operation.id not in seen:
+                ordered.append(operation)
+                seen.add(operation.id)
+
+        run_id = record.agent_run_id or ""
+        now_iso = self._now().isoformat()
+        return tuple(
+            AgentOperationRequest(
+                id=operation.id,
+                agent_run_id=run_id,
+                workflow_id=plan.workflow_id,
+                task_id=operation.task_id,
+                operation_name=operation.operation_name,
+                idempotency_key=f"{plan.id}:{operation.id}",
+                parameters=dict(operation.parameters),
+                created_at=now_iso,
+            )
+            for operation in ordered
+        )
+
+    def _resolve_operations(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        cognitive_result: AgentCognitiveResult | None,
+    ) -> tuple[tuple[AgentOperationRequest, ...], IntegrationExecutionRecord]:
+        if request.operations:
+            return request.operations, record
+        if request.workflow is not None:
+            return self._operations_from_workflow_plan(request.workflow, record), record
+
+        if self._planning_service is None:
+            raise AgentRuntimeIntegrationError(
+                "planning service is required to produce operations for this execution",
+                failure_mode=IntegrationFailureMode.MANDATORY_FAIL_CLOSED,
+            )
+
+        planning_request = self._build_planning_request(
+            record, request, cognitive_result
+        )
+        plan = self._planning_service.plan(planning_request)
+        validation = self._planning_service.validate_plan(
+            plan, request=planning_request
+        )
+        if not validation.is_valid:
+            obs.event(
+                EventType.WORKFLOW_PLAN_REJECTED,
+                request=request,
+                agent_id=record.agent_id,
+                agent_run_id=record.agent_run_id,
+                payload={
+                    "plan_id": plan.id,
+                    "errors": list(validation.blocking_errors),
+                },
+            )
+            raise AgentRuntimeIntegrationError(
+                f"workflow plan is invalid: {list(validation.blocking_errors)}",
+                failure_mode=IntegrationFailureMode.MANDATORY_FAIL_CLOSED,
+            )
+
+        plan_summary = {
+            "plan_id": plan.id,
+            "plan_workflow_id": plan.workflow_id,
+            "plan_version": plan.version,
+            "plan_task_count": len(plan.tasks),
+            "plan_dependency_count": len(plan.dependencies),
+            "plan_operation_count": len(plan.operations),
+            "plan_checkpoint_ids": [checkpoint.id for checkpoint in plan.checkpoints],
+            "plan_validation_status": validation.status.value,
+        }
+        record = self._store.update(
+            replace(
+                record,
+                workflow_id=plan.workflow_id,
+                metadata={**record.metadata, **plan_summary},
+            )
+        )
+        obs.event(
+            EventType.WORKFLOW_PLAN_CREATED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={"plan_id": plan.id, "workflow_id": plan.workflow_id},
+        )
+        obs.event(
+            EventType.WORKFLOW_PLAN_VALIDATED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={"plan_id": plan.id, "status": validation.status.value},
+        )
+        return self._operations_from_workflow_plan(plan, record), record
+
+    def _attempt_replan(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        failed_operation: AgentOperationRequest,
+    ) -> tuple[IntegrationExecutionRecord, tuple[AgentOperationRequest, ...] | None]:
+        """Attempt exactly one replan after an operation failure.
+
+        Bounded to a single attempt per execution (via ``replan_count`` in
+        ``record.metadata``) to avoid infinite replan loops.
+        """
+
+        plan_id = record.metadata.get("plan_id")
+        replan_count = int(record.metadata.get("replan_count", 0))
+        if (
+            plan_id is None
+            or self._planning_service is None
+            or not request.policy.allow_recovery
+            or replan_count >= 1
+        ):
+            return record, None
+
+        replanning_request = AgentReplanningRequest(
+            id=f"replan-{request.execution_id}-{replan_count + 1}",
+            plan_id=str(plan_id),
+            reason=WorkflowPlanChangeReason.OPERATION_FAILED,
+            reason_details=f"operation {failed_operation.operation_name} failed",
+            failed_operation_id=failed_operation.id,
+        )
+        obs.event(
+            EventType.RECOVERY_REPLAN_REQUESTED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={
+                "plan_id": str(plan_id),
+                "failed_operation_id": failed_operation.id,
+            },
+        )
+        try:
+            result = self._planning_service.replan(replanning_request)
+        except Exception as exc:  # noqa: BLE001
+            obs.warnings.append(f"replan failed: {exc}")
+            return record, None
+        if result.new_plan is None:
+            return record, None
+
+        record = self._store.update(
+            replace(
+                record,
+                workflow_id=result.new_plan.workflow_id,
+                metadata={
+                    **record.metadata,
+                    "plan_id": result.new_plan.id,
+                    "previous_plan_id": str(plan_id),
+                    "plan_version": result.new_plan.version,
+                    "replan_count": replan_count + 1,
+                },
+            )
+        )
+        obs.event(
+            EventType.WORKFLOW_PLAN_REPLANNED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={
+                "previous_plan_id": str(plan_id),
+                "new_plan_id": result.new_plan.id,
+                "version": result.new_plan.version,
+            },
+        )
+        return record, self._operations_from_workflow_plan(result.new_plan, record)
+
+    # ── Validation integration (Phase 9.28) ──────────────────────────────────
+
+    def _primary_operation_descriptor(
+        self, operations: tuple[AgentOperationRequest, ...]
+    ) -> OperationDescriptor | None:
+        if not operations:
+            return None
+        try:
+            return self._execution_adapter.registry.resolve(
+                operations[0].operation_name, operations[0].operation_version
+            )
+        except (
+            AgentOperationNotRegisteredError,
+            AgentOperationVersionNotRegisteredError,
+        ):
+            return None
+
+    def _resolve_validation_requirements(
+        self,
+        request: IntegratedAgentExecutionRequest,
+        stage: AgentValidationStage,
+        operation_descriptor: OperationDescriptor | None,
+        *,
+        commit_gate_required: bool = False,
+    ) -> tuple[ValidationRequirement, ...]:
+        if self._validation_policy_service is None:
+            return ()
+        selection = self._validation_policy_service.select_policy(
+            operation_descriptor=operation_descriptor,
+            stage=stage,
+            sensitivity=request.sensitivity.value,
+            commit_gate_required=commit_gate_required,
+        )
+        return selection.requirements
+
+    def _run_validation_stage(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        operations: tuple[AgentOperationRequest, ...],
+        stage: AgentValidationStage,
+        *,
+        commit_gate_required: bool = False,
+    ) -> tuple[bool, dict[str, Any] | None]:
+        if self._validation_service is None:
+            return True, None
+        descriptor = self._primary_operation_descriptor(operations)
+        requirements = self._resolve_validation_requirements(
+            request, stage, descriptor, commit_gate_required=commit_gate_required
+        )
+        if not requirements:
+            return True, None
+
+        operation = operations[0] if operations else None
+        context_data: dict[str, Any] = {}
+        policy_name = request.metadata.get("validation_policy_name")
+        if policy_name:
+            context_data["policy_name"] = policy_name
+        project_root = request.metadata.get("validation_project_root")
+        if project_root:
+            context_data["project_root"] = project_root
+        validation_request = AgentValidationRequest(
+            id=f"val-{stage.value}-{request.execution_id}",
+            run_id=record.agent_run_id or "",
+            iteration_id="1",
+            operation_request_id=operation.id if operation else request.execution_id,
+            stage=stage,
+            requirements=requirements,
+            idempotency_key=f"{request.execution_id}:{stage.value}",
+            context_data=context_data,
+        )
+        changed_files = tuple(
+            str(p) for p in request.resources.get("changed_files", ())
+        )
+        exec_context = (
+            ValidationExecutionContext(
+                run_id=record.agent_run_id or "",
+                iteration_id="1",
+                operation_name=operation.operation_name if operation else "",
+                resource_scope=changed_files,
+            )
+            if changed_files
+            else None
+        )
+        obs.event(
+            EventType.VALIDATION_STARTED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={"stage": stage.value},
+        )
+        result = self._validation_service.validate(
+            validation_request, exec_context=exec_context
+        )
+        obs.event(
+            EventType.VALIDATION_COMPLETED
+            if result.decision is AgentValidationDecision.CONTINUE
+            else EventType.VALIDATION_FAILED,
+            request=request,
+            agent_id=record.agent_id,
+            agent_run_id=record.agent_run_id,
+            payload={"stage": stage.value, "decision": result.decision.value},
+        )
+        return result.decision is AgentValidationDecision.CONTINUE, result.to_dict()
+
+    def _run_pre_execution_validation(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        operations: tuple[AgentOperationRequest, ...],
+    ) -> tuple[bool, dict[str, Any] | None]:
+        return self._run_validation_stage(
+            record, request, obs, operations, AgentValidationStage.PRE_EXECUTION
+        )
+
+    def _run_post_execution_validation(
+        self,
+        record: IntegrationExecutionRecord,
+        request: IntegratedAgentExecutionRequest,
+        obs: _ObservabilityContext,
+        operations: tuple[AgentOperationRequest, ...],
+    ) -> tuple[bool, dict[str, Any] | None, dict[str, Any] | None]:
+        ok, post_dict = self._run_validation_stage(
+            record, request, obs, operations, AgentValidationStage.POST_EXECUTION
+        )
+        if not ok:
+            return False, post_dict, None
+        if not request.policy.require_terminal_validation:
+            return True, post_dict, None
+        ok, commit_dict = self._run_validation_stage(
+            record, request, obs, operations, AgentValidationStage.PRE_COMMIT
+        )
+        return ok, post_dict, commit_dict
 
     def _check_permissions(
         self,
@@ -1242,27 +1901,29 @@ class AgentRuntimeIntegrationService:
         self,
         record: IntegrationExecutionRecord,
         request: IntegratedAgentExecutionRequest,
+        *,
+        operation_count: int | None = None,
     ) -> Any | None:
         if self._budget_service is None or request.budget_id is None:
             return None
         if record.agent_run_id is None:
             raise AgentRuntimeIntegrationError("agent run is not bound")
+        count = max(
+            operation_count if operation_count is not None else len(request.operations),
+            1,
+        )
         try:
             self._budget_service.get_budget(request.budget_id)
         except KeyError:
             self._budget_service.create_budget(
                 record.agent_run_id,
-                {BudgetResourceType.OPERATION: max(len(request.operations), 1)},
+                {BudgetResourceType.OPERATION: count},
                 budget_id=request.budget_id,
                 created_at=self._now(),
             )
         reservation = self._budget_service.reserve(
             request.budget_id,
-            [
-                BudgetAllocation(
-                    BudgetResourceType.OPERATION, max(len(request.operations), 1)
-                )
-            ],
+            [BudgetAllocation(BudgetResourceType.OPERATION, count)],
             workflow_id=request.workflow.workflow_id if request.workflow else None,
             idempotency_key=f"{request.execution_id}:budget-reserve",
             reservation_id=f"reservation-{request.execution_id}",
