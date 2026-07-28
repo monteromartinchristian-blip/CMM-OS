@@ -2589,3 +2589,77 @@ __all__ += [
     "generate_kill_switch_report_id",
     "generate_permission_context_id",
 ]
+
+# ── Phase 9.26 – Agent Observability, Metrics, and Audit Exports ──────────────
+
+from cmm.agent_runtime.agent_observability_contracts import (
+    AgentAuditRecord,
+    AgentHealthReport,
+    AgentHealthThresholds,
+    AgentMetricPoint,
+    AgentModelInvocationRecord,
+    AgentObservabilityTraceRecord,
+    AgentRunMetrics,
+    AgentRuntimeMetrics,
+    AgentSpan,
+    AgentTelemetryRecord,
+    AgentTraceLink,
+    AgentTraceMetrics,
+    AgentTraceSnapshot,
+    sanitize_agent_observability_data,
+)
+from cmm.agent_runtime.agent_observability_enums import (
+    AgentAuditOutcome,
+    AgentAuditSeverity,
+    AgentHealthStatus,
+    AgentMetricKind,
+    AgentTelemetryKind,
+)
+from cmm.agent_runtime.agent_observability_errors import (
+    AgentObservabilityAppendOnlyError,
+    AgentObservabilityConflictError,
+    AgentObservabilityDuplicateError,
+    AgentObservabilityError,
+    AgentObservabilityNotFoundError,
+    AgentObservabilityQueryError,
+    AgentObservabilityTraceFinalizedError,
+    InvalidAgentObservabilityContractError,
+)
+from cmm.agent_runtime.agent_observability_service import AgentObservabilityService
+from cmm.agent_runtime.agent_observability_store import (
+    AgentObservabilityStore,
+    InMemoryAgentObservabilityStore,
+)
+
+__all__ += [
+    "AgentAuditOutcome",
+    "AgentAuditRecord",
+    "AgentAuditSeverity",
+    "AgentHealthReport",
+    "AgentHealthStatus",
+    "AgentHealthThresholds",
+    "AgentMetricKind",
+    "AgentMetricPoint",
+    "AgentModelInvocationRecord",
+    "AgentObservabilityAppendOnlyError",
+    "AgentObservabilityConflictError",
+    "AgentObservabilityDuplicateError",
+    "AgentObservabilityError",
+    "AgentObservabilityNotFoundError",
+    "AgentObservabilityQueryError",
+    "AgentObservabilityService",
+    "AgentObservabilityStore",
+    "AgentObservabilityTraceFinalizedError",
+    "AgentObservabilityTraceRecord",
+    "AgentRunMetrics",
+    "AgentRuntimeMetrics",
+    "AgentSpan",
+    "AgentTelemetryKind",
+    "AgentTelemetryRecord",
+    "AgentTraceLink",
+    "AgentTraceMetrics",
+    "AgentTraceSnapshot",
+    "InMemoryAgentObservabilityStore",
+    "InvalidAgentObservabilityContractError",
+    "sanitize_agent_observability_data",
+]
