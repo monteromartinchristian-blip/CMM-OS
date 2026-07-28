@@ -2400,6 +2400,12 @@ __all__ += [
 ]
 
 # Phase 9.24 Agent Delegation
+from cmm.agent_runtime.agent_delegation_contracts import (
+    DelegatedGoal,
+    DelegationProposal,
+    DelegationResult,
+    create_delegation,
+)
 from cmm.agent_runtime.agent_delegation_enums import (
     DelegationErrorCode,
     DelegationEventType,
@@ -2424,22 +2430,17 @@ from cmm.agent_runtime.agent_delegation_errors import (
     AgentDelegationTargetUnsupportedGoalError,
     AgentDelegationValidationError,
 )
-from cmm.agent_runtime.agent_delegation_contracts import (
-    DelegatedGoal,
-    DelegationProposal,
-    DelegationResult,
-    create_delegation,
+from cmm.agent_runtime.agent_delegation_service import (
+    AgentDelegationService,
+    AgentDelegationServiceConfig,
 )
 from cmm.agent_runtime.agent_delegation_store import (
     AgentDelegationStore,
     InMemoryAgentDelegationStore,
 )
-from cmm.agent_runtime.agent_delegation_service import (
-    AgentDelegationService,
-    AgentDelegationServiceConfig,
-)
 
 __all__ += [
+    "AgentDelegationAgentsIncompatibleError",
     "AgentDelegationAutonomyEscalationError",
     "AgentDelegationChildGoalIncompatibleError",
     "AgentDelegationCycleDetectedError",
@@ -2459,7 +2460,6 @@ __all__ += [
     "AgentDelegationTargetAgentNotFoundError",
     "AgentDelegationTargetUnsupportedGoalError",
     "AgentDelegationValidationError",
-    "AgentDelegationAgentsIncompatibleError",
     "DelegatedGoal",
     "DelegationErrorCode",
     "DelegationEventType",
@@ -2493,8 +2493,8 @@ from cmm.agent_runtime.agent_security_enums import (
 )
 from cmm.agent_runtime.agent_security_errors import (
     AgentSecurityError,
-    ApprovalNotFoundError,
     ApprovalNotAuthorizedError,
+    ApprovalNotFoundError,
     ApprovalRequiredError,
     AutonomyLevelExceededError,
     CommunicationNotAllowedError,
@@ -2538,8 +2538,8 @@ __all__ += [
     "AgentPermissionContext",
     "AgentSecurityError",
     "AgentSecurityService",
-    "ApprovalNotFoundError",
     "ApprovalNotAuthorizedError",
+    "ApprovalNotFoundError",
     "ApprovalRequiredError",
     "AutonomyLevelExceededError",
     "CommunicationNotAllowedError",
@@ -2581,9 +2581,9 @@ __all__ += [
     "ResourceNotAuthorizedError",
     "SecurityApprovalExpiredError",
     "SecurityAuditEntry",
+    "SecurityStore",
     "SensitivityLevel",
     "SensitivityLevelNotAllowedError",
-    "SecurityStore",
     "UntrustedContentFinding",
     "generate_audit_entry_id",
     "generate_kill_switch_report_id",
@@ -2662,4 +2662,68 @@ __all__ += [
     "InMemoryAgentObservabilityStore",
     "InvalidAgentObservabilityContractError",
     "sanitize_agent_observability_data",
+]
+
+# ── Phase 9.27 – Agent Runtime Integration Exports ───────────────────────────
+
+from cmm.agent_runtime.agent_runtime_integration_contracts import (
+    IntegratedAgentExecutionRequest,
+    IntegratedAgentExecutionResult,
+    IntegrationCompensation,
+    IntegrationExecutionPolicy,
+    IntegrationExecutionRecord,
+    IntegrationExecutionStatus,
+)
+from cmm.agent_runtime.agent_runtime_integration_enums import (
+    ALLOWED_INTEGRATION_TRANSITIONS,
+    RESULT_SNAPSHOT_STATES,
+    TERMINAL_INTEGRATION_STATES,
+    IntegrationCompensationStatus,
+    IntegrationExecutionState,
+    IntegrationFailureMode,
+    can_transition_integration_state,
+)
+from cmm.agent_runtime.agent_runtime_integration_errors import (
+    AgentRuntimeIntegrationError,
+    IntegrationDuplicateError,
+    IntegrationIdempotencyConflictError,
+    IntegrationNotFoundError,
+    IntegrationStateError,
+    IntegrationStoreConsistencyError,
+    IntegrationStoreError,
+    IntegrationVersionConflictError,
+)
+from cmm.agent_runtime.agent_runtime_integration_service import (
+    AgentRuntimeIntegrationService,
+)
+from cmm.agent_runtime.agent_runtime_integration_store import (
+    AgentRuntimeIntegrationStore,
+    InMemoryAgentRuntimeIntegrationStore,
+)
+
+__all__ += [
+    "ALLOWED_INTEGRATION_TRANSITIONS",
+    "RESULT_SNAPSHOT_STATES",
+    "TERMINAL_INTEGRATION_STATES",
+    "AgentRuntimeIntegrationError",
+    "AgentRuntimeIntegrationService",
+    "AgentRuntimeIntegrationStore",
+    "InMemoryAgentRuntimeIntegrationStore",
+    "IntegratedAgentExecutionRequest",
+    "IntegratedAgentExecutionResult",
+    "IntegrationCompensation",
+    "IntegrationCompensationStatus",
+    "IntegrationDuplicateError",
+    "IntegrationExecutionPolicy",
+    "IntegrationExecutionRecord",
+    "IntegrationExecutionState",
+    "IntegrationExecutionStatus",
+    "IntegrationFailureMode",
+    "IntegrationIdempotencyConflictError",
+    "IntegrationNotFoundError",
+    "IntegrationStateError",
+    "IntegrationStoreConsistencyError",
+    "IntegrationStoreError",
+    "IntegrationVersionConflictError",
+    "can_transition_integration_state",
 ]
