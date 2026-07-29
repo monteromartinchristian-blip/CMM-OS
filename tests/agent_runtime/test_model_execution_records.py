@@ -35,7 +35,11 @@ from cmm.agent_runtime.model_fallback_contracts import (
     ModelFallbackAction,
     ModelFallbackTrigger,
 )
+from cmm.agent_runtime.model_requirements_contracts import (
+    model_requirements_to_dict,
+)
 from cmm.agent_runtime.runtime_event_bus import AgentRuntimeEventBus
+from kernel.llm.model_selection import ModelRequirements
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -368,6 +372,30 @@ class _CountingRepository(InMemoryModelExecutionRecordRepository):
         if should_fail:
             raise RuntimeError("controlled add failure")
         return super().add(value)
+
+
+def test_execution_record_preserves_effective_model_requirements():
+    requirements = ModelRequirements(
+        minimum_context_window=32768,
+        reasoning=True,
+        privacy="LOCAL_ONLY",
+        allowed_providers=("provider-a",),
+        maximum_input_cost_per_million=Decimal("1.50"),
+    )
+    attempt = _attempt()
+
+    result = ModelExecutionRecordAssembler.from_attempt(
+        attempt,
+        record_id="requirements-trace",
+        agent_run_id="run-requirements",
+        effective_requirements=requirements,
+    )
+
+    assert result.effective_requirements == requirements
+    assert result.to_dict()["effective_requirements"] == (
+        model_requirements_to_dict(requirements)
+    )
+    assert ModelExecutionRecord.from_dict(result.to_dict()) == result
 
 
 def test_idempotency_is_atomic_for_concurrent_identical_calls():

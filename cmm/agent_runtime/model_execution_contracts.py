@@ -13,7 +13,13 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from kernel.llm.model_selection import ModelRequirements
+
 from .model_execution_errors import InvalidModelExecutionRecordError
+from .model_requirements_contracts import (
+    model_requirements_from_dict,
+    model_requirements_to_dict,
+)
 
 
 class _ValueEnum(str, Enum):
@@ -349,6 +355,7 @@ class ModelExecutionRecord:
     routing_model_id: str | None = None
     routing_reason_codes: tuple[str, ...] = ()
     rejected_candidates_count: int = 0
+    effective_requirements: ModelRequirements | None = None
     trace_id: str | None = None
     correlation_id: str | None = None
     causation_id: str | None = None
@@ -486,6 +493,12 @@ class ModelExecutionRecord:
         object.__setattr__(
             self, "completed_at", _utc(self.completed_at, "completed_at", optional=True)
         )
+        if self.effective_requirements is not None and not isinstance(
+            self.effective_requirements, ModelRequirements
+        ):
+            raise InvalidModelExecutionRecordError(
+                "effective_requirements must be ModelRequirements"
+            )
         if self.quality_evaluation is not None and not isinstance(
             self.quality_evaluation, QualityEvaluation
         ):
@@ -543,6 +556,11 @@ class ModelExecutionRecord:
             result[name] = (
                 getattr(self, name).isoformat() if getattr(self, name) else None
             )
+        result["effective_requirements"] = (
+            model_requirements_to_dict(self.effective_requirements)
+            if self.effective_requirements is not None
+            else None
+        )
         result["quality_evaluation"] = (
             self.quality_evaluation.to_dict() if self.quality_evaluation else None
         )
@@ -557,6 +575,10 @@ class ModelExecutionRecord:
         for name in ("estimated_cost", "actual_cost"):
             if values.get(name) is not None:
                 values[name] = Decimal(str(values[name]))
+        if values.get("effective_requirements"):
+            values["effective_requirements"] = model_requirements_from_dict(
+                values["effective_requirements"]
+            )
         if values.get("quality_evaluation"):
             values["quality_evaluation"] = QualityEvaluation.from_dict(
                 values["quality_evaluation"]

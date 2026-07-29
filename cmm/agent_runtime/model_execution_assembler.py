@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from kernel.llm.model_selection import ModelRequirements
+
 from .economic_budget_contracts import ModelCostEstimate
 from .model_execution_contracts import (
     ModelExecutionContentReference,
@@ -33,6 +35,7 @@ class ModelExecutionRecordAssembler:
         capability: str = "unknown",
         model_version: str | None = None,
         routing_decision: Any = None,
+        effective_requirements: ModelRequirements | None = None,
         estimate: ModelCostEstimate | None = None,
         actual: ModelCostEstimate | None = None,
         currency: str | None = None,
@@ -99,6 +102,7 @@ class ModelExecutionRecordAssembler:
             routing_provider_id=getattr(routing_decision, "selected_provider_id", None),
             routing_model_id=getattr(routing_decision, "selected_model_id", None),
             routing_reason_codes=tuple(getattr(routing_decision, "reason_codes", ())),
+            effective_requirements=effective_requirements,
             rejected_candidates_count=len(
                 getattr(routing_decision, "rejected_models", ())
             ),
