@@ -70,7 +70,9 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _parse_datetime(value: Any, name: str, *, default: datetime | None = None) -> datetime | None:
+def _parse_datetime(
+    value: Any, name: str, *, default: datetime | None = None
+) -> datetime | None:
     if value is None:
         return default
     if isinstance(value, datetime):
@@ -79,7 +81,9 @@ def _parse_datetime(value: Any, name: str, *, default: datetime | None = None) -
         try:
             result = datetime.fromisoformat(value)
         except ValueError as exc:
-            raise InvalidKnowledgePackageError(f"Invalid ISO timestamp for {name}") from exc
+            raise InvalidKnowledgePackageError(
+                f"Invalid ISO timestamp for {name}"
+            ) from exc
     else:
         raise InvalidKnowledgePackageError(f"{name} must be a datetime or ISO string")
     _aware(result, name)
@@ -89,7 +93,9 @@ def _parse_datetime(value: Any, name: str, *, default: datetime | None = None) -
 def _sequence(payload: Any, name: str) -> Sequence[Any]:
     if payload is None:
         return ()
-    if isinstance(payload, (str, bytes, bytearray, Mapping)) or not isinstance(payload, Sequence):
+    if isinstance(payload, (str, bytes, bytearray, Mapping)) or not isinstance(
+        payload, Sequence
+    ):
         raise InvalidKnowledgePackageError(f"{name} must be a sequence")
     return payload
 
@@ -102,7 +108,9 @@ def _items(payload: Any, name: str = "package categories") -> tuple[KnowledgeIte
         elif isinstance(value, Mapping):
             result.append(KnowledgeItem.from_mapping(value))
         else:
-            raise InvalidKnowledgePackageError("package categories must contain KnowledgeItem values")
+            raise InvalidKnowledgePackageError(
+                "package categories must contain KnowledgeItem values"
+            )
     return tuple(result)
 
 
@@ -114,7 +122,9 @@ def _contradictions(payload: Any) -> tuple[Contradiction, ...]:
         elif isinstance(value, Mapping):
             result.append(Contradiction.from_mapping(value))
         else:
-            raise InvalidKnowledgePackageError("contradictions must contain Contradiction values")
+            raise InvalidKnowledgePackageError(
+                "contradictions must contain Contradiction values"
+            )
     return tuple(result)
 
 
@@ -157,13 +167,19 @@ class KnowledgePackage:
         if not isinstance(self.id, str) or not self.id.strip():
             raise InvalidKnowledgePackageError("KnowledgePackage.id must not be empty")
         if not isinstance(self.objective, str) or not self.objective.strip():
-            raise InvalidKnowledgePackageError("KnowledgePackage.objective must not be empty")
+            raise InvalidKnowledgePackageError(
+                "KnowledgePackage.objective must not be empty"
+            )
         if self.schema_version != SCHEMA_VERSION:
-            raise InvalidKnowledgePackageError(f"Unsupported KnowledgePackage schema_version: {self.schema_version}")
+            raise InvalidKnowledgePackageError(
+                f"Unsupported KnowledgePackage schema_version: {self.schema_version}"
+            )
         _aware(self.created_at, "created_at")
         _aware(self.valid_until, "valid_until")
         if self.valid_until is not None and self.valid_until < self.created_at:
-            raise InvalidKnowledgePackageError("valid_until must be greater than or equal to created_at")
+            raise InvalidKnowledgePackageError(
+                "valid_until must be greater than or equal to created_at"
+            )
 
         categories = (
             self.facts,
@@ -172,8 +188,14 @@ class KnowledgePackage:
             self.hypotheses,
             self.other_knowledge,
         )
-        if any(not isinstance(item, KnowledgeItem) for category in categories for item in category):
-            raise InvalidKnowledgePackageError("epistemic categories must contain KnowledgeItem values")
+        if any(
+            not isinstance(item, KnowledgeItem)
+            for category in categories
+            for item in category
+        ):
+            raise InvalidKnowledgePackageError(
+                "epistemic categories must contain KnowledgeItem values"
+            )
         expected_kinds = (
             ("facts", self.facts, KnowledgeKind.FACT),
             ("observations", self.observations, KnowledgeKind.OBSERVATION),
@@ -197,55 +219,90 @@ class KnowledgePackage:
             )
         ids = [item.id for category in categories for item in category]
         if len(ids) != len(set(ids)):
-            raise InvalidKnowledgePackageError("epistemic categories must not contain duplicate item ids")
+            raise InvalidKnowledgePackageError(
+                "epistemic categories must not contain duplicate item ids"
+            )
         contradiction_ids = [item.id for item in self.contradictions]
         if len(contradiction_ids) != len(set(contradiction_ids)):
-            raise InvalidKnowledgePackageError("contradictions must not contain duplicate ids")
+            raise InvalidKnowledgePackageError(
+                "contradictions must not contain duplicate ids"
+            )
         if any(not isinstance(item, Contradiction) for item in self.contradictions):
-            raise InvalidKnowledgePackageError("contradictions must contain Contradiction values")
+            raise InvalidKnowledgePackageError(
+                "contradictions must contain Contradiction values"
+            )
         if any(not isinstance(item, Resource) for item in self.resources):
             raise InvalidKnowledgePackageError("resources must contain Resource values")
 
-        for name in ("current_state", "timeline", "active_goals", "unknowns", "constraints", "preferences", "relevant_memory", "prior_reasoning", "missing_information", "provenance"):
+        for name in (
+            "current_state",
+            "timeline",
+            "active_goals",
+            "unknowns",
+            "constraints",
+            "preferences",
+            "relevant_memory",
+            "prior_reasoning",
+            "missing_information",
+            "provenance",
+        ):
             object.__setattr__(self, name, tuple(getattr(self, name) or ()))
-        for name in ("facts", "observations", "inferences", "hypotheses", "other_knowledge", "contradictions", "resources"):
+        for name in (
+            "facts",
+            "observations",
+            "inferences",
+            "hypotheses",
+            "other_knowledge",
+            "contradictions",
+            "resources",
+        ):
             object.__setattr__(self, name, tuple(getattr(self, name) or ()))
-        for name in ("reasoning_profile", "domain_instructions", "privacy", "temporal_scope", "metadata"):
-            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name) or {})))
+        for name in (
+            "reasoning_profile",
+            "domain_instructions",
+            "privacy",
+            "temporal_scope",
+            "metadata",
+        ):
+            object.__setattr__(
+                self, name, MappingProxyType(dict(getattr(self, name) or {}))
+            )
 
     def serialize(self) -> dict[str, Any]:
-        return _jsonable({
-            "schema_version": self.schema_version,
-            "id": self.id,
-            "objective": self.objective,
-            "profile": self.profile,
-            "domain": self.domain,
-            "session_id": self.session_id,
-            "current_state": self.current_state,
-            "timeline": self.timeline,
-            "active_goals": self.active_goals,
-            "facts": self.facts,
-            "observations": self.observations,
-            "inferences": self.inferences,
-            "hypotheses": self.hypotheses,
-            "other_knowledge": self.other_knowledge,
-            "contradictions": self.contradictions,
-            "unknowns": self.unknowns,
-            "constraints": self.constraints,
-            "preferences": self.preferences,
-            "relevant_memory": self.relevant_memory,
-            "prior_reasoning": self.prior_reasoning,
-            "resources": self.resources,
-            "missing_information": self.missing_information,
-            "reasoning_profile": self.reasoning_profile,
-            "domain_instructions": self.domain_instructions,
-            "privacy": self.privacy,
-            "temporal_scope": self.temporal_scope,
-            "provenance": self.provenance,
-            "created_at": self.created_at,
-            "valid_until": self.valid_until,
-            "metadata": self.metadata,
-        })
+        return _jsonable(
+            {
+                "schema_version": self.schema_version,
+                "id": self.id,
+                "objective": self.objective,
+                "profile": self.profile,
+                "domain": self.domain,
+                "session_id": self.session_id,
+                "current_state": self.current_state,
+                "timeline": self.timeline,
+                "active_goals": self.active_goals,
+                "facts": self.facts,
+                "observations": self.observations,
+                "inferences": self.inferences,
+                "hypotheses": self.hypotheses,
+                "other_knowledge": self.other_knowledge,
+                "contradictions": self.contradictions,
+                "unknowns": self.unknowns,
+                "constraints": self.constraints,
+                "preferences": self.preferences,
+                "relevant_memory": self.relevant_memory,
+                "prior_reasoning": self.prior_reasoning,
+                "resources": self.resources,
+                "missing_information": self.missing_information,
+                "reasoning_profile": self.reasoning_profile,
+                "domain_instructions": self.domain_instructions,
+                "privacy": self.privacy,
+                "temporal_scope": self.temporal_scope,
+                "provenance": self.provenance,
+                "created_at": self.created_at,
+                "valid_until": self.valid_until,
+                "metadata": self.metadata,
+            }
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return self.serialize()
@@ -284,7 +341,10 @@ class KnowledgePackage:
             privacy=dict(payload.get("privacy") or {}),
             temporal_scope=dict(payload.get("temporal_scope") or {}),
             provenance=tuple(payload.get("provenance") or ()),
-            created_at=_parse_datetime(payload.get("created_at"), "created_at", default=_utc_now()) or _utc_now(),
+            created_at=_parse_datetime(
+                payload.get("created_at"), "created_at", default=_utc_now()
+            )
+            or _utc_now(),
             valid_until=_parse_datetime(payload.get("valid_until"), "valid_until"),
             metadata=dict(payload.get("metadata") or {}),
             schema_version=payload.get("schema_version", 0),
@@ -324,33 +384,63 @@ class KnowledgePackageRequest:
             raise InvalidKnowledgePackageError("objective must not be empty")
         if self.query is not None and not isinstance(self.query, KnowledgeQuery):
             if isinstance(self.query, Mapping):
-                object.__setattr__(self, "query", KnowledgeQuery.from_mapping(self.query))
+                object.__setattr__(
+                    self, "query", KnowledgeQuery.from_mapping(self.query)
+                )
             else:
-                raise InvalidKnowledgePackageError("query must be a KnowledgeQuery or mapping")
-        for name in ("max_items", "max_resources", "max_contradictions", "max_memory", "max_prior_reasoning"):
+                raise InvalidKnowledgePackageError(
+                    "query must be a KnowledgeQuery or mapping"
+                )
+        for name in (
+            "max_items",
+            "max_resources",
+            "max_contradictions",
+            "max_memory",
+            "max_prior_reasoning",
+        ):
             value = getattr(self, name)
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
-                raise InvalidKnowledgePackageError(f"{name} must be a non-negative integer")
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise InvalidKnowledgePackageError(
+                    f"{name} must be a non-negative integer"
+                )
         categories: list[KnowledgeKind] = []
         for value in self.required_categories or ():
             try:
-                categories.append(value if isinstance(value, KnowledgeKind) else KnowledgeKind(value))
+                categories.append(
+                    value if isinstance(value, KnowledgeKind) else KnowledgeKind(value)
+                )
             except (TypeError, ValueError) as exc:
-                raise InvalidKnowledgePackageError(f"Invalid required category: {value}") from exc
-        object.__setattr__(self, "required_categories", tuple(dict.fromkeys(categories)))
+                raise InvalidKnowledgePackageError(
+                    f"Invalid required category: {value}"
+                ) from exc
+        object.__setattr__(
+            self, "required_categories", tuple(dict.fromkeys(categories))
+        )
         for name in ("missing_information", "relevant_memory", "prior_reasoning"):
             value = getattr(self, name)
             if isinstance(value, (str, bytes, bytearray, Mapping)):
                 raise InvalidKnowledgePackageError(f"{name} must be a sequence")
             object.__setattr__(self, name, tuple(value or ()))
-        object.__setattr__(self, "permission_context", MappingProxyType(dict(self.permission_context or {})))
+        object.__setattr__(
+            self,
+            "permission_context",
+            MappingProxyType(dict(self.permission_context or {})),
+        )
         object.__setattr__(self, "privacy", MappingProxyType(dict(self.privacy or {})))
-        object.__setattr__(self, "temporal_scope", MappingProxyType(dict(self.temporal_scope or {})))
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata or {})))
+        object.__setattr__(
+            self, "temporal_scope", MappingProxyType(dict(self.temporal_scope or {}))
+        )
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
 
 class InclusionPolicy(Protocol):
-    def __call__(self, candidate: KnowledgeItem | Resource, context: Mapping[str, Any]) -> bool: ...
+    def __call__(
+        self, candidate: KnowledgeItem | Resource, context: Mapping[str, Any]
+    ) -> bool: ...
 
 
 class KnowledgePackageBuilder:
@@ -364,12 +454,16 @@ class KnowledgePackageBuilder:
         inclusion_policy: InclusionPolicy | None = None,
     ) -> None:
         if not isinstance(store, KnowledgeStoreProtocol):
-            raise InvalidKnowledgePackageError("store must implement KnowledgeStoreProtocol")
+            raise InvalidKnowledgePackageError(
+                "store must implement KnowledgeStoreProtocol"
+            )
         self._retriever = KnowledgeRetriever(store)
         self._resources = tuple(resources)
         self._inclusion_policy = inclusion_policy
 
-    def _allowed(self, candidate: KnowledgeItem | Resource, request: KnowledgePackageRequest) -> bool:
+    def _allowed(
+        self, candidate: KnowledgeItem | Resource, request: KnowledgePackageRequest
+    ) -> bool:
         if isinstance(candidate, Resource) and not candidate.permits(
             ResourcePermissionOperation.READ,
             actor_id=request.permission_context.get("actor_id"),
@@ -387,7 +481,9 @@ class KnowledgePackageBuilder:
             "profile": request.profile,
             "domain": request.domain,
             "session_id": request.session_id,
-            "query": request.query.serialize() if isinstance(request.query, KnowledgeQuery) else None,
+            "query": request.query.serialize()
+            if isinstance(request.query, KnowledgeQuery)
+            else None,
             "max_items": request.max_items,
             "max_resources": request.max_resources,
             "max_contradictions": request.max_contradictions,
@@ -412,7 +508,9 @@ class KnowledgePackageBuilder:
 
     def build(self, request: KnowledgePackageRequest) -> KnowledgePackage:
         if not isinstance(request, KnowledgePackageRequest):
-            raise InvalidKnowledgePackageError("request must be a KnowledgePackageRequest")
+            raise InvalidKnowledgePackageError(
+                "request must be a KnowledgePackageRequest"
+            )
         query = request.query
         if query is not None:
             if not isinstance(query, KnowledgeQuery):
@@ -424,13 +522,24 @@ class KnowledgePackageBuilder:
         else:
             matches: dict[str, KnowledgeItem] = {}
             for term in self._terms(request.objective):
-                for candidate in self._retriever.query(KnowledgeQuery(text_contains=term)).items:
+                for candidate in self._retriever.query(
+                    KnowledgeQuery(text_contains=term)
+                ).items:
                     matches[candidate.id] = candidate
-            candidates = sorted(matches.values(), key=lambda x: (-x.confidence.value, x.created_at, x.id))
+            candidates = sorted(
+                matches.values(),
+                key=lambda x: (-x.confidence.value, x.created_at, x.id),
+            )
 
-        candidates = [candidate for candidate in candidates if self._allowed(candidate, request)]
+        candidates = [
+            candidate for candidate in candidates if self._allowed(candidate, request)
+        ]
         if request.required_categories:
-            candidates = [candidate for candidate in candidates if candidate.kind in request.required_categories]
+            candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.kind in request.required_categories
+            ]
         if request.max_items is not None:
             candidates = candidates[: request.max_items]
         provenance: list[str] = []
@@ -443,7 +552,9 @@ class KnowledgePackageBuilder:
         contradictions: list[Contradiction] = []
         if request.include_contradictions:
             for candidate in candidates:
-                for contradiction in self._retriever.contradictions_for_item(candidate.id):
+                for contradiction in self._retriever.contradictions_for_item(
+                    candidate.id
+                ):
                     if contradiction.id not in {item.id for item in contradictions}:
                         contradictions.append(contradiction)
             contradictions.sort(key=lambda x: (x.created_at, x.id))
@@ -452,7 +563,11 @@ class KnowledgePackageBuilder:
 
         selected_resources: list[Resource] = []
         if request.include_resources:
-            resource_ids = {candidate.resource_id for candidate in candidates if candidate.resource_id}
+            resource_ids = {
+                candidate.resource_id
+                for candidate in candidates
+                if candidate.resource_id
+            }
             seen_resources: set[str] = set()
             for resource in self._resources:
                 if (
@@ -466,10 +581,15 @@ class KnowledgePackageBuilder:
             if request.max_resources is not None:
                 selected_resources = selected_resources[: request.max_resources]
 
-        grouped = {kind: tuple(candidate for candidate in candidates if candidate.kind is kind) for kind in KnowledgeKind}
+        grouped = {
+            kind: tuple(candidate for candidate in candidates if candidate.kind is kind)
+            for kind in KnowledgeKind
+        }
         timestamps = [candidate.created_at for candidate in candidates]
         timestamps.extend(resource.created_at for resource in selected_resources)
-        package_created_at = max(timestamps, default=datetime(1970, 1, 1, tzinfo=timezone.utc))
+        package_created_at = max(
+            timestamps, default=datetime(1970, 1, 1, tzinfo=timezone.utc)
+        )
         for resource in selected_resources:
             if resource.id not in seen_provenance:
                 seen_provenance.add(resource.id)
@@ -498,8 +618,17 @@ class KnowledgePackageBuilder:
             contradictions=tuple(contradictions),
             resources=tuple(selected_resources),
             missing_information=request.missing_information,
-            relevant_memory=request.relevant_memory[: request.max_memory] if request.max_memory is not None else request.relevant_memory,
-            prior_reasoning=(request.prior_reasoning[: request.max_prior_reasoning] if request.include_prior_reasoning and request.max_prior_reasoning is not None else request.prior_reasoning if request.include_prior_reasoning else ()),
+            relevant_memory=request.relevant_memory[: request.max_memory]
+            if request.max_memory is not None
+            else request.relevant_memory,
+            prior_reasoning=(
+                request.prior_reasoning[: request.max_prior_reasoning]
+                if request.include_prior_reasoning
+                and request.max_prior_reasoning is not None
+                else request.prior_reasoning
+                if request.include_prior_reasoning
+                else ()
+            ),
             privacy=request.privacy,
             temporal_scope=request.temporal_scope,
             created_at=package_created_at,

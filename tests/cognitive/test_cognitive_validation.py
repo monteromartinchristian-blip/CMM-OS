@@ -105,7 +105,9 @@ def _inference(statement: str = "test inference") -> KnowledgeItem:
     )
 
 
-def _hypothesis(statement: str = "test hypothesis", confidence: float = 0.5) -> KnowledgeItem:
+def _hypothesis(
+    statement: str = "test hypothesis", confidence: float = 0.5
+) -> KnowledgeItem:
     return KnowledgeItem(
         statement=statement,
         kind=KnowledgeKind.HYPOTHESIS,
@@ -309,13 +311,22 @@ class TestCognitiveValidationResult:
 
 class TestDeriveDecision:
     def test_no_findings_accept(self) -> None:
-        assert derive_cognitive_validation_decision(()) is CognitiveValidationDecision.ACCEPT
+        assert (
+            derive_cognitive_validation_decision(())
+            is CognitiveValidationDecision.ACCEPT
+        )
 
     def test_only_info_accept(self) -> None:
         f = ValidationFinding(
-            code="COG_INFO", message="info", severity=ValidationSeverity.INFO, source="test"
+            code="COG_INFO",
+            message="info",
+            severity=ValidationSeverity.INFO,
+            source="test",
         )
-        assert derive_cognitive_validation_decision((f,)) is CognitiveValidationDecision.ACCEPT
+        assert (
+            derive_cognitive_validation_decision((f,))
+            is CognitiveValidationDecision.ACCEPT
+        )
 
     def test_warning_accept_with_warning(self) -> None:
         f = ValidationFinding(
@@ -363,7 +374,10 @@ class TestDeriveDecision:
             source="test",
             blocking=True,
         )
-        assert derive_cognitive_validation_decision((f,)) is CognitiveValidationDecision.REPAIR
+        assert (
+            derive_cognitive_validation_decision((f,))
+            is CognitiveValidationDecision.REPAIR
+        )
 
     def test_invalidate(self) -> None:
         f = ValidationFinding(
@@ -386,7 +400,10 @@ class TestDeriveDecision:
             source="test",
             blocking=True,
         )
-        assert derive_cognitive_validation_decision((f,)) is CognitiveValidationDecision.BLOCK
+        assert (
+            derive_cognitive_validation_decision((f,))
+            is CognitiveValidationDecision.BLOCK
+        )
 
     def test_escalate(self) -> None:
         f = ValidationFinding(
@@ -396,7 +413,10 @@ class TestDeriveDecision:
             source="test",
             blocking=True,
         )
-        assert derive_cognitive_validation_decision((f,)) is CognitiveValidationDecision.ESCALATE
+        assert (
+            derive_cognitive_validation_decision((f,))
+            is CognitiveValidationDecision.ESCALATE
+        )
 
     def test_precedence_block_over_invalidate(self) -> None:
         block_f = ValidationFinding(
@@ -413,7 +433,10 @@ class TestDeriveDecision:
             source="test",
             blocking=True,
         )
-        assert derive_cognitive_validation_decision((inv_f, block_f)) is CognitiveValidationDecision.BLOCK
+        assert (
+            derive_cognitive_validation_decision((inv_f, block_f))
+            is CognitiveValidationDecision.BLOCK
+        )
 
     def test_precedence_block_over_escalate(self) -> None:
         escalate_f = ValidationFinding(
@@ -518,7 +541,10 @@ class TestTemporalityRule:
 
     def test_content_expired(self) -> None:
         rule = TemporalityRule()
-        pkg = _package(valid_until=_NOW - timedelta(seconds=1), created_at=_NOW - timedelta(minutes=2))
+        pkg = _package(
+            valid_until=_NOW - timedelta(seconds=1),
+            created_at=_NOW - timedelta(minutes=2),
+        )
         findings = rule.evaluate(pkg, _ctx())
         assert any(f.code == "COG_TEMPORAL_EXPIRED" and f.blocking for f in findings)
 
@@ -612,7 +638,9 @@ class TestContradictionsRule:
         )
         pkg = _package(contradictions=(c,))
         findings = rule.evaluate(pkg, _ctx())
-        assert any(f.code == "COG_CONTRADICTION_UNRESOLVED" and f.blocking for f in findings)
+        assert any(
+            f.code == "COG_CONTRADICTION_UNRESOLVED" and f.blocking for f in findings
+        )
 
 
 # ── Privacy rule tests ───────────────────────────────────────────────────────
@@ -625,7 +653,10 @@ class TestPrivacyRule:
             policy=PrivacyPolicy.REMOTE_ALLOWED,
             sensitivity=SensitivityLevel.PUBLIC,
             allow_remote=True,
-            allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+            allowed_processing_locations=(
+                ProcessingLocation.LOCAL,
+                ProcessingLocation.REMOTE,
+            ),
             allow_cache=True,
         )
         entry = _cache_entry(privacy=privacy)
@@ -649,11 +680,16 @@ class TestPrivacyRule:
             policy=PrivacyPolicy.REMOTE_ALLOWED,
             sensitivity=SensitivityLevel.PUBLIC,
             allow_remote=True,
-            allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+            allowed_processing_locations=(
+                ProcessingLocation.LOCAL,
+                ProcessingLocation.REMOTE,
+            ),
             requires_redaction=True,
         )
         entry = _cache_entry(privacy=privacy)
-        findings = rule.evaluate(entry, _ctx(target_operation=PrivacyOperation.PROCESS_REMOTE))
+        findings = rule.evaluate(
+            entry, _ctx(target_operation=PrivacyOperation.PROCESS_REMOTE)
+        )
         assert any(f.code == "COG_REDACTION_REQUIRED" and f.blocking for f in findings)
 
     def test_approval_required(self) -> None:
@@ -662,11 +698,16 @@ class TestPrivacyRule:
             policy=PrivacyPolicy.REMOTE_ALLOWED,
             sensitivity=SensitivityLevel.PUBLIC,
             allow_remote=True,
-            allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+            allowed_processing_locations=(
+                ProcessingLocation.LOCAL,
+                ProcessingLocation.REMOTE,
+            ),
             requires_approval=True,
         )
         entry = _cache_entry(privacy=privacy)
-        findings = rule.evaluate(entry, _ctx(target_operation=PrivacyOperation.PROCESS_REMOTE))
+        findings = rule.evaluate(
+            entry, _ctx(target_operation=PrivacyOperation.PROCESS_REMOTE)
+        )
         assert any(f.code == "COG_APPROVAL_REQUIRED" and f.blocking for f in findings)
 
 
@@ -736,7 +777,9 @@ class TestDependenciesRule:
         rule = DependenciesRule()
         entry = _cache_entry(dependency_ids=("dep-1", "dep-2"))
         findings = rule.evaluate(entry, _ctx(invalidated_dependency_ids=("dep-1",)))
-        assert any(f.code == "COG_DEPENDENCY_INVALIDATED" and f.blocking for f in findings)
+        assert any(
+            f.code == "COG_DEPENDENCY_INVALIDATED" and f.blocking for f in findings
+        )
 
     def test_profile_mismatch(self) -> None:
         rule = DependenciesRule()
@@ -848,7 +891,9 @@ class TestPhase7Integration:
         pkg = _package(facts=(_fact(evidence=(_evidence(),)),), provenance=("s",))
         executor = CognitiveValidationStepExecutor(validator, pkg, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         assert result.status is ValidationStatus.PASSED
 
@@ -858,7 +903,9 @@ class TestPhase7Integration:
         pkg = _package(facts=(_fact(evidence=()),), provenance=("s",))
         executor = CognitiveValidationStepExecutor(validator, pkg, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         assert result.status is ValidationStatus.WARNING
 
@@ -868,7 +915,9 @@ class TestPhase7Integration:
         pkg = _package(provenance=())
         executor = CognitiveValidationStepExecutor(validator, pkg, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         assert result.status is ValidationStatus.FAILED
 
@@ -877,7 +926,9 @@ class TestPhase7Integration:
         pkg = _package(provenance=())
         executor = CognitiveValidationStepExecutor(validator, pkg, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         assert len(result.findings) > 0
 
@@ -886,7 +937,9 @@ class TestPhase7Integration:
         pkg = _package(facts=(_fact(evidence=(_evidence(),)),), provenance=("s",))
         executor = CognitiveValidationStepExecutor(validator, pkg, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         assert len(result.artifacts) == 1
         artifact = result.artifacts[0]
@@ -903,7 +956,9 @@ class TestPhase7Integration:
         entry = _cache_entry(privacy=privacy)
         executor = CognitiveValidationStepExecutor(validator, entry, _ctx())
         val_ctx = ValidationContext(project_root=Path("/tmp"))
-        step = ValidationStep(name="cognitive.validation", step_type=ValidationStepType.INTERNAL)
+        step = ValidationStep(
+            name="cognitive.validation", step_type=ValidationStepType.INTERNAL
+        )
         result = executor.validate(val_ctx, step)
         artifact = result.artifacts[0]
         # Artifact should not contain the full entry value

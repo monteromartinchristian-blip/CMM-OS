@@ -35,21 +35,39 @@ class ModelFallbackDecisionEngine:
         attempts = context.history.attempts_including_latest(result)
         reasons: list[str] = []
 
-        if context.privacy.get("compatible") is False or result.trigger is ModelFallbackTrigger.PRIVACY_INCOMPATIBLE:
+        if (
+            context.privacy.get("compatible") is False
+            or result.trigger is ModelFallbackTrigger.PRIVACY_INCOMPATIBLE
+        ):
             return self._restricted(context, "privacy_conflict")
         if context.policy_context.get("allowed", True) is False:
             return self._restricted(context, "policy_denied")
-        if not context.budget.get("available", True) or result.trigger is ModelFallbackTrigger.BUDGET_EXHAUSTED:
+        if (
+            not context.budget.get("available", True)
+            or result.trigger is ModelFallbackTrigger.BUDGET_EXHAUSTED
+        ):
             return self._restricted(context, "budget_exhausted")
 
         if context.policy_context.get("premium_required", False):
             if not policy.allow_premium_with_approval:
-                return self._decision(context, ModelFallbackAction.FAIL_TERMINAL, ("premium_not_allowed",))
+                return self._decision(
+                    context, ModelFallbackAction.FAIL_TERMINAL, ("premium_not_allowed",)
+                )
             if not context.approval.get("approved", False):
-                return self._decision(context, ModelFallbackAction.REQUEST_APPROVAL, ("approval_required",), requires_approval=True, pause=True)
+                return self._decision(
+                    context,
+                    ModelFallbackAction.REQUEST_APPROVAL,
+                    ("approval_required",),
+                    requires_approval=True,
+                    pause=True,
+                )
 
         if len(attempts) >= policy.maximum_attempts:
-            return self._decision(context, ModelFallbackAction.FAIL_TERMINAL, ("maximum_attempts_exhausted",))
+            return self._decision(
+                context,
+                ModelFallbackAction.FAIL_TERMINAL,
+                ("maximum_attempts_exhausted",),
+            )
 
         model_count = sum(a.model_id == result.model_id for a in attempts)
         provider_count = sum(a.provider_id == result.provider_id for a in attempts)
@@ -63,12 +81,20 @@ class ModelFallbackDecisionEngine:
                 context, (*reasons, result.trigger.value, "escalation_trigger")
             )
 
-        if result.trigger in {
-            ModelFallbackTrigger.VALIDATION_FAILED,
-            ModelFallbackTrigger.STRUCTURED_OUTPUT_INVALID,
-            ModelFallbackTrigger.PARSING_FAILED,
-        } and ModelFallbackAction.REVALIDATE in policy.actions:
-            return self._decision(context, ModelFallbackAction.REVALIDATE, (*reasons, "revalidation_required"))
+        if (
+            result.trigger
+            in {
+                ModelFallbackTrigger.VALIDATION_FAILED,
+                ModelFallbackTrigger.STRUCTURED_OUTPUT_INVALID,
+                ModelFallbackTrigger.PARSING_FAILED,
+            }
+            and ModelFallbackAction.REVALIDATE in policy.actions
+        ):
+            return self._decision(
+                context,
+                ModelFallbackAction.REVALIDATE,
+                (*reasons, "revalidation_required"),
+            )
 
         requested_action = context.policy_context.get("requested_action")
         if requested_action is not None:
@@ -76,21 +102,40 @@ class ModelFallbackDecisionEngine:
                 requested = ModelFallbackAction(requested_action)
             except ValueError:
                 requested = None
-            if requested in {
-                ModelFallbackAction.REOBSERVE,
-                ModelFallbackAction.REPLAN,
-                ModelFallbackAction.PAUSE,
-            } and requested in policy.actions:
+            if (
+                requested
+                in {
+                    ModelFallbackAction.REOBSERVE,
+                    ModelFallbackAction.REPLAN,
+                    ModelFallbackAction.PAUSE,
+                }
+                and requested in policy.actions
+            ):
                 return self._decision(
-                    context, requested, (*reasons, f"requested_action:{requested.value}"),
+                    context,
+                    requested,
+                    (*reasons, f"requested_action:{requested.value}"),
                     pause=requested is ModelFallbackAction.PAUSE,
                 )
 
-        if result.trigger is ModelFallbackTrigger.CONTEXT_INSUFFICIENT and ModelFallbackAction.RETRY_MODIFIED_PARAMETERS in policy.actions:
-            return self._decision(context, ModelFallbackAction.RETRY_MODIFIED_PARAMETERS, (*reasons, "context_reduction_allowed"))
+        if (
+            result.trigger is ModelFallbackTrigger.CONTEXT_INSUFFICIENT
+            and ModelFallbackAction.RETRY_MODIFIED_PARAMETERS in policy.actions
+        ):
+            return self._decision(
+                context,
+                ModelFallbackAction.RETRY_MODIFIED_PARAMETERS,
+                (*reasons, "context_reduction_allowed"),
+            )
 
-        if result.trigger in policy.retryable_triggers and not reasons and ModelFallbackAction.RETRY_SAME_MODEL in policy.actions:
-            return self._decision(context, ModelFallbackAction.RETRY_SAME_MODEL, tuple(reasons))
+        if (
+            result.trigger in policy.retryable_triggers
+            and not reasons
+            and ModelFallbackAction.RETRY_SAME_MODEL in policy.actions
+        ):
+            return self._decision(
+                context, ModelFallbackAction.RETRY_SAME_MODEL, tuple(reasons)
+            )
 
         selection_actions = {
             ModelFallbackAction.NEXT_ROUTING_CANDIDATE,
@@ -113,16 +158,26 @@ class ModelFallbackDecisionEngine:
                 reasons.append(f"provider_excluded:{result.provider_id}")
             candidates = self._fallback_provider(context.routing_decision)
             for candidate in candidates:
-                valid, reason = self._candidate_is_valid(context, candidate, used_models, excluded)
+                valid, reason = self._candidate_is_valid(
+                    context, candidate, used_models, excluded
+                )
                 if not valid:
                     skipped.append(candidate.qualified_model_id)
                     reasons.append(reason)
                     continue
-                transition = "same_provider" if candidate.provider_id == result.provider_id else "provider_changed"
+                transition = (
+                    "same_provider"
+                    if candidate.provider_id == result.provider_id
+                    else "provider_changed"
+                )
                 selected_action = ModelFallbackAction.NEXT_ROUTING_CANDIDATE
-                if ModelFallbackAction.SELECT_HIGHER_QUALITY_MODEL in policy.actions and (
-                    result.trigger is ModelFallbackTrigger.QUALITY_INSUFFICIENT
-                    or ModelFallbackAction.NEXT_ROUTING_CANDIDATE not in policy.actions
+                if (
+                    ModelFallbackAction.SELECT_HIGHER_QUALITY_MODEL in policy.actions
+                    and (
+                        result.trigger is ModelFallbackTrigger.QUALITY_INSUFFICIENT
+                        or ModelFallbackAction.NEXT_ROUTING_CANDIDATE
+                        not in policy.actions
+                    )
                 ):
                     selected_action = ModelFallbackAction.SELECT_HIGHER_QUALITY_MODEL
                 elif ModelFallbackAction.SELECT_LOWER_COST_MODEL in policy.actions:
@@ -130,17 +185,29 @@ class ModelFallbackDecisionEngine:
                 elif ModelFallbackAction.SELECT_EQUIVALENT_MODEL in policy.actions:
                     selected_action = ModelFallbackAction.SELECT_EQUIVALENT_MODEL
                 return self._decision(
-                    context, selected_action,
-                    (*reasons, "next_routing_candidate", transition), candidate.model_id,
-                    candidate.provider_id, tuple(skipped),
+                    context,
+                    selected_action,
+                    (*reasons, "next_routing_candidate", transition),
+                    candidate.model_id,
+                    candidate.provider_id,
+                    tuple(skipped),
                 )
             reasons.append("routing_candidates_exhausted")
 
         if policy.allow_rerouting and ModelFallbackAction.REROUTE in policy.actions:
-            return self._decision(context, ModelFallbackAction.REROUTE, (*reasons, "reroute_required"))
+            return self._decision(
+                context, ModelFallbackAction.REROUTE, (*reasons, "reroute_required")
+            )
         if ModelFallbackAction.PAUSE in policy.actions:
-            return self._decision(context, ModelFallbackAction.PAUSE, (*reasons, "pause_required"), pause=True)
-        return self._decision(context, ModelFallbackAction.FAIL_TERMINAL, (*reasons, "no_safe_fallback"))
+            return self._decision(
+                context,
+                ModelFallbackAction.PAUSE,
+                (*reasons, "pause_required"),
+                pause=True,
+            )
+        return self._decision(
+            context, ModelFallbackAction.FAIL_TERMINAL, (*reasons, "no_safe_fallback")
+        )
 
     def _candidate_is_valid(
         self,
@@ -154,34 +221,59 @@ class ModelFallbackDecisionEngine:
             return False, f"model_already_used:{candidate.qualified_model_id}"
         if candidate.qualified_model_id in excluded:
             return False, f"provider_excluded:{candidate.provider_id}"
-        if candidate.context_window is None or candidate.context_window < requirements.minimum_context_window:
-            return False, f"candidate_context_insufficient:{candidate.qualified_model_id}"
-        if requirements.allowed_providers and candidate.provider_id not in requirements.allowed_providers:
+        if (
+            candidate.context_window is None
+            or candidate.context_window < requirements.minimum_context_window
+        ):
+            return (
+                False,
+                f"candidate_context_insufficient:{candidate.qualified_model_id}",
+            )
+        if (
+            requirements.allowed_providers
+            and candidate.provider_id not in requirements.allowed_providers
+        ):
             return False, f"candidate_provider_not_allowed:{candidate.provider_id}"
         if candidate.provider_id in requirements.excluded_providers:
             return False, f"provider_excluded:{candidate.provider_id}"
         if requirements.maximum_input_cost_per_million is not None and (
-            candidate.input_cost_per_million is None or candidate.input_cost_per_million > requirements.maximum_input_cost_per_million
+            candidate.input_cost_per_million is None
+            or candidate.input_cost_per_million
+            > requirements.maximum_input_cost_per_million
         ):
             return False, f"candidate_cost_exceeded:{candidate.qualified_model_id}"
         if requirements.maximum_output_cost_per_million is not None and (
-            candidate.output_cost_per_million is None or candidate.output_cost_per_million > requirements.maximum_output_cost_per_million
+            candidate.output_cost_per_million is None
+            or candidate.output_cost_per_million
+            > requirements.maximum_output_cost_per_million
         ):
             return False, f"candidate_cost_exceeded:{candidate.qualified_model_id}"
         provider_types = context.privacy.get("provider_types", {})
         provider_type = provider_types.get(candidate.provider_id)
-        if requirements.privacy in {"LOCAL_ONLY", "SENSITIVE"} and provider_type != "local":
+        if (
+            requirements.privacy in {"LOCAL_ONLY", "SENSITIVE"}
+            and provider_type != "local"
+        ):
             return False, f"candidate_privacy_conflict:{candidate.provider_id}"
         if not context.budget.get("available", True):
             return False, "budget_exhausted"
         return True, ""
 
-    def _restricted(self, context: ModelFallbackContext, reason: str) -> ModelFallbackDecision:
+    def _restricted(
+        self, context: ModelFallbackContext, reason: str
+    ) -> ModelFallbackDecision:
         return self._escalate_or_fail(context, (reason,))
 
-    def _escalate_or_fail(self, context: ModelFallbackContext, reasons: tuple[str, ...]) -> ModelFallbackDecision:
+    def _escalate_or_fail(
+        self, context: ModelFallbackContext, reasons: tuple[str, ...]
+    ) -> ModelFallbackDecision:
         if ModelFallbackAction.ESCALATE in context.policy.actions:
-            return self._decision(context, ModelFallbackAction.ESCALATE, reasons, pause=context.policy.pause_on_escalation)
+            return self._decision(
+                context,
+                ModelFallbackAction.ESCALATE,
+                reasons,
+                pause=context.policy.pause_on_escalation,
+            )
         return self._decision(context, ModelFallbackAction.FAIL_TERMINAL, reasons)
 
     @staticmethod
@@ -230,8 +322,12 @@ class ModelFallbackDecisionEngine:
                 "history_size": len(context.history.attempts),
                 "policy_id": context.policy.id,
                 "policy_version": context.policy.version,
-                "routing_decision_id": context.routing_decision.id if context.routing_decision else None,
-                "effective_requirements": model_requirements_to_dict(context.effective_requirements),
+                "routing_decision_id": context.routing_decision.id
+                if context.routing_decision
+                else None,
+                "effective_requirements": model_requirements_to_dict(
+                    context.effective_requirements
+                ),
                 "history": context.history.to_dict(),
                 "approval": context.approval,
                 "budget": context.budget,

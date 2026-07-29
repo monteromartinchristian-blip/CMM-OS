@@ -73,10 +73,7 @@ def test_policy_adapter_reads_explicit_model_requirements() -> None:
     assert sources[0].requirements.minimum_context_window == 64_000
     assert sources[0].requirements.structured_output is True
     assert sources[0].requirements.privacy == "LOCAL_ONLY"
-    assert (
-        sources[0].requirements.maximum_input_cost_per_million
-        == Decimal("0.80")
-    )
+    assert sources[0].requirements.maximum_input_cost_per_million == Decimal("0.80")
 
 
 def test_policy_adapter_ignores_unrelated_restrictions() -> None:

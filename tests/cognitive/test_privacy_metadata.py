@@ -119,7 +119,10 @@ def test_serialize_is_json_safe() -> None:
     metadata = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         sensitivity=SensitivityLevel.INTERNAL,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
         allow_remote=True,
     )
     payload = metadata.serialize()
@@ -191,13 +194,18 @@ def test_local_only_incoherent_with_remote() -> None:
     with pytest.raises(InvalidPrivacyMetadataError):
         PrivacyMetadata(
             policy=PrivacyPolicy.LOCAL_ONLY,
-            allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+            allowed_processing_locations=(
+                ProcessingLocation.LOCAL,
+                ProcessingLocation.REMOTE,
+            ),
         )
 
 
 def test_premium_incoherent_with_policy() -> None:
     with pytest.raises(InvalidPrivacyMetadataError):
-        PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=True)
+        PrivacyMetadata(
+            policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=True
+        )
 
 
 def test_rejects_invalid_permissions() -> None:
@@ -231,23 +239,39 @@ def test_resolution_intersects_processing_locations() -> None:
     a = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
     )
-    b = PrivacyMetadata(policy=PrivacyPolicy.LOCAL_PREFERRED, allowed_processing_locations=(ProcessingLocation.LOCAL,))
+    b = PrivacyMetadata(
+        policy=PrivacyPolicy.LOCAL_PREFERRED,
+        allowed_processing_locations=(ProcessingLocation.LOCAL,),
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
-    assert resolution.effective.allowed_processing_locations == (ProcessingLocation.LOCAL,)
+    assert resolution.effective.allowed_processing_locations == (
+        ProcessingLocation.LOCAL,
+    )
 
 
 def test_resolution_unions_prohibited_providers() -> None:
-    a = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, prohibited_providers=("bad-a",))
-    b = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, prohibited_providers=("bad-b",))
+    a = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, prohibited_providers=("bad-a",)
+    )
+    b = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, prohibited_providers=("bad-b",)
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert set(resolution.effective.prohibited_providers) == {"bad-a", "bad-b"}
 
 
 def test_resolution_intersects_allowlists() -> None:
-    a = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allowed_providers=("p1", "p2"))
-    b = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allowed_providers=("p2", "p3"))
+    a = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allowed_providers=("p1", "p2")
+    )
+    b = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allowed_providers=("p2", "p3")
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.allowed_providers == ("p2",)
 
@@ -274,8 +298,12 @@ def test_resolution_ands_allow_export() -> None:
 
 
 def test_resolution_ands_allow_premium() -> None:
-    a = PrivacyMetadata(policy=PrivacyPolicy.PREMIUM_ALLOWED, allow_remote=True, allow_premium=True)
-    b = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=False)
+    a = PrivacyMetadata(
+        policy=PrivacyPolicy.PREMIUM_ALLOWED, allow_remote=True, allow_premium=True
+    )
+    b = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=False
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.allow_premium is False
 
@@ -298,7 +326,11 @@ def test_resolution_inheritance_is_ordered_and_deduplicated() -> None:
     a = PrivacyMetadata(inherited_from=("resource:1", "resource:2"))
     b = PrivacyMetadata(inherited_from=("resource:2", "resource:3"))
     resolution = resolve_effective_privacy_metadata(a, b)
-    assert resolution.effective.inherited_from == ("resource:1", "resource:2", "resource:3")
+    assert resolution.effective.inherited_from == (
+        "resource:1",
+        "resource:2",
+        "resource:3",
+    )
 
 
 def test_resolution_reports_explicit_conflict() -> None:
@@ -365,17 +397,24 @@ def test_remote_allowed_when_authorized() -> None:
     privacy = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
     )
     decision = evaluate_privacy_operation(
-        privacy, PrivacyOperation.PROCESS_REMOTE, PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE)
+        privacy,
+        PrivacyOperation.PROCESS_REMOTE,
+        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE),
     )
     assert decision.allowed is True
 
 
 def test_cache_blocked() -> None:
     decision = evaluate_privacy_operation(
-        PrivacyMetadata(allow_cache=False), PrivacyOperation.CACHE, PrivacyOperationContext()
+        PrivacyMetadata(allow_cache=False),
+        PrivacyOperation.CACHE,
+        PrivacyOperationContext(),
     )
     assert decision.allowed is False
     assert decision.reason_code == "cache_blocked"
@@ -383,7 +422,9 @@ def test_cache_blocked() -> None:
 
 def test_export_blocked() -> None:
     decision = evaluate_privacy_operation(
-        PrivacyMetadata(allow_export=False), PrivacyOperation.EXPORT, PrivacyOperationContext()
+        PrivacyMetadata(allow_export=False),
+        PrivacyOperation.EXPORT,
+        PrivacyOperationContext(),
     )
     assert decision.allowed is False
     assert decision.reason_code == "export_blocked"
@@ -391,7 +432,9 @@ def test_export_blocked() -> None:
 
 def test_premium_blocked() -> None:
     decision = evaluate_privacy_operation(
-        PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=False),
+        PrivacyMetadata(
+            policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allow_premium=False
+        ),
         PrivacyOperation.USE_PREMIUM,
         PrivacyOperationContext(),
     )
@@ -403,13 +446,18 @@ def test_provider_prohibited() -> None:
     privacy = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
         prohibited_providers=("bad-provider",),
     )
     decision = evaluate_privacy_operation(
         privacy,
         PrivacyOperation.TRANSMIT_TO_PROVIDER,
-        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, provider_id="bad-provider"),
+        PrivacyOperationContext(
+            processing_location=ProcessingLocation.REMOTE, provider_id="bad-provider"
+        ),
     )
     assert decision.allowed is False
     assert decision.reason_code == "provider_prohibited"
@@ -420,13 +468,18 @@ def test_provider_outside_allowlist() -> None:
     privacy = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
         allowed_providers=("good-provider",),
     )
     decision = evaluate_privacy_operation(
         privacy,
         PrivacyOperation.TRANSMIT_TO_PROVIDER,
-        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, provider_id="other-provider"),
+        PrivacyOperationContext(
+            processing_location=ProcessingLocation.REMOTE, provider_id="other-provider"
+        ),
     )
     assert decision.allowed is False
     assert decision.reason_code == "provider_not_allowlisted"
@@ -434,22 +487,30 @@ def test_provider_outside_allowlist() -> None:
 
 def test_redaction_required_blocks_until_applied() -> None:
     privacy = PrivacyMetadata(requires_redaction=True)
-    blocked = evaluate_privacy_operation(privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext())
+    blocked = evaluate_privacy_operation(
+        privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext()
+    )
     assert blocked.allowed is False
     assert blocked.status is PrivacyDecisionStatus.REDACTION_REQUIRED
     allowed = evaluate_privacy_operation(
-        privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext(redaction_applied=True)
+        privacy,
+        PrivacyOperation.PROCESS_LOCAL,
+        PrivacyOperationContext(redaction_applied=True),
     )
     assert allowed.allowed is True
 
 
 def test_approval_required_blocks_until_granted() -> None:
     privacy = PrivacyMetadata(requires_approval=True)
-    blocked = evaluate_privacy_operation(privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext())
+    blocked = evaluate_privacy_operation(
+        privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext()
+    )
     assert blocked.allowed is False
     assert blocked.status is PrivacyDecisionStatus.APPROVAL_REQUIRED
     allowed = evaluate_privacy_operation(
-        privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext(approval_granted=True)
+        privacy,
+        PrivacyOperation.PROCESS_LOCAL,
+        PrivacyOperationContext(approval_granted=True),
     )
     assert allowed.allowed is True
 
@@ -464,7 +525,9 @@ def test_actor_permission_denied() -> None:
         )
     )
     decision = evaluate_privacy_operation(
-        privacy, PrivacyOperation.PROCESS_LOCAL, PrivacyOperationContext(actor_id="actor:other")
+        privacy,
+        PrivacyOperation.PROCESS_LOCAL,
+        PrivacyOperationContext(actor_id="actor:other"),
     )
     assert decision.allowed is False
     assert decision.reason_code == "permission_denied"
@@ -535,8 +598,12 @@ def test_privacy_from_knowledge_package() -> None:
 
 
 def test_package_uses_most_restrictive_policy() -> None:
-    local_only_resource = make_resource("resource:local", sensitivity=SensitivityLevel.PUBLIC)
-    permissive_privacy = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True)
+    local_only_resource = make_resource(
+        "resource:local", sensitivity=SensitivityLevel.PUBLIC
+    )
+    permissive_privacy = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True
+    )
     package = make_package(resources=(local_only_resource,))
     privacy = privacy_from_knowledge_package(package, privacy=permissive_privacy)
     assert privacy.policy is PrivacyPolicy.LOCAL_ONLY
@@ -589,9 +656,13 @@ def test_local_only_entry_blocked_in_remote_context() -> None:
 
 
 def test_no_downgrade_between_package_and_cache() -> None:
-    strict_resource = make_resource("resource:strict", sensitivity=SensitivityLevel.RESTRICTED)
+    strict_resource = make_resource(
+        "resource:strict", sensitivity=SensitivityLevel.RESTRICTED
+    )
     package = make_package(resources=(strict_resource,))
-    permissive_override = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True)
+    permissive_override = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True
+    )
     entry = cache_entry_from_knowledge_package(
         package, key="k4", context_signature="ctx-4", privacy=permissive_override
     )
@@ -660,7 +731,9 @@ def test_does_not_duplicate_resource_permission() -> None:
 
 def test_compatible_with_existing_cognitive_suite() -> None:
     package = make_package()
-    entry = cache_entry_from_knowledge_package(package, key="k6", context_signature="ctx-6")
+    entry = cache_entry_from_knowledge_package(
+        package, key="k6", context_signature="ctx-6"
+    )
     cache = CognitiveCache(InMemoryCognitiveCacheStore())
     cache.put(entry)
     context = CognitiveCacheContext(
@@ -679,13 +752,18 @@ def test_missing_allowlist_permits_a_non_prohibited_provider() -> None:
     privacy = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
     )
     assert privacy.allowed_providers is None
     decision = evaluate_privacy_operation(
         privacy,
         PrivacyOperation.TRANSMIT_TO_PROVIDER,
-        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, provider_id="any-provider"),
+        PrivacyOperationContext(
+            processing_location=ProcessingLocation.REMOTE, provider_id="any-provider"
+        ),
     )
     assert decision.allowed is True
 
@@ -694,13 +772,18 @@ def test_explicit_empty_allowlist_blocks_every_provider() -> None:
     privacy = PrivacyMetadata(
         policy=PrivacyPolicy.REMOTE_ALLOWED,
         allow_remote=True,
-        allowed_processing_locations=(ProcessingLocation.LOCAL, ProcessingLocation.REMOTE),
+        allowed_processing_locations=(
+            ProcessingLocation.LOCAL,
+            ProcessingLocation.REMOTE,
+        ),
         allowed_providers=(),
     )
     decision = evaluate_privacy_operation(
         privacy,
         PrivacyOperation.TRANSMIT_TO_PROVIDER,
-        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, provider_id="any-provider"),
+        PrivacyOperationContext(
+            processing_location=ProcessingLocation.REMOTE, provider_id="any-provider"
+        ),
     )
     assert decision.allowed is False
     assert decision.reason_code == "provider_not_allowlisted"
@@ -735,8 +818,16 @@ def test_incompatible_allowlists_resolve_to_blocking_empty_tuple() -> None:
 
 
 def test_overlapping_allowlists_permit_only_common_providers() -> None:
-    a = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allowed_providers=("p1", "p2"))
-    b = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allowed_providers=("p2", "p3"))
+    a = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED,
+        allow_remote=True,
+        allowed_providers=("p1", "p2"),
+    )
+    b = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED,
+        allow_remote=True,
+        allowed_providers=("p2", "p3"),
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.allowed_providers == ("p2",)
 
@@ -746,7 +837,9 @@ def test_allowed_providers_none_vs_empty_round_trip() -> None:
     restored_absent = PrivacyMetadata.from_mapping(absent.serialize())
     assert restored_absent.allowed_providers is None
 
-    empty = PrivacyMetadata(policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allowed_providers=())
+    empty = PrivacyMetadata(
+        policy=PrivacyPolicy.REMOTE_ALLOWED, allow_remote=True, allowed_providers=()
+    )
     restored_empty = PrivacyMetadata.from_mapping(empty.serialize())
     assert restored_empty.allowed_providers == ()
     assert restored_empty.allowed_providers is not None
@@ -757,7 +850,8 @@ def test_allowed_providers_none_vs_empty_round_trip() -> None:
 
 def test_permission_intersection_identical() -> None:
     permission = ResourcePermission(
-        allowed_actor_ids=("actor:1",), allowed_operations=(ResourcePermissionOperation.INFER,)
+        allowed_actor_ids=("actor:1",),
+        allowed_operations=(ResourcePermissionOperation.INFER,),
     )
     a = PrivacyMetadata(permissions=(permission,))
     b = PrivacyMetadata(permissions=(permission,))
@@ -780,8 +874,12 @@ def test_permission_intersection_partially_overlapping_actors() -> None:
 
 
 def test_permission_intersection_partially_overlapping_domains() -> None:
-    a = PrivacyMetadata(permissions=(ResourcePermission(allowed_domains=("health", "finance")),))
-    b = PrivacyMetadata(permissions=(ResourcePermission(allowed_domains=("finance", "legal")),))
+    a = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_domains=("health", "finance")),)
+    )
+    b = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_domains=("finance", "legal")),)
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.permissions_denied is False
     assert resolution.effective.permissions[0].allowed_domains == ("finance",)
@@ -791,20 +889,28 @@ def test_permission_intersection_partially_overlapping_operations() -> None:
     a = PrivacyMetadata(
         permissions=(
             ResourcePermission(
-                allowed_operations=(ResourcePermissionOperation.READ, ResourcePermissionOperation.INFER)
+                allowed_operations=(
+                    ResourcePermissionOperation.READ,
+                    ResourcePermissionOperation.INFER,
+                )
             ),
         )
     )
     b = PrivacyMetadata(
         permissions=(
             ResourcePermission(
-                allowed_operations=(ResourcePermissionOperation.INFER, ResourcePermissionOperation.EXPORT)
+                allowed_operations=(
+                    ResourcePermissionOperation.INFER,
+                    ResourcePermissionOperation.EXPORT,
+                )
             ),
         )
     )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.permissions_denied is False
-    assert resolution.effective.permissions[0].allowed_operations == (ResourcePermissionOperation.INFER,)
+    assert resolution.effective.permissions[0].allowed_operations == (
+        ResourcePermissionOperation.INFER,
+    )
 
 
 def test_permission_intersection_earliest_expiry() -> None:
@@ -818,8 +924,12 @@ def test_permission_intersection_earliest_expiry() -> None:
 
 
 def test_permission_intersection_incompatible_actors_denies() -> None:
-    a = PrivacyMetadata(permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),))
-    b = PrivacyMetadata(permissions=(ResourcePermission(allowed_actor_ids=("actor:2",)),))
+    a = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),)
+    )
+    b = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_actor_ids=("actor:2",)),)
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     assert resolution.effective.permissions == ()
     assert resolution.effective.permissions_denied is True
@@ -827,8 +937,12 @@ def test_permission_intersection_incompatible_actors_denies() -> None:
 
 
 def test_permission_incompatibility_never_opens_the_operation() -> None:
-    a = PrivacyMetadata(permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),))
-    b = PrivacyMetadata(permissions=(ResourcePermission(allowed_actor_ids=("actor:2",)),))
+    a = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),)
+    )
+    b = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_actor_ids=("actor:2",)),)
+    )
     resolution = resolve_effective_privacy_metadata(a, b)
     decision = evaluate_privacy_operation(
         resolution.effective,
@@ -840,7 +954,9 @@ def test_permission_incompatibility_never_opens_the_operation() -> None:
 
 
 def test_unrestricted_policy_does_not_remove_another_policys_restriction() -> None:
-    restricted = PrivacyMetadata(permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),))
+    restricted = PrivacyMetadata(
+        permissions=(ResourcePermission(allowed_actor_ids=("actor:1",)),)
+    )
     unrestricted = PrivacyMetadata()
     resolution = resolve_effective_privacy_metadata(restricted, unrestricted)
     assert resolution.effective.permissions_denied is False
@@ -896,7 +1012,9 @@ def test_from_mapping_rejects_non_bool_flag_values(bad_value: object) -> None:
         "requires_approval",
     ],
 )
-def test_from_mapping_rejects_string_false_for_every_boolean_field(field_name: str) -> None:
+def test_from_mapping_rejects_string_false_for_every_boolean_field(
+    field_name: str,
+) -> None:
     payload = PrivacyMetadata().serialize()
     payload[field_name] = "false"
     with pytest.raises(InvalidPrivacyMetadataError):

@@ -525,9 +525,8 @@ class AgentDescriptor:
                 "AgentDescriptor priority must be an integer",
                 {"field": "priority"},
             )
-        if (
-            self.model_requirements is not None
-            and not isinstance(self.model_requirements, ModelRequirements)
+        if self.model_requirements is not None and not isinstance(
+            self.model_requirements, ModelRequirements
         ):
             raise AgentRegistryValidationError(
                 "AgentDescriptor model_requirements must be "

@@ -477,9 +477,8 @@ class AgentWorkflowOperation:
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowOperation 'timeout_seconds' must be positive."
             )
-        if (
-            self.model_requirements is not None
-            and not isinstance(self.model_requirements, ModelRequirements)
+        if self.model_requirements is not None and not isinstance(
+            self.model_requirements, ModelRequirements
         ):
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowOperation 'model_requirements' must be "
@@ -492,7 +491,9 @@ class AgentWorkflowOperation:
                 "AgentWorkflowOperation 'model_fallback_policy' must be "
                 "a ModelFallbackPolicy instance or None."
             )
-        if self.economic_budget is not None and not isinstance(self.economic_budget, EconomicBudget):
+        if self.economic_budget is not None and not isinstance(
+            self.economic_budget, EconomicBudget
+        ):
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowOperation 'economic_budget' must be an EconomicBudget or None."
             )
@@ -524,7 +525,9 @@ class AgentWorkflowOperation:
                 if self.model_fallback_policy is not None
                 else None
             ),
-            "economic_budget": self.economic_budget.to_dict() if self.economic_budget else None,
+            "economic_budget": self.economic_budget.to_dict()
+            if self.economic_budget
+            else None,
             "metadata": dict(self.metadata),
         }
 
@@ -1092,15 +1095,16 @@ class AgentWorkflowPlan:
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowPlan 'timeout_seconds' must be positive."
             )
-        if (
-            self.model_requirements is not None
-            and not isinstance(self.model_requirements, ModelRequirements)
+        if self.model_requirements is not None and not isinstance(
+            self.model_requirements, ModelRequirements
         ):
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowPlan 'model_requirements' must be "
                 "a ModelRequirements instance or None."
             )
-        if self.economic_budget is not None and not isinstance(self.economic_budget, EconomicBudget):
+        if self.economic_budget is not None and not isinstance(
+            self.economic_budget, EconomicBudget
+        ):
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowPlan 'economic_budget' must be an EconomicBudget or None."
             )
@@ -1146,7 +1150,9 @@ class AgentWorkflowPlan:
                 if self.model_requirements is not None
                 else None
             ),
-            "economic_budget": self.economic_budget.to_dict() if self.economic_budget else None,
+            "economic_budget": self.economic_budget.to_dict()
+            if self.economic_budget
+            else None,
             "confidence": self.confidence,
             "validation": self.validation.to_dict() if self.validation else None,
             "created_at": self.created_at,

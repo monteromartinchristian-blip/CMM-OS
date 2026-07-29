@@ -246,9 +246,8 @@ class OperationDescriptor:
             raise InvalidAgentOperationContractError(
                 "timeout_seconds must be positive."
             )
-        if (
-            self.model_requirements is not None
-            and not isinstance(self.model_requirements, ModelRequirements)
+        if self.model_requirements is not None and not isinstance(
+            self.model_requirements, ModelRequirements
         ):
             raise InvalidAgentOperationContractError(
                 "model_requirements must be a ModelRequirements instance or None."

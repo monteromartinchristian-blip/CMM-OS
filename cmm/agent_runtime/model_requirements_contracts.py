@@ -64,9 +64,7 @@ def _optional_decimal(value: Any, field_name: str) -> Decimal | None:
         ) from exc
 
     if not decimal_value.is_finite():
-        raise InvalidModelRequirementsContractError(
-            f"{field_name} must be finite"
-        )
+        raise InvalidModelRequirementsContractError(f"{field_name} must be finite")
 
     return decimal_value
 
@@ -83,14 +81,10 @@ def model_requirements_from_dict(
 
     try:
         return ModelRequirements(
-            minimum_context_window=int(
-                data.get("minimum_context_window", 1)
-            ),
+            minimum_context_window=int(data.get("minimum_context_window", 1)),
             reasoning=bool(data.get("reasoning", False)),
             tool_calling=bool(data.get("tool_calling", False)),
-            structured_output=bool(
-                data.get("structured_output", False)
-            ),
+            structured_output=bool(data.get("structured_output", False)),
             json_mode=bool(data.get("json_mode", False)),
             json_schema=bool(data.get("json_schema", False)),
             vision=bool(data.get("vision", False)),
@@ -99,9 +93,7 @@ def model_requirements_from_dict(
             embeddings=bool(data.get("embeddings", False)),
             privacy=str(data.get("privacy", "REMOTE_ALLOWED")),
             allowed_providers=tuple(data.get("allowed_providers", ())),
-            excluded_providers=tuple(
-                data.get("excluded_providers", ())
-            ),
+            excluded_providers=tuple(data.get("excluded_providers", ())),
             maximum_input_cost_per_million=_optional_decimal(
                 data.get("maximum_input_cost_per_million"),
                 "maximum_input_cost_per_million",
@@ -110,9 +102,7 @@ def model_requirements_from_dict(
                 data.get("maximum_output_cost_per_million"),
                 "maximum_output_cost_per_million",
             ),
-            premium_allowed=bool(
-                data.get("premium_allowed", False)
-            ),
+            premium_allowed=bool(data.get("premium_allowed", False)),
         )
     except (
         TypeError,
@@ -149,16 +139,10 @@ class ModelRequirementsSource:
             raise InvalidModelRequirementsContractError(
                 "requirements must be a ModelRequirements instance"
             )
-        if not isinstance(self.priority, int) or isinstance(
-            self.priority, bool
-        ):
-            raise InvalidModelRequirementsContractError(
-                "priority must be an integer"
-            )
+        if not isinstance(self.priority, int) or isinstance(self.priority, bool):
+            raise InvalidModelRequirementsContractError("priority must be an integer")
         if not isinstance(self.metadata, Mapping):
-            raise InvalidModelRequirementsContractError(
-                "metadata must be a mapping"
-            )
+            raise InvalidModelRequirementsContractError("metadata must be a mapping")
 
         object.__setattr__(self, "source_kind", self.source_kind.strip())
         object.__setattr__(self, "source_id", self.source_id.strip())
@@ -172,9 +156,7 @@ class ModelRequirementsSource:
         return {
             "source_kind": self.source_kind,
             "source_id": self.source_id,
-            "requirements": model_requirements_to_dict(
-                self.requirements
-            ),
+            "requirements": model_requirements_to_dict(self.requirements),
             "priority": self.priority,
             "metadata": dict(self.metadata),
         }
@@ -187,9 +169,7 @@ class ModelRequirementsSource:
         return cls(
             source_kind=str(data.get("source_kind", "")),
             source_id=str(data.get("source_id", "")),
-            requirements=model_requirements_from_dict(
-                data.get("requirements", {})
-            ),
+            requirements=model_requirements_from_dict(data.get("requirements", {})),
             priority=int(data.get("priority", 0)),
             metadata=data.get("metadata", {}),
         )
@@ -211,12 +191,9 @@ class ResolvedModelRequirements:
                 "effective must be a ModelRequirements instance"
             )
         if not isinstance(self.sources, tuple):
-            raise InvalidModelRequirementsContractError(
-                "sources must be a tuple"
-            )
+            raise InvalidModelRequirementsContractError("sources must be a tuple")
         if any(
-            not isinstance(source, ModelRequirementsSource)
-            for source in self.sources
+            not isinstance(source, ModelRequirementsSource) for source in self.sources
         ):
             raise InvalidModelRequirementsContractError(
                 "sources must contain ModelRequirementsSource values"
@@ -226,9 +203,7 @@ class ResolvedModelRequirements:
                 "requires_premium_approval must be a bool"
             )
         if not isinstance(self.metadata, Mapping):
-            raise InvalidModelRequirementsContractError(
-                "metadata must be a mapping"
-            )
+            raise InvalidModelRequirementsContractError("metadata must be a mapping")
 
         object.__setattr__(self, "warnings", tuple(self.warnings))
         object.__setattr__(
@@ -252,9 +227,7 @@ class ResolvedModelRequirements:
         data: Mapping[str, Any],
     ) -> ResolvedModelRequirements:
         return cls(
-            effective=model_requirements_from_dict(
-                data.get("effective", {})
-            ),
+            effective=model_requirements_from_dict(data.get("effective", {})),
             sources=tuple(
                 ModelRequirementsSource.from_dict(source)
                 for source in data.get("sources", ())

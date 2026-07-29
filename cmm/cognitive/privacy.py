@@ -124,7 +124,9 @@ def _strict_bool(payload: Mapping[str, Any], key: str, default: bool) -> bool:
     raise InvalidPrivacyMetadataError(f"{key} must be a boolean, got {value!r}")
 
 
-def _coerce_permissions(value: Any, name: str = "permissions") -> tuple[ResourcePermission, ...]:
+def _coerce_permissions(
+    value: Any, name: str = "permissions"
+) -> tuple[ResourcePermission, ...]:
     if value is None:
         return ()
     if isinstance(value, (str, bytes, bytearray, Mapping)) or not isinstance(
@@ -160,11 +162,15 @@ def _coerce_permissions(value: Any, name: str = "permissions") -> tuple[Resource
                 )
             )
         else:
-            raise InvalidPrivacyMetadataError(f"{name} must contain ResourcePermission values")
+            raise InvalidPrivacyMetadataError(
+                f"{name} must contain ResourcePermission values"
+            )
     return tuple(result)
 
 
-def _conjoin_ids(a_ids: tuple[str, ...], b_ids: tuple[str, ...]) -> tuple[str, ...] | object:
+def _conjoin_ids(
+    a_ids: tuple[str, ...], b_ids: tuple[str, ...]
+) -> tuple[str, ...] | object:
     """Combine two id restrictions so the result satisfies *both*.
 
     If both sides restrict, only ids common to both survive (``_INCOMPATIBLE``
@@ -397,7 +403,9 @@ class PrivacyMetadata:
         if self.allowed_providers is None:
             allowed_providers = None
         else:
-            allowed_providers = _string_sequence(self.allowed_providers, "allowed_providers")
+            allowed_providers = _string_sequence(
+                self.allowed_providers, "allowed_providers"
+            )
             if len(set(allowed_providers)) != len(allowed_providers):
                 raise InvalidPrivacyMetadataError(
                     "allowed_providers must not contain duplicates"
@@ -420,12 +428,12 @@ class PrivacyMetadata:
 
         inherited_from = _string_sequence(self.inherited_from, "inherited_from")
         if len(set(inherited_from)) != len(inherited_from):
-            raise InvalidPrivacyMetadataError("inherited_from must not contain duplicates")
+            raise InvalidPrivacyMetadataError(
+                "inherited_from must not contain duplicates"
+            )
         object.__setattr__(self, "inherited_from", inherited_from)
 
-        object.__setattr__(
-            self, "permissions", _coerce_permissions(self.permissions)
-        )
+        object.__setattr__(self, "permissions", _coerce_permissions(self.permissions))
 
         for name in (
             "allow_remote",
@@ -469,7 +477,9 @@ class PrivacyMetadata:
                 loc.value for loc in self.allowed_processing_locations
             ],
             "allowed_providers": (
-                list(self.allowed_providers) if self.allowed_providers is not None else None
+                list(self.allowed_providers)
+                if self.allowed_providers is not None
+                else None
             ),
             "prohibited_providers": list(self.prohibited_providers),
             "allow_remote": self.allow_remote,
@@ -598,7 +608,9 @@ def resolve_effective_privacy_metadata(*policies: PrivacyMetadata) -> PrivacyRes
     # declared one (including an explicit, maximally restrictive `()`) are
     # intersected; if none declared one, the effective allowlist stays `None`
     # (unrestricted), not `()` (nothing allowed).
-    declared_allowlists = [p.allowed_providers for p in policies if p.allowed_providers is not None]
+    declared_allowlists = [
+        p.allowed_providers for p in policies if p.allowed_providers is not None
+    ]
     if declared_allowlists:
         effective_allowed_providers_set = set.intersection(
             *(set(allowlist) for allowlist in declared_allowlists)
@@ -607,7 +619,8 @@ def resolve_effective_privacy_metadata(*policies: PrivacyMetadata) -> PrivacyRes
             sorted(effective_allowed_providers_set)
         )
         if len(declared_allowlists) > 1 and any(
-            set(allowlist) != effective_allowed_providers_set for allowlist in declared_allowlists
+            set(allowlist) != effective_allowed_providers_set
+            for allowlist in declared_allowlists
         ):
             restrictions.append("allowed_providers narrowed by intersection")
         if not effective_allowed_providers_set:
@@ -760,7 +773,9 @@ _REMOTE_LIKE_OPERATIONS = frozenset(
 )
 
 
-def _denied(reason_code: str, reasons: Sequence[str], **overrides: Any) -> PrivacyDecision:
+def _denied(
+    reason_code: str, reasons: Sequence[str], **overrides: Any
+) -> PrivacyDecision:
     payload: dict[str, Any] = {
         "allowed": False,
         "status": PrivacyDecisionStatus.DENIED,
@@ -788,7 +803,9 @@ def evaluate_privacy_operation(
         raise InvalidPrivacyMetadataError(
             f"Expected PrivacyMetadata, got {type(privacy).__name__}"
         )
-    operation = cast(PrivacyOperation, _coerce_enum(operation, PrivacyOperation, "operation"))
+    operation = cast(
+        PrivacyOperation, _coerce_enum(operation, PrivacyOperation, "operation")
+    )
     if not isinstance(context, PrivacyOperationContext):
         raise InvalidPrivacyMetadataError(
             f"Expected PrivacyOperationContext, got {type(context).__name__}"
@@ -885,11 +902,14 @@ def evaluate_privacy_operation(
                 excluded=True,
             )
         if context.is_premium and (
-            not privacy.allow_premium or privacy.policy is not PrivacyPolicy.PREMIUM_ALLOWED
+            not privacy.allow_premium
+            or privacy.policy is not PrivacyPolicy.PREMIUM_ALLOWED
         ):
             return _denied(
                 "premium_blocked",
-                ("premium transmission requires allow_premium=True and PREMIUM_ALLOWED policy",),
+                (
+                    "premium transmission requires allow_premium=True and PREMIUM_ALLOWED policy",
+                ),
             )
 
     if privacy.requires_redaction and not context.redaction_applied:
@@ -899,7 +919,8 @@ def evaluate_privacy_operation(
             reason_code="redaction_required",
             reasons=("privacy metadata requires redaction before this operation",),
             requires_redaction=True,
-            requires_approval=privacy.requires_approval and not context.approval_granted,
+            requires_approval=privacy.requires_approval
+            and not context.approval_granted,
         )
 
     if privacy.requires_approval and not context.approval_granted:

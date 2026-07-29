@@ -83,7 +83,9 @@ def _decimal(value: Any, name: str) -> Decimal:
     except (DecimalException, TypeError, ValueError) as exc:
         raise InvalidModelExecutionRecordError(f"{name} must be a Decimal") from exc
     if not result.is_finite() or result < 0:
-        raise InvalidModelExecutionRecordError(f"{name} must be finite and non-negative")
+        raise InvalidModelExecutionRecordError(
+            f"{name} must be finite and non-negative"
+        )
     return result
 
 
@@ -148,11 +150,14 @@ def _mapping(value: Mapping[str, Any] | None, name: str) -> MappingProxyType:
         value = {}
     if not isinstance(value, Mapping):
         raise InvalidModelExecutionRecordError(f"{name} must be a mapping")
+
     def check(item: Any) -> None:
         if isinstance(item, Mapping):
             for key, nested in item.items():
                 if not isinstance(key, str) or _SENSITIVE.search(key):
-                    raise InvalidModelExecutionRecordError(f"{name} contains sensitive key")
+                    raise InvalidModelExecutionRecordError(
+                        f"{name} contains sensitive key"
+                    )
                 check(nested)
         elif isinstance(item, (list, tuple, set, frozenset)):
             for nested in item:
@@ -163,7 +168,9 @@ def _mapping(value: Mapping[str, Any] | None, name: str) -> MappingProxyType:
     try:
         json.dumps(_json(frozen), sort_keys=True)
     except (TypeError, ValueError) as exc:
-        raise InvalidModelExecutionRecordError(f"{name} must be JSON serializable") from exc
+        raise InvalidModelExecutionRecordError(
+            f"{name} must be JSON serializable"
+        ) from exc
     return frozen
 
 
@@ -184,10 +191,16 @@ class ModelExecutionContentReference:
     def __post_init__(self) -> None:
         object.__setattr__(self, "reference_id", _id(self.reference_id, "reference_id"))
         object.__setattr__(self, "kind", _id(self.kind, "kind"))
-        object.__setattr__(self, "policy_version", _id(self.policy_version, "policy_version"))
+        object.__setattr__(
+            self, "policy_version", _id(self.policy_version, "policy_version")
+        )
 
     def to_dict(self) -> dict[str, str]:
-        return {"reference_id": self.reference_id, "kind": self.kind, "policy_version": self.policy_version}
+        return {
+            "reference_id": self.reference_id,
+            "kind": self.kind,
+            "policy_version": self.policy_version,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ModelExecutionContentReference:
@@ -210,12 +223,20 @@ class QualityEvaluation:
             object.__setattr__(self, "score", score)
         for name in ("evaluator", "criteria_version", "result_reference"):
             object.__setattr__(self, name, _optional_id(getattr(self, name), name))
-        object.__setattr__(self, "reason_codes", tuple(_id(v, "reason_code") for v in self.reason_codes))
+        object.__setattr__(
+            self,
+            "reason_codes",
+            tuple(_id(v, "reason_code") for v in self.reason_codes),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"score": str(self.score) if self.score is not None else None, "evaluator": self.evaluator,
-                "criteria_version": self.criteria_version, "result_reference": self.result_reference,
-                "reason_codes": list(self.reason_codes)}
+        return {
+            "score": str(self.score) if self.score is not None else None,
+            "evaluator": self.evaluator,
+            "criteria_version": self.criteria_version,
+            "result_reference": self.result_reference,
+            "reason_codes": list(self.reason_codes),
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> QualityEvaluation:
@@ -227,24 +248,61 @@ class QualityEvaluation:
 
 _TRANSITIONS = {
     AcceptanceStatus.PENDING: frozenset(AcceptanceStatus),
-    AcceptanceStatus.ACCEPTED: frozenset({AcceptanceStatus.ACCEPTED_WITH_WARNING, AcceptanceStatus.REPAIRED,
-                                          AcceptanceStatus.REGENERATED, AcceptanceStatus.ESCALATED}),
-    AcceptanceStatus.ACCEPTED_WITH_WARNING: frozenset({AcceptanceStatus.ACCEPTED, AcceptanceStatus.REPAIRED,
-                                                       AcceptanceStatus.REGENERATED, AcceptanceStatus.ESCALATED}),
-    AcceptanceStatus.REJECTED: frozenset({AcceptanceStatus.REPAIRED, AcceptanceStatus.REGENERATED,
-                                          AcceptanceStatus.ESCALATED}),
-    AcceptanceStatus.REPAIRED: frozenset({AcceptanceStatus.ACCEPTED, AcceptanceStatus.ACCEPTED_WITH_WARNING,
-                                          AcceptanceStatus.REJECTED, AcceptanceStatus.ESCALATED}),
-    AcceptanceStatus.REGENERATED: frozenset({AcceptanceStatus.ACCEPTED, AcceptanceStatus.ACCEPTED_WITH_WARNING,
-                                             AcceptanceStatus.REJECTED, AcceptanceStatus.ESCALATED}),
-    AcceptanceStatus.ESCALATED: frozenset({AcceptanceStatus.ACCEPTED, AcceptanceStatus.ACCEPTED_WITH_WARNING,
-                                           AcceptanceStatus.REJECTED, AcceptanceStatus.CANCELLED}),
+    AcceptanceStatus.ACCEPTED: frozenset(
+        {
+            AcceptanceStatus.ACCEPTED_WITH_WARNING,
+            AcceptanceStatus.REPAIRED,
+            AcceptanceStatus.REGENERATED,
+            AcceptanceStatus.ESCALATED,
+        }
+    ),
+    AcceptanceStatus.ACCEPTED_WITH_WARNING: frozenset(
+        {
+            AcceptanceStatus.ACCEPTED,
+            AcceptanceStatus.REPAIRED,
+            AcceptanceStatus.REGENERATED,
+            AcceptanceStatus.ESCALATED,
+        }
+    ),
+    AcceptanceStatus.REJECTED: frozenset(
+        {
+            AcceptanceStatus.REPAIRED,
+            AcceptanceStatus.REGENERATED,
+            AcceptanceStatus.ESCALATED,
+        }
+    ),
+    AcceptanceStatus.REPAIRED: frozenset(
+        {
+            AcceptanceStatus.ACCEPTED,
+            AcceptanceStatus.ACCEPTED_WITH_WARNING,
+            AcceptanceStatus.REJECTED,
+            AcceptanceStatus.ESCALATED,
+        }
+    ),
+    AcceptanceStatus.REGENERATED: frozenset(
+        {
+            AcceptanceStatus.ACCEPTED,
+            AcceptanceStatus.ACCEPTED_WITH_WARNING,
+            AcceptanceStatus.REJECTED,
+            AcceptanceStatus.ESCALATED,
+        }
+    ),
+    AcceptanceStatus.ESCALATED: frozenset(
+        {
+            AcceptanceStatus.ACCEPTED,
+            AcceptanceStatus.ACCEPTED_WITH_WARNING,
+            AcceptanceStatus.REJECTED,
+            AcceptanceStatus.CANCELLED,
+        }
+    ),
     AcceptanceStatus.CANCELLED: frozenset(),
     AcceptanceStatus.FAILED: frozenset(),
 }
 
 
-def is_valid_acceptance_transition(current: AcceptanceStatus, target: AcceptanceStatus) -> bool:
+def is_valid_acceptance_transition(
+    current: AcceptanceStatus, target: AcceptanceStatus
+) -> bool:
     return target in _TRANSITIONS[current]
 
 
@@ -317,17 +375,57 @@ class ModelExecutionRecord:
     def __post_init__(self) -> None:
         for name in ("id", "agent_run_id", "provider_id", "model_id", "capability"):
             value = _id(getattr(self, name), name)
-            object.__setattr__(self, name, value.lower() if name in {"provider_id", "model_id"} else value)
-        for name in ("goal_id", "workflow_id", "task_id", "operation_id", "domain", "model_version", "fallback_from",
-                     "fallback_trigger", "fallback_action", "configuration_version", "policy_version", "routing_decision_id",
-                     "trace_id", "correlation_id", "causation_id", "reservation_id", "budget_id", "economic_decision",
-                     "routing_provider_id", "routing_model_id", "attempt_history_reference", "validation_status"):
+            object.__setattr__(
+                self,
+                name,
+                value.lower() if name in {"provider_id", "model_id"} else value,
+            )
+        for name in (
+            "goal_id",
+            "workflow_id",
+            "task_id",
+            "operation_id",
+            "domain",
+            "model_version",
+            "fallback_from",
+            "fallback_trigger",
+            "fallback_action",
+            "configuration_version",
+            "policy_version",
+            "routing_decision_id",
+            "trace_id",
+            "correlation_id",
+            "causation_id",
+            "reservation_id",
+            "budget_id",
+            "economic_decision",
+            "routing_provider_id",
+            "routing_model_id",
+            "attempt_history_reference",
+            "validation_status",
+        ):
             object.__setattr__(self, name, _optional_id(getattr(self, name), name))
-        for name in ("input_tokens", "output_tokens", "cached_tokens", "latency_ms", "retry_number",
-                     "rejected_candidates_count", "validation_blocking_count", "validation_warning_count"):
+        for name in (
+            "input_tokens",
+            "output_tokens",
+            "cached_tokens",
+            "latency_ms",
+            "retry_number",
+            "rejected_candidates_count",
+            "validation_blocking_count",
+            "validation_warning_count",
+        ):
             object.__setattr__(self, name, _integer(getattr(self, name), name))
-        object.__setattr__(self, "estimated_cost", _decimal(self.estimated_cost, "estimated_cost"))
-        object.__setattr__(self, "actual_cost", None if self.actual_cost is None else _decimal(self.actual_cost, "actual_cost"))
+        object.__setattr__(
+            self, "estimated_cost", _decimal(self.estimated_cost, "estimated_cost")
+        )
+        object.__setattr__(
+            self,
+            "actual_cost",
+            None
+            if self.actual_cost is None
+            else _decimal(self.actual_cost, "actual_cost"),
+        )
         currency = _id(self.currency, "currency").upper()
         if len(currency) != 3:
             raise InvalidModelExecutionRecordError("currency must be a 3-letter code")
@@ -335,27 +433,87 @@ class ModelExecutionRecord:
         for name in ("cache_used", "human_intervention"):
             if not isinstance(getattr(self, name), bool):
                 raise InvalidModelExecutionRecordError(f"{name} must be a bool")
-        object.__setattr__(self, "validation_result_ids", tuple(_id(v, "validation_result_id") for v in self.validation_result_ids))
-        object.__setattr__(self, "reason_codes", tuple(_id(v, "reason_code") for v in self.reason_codes))
-        object.__setattr__(self, "routing_reason_codes", tuple(_id(v, "routing_reason_code") for v in self.routing_reason_codes))
-        object.__setattr__(self, "economic_reason_codes", tuple(_id(v, "economic_reason_code") for v in self.economic_reason_codes))
-        object.__setattr__(self, "exclusion_reasons", tuple(_id(v, "exclusion_reason") for v in self.exclusion_reasons))
-        object.__setattr__(self, "execution_status", _enum(self.execution_status, ModelExecutionStatus, "execution_status"))
-        object.__setattr__(self, "acceptance_status", _enum(self.acceptance_status, AcceptanceStatus, "acceptance_status"))
-        object.__setattr__(self, "content_retention", _enum(self.content_retention, ContentRetentionMode, "content_retention"))
-        object.__setattr__(self, "privacy_classification", _enum(self.privacy_classification, PrivacyClassification, "privacy_classification"))
+        object.__setattr__(
+            self,
+            "validation_result_ids",
+            tuple(_id(v, "validation_result_id") for v in self.validation_result_ids),
+        )
+        object.__setattr__(
+            self,
+            "reason_codes",
+            tuple(_id(v, "reason_code") for v in self.reason_codes),
+        )
+        object.__setattr__(
+            self,
+            "routing_reason_codes",
+            tuple(_id(v, "routing_reason_code") for v in self.routing_reason_codes),
+        )
+        object.__setattr__(
+            self,
+            "economic_reason_codes",
+            tuple(_id(v, "economic_reason_code") for v in self.economic_reason_codes),
+        )
+        object.__setattr__(
+            self,
+            "exclusion_reasons",
+            tuple(_id(v, "exclusion_reason") for v in self.exclusion_reasons),
+        )
+        object.__setattr__(
+            self,
+            "execution_status",
+            _enum(self.execution_status, ModelExecutionStatus, "execution_status"),
+        )
+        object.__setattr__(
+            self,
+            "acceptance_status",
+            _enum(self.acceptance_status, AcceptanceStatus, "acceptance_status"),
+        )
+        object.__setattr__(
+            self,
+            "content_retention",
+            _enum(self.content_retention, ContentRetentionMode, "content_retention"),
+        )
+        object.__setattr__(
+            self,
+            "privacy_classification",
+            _enum(
+                self.privacy_classification,
+                PrivacyClassification,
+                "privacy_classification",
+            ),
+        )
         object.__setattr__(self, "created_at", _utc(self.created_at, "created_at"))
-        object.__setattr__(self, "completed_at", _utc(self.completed_at, "completed_at", optional=True))
-        if self.quality_evaluation is not None and not isinstance(self.quality_evaluation, QualityEvaluation):
-            raise InvalidModelExecutionRecordError("quality_evaluation must be QualityEvaluation")
-        if self.content_reference is not None and not isinstance(self.content_reference, ModelExecutionContentReference):
-            raise InvalidModelExecutionRecordError("content_reference must be ModelExecutionContentReference")
+        object.__setattr__(
+            self, "completed_at", _utc(self.completed_at, "completed_at", optional=True)
+        )
+        if self.quality_evaluation is not None and not isinstance(
+            self.quality_evaluation, QualityEvaluation
+        ):
+            raise InvalidModelExecutionRecordError(
+                "quality_evaluation must be QualityEvaluation"
+            )
+        if self.content_reference is not None and not isinstance(
+            self.content_reference, ModelExecutionContentReference
+        ):
+            raise InvalidModelExecutionRecordError(
+                "content_reference must be ModelExecutionContentReference"
+            )
         object.__setattr__(self, "prompt_hash", _hash(self.prompt_hash, "prompt_hash"))
-        object.__setattr__(self, "response_hash", _hash(self.response_hash, "response_hash"))
-        if self.content_retention is ContentRetentionMode.HASHES_ONLY and self.content_reference is not None:
-            raise InvalidModelExecutionRecordError("hashes_only cannot contain a content reference")
+        object.__setattr__(
+            self, "response_hash", _hash(self.response_hash, "response_hash")
+        )
+        if (
+            self.content_retention is ContentRetentionMode.HASHES_ONLY
+            and self.content_reference is not None
+        ):
+            raise InvalidModelExecutionRecordError(
+                "hashes_only cannot contain a content reference"
+            )
         if self.content_retention is ContentRetentionMode.AUTHORIZED_PAYLOAD_REFERENCE:
-            if self.content_reference is None or self.content_reference.kind != "payload":
+            if (
+                self.content_reference is None
+                or self.content_reference.kind != "payload"
+            ):
                 raise InvalidModelExecutionRecordError(
                     "authorized_payload_reference requires a payload reference"
                 )
@@ -363,22 +521,34 @@ class ModelExecutionRecord:
                 raise InvalidModelExecutionRecordError(
                     "authorized payload references cannot include payload hashes"
                 )
-        if self.content_retention is ContentRetentionMode.NONE and (
-            self.prompt_hash is not None
-            or self.response_hash is not None
-            or self.content_reference is not None
-        ) and not self.exclusion_reasons:
+        if (
+            self.content_retention is ContentRetentionMode.NONE
+            and (
+                self.prompt_hash is not None
+                or self.response_hash is not None
+                or self.content_reference is not None
+            )
+            and not self.exclusion_reasons
+        ):
             raise InvalidModelExecutionRecordError(
                 "content retention none requires exclusion reasons"
             )
         object.__setattr__(self, "metadata", _mapping(self.metadata, "metadata"))
 
     def to_dict(self) -> dict[str, Any]:
-        result = {name: _json(getattr(self, name)) for name in self.__dataclass_fields__}
+        result = {
+            name: _json(getattr(self, name)) for name in self.__dataclass_fields__
+        }
         for name in ("created_at", "completed_at"):
-            result[name] = getattr(self, name).isoformat() if getattr(self, name) else None
-        result["quality_evaluation"] = self.quality_evaluation.to_dict() if self.quality_evaluation else None
-        result["content_reference"] = self.content_reference.to_dict() if self.content_reference else None
+            result[name] = (
+                getattr(self, name).isoformat() if getattr(self, name) else None
+            )
+        result["quality_evaluation"] = (
+            self.quality_evaluation.to_dict() if self.quality_evaluation else None
+        )
+        result["content_reference"] = (
+            self.content_reference.to_dict() if self.content_reference else None
+        )
         return result
 
     @classmethod
@@ -388,13 +558,19 @@ class ModelExecutionRecord:
             if values.get(name) is not None:
                 values[name] = Decimal(str(values[name]))
         if values.get("quality_evaluation"):
-            values["quality_evaluation"] = QualityEvaluation.from_dict(values["quality_evaluation"])
+            values["quality_evaluation"] = QualityEvaluation.from_dict(
+                values["quality_evaluation"]
+            )
         if values.get("content_reference"):
-            values["content_reference"] = ModelExecutionContentReference.from_dict(values["content_reference"])
+            values["content_reference"] = ModelExecutionContentReference.from_dict(
+                values["content_reference"]
+            )
         return cls(**values)
 
     def fingerprint(self) -> str:
-        return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True, default=str).encode()).hexdigest()
+        return hashlib.sha256(
+            json.dumps(self.to_dict(), sort_keys=True, default=str).encode()
+        ).hexdigest()
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True)

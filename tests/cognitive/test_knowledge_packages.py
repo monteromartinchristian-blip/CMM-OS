@@ -29,7 +29,9 @@ from cmm.cognitive import (
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
 
 
-def item(item_id: str, statement: str, kind: KnowledgeKind, resource_id: str | None = None) -> KnowledgeItem:
+def item(
+    item_id: str, statement: str, kind: KnowledgeKind, resource_id: str | None = None
+) -> KnowledgeItem:
     return KnowledgeItem(
         id=item_id,
         statement=statement,
@@ -77,8 +79,12 @@ def test_minimal_package_is_immutable_and_serializable() -> None:
 
 def test_package_round_trip_is_deterministic_and_preserves_epistemology() -> None:
     facts = (item("fact:1", "Patient has fever", KnowledgeKind.FACT),)
-    observations = (item("observation:1", "Temperature is 38C", KnowledgeKind.OBSERVATION),)
-    inferences = (item("inference:1", "Infection is possible", KnowledgeKind.INFERENCE),)
+    observations = (
+        item("observation:1", "Temperature is 38C", KnowledgeKind.OBSERVATION),
+    )
+    inferences = (
+        item("inference:1", "Infection is possible", KnowledgeKind.INFERENCE),
+    )
     hypotheses = (item("hypothesis:1", "Viral infection", KnowledgeKind.HYPOTHESIS),)
     package = KnowledgePackage(
         id="knowledge-package-123",
@@ -106,21 +112,32 @@ def test_package_round_trip_is_deterministic_and_preserves_epistemology() -> Non
 def test_package_accepts_existing_bundle_items_and_preserves_other_kinds() -> None:
     decision = item("decision:1", "Use treatment", KnowledgeKind.DECISION)
     bundle = KnowledgeBundle(items=(decision,), created_at=NOW)
-    package = KnowledgePackage(id="p", objective="treatment", other_knowledge=bundle.items, created_at=NOW)
+    package = KnowledgePackage(
+        id="p", objective="treatment", other_knowledge=bundle.items, created_at=NOW
+    )
     assert package.other_knowledge == (decision,)
-    assert KnowledgePackage.from_mapping(package.serialize()).other_knowledge == (decision,)
+    assert KnowledgePackage.from_mapping(package.serialize()).other_knowledge == (
+        decision,
+    )
 
 
 def test_package_rejects_invalid_dates_versions_and_duplicate_ids() -> None:
     with pytest.raises(InvalidKnowledgePackageError):
         KnowledgePackage(id="p", objective="x", schema_version=999)
     with pytest.raises(InvalidKnowledgePackageError):
-        KnowledgePackage(id="p", objective="x", created_at=NOW, valid_until=NOW - timedelta(seconds=1))
+        KnowledgePackage(
+            id="p",
+            objective="x",
+            created_at=NOW,
+            valid_until=NOW - timedelta(seconds=1),
+        )
     duplicate = item("same", "one", KnowledgeKind.FACT)
     with pytest.raises(InvalidKnowledgePackageError):
         KnowledgePackage(id="p", objective="x", facts=(duplicate, duplicate))
     with pytest.raises(InvalidKnowledgePackageError):
-        KnowledgePackage.from_mapping({"id": "p", "objective": "x", "schema_version": 2})
+        KnowledgePackage.from_mapping(
+            {"id": "p", "objective": "x", "schema_version": 2}
+        )
 
 
 @pytest.mark.parametrize(
@@ -133,7 +150,9 @@ def test_package_rejects_invalid_dates_versions_and_duplicate_ids() -> None:
         ("other_knowledge", item("wrong-other", "fact", KnowledgeKind.FACT)),
     ],
 )
-def test_package_rejects_incorrect_epistemic_classification(field_name: str, wrong_item: KnowledgeItem) -> None:
+def test_package_rejects_incorrect_epistemic_classification(
+    field_name: str, wrong_item: KnowledgeItem
+) -> None:
     with pytest.raises(InvalidKnowledgePackageError):
         KnowledgePackage(id="p", objective="x", **{field_name: (wrong_item,)})
 
@@ -141,7 +160,9 @@ def test_package_rejects_incorrect_epistemic_classification(field_name: str, wro
 def test_builder_selects_relevant_items_categories_contradictions_and_limits() -> None:
     store = InMemoryKnowledgeStore()
     relevant_fact = item("fact:health", "health fever", KnowledgeKind.FACT)
-    relevant_observation = item("obs:health", "health temperature", KnowledgeKind.OBSERVATION)
+    relevant_observation = item(
+        "obs:health", "health temperature", KnowledgeKind.OBSERVATION
+    )
     irrelevant = item("fact:other", "finance shares", KnowledgeKind.FACT)
     for value in (relevant_fact, relevant_observation, irrelevant):
         store.save_item(value)
@@ -189,19 +210,27 @@ def test_builder_applies_resource_and_contradiction_limits() -> None:
     other = item("fact:other", "health other", KnowledgeKind.FACT)
     store.save_item(value)
     store.save_item(other)
-    contradiction = Contradiction(item_a_id=value.id, item_b_id=other.id, created_at=NOW)
+    contradiction = Contradiction(
+        item_a_id=value.id, item_b_id=other.id, created_at=NOW
+    )
     store.save_contradiction(contradiction)
     builder = KnowledgePackageBuilder(store, resources=(source,))
     limited = builder.build(
-        KnowledgePackageRequest(objective="health", max_resources=0, max_contradictions=0)
+        KnowledgePackageRequest(
+            objective="health", max_resources=0, max_contradictions=0
+        )
     )
     assert limited.resources == ()
     assert limited.contradictions == ()
-    included = builder.build(KnowledgePackageRequest(objective="health", max_resources=1))
+    included = builder.build(
+        KnowledgePackageRequest(objective="health", max_resources=1)
+    )
     assert included.resources == (source,)
 
 
-def test_request_explicit_context_fields_are_limited_and_metadata_is_not_semantic() -> None:
+def test_request_explicit_context_fields_are_limited_and_metadata_is_not_semantic() -> (
+    None
+):
     store = InMemoryKnowledgeStore()
     store.save_item(item("fact:1", "health", KnowledgeKind.FACT))
     request = KnowledgePackageRequest(
@@ -222,7 +251,9 @@ def test_request_explicit_context_fields_are_limited_and_metadata_is_not_semanti
     assert package.relevant_memory == ("m1",)
     assert package.prior_reasoning == ("r1",)
     excluded = KnowledgePackageBuilder(store).build(
-        KnowledgePackageRequest(objective="health", prior_reasoning=("r1",), include_prior_reasoning=False)
+        KnowledgePackageRequest(
+            objective="health", prior_reasoning=("r1",), include_prior_reasoning=False
+        )
     )
     assert excluded.prior_reasoning == ()
 
@@ -253,9 +284,15 @@ def test_package_id_is_stable_safe_and_distinguishes_requests() -> None:
     store = InMemoryKnowledgeStore()
     store.save_item(item("fact:1", "health", KnowledgeKind.FACT))
     builder = KnowledgePackageBuilder(store)
-    base = builder.build(KnowledgePackageRequest(objective="Health / status", profile="medical"))
-    same = builder.build(KnowledgePackageRequest(objective=" health / status ", profile="medical"))
-    different = builder.build(KnowledgePackageRequest(objective="Health / status", profile="legal"))
+    base = builder.build(
+        KnowledgePackageRequest(objective="Health / status", profile="medical")
+    )
+    same = builder.build(
+        KnowledgePackageRequest(objective=" health / status ", profile="medical")
+    )
+    different = builder.build(
+        KnowledgePackageRequest(objective="Health / status", profile="legal")
+    )
     assert base.id == same.id
     assert base.id != different.id
     assert " " not in base.id
@@ -271,7 +308,9 @@ def test_package_id_is_stable_safe_and_distinguishes_requests() -> None:
         {"id": "p", "objective": "x", "schema_version": 1, "hypotheses": "not-a-list"},
     ],
 )
-def test_package_rejects_non_sequence_payload_fields(payload: dict[str, object]) -> None:
+def test_package_rejects_non_sequence_payload_fields(
+    payload: dict[str, object],
+) -> None:
     with pytest.raises(InvalidKnowledgePackageError):
         KnowledgePackage.from_mapping(payload)
 
@@ -280,9 +319,9 @@ def test_builder_excludes_unauthorized_content_and_can_return_empty_package() ->
     store = InMemoryKnowledgeStore()
     private = item("private", "health private", KnowledgeKind.FACT)
     store.save_item(private)
-    denied = KnowledgePackageBuilder(store, inclusion_policy=lambda candidate, context: False).build(
-        KnowledgePackageRequest(objective="health")
-    )
+    denied = KnowledgePackageBuilder(
+        store, inclusion_policy=lambda candidate, context: False
+    ).build(KnowledgePackageRequest(objective="health"))
     assert denied.facts == ()
     assert denied.resources == ()
 
@@ -308,8 +347,8 @@ def test_package_module_has_no_provider_or_routing_imports() -> None:
     assert source_path is not None
     tree = ast.parse(Path(source_path).read_text(encoding="utf-8"))
     imported_modules = [
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     ]
-    assert not any("provider" in module or "routing" in module for module in imported_modules)
+    assert not any(
+        "provider" in module or "routing" in module for module in imported_modules
+    )

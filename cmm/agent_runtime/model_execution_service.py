@@ -40,15 +40,22 @@ class _EventBus(Protocol):
 
 
 class ModelExecutionRecordService:
-    def __init__(self, repository: _Repository, *, event_bus: _EventBus | None = None,
-                 event_factory: AgentRuntimeEventFactory | None = None) -> None:
+    def __init__(
+        self,
+        repository: _Repository,
+        *,
+        event_bus: _EventBus | None = None,
+        event_factory: AgentRuntimeEventFactory | None = None,
+    ) -> None:
         self._repository = repository
         self._event_bus = event_bus
         self._event_factory = event_factory or AgentRuntimeEventFactory()
         self._idempotency: dict[str, tuple[str, str]] = {}
         self._idempotency_lock = threading.RLock()
 
-    def create_record(self, record: ModelExecutionRecord, *, idempotency_key: str | None = None) -> ModelExecutionRecord:
+    def create_record(
+        self, record: ModelExecutionRecord, *, idempotency_key: str | None = None
+    ) -> ModelExecutionRecord:
         if idempotency_key:
             fingerprint = record.fingerprint()
             with self._idempotency_lock:
@@ -67,13 +74,20 @@ class ModelExecutionRecordService:
         self._emit(EventType.MODEL_EXECUTION_CREATED, created)
         return created
 
-    def complete_record(self, record_id: str, *, actual_cost: Decimal | None = None,
-                        latency_ms: int | None = None) -> ModelExecutionRecord:
+    def complete_record(
+        self,
+        record_id: str,
+        *,
+        actual_cost: Decimal | None = None,
+        latency_ms: int | None = None,
+    ) -> ModelExecutionRecord:
         current = self._repository.get(record_id)
         if current.execution_status is not ModelExecutionStatus.PENDING:
             return current
-        updates: dict[str, Any] = {"execution_status": ModelExecutionStatus.COMPLETED,
-                                   "completed_at": datetime.now(timezone.utc)}
+        updates: dict[str, Any] = {
+            "execution_status": ModelExecutionStatus.COMPLETED,
+            "completed_at": datetime.now(timezone.utc),
+        }
         if actual_cost is not None:
             updates["actual_cost"] = actual_cost
         if latency_ms is not None:
@@ -86,8 +100,13 @@ class ModelExecutionRecordService:
         current = self._repository.get(record_id)
         if current.execution_status is not ModelExecutionStatus.PENDING:
             return current
-        result = self._repository.update(replace(current, execution_status=ModelExecutionStatus.FAILED,
-                                                  completed_at=datetime.now(timezone.utc)))
+        result = self._repository.update(
+            replace(
+                current,
+                execution_status=ModelExecutionStatus.FAILED,
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
         self._emit(EventType.MODEL_EXECUTION_FAILED, result)
         return result
 
@@ -95,17 +114,30 @@ class ModelExecutionRecordService:
         current = self._repository.get(record_id)
         if current.execution_status is not ModelExecutionStatus.PENDING:
             return current
-        result = self._repository.update(replace(current, execution_status=ModelExecutionStatus.CANCELLED,
-                                                  completed_at=datetime.now(timezone.utc)))
+        result = self._repository.update(
+            replace(
+                current,
+                execution_status=ModelExecutionStatus.CANCELLED,
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
         self._emit(EventType.MODEL_EXECUTION_CANCELLED, result)
         return result
 
-    def update_acceptance(self, record_id: str, status: AcceptanceStatus | str) -> ModelExecutionRecord:
+    def update_acceptance(
+        self, record_id: str, status: AcceptanceStatus | str
+    ) -> ModelExecutionRecord:
         current = self._repository.get(record_id)
         try:
-            target = status if isinstance(status, AcceptanceStatus) else AcceptanceStatus(status)
+            target = (
+                status
+                if isinstance(status, AcceptanceStatus)
+                else AcceptanceStatus(status)
+            )
         except (TypeError, ValueError) as exc:
-            raise InvalidModelExecutionRecordError(f"invalid acceptance status: {status!r}") from exc
+            raise InvalidModelExecutionRecordError(
+                f"invalid acceptance status: {status!r}"
+            ) from exc
         if current.acceptance_status is target:
             return current
         if not is_valid_acceptance_transition(current.acceptance_status, target):
@@ -128,14 +160,25 @@ class ModelExecutionRecordService:
     def _emit(self, event_type: str, record: ModelExecutionRecord) -> None:
         if self._event_bus is None:
             return
-        payload = {"record_id": record.id, "agent_run_id": record.agent_run_id,
-                   "operation_id": record.operation_id, "provider_id": record.provider_id,
-                   "model_id": record.model_id, "acceptance_status": record.acceptance_status.value,
-                   "trace_id": record.trace_id}
+        payload = {
+            "record_id": record.id,
+            "agent_run_id": record.agent_run_id,
+            "operation_id": record.operation_id,
+            "provider_id": record.provider_id,
+            "model_id": record.model_id,
+            "acceptance_status": record.acceptance_status.value,
+            "trace_id": record.trace_id,
+        }
         event = self._event_factory.create_event(
-            event_type, payload, agent_run_id=record.agent_run_id, goal_id=record.goal_id,
-            workflow_id=record.workflow_id, task_id=record.task_id, correlation_id=record.correlation_id,
-            causation_id=record.causation_id, sensitivity=EventSensitivity.INTERNAL,
+            event_type,
+            payload,
+            agent_run_id=record.agent_run_id,
+            goal_id=record.goal_id,
+            workflow_id=record.workflow_id,
+            task_id=record.task_id,
+            correlation_id=record.correlation_id,
+            causation_id=record.causation_id,
+            sensitivity=EventSensitivity.INTERNAL,
         )
         try:
             self._event_bus.publish(event)

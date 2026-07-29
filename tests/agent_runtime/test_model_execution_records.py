@@ -118,7 +118,9 @@ def test_event_payload_is_safe_and_event_types_are_published():
             self.events.append(event)
 
     bus = Bus()
-    service = ModelExecutionRecordService(InMemoryModelExecutionRecordRepository(), event_bus=bus)
+    service = ModelExecutionRecordService(
+        InMemoryModelExecutionRecordRepository(), event_bus=bus
+    )
     created = service.create_record(record(metadata={"safe": "yes"}))
     service.complete_record(created.id)
     assert [event.header.event_type for event in bus.events] == [
@@ -131,10 +133,23 @@ def test_event_payload_is_safe_and_event_types_are_published():
 
 def test_query_normalizes_enums_strings_and_rejects_unknown_filters():
     repo = InMemoryModelExecutionRecordRepository()
-    repo.add(record(provider_id="Provider-A", model_id="Model-A", execution_status=ModelExecutionStatus.COMPLETED,
-                    acceptance_status=AcceptanceStatus.ACCEPTED, trace_id="trace-1", correlation_id="corr-1"))
-    assert repo.query(provider_id="provider-a", model_id="model-a", execution_status="completed",
-                      acceptance_status=AcceptanceStatus.ACCEPTED, trace_id="trace-1")
+    repo.add(
+        record(
+            provider_id="Provider-A",
+            model_id="Model-A",
+            execution_status=ModelExecutionStatus.COMPLETED,
+            acceptance_status=AcceptanceStatus.ACCEPTED,
+            trace_id="trace-1",
+            correlation_id="corr-1",
+        )
+    )
+    assert repo.query(
+        provider_id="provider-a",
+        model_id="model-a",
+        execution_status="completed",
+        acceptance_status=AcceptanceStatus.ACCEPTED,
+        trace_id="trace-1",
+    )
     with pytest.raises(InvalidModelExecutionRecordError):
         repo.query(not_a_filter="x")
 
@@ -148,15 +163,27 @@ def test_repository_update_rejects_immutable_identity_changes():
 
 
 def _estimate(currency, total, *, tokens=1):
-    return ModelCostEstimate(Decimal(0), Decimal(0), Decimal(total), Decimal(total), currency=currency,
-                             input_tokens=tokens, output_tokens=tokens, total_tokens=tokens * 2)
+    return ModelCostEstimate(
+        Decimal(0),
+        Decimal(0),
+        Decimal(total),
+        Decimal(total),
+        currency=currency,
+        input_tokens=tokens,
+        output_tokens=tokens,
+        total_tokens=tokens * 2,
+    )
 
 
 def _attempt(**overrides):
     values = {
-        "operation_id": "operation-1", "attempt_index": 1, "model_id": "model-a",
-        "provider_id": "provider-a", "trigger": ModelFallbackTrigger.TIMEOUT,
-        "success": True, "estimated_cost": Decimal(0),
+        "operation_id": "operation-1",
+        "attempt_index": 1,
+        "model_id": "model-a",
+        "provider_id": "provider-a",
+        "trigger": ModelFallbackTrigger.TIMEOUT,
+        "success": True,
+        "estimated_cost": Decimal(0),
     }
     values.update(overrides)
     return ModelAttemptResult(**values)
@@ -164,25 +191,46 @@ def _attempt(**overrides):
 
 def test_assembler_resolves_actual_currency_and_rejects_mismatch():
     actual = _estimate("EUR", "0")
-    result = ModelExecutionRecordAssembler.from_attempt(_attempt(), record_id="mer-currency", agent_run_id="run-1",
-                                                        estimate=None, actual=actual)
+    result = ModelExecutionRecordAssembler.from_attempt(
+        _attempt(),
+        record_id="mer-currency",
+        agent_run_id="run-1",
+        estimate=None,
+        actual=actual,
+    )
     assert result.currency == "EUR"
     assert result.actual_cost == Decimal(0)
     with pytest.raises(InvalidModelExecutionRecordError):
-        ModelExecutionRecordAssembler.from_attempt(_attempt(), record_id="mer-mismatch", agent_run_id="run-1",
-                                                   estimate=_estimate("USD", "1"), actual=actual)
+        ModelExecutionRecordAssembler.from_attempt(
+            _attempt(),
+            record_id="mer-mismatch",
+            agent_run_id="run-1",
+            estimate=_estimate("USD", "1"),
+            actual=actual,
+        )
 
 
 def test_assembler_preserves_canonical_enum_values_and_context_references():
     result = ModelExecutionRecordAssembler.from_attempt(
-        _attempt(), record_id="mer-context", agent_run_id="run-1", fallback_action=ModelFallbackAction.REROUTE,
-        fallback_from="model-old", budget_id="budget-1", reservation_id="reservation-1",
-        economic_decision="allow", economic_reason_codes=("within_budget",), validation_result_ids=("validation-1",),
-        validation_status="accepted", validation_blocking_count=0, validation_warning_count=1,
-        quality_evaluation=QualityEvaluation(score=Decimal("0.9")), causation_id="cause-1",
+        _attempt(),
+        record_id="mer-context",
+        agent_run_id="run-1",
+        fallback_action=ModelFallbackAction.REROUTE,
+        fallback_from="model-old",
+        budget_id="budget-1",
+        reservation_id="reservation-1",
+        economic_decision="allow",
+        economic_reason_codes=("within_budget",),
+        validation_result_ids=("validation-1",),
+        validation_status="accepted",
+        validation_blocking_count=0,
+        validation_warning_count=1,
+        quality_evaluation=QualityEvaluation(score=Decimal("0.9")),
+        causation_id="cause-1",
         content_reference=ModelExecutionContentReference("trace-ref", kind="trace"),
         content_retention=ContentRetentionMode.TRACE_REFERENCE,
-        exclusion_reasons=("prompt_not_retained",), privacy_policy_version="privacy-2",
+        exclusion_reasons=("prompt_not_retained",),
+        privacy_policy_version="privacy-2",
         fallback_trigger=ModelFallbackTrigger.TIMEOUT,
     )
     payload = result.to_dict()
@@ -194,7 +242,10 @@ def test_assembler_preserves_canonical_enum_values_and_context_references():
 
 def test_retention_invariants_are_fail_closed():
     with pytest.raises(InvalidModelExecutionRecordError):
-        record(content_retention="hashes_only", content_reference=ModelExecutionContentReference("trace-ref"))
+        record(
+            content_retention="hashes_only",
+            content_reference=ModelExecutionContentReference("trace-ref"),
+        )
     with pytest.raises(InvalidModelExecutionRecordError):
         record(content_retention="none", prompt_hash="a" * 64)
     with pytest.raises(InvalidModelExecutionRecordError):
@@ -210,29 +261,45 @@ def test_pending_can_be_cancelled_and_failed_does_not_change_acceptance():
     assert failed.acceptance_status is AcceptanceStatus.PENDING
 
 
-@pytest.mark.parametrize("actual,expected,available", [(None, Decimal(0), False), (Decimal(0), Decimal(0), True),
-                                                          (Decimal("2.5"), Decimal("2.5"), True)])
-def test_observability_projector_preserves_actual_cost_availability(actual, expected, available):
-    projected = ModelExecutionObservabilityProjector(AgentObservabilityService()).project(
-        record(id=f"obs-{available}-{actual}", actual_cost=actual)
-    )
+@pytest.mark.parametrize(
+    "actual,expected,available",
+    [
+        (None, Decimal(0), False),
+        (Decimal(0), Decimal(0), True),
+        (Decimal("2.5"), Decimal("2.5"), True),
+    ],
+)
+def test_observability_projector_preserves_actual_cost_availability(
+    actual, expected, available
+):
+    projected = ModelExecutionObservabilityProjector(
+        AgentObservabilityService()
+    ).project(record(id=f"obs-{available}-{actual}", actual_cost=actual))
     assert projected.actual_cost == expected
     assert projected.metadata["actual_cost_available"] is available
-    assert projected.actual_cost != record(estimated_cost=Decimal(9), actual_cost=None).estimated_cost
+    assert (
+        projected.actual_cost
+        != record(estimated_cost=Decimal(9), actual_cost=None).estimated_cost
+    )
 
 
 def test_event_bus_closed_is_best_effort_but_factory_errors_propagate():
     bus = AgentRuntimeEventBus()
     bus.close()
-    service = ModelExecutionRecordService(InMemoryModelExecutionRecordRepository(), event_bus=bus)
+    service = ModelExecutionRecordService(
+        InMemoryModelExecutionRecordRepository(), event_bus=bus
+    )
     assert service.create_record(record(id="closed-1")).id == "closed-1"
 
     class InvalidFactory:
         def create_event(self, *args, **kwargs):
             raise InvalidModelExecutionRecordError("invalid event")
 
-    failing = ModelExecutionRecordService(InMemoryModelExecutionRecordRepository(), event_bus=bus,
-                                          event_factory=InvalidFactory())
+    failing = ModelExecutionRecordService(
+        InMemoryModelExecutionRecordRepository(),
+        event_bus=bus,
+        event_factory=InvalidFactory(),
+    )
     with pytest.raises(InvalidModelExecutionRecordError):
         failing.create_record(record(id="factory-1"))
 
@@ -258,7 +325,12 @@ def test_idempotency_is_atomic_for_concurrent_identical_calls():
     service = ModelExecutionRecordService(repo)
     value = record(id="atomic-1")
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: service.create_record(value, idempotency_key="atomic-key"), range(2)))
+        results = list(
+            pool.map(
+                lambda _: service.create_record(value, idempotency_key="atomic-key"),
+                range(2),
+            )
+        )
     assert results[0] == results[1] == value
     assert repo.add_count == 1
     assert service._idempotency == {"atomic-key": ("atomic-1", value.fingerprint())}
@@ -268,6 +340,7 @@ def test_idempotency_conflicts_concurrently_without_duplicate_creation():
     repo = _CountingRepository()
     service = ModelExecutionRecordService(repo)
     values = [record(id="atomic-a"), record(id="atomic-b", model_id="model-b")]
+
     def call(value):
         try:
             return service.create_record(value, idempotency_key="conflict-key")
@@ -277,7 +350,13 @@ def test_idempotency_conflicts_concurrently_without_duplicate_creation():
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(call, values))
     assert sum(isinstance(result, ModelExecutionRecord) for result in results) == 1
-    assert sum(isinstance(result, ModelExecutionIdempotencyConflictError) for result in results) == 1
+    assert (
+        sum(
+            isinstance(result, ModelExecutionIdempotencyConflictError)
+            for result in results
+        )
+        == 1
+    )
     assert repo.add_count == 1
     assert len(repo) == 1
 
@@ -302,14 +381,19 @@ def test_lifecycle_events_and_terminal_technical_transitions_are_exact():
             self.events.append(event.header.event_type)
 
     bus = Bus()
-    service = ModelExecutionRecordService(InMemoryModelExecutionRecordRepository(), event_bus=bus)
+    service = ModelExecutionRecordService(
+        InMemoryModelExecutionRecordRepository(), event_bus=bus
+    )
     service.cancel_record(service.create_record(record(id="cancel-event")).id)
     service.fail_record(service.create_record(record(id="fail-event")).id)
     service.complete_record(service.create_record(record(id="complete-event")).id)
     assert bus.events == [
-        "model_execution.created", "model_execution.cancelled",
-        "model_execution.created", "model_execution.failed",
-        "model_execution.created", "model_execution.completed",
+        "model_execution.created",
+        "model_execution.cancelled",
+        "model_execution.created",
+        "model_execution.failed",
+        "model_execution.created",
+        "model_execution.completed",
     ]
     completed = service.get_record("complete-event")
     assert completed is not None
