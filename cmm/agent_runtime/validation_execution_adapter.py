@@ -195,9 +195,7 @@ class ValidationDecisionResolver:
 def _classify_failure(finding: Any, step_name: str) -> ValidationFailureClass:
     source = str(getattr(finding, "source", "")).lower()
     severity = getattr(finding, "severity", None)
-    severity_val = str(
-        severity.value if hasattr(severity, "value") else severity
-    ).upper()
+    severity_val = str(getattr(severity, "value", severity)).upper()
 
     if "security" in source or "bandit" in source or "audit" in source:
         return ValidationFailureClass.SECURITY
