@@ -266,10 +266,15 @@ class DefaultCognitiveRuntimeAdapter:
         all_raw_resources = list(derived_resources) + list(explicit_resources)
 
         # 6. Fetch resources by ID if requested & provider available
-        if request.resource_ids and hasattr(self._cognitive_layer, "get_resource"):
+        cognitive_layer = self._cognitive_layer
+        if (
+            request.resource_ids
+            and cognitive_layer is not None
+            and hasattr(cognitive_layer, "get_resource")
+        ):
             for r_id in request.resource_ids:
                 try:
-                    res = self._cognitive_layer.get_resource(r_id)
+                    res = cognitive_layer.get_resource(r_id)
                     if isinstance(res, Resource):
                         all_raw_resources.append(res)
                 except (KeyError, ValueError, AttributeError, RuntimeError):
