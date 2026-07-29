@@ -16,6 +16,12 @@ from cmm.agent_runtime.operation_execution_contracts import (
 from cmm.agent_runtime.operation_registry import AgentOperationRegistry
 
 
+def _value_as_string(value: Any) -> str:
+    """Return an enum value or the string representation of a gate value."""
+    enum_value = getattr(value, "value", value)
+    return str(enum_value)
+
+
 class OperationExecutionGateEvaluator:
     """Evaluates the 12 security gates before an operation can be executed."""
 
@@ -143,7 +149,7 @@ class OperationExecutionGateEvaluator:
             try:
                 aut_res = self._autonomy_evaluator.evaluate(request)
                 aut_dec = getattr(aut_res, "decision", None)
-                aut_str = aut_dec.value if hasattr(aut_dec, "value") else str(aut_dec)
+                aut_str = _value_as_string(aut_dec)
                 if aut_str == "deny":
                     autonomy_satisfied = False
                     reason_codes.append("operation.autonomy_denied")
@@ -160,7 +166,7 @@ class OperationExecutionGateEvaluator:
             try:
                 pol_res = self._policy_evaluator.evaluate(request)
                 pol_dec = getattr(pol_res, "decision", None)
-                pol_str = pol_dec.value if hasattr(pol_dec, "value") else str(pol_dec)
+                pol_str = _value_as_string(pol_dec)
                 if pol_str == "deny":
                     policy_satisfied = False
                     reason_codes.append("operation.policy_denied")
@@ -183,7 +189,7 @@ class OperationExecutionGateEvaluator:
                         request.approval_request_id
                     )
                     app_st = getattr(app, "status", None)
-                    st_str = app_st.value if hasattr(app_st, "value") else str(app_st)
+                    st_str = _value_as_string(app_st)
                     if st_str not in ("approved", "APPROVED"):
                         approval_satisfied = False
                         reason_codes.append("operation.approval_invalid")

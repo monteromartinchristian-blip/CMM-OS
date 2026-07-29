@@ -25,6 +25,12 @@ from cmm.agent_runtime.runtime_loop_contracts import (
 from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
 
 
+def _value_as_string(value: Any) -> str:
+    """Return an enum value or the string representation of a runtime value."""
+    enum_value = getattr(value, "value", value)
+    return str(enum_value)
+
+
 class RuntimeStepHandler(Protocol):
     """Protocol for executable runtime step handlers."""
 
@@ -95,9 +101,7 @@ class ValidateGoalHandler:
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
         if context.goal is not None:
             status_val = getattr(context.goal, "status", None)
-            status_str = (
-                status_val.value if hasattr(status_val, "value") else str(status_val)
-            )
+            status_str = _value_as_string(status_val)
             if status_str in ("completed", "cancelled", "failed", "abandoned"):
                 return _build_step_result(
                     context,
@@ -132,9 +136,7 @@ class CheckDependenciesHandler:
         deps = getattr(context.goal, "dependencies", ()) if context.goal else ()
         for dep in deps:
             status_val = getattr(dep, "status", None)
-            st_str = (
-                status_val.value if hasattr(status_val, "value") else str(status_val)
-            )
+            st_str = _value_as_string(status_val)
             if st_str in ("blocked", "failed"):
                 return _build_step_result(
                     context,
@@ -330,7 +332,7 @@ class EvaluatePoliciesHandler:
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
         for pol_res in context.policy_results:
             decision = getattr(pol_res, "decision", None)
-            dec_str = decision.value if hasattr(decision, "value") else str(decision)
+            dec_str = _value_as_string(decision)
             if dec_str == PolicyDecision.DENY.value or dec_str == "deny":
                 return _build_step_result(
                     context,
@@ -365,7 +367,7 @@ class RequestApprovalHandler:
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
         for app in context.approval_resolutions:
             status = getattr(app, "status", None)
-            st_str = status.value if hasattr(status, "value") else str(status)
+            st_str = _value_as_string(status)
             if st_str in (ApprovalRequestStatus.REJECTED.value, "rejected"):
                 return _build_step_result(
                     context,
@@ -410,7 +412,7 @@ class ReserveBudgetHandler:
     def execute(self, context: RuntimeStepContext) -> RuntimeStepResult:
         if context.budget is not None:
             status = getattr(context.budget, "status", None)
-            st_str = status.value if hasattr(status, "value") else str(status)
+            st_str = _value_as_string(status)
             if st_str in ("exhausted", "paused", "cancelled"):
                 return _build_step_result(
                     context,
