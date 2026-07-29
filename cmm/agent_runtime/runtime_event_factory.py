@@ -250,6 +250,7 @@ class AgentRuntimeEventNormalizer:
         occurred_at = _normalize_timestamp(header.occurred_at)
         emitted_at = _normalize_timestamp(header.emitted_at)
 
+        correlation_id: str | None
         if header.causation_id and not header.correlation_id:
             # causation implies correlation if absent
             correlation_id = header.causation_id
