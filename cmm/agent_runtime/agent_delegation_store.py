@@ -28,6 +28,10 @@ class AgentDelegationStore(Protocol):
         """Update an existing delegation."""
         ...
 
+    def all(self) -> list[DelegatedGoal]:
+        """List every stored delegation."""
+        ...
+
     def list_by_parent_goal(self, parent_goal_id: str) -> list[DelegatedGoal]:
         """List all delegations for a parent goal."""
         ...

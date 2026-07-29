@@ -72,8 +72,9 @@ class AgentFactoryProtocol(Protocol):
 
 @runtime_checkable
 class GoalRepositoryProtocol(Protocol):
+    def add(self, goal: Goal) -> Goal: ...
     def get(self, goal_id: str) -> Goal | None: ...
-    def update(self, goal: Goal) -> None: ...
+    def update(self, goal: Goal) -> Goal: ...
 
 
 @runtime_checkable
@@ -123,6 +124,12 @@ class AgentDelegationServiceConfig:
     allow_self_delegation: bool = False
     enforce_goal_constraints: bool = True
     emit_events: bool = True
+
+
+def _value_as_string(value: Any) -> str:
+    """Return an enum value or the string representation of a contract value."""
+    enum_value = getattr(value, "value", value)
+    return str(enum_value)
 
 
 def _now_utc() -> datetime:
@@ -255,8 +262,12 @@ class AgentDelegationService:
             GoalStatus.CANCELLED,
         }:
             raise AgentDelegationParentGoalTerminalError(
-                f"Parent goal {goal_id} is in terminal state {goal.status.value}",
-                details={"goal_id": goal_id, "status": goal.status.value},
+                f"Parent goal {goal_id} is in terminal state "
+                f"{_value_as_string(goal.status)}",
+                details={
+                    "goal_id": goal_id,
+                    "status": _value_as_string(goal.status),
+                },
             )
 
         return goal
@@ -404,7 +415,7 @@ class AgentDelegationService:
             )
 
         adjacency: dict[str, list[str]] = {}
-        for dep in self._store:
+        for dep in self._store.all():
             if dep.is_terminal:
                 continue
             adjacency.setdefault(dep.source_agent_id, []).append(dep.target_agent_id)
@@ -473,7 +484,10 @@ class AgentDelegationService:
                     )
                 ):
                     raise AgentDelegationChildGoalIncompatibleError(
-                        f"Child goal constraint {child_constraint.kind.value} incompatible with parent constraint {parent_constraint.kind.value}",
+                        "Child goal constraint "
+                        f"{_value_as_string(child_constraint.kind)} incompatible "
+                        "with parent constraint "
+                        f"{_value_as_string(parent_constraint.kind)}",
                         details={
                             "parent_constraint": parent_constraint.to_dict(),
                             "child_constraint": child_constraint.to_dict(),
