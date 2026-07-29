@@ -10,8 +10,15 @@ valid or independent from the context that produced it.
 This module caches cognitive artifacts, never provider prompts, tokens, or
 raw model payloads. Provider prompt caching, token-prefix reuse, and
 cache-hit billing belong to Phase 11.42. Structural validation-pipeline
-integration belongs to Phase 8.26. Extended privacy metadata belongs to
-Phase 8.25.
+integration belongs to Phase 8.26.
+
+Phase 8.25 adds an optional `PrivacyMetadata` (see `cmm.cognitive.privacy`)
+to `CognitiveCacheEntry` alongside the pre-existing `sensitivity`/
+`permissions` fields, which are kept for compatibility. `sensitivity`/
+`permissions` still gate reuse in `CognitiveCache._permission_denied`;
+`privacy` additionally governs whether an entry may be stored at all
+(`allow_cache`) and whether it may be reused in a remote processing context
+(`LOCAL_ONLY` policy).
 """
 
 from __future__ import annotations
@@ -32,8 +39,16 @@ from cmm.cognitive.errors import (
     CognitiveCacheConflictError,
     CognitiveCacheNotFoundError,
     InvalidCognitiveCacheEntryError,
+    InvalidPrivacyMetadataError,
 )
 from cmm.cognitive.knowledge_packages import KnowledgePackage
+from cmm.cognitive.privacy import (
+    PrivacyMetadata,
+    PrivacyPolicy,
+    ProcessingLocation,
+    privacy_from_knowledge_package,
+    resolve_effective_privacy_metadata,
+)
 from cmm.cognitive.resources import ResourcePermission
 
 COGNITIVE_CACHE_SCHEMA_VERSION = 1
@@ -249,6 +264,7 @@ class CognitiveCacheEntry:
     invalidation_keys: tuple[str, ...] = ()
     sensitivity: SensitivityLevel = SensitivityLevel.INTERNAL
     permissions: tuple[ResourcePermission, ...] = ()
+    privacy: PrivacyMetadata | None = None
     provenance: tuple[str, ...] = ()
     status: CognitiveCacheEntryStatus = CognitiveCacheEntryStatus.VALID
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -295,6 +311,19 @@ class CognitiveCacheEntry:
         elif not isinstance(sensitivity, SensitivityLevel):
             raise InvalidCognitiveCacheEntryError(f"Invalid sensitivity: {sensitivity}")
         object.__setattr__(self, "sensitivity", sensitivity)
+
+        privacy = self.privacy
+        if privacy is not None:
+            try:
+                if isinstance(privacy, Mapping):
+                    privacy = PrivacyMetadata.from_mapping(privacy)
+                elif not isinstance(privacy, PrivacyMetadata):
+                    raise InvalidCognitiveCacheEntryError(
+                        f"Invalid privacy: {privacy!r}"
+                    )
+            except InvalidPrivacyMetadataError as exc:
+                raise InvalidCognitiveCacheEntryError(f"Invalid privacy: {exc}") from exc
+            object.__setattr__(self, "privacy", privacy)
 
         for name in (
             "created_at",
@@ -441,6 +470,7 @@ class CognitiveCacheEntry:
             "invalidation_keys": list(self.invalidation_keys),
             "sensitivity": self.sensitivity.value,
             "permissions": [permission.to_dict() for permission in self.permissions],
+            "privacy": self.privacy.to_dict() if self.privacy is not None else None,
             "provenance": list(self.provenance),
             "status": self.status.value,
             "metadata": _jsonable(dict(self.metadata)),
@@ -493,6 +523,11 @@ class CognitiveCacheEntry:
             invalidation_keys=tuple(payload.get("invalidation_keys") or ()),
             sensitivity=payload.get("sensitivity", SensitivityLevel.INTERNAL.value),
             permissions=tuple(payload.get("permissions") or ()),
+            privacy=(
+                PrivacyMetadata.from_mapping(payload["privacy"])
+                if payload.get("privacy") is not None
+                else None
+            ),
             provenance=tuple(payload.get("provenance") or ()),
             status=payload.get("status", CognitiveCacheEntryStatus.VALID.value),
             metadata=dict(payload.get("metadata") or {}),
@@ -516,6 +551,7 @@ class CognitiveCacheContext:
     actor_id: str | None = None
     domain: str | None = None
     sensitivity_clearance: SensitivityLevel | None = None
+    processing_location: ProcessingLocation = ProcessingLocation.LOCAL
     invalidated_dependency_ids: frozenset[str] = field(default_factory=frozenset)
     at: datetime = field(default_factory=_utc_now)
 
@@ -528,6 +564,20 @@ class CognitiveCacheContext:
         _require_aware(self.at, "at")
         if not isinstance(self.at, datetime):
             raise InvalidCognitiveCacheEntryError("at must be a datetime")
+
+        location = self.processing_location
+        if isinstance(location, str):
+            try:
+                location = ProcessingLocation(location)
+            except ValueError as exc:
+                raise InvalidCognitiveCacheEntryError(
+                    f"Invalid processing_location: {location}"
+                ) from exc
+        elif not isinstance(location, ProcessingLocation):
+            raise InvalidCognitiveCacheEntryError(
+                f"Invalid processing_location: {location}"
+            )
+        object.__setattr__(self, "processing_location", location)
 
         clearance = self.sensitivity_clearance
         if isinstance(clearance, str):
@@ -864,6 +914,11 @@ class CognitiveCache:
             raise InvalidCognitiveCacheEntryError(
                 f"Expected CognitiveCacheEntry, got {type(entry).__name__}"
             )
+        if entry.privacy is not None and not entry.privacy.allow_cache:
+            raise InvalidCognitiveCacheEntryError(
+                "cannot cache an entry whose privacy metadata forbids caching "
+                "(allow_cache=False)"
+            )
         now = self._clock()
         if (
             entry.status is CognitiveCacheEntryStatus.VALID
@@ -969,6 +1024,20 @@ class CognitiveCache:
                 hit=True,
                 reusable=False,
                 reason="insufficient permissions or sensitivity clearance",
+                entry=entry,
+            )
+
+        if (
+            entry.privacy is not None
+            and entry.privacy.policy is PrivacyPolicy.LOCAL_ONLY
+            and context.processing_location is ProcessingLocation.REMOTE
+        ):
+            return CognitiveCacheLookupResult(
+                status=CognitiveCacheLookupStatus.PERMISSION_DENIED,
+                hit=True,
+                reusable=False,
+                reason="entry privacy policy is LOCAL_ONLY; unavailable in a remote "
+                "processing context",
                 entry=entry,
             )
 
@@ -1169,6 +1238,7 @@ def cache_entry_from_knowledge_package(
     invalidation_keys: Sequence[str] = (),
     permissions: Sequence[ResourcePermission] = (),
     sensitivity: SensitivityLevel | None = None,
+    privacy: PrivacyMetadata | None = None,
     confidence: float = 1.0,
     process_metadata: Mapping[str, Any] | None = None,
     entry_id: str | None = None,
@@ -1180,6 +1250,11 @@ def cache_entry_from_knowledge_package(
     which are identifiers/names preserved only inside the serialized `value`.
     They are never inferred from the package.
 
+    `privacy` never downgrades the package's own derived privacy (see
+    `cmm.cognitive.privacy.privacy_from_knowledge_package`): both are
+    combined with `resolve_effective_privacy_metadata`, which always keeps
+    the more restrictive result.
+
     Does not duplicate the KnowledgePackage contract, does not convert it to a
     prompt, and does not implement Markdown/YAML export.
     """
@@ -1188,6 +1263,12 @@ def cache_entry_from_knowledge_package(
             f"Expected KnowledgePackage, got {type(package).__name__}"
         )
     resolved_id = entry_id or cognitive_cache_entry_id(key, context_signature)
+    derived_privacy = privacy_from_knowledge_package(package)
+    resolved_privacy = (
+        derived_privacy
+        if privacy is None
+        else resolve_effective_privacy_metadata(derived_privacy, privacy).effective
+    )
     return CognitiveCacheEntry(
         id=resolved_id,
         key=key,
@@ -1206,6 +1287,20 @@ def cache_entry_from_knowledge_package(
         invalidation_keys=tuple(invalidation_keys),
         sensitivity=_most_restrictive_sensitivity(package, sensitivity),
         permissions=tuple(permissions),
+        privacy=resolved_privacy,
         provenance=package.provenance,
         schema_version=COGNITIVE_CACHE_SCHEMA_VERSION,
     )
+
+
+def privacy_from_cache_entry(entry: CognitiveCacheEntry) -> PrivacyMetadata:
+    """Return a CognitiveCacheEntry's effective privacy metadata.
+
+    Falls back to a conservative default `PrivacyMetadata()` for entries
+    created before Phase 8.25 (or otherwise without explicit `privacy`).
+    """
+    if not isinstance(entry, CognitiveCacheEntry):
+        raise InvalidCognitiveCacheEntryError(
+            f"Expected CognitiveCacheEntry, got {type(entry).__name__}"
+        )
+    return entry.privacy if entry.privacy is not None else PrivacyMetadata()

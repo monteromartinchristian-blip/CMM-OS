@@ -314,3 +314,20 @@ class CognitiveCacheConflictError(CognitiveCacheError, ValueError):
 
 class CognitiveCacheNotFoundError(CognitiveCacheError, LookupError):
     """Raised when a requested cache entry cannot be found."""
+
+
+# ── Phase 8.25 errors ─────────────────────────────────────────────────────────
+
+
+class PrivacyMetadataError(CognitiveError):
+    """Base error for privacy and processing-policy metadata operations."""
+
+
+class InvalidPrivacyMetadataError(PrivacyMetadataError, ValueError):
+    """Raised when a PrivacyMetadata, PrivacyOperationContext, or PrivacyDecision
+    contract is invalid."""
+
+
+class PrivacyResolutionError(PrivacyMetadataError, ValueError):
+    """Raised when resolving the effective privacy metadata across multiple
+    sources fails or receives invalid input."""
