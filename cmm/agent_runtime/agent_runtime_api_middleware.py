@@ -19,6 +19,7 @@ from cmm.agent_runtime.agent_runtime_api_contracts import (
     AgentRuntimeApiResponse,
 )
 from cmm.agent_runtime.agent_runtime_api_enums import (
+    AgentRuntimeApiErrorCode,
     AgentRuntimeApiStatus,
 )
 from cmm.agent_runtime.agent_runtime_api_errors import (
@@ -347,7 +348,7 @@ class ErrorMappingMiddleware(AgentRuntimeApiMiddleware):
                 status=AgentRuntimeApiStatus.ERROR,
                 errors=[
                     AgentRuntimeApiError(
-                        code=error.error_code,
+                        code=AgentRuntimeApiErrorCode(error.error_code),
                         message=str(error),
                         details=error.details,
                         request_id=request.request_id,
@@ -360,7 +361,7 @@ class ErrorMappingMiddleware(AgentRuntimeApiMiddleware):
             status=AgentRuntimeApiStatus.ERROR,
             errors=[
                 AgentRuntimeApiError(
-                    code="INTERNAL_ERROR",
+                    code=AgentRuntimeApiErrorCode.INTERNAL_ERROR,
                     message="An internal error occurred",
                     request_id=request.request_id,
                 )

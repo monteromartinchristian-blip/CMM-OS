@@ -17,6 +17,7 @@ from cmm.agent_runtime.agent_runtime_api_contracts import (
     AgentRuntimeApiResponse,
 )
 from cmm.agent_runtime.agent_runtime_api_enums import (
+    AgentRuntimeApiErrorCode,
     AgentRuntimeApiOperation,
     AgentRuntimeApiStatus,
 )
@@ -120,7 +121,7 @@ class AgentRuntimeApiRouter:
                 status=AgentRuntimeApiStatus.ERROR,
                 errors=[
                     AgentRuntimeApiError(
-                        code="VALIDATION_ERROR",
+                        code=AgentRuntimeApiErrorCode.VALIDATION_ERROR,
                         message="Operation is required",
                         request_id=request.request_id,
                     )
@@ -137,7 +138,7 @@ class AgentRuntimeApiRouter:
                 status=AgentRuntimeApiStatus.ERROR,
                 errors=[
                     AgentRuntimeApiError(
-                        code=api_err.error_code,
+                        code=AgentRuntimeApiErrorCode(api_err.error_code),
                         message=str(api_err),
                         details=api_err.details,
                         request_id=request.request_id,
