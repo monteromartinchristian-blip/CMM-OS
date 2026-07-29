@@ -99,6 +99,13 @@ class EventType:
     RUNTIME_ERROR = "runtime.error"
     RUNTIME_KILL_SWITCH_ACTIVATED = "runtime.kill_switch_activated"
 
+    # ── Model Execution Records ────────────────────────────────────────────────
+    MODEL_EXECUTION_CREATED = "model_execution.created"
+    MODEL_EXECUTION_COMPLETED = "model_execution.completed"
+    MODEL_EXECUTION_ACCEPTANCE_UPDATED = "model_execution.acceptance_updated"
+    MODEL_EXECUTION_FAILED = "model_execution.failed"
+    MODEL_EXECUTION_CANCELLED = "model_execution.cancelled"
+
 
 EVENT_TYPE_CATEGORY_MAP: dict[str, EventTypeCategory] = {
     # Goals
@@ -179,6 +186,11 @@ EVENT_TYPE_CATEGORY_MAP: dict[str, EventTypeCategory] = {
     EventType.RUNTIME_WARNING: EventTypeCategory.RUNTIME_SYSTEM,
     EventType.RUNTIME_ERROR: EventTypeCategory.RUNTIME_SYSTEM,
     EventType.RUNTIME_KILL_SWITCH_ACTIVATED: EventTypeCategory.RUNTIME_SYSTEM,
+    EventType.MODEL_EXECUTION_CREATED: EventTypeCategory.EXECUTION,
+    EventType.MODEL_EXECUTION_COMPLETED: EventTypeCategory.EXECUTION,
+    EventType.MODEL_EXECUTION_ACCEPTANCE_UPDATED: EventTypeCategory.EXECUTION,
+    EventType.MODEL_EXECUTION_FAILED: EventTypeCategory.EXECUTION,
+    EventType.MODEL_EXECUTION_CANCELLED: EventTypeCategory.EXECUTION,
 }
 
 

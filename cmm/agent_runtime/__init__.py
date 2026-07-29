@@ -2640,3 +2640,58 @@ __all__ += [
     "resolve_model_requirements",
     "resolve_runtime_model_requirements",
 ]
+
+# ── Phase 9.32 – Model Execution Records Exports ───────────────────────────
+from cmm.agent_runtime.model_execution_assembler import ModelExecutionRecordAssembler
+from cmm.agent_runtime.model_execution_contracts import (
+    AcceptanceStatus,
+    ContentRetentionMode,
+    ModelExecutionAcceptanceStatus,
+    ModelExecutionContentReference,
+    ModelExecutionContentRetention,
+    ModelExecutionPrivacyClassification,
+    ModelExecutionRecord,
+    ModelExecutionStatus,
+    PrivacyClassification,
+    QualityEvaluation,
+    is_valid_acceptance_transition,
+)
+from cmm.agent_runtime.model_execution_errors import (
+    InvalidModelExecutionRecordError,
+    ModelExecutionDuplicateError,
+    ModelExecutionError,
+    ModelExecutionIdempotencyConflictError,
+    ModelExecutionNotFoundError,
+)
+from cmm.agent_runtime.model_execution_observability import (
+    ModelExecutionObservabilityProjector,
+)
+from cmm.agent_runtime.model_execution_repository import (
+    InMemoryModelExecutionRecordRepository,
+    ModelExecutionRecordRepository,
+)
+from cmm.agent_runtime.model_execution_service import ModelExecutionRecordService
+
+__all__ += [
+    "AcceptanceStatus",
+    "ContentRetentionMode",
+    "InMemoryModelExecutionRecordRepository",
+    "InvalidModelExecutionRecordError",
+    "ModelExecutionAcceptanceStatus",
+    "ModelExecutionContentReference",
+    "ModelExecutionContentRetention",
+    "ModelExecutionDuplicateError",
+    "ModelExecutionError",
+    "ModelExecutionIdempotencyConflictError",
+    "ModelExecutionNotFoundError",
+    "ModelExecutionObservabilityProjector",
+    "ModelExecutionPrivacyClassification",
+    "ModelExecutionRecord",
+    "ModelExecutionRecordAssembler",
+    "ModelExecutionRecordRepository",
+    "ModelExecutionRecordService",
+    "ModelExecutionStatus",
+    "PrivacyClassification",
+    "QualityEvaluation",
+    "is_valid_acceptance_transition",
+]
