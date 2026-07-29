@@ -1,14 +1,14 @@
 # Cierre formal de implementación — Fase 9: Autonomous Agent Runtime
 
 Fecha: 2026-07-29
-Rama de cierre: `docs/phase-9-formal-closure`
-Commit técnico final: `655111a`
+Rama de cierre e integración: `main`
+Commit técnico final: `6ea7daa`
 Versión publicada actual: `v0.8.0`
 Próxima versión: pendiente de auditoría y publicación
 
 ## 1. Veredicto
 
-**IMPLEMENTATION COMPLETE — AUDIT AND PUBLICATION PENDING**
+**IMPLEMENTATION COMPLETE — INTEGRATED IN MAIN — AUDIT AND PUBLICATION PENDING**
 
 La implementación técnica de la Fase 9 está completa.
 
@@ -21,7 +21,6 @@ Este cierre acredita la terminación de la implementación y de su validación
 local. No acredita todavía:
 
 - la auditoría transversal de las Fases 7–9;
-- la integración en `main`;
 - la validación final mediante GitHub Actions;
 - la publicación de una nueva versión.
 
@@ -32,7 +31,7 @@ local. No acredita todavía:
 | Tests focalizados de integración 9.28 y regresión | 710 passed |
 | Regresión específica de integración 9.27 | 525 passed |
 | Suite completa de `tests/agent_runtime` | 3231 passed |
-| Suite global | 4989 passed |
+| Suite global | 5406 passed |
 | Ruff focalizado sobre archivos modificados | Verde |
 | Compilación de `cmm/agent_runtime` | Correcta |
 | `git diff --check` | Limpio |
@@ -146,15 +145,18 @@ kernels paralelos.
 | 9.26 — Observability | `fb61080` | métricas, trazas y auditoría |
 | 9.27 — Runtime composition | `6cebd7a` | composición integral del runtime |
 | 9.28 — Existing-system integration | `655111a` | wiring Cognitive, Planner y Validation |
-| 9.29 — Model requirements per operation | Pendiente de commit | requisitos jerárquicos, policy y approval |
+| 9.29 — Model requirements per operation | `d72fb3f` | requisitos jerárquicos, policy y approval |
+| 9.30 — Model fallback and escalation | `47cf3b7` | retries, fallback, rerouting y escalado |
+| 9.31 — Economic budgets | `7b61e11` | control económico jerárquico y Action Budget |
+| 9.32 — Model execution records | `6ea7daa` | registros auditables, privacidad y observabilidad |
 
-### Extensión posterior 9.29
+### Extensiones multimodelo 9.29–9.32
 
-La ampliación del roadmap redefine la antigua sección documental 9.29 como
-`Model Requirements per Operation`. La implementación añade requisitos
-declarativos en agente, objetivo, workflow y operación, junto con adaptación
-explícita de restricciones de policy y parámetros aprobados. La selección
-concreta de modelo y proveedor permanece fuera del Agent Runtime.
+La ampliación posterior incorpora requisitos declarativos por operación,
+políticas de fallback y escalado, presupuestos económicos y registros
+estructurados de ejecución de modelos. Estas capacidades reutilizan el Runtime
+Event Bus, observabilidad, trazas, validación, políticas y Action Budget
+existentes, sin introducir un runtime o sistema de costes paralelo.
 
 ## 5. Garantías alcanzadas
 
@@ -210,10 +212,10 @@ El Agent Runtime puede:
 ## 8. Estado de publicación
 
 - Implementación técnica completa: sí
-- Commit técnico final verificado: `655111a`
-- Rama de 9.28 publicada: sí
+- Commit técnico final verificado: `6ea7daa`
+- Ramas de 9.29–9.32 publicadas: sí
 - Suite local completa: verde
-- Integración en `main`: pendiente
+- Integración local en `main`: completada mediante fast-forward
 - Auditoría rigurosa de Fases 7–9: pendiente
 - CI general posterior a integración: pendiente
 - Nueva release: pendiente
