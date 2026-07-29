@@ -15,6 +15,7 @@ infers security-sensitive operation characteristics from operation names.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from .autonomy_contracts import (
@@ -119,7 +120,7 @@ def create_autonomy_request_from_policy_result(
         approval_present=approval_present,
         validation_passed=validation_passed,
         rollback_available=rollback_available,
-        metadata=metadata or {},
+        metadata=MappingProxyType(dict(metadata or {})),
     )
 
 

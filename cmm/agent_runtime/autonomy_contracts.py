@@ -386,7 +386,7 @@ class AutonomyProfile:
             ),
             requires_supervision=bool(mapping.get("requires_supervision", False)),
             profile_id=str(mapping.get("profile_id", "")),
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -493,7 +493,9 @@ class AutonomyEvaluationRequest:
             "id": self.id,
             "agent_run_id": self.agent_run_id,
             "autonomy_level": int(self.autonomy_level),
-            "capability": self.capability.value,
+            "capability": self.capability.value
+            if isinstance(self.capability, AutonomyCapability)
+            else self.capability,
             "operation_name": self.operation_name,
             "is_mutation": self.is_mutation,
             "is_reversible": self.is_reversible,
@@ -554,7 +556,7 @@ class AutonomyEvaluationRequest:
             validation_passed=bool(mapping.get("validation_passed", False)),
             rollback_available=bool(mapping.get("rollback_available", False)),
             created_at=created_at,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -702,7 +704,7 @@ class AutonomyEvaluationResult:
             reason_codes=tuple(mapping.get("reason_codes", ())),
             warnings=tuple(mapping.get("warnings", ())),
             evaluated_at=evaluated_at,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -790,7 +792,9 @@ class AutonomyTransitionRequest:
             "agent_definition_max_level": int(self.agent_definition_max_level),
             "authorized": self.authorized,
             "actor_id": self.actor_id,
-            "reason": self.reason.value,
+            "reason": self.reason.value
+            if isinstance(self.reason, AutonomyTransitionReason)
+            else self.reason,
             "message": self.message,
             "created_at": self.created_at.isoformat(),
             "metadata": dict(self.metadata),
@@ -834,7 +838,7 @@ class AutonomyTransitionRequest:
             ),
             message=str(mapping.get("message", "")),
             created_at=created_at,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -938,7 +942,7 @@ class AutonomyTransitionResult:
             reason_codes=tuple(mapping.get("reason_codes", ())),
             message=str(mapping.get("message", "")),
             decided_at=decided_at,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -1009,7 +1013,9 @@ class AutonomyTransitionRecord:
             "new_level": int(self.new_level),
             "authorized": self.authorized,
             "actor_id": self.actor_id,
-            "reason": self.reason.value,
+            "reason": self.reason.value
+            if isinstance(self.reason, AutonomyTransitionReason)
+            else self.reason,
             "message": self.message,
             "occurred_at": self.occurred_at.isoformat(),
             "metadata": dict(self.metadata),
@@ -1051,7 +1057,7 @@ class AutonomyTransitionRecord:
             reason=mapping["reason"],
             message=str(mapping.get("message", "")),
             occurred_at=occurred_at,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod

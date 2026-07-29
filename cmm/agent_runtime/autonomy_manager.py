@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from .autonomy_contracts import (
@@ -153,7 +154,11 @@ def build_transition_record(
         new_level=result.new_level,
         authorized=result.authorized,
         actor_id=actor_id,
-        reason=reason,
+        reason=(
+            reason
+            if isinstance(reason, AutonomyTransitionReason)
+            else AutonomyTransitionReason(reason)
+        ),
         message=message or result.message,
         occurred_at=result.decided_at,
     )
@@ -186,7 +191,7 @@ def build_transition_request(
         actor_id=actor_id,
         reason=reason,
         message=message,
-        metadata=metadata or {},
+        metadata=MappingProxyType(dict(metadata or {})),
     )
 
 
