@@ -22,6 +22,7 @@ from cmm.agent_runtime.enums import (
 )
 from cmm.agent_runtime.errors import InvalidAgentPlanningContractError
 from cmm.agent_runtime.goal_contracts import Goal
+from cmm.agent_runtime.model_fallback_contracts import ModelFallbackPolicy
 from cmm.agent_runtime.model_requirements_contracts import (
     model_requirements_from_dict,
     model_requirements_to_dict,
@@ -454,6 +455,7 @@ class AgentWorkflowOperation:
     idempotency_key: str | None = None
     timeout_seconds: float | None = None
     model_requirements: ModelRequirements | None = None
+    model_fallback_policy: ModelFallbackPolicy | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -481,6 +483,13 @@ class AgentWorkflowOperation:
                 "AgentWorkflowOperation 'model_requirements' must be "
                 "a ModelRequirements instance or None."
             )
+        if self.model_fallback_policy is not None and not isinstance(
+            self.model_fallback_policy, ModelFallbackPolicy
+        ):
+            raise InvalidAgentPlanningContractError(
+                "AgentWorkflowOperation 'model_fallback_policy' must be "
+                "a ModelFallbackPolicy instance or None."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -502,6 +511,11 @@ class AgentWorkflowOperation:
             "model_requirements": (
                 model_requirements_to_dict(self.model_requirements)
                 if self.model_requirements is not None
+                else None
+            ),
+            "model_fallback_policy": (
+                self.model_fallback_policy.to_dict()
+                if self.model_fallback_policy is not None
                 else None
             ),
             "metadata": dict(self.metadata),
@@ -528,6 +542,11 @@ class AgentWorkflowOperation:
             model_requirements=(
                 model_requirements_from_dict(data["model_requirements"])
                 if data.get("model_requirements") is not None
+                else None
+            ),
+            model_fallback_policy=(
+                ModelFallbackPolicy.from_dict(data["model_fallback_policy"])
+                if data.get("model_fallback_policy") is not None
                 else None
             ),
             metadata=dict(data.get("metadata", {})),

@@ -860,6 +860,44 @@ __all__ += [
     "policy_decision_default",
 ]
 
+# ── Phase 9.30 – Workflow Model Fallback Exports ────────────────────────────
+
+from cmm.agent_runtime.model_fallback_contracts import (
+    ModelAttemptHistory,
+    ModelAttemptResult,
+    ModelFallbackAction,
+    ModelFallbackContext,
+    ModelFallbackDecision,
+    ModelFallbackPolicy,
+    ModelFallbackTrigger,
+)
+from cmm.agent_runtime.model_fallback_decision_engine import (
+    ModelFallbackDecisionEngine,
+)
+from cmm.agent_runtime.model_fallback_errors import (
+    InvalidModelFallbackContractError,
+    ModelFallbackConflictError,
+    ModelFallbackError,
+)
+from cmm.agent_runtime.model_fallback_recovery_adapter import (
+    ModelFallbackRecoveryAdapter,
+)
+
+__all__ += [
+    "InvalidModelFallbackContractError",
+    "ModelAttemptHistory",
+    "ModelAttemptResult",
+    "ModelFallbackAction",
+    "ModelFallbackConflictError",
+    "ModelFallbackContext",
+    "ModelFallbackDecision",
+    "ModelFallbackDecisionEngine",
+    "ModelFallbackError",
+    "ModelFallbackPolicy",
+    "ModelFallbackRecoveryAdapter",
+    "ModelFallbackTrigger",
+]
+
 # ── Phase 9.10 – Human Approval System Exports ────────────────────────────────
 
 from cmm.agent_runtime.approval_adapters import (
