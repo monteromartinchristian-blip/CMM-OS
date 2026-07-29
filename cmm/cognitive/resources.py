@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -440,3 +441,136 @@ class Resource:
             "updated_at": self.updated_at.isoformat(),
             "metadata": dict(self.metadata),
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Resource:
+        def parse_datetime(
+            value: Any, *, default: datetime | None = None
+        ) -> datetime | None:
+            if value is None:
+                return default
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            raise InvalidResourceError("resource datetime value is invalid")
+
+        provenance_data = data["provenance"]
+        reliability_data = data["reliability"]
+        temporal_data = data["temporal_scope"]
+
+        if not isinstance(provenance_data, Mapping):
+            raise InvalidResourceError("resource provenance must be a mapping")
+        if not isinstance(reliability_data, Mapping):
+            raise InvalidResourceError("resource reliability must be a mapping")
+        if not isinstance(temporal_data, Mapping):
+            raise InvalidResourceError("resource temporal_scope must be a mapping")
+
+        transformations = tuple(
+            ResourceTransformation(
+                operation=str(item["operation"]),
+                actor_id=str(item["actor_id"]),
+                created_at=parse_datetime(
+                    item.get("created_at"),
+                    default=_utc_now(),
+                )
+                or _utc_now(),
+                input_checksum=item.get("input_checksum"),
+                output_checksum=item.get("output_checksum"),
+                metadata=dict(item.get("metadata", {})),
+            )
+            for item in provenance_data.get("transformation_history", ())
+            if isinstance(item, Mapping)
+        )
+
+        provenance = ResourceProvenance(
+            source_type=ResourceSourceKind(provenance_data["source_type"]),
+            source_id=str(provenance_data["source_id"]),
+            author=provenance_data.get("author"),
+            retrieved_at=parse_datetime(
+                provenance_data.get("retrieved_at"),
+                default=_utc_now(),
+            )
+            or _utc_now(),
+            original_location=provenance_data.get("original_location"),
+            checksum=provenance_data.get("checksum"),
+            transformation_history=transformations,
+            metadata=dict(provenance_data.get("metadata", {})),
+        )
+
+        reliability = Confidence(
+            value=float(reliability_data["value"]),
+            source=reliability_data.get("source"),
+            reasons=tuple(str(item) for item in reliability_data.get("reasons", ())),
+            metadata=dict(reliability_data.get("metadata", {})),
+        )
+
+        temporal_scope = ResourceTemporalScope(
+            content_created_at=parse_datetime(temporal_data.get("content_created_at")),
+            observed_at=parse_datetime(temporal_data.get("observed_at")),
+            ingested_at=parse_datetime(
+                temporal_data.get("ingested_at"),
+                default=_utc_now(),
+            )
+            or _utc_now(),
+            valid_from=parse_datetime(temporal_data.get("valid_from")),
+            valid_until=parse_datetime(temporal_data.get("valid_until")),
+            event_start=parse_datetime(temporal_data.get("event_start")),
+            event_end=parse_datetime(temporal_data.get("event_end")),
+            last_verified_at=parse_datetime(temporal_data.get("last_verified_at")),
+            timezone_name=str(temporal_data.get("timezone_name", "UTC")),
+            recurrence=temporal_data.get("recurrence"),
+            metadata=dict(temporal_data.get("metadata", {})),
+        )
+
+        permissions = tuple(
+            ResourcePermission(
+                allowed_actor_ids=tuple(
+                    str(actor_id) for actor_id in item.get("allowed_actor_ids", ())
+                ),
+                allowed_domains=tuple(
+                    str(domain) for domain in item.get("allowed_domains", ())
+                ),
+                allowed_operations=tuple(
+                    ResourcePermissionOperation(operation)
+                    for operation in item.get(
+                        "allowed_operations",
+                        (ResourcePermissionOperation.READ.value,),
+                    )
+                ),
+                expires_at=parse_datetime(item.get("expires_at")),
+                metadata=dict(item.get("metadata", {})),
+            )
+            for item in data.get("permissions", ())
+            if isinstance(item, Mapping)
+        )
+
+        created_at = parse_datetime(data.get("created_at"), default=_utc_now())
+        updated_at = parse_datetime(data.get("updated_at"), default=created_at)
+
+        return cls(
+            id=str(data["id"]),
+            domain=str(data["domain"]),
+            kind=ResourceKind(data["kind"]),
+            source=ResourceSourceKind(data["source"]),
+            content=data.get("content"),
+            provenance=provenance,
+            reliability=reliability,
+            temporal_scope=temporal_scope,
+            version=str(data.get("version", "1")),
+            language=data.get("language"),
+            entity_ids=tuple(str(item) for item in data.get("entity_ids", ())),
+            relationship_ids=tuple(
+                str(item) for item in data.get("relationship_ids", ())
+            ),
+            sensitivity=SensitivityLevel(
+                data.get("sensitivity", SensitivityLevel.INTERNAL.value)
+            ),
+            permissions=permissions,
+            integrity=ResourceIntegrityStatus(
+                data.get("integrity", ResourceIntegrityStatus.UNKNOWN.value)
+            ),
+            created_at=created_at or _utc_now(),
+            updated_at=updated_at or created_at or _utc_now(),
+            metadata=dict(data.get("metadata", {})),
+        )
