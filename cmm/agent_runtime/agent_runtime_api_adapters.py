@@ -808,7 +808,7 @@ class TraceApiAdapter:
     ) -> TraceResponse:
         """Internal seam: register a new trace. Not a public API operation."""
         tid = self._next_id()
-        t = {
+        t: dict[str, Any] = {
             "trace_id": tid,
             "run_id": run_id,
             "goal_id": goal_id,
@@ -940,6 +940,7 @@ class TraceApiAdapter:
         # inside an already-serialized string.
         safe_records = _redact(t.get("records", []))
         fmt_upper = fmt.upper()
+        export_data: Any
         if fmt_upper == "JSON":
             export_data = json.dumps(
                 {
@@ -999,11 +1000,12 @@ class RuntimeEventApiAdapter:
     def _do_publish(
         self, event_type: str, payload: dict[str, Any], sensitivity: str
     ) -> dict[str, Any]:
-        dedup_key = payload.get("dedup_key")
+        raw_dedup_key = payload.get("dedup_key")
+        dedup_key = raw_dedup_key if isinstance(raw_dedup_key, str) else None
         if dedup_key and dedup_key in self._dedup_index:
             existing_id = self._dedup_index[dedup_key]
             return next(e for e in self._events if e["event_id"] == existing_id)
-        ev = {
+        ev: dict[str, Any] = {
             "event_id": self._next_id(),
             "event_type": event_type,
             "category": get_event_category(event_type).value,
