@@ -243,7 +243,7 @@ class AgentRuntimeStateMachine:
             id=agent_run.id,
             agent_id=agent_run.agent_id,
             goal_id=agent_run.goal_id,
-            status=dst,
+            status=AgentRuntimeStatus(dst),
             autonomy_level=agent_run.autonomy_level,
             current_iteration=agent_run.current_iteration,
             started_at=agent_run.started_at,
