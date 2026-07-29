@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
@@ -29,6 +30,11 @@ from cmm.agent_runtime.errors import (
     GoalDependencyError,
     InvalidGoalContractError,
 )
+
+
+def _enum_value(value: Any) -> Any:
+    """Serialize enum-like contract values without assuming normalization."""
+    return value.value if isinstance(value, Enum) else value
 
 
 def _ensure_tz_aware(dt: datetime, field_name: str) -> datetime:
@@ -259,13 +265,13 @@ class SuccessCriterion:
         return {
             "id": self.id,
             "description": self.description,
-            "kind": self.kind.value,
+            "kind": _enum_value(self.kind),
             "required": self.required,
             "measurable": self.measurable,
             "evaluator": self.evaluator,
             "expected_value": self.expected_value,
             "actual_value": self.actual_value,
-            "status": self.status.value,
+            "status": _enum_value(self.status),
             "evidence": list(self.evidence),
             "metadata": dict(self.metadata),
         }
@@ -350,7 +356,7 @@ class GoalConstraint:
         return {
             "id": self.id,
             "description": self.description,
-            "kind": self.kind.value,
+            "kind": _enum_value(self.kind),
             "severity": self.severity,
             "source": self.source,
             "condition": dict(self.condition),
@@ -433,7 +439,7 @@ class GoalDependency:
         return {
             "goal_id": self.goal_id,
             "depends_on_goal_id": self.depends_on_goal_id,
-            "dependency_type": self.dependency_type.value,
+            "dependency_type": _enum_value(self.dependency_type),
             "blocking": self.blocking,
             "metadata": dict(self.metadata),
         }
@@ -536,9 +542,7 @@ class GoalHistoryEntry:
         return {
             "id": self.id,
             "goal_id": self.goal_id,
-            "previous_status": (
-                self.previous_status.value if self.previous_status else None
-            ),
+            "previous_status": _enum_value(self.previous_status),
             "new_status": (
                 self.new_status.value
                 if isinstance(self.new_status, GoalStatus)
@@ -732,7 +736,10 @@ class Goal:
                     raise InvalidGoalContractError(
                         f"Goal {self.id} cannot depend on itself"
                     )
-                dep_key = (dep.depends_on_goal_id, dep.dependency_type.value)
+                dep_key = (
+                    dep.depends_on_goal_id,
+                    _enum_value(dep.dependency_type),
+                )
                 if dep_key in seen_dep_keys:
                     raise InvalidGoalContractError(
                         f"Duplicate dependency detected: {dep_key}"
@@ -801,8 +808,8 @@ class Goal:
             "id": self.id,
             "title": self.title,
             "description": self.description,
-            "kind": self.kind.value,
-            "status": self.status.value,
+            "kind": _enum_value(self.kind),
+            "status": _enum_value(self.status),
             "priority": self.priority.serialize(),
             "urgency": self.urgency,
             "importance": self.importance,

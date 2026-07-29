@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from cmm.agent_runtime.enums import GoalKind, GoalStatus, SuccessCriterionStatus
@@ -270,7 +271,7 @@ class GoalManager:
             decision_id=decision_id,
             evidence=tuple(evidence),
             timestamp=now,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         self.repository.append_history(history_entry)
 
