@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -120,6 +121,20 @@ class CognitiveFinding:
             "related_ids": list(self.related_ids),
             "metadata": dict(self.metadata),
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CognitiveFinding:
+        return cls(
+            code=str(data["code"]),
+            message=str(data["message"]),
+            severity=CognitiveSeverity(
+                data.get("severity", CognitiveSeverity.INFO.value)
+            ),
+            blocking=bool(data.get("blocking", False)),
+            source=str(data.get("source", "cognitive")),
+            related_ids=tuple(str(item) for item in data.get("related_ids", ())),
+            metadata=dict(data.get("metadata", {})),
+        )
 
 
 @dataclass(frozen=True, slots=True)
