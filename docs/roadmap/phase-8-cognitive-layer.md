@@ -2919,6 +2919,16 @@ cognitive.cache
 
 Validation must not silently alter facts, remove contradictions, promote hypotheses to facts, infer missing sensitive information, or authorize prohibited remote processing.
 
+## Implementation
+
+**8.26 is implemented.** The implementation reuses Phase 7 validation contracts (ValidationFinding, ValidationArtifact, ValidationStepResult, ValidationStatus, ValidationSeverity) and the Phase 8.24/8.25 cognitive cache and privacy metadata contracts. It does not duplicate any existing contract, does not create a second validation infrastructure, and does not modify the ValidationPipeline core.
+
+Structural rules implemented: cognitive.schema, cognitive.provenance, cognitive.temporality, cognitive.epistemology, cognitive.contradictions, cognitive.privacy, cognitive.knowledge_package, cognitive.cache, cognitiStructural rules implemented: cognitive.schema,rom findings, never set arbitrarily): accept, accept_with_warning, request_information, request_approval, repair, rebuild, invalidate, block, escalate. Precedence is explicit and tested.
+
+Phase 7 integration is achieved via CognitiveValidationStepExecutor, an InternalValidator adapter that wraps a CognitiveValidator and returns a real ValidationStepResult with a cognitive_validation_report artifact. The step name is cognitive.validation and can be registered in the existing ValidationRegistry.
+
+The implementation does not alter or repair artifacts silently, does not invoke models, does not persist automatically, and does not resolve contradictions. Privacy and cache validation reuse the 8.25/8.24 contracts. Phase 11 will add Response Validation; Phase 10 may register domain-specific rules.
+
 ⸻
 
 # 8.27 — Implementation Order

@@ -935,28 +935,8 @@ class CognitiveCache:
     def _permission_denied(
         self, entry: CognitiveCacheEntry, context: CognitiveCacheContext
     ) -> bool:
-        entry_rank = _SENSITIVITY_RANK[entry.sensitivity]
-        if context.sensitivity_clearance is None:
-            # Safe by default: absence of clearance only authorizes entries at
-            # or below the public tier. Personal, sensitive, highly sensitive,
-            # and restricted content always require explicit clearance.
-            if entry_rank > _SAFE_WITHOUT_CLEARANCE_RANK:
-                return True
-        elif entry_rank > _SENSITIVITY_RANK[context.sensitivity_clearance]:
-            return True
-        if entry.permissions:
-            allowed = any(
-                permission.allows(
-                    ResourcePermissionOperation.READ,
-                    actor_id=context.actor_id,
-                    domain=context.domain,
-                    at=context.at,
-                )
-                for permission in entry.permissions
-            )
-            if not allowed:
-                return True
-        return False
+        return evaluate_cache_permission_denied(entry, context)
+
 
     def get(self, key: str, context: CognitiveCacheContext) -> CognitiveCacheLookupResult:
         if not isinstance(context, CognitiveCacheContext):
@@ -1205,6 +1185,37 @@ class CognitiveCache:
     # the `source_id`/`dependency_id`/`invalidation_key` whose policy actually
     # changed, using the wrappers above.
 
+
+
+
+def evaluate_cache_permission_denied(
+    entry: CognitiveCacheEntry, context: CognitiveCacheContext
+) -> bool:
+    """Pure function that evaluates whether a cache entry may be reused by the
+    given context, based on sensitivity clearance and permissions.
+
+    Shared between CognitiveCache.get() and the Phase 8.26 CognitiveCacheRule
+    so both use the same authorization logic.
+    """
+    entry_rank = _SENSITIVITY_RANK[entry.sensitivity]
+    if context.sensitivity_clearance is None:
+        if entry_rank > _SAFE_WITHOUT_CLEARANCE_RANK:
+            return True
+    elif entry_rank > _SENSITIVITY_RANK[context.sensitivity_clearance]:
+        return True
+    if entry.permissions:
+        allowed = any(
+            permission.allows(
+                ResourcePermissionOperation.READ,
+                actor_id=context.actor_id,
+                domain=context.domain,
+                at=context.at,
+            )
+            for permission in entry.permissions
+        )
+        if not allowed:
+            return True
+    return False
 
 def _most_restrictive_sensitivity(
     package: KnowledgePackage, explicit: SensitivityLevel | None

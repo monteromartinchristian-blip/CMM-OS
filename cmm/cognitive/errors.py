@@ -331,3 +331,18 @@ class InvalidPrivacyMetadataError(PrivacyMetadataError, ValueError):
 class PrivacyResolutionError(PrivacyMetadataError, ValueError):
     """Raised when resolving the effective privacy metadata across multiple
     sources fails or receives invalid input."""
+
+
+# ── Phase 8.26 errors ─────────────────────────────────────────────────────────
+
+
+class CognitiveValidationError(CognitiveError):
+    """Base error for structural cognitive validation operations."""
+
+
+class InvalidCognitiveValidationContextError(CognitiveValidationError, ValueError):
+    """Raised when a CognitiveValidationContext contract is invalid."""
+
+
+class CognitiveValidationExecutionError(CognitiveValidationError, RuntimeError):
+    """Raised when a cognitive validation rule encounters an execution error."""
