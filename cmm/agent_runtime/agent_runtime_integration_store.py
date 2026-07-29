@@ -534,9 +534,11 @@ class InMemoryAgentRuntimeIntegrationStore:
     def _replace(
         self, current: IntegrationExecutionRecord, **changes: object
     ) -> IntegrationExecutionRecord:
+        # ``changes`` is restricted to this store's typed internal call sites.
+        # mypy cannot validate a dynamic kwargs mapping against dataclass fields.
         return replace(
             current,
-            **changes,
+            **changes,  # type: ignore[arg-type]
             version=current.version + 1,
             updated_at=self._now(),
         )
