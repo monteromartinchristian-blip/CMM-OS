@@ -665,25 +665,31 @@ class PolicyEngine:
                     resolved_sets.append(ps)
 
         # Collect policies from resolved sets
-        policy_map: dict[str, Policy] = {}
+        policy_map: dict[tuple[str, int], Policy] = {}
         for pset in resolved_sets:
             # If policy_set has embedded policies
-            for pol in pset.policies:
-                if pol.enabled:
-                    policy_map[(pol.id, pol.version)] = pol
+            for embedded_policy in pset.policies:
+                if embedded_policy.enabled:
+                    policy_map[(embedded_policy.id, embedded_policy.version)] = (
+                        embedded_policy
+                    )
             # Also resolve by policy_ids
-            for pid in pset.policy_ids:
-                pol = self._repository.get_policy(pid)
-                if pol and pol.enabled:
-                    policy_map[(pol.id, pol.version)] = pol
+            for policy_id in pset.policy_ids:
+                referenced_policy = self._repository.get_policy(policy_id)
+                if referenced_policy is not None and referenced_policy.enabled:
+                    policy_map[(referenced_policy.id, referenced_policy.version)] = (
+                        referenced_policy
+                    )
 
         # Also load standalone policies matching scope if no policy set was explicitly specified
         if not set_ids_to_resolve:
             standalone = self._repository.list_policies(
                 scope=scope, enabled_only=True, latest_only=True
             )
-            for pol in standalone:
-                policy_map[(pol.id, pol.version)] = pol
+            for standalone_policy in standalone:
+                policy_map[(standalone_policy.id, standalone_policy.version)] = (
+                    standalone_policy
+                )
 
         resolved_policies = list(policy_map.values())
         resolved_policies.sort(key=lambda p: (-p.priority, p.id, p.version))
