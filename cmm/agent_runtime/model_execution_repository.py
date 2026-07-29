@@ -11,6 +11,7 @@ from .model_execution_contracts import AcceptanceStatus, ModelExecutionRecord
 from .model_execution_errors import (
     InvalidModelExecutionRecordError,
     ModelExecutionDuplicateError,
+    ModelExecutionIdempotencyConflictError,
     ModelExecutionNotFoundError,
 )
 
@@ -42,7 +43,26 @@ class InMemoryModelExecutionRecordRepository:
 
     def __init__(self) -> None:
         self._records: dict[str, ModelExecutionRecord] = {}
+        self._idempotency: dict[str, tuple[str, str]] = {}
         self._lock = threading.RLock()
+
+    def add_idempotent(
+        self,
+        record: ModelExecutionRecord,
+        idempotency_key: str,
+    ) -> tuple[ModelExecutionRecord, bool]:
+        fingerprint = record.fingerprint()
+        with self._lock:
+            prior = self._idempotency.get(idempotency_key)
+            if prior is not None:
+                record_id, prior_fingerprint = prior
+                if prior_fingerprint != fingerprint:
+                    raise ModelExecutionIdempotencyConflictError(idempotency_key)
+                return self.get(record_id), False
+
+            created = self.add(record)
+            self._idempotency[idempotency_key] = (created.id, fingerprint)
+            return created, True
 
     def add(self, record: ModelExecutionRecord) -> ModelExecutionRecord:
         with self._lock:

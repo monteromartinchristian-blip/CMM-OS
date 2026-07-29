@@ -109,6 +109,56 @@ def test_service_idempotency_and_repository_queries():
         service.complete_record("missing")
 
 
+def test_idempotency_survives_service_reconstruction():
+    repo = InMemoryModelExecutionRecordRepository()
+    value = record(id="persistent-idempotency")
+
+    first_service = ModelExecutionRecordService(repo)
+    created = first_service.create_record(value, idempotency_key="persistent-key")
+
+    reconstructed_service = ModelExecutionRecordService(repo)
+    assert (
+        reconstructed_service.create_record(
+            value,
+            idempotency_key="persistent-key",
+        )
+        == created
+    )
+
+    with pytest.raises(ModelExecutionIdempotencyConflictError):
+        reconstructed_service.create_record(
+            record(id="different-record", model_id="model-b"),
+            idempotency_key="persistent-key",
+        )
+
+    assert len(repo) == 1
+
+
+def test_idempotent_replay_does_not_emit_duplicate_created_event():
+    class Bus:
+        def __init__(self):
+            self.events = []
+
+        def publish(self, event):
+            self.events.append(event.header.event_type)
+
+    repo = InMemoryModelExecutionRecordRepository()
+    bus = Bus()
+
+    first_service = ModelExecutionRecordService(repo, event_bus=bus)
+    value = record(id="idempotent-event")
+    first_service.create_record(value, idempotency_key="event-key")
+
+    reconstructed_service = ModelExecutionRecordService(repo, event_bus=bus)
+    replayed = reconstructed_service.create_record(
+        value,
+        idempotency_key="event-key",
+    )
+
+    assert replayed == value
+    assert bus.events == ["model_execution.created"]
+
+
 def test_event_payload_is_safe_and_event_types_are_published():
     class Bus:
         def __init__(self):
@@ -333,7 +383,7 @@ def test_idempotency_is_atomic_for_concurrent_identical_calls():
         )
     assert results[0] == results[1] == value
     assert repo.add_count == 1
-    assert service._idempotency == {"atomic-key": ("atomic-1", value.fingerprint())}
+    assert repo._idempotency == {"atomic-key": ("atomic-1", value.fingerprint())}
 
 
 def test_idempotency_conflicts_concurrently_without_duplicate_creation():
@@ -367,7 +417,7 @@ def test_failed_add_does_not_leave_idempotency_mapping_and_retry_succeeds():
     value = record(id="retry-after-add-failure")
     with pytest.raises(RuntimeError):
         service.create_record(value, idempotency_key="retry-key")
-    assert service._idempotency == {}
+    assert repo._idempotency == {}
     assert service.create_record(value, idempotency_key="retry-key") == value
     assert repo.add_count == 2
 

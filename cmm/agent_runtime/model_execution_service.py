@@ -56,22 +56,31 @@ class ModelExecutionRecordService:
     def create_record(
         self, record: ModelExecutionRecord, *, idempotency_key: str | None = None
     ) -> ModelExecutionRecord:
+        was_created = True
         if idempotency_key:
-            fingerprint = record.fingerprint()
-            with self._idempotency_lock:
-                prior = self._idempotency.get(idempotency_key)
-                if prior:
-                    if prior[1] != fingerprint:
-                        raise ModelExecutionIdempotencyConflictError(idempotency_key)
-                    return self._repository.get(prior[0])
-                # Hold the lock through persistence.  A key becomes visible only
-                # after add() succeeds, so concurrent callers cannot observe an
-                # idempotency reference to a record that does not exist.
-                created = self._repository.add(record)
-                self._idempotency[idempotency_key] = (created.id, fingerprint)
+            add_idempotent = getattr(self._repository, "add_idempotent", None)
+            if add_idempotent is not None:
+                created, was_created = add_idempotent(record, idempotency_key)
+            else:
+                fingerprint = record.fingerprint()
+                with self._idempotency_lock:
+                    prior = self._idempotency.get(idempotency_key)
+                    if prior:
+                        if prior[1] != fingerprint:
+                            raise ModelExecutionIdempotencyConflictError(
+                                idempotency_key
+                            )
+                        return self._repository.get(prior[0])
+                    created = self._repository.add(record)
+                    self._idempotency[idempotency_key] = (
+                        created.id,
+                        fingerprint,
+                    )
         else:
             created = self._repository.add(record)
-        self._emit(EventType.MODEL_EXECUTION_CREATED, created)
+
+        if was_created:
+            self._emit(EventType.MODEL_EXECUTION_CREATED, created)
         return created
 
     def complete_record(
