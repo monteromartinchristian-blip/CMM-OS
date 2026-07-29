@@ -1063,7 +1063,7 @@ def _process_batch_line(
         request_kwargs["idempotency_key"] = record["idempotency_key"]
     request = AgentRuntimeApiRequest(**request_kwargs)
     response = api_service.execute(request, context)
-    result = {
+    result: dict[str, Any] = {
         "line": line_number,
         "operation": operation.value,
         "request_id": response.request_id,
