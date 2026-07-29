@@ -118,13 +118,17 @@ class AgentRuntimeLoop:
             RuntimeStep.RECOVER: RecoverHandler(),
             RuntimeStep.COMPLETE: CompleteHandler(),
         }
-        for k, v in defaults.items():
-            self._step_handlers[k.value] = v
+        for default_step, default_handler in defaults.items():
+            self._step_handlers[default_step.value] = default_handler
 
         if step_handlers:
-            for k, v in step_handlers.items():
-                key_str = k.value if isinstance(k, RuntimeStep) else str(k)
-                self._step_handlers[key_str] = v
+            for step_key, step_handler in step_handlers.items():
+                key_str = (
+                    step_key.value
+                    if isinstance(step_key, RuntimeStep)
+                    else str(step_key)
+                )
+                self._step_handlers[key_str] = step_handler
 
         # Internal active runs lookup
         self._runs: dict[str, AgentRun] = {}
