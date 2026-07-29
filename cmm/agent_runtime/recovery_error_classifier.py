@@ -217,7 +217,10 @@ class RecoveryErrorClassifier:
             recovery_context_id=context.recovery_context_id,
             error_summary=f"[{error_class.value}] {error_type}: {error_msg}",
             logs=(error_msg,) if error_msg else (),
-            validation_results=context.validation_result_ids,
+            validation_results=tuple(
+                {"validation_result_id": result_id}
+                for result_id in context.validation_result_ids
+            ),
             checkpoint_ids=context.checkpoint_ids,
             side_effects=context.side_effects,
         )
