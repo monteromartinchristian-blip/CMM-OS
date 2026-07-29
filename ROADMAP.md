@@ -550,6 +550,8 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - configuration and secrets management;
 - authentication and authorization;
 - conversational interface;
+- configurable communication profiles with neutral fallback;
+- channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
 - goals, workflows, approvals, agents, and memory UI;
 - artifacts and trace inspection;
 - real-time updates;
@@ -577,6 +579,8 @@ Execution and Validation
 Domain Intelligence
         ↓
 Storage, Memory and Knowledge
+        ↓
+Communication Profile and Response Rendering
         ↓
 Observability, Recovery and UI
 ```

@@ -156,6 +156,10 @@ Emit Events and Metrics
 ↓
 Return Structured Result
 ↓
+Resolve Communication Profile
+↓
+Render and Validate Response
+↓
 Persist Session State
 ```
 
@@ -3848,6 +3852,158 @@ Failure of the complete product must not invalidate the reusable infrastructure 
 
 ---
 
+
+# 11.55 — Communication Profiles and Conversational Persona
+
+## Objective
+
+Allow CMM OS to present the same structured system result through configurable communication profiles without altering reasoning, policies, permissions, validation, confidence, or execution decisions.
+
+Communication style is a presentation concern. It must remain independent from the Cognitive Layer, Agent Runtime, domain logic, model providers, routing, and operational policy.
+
+## Architecture
+
+```text
+Structured System Result
+        ↓
+Communication Profile Resolver
+        ↓
+Response Renderer
+        ↓
+CLI / Web / Mobile / Voice / External Client
+```
+
+## Communication Profile Contract
+
+```python
+CommunicationProfile(
+    id="calm_authority",
+    display_name="Calm Authority",
+    language="es-ES",
+    register="formal",
+    verbosity="concise",
+    warmth="restrained",
+    authority="high",
+    emotional_expression="low",
+    preferred_phrasing=[],
+    prohibited_phrasing=[],
+    address_policy={},
+    channel_overrides={},
+    fallback_profile="neutral",
+    version="1.0",
+    metadata={},
+)
+```
+
+## Required Capabilities
+
+- define versioned communication profiles;
+- configure language, register, warmth, authority, verbosity, directness, and conversational rhythm;
+- define preferred and prohibited phrasing;
+- adapt presentation by client or channel;
+- select profiles globally, per user, session, domain, or interaction;
+- preserve the underlying structured result unchanged;
+- expose the profile and version used to render each response;
+- fall back safely to a neutral profile;
+- support text clients and future voice clients;
+- allow profiles to be exported as reusable configuration or skills.
+
+## Separation of Responsibilities
+
+Communication profiles may control:
+
+- wording;
+- sentence length;
+- degree of formality;
+- warmth;
+- directness;
+- use of the user's name;
+- acknowledgement, warning, success, and decision phrasing;
+- channel-specific formatting.
+
+Communication profiles must not control:
+
+- facts;
+- conclusions;
+- confidence or uncertainty;
+- permissions;
+- privacy;
+- routing;
+- budgets;
+- approval requirements;
+- action selection;
+- validation decisions;
+- memory updates;
+- agent autonomy.
+
+## Initial Profiles
+
+### Neutral
+
+Clear, professional, minimally styled, and always available as the fallback profile.
+
+### Calm Authority
+
+A restrained, precise, observant, and confident voice inspired by calm fictional machine interlocutors without copying protected dialogue or implying omniscience.
+
+Characteristics:
+
+- short and deliberate sentences;
+- formal but natural Spanish;
+- measured use of the user's name;
+- calm presentation of risks;
+- explicit distinction between facts, inference, and uncertainty;
+- no artificial enthusiasm;
+- no threats, manipulation, degradation, or false certainty.
+
+## Auditability
+
+Each rendered response must preserve metadata equivalent to:
+
+```python
+RenderedResponseMetadata(
+    profile_id="calm_authority",
+    profile_version="1.0",
+    language="es-ES",
+    channel="web",
+    source_result_id="result-123",
+    rendered_at="...",
+)
+```
+
+The original structured result must remain available so the response can be reproduced or rendered through another profile.
+
+## Preservation Validation
+
+The renderer must verify that style transformation:
+
+- preserves facts and qualifications;
+- preserves uncertainty and warnings;
+- does not remove approval requests;
+- does not soften or exaggerate risks;
+- does not introduce new claims;
+- does not expose hidden reasoning or restricted information;
+- remains compatible with the selected client.
+
+## Completion Criteria
+
+- versioned `CommunicationProfile` contract;
+- profile registry and resolver;
+- response renderer;
+- neutral fallback;
+- initial `calm_authority` profile;
+- global, user, session, domain, interaction, and channel selection rules;
+- rendered-response audit metadata;
+- preservation validation;
+- configuration interface;
+- unit tests;
+- integration tests;
+- E2E validation across at least two clients;
+- documentation;
+- green global suite.
+
+---
+
 # Version Plan
 
 ## 11.1 — Integration Core
@@ -4433,6 +4589,8 @@ These capabilities may be developed after the platform has been stabilized.
 ## Product
 
 - conversational interface;
+- configurable communication profiles;
+- neutral and Calm Authority presentation profiles;
 - Goal Workspace;
 - Workflow Manager;
 - Review Center;
@@ -4459,7 +4617,9 @@ These capabilities may be developed after the platform has been stabilized.
 - integrated Cognitive Layer;
 - integrated autonomous agent;
 - domain selection;
-- profile selection;
+- reasoning-profile selection;
+- communication-profile selection;
+- response rendering with semantic preservation;
 - gap analysis;
 - questions;
 - workflows;
@@ -4585,7 +4745,7 @@ The phase will be considered complete when CMM OS can reliably execute the follo
 4. The user submits a request related to one of their domains.
 5. The Orchestrator identifies the intent.
 6. It loads the session and relevant context.
-7. It selects the domain and profile.
+7. It selects the domain and reasoning profile.
 8. The Cognitive Layer distinguishes facts, inferences, and uncertainty.
 9. It detects missing information.
 10. It asks a question.
@@ -4610,10 +4770,13 @@ The phase will be considered complete when CMM OS can reliably execute the follo
 29. The Knowledge Graph preserves provenance.
 30. The Timeline records the event.
 31. The user can review the structured reasoning.
-32. Logs, metrics, and traces show the entire path.
-33. A backup is created.
-34. The backup is successfully restored in a clean environment.
-35. The global suite remains green.
+32. The system resolves the active communication profile.
+33. The response is rendered through that profile without changing facts, uncertainty, warnings, or approvals.
+34. The user can switch to the neutral profile and reproduce the response from the same structured result.
+35. Logs, metrics, and traces show the entire path.
+36. A backup is created.
+37. The backup is successfully restored in a clean environment.
+38. The global suite remains green.
 
 ---
 
@@ -4637,6 +4800,8 @@ CMM OS will stop being a set of specialized engines and become a complete person
 - coordinating domains;
 - integrating with external services;
 - operating locally;
+- presenting results through configurable communication profiles;
+- preserving meaning while adapting language, register, and channel;
 - selecting local or remote models without provider coupling;
 - controlling cost and privacy;
 - validating and escalating model responses;
