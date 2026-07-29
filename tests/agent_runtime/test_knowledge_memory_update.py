@@ -568,6 +568,7 @@ def test_proposal_engine_end_to_end():
     mock_goal = MagicMock()
     mock_goal.goal_id = "goal-1"
     mock_goal.title = "Test Goal"
+    mock_goal.kind = "general"
 
     mock_dec = MagicMock()
     mock_dec.decision_kind = "complete"
@@ -598,6 +599,7 @@ def test_manager_propose_decide_apply_pipeline():
     mock_goal = MagicMock()
     mock_goal.goal_id = "goal-1"
     mock_goal.title = "Test Goal"
+    mock_goal.kind = "general"
 
     mock_dec = MagicMock()
     mock_dec.decision_kind = "complete"
@@ -621,6 +623,7 @@ def test_manager_missing_writer_raises_error():
     mock_goal = MagicMock()
     mock_goal.goal_id = "g1"
     mock_goal.title = "Goal"
+    mock_goal.kind = "general"
 
     with pytest.raises(KnowledgeWriteError):
         manager.propose_and_apply(context=ctx, goal=mock_goal)
@@ -637,6 +640,7 @@ def test_manager_approval_required_blocks_apply():
     mock_goal = MagicMock()
     mock_goal.goal_id = "g1"
     mock_goal.title = "Goal"
+    mock_goal.kind = "general"
 
     prop = manager.propose(context=ctx, goal=mock_goal)
 
@@ -676,6 +680,7 @@ def _mk_goal() -> MagicMock:
     goal = MagicMock()
     goal.goal_id = "goal-x"
     goal.title = "Goal X"
+    goal.kind = "general"
     return goal
 
 

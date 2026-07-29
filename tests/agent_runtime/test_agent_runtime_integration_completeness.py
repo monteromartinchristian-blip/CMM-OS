@@ -145,10 +145,12 @@ def test_modules_use_only_python_3_10_compatible_syntax() -> None:
     for module in _PHASE_9_27_MODULES:
         source = _module_source_path(module).read_text(encoding="utf-8")
         tree = ast.parse(source)
+        try_star_type = getattr(ast, "TryStar", None)
         for node in ast.walk(tree):
-            assert not isinstance(node, ast.TryStar), (
-                f"{module.__name__} uses except* (3.11+), not 3.10 compatible"
-            )
+            if try_star_type is not None:
+                assert not isinstance(node, try_star_type), (
+                    f"{module.__name__} uses except* (3.11+), not 3.10 compatible"
+                )
             if hasattr(ast, "TypeAlias") and isinstance(node, ast.TypeAlias):
                 raise AssertionError(
                     f"{module.__name__} uses the 'type' statement (3.12+)"
