@@ -464,6 +464,27 @@ class BudgetConcurrencyError(ActionBudgetError, ValueError):
     """Raised when parallel operation limits are exceeded or invalid concurrency state is reached."""
 
 
+# ── Phase 9.31 – Economic Budget Errors ─────────────────────────────────────
+
+
+class EconomicBudgetError(AgentRuntimeError):
+    """Base exception for economic budget contracts and orchestration."""
+
+
+class InvalidEconomicBudgetContractError(
+    EconomicBudgetError, InvalidAgentContractError
+):
+    """Raised when an economic budget value or invariant is invalid."""
+
+
+class EconomicBudgetResolutionError(InvalidEconomicBudgetContractError):
+    """Raised when economic budget sources cannot be resolved safely."""
+
+
+class EconomicBudgetCostError(EconomicBudgetError, ValueError):
+    """Raised when a model cost cannot be calculated under the active policy."""
+
+
 # ── Phase 9.12 – Agent Runtime Loop Errors ────────────────────────────────────
 
 

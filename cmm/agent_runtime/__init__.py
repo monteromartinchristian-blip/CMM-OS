@@ -66,6 +66,24 @@ from cmm.agent_runtime.contracts import (
     AgentRun,
     RuntimeDecision,
 )
+from cmm.agent_runtime.economic_budget_adapters import EconomicBudgetActionBudgetAdapter
+from cmm.agent_runtime.economic_budget_calculator import ModelCostCalculator
+from cmm.agent_runtime.economic_budget_contracts import (
+    EconomicBudget,
+    EconomicBudgetDecision,
+    EconomicBudgetSource,
+    EconomicBudgetStatus,
+    ModelCostActual,
+    ModelCostEstimate,
+    ResolvedEconomicBudget,
+)
+from cmm.agent_runtime.economic_budget_errors import (
+    EconomicBudgetCostError,
+    EconomicBudgetError,
+    EconomicBudgetResolutionError,
+    InvalidEconomicBudgetContractError,
+)
+from cmm.agent_runtime.economic_budget_resolver import EconomicBudgetResolver
 from cmm.agent_runtime.enums import (
     AgentCognitiveDecision,
     AgentCognitiveStatus,
@@ -1056,10 +1074,24 @@ __all__ += [
     "DuplicateBudgetAdjustmentError",
     "DuplicateBudgetConsumptionError",
     "DuplicateBudgetReservationError",
+    "EconomicBudget",
+    "EconomicBudgetActionBudgetAdapter",
+    "EconomicBudgetCostError",
+    "EconomicBudgetDecision",
+    "EconomicBudgetError",
+    "EconomicBudgetResolutionError",
+    "EconomicBudgetResolver",
+    "EconomicBudgetSource",
+    "EconomicBudgetStatus",
     "InMemoryActionBudgetRepository",
     "InsufficientBudgetError",
     "InvalidActionBudgetContractError",
     "InvalidBudgetAllocationError",
+    "InvalidEconomicBudgetContractError",
+    "ModelCostActual",
+    "ModelCostCalculator",
+    "ModelCostEstimate",
+    "ResolvedEconomicBudget",
 ]
 
 # ── Phase 9.12 – Agent Runtime Loop Exports ───────────────────────────────────

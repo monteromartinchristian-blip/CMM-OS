@@ -157,6 +157,14 @@ class ActionBudgetService:
         """Get ActionBudget by ID."""
         return self.repository.get_budget(budget_id)
 
+    def find_budget_by_agent_run(self, agent_run_id: str) -> ActionBudget | None:
+        """Find the latest ActionBudget for an agent run through the public API."""
+        return self.repository.find_by_agent_run(agent_run_id)
+
+    def get_reservation(self, reservation_id: str) -> BudgetReservation:
+        """Get a reservation through the public service API."""
+        return self.repository.get_reservation(reservation_id)
+
     def get_usage(self, budget_id: str) -> dict[BudgetResourceType, int | Decimal]:
         """Return shallow copy of used quantities for a budget."""
         budget = self.repository.get_budget(budget_id)

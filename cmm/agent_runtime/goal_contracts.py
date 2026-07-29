@@ -18,6 +18,7 @@ from cmm.agent_runtime.contracts import (
     _freeze_metadata,
     _freeze_str_tuple,
 )
+from cmm.agent_runtime.economic_budget_contracts import EconomicBudget
 from cmm.agent_runtime.enums import (
     GoalConstraintKind,
     GoalDependencyType,
@@ -635,6 +636,7 @@ class Goal:
     sensitivity: str = "internal"
     permissions: tuple[str, ...] = ()
     model_requirements: ModelRequirements | None = None
+    economic_budget: EconomicBudget | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
@@ -769,6 +771,13 @@ class Goal:
                 "model_requirements must be a ModelRequirements instance or None"
             )
 
+        if self.economic_budget is not None and not isinstance(
+            self.economic_budget, EconomicBudget
+        ):
+            raise InvalidGoalContractError(
+                "economic_budget must be an EconomicBudget instance or None"
+            )
+
         _validate_non_empty_str(self.source, "source")
         _validate_non_empty_str(self.owner_actor_id, "owner_actor_id")
         _validate_non_empty_str(self.sensitivity, "sensitivity")
@@ -848,6 +857,9 @@ class Goal:
                 model_requirements_to_dict(self.model_requirements)
                 if self.model_requirements is not None
                 else None
+            ),
+            "economic_budget": (
+                self.economic_budget.to_dict() if self.economic_budget is not None else None
             ),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -932,6 +944,11 @@ class Goal:
             model_requirements=(
                 model_requirements_from_dict(mapping["model_requirements"])
                 if mapping.get("model_requirements") is not None
+                else None
+            ),
+            economic_budget=(
+                EconomicBudget.from_dict(mapping["economic_budget"])
+                if mapping.get("economic_budget") is not None
                 else None
             ),
             created_at=_parse_datetime(

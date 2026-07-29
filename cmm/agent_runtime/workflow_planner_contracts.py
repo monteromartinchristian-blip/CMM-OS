@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from cmm.agent_runtime.contracts import AgentRun
+from cmm.agent_runtime.economic_budget_contracts import EconomicBudget
 from cmm.agent_runtime.enums import (
     AgentPlanningDecision,
     AgentPlanningStatus,
@@ -456,6 +457,7 @@ class AgentWorkflowOperation:
     timeout_seconds: float | None = None
     model_requirements: ModelRequirements | None = None
     model_fallback_policy: ModelFallbackPolicy | None = None
+    economic_budget: EconomicBudget | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -490,6 +492,10 @@ class AgentWorkflowOperation:
                 "AgentWorkflowOperation 'model_fallback_policy' must be "
                 "a ModelFallbackPolicy instance or None."
             )
+        if self.economic_budget is not None and not isinstance(self.economic_budget, EconomicBudget):
+            raise InvalidAgentPlanningContractError(
+                "AgentWorkflowOperation 'economic_budget' must be an EconomicBudget or None."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -518,6 +524,7 @@ class AgentWorkflowOperation:
                 if self.model_fallback_policy is not None
                 else None
             ),
+            "economic_budget": self.economic_budget.to_dict() if self.economic_budget else None,
             "metadata": dict(self.metadata),
         }
 
@@ -547,6 +554,11 @@ class AgentWorkflowOperation:
             model_fallback_policy=(
                 ModelFallbackPolicy.from_dict(data["model_fallback_policy"])
                 if data.get("model_fallback_policy") is not None
+                else None
+            ),
+            economic_budget=(
+                EconomicBudget.from_dict(data["economic_budget"])
+                if data.get("economic_budget") is not None
                 else None
             ),
             metadata=dict(data.get("metadata", {})),
@@ -1044,6 +1056,7 @@ class AgentWorkflowPlan:
     estimated_budget: AgentWorkflowBudgetEstimate | None = None
     timeout_seconds: float | None = None
     model_requirements: ModelRequirements | None = None
+    economic_budget: EconomicBudget | None = None
     confidence: float = 1.0
     validation: AgentWorkflowPlanValidation | None = None
     created_at: str = field(default_factory=_utc_now_iso)
@@ -1087,6 +1100,10 @@ class AgentWorkflowPlan:
                 "AgentWorkflowPlan 'model_requirements' must be "
                 "a ModelRequirements instance or None."
             )
+        if self.economic_budget is not None and not isinstance(self.economic_budget, EconomicBudget):
+            raise InvalidAgentPlanningContractError(
+                "AgentWorkflowPlan 'economic_budget' must be an EconomicBudget or None."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1129,6 +1146,7 @@ class AgentWorkflowPlan:
                 if self.model_requirements is not None
                 else None
             ),
+            "economic_budget": self.economic_budget.to_dict() if self.economic_budget else None,
             "confidence": self.confidence,
             "validation": self.validation.to_dict() if self.validation else None,
             "created_at": self.created_at,
@@ -1213,6 +1231,11 @@ class AgentWorkflowPlan:
             model_requirements=(
                 model_requirements_from_dict(data["model_requirements"])
                 if data.get("model_requirements") is not None
+                else None
+            ),
+            economic_budget=(
+                EconomicBudget.from_dict(data["economic_budget"])
+                if data.get("economic_budget") is not None
                 else None
             ),
             confidence=float(data.get("confidence", 1.0)),
