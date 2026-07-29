@@ -735,6 +735,7 @@ class AgentRuntimeIntegrationService:
                 )
 
         if failed_operation is not None:
+            assert failed_result is not None
             compensation_warnings = self._run_compensations(execution_id)
             obs.telemetry(
                 AgentTelemetryKind.RUN_FAILED,
@@ -1064,7 +1065,8 @@ class AgentRuntimeIntegrationService:
         now = self._now()
         if request.deadline is not None and request.deadline <= now:
             raise AgentRuntimeIntegrationError("deadline expired")
-        if request.permission_context.is_expired:
+        permission_context = request.permission_context
+        if permission_context is not None and permission_context.is_expired:
             raise AgentRuntimeIntegrationError("permission context expired")
 
     def _validate_prompt_injection(
@@ -1583,9 +1585,10 @@ class AgentRuntimeIntegrationService:
     ) -> Any:
         if run_id is None:
             raise AgentRuntimeIntegrationError("agent run is not bound")
-        context = self._permission_context_for_run(
-            request.permission_context, agent_id, run_id
-        )
+        permission_context = request.permission_context
+        if permission_context is None:
+            raise AgentRuntimeIntegrationError("permission context is required")
+        context = self._permission_context_for_run(permission_context, agent_id, run_id)
         operation = request.operations[0] if request.operations else None
         return self._security_service.check_permission(
             PermissionCheckRequest(
@@ -1806,7 +1809,7 @@ class AgentRuntimeIntegrationService:
                 child_goal_description=(
                     f"Delegation proposed by integration execution {request.execution_id}"
                 ),
-                expected_result={},
+                expected_result=MappingProxyType({}),
                 source_agent_id=record.agent_id,
                 source_agent_run_id=record.agent_run_id,
                 depth=int(policy.get("depth", 0)),
