@@ -19,6 +19,7 @@ from cmm.agent_runtime.enums import (
     OperationEnvironment,
 )
 from cmm.agent_runtime.errors import InvalidAgentOperationContractError
+from kernel.llm.model_selection import ModelRequirements
 
 
 def _now_iso() -> str:
@@ -227,6 +228,7 @@ class OperationDescriptor:
         OperationEnvironment.LOCAL,
     )
     enabled: bool = True
+    model_requirements: ModelRequirements | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -243,6 +245,13 @@ class OperationDescriptor:
         if self.timeout_seconds <= 0:
             raise InvalidAgentOperationContractError(
                 "timeout_seconds must be positive."
+            )
+        if (
+            self.model_requirements is not None
+            and not isinstance(self.model_requirements, ModelRequirements)
+        ):
+            raise InvalidAgentOperationContractError(
+                "model_requirements must be a ModelRequirements instance or None."
             )
 
         eff_tuples = []

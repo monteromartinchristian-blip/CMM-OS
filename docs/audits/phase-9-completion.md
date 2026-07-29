@@ -146,7 +146,15 @@ kernels paralelos.
 | 9.26 — Observability | `fb61080` | métricas, trazas y auditoría |
 | 9.27 — Runtime composition | `6cebd7a` | composición integral del runtime |
 | 9.28 — Existing-system integration | `655111a` | wiring Cognitive, Planner y Validation |
-| 9.29 — Implementation order | Documental | no requiere implementación independiente |
+| 9.29 — Model requirements per operation | Pendiente de commit | requisitos jerárquicos, policy y approval |
+
+### Extensión posterior 9.29
+
+La ampliación del roadmap redefine la antigua sección documental 9.29 como
+`Model Requirements per Operation`. La implementación añade requisitos
+declarativos en agente, objetivo, workflow y operación, junto con adaptación
+explícita de restricciones de policy y parámetros aprobados. La selección
+concreta de modelo y proveedor permanece fuera del Agent Runtime.
 
 ## 5. Garantías alcanzadas
 

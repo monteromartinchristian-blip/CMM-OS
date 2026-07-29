@@ -2526,3 +2526,47 @@ __all__ += [
     "IntegrationVersionConflictError",
     "can_transition_integration_state",
 ]
+
+# ── Phase 9.29 – Model Requirements per Operation Exports ───────────────────
+
+from cmm.agent_runtime.model_requirements_approval_adapter import (
+    MODEL_REQUIREMENTS_APPROVAL_KEY,
+    approval_model_requirement_sources,
+)
+from cmm.agent_runtime.model_requirements_contracts import (
+    ModelRequirementsSource,
+    ResolvedModelRequirements,
+    model_requirements_from_dict,
+    model_requirements_to_dict,
+)
+from cmm.agent_runtime.model_requirements_errors import (
+    InvalidModelRequirementsContractError,
+    ModelRequirementsConflictError,
+    ModelRequirementsError,
+    ModelRequirementsResolutionError,
+)
+from cmm.agent_runtime.model_requirements_policy_adapter import (
+    MODEL_REQUIREMENTS_RESTRICTION_KIND,
+    policy_model_requirement_sources,
+)
+from cmm.agent_runtime.model_requirements_resolver import (
+    resolve_model_requirements,
+    resolve_runtime_model_requirements,
+)
+
+__all__ += [
+    "MODEL_REQUIREMENTS_APPROVAL_KEY",
+    "MODEL_REQUIREMENTS_RESTRICTION_KIND",
+    "InvalidModelRequirementsContractError",
+    "ModelRequirementsConflictError",
+    "ModelRequirementsError",
+    "ModelRequirementsResolutionError",
+    "ModelRequirementsSource",
+    "ResolvedModelRequirements",
+    "approval_model_requirement_sources",
+    "model_requirements_from_dict",
+    "model_requirements_to_dict",
+    "policy_model_requirement_sources",
+    "resolve_model_requirements",
+    "resolve_runtime_model_requirements",
+]

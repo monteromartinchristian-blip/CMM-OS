@@ -33,6 +33,10 @@ from cmm.agent_runtime.agent_registry_enums import (
 from cmm.agent_runtime.agent_registry_errors import (
     AgentRegistryValidationError,
 )
+from cmm.agent_runtime.model_requirements_contracts import (
+    model_requirements_to_dict,
+)
+from kernel.llm.model_selection import ModelRequirements
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -466,6 +470,7 @@ class AgentDescriptor:
     required_components: tuple[str, ...] = ()
     supported_operations: tuple[str, ...] = ()
     compatible_runtime_versions: tuple[str, ...] = ()
+    model_requirements: ModelRequirements | None = None
     metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     created_at: datetime = field(default_factory=_now_utc)
 
@@ -519,6 +524,15 @@ class AgentDescriptor:
             raise AgentRegistryValidationError(
                 "AgentDescriptor priority must be an integer",
                 {"field": "priority"},
+            )
+        if (
+            self.model_requirements is not None
+            and not isinstance(self.model_requirements, ModelRequirements)
+        ):
+            raise AgentRegistryValidationError(
+                "AgentDescriptor model_requirements must be "
+                "a ModelRequirements instance or None",
+                {"field": "model_requirements"},
             )
 
         # capabilities – must be AgentCapability instances, no dup names.
@@ -630,6 +644,7 @@ class AgentDescriptor:
             required_components=self.required_components,
             supported_operations=self.supported_operations,
             compatible_runtime_versions=self.compatible_runtime_versions,
+            model_requirements=self.model_requirements,
             metadata=self.metadata,
             created_at=self.created_at,
         )
@@ -651,6 +666,11 @@ class AgentDescriptor:
             "required_components": list(self.required_components),
             "supported_operations": list(self.supported_operations),
             "compatible_runtime_versions": list(self.compatible_runtime_versions),
+            "model_requirements": (
+                model_requirements_to_dict(self.model_requirements)
+                if self.model_requirements is not None
+                else None
+            ),
             "metadata": dict(self.metadata),
             "created_at": self.created_at.isoformat(),
         }

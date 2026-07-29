@@ -22,7 +22,12 @@ from cmm.agent_runtime.enums import (
 )
 from cmm.agent_runtime.errors import InvalidAgentPlanningContractError
 from cmm.agent_runtime.goal_contracts import Goal
+from cmm.agent_runtime.model_requirements_contracts import (
+    model_requirements_from_dict,
+    model_requirements_to_dict,
+)
 from cmm.agent_runtime.observation_contracts import ObservationSnapshot
+from kernel.llm.model_selection import ModelRequirements
 
 
 def _utc_now_iso() -> str:
@@ -448,6 +453,7 @@ class AgentWorkflowOperation:
     risk: WorkflowPlanRisk = WorkflowPlanRisk.NONE
     idempotency_key: str | None = None
     timeout_seconds: float | None = None
+    model_requirements: ModelRequirements | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -467,6 +473,14 @@ class AgentWorkflowOperation:
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowOperation 'timeout_seconds' must be positive."
             )
+        if (
+            self.model_requirements is not None
+            and not isinstance(self.model_requirements, ModelRequirements)
+        ):
+            raise InvalidAgentPlanningContractError(
+                "AgentWorkflowOperation 'model_requirements' must be "
+                "a ModelRequirements instance or None."
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -485,6 +499,11 @@ class AgentWorkflowOperation:
             else str(self.risk),
             "idempotency_key": self.idempotency_key,
             "timeout_seconds": self.timeout_seconds,
+            "model_requirements": (
+                model_requirements_to_dict(self.model_requirements)
+                if self.model_requirements is not None
+                else None
+            ),
             "metadata": dict(self.metadata),
         }
 
@@ -506,6 +525,11 @@ class AgentWorkflowOperation:
             risk=risk_val,
             idempotency_key=data.get("idempotency_key"),
             timeout_seconds=data.get("timeout_seconds"),
+            model_requirements=(
+                model_requirements_from_dict(data["model_requirements"])
+                if data.get("model_requirements") is not None
+                else None
+            ),
             metadata=dict(data.get("metadata", {})),
         )
 
@@ -1000,6 +1024,7 @@ class AgentWorkflowPlan:
     expected_effects: list[str] = field(default_factory=list)
     estimated_budget: AgentWorkflowBudgetEstimate | None = None
     timeout_seconds: float | None = None
+    model_requirements: ModelRequirements | None = None
     confidence: float = 1.0
     validation: AgentWorkflowPlanValidation | None = None
     created_at: str = field(default_factory=_utc_now_iso)
@@ -1034,6 +1059,14 @@ class AgentWorkflowPlan:
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise InvalidAgentPlanningContractError(
                 "AgentWorkflowPlan 'timeout_seconds' must be positive."
+            )
+        if (
+            self.model_requirements is not None
+            and not isinstance(self.model_requirements, ModelRequirements)
+        ):
+            raise InvalidAgentPlanningContractError(
+                "AgentWorkflowPlan 'model_requirements' must be "
+                "a ModelRequirements instance or None."
             )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1072,6 +1105,11 @@ class AgentWorkflowPlan:
             if self.estimated_budget
             else None,
             "timeout_seconds": self.timeout_seconds,
+            "model_requirements": (
+                model_requirements_to_dict(self.model_requirements)
+                if self.model_requirements is not None
+                else None
+            ),
             "confidence": self.confidence,
             "validation": self.validation.to_dict() if self.validation else None,
             "created_at": self.created_at,
@@ -1153,6 +1191,11 @@ class AgentWorkflowPlan:
             expected_effects=list(data.get("expected_effects", [])),
             estimated_budget=budget_val,
             timeout_seconds=data.get("timeout_seconds"),
+            model_requirements=(
+                model_requirements_from_dict(data["model_requirements"])
+                if data.get("model_requirements") is not None
+                else None
+            ),
             confidence=float(data.get("confidence", 1.0)),
             validation=validation_val,
             created_at=data.get("created_at") or _utc_now_iso(),

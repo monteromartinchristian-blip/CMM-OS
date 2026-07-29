@@ -30,6 +30,11 @@ from cmm.agent_runtime.errors import (
     GoalDependencyError,
     InvalidGoalContractError,
 )
+from cmm.agent_runtime.model_requirements_contracts import (
+    model_requirements_from_dict,
+    model_requirements_to_dict,
+)
+from kernel.llm.model_selection import ModelRequirements
 
 
 def _enum_value(value: Any) -> Any:
@@ -629,6 +634,7 @@ class Goal:
     )
     sensitivity: str = "internal"
     permissions: tuple[str, ...] = ()
+    model_requirements: ModelRequirements | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
@@ -755,6 +761,14 @@ class Goal:
             self, "permissions", _freeze_str_tuple(self.permissions, "permissions")
         )
 
+        if (
+            self.model_requirements is not None
+            and not isinstance(self.model_requirements, ModelRequirements)
+        ):
+            raise InvalidGoalContractError(
+                "model_requirements must be a ModelRequirements instance or None"
+            )
+
         _validate_non_empty_str(self.source, "source")
         _validate_non_empty_str(self.owner_actor_id, "owner_actor_id")
         _validate_non_empty_str(self.sensitivity, "sensitivity")
@@ -830,6 +844,11 @@ class Goal:
             "temporal_scope": dict(self.temporal_scope),
             "sensitivity": self.sensitivity,
             "permissions": list(self.permissions),
+            "model_requirements": (
+                model_requirements_to_dict(self.model_requirements)
+                if self.model_requirements is not None
+                else None
+            ),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "completed_at": self.completed_at.isoformat()
@@ -910,6 +929,11 @@ class Goal:
             temporal_scope=mapping.get("temporal_scope", {}),
             sensitivity=str(mapping.get("sensitivity", "internal")),
             permissions=tuple(mapping.get("permissions", ())),
+            model_requirements=(
+                model_requirements_from_dict(mapping["model_requirements"])
+                if mapping.get("model_requirements") is not None
+                else None
+            ),
             created_at=_parse_datetime(
                 mapping.get("created_at", datetime.now(timezone.utc)), "created_at"
             ),
