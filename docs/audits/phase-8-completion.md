@@ -63,3 +63,22 @@
 ## Closure Declaration
 
 The Cognitive Layer (Phase 8) is fully audited, stabilized, documented, and hardened. All 12 formal invariants hold, performance benchmarks pass cleanly, and the public API surface is stable. The repository is ready to serve as the foundation for Phase 9 — Goal & Agency Layer.
+
+---
+
+## Continuity note — Extensions 8.23–8.26
+
+This document records the original Phase 8 stabilization and release baseline
+through 8.15.
+
+Phase 8 was subsequently extended with:
+
+- 8.23 — Knowledge Packages;
+- 8.24 — Cognitive Cache;
+- 8.25 — Privacy Processing Policies;
+- 8.26 — Structural Cognitive Validation.
+
+These extensions were included in the final delta audit preceding Phase 10.
+Their integration, privacy guarantees, validation evidence, and relationship
+with the Phase 9 multimodel extensions are recorded in
+[`phases-8-9-delta-audit.md`](phases-8-9-delta-audit.md).

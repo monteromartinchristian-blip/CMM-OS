@@ -1,237 +1,222 @@
-# Cierre formal de implementación — Fase 9: Autonomous Agent Runtime
+# Final Implementation and Audit Closure — Phase 9: Autonomous Agent Runtime
 
-Fecha: 2026-07-29
-Rama de cierre e integración: `main`
-Commit técnico final: `6ea7daa`
-Versión publicada actual: `v0.8.0`
-Próxima versión: pendiente de auditoría y publicación
+Date: 2026-07-29
+Integration branch: `main`
+Final audited technical commit: `41d2d26`
+Current published release: `v0.8.0`
+Next implementation milestone: Phase 10 — Domain Intelligence
 
-## 1. Veredicto
+## 1. Verdict
 
-**IMPLEMENTATION COMPLETE — INTEGRATED IN MAIN — AUDIT AND PUBLICATION PENDING**
+**IMPLEMENTATION COMPLETE — AUDITED — INTEGRATED IN MAIN — CI GREEN**
 
-La implementación técnica de la Fase 9 está completa.
+Phase 9 is technically complete and formally audited.
 
-CMM OS dispone de un Agent Runtime genérico, persistente y limitado por
-políticas, capaz de perseguir objetivos mediante observación, razonamiento,
-planificación, aprobación, ejecución, validación, recuperación y evaluación
-de resultados.
+CMM OS now provides a generic, persistent, policy-bounded Agent Runtime capable
+of pursuing objectives through observation, structured reasoning, planning,
+approval, execution, validation, recovery, and outcome evaluation.
 
-Este cierre acredita la terminación de la implementación y de su validación
-local. No acredita todavía:
+The implementation includes the original Phase 9 runtime scope and the
+multimodel extensions 9.29–9.32.
 
-- la auditoría transversal de las Fases 7–9;
-- la validación final mediante GitHub Actions;
-- la publicación de una nueva versión.
+No blocking technical defect remains before beginning Phase 10.
 
-## 2. Evidencia final
+## 2. Final evidence
 
-| Comprobación | Resultado |
+| Check | Result |
 | --- | ---: |
-| Tests focalizados de integración 9.28 y regresión | 710 passed |
-| Regresión específica de integración 9.27 | 525 passed |
-| Suite completa de `tests/agent_runtime` | 3231 passed |
-| Suite global | 5406 passed |
-| Ruff focalizado sobre archivos modificados | Verde |
-| Compilación de `cmm/agent_runtime` | Correcta |
-| `git diff --check` | Limpio |
-| Workspace tras commit técnico | Limpio |
+| Focused delta suite | 299 passed |
+| Full repository suite | 5409 passed |
+| Model execution records suite | 25 passed |
+| Ruff on modified delta files | Green |
+| Ruff format on modified delta files | Green |
+| `git diff --check` | Clean |
+| CI Python 3.10 | Green |
+| CI Python 3.11 | Green |
+| CI Python 3.12 | Green |
+| Continuous Validation Python 3.10 | Green |
+| Continuous Validation Python 3.11 | Green |
+| Continuous Validation Python 3.12 | Green |
+| Final workspace | Clean |
 
-## 3. Alcance implementado
+## 3. Implemented scope
 
-### Objetivos y observación
+### Objectives and observation
 
-- contratos de objetivos persistentes;
-- prioridades, criterios de éxito, restricciones y dependencias;
-- intake y normalización;
-- observaciones, cambios y snapshots;
-- estrategias de adquisición de información.
+- persistent goal contracts;
+- priorities, success criteria, constraints, and dependencies;
+- intake and normalization;
+- observations, changes, and snapshots;
+- information-acquisition strategies.
 
-### Integración cognitiva
+### Cognitive integration
 
-- adaptación al Cognitive Layer;
-- carga y transferencia de contexto;
-- razonamiento estructurado;
-- detección de gaps, preguntas y contradicciones;
-- confianza y trazabilidad;
-- bloqueo estructurado cuando falta información obligatoria;
-- propuestas controladas de actualización de conocimiento y memoria.
+- Cognitive Layer adaptation;
+- structured context loading and transfer;
+- knowledge, uncertainty, gaps, questions, and contradictions;
+- confidence and provenance;
+- structural blocking when mandatory information is unavailable;
+- controlled knowledge and memory update proposals.
 
-### Planificación y workflows
+### Planning and workflows
 
-- adaptación al Planner existente;
-- creación de workflows;
-- tareas, operaciones y dependencias;
-- DAG y validación del plan;
-- checkpoints y nodos de aprobación;
-- estimaciones de riesgo y presupuesto;
-- versionado y replanificación limitada.
+- integration with the existing Planner;
+- workflows, tasks, operations, and dependencies;
+- DAG validation;
+- approval nodes and checkpoints;
+- risk and budget estimates;
+- versioning and bounded replanning.
 
-### Políticas y autonomía
+### Policies and autonomy
 
-- motor de políticas;
-- niveles de autonomía;
-- permisos y aislamiento;
-- aprobación humana;
-- presupuestos y reservas;
-- límites de delegación entre agentes;
-- fail-closed para requisitos obligatorios.
+- policy engine;
+- autonomy levels;
+- permissions and isolation;
+- human approval;
+- budgets and reservations;
+- bounded delegation;
+- fail-closed mandatory requirements.
 
-### Ejecución
+### Execution and recovery
 
-- runtime loop explícito;
-- selección de operaciones registradas;
-- ejecución estructurada e idempotente;
-- efectos y transacciones;
+- explicit runtime loop;
+- registered operations;
+- structured and idempotent execution;
+- effects and transactions;
 - checkpoints;
-- rollback y compensaciones;
-- cancelación;
-- persistencia y reanudación.
+- rollback and compensations;
+- cancellation;
+- retry, re-observation, replanning, and escalation;
+- persistence and resume.
 
-### Validación
+### Validation and outcomes
 
-- políticas y requisitos de validación;
-- validación previa y posterior;
-- findings estructurados;
-- validaciones afectadas;
-- commit gate;
-- full suite cuando lo requiere la política;
-- prohibición de escribir memoria o completar ante fallo obligatorio.
+- pre- and post-execution validation;
+- structured findings;
+- affected validation selection;
+- commit gates;
+- full-suite escalation when required;
+- outcome evaluation;
+- complete and partial completion states;
+- prohibition of unauthorized memory updates.
 
-### Recuperación y resultados
+### Registry, API, and observability
 
-- retry;
-- re-observación;
-- replanificación;
-- rollback;
-- escalado;
-- evaluación de resultados;
-- finalización completa o parcial;
-- conservación del historial de ejecución.
-
-### Registro y operación
-
-- Agent Registry y Agent Factory;
-- API operacional;
-- CLI operacional;
+- Agent Registry and Agent Factory;
+- operational API and CLI;
 - Runtime Event Bus;
-- scheduling y triggering;
-- trazas;
-- métricas;
-- auditoría;
-- observabilidad.
+- scheduling and triggering;
+- traces, metrics, audit events, and observability.
 
-### Integración transversal
+## 4. Multimodel extensions 9.29–9.32
 
-El composition root de 9.28 conecta el Agent Runtime con:
+### 9.29 — Model requirements
 
-- contratos compartidos de Kernel;
-- Cognitive Layer;
-- Planner;
-- Execution Engine;
-- Validation System;
-- Memory;
-- Workflow System;
-- Event Bus;
-- stores y repositories existentes.
+Operations can declare provider-independent requirements for context capacity,
+reasoning, tools, structured output, privacy, providers, and economic limits.
 
-No se han creado runtimes, planners, cognitive layers, validation systems ni
-kernels paralelos.
+Requirements are resolved hierarchically and preserved through routing and
+execution.
 
-## 4. Últimos hitos técnicos
+### 9.30 — Model fallback policies
 
-| Subfase | Commit | Resultado |
-| --- | --- | --- |
-| 9.26 — Observability | `fb61080` | métricas, trazas y auditoría |
-| 9.27 — Runtime composition | `6cebd7a` | composición integral del runtime |
-| 9.28 — Existing-system integration | `655111a` | wiring Cognitive, Planner y Validation |
-| 9.29 — Model requirements per operation | `d72fb3f` | requisitos jerárquicos, policy y approval |
-| 9.30 — Model fallback and escalation | `47cf3b7` | retries, fallback, rerouting y escalado |
-| 9.31 — Economic budgets | `7b61e11` | control económico jerárquico y Action Budget |
-| 9.32 — Model execution records | `6ea7daa` | registros auditables, privacidad y observabilidad |
+Fallback, retry, rerouting, and escalation decisions use the existing model
+router and runtime contracts.
 
-### Extensiones multimodelo 9.29–9.32
+No parallel router or autonomous runtime was introduced.
 
-La ampliación posterior incorpora requisitos declarativos por operación,
-políticas de fallback y escalado, presupuestos económicos y registros
-estructurados de ejecución de modelos. Estas capacidades reutilizan el Runtime
-Event Bus, observabilidad, trazas, validación, políticas y Action Budget
-existentes, sin introducir un runtime o sistema de costes paralelo.
+### 9.31 — Economic budgets
 
-## 5. Garantías alcanzadas
+Economic budgets integrate with the existing Action Budget infrastructure and
+support hierarchical limits, reservations, estimates, and reason codes.
 
-El Agent Runtime puede:
+No independent cost-control subsystem was created.
 
-- aceptar y normalizar un objetivo;
-- observar su entorno;
-- razonar mediante el Cognitive Layer;
-- pedir información cuando sea necesario;
-- generar y versionar un workflow;
-- evaluar políticas, permisos, autonomía y presupuesto;
-- solicitar aprobación humana;
-- ejecutar operaciones registradas;
-- validar antes y después de actuar;
-- crear checkpoints;
-- recuperar, replanificar o revertir;
-- evaluar si el objetivo se ha cumplido;
-- actualizar memoria únicamente cuando está autorizado;
-- persistir y reanudar la ejecución;
-- producir eventos, trazas, métricas y evidencia auditable.
+### 9.32 — Model execution records
 
-## 6. Compatibilidad e invariantes
+Model executions produce immutable, privacy-safe, serializable, auditable
+records containing routing, fallback, economic, validation, privacy, quality,
+and execution evidence.
 
-- El Kernel no contiene lógica de agente.
-- El Runtime decide cuándo planificar, pero no construye internamente el DAG.
-- El Cognitive Layer conserva el razonamiento, la detección de gaps,
-  contradicciones y confianza.
-- El Execution Engine conserva la ejecución y gestión de efectos.
-- Validation conserva políticas, steps, findings y commit gate.
-- Memory solo recibe actualizaciones autorizadas y validadas.
-- Los futuros dominios de Fase 10 extenderán el Runtime mediante contratos,
-  sin crear un runtime independiente.
-- La integración Semantic continúa siendo opcional.
+The final delta audit added durable idempotency and preservation of effective
+model requirements.
 
-## 7. Limitaciones declaradas
+## 5. Delta audit findings
 
-1. Los bloqueos cognitivos como `ASK_USER`, `LOAD_RESOURCE`, `PAUSE` o
-   `ESCALATE` producen actualmente un fallo estructurado en lugar de una pausa
-   cognitiva reanudable.
-2. Los recursos no tipados del request se transfieren al Cognitive Layer como
-   metadata auditable y no como objetos `Resource` fabricados.
-3. Una replanificación por fallo vuelve a ejecutar el nuevo lote completo de
-   operaciones y no continúa desde el paso exacto que falló.
-4. La replanificación automática está limitada a un intento para impedir
-   bucles infinitos.
-5. Existe deuda histórica de Ruff fuera del alcance de la Fase 9,
-   principalmente en tests antiguos de validación.
-6. La compatibilidad real con Python 3.10 debe confirmarse en CI; la validación
-   local más reciente se realizó en un intérprete posterior.
-7. Permanecen nombres históricos inconsistentes en algunos `__all__`, que
-   deberán revisarse durante la auditoría transversal.
+### Finding 1 — Idempotency did not survive service reconstruction
 
-## 8. Estado de publicación
+The idempotency mapping originally lived in service memory. Reconstructing the
+service over the same repository could create a second record for the same
+idempotency key.
 
-- Implementación técnica completa: sí
-- Commit técnico final verificado: `6ea7daa`
-- Ramas de 9.29–9.32 publicadas: sí
-- Suite local completa: verde
-- Integración local en `main`: completada mediante fast-forward
-- Auditoría rigurosa de Fases 7–9: pendiente
-- CI general posterior a integración: pendiente
-- Nueva release: pendiente
-- Bloqueadores técnicos conocidos de Fase 9: ninguno
-- Bloqueadores de publicación: auditoría e integración pendientes
+Fixed in:
 
-## 9. Próximo paso obligatorio
+- `0fe8a18 fix(agent-runtime): persist model execution idempotency`
 
-Antes de fusionar o publicar la Fase 9 se realizará una auditoría completa y
-rigurosa de las Fases 7, 8 y 9 para:
+The repository now owns the atomic idempotency mapping, and replays do not emit
+duplicate creation events.
 
-- contrastar roadmap, contratos e implementación;
-- detectar código incompleto, duplicado o desconectado;
-- revisar deuda técnica y compatibilidad;
-- comprobar límites arquitectónicos;
-- verificar tests y completeness gates;
-- corregir cualquier defecto encontrado;
-- ejecutar la suite global y CI;
-- autorizar finalmente el merge y la publicación.
+### Finding 2 — Effective requirements were not retained
+
+Routing and fallback preserved effective requirements, but the final execution
+record did not store them. This prevented complete historical reconstruction
+of the decision chain.
+
+Fixed in:
+
+- `41d2d26 fix(agent-runtime): trace effective model requirements`
+
+Execution records now preserve, validate, serialize, deserialize, and
+fingerprint the effective `ModelRequirements`.
+
+## 6. Architectural guarantees
+
+- The Kernel contains no Agent Runtime decision logic.
+- The Runtime controls lifecycle but does not duplicate Planner DAG creation.
+- Cognitive Layer remains responsible for structured reasoning and uncertainty.
+- Execution Engine remains responsible for effects and execution.
+- Validation remains responsible for policies, findings, and commit gates.
+- Memory accepts only authorized and validated updates.
+- Model routing reuses the existing router.
+- Economic budgets reuse Action Budget.
+- Phase 10 domains will extend the shared Runtime through contracts rather than
+  creating independent runtimes.
+- No parallel kernel, planner, cognitive layer, validation system, router,
+  repository family, or cost-control subsystem was introduced.
+
+## 7. Remaining non-blocking boundaries
+
+1. Cognitive actions such as `ASK_USER`, `LOAD_RESOURCE`, `PAUSE`, and
+   `ESCALATE` currently produce structured blocking outcomes rather than a
+   fully resumable cognitive pause.
+2. Untyped request resources remain auditable metadata rather than fabricated
+   typed `Resource` objects.
+3. Failure replanning executes a new bounded batch rather than resuming at the
+   exact failed operation.
+4. Automatic replanning remains limited to prevent infinite loops.
+5. Historical Ruff debt remains outside the Phase 8–9 delta and must be handled
+   as a separate maintenance initiative.
+6. GitHub Actions reports a non-blocking Node.js 20 deprecation warning for
+   current action versions.
+
+## 8. Publication and integration status
+
+- Technical implementation complete: yes
+- Delta audit complete: yes
+- Integrated into `main`: yes
+- Published to `origin/main`: yes
+- Final audited commit: `41d2d26`
+- Full local suite: green
+- CI general: green
+- Continuous Validation: green
+- Python 3.10 compatibility: confirmed
+- Python 3.11 compatibility: confirmed
+- Python 3.12 compatibility: confirmed
+- Blocking Phase 9 defects: none
+- Ready to begin Phase 10: yes
+
+## 9. Related audit
+
+The detailed final delta audit for extensions 8.23–8.26 and 9.29–9.32 is
+available at
+[`phases-8-9-delta-audit.md`](phases-8-9-delta-audit.md).

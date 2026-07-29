@@ -10,9 +10,9 @@ The roadmap distinguishes clearly between:
 
 > **Current release:** `v0.8.0`<br>
 > **Implemented:** Phases 0–9<br>
-> **Audited and published:** Phases 0–9<br>
-> **Current test baseline:** 4989 passing tests<br>
-> **Next milestone:** Consolidate the multimodel architecture across Phases 8–11
+> **Implemented and audited:** Phases 0–9<br>
+> **Current test baseline:** 5409 passing tests<br>
+> **Next milestone:** Begin Phase 10 — Domain Intelligence
 
 ---
 
@@ -49,7 +49,7 @@ Integrate everything into a stable local platform
 | 6 | Architectural Transformation Engine | Complete |
 | 7 | Continuous Validation | Complete |
 | 8 | Cognitive Layer | Complete |
-| 9 | Autonomous Agent Runtime | Complete, audited and published |
+| 9 | Autonomous Agent Runtime | Complete and audited |
 | 10 | Domain Intelligence | Planned |
 | 11 | Stable Integrated Platform | Planned |
 
@@ -269,8 +269,7 @@ Unsafe or ambiguous cases are rejected before mutation.
 
 ## Phase 7 — Continuous Validation
 
-**Status:** Planned.  
-**Next implementation target.**
+**Status:** Complete and audited.
 
 ### Objective
 
@@ -329,7 +328,7 @@ CMM OS will be able to modify code and produce reproducible evidence showing:
 
 ## Phase 8 — Cognitive Layer
 
-**Status:** Planned.
+**Status:** Complete and audited.
 
 ### Objective
 
@@ -395,7 +394,7 @@ CMM OS will be able to explain:
 
 ## Phase 9 — Autonomous Agent Runtime
 
-**Status:** Implementation complete — pending cross-phase audit and publication.
+**Status:** Complete and audited. Publication pending a release newer than `v0.8.0`.
 
 ### Objective
 
@@ -590,7 +589,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current `v0.7.0` release closes Phases 0–6.
+The current published release is `v0.8.0`. The implementation and audit baseline now covers Phases 0–9, while Phase 10 is the next engineering milestone.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 

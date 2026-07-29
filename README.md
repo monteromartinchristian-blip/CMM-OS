@@ -5,8 +5,8 @@
 Instead of allowing an AI model to edit a repository through unstructured text or arbitrary commands, CMM OS separates reasoning, planning, execution, validation, memory, and rollback behind explicit contracts.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–8<br>
-> **Automated test baseline:** 1758 passing tests<br>
+> **Implemented:** Phases 0–9<br>
+> **Automated test baseline:** 5409 passing tests<br>
 > **License:** Apache-2.0
 
 ## Why CMM OS
@@ -178,13 +178,13 @@ Ambiguous, dynamic, unsafe, or unsupported cases are rejected before mutation wh
 | 4 | Persistent technical memory | Complete |
 | 5 | Autonomous execution layer | Complete |
 | 6 | Architectural transformations | Complete |
-| 7 | Continuous validation | Planned |
-| 8 | Cognitive Layer | Planned |
-| 9 | Autonomous Agent Runtime | Planned |
+| 7 | Continuous validation | Complete |
+| 8 | Cognitive Layer | Complete |
+| 9 | Autonomous Agent Runtime | Complete and audited |
 | 10 | Domain Intelligence | Planned |
 | 11 | Integrated stable platform | Planned |
 
-Phases 0–6 were audited against explicit implementation requirements. The current baseline is **642 passing tests with no failures or skips**.
+Phases 0–9 have been implemented and audited against explicit requirements. The current baseline is **5409 passing tests with no failures or skips**.
 
 See the technical audit and full roadmap for the supporting evidence and future architecture.
 
@@ -289,7 +289,7 @@ Run the complete suite from the project virtual environment:
 Current audited baseline:
 
 ```text
-642 passed
+5409 passed
 0 failed
 0 skipped
 ```
@@ -338,7 +338,7 @@ The repository documentation is being organized around:
 - release history and release process;
 - contribution guidelines.
 
-The detailed Phase 0–6 audit records implementation evidence, test evidence, limitations, and closure criteria for every completed phase.
+The phase audits record implementation evidence, test evidence, architectural guarantees, limitations, and closure criteria for Phases 0–9.
 
 ## Contributing
 
@@ -370,7 +370,13 @@ For detailed documentation, see:
 - [Cognitive Layer Invariants](docs/architecture/cognitive-layer-invariants.md)
 - [Cognitive Layer Public API Reference](docs/reference/cognitive-api.md)
 - [Phase 8 Completion Audit](docs/audits/phase-8-completion.md)
+- [Phase 9 Completion Audit](docs/audits/phase-9-completion.md)
+- [Phases 8–9 Delta Audit](docs/audits/phases-8-9-delta-audit.md)
 - [Release Notes v0.8.0](docs/releases/v0.8.0.md)
+
+The implementation baseline now covers Phases 0–9. The next engineering
+milestone is Phase 10 — Domain Intelligence. No release newer than `v0.8.0`
+has been published yet.
 
 ## Project identity
 
