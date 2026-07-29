@@ -139,7 +139,7 @@ class DefaultWorkflowPlannerAdapter:
                 obs_snapshot_obj = None
 
         ctx_id = generate_planning_context_id()
-        objective = request.objective or (goal_obj.objective if goal_obj else "")
+        objective = request.objective or (goal_obj.description if goal_obj else "")
 
         return AgentPlanningContext(
             id=ctx_id,
@@ -184,9 +184,14 @@ class DefaultWorkflowPlannerAdapter:
             cognitive_res = self._cognitive_result_provider(request.cognitive_result_id)
 
         cognitive_decision = getattr(cognitive_res, "decision", None)
-        is_already_satisfied = (
-            context.goal
-            and context.goal.status.value in ("completed", "partially_completed")
+        goal_status = (
+            str(getattr(context.goal.status, "value", context.goal.status))
+            if context.goal is not None
+            else None
+        )
+        is_already_satisfied = goal_status in (
+            "completed",
+            "partially_completed",
         ) or cognitive_decision in (
             "complete_without_action",
             "COMPLETE_WITHOUT_ACTION",
