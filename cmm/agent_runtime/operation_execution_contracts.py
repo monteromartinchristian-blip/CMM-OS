@@ -34,7 +34,7 @@ def _ensure_timezone(iso_string: str) -> None:
 
 
 def _freeze_mapping(data: Mapping[str, Any]) -> MappingProxyType:
-    normalized = {}
+    normalized: dict[str, Any] = {}
     for k, v in data.items():
         if isinstance(v, dict):
             normalized[k] = _freeze_mapping(v)

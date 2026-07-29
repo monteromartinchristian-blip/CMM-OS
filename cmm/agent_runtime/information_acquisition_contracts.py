@@ -527,6 +527,8 @@ class InformationAcquisitionPolicy:
                 "mapping must be a Mapping instance"
             )
 
+        defaults = cls()
+
         pref_raw = mapping.get("preferred_strategies", ())
         pref_tuple = tuple(
             InformationAcquisitionStrategy(s) if isinstance(s, str) else s
@@ -555,8 +557,10 @@ class InformationAcquisitionPolicy:
                 )
 
         return cls(
-            preferred_strategies=pref_tuple if pref_raw else cls.preferred_strategies,
-            allowed_strategies=all_tuple if all_raw else cls.allowed_strategies,
+            preferred_strategies=(
+                pref_tuple if pref_raw else defaults.preferred_strategies
+            ),
+            allowed_strategies=(all_tuple if all_raw else defaults.allowed_strategies),
             prohibited_strategies=proh_tuple,
             maximum_risk=risk_val,
             maximum_cost=float(mapping.get("maximum_cost", 100.0)),

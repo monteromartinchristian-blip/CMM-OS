@@ -34,7 +34,7 @@ def _freeze_dict(d: Mapping[str, Any] | None) -> Mapping[str, Any]:
         return MappingProxyType({})
     if isinstance(d, MappingProxyType):
         return d
-    cleaned = {}
+    cleaned: dict[str, Any] = {}
     for k, v in d.items():
         if isinstance(v, dict):
             cleaned[k] = _freeze_dict(v)
@@ -49,25 +49,25 @@ def _freeze_tuple(items: Any) -> tuple[Any, ...]:
     if items is None:
         return ()
     if isinstance(items, tuple):
-        res = []
+        tuple_items: list[Any] = []
         for item in items:
             if isinstance(item, dict):
-                res.append(_freeze_dict(item))
+                tuple_items.append(_freeze_dict(item))
             elif isinstance(item, list):
-                res.append(_freeze_tuple(item))
+                tuple_items.append(_freeze_tuple(item))
             else:
-                res.append(item)
-        return tuple(res)
+                tuple_items.append(item)
+        return tuple(tuple_items)
     if isinstance(items, list):
-        res = []
+        list_items: list[Any] = []
         for item in items:
             if isinstance(item, dict):
-                res.append(_freeze_dict(item))
+                list_items.append(_freeze_dict(item))
             elif isinstance(item, list):
-                res.append(_freeze_tuple(item))
+                list_items.append(_freeze_tuple(item))
             else:
-                res.append(item)
-        return tuple(res)
+                list_items.append(item)
+        return tuple(list_items)
     return (items,)
 
 
