@@ -2621,6 +2621,14 @@ without creating a different Knowledge Model or an independent cognitive engine.
 
 # 8.23 — Knowledge Packages
 
+**Status: Implemented in CMM OS.** The canonical `KnowledgePackage`,
+`KnowledgePackageRequest`, and `KnowledgePackageBuilder` contracts are provider-
+independent, immutable, deterministic, and built on the existing Knowledge
+Store/retrieval model. The implementation is intentionally limited to the
+JSON-compatible canonical representation: 8.24 adds cognitive caching, 8.25
+expands privacy metadata, 8.26 integrates structural validation, 10.49 adds
+domain-specialized schemas, and 11.43 adds external exports.
+
 ## Objective
 
 Create a structured, portable, traceable, and provider-independent representation of the context supplied to models, workflows, domains, agents, or external clients.

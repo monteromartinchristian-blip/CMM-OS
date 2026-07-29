@@ -95,6 +95,10 @@ class InvalidKnowledgeBundleError(CognitiveError, ValueError):
     """Raised when a KnowledgeBundle contract is invalid."""
 
 
+class InvalidKnowledgePackageError(CognitiveError, ValueError):
+    """Raised when a portable KnowledgePackage contract is invalid."""
+
+
 # Alias kept for backward compatibility with WIP commit 32cea48
 InvalidKnowledgeModelError = InvalidKnowledgeItemError
 

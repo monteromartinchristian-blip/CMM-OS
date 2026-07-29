@@ -91,6 +91,7 @@ from cmm.cognitive.errors import (
     InvalidKnowledgeBundleError,
     InvalidKnowledgeItemError,
     InvalidKnowledgeModelError,
+    InvalidKnowledgePackageError,
     InvalidKnowledgeQueryError,
     InvalidKnowledgeRelationError,
     InvalidReflectionReportError,
@@ -156,6 +157,11 @@ from cmm.cognitive.knowledge_materializer import (
     materialise_candidate,
     materialise_evidence,
     materialise_result,
+)
+from cmm.cognitive.knowledge_packages import (
+    KnowledgePackage,
+    KnowledgePackageBuilder,
+    KnowledgePackageRequest,
 )
 from cmm.cognitive.query import (
     KnowledgeOrderField,
@@ -304,6 +310,7 @@ __all__ = [
     "InvalidKnowledgeBundleError",
     "InvalidKnowledgeItemError",
     "InvalidKnowledgeModelError",
+    "InvalidKnowledgePackageError",
     "InvalidKnowledgeQueryError",
     "InvalidKnowledgeRelationError",
     "InvalidReflectionReportError",
@@ -334,6 +341,9 @@ __all__ = [
     "KnowledgeItem",
     "KnowledgeKind",
     "KnowledgeOrderField",
+    "KnowledgePackage",
+    "KnowledgePackageBuilder",
+    "KnowledgePackageRequest",
     "KnowledgeQuery",
     "KnowledgeQueryResult",
     "KnowledgeReflectionError",
