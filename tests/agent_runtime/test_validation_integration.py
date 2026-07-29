@@ -11,6 +11,7 @@ import ast
 import concurrent.futures
 import inspect
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,10 +79,7 @@ from cmm.agent_runtime.validation_policy_adapter import (
     ValidationRequirementResolver,
 )
 
-SCRATCH_DIR = Path(
-    "/private/tmp/claude-501/-Users-chris-CMM-OS/326be469-8710-49ae-95db-5cd54cf7636e/scratchpad"
-)
-SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+SCRATCH_DIR = Path(tempfile.mkdtemp(prefix="cmm-validation-integration-"))
 
 
 def _write_fixture(name: str, content: str) -> Path:

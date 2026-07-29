@@ -9,6 +9,7 @@ planner, cognitive engine, or store.
 
 from __future__ import annotations
 
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -88,11 +89,7 @@ from cmm.cognitive.contracts import CognitiveResult, CognitiveStatus, Confidence
 
 UTC_NOW = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
 
-SCRATCH_DIR = Path(
-    "/private/tmp/claude-501/-Users-chris-CMM-OS/9f1e84e4-c208-4141-9918-f1e4570d75d2"
-    "/scratchpad/phase-9-28"
-)
-SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+SCRATCH_DIR = Path(tempfile.mkdtemp(prefix="cmm-existing-system-integration-"))
 
 
 def _write_fixture(name: str, content: str) -> Path:

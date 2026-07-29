@@ -14,7 +14,9 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Self, SupportsIndex
+from typing import Any, SupportsIndex
+
+from typing_extensions import Self
 
 from cmm.agent_runtime.agent_runtime_integration_enums import (
     RESULT_SNAPSHOT_STATES,
