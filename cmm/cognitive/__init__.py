@@ -9,6 +9,25 @@ from cmm.cognitive.adapters import (
     ResourceInput,
 )
 
+# ── Phase 8.24 ────────────────────────────────────────────────────────────────
+from cmm.cognitive.cognitive_cache import (
+    COGNITIVE_CACHE_SCHEMA_VERSION,
+    CognitiveCache,
+    CognitiveCacheContext,
+    CognitiveCacheEntry,
+    CognitiveCacheEntryStatus,
+    CognitiveCacheLookupResult,
+    CognitiveCacheLookupStatus,
+    CognitiveCacheStoreProtocol,
+    CognitiveCacheValidationResult,
+    CognitiveCacheValidator,
+    InMemoryCognitiveCacheStore,
+    build_cognitive_cache_context_signature,
+    cache_entry_from_knowledge_package,
+    cognitive_cache_entry_id,
+    default_cognitive_cache_validator,
+)
+
 # ── Phase 8.15 ────────────────────────────────────────────────────────────────
 from cmm.cognitive.cognitive_cycle import CognitiveCycleEngine
 from cmm.cognitive.cognitive_cycle_contracts import (
@@ -68,6 +87,9 @@ from cmm.cognitive.enums import (
     TemporalValidityStatus,
 )
 from cmm.cognitive.errors import (
+    CognitiveCacheConflictError,
+    CognitiveCacheError,
+    CognitiveCacheNotFoundError,
     CognitiveCycleExecutionError,
     CognitiveError,
     ComponentNotCompatibleError,
@@ -76,6 +98,7 @@ from cmm.cognitive.errors import (
     DuplicateRegistryEntryError,
     InvalidAdaptationError,
     InvalidAdapterContractError,
+    InvalidCognitiveCacheEntryError,
     InvalidCognitiveContractError,
     InvalidCognitiveCycleError,
     InvalidCognitiveIdentifierError,
@@ -240,6 +263,7 @@ from cmm.cognitive.store import (
 )
 
 __all__ = [
+    "COGNITIVE_CACHE_SCHEMA_VERSION",
     "KNOWLEDGE_STORE_SCHEMA_VERSION",
     "AdaptAndExtractResult",
     "AdaptationContext",
@@ -247,6 +271,18 @@ __all__ = [
     "CandidateKind",
     "CognitiveActor",
     "CognitiveActorKind",
+    "CognitiveCache",
+    "CognitiveCacheConflictError",
+    "CognitiveCacheContext",
+    "CognitiveCacheEntry",
+    "CognitiveCacheEntryStatus",
+    "CognitiveCacheError",
+    "CognitiveCacheLookupResult",
+    "CognitiveCacheLookupStatus",
+    "CognitiveCacheNotFoundError",
+    "CognitiveCacheStoreProtocol",
+    "CognitiveCacheValidationResult",
+    "CognitiveCacheValidator",
     "CognitiveCycleEngine",
     "CognitiveCycleExecutionError",
     "CognitiveCycleRecord",
@@ -291,10 +327,12 @@ __all__ = [
     "ExtractionContext",
     "ExtractionEvidence",
     "ExtractionStatus",
+    "InMemoryCognitiveCacheStore",
     "InMemoryKnowledgeStore",
     "InMemoryResolutionMemoryStore",
     "InvalidAdaptationError",
     "InvalidAdapterContractError",
+    "InvalidCognitiveCacheEntryError",
     "InvalidCognitiveContractError",
     "InvalidCognitiveCycleError",
     "InvalidCognitiveIdentifierError",
@@ -408,6 +446,10 @@ __all__ = [
     "TemporalScopeKind",
     "TemporalValidityStatus",
     "UnsupportedKnowledgeQueryError",
+    "build_cognitive_cache_context_signature",
+    "cache_entry_from_knowledge_package",
+    "cognitive_cache_entry_id",
+    "default_cognitive_cache_validator",
     "generate_cognitive_cycle_id",
     "generate_cognitive_id",
     "generate_reflection_report_id",

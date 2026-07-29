@@ -2698,9 +2698,15 @@ A Knowledge Package must not:
 
 # 8.24 — Cognitive Cache
 
+**Status: implemented** (`cmm/cognitive/cognitive_cache.py`, `tests/cognitive/test_cognitive_cache.py`).
+
 ## Objective
 
 Reuse verified cognitive work without treating cached results as permanently valid or independent from their original context.
+
+8.24 caches structured, traceable cognitive artifacts (materialized knowledge, verified summaries, structured reasoning results, document analyses, detected contradictions, resolved questions, cognitive plans, validated conclusions, Knowledge Packages, and other reusable intermediate results). **It never caches prompts or tokens** — provider prompt caching, token-prefix reuse, cached-token accounting, and cache-hit billing are Phase 11.42 concerns and are explicitly out of scope here.
+
+8.25 will expand the privacy and sensitivity metadata this cache enforces today only at the level of `SensitivityLevel` and `ResourcePermission` reuse. 8.26 will integrate the Phase 7 Validation Pipeline into cache revalidation (`CognitiveCacheValidator` is a structural-only extension point today, and never invokes a model). Phase 10 may specialize cache invalidation and revalidation policy per domain. Phase 11.42 will add the provider-facing prompt cache and prompt/token optimization layer, which is a distinct concern from this cognitive-artifact cache.
 
 ## Cacheable Elements
 

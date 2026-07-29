@@ -295,3 +295,22 @@ class InvalidCognitiveCycleError(KnowledgeCognitiveCycleError, ValueError):
 
 class CognitiveCycleExecutionError(KnowledgeCognitiveCycleError, RuntimeError):
     """Raised when execution of a cognitive cycle fails."""
+
+
+# ── Phase 8.24 errors ─────────────────────────────────────────────────────────
+
+
+class CognitiveCacheError(CognitiveError):
+    """Base error for Cognitive Cache operations."""
+
+
+class InvalidCognitiveCacheEntryError(CognitiveCacheError, ValueError):
+    """Raised when a CognitiveCacheEntry or related contract is invalid."""
+
+
+class CognitiveCacheConflictError(CognitiveCacheError, ValueError):
+    """Raised when a cache entry conflicts with existing incompatible data."""
+
+
+class CognitiveCacheNotFoundError(CognitiveCacheError, LookupError):
+    """Raised when a requested cache entry cannot be found."""
