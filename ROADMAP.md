@@ -10,9 +10,9 @@ The roadmap distinguishes clearly between:
 
 > **Current release:** `v0.8.0`<br>
 > **Implemented:** Phases 0–9<br>
-> **Audited and published:** Phases 0–8<br>
+> **Audited and published:** Phases 0–9<br>
 > **Current test baseline:** 4989 passing tests<br>
-> **Next milestone:** Rigorous cross-phase audit of Phases 7–9 before publication
+> **Next milestone:** Consolidate the multimodel architecture across Phases 8–11
 
 ---
 
@@ -49,7 +49,7 @@ Integrate everything into a stable local platform
 | 6 | Architectural Transformation Engine | Complete |
 | 7 | Continuous Validation | Complete |
 | 8 | Cognitive Layer | Complete |
-| 9 | Autonomous Agent Runtime | Implementation complete — audit pending |
+| 9 | Autonomous Agent Runtime | Complete, audited and published |
 | 10 | Domain Intelligence | Planned |
 | 11 | Stable Integrated Platform | Planned |
 

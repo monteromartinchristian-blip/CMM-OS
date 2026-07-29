@@ -2618,7 +2618,285 @@ without creating a different Knowledge Model or an independent cognitive engine.
 
 ⸻
 
-# 8.23 — Implementation Order
+
+# 8.23 — Knowledge Packages
+
+## Objective
+
+Create a structured, portable, traceable, and provider-independent representation of the context supplied to models, workflows, domains, agents, or external clients.
+
+A `KnowledgePackage` must contain only information relevant to the current objective while preserving epistemological type, provenance, temporal validity, permissions, privacy, and uncertainty.
+
+## Contract
+
+```python
+KnowledgePackage(
+    id="knowledge-package-123",
+    objective="...",
+    profile="medical",
+    domain="health",
+    session_id="session-123",
+    current_state=[],
+    timeline=[],
+    active_goals=[],
+    facts=[],
+    observations=[],
+    inferences=[],
+    hypotheses=[],
+    contradictions=[],
+    unknowns=[],
+    constraints=[],
+    preferences=[],
+    relevant_memory=[],
+    prior_reasoning=[],
+    resources=[],
+    missing_information=[],
+    reasoning_profile={},
+    domain_instructions={},
+    privacy={},
+    temporal_scope={},
+    provenance=[],
+    created_at="...",
+    valid_until=None,
+    metadata={},
+)
+```
+
+## Required Capabilities
+
+* build packages from resources and structured knowledge;
+* select only context relevant to the objective;
+* preserve facts, observations, inferences, hypotheses, and uncertainty separately;
+* preserve provenance and temporal validity;
+* include contradictions and missing information;
+* apply permissions and privacy before inclusion;
+* exclude unauthorized or irrelevant information;
+* serialize, validate, version, reuse, and export packages;
+* remain independent from any model or provider;
+* support domain specialization in Phase 10.
+
+## Restrictions
+
+A Knowledge Package must not:
+
+* include the complete Knowledge Store by default;
+* flatten epistemological types into unstructured text;
+* hide contradictions or uncertainty;
+* expose secrets or restricted information;
+* depend on one provider format;
+* become permanently valid without version and expiry controls.
+
+⸻
+
+# 8.24 — Cognitive Cache
+
+## Objective
+
+Reuse verified cognitive work without treating cached results as permanently valid or independent from their original context.
+
+## Cacheable Elements
+
+* materialized knowledge;
+* verified summaries;
+* structured reasoning results;
+* document analyses;
+* detected contradictions;
+* resolved questions;
+* cognitive plans;
+* validated conclusions;
+* Knowledge Packages;
+* reusable intermediate results.
+
+## Cache Entry
+
+```python
+CognitiveCacheEntry(
+    id="cognitive-cache-123",
+    key="...",
+    kind="knowledge_package",
+    value={},
+    source_ids=[],
+    dependency_ids=[],
+    context_signature="...",
+    profile_version="...",
+    domain_version=None,
+    model_metadata={},
+    confidence=0.9,
+    created_at="...",
+    last_validated_at="...",
+    valid_until=None,
+    invalidation_keys=[],
+    sensitivity="personal",
+    permissions=[],
+    status="valid",
+    metadata={},
+)
+```
+
+Each entry must preserve:
+
+* creation and validation dates;
+* sources and dependencies;
+* context of application;
+* temporal validity;
+* confidence;
+* invalidation keys;
+* reasoning-profile version;
+* domain version when applicable;
+* model or process metadata;
+* sensitivity, permissions, and provenance.
+
+The cache must revalidate or invalidate entries when sources, dependencies, permissions, profiles, domain policies, schemas, temporal validity, or relevant knowledge change.
+
+It must never bypass permissions, conceal reuse, return stale data as current, or treat model output as established truth.
+
+⸻
+
+# 8.25 — Privacy and Sensitivity Metadata
+
+## Objective
+
+Propagate privacy requirements from resources and knowledge through reasoning, caching, Knowledge Packages, model requests, workflows, exports, and external integrations.
+
+## Initial Policies
+
+```text
+LOCAL_ONLY
+LOCAL_PREFERRED
+REMOTE_ALLOWED
+PREMIUM_ALLOWED
+SENSITIVE
+```
+
+These policies complement existing sensitivity levels and do not replace them.
+
+## Privacy Metadata
+
+```python
+PrivacyMetadata(
+    policy="LOCAL_PREFERRED",
+    sensitivity="high",
+    allowed_processing_locations=["local"],
+    allowed_providers=[],
+    prohibited_providers=[],
+    allow_remote=False,
+    allow_premium=False,
+    allow_cache=True,
+    allow_export=False,
+    requires_redaction=False,
+    requires_approval=False,
+    inherited_from=[],
+    metadata={},
+)
+```
+
+Privacy metadata must propagate through:
+
+```text
+Resource
+↓
+Knowledge Item
+↓
+Reasoning Context
+↓
+Cognitive Result
+↓
+Knowledge Package
+↓
+Cache Entry
+↓
+Model Request
+↓
+Workflow
+↓
+Export
+```
+
+The effective policy must be the most restrictive applicable policy unless an explicitly authorized exception exists.
+
+The system must prevent `LOCAL_ONLY` information from leaving the local runtime, prefer local processing for `LOCAL_PREFERRED`, record exclusions and transmissions, and block unauthorized caching, export, or remote processing.
+
+⸻
+
+# 8.26 — Structural Cognitive Validation
+
+## Objective
+
+Validate cognitive inputs and outputs before they are trusted, cached, exported, persisted, or supplied to a model.
+
+This complements Phase 7 validation and the response-validation layer planned for Phase 11.
+
+## Validation Checks
+
+* consistency between facts;
+* explicit contradictions;
+* temporal validity;
+* missing information;
+* insufficient evidence;
+* separation between fact and inference;
+* schema compliance;
+* Knowledge Package completeness;
+* provenance and conclusion traceability;
+* privacy and sensitivity compliance;
+* safe cache reuse;
+* permission compatibility;
+* dependency and profile compatibility.
+
+## Validation Result
+
+```python
+CognitiveValidationResult(
+    id="cognitive-validation-123",
+    target_id="knowledge-package-123",
+    status="passed",
+    findings=[],
+    blocking_findings=[],
+    warnings=[],
+    validated_rules=[],
+    privacy_result={},
+    temporal_result={},
+    provenance_result={},
+    cache_result=None,
+    created_at="...",
+    metadata={},
+)
+```
+
+Possible decisions:
+
+```text
+accept
+accept_with_warning
+repair
+rebuild
+invalidate
+block
+request_information
+request_approval
+escalate
+```
+
+## Phase 7 Integration
+
+Possible structured validation steps:
+
+```text
+cognitive.schema
+cognitive.provenance
+cognitive.temporality
+cognitive.epistemology
+cognitive.contradictions
+cognitive.privacy
+cognitive.knowledge_package
+cognitive.cache
+```
+
+Validation must not silently alter facts, remove contradictions, promote hypotheses to facts, infer missing sensitive information, or authorize prohibited remote processing.
+
+⸻
+
+# 8.27 — Implementation Order
+
 
 ## Block 1 — Cognitive Contracts
 
@@ -3126,6 +3404,15 @@ The phase must include:
 * integration with Execution Engine;
 * integration with Semantic Engine;
 * integration with Validation System;
+* Knowledge Package contract and builder;
+* provider-independent package serialization;
+* Knowledge Package validation;
+* cognitive cache contracts;
+* cache invalidation and revalidation;
+* privacy metadata propagation;
+* enforcement of `LOCAL_ONLY`;
+* controlled remote-processing policies;
+* structural validation of provenance, temporality, epistemology, privacy, and cache reuse;
 * unit tests;
 * integration tests;
 * E2E tests;
@@ -3158,8 +3445,13 @@ Each reasoning process will be able to demonstrate:
 * what confidence level the result has;
 * what uncertainty remains;
 * what memory update is proposed;
-* what decisions require human confirmation.
+* what decisions require human confirmation;
+* what Knowledge Package was produced;
+* what information was excluded by privacy policy;
+* whether cached cognitive work was reused;
+* why the cached work remained valid;
+* what structural cognitive validations were applied.
 
-Phase 8 will turn CMM OS memory and resources into a reasonable and auditable knowledge base.
+Phase 8 will turn CMM OS memory and resources into a reasonable and auditable knowledge base capable of producing portable, privacy-aware, provider-independent context.
 
 From this infrastructure, Phase 9 will be able to build agents capable of pursuing objectives without duplicating their own cognitive logic, and Phase 10 will be able to specialize the system by domains while maintaining a single knowledge model, a single reasoning engine, and common contracts for all of CMM OS.

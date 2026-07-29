@@ -3463,7 +3463,375 @@ They must not create an independent Runtime.
 
 ⸻
 
-# 9.29 — Implementation Order
+
+# 9.29 — Model Requirements per Operation
+
+## Status
+
+This section defines a **post-publication extension** of Phase 9.
+
+The original Phase 9 implementation remains complete, audited, and published. These contracts prepare the Agent Runtime for the multimodel routing, evaluation, privacy, and cost infrastructure implemented later in Phase 11.
+
+## Objective
+
+Allow every model-assisted operation in a workflow to declare its execution requirements without selecting or coupling itself to a concrete provider.
+
+## Model Requirements
+
+```python
+ModelRequirements(
+    capability="reasoning",
+    minimum_quality="high",
+    maximum_cost_eur=0.05,
+    latency="normal",
+    context_length="long",
+    privacy="LOCAL_PREFERRED",
+    structured_output=True,
+    tool_calling=True,
+    premium_allowed=True,
+    preferred_providers=[],
+    excluded_providers=[],
+    required_modalities=[],
+    metadata={},
+)
+```
+
+## Supported Factors
+
+* required capability;
+* operation complexity;
+* minimum quality;
+* maximum estimated cost;
+* acceptable latency;
+* required context length;
+* privacy policy;
+* structured-output requirement;
+* tool-calling requirement;
+* multimodal requirements;
+* premium escalation permission;
+* preferred providers;
+* excluded providers;
+* local-processing requirement;
+* model availability constraints.
+
+## Integration
+
+Requirements may be declared by:
+
+* an operation;
+* a workflow node;
+* a workflow policy;
+* a goal;
+* an agent definition;
+* a domain policy from Phase 10;
+* a privacy policy;
+* an approval decision.
+
+The effective requirements must be resolved without weakening any inherited privacy, permission, budget, or quality constraint.
+
+## Restrictions
+
+An operation must not:
+
+* select a provider directly;
+* bypass the future Model Gateway;
+* reduce inherited privacy requirements;
+* authorize premium use by itself;
+* ignore cost limits;
+* declare unsupported capabilities as available.
+
+⸻
+
+# 9.30 — Workflow Model Fallback and Escalation Policies
+
+## Objective
+
+Define declarative and auditable workflow behavior when a model-assisted operation fails or produces an unacceptable result.
+
+## Trigger Conditions
+
+Fallback or escalation may be activated when:
+
+* the selected model is unavailable;
+* a timeout occurs;
+* the response violates the required schema;
+* structured output is invalid;
+* tool calling is unsupported or incorrect;
+* the context limit is exceeded;
+* response validation fails;
+* minimum quality is not reached;
+* privacy policy is violated;
+* the estimated or actual cost exceeds the permitted limit;
+* the provider returns a retryable error.
+
+## Fallback Policy
+
+```python
+ModelFallbackPolicy(
+    id="fallback-policy-123",
+    workflow_id="workflow-123",
+    maximum_attempts=3,
+    strategies=[
+        "retry_same_model",
+        "select_equivalent_model",
+        "select_higher_quality_model",
+        "request_premium_approval",
+        "pause",
+    ],
+    preserve_attempt_history=True,
+    require_revalidation=True,
+    allow_premium_with_approval=True,
+    metadata={},
+)
+```
+
+## Possible Decisions
+
+```text
+retry_same_model
+retry_with_reduced_context
+select_equivalent_model
+select_lower_cost_model
+select_higher_quality_model
+use_local_model
+request_premium_approval
+request_user_input
+pause
+escalate
+fail
+```
+
+## Requirements
+
+Fallback policies must be:
+
+* declarative;
+* versioned;
+* auditable;
+* resumable;
+* bounded by the Action Budget;
+* compatible with human approval;
+* compatible with checkpoints;
+* validated before execution;
+* linked to the original operation and workflow.
+
+Each attempt must preserve its provider, model, result, validation outcome, cost, latency, and reason for rejection.
+
+## Restrictions
+
+Fallback must not:
+
+* retry indefinitely;
+* bypass an explicit provider exclusion;
+* reduce privacy requirements;
+* exceed a hard budget;
+* escalate to premium without permission;
+* discard failed attempts from the audit;
+* accept an invalid result merely because retries are exhausted.
+
+⸻
+
+# 9.31 — Economic Budgets for Goals and Workflows
+
+## Objective
+
+Extend the existing Action Budget with explicit economic controls for model-assisted execution.
+
+## Economic Budget
+
+```python
+EconomicBudget(
+    id="economic-budget-123",
+    goal_id="goal-123",
+    workflow_id="workflow-123",
+    maximum_goal_cost_eur=None,
+    maximum_workflow_cost_eur=1.00,
+    maximum_execution_cost_eur=0.20,
+    premium_reserve_eur=0.10,
+    warning_threshold_percent=80,
+    allow_overrun_with_approval=True,
+    savings_mode=False,
+    estimated_cost_eur=0.0,
+    reserved_cost_eur=0.0,
+    actual_cost_eur=0.0,
+    status="active",
+    metadata={},
+)
+```
+
+## Capabilities
+
+The Runtime must support:
+
+* maximum cost per goal;
+* maximum cost per workflow;
+* maximum cost per execution;
+* cost reservation before dispatch;
+* accumulated estimated cost;
+* accumulated actual cost;
+* premium reserve;
+* warning thresholds;
+* hard limits;
+* savings mode;
+* automatic selection of lower-cost alternatives;
+* approval requests for authorized overruns;
+* partial completion when the budget is exhausted;
+* preservation of cost history.
+
+## Budget Decisions
+
+```text
+allow
+allow_with_reservation
+use_lower_cost_model
+reduce_scope
+enable_savings_mode
+request_budget_approval
+pause
+complete_partially
+deny
+```
+
+## Integration with Action Budget
+
+The economic budget complements, but does not replace, limits on:
+
+* iterations;
+* operations;
+* model calls;
+* external calls;
+* tokens;
+* duration;
+* retries;
+* replans;
+* concurrency.
+
+A run must satisfy both operational and economic budgets.
+
+## Restrictions
+
+An agent or model must not:
+
+* increase its own budget;
+* hide failed-call costs;
+* split calls to evade limits;
+* consume the premium reserve without authorization;
+* restart a run to reset accumulated cost;
+* continue after a hard limit is reached.
+
+⸻
+
+# 9.32 — Model Execution Records
+
+## Objective
+
+Record every model-assisted execution in a structured form so Phase 11 can evaluate providers, calculate costs, validate routing decisions, and improve future selection.
+
+## Model Execution Record
+
+```python
+ModelExecutionRecord(
+    id="model-execution-123",
+    agent_run_id="agent-run-123",
+    goal_id="goal-123",
+    workflow_id="workflow-123",
+    task_id="task-123",
+    operation_id="operation-123",
+    domain=None,
+    provider_id="provider-123",
+    model_id="model-123",
+    model_version=None,
+    capability="reasoning",
+    input_tokens=0,
+    output_tokens=0,
+    cached_tokens=0,
+    estimated_cost_eur=0.0,
+    actual_cost_eur=0.0,
+    latency_ms=0,
+    cache_used=False,
+    validation_result_ids=[],
+    retry_number=0,
+    fallback_from=None,
+    quality_evaluation=None,
+    human_intervention=False,
+    acceptance_status="accepted",
+    created_at="...",
+    metadata={},
+)
+```
+
+## Required Data
+
+Each record must preserve:
+
+* provider;
+* model;
+* model version when available;
+* operation;
+* workflow;
+* goal;
+* agent run;
+* domain;
+* capability;
+* input and output tokens;
+* cached tokens;
+* estimated and actual cost;
+* latency;
+* cache usage;
+* validation results;
+* retry number;
+* fallback origin;
+* quality assessment;
+* human intervention;
+* final acceptance or rejection;
+* configuration and policy versions;
+* correlation and trace identifiers.
+
+## Acceptance Status
+
+```text
+pending
+accepted
+accepted_with_warning
+rejected
+repaired
+regenerated
+escalated
+cancelled
+failed
+```
+
+## Privacy
+
+Records must preserve auditability without storing:
+
+* secrets;
+* credentials;
+* unnecessary prompt contents;
+* unrestricted sensitive data;
+* provider responses beyond authorized retention.
+
+Where full payload retention is prohibited, the record must preserve hashes, classifications, exclusions, and trace references instead.
+
+## Future Use
+
+Phase 11 will use these records for:
+
+* provider comparison;
+* routing;
+* quality rankings;
+* latency analysis;
+* cost analysis;
+* fallback evaluation;
+* regression detection;
+* acceptance-rate calculation;
+* domain benchmark results;
+* continuous provider evaluation.
+
+⸻
+
+# 9.33 — Implementation Order
+
 
 ## Block 1 — Agent Runtime Contracts
 
@@ -4352,6 +4720,8 @@ Each run will be able to demonstrate:
 * why it considered the goal satisfied or failed.
 
 Phase 9 will turn the Cognitive Layer, the Planner, the Execution Engine, the Validation System, and memory into a system capable of pursuing goals over time in a controlled way.
+
+The published Phase 9 runtime also provides the extension points required for later multimodel integration. Model requirements, economic budgets, fallback policies, and model-execution records are specified as post-publication extensions and must be implemented without altering the provider-independent runtime contracts already audited.
 
 The agent will stop being a monolithic class and become a configuration over a single **Goal Execution Engine**.
 

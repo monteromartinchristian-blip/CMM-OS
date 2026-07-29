@@ -4790,7 +4790,381 @@ It should have:
 
 ⸻
 
-10.46 - Implementation Order
+
+10.46 - Domain Model Policies
+
+Objective
+
+Allow every Domain Pack to declare model preferences and restrictions without coupling domain logic to a concrete provider.
+
+Domain Model Policy
+
+```python
+DomainModelPolicy(
+    domain_id="domain:health",
+    default_capability="nuanced_reasoning",
+    preferred_models=[],
+    preferred_providers=[],
+    prohibited_models=[],
+    prohibited_providers=[],
+    local_models=[],
+    premium_fallback=[],
+    privacy_default="SENSITIVE",
+    minimum_quality="high",
+    latency_tolerance="normal",
+    context_requirement="long",
+    require_structured_output=True,
+    require_tool_calling=False,
+    require_context_validation=True,
+    require_response_validation=True,
+    recommended_budget_eur=None,
+    fallback_policy=None,
+    metadata={},
+)
+```
+
+A domain may define:
+
+* preferred and prohibited models;
+* preferred and prohibited providers;
+* default capability;
+* minimum quality;
+* privacy requirements;
+* latency tolerance;
+* context-length requirements;
+* structured-output requirements;
+* tool-calling requirements;
+* multimodal requirements;
+* local-processing preferences;
+* premium fallback;
+* recommended budget;
+* validation requirements;
+* fallback policy.
+
+The policy must be combined with:
+
+* global model policy;
+* user policy;
+* session policy;
+* workflow requirements;
+* operation requirements;
+* privacy policy;
+* economic budget;
+* provider availability.
+
+The effective policy must preserve the most restrictive privacy, permission, and cost constraints.
+
+A Domain Pack must not select or invoke a provider directly.
+
+⸻
+
+10.47 - Domain Benchmark Suites
+
+Objective
+
+Provide representative evaluation cases for every domain so models can be compared using real domain requirements rather than only generic benchmarks.
+
+Domain Benchmark Suite
+
+```python
+DomainBenchmarkSuite(
+    id="benchmark-suite-health",
+    domain_id="domain:health",
+    version="1",
+    cases=[],
+    evaluation_policy={},
+    privacy_policy={},
+    default_budget={},
+    created_at="...",
+    metadata={},
+)
+```
+
+Domain Benchmark Case
+
+```python
+DomainBenchmarkCase(
+    id="health-timeline-001",
+    domain_id="domain:health",
+    objective="Build a reliable clinical timeline",
+    knowledge_package_id=None,
+    input_resources=[],
+    expected_elements=[],
+    required_constraints=[],
+    prohibited_behaviors=[],
+    quality_criteria=[],
+    required_format=None,
+    sensitivity="high",
+    privacy_policy="SENSITIVE",
+    maximum_cost_eur=None,
+    candidate_models=[],
+    evaluator_ids=[],
+    metadata={},
+)
+```
+
+Initial benchmark areas:
+
+Health:
+
+* clinical timelines;
+* fact and symptom separation;
+* missing-information detection;
+* treatment temporality;
+* longitudinal follow-up;
+* medical caution.
+
+Relationships:
+
+* fact and interpretation separation;
+* ambiguity;
+* preservation of uncertainty;
+* useful questions;
+* emotional continuity;
+* tone.
+
+University:
+
+* planning;
+* priorities;
+* dates;
+* academic constraints;
+* workload;
+* progress.
+
+Oppositions:
+
+* official-source priority;
+* current regulations;
+* syllabus organization;
+* call tracking;
+* requirement comparison;
+* continuity of prior decisions.
+
+Project:
+
+* code generation;
+* architectural consistency;
+* tool calling;
+* structured output;
+* validation;
+* error correction.
+
+Each case must support:
+
+* expected output elements;
+* prohibited conclusions;
+* quality criteria;
+* required schema;
+* maximum cost;
+* sensitivity;
+* privacy;
+* candidate models;
+* automatic evaluators;
+* human evaluation.
+
+Benchmark suites must be versioned, reproducible, exportable, and compatible with the Phase 11 Model Evaluation Framework.
+
+⸻
+
+10.48 - Domain Quality Metrics
+
+Objective
+
+Allow each domain to evaluate model outputs according to its own priorities.
+
+Domain Quality Metric
+
+```python
+DomainQualityMetric(
+    id="health-prudence",
+    domain_id="domain:health",
+    name="prudence",
+    weight=0.20,
+    evaluator="...",
+    minimum_score=0.85,
+    blocking=True,
+    metadata={},
+)
+```
+
+Initial metrics may include:
+
+* factual fidelity;
+* contextual fidelity;
+* sensitivity;
+* depth;
+* usefulness;
+* structure;
+* prudence;
+* temporal correctness;
+* clarity;
+* precision;
+* instruction compliance;
+* absence of contradictions;
+* relevant questions;
+* plan quality;
+* tool-calling quality;
+* privacy compliance;
+* cost efficiency;
+* user satisfaction.
+
+Different domains may assign different weights.
+
+Examples:
+
+* Health prioritizes factual fidelity, prudence, temporality, and safety.
+* Relationships prioritizes ambiguity handling, contextual continuity, and non-attribution of intent.
+* University prioritizes dates, constraints, feasibility, and plan quality.
+* Project prioritizes correctness, architecture, validation, and tool calling.
+
+A high aggregate score must not compensate for a failed blocking metric.
+
+Results must preserve:
+
+* metric values;
+* weights;
+* evaluator versions;
+* blocking failures;
+* aggregate score;
+* confidence;
+* human-review results.
+
+⸻
+
+10.49 - Domain Knowledge Packages
+
+Objective
+
+Specialize the Phase 8 `KnowledgePackage` contract for each domain without creating incompatible context models.
+
+Domain Knowledge Package Schema
+
+```python
+DomainKnowledgePackageSchema(
+    id="knowledge-package-schema-health",
+    domain_id="domain:health",
+    version="1",
+    base_schema="KnowledgePackage",
+    required_sections=[],
+    optional_sections=[],
+    prohibited_sections=[],
+    field_policies={},
+    privacy_policy="SENSITIVE",
+    validators=[],
+    metadata={},
+)
+```
+
+Initial specializations:
+
+```text
+Health Knowledge Package
+Relationship Knowledge Package
+University Knowledge Package
+Opposition Knowledge Package
+Reflection Knowledge Package
+Life Plan Knowledge Package
+Project Knowledge Package
+```
+
+Every specialization must retain the common fields for:
+
+* objective;
+* provenance;
+* epistemological type;
+* temporal validity;
+* contradictions;
+* uncertainty;
+* missing information;
+* privacy;
+* permissions;
+* profile;
+* resources;
+* version.
+
+Domains may add fields but must not:
+
+* redefine the base contract;
+* remove provenance;
+* flatten facts and hypotheses;
+* hide contradictions;
+* weaken privacy;
+* create provider-specific package formats;
+* duplicate stored knowledge.
+
+A package may be composed across domains through explicit schemas and permission intersection.
+
+⸻
+
+10.50 - Domain Privacy Policies
+
+Objective
+
+Define default privacy behavior for each Domain Pack while preserving resource-level, workflow-level, and operation-level overrides.
+
+Domain Privacy Policy
+
+```python
+DomainPrivacyPolicy(
+    domain_id="domain:health",
+    default_policy="SENSITIVE",
+    allowed_processing_locations=["local"],
+    allowed_providers=[],
+    prohibited_providers=[],
+    allow_remote=False,
+    allow_premium=False,
+    allow_cross_domain=False,
+    allow_cache=True,
+    allow_export=False,
+    require_redaction=False,
+    require_approval_for_remote=True,
+    metadata={},
+)
+```
+
+Initial orientation:
+
+```text
+Health             -> SENSITIVE
+Relationships      -> SENSITIVE
+Reflection         -> SENSITIVE
+Nil / Parenthood   -> SENSITIVE
+University         -> REMOTE_ALLOWED
+Oppositions        -> REMOTE_ALLOWED
+Languages          -> REMOTE_ALLOWED
+Project            -> LOCAL_PREFERRED
+General            -> resolved per operation
+```
+
+The final effective policy must combine:
+
+* global privacy policy;
+* user policy;
+* session policy;
+* resource policy;
+* Knowledge Package policy;
+* domain policy;
+* workflow policy;
+* operation policy;
+* model-provider policy.
+
+The most restrictive applicable policy must prevail unless an authorized exception exists.
+
+Domains must not:
+
+* grant themselves remote access;
+* weaken `LOCAL_ONLY`;
+* export restricted packages;
+* send sensitive data to prohibited providers;
+* preserve sensitive outputs in unauthorized caches;
+* transfer information to supporting domains without permission;
+* omit privacy decisions from the Domain Trace.
+
+⸻
+
+10.51 - Implementation Order
+
 
 Block 1 - Domain Contracts
 
@@ -5583,6 +5957,13 @@ Closure criteria
 * integration with Knowledge Graph;
 * integration with Kernel;
 * integration with UI;
+* domain model policies;
+* domain benchmark suites;
+* domain-specific quality metrics;
+* specialized Knowledge Package schemas;
+* domain privacy policies;
+* compatibility with the future Model Gateway;
+* compatibility with the Model Evaluation Framework;
 * unit tests;
 * integration tests;
 * cross-domain tests;
@@ -5619,9 +6000,14 @@ Each execution may prove:
 * what result each domain produced;
 * what consolidated conclusion was reached;
 * what uncertainty remains;
-* which memory update was proposed.
+* which memory update was proposed;
+* which model policy was applied;
+* which privacy policy was effective;
+* which Knowledge Package schema was used;
+* which domain quality metrics were evaluated;
+* which benchmark evidence supported model selection.
 
-Phase 10 will turn CMM OS's general intelligence into contextual and specialized intelligence.
+Phase 10 will turn CMM OS's general intelligence into contextual and specialized intelligence prepared for provider-independent multimodel execution.
 
 CMM OS may use the same infrastructure to:
 

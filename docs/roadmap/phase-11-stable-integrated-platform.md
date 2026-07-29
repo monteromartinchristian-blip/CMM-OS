@@ -1938,80 +1938,114 @@ The n8n integration must support:
 
 ## Objective
 
-Unify access to local and remote models.
+Provide a single provider-independent access layer for local and remote models.
 
-## Model Provider
+The Model Gateway must isolate the Cognitive Layer, Agent Runtime, Domain Intelligence, workflows, clients, and external adapters from concrete provider APIs.
 
-```python
-ModelProvider(
-    name="ollama",
-    type="local",
-    capabilities=["chat", "embeddings"],
-    models=[...],
-    limits={...},
-)
-```
+## Responsibilities
 
-## Model Router
-
-Select a model according to:
-
-- task;
-- domain;
-- sensitivity;
-- cost;
-- latency;
-- context;
-- availability;
-- capability;
-- privacy policy.
+- provider registration and resolution;
+- model discovery;
+- request normalization;
+- response normalization;
+- structured output;
+- tool calling;
+- multimodal requests;
+- streaming;
+- timeout and retry control;
+- circuit breakers;
+- provider failover;
+- context preparation;
+- provider cache support;
+- cost estimation and accounting;
+- latency measurement;
+- privacy enforcement;
+- audit generation;
+- local and remote execution.
 
 ## Model Request
 
 ```python
 ModelRequest(
+    id="model-request-123",
     task="reasoning",
-    sensitivity="high",
-    require_local=True,
+    domain="health",
+    operation="health.build_medical_timeline",
+    knowledge_package_id="knowledge-package-123",
+    required_capabilities=["structured_output"],
     context_size=12000,
-    capabilities=["structured_output"],
+    privacy="LOCAL_PREFERRED",
+    maximum_cost_eur=0.05,
+    latency_policy="normal",
+    premium_allowed=False,
+    preferred_providers=[],
+    excluded_providers=[],
+    metadata={},
 )
 ```
 
-## Capabilities
+## Model Response
 
-- fallback;
-- timeout;
-- retries;
-- circuit breaker;
-- caching;
-- cost control;
-- limits;
-- observability;
-- structured output;
-- anonymization;
-- local/remote routing.
+```python
+ModelResponse(
+    request_id="model-request-123",
+    provider_id="provider-123",
+    model_id="model-123",
+    content={},
+    tool_calls=[],
+    structured_output={},
+    input_tokens=0,
+    output_tokens=0,
+    cached_tokens=0,
+    estimated_cost_eur=0.0,
+    actual_cost_eur=0.0,
+    latency_ms=0,
+    finish_reason="completed",
+    metadata={},
+)
+```
+
+## Provider Adapters
+
+Initial adapters may include:
+
+- Anthropic;
+- OpenAI;
+- Z.AI / GLM;
+- Moonshot / Kimi;
+- DeepSeek;
+- Alibaba / Qwen;
+- Google / Gemini;
+- Ollama;
+- OpenAI-compatible providers.
+
+The architecture must not depend on a closed provider list.
 
 ## Policies
 
-- sensitive data remains local when configured;
-- secrets are never sent;
-- provider traceability;
-- explicit model information in results;
-- cost preservation;
-- blocking of unauthorized providers.
+- `LOCAL_ONLY` information never leaves the local runtime;
+- secrets are never included in model requests;
+- provider and model selection remain traceable;
+- every call records cost, latency, policy, and validation;
+- unauthorized providers are blocked;
+- provider payloads are treated as data, not policy;
+- fallback cannot weaken privacy, permission, or budget constraints.
 
 ## Completion Criteria
 
 - shared gateway;
-- Ollama;
-- remote provider;
-- routing;
+- provider adapters;
+- normalized requests and responses;
+- local and remote execution;
+- structured output;
+- tool calling;
+- streaming;
 - fallback;
-- costs;
-- privacy;
-- metrics;
-- provider-failure tests.
+- privacy enforcement;
+- cost accounting;
+- observability;
+- provider-failure tests;
+- provider-independent contract tests.
 
 ---
 
@@ -2873,6 +2907,947 @@ Stable Release
 
 ---
 
+# 11.34 — Provider Registry
+
+## Objective
+
+Maintain a dynamic, versioned, and auditable registry of providers and models.
+
+## Provider Definition
+
+```python
+ProviderDefinition(
+    id="provider:zai",
+    provider_type="remote",
+    api_compatibility="openai",
+    enabled=True,
+    region=None,
+    data_policy={},
+    authentication_reference="secret:zai",
+    rate_limits={},
+    health_status="available",
+    metadata={},
+)
+```
+
+## Model Definition
+
+```python
+ModelDefinition(
+    id="model:glm",
+    provider_id="provider:zai",
+    version=None,
+    capabilities=[
+        "reasoning",
+        "coding",
+        "tool_calling",
+        "structured_output",
+    ],
+    context_window=None,
+    modalities=[],
+    pricing={},
+    cache_support={},
+    latency_history={},
+    quality_history={},
+    error_rate=None,
+    availability="available",
+    limits={},
+    metadata={},
+)
+```
+
+The registry must manage providers, models, versions, capabilities, context windows, modalities, API compatibility, pricing, historical latency and quality, error rates, cache support, tool calling, structured output, availability, data policies, regions, and operational health.
+
+Registry data must be configurable and updateable without modifying the core.
+
+---
+
+# 11.35 — Routing Policy Engine
+
+## Objective
+
+Select the most appropriate model through deterministic, explicit, and auditable rules.
+
+## Routing Factors
+
+- domain;
+- operation;
+- required capability;
+- complexity;
+- context length;
+- privacy;
+- sensitivity;
+- estimated cost;
+- remaining budget;
+- latency;
+- historical quality;
+- reliability;
+- availability;
+- tool-calling support;
+- structured-output support;
+- multimodal support;
+- workflow policy;
+- domain policy;
+- user consumption mode;
+- provider exclusions.
+
+## Routing Decision
+
+```python
+RoutingDecision(
+    id="routing-decision-123",
+    request_id="model-request-123",
+    selected_provider_id="provider:zai",
+    selected_model_id="model:glm",
+    candidate_models=[],
+    rejected_models=[],
+    reason_codes=[],
+    estimated_cost_eur=0.0,
+    expected_quality=None,
+    expected_latency_ms=None,
+    fallback_policy_id=None,
+    configuration_version="1",
+    created_at="...",
+    metadata={},
+)
+```
+
+The first router must be deterministic and configurable. It must not initially depend on machine learning.
+
+---
+
+# 11.36 — Model Evaluation Framework
+
+## Objective
+
+Compare models using general benchmarks and the domain suites introduced in Phase 10.
+
+## Capabilities
+
+- load benchmark suites;
+- execute the same case against several models;
+- preserve requests and outputs;
+- apply automatic evaluators;
+- support human evaluation;
+- calculate cost and latency;
+- compare provider and model versions;
+- detect regressions;
+- generate rankings;
+- recommend models by operation and domain;
+- export evaluation reports;
+- feed historical evidence to the router.
+
+---
+
+# 11.37 — Response Validation
+
+## Objective
+
+Validate generated responses before they are accepted, persisted, executed, or delivered.
+
+## Decisions
+
+```text
+accept
+accept_with_warning
+repair
+regenerate
+fallback
+escalate
+request_approval
+reject
+```
+
+## Checks
+
+- required format;
+- schema compliance;
+- valid JSON;
+- correct use of context;
+- unsupported claims;
+- contradictions;
+- missing required information;
+- reasoning-profile compliance;
+- domain-policy compliance;
+- privacy compliance;
+- tool-call validity;
+- cost-limit compliance;
+- need for premium review.
+
+Response Validation must reuse Phase 7 validation contracts where appropriate and must not alter source knowledge silently.
+
+---
+
+# 11.38 — Cost Management Layer
+
+## Objective
+
+Provide native economic control across providers, models, sessions, domains, goals, workflows, and operations.
+
+## Budget Configuration
+
+```python
+CostConfiguration(
+    monthly_limit_eur=30.00,
+    daily_limit_eur=None,
+    premium_limit_eur=8.00,
+    warning_threshold_percent=80,
+    hard_limit=True,
+    allow_manual_override=True,
+    savings_mode="automatic",
+    metadata={},
+)
+```
+
+The values are configurable and must not be hard-coded.
+
+## Capabilities
+
+- monthly budget;
+- daily budget;
+- session budget;
+- goal budget;
+- workflow budget;
+- domain budget;
+- operation budget;
+- premium budget;
+- estimated cost;
+- actual cost;
+- reservations;
+- warnings;
+- hard blocking;
+- savings mode;
+- approval for overruns;
+- provider comparisons;
+- model comparisons;
+- cost per accepted result;
+- historical reporting.
+
+---
+
+# 11.39 — Consumption Modes
+
+## Objective
+
+Allow the user to select a global or scoped balance between quality, cost, speed, and privacy.
+
+## Initial Modes
+
+```text
+QUALITY
+BALANCED
+SAVINGS
+LOCAL_ONLY
+CUSTOM
+```
+
+Modes may be configured globally or overridden by domain, workflow, goal, session, or operation, subject to more restrictive policies.
+
+---
+
+# 11.40 — Model and Cost Dashboard
+
+## Objective
+
+Expose model usage, routing outcomes, quality, cache efficiency, and spending in a single operational view.
+
+## Required Views
+
+- monthly spending;
+- remaining budget;
+- spending by provider;
+- spending by model;
+- spending by domain;
+- spending by workflow;
+- input, output, and cached tokens;
+- cognitive-cache usage;
+- provider-cache usage;
+- fallback count;
+- escalation count;
+- acceptance rate;
+- average quality;
+- latency;
+- provider errors;
+- avoided cost;
+- premium usage.
+
+## Dashboard Result
+
+```python
+ModelCostDashboard(
+    period="2026-07",
+    monthly_limit_eur=30.0,
+    spent_eur=0.0,
+    remaining_eur=30.0,
+    by_provider=[],
+    by_model=[],
+    by_domain=[],
+    by_workflow=[],
+    cache_metrics={},
+    quality_metrics={},
+    routing_metrics={},
+    generated_at="...",
+    metadata={},
+)
+```
+
+The dashboard must preserve drill-down links to routing decisions, model execution records, validations, approvals, and audit entries.
+
+---
+
+# 11.41 — Continuous Provider Evaluation
+
+## Objective
+
+Detect provider and model changes over time instead of assuming that a previously selected model remains optimal.
+
+## Evaluation Triggers
+
+- manual execution;
+- scheduled execution;
+- new model discovery;
+- provider version change;
+- price change;
+- capability change;
+- latency degradation;
+- error-rate increase;
+- benchmark regression;
+- routing anomaly;
+- user-requested review.
+
+## Capabilities
+
+- discover new models;
+- compare model versions;
+- detect price changes;
+- detect capability changes;
+- detect latency changes;
+- detect provider failures;
+- rerun domain benchmark suites;
+- detect regressions;
+- update quality history;
+- update availability;
+- propose routing-policy changes;
+- require approval before activating material policy changes.
+
+Rankings must be scoped by domain, operation, cost, privacy, context length, quality, and availability.
+
+---
+
+# 11.42 — Provider Cache and Prompt Optimization
+
+## Objective
+
+Complement the Phase 8 Cognitive Cache with provider-level caching and safe prompt optimization.
+
+## Capabilities
+
+- prompt caching;
+- prefix reuse;
+- system-instruction reuse;
+- context deduplication;
+- unchanged-content detection;
+- incremental summaries;
+- safe compression;
+- token reduction;
+- provider-specific cache adaptation;
+- cache-hit accounting;
+- avoided-cost accounting.
+
+## Restrictions
+
+Optimization must not:
+
+- alter the meaning of the context;
+- remove provenance;
+- hide uncertainty;
+- remove blocking contradictions;
+- weaken privacy;
+- reuse content across unauthorized sessions;
+- bypass Knowledge Package validation;
+- treat provider cache as cognitive truth.
+
+---
+
+# 11.43 — Knowledge Package Export
+
+## Objective
+
+Export provider-independent context for use outside CMM OS.
+
+## Formats
+
+```text
+JSON
+Markdown
+YAML
+compressed bundle
+portable prompt
+provider bundle
+```
+
+## Use Cases
+
+- consult Claude;
+- consult ChatGPT;
+- change provider;
+- share context with a professional;
+- migrate between installations;
+- create an audit copy;
+- use CMM OS as a context layer for another AI.
+
+Every export must preserve:
+
+- schema version;
+- provenance;
+- epistemological types;
+- temporal validity;
+- privacy classification;
+- permissions;
+- exclusions;
+- checksum;
+- export actor;
+- export date.
+
+Export must be blocked when the effective privacy policy forbids it.
+
+---
+
+# 11.44 — Model Usage Audit
+
+## Objective
+
+Make every model call auditable without storing secrets or unnecessary sensitive payloads.
+
+## Required Audit Data
+
+- information included;
+- information excluded;
+- provider;
+- model;
+- provider and model versions;
+- applied privacy policy;
+- applied routing policy;
+- selection reason;
+- estimated cost;
+- actual cost;
+- latency;
+- cache usage;
+- validation results;
+- fallback;
+- escalation;
+- approval;
+- final acceptance status;
+- persistence decision;
+- memory updates;
+- configuration version;
+- trace and correlation identifiers.
+
+## Privacy Requirements
+
+The audit must avoid storing:
+
+- credentials;
+- secrets;
+- unrestricted prompt contents;
+- full sensitive responses when retention is prohibited;
+- unrelated personal data.
+
+When payload retention is forbidden, the audit must preserve hashes, classifications, exclusions, policy decisions, and trace references.
+
+---
+
+# 11.45 — Platform Layer Boundaries
+
+## Objective
+
+Separate CMM OS into stable layers so deployment, clients, providers, storage, and integrations can evolve without changing the cognitive core.
+
+## Layers
+
+```text
+Core
+Runtime
+Data
+Clients
+Adapters
+```
+
+### Core
+
+Contains provider-independent contracts and domain logic:
+
+- knowledge;
+- cognition;
+- validation;
+- goals;
+- workflows;
+- agents;
+- domains;
+- permissions;
+- policies.
+
+### Runtime
+
+Coordinates execution:
+
+- orchestration;
+- scheduling;
+- events;
+- approvals;
+- model routing;
+- retries;
+- recovery;
+- background workers.
+
+### Data
+
+Provides persistence and synchronization:
+
+- relational storage;
+- Knowledge Graph;
+- vector storage;
+- object storage;
+- migrations;
+- backups;
+- export;
+- synchronization adapters.
+
+### Clients
+
+Expose the platform:
+
+- web client;
+- desktop client;
+- mobile client;
+- CLI;
+- external AI clients.
+
+### Adapters
+
+Connect external systems:
+
+- model providers;
+- storage providers;
+- integrations;
+- MCP;
+- REST;
+- Actions;
+- plugins.
+
+Dependencies must point inward toward stable contracts. Core must not depend on clients, providers, deployment targets, or cloud services.
+
+---
+
+# 11.46 — Private Deployment Architecture
+
+## Objective
+
+Run CMM OS as a private personal platform rather than a publicly exposed service.
+
+## Initial Topology
+
+```text
+Mac principal
+├── CMM OS backend
+├── databases
+├── workers
+├── local models through Ollama
+├── web interface
+└── encrypted backups and optional synchronization
+```
+
+The Mac principal is the initial authoritative runtime node.
+
+The platform must support later migration to:
+
+- Mac mini;
+- another Mac;
+- private server;
+- NAS;
+- VPS;
+- hybrid deployment.
+
+Migration must not require changing Core contracts or rebuilding user knowledge.
+
+## Network Policy
+
+- no mandatory public exposure;
+- authenticated access only;
+- encrypted transport;
+- least-privilege services;
+- configurable local-network access;
+- configurable secure remote access;
+- no direct database exposure;
+- no unauthenticated administration endpoints.
+
+---
+
+# 11.47 — Mac Principal and Optional iCloud Integration
+
+## Objective
+
+Use the Mac principal as the execution node while allowing optional Apple-native synchronization and backup support.
+
+## iCloud Roles
+
+iCloud Drive or CloudKit may be used for:
+
+- encrypted backups;
+- exported Knowledge Packages;
+- user documents;
+- configuration snapshots;
+- client synchronization metadata;
+- selected portable state;
+- recovery artifacts.
+
+## Restrictions
+
+iCloud must not be treated as:
+
+- an application server;
+- a Docker host;
+- an Ollama runtime;
+- a worker runtime;
+- an API host;
+- a replacement for the primary database engine.
+
+CMM OS must remain functional when iCloud is unavailable.
+
+Live SQLite files must never be synchronized directly through iCloud Drive.
+
+Synchronization must use exported snapshots, application-level records, or an explicit synchronization protocol.
+
+---
+
+# 11.48 — Secure Remote Access and Context Synchronization
+
+## Objective
+
+Allow private use from iPhone and other Macs without exposing the platform as a public service.
+
+## Remote Access
+
+Supported approaches may include:
+
+- private VPN;
+- authenticated reverse proxy;
+- device-bound access;
+- private network overlay;
+- secure tunnel;
+- native client synchronization.
+
+## Context Synchronization
+
+Synchronization may include:
+
+- active goals;
+- workflow status;
+- approvals;
+- selected memories;
+- Knowledge Packages;
+- timeline events;
+- notifications;
+- configuration;
+- client state.
+
+## Requirements
+
+- conflict detection;
+- versioned records;
+- resumable synchronization;
+- encrypted transport;
+- device authorization;
+- selective synchronization;
+- privacy-aware exclusions;
+- offline client behavior;
+- audit trail;
+- recovery from partial synchronization.
+
+The primary runtime remains authoritative until a later multi-node architecture is explicitly introduced.
+
+---
+
+# 11.49 — Safe Updates, Rollback, and Recovery
+
+## Objective
+
+Apply improvements and corrections without risking accumulated context or operational continuity.
+
+## Update Flow
+
+```text
+Preflight
+↓
+Verified backup
+↓
+Compatibility check
+↓
+Migration dry run
+↓
+Update
+↓
+Health verification
+↓
+Acceptance tests
+↓
+Commit or rollback
+```
+
+## Requirements
+
+- signed or verified release artifacts;
+- schema compatibility checks;
+- automatic pre-update backup;
+- migration dry run;
+- application rollback;
+- data rollback when safe;
+- forward-recovery procedure;
+- version compatibility matrix;
+- release channels;
+- update logs;
+- recovery runbook;
+- clean-environment restore test.
+
+Updates must separate:
+
+- application code;
+- configuration;
+- secrets;
+- user data;
+- generated indexes;
+- caches;
+- backups.
+
+No update may silently overwrite user knowledge, audit history, policies, or custom Domain Packs.
+
+---
+
+# 11.50 — Reusable Backend Interfaces
+
+## Objective
+
+Expose CMM OS capabilities through stable interfaces so the platform can serve its own clients and external AI systems without duplicating logic.
+
+## Supported Interfaces
+
+- REST API;
+- streaming API;
+- MCP server;
+- OpenAI Actions-compatible endpoints;
+- CLI;
+- internal application services;
+- event subscriptions.
+
+## Interface Rules
+
+All interfaces must reuse the same:
+
+- authentication;
+- authorization;
+- permissions;
+- privacy policies;
+- validation;
+- routing;
+- budgets;
+- audit trail;
+- error contracts;
+- versioned schemas.
+
+Clients must not bypass the Orchestrator, Model Gateway, Validation System, or permission checks.
+
+---
+
+# 11.51 — MCP, REST, and Actions Adapters
+
+## Objective
+
+Provide thin adapters that allow Claude, ChatGPT, local clients, automations, and other compatible systems to use CMM OS safely.
+
+## MCP Capabilities
+
+Initial MCP tools may expose:
+
+- search knowledge;
+- retrieve a Knowledge Package;
+- create or inspect goals;
+- inspect workflows;
+- request a validated operation;
+- review approvals;
+- inspect audit records;
+- export authorized context.
+
+## REST Capabilities
+
+The REST API may expose:
+
+```text
+/api/v1/goals
+/api/v1/workflows
+/api/v1/knowledge
+/api/v1/memory
+/api/v1/domains
+/api/v1/models
+/api/v1/evaluations
+/api/v1/audit
+/api/v1/exports
+```
+
+## Actions Compatibility
+
+Actions-compatible endpoints must:
+
+- use explicit schemas;
+- expose only authorized operations;
+- avoid unrestricted arbitrary execution;
+- preserve provider-independent contracts;
+- return structured errors;
+- record every external invocation;
+- enforce rate and budget limits.
+
+Adapters must remain replaceable and must not contain domain logic.
+
+---
+
+# 11.52 — Skills and Plugin Packaging
+
+## Objective
+
+Package useful CMM OS capabilities as reusable skills or plugins for external assistants and development environments.
+
+## Packaging Targets
+
+- Claude skills;
+- ChatGPT-compatible actions or GPT tools;
+- MCP tool bundles;
+- local assistant plugins;
+- IDE assistant integrations;
+- n8n nodes or workflow templates;
+- standalone CLI commands.
+
+## Package Contents
+
+A package may include:
+
+- manifest;
+- operation schemas;
+- prompts;
+- validation rules;
+- permissions;
+- privacy requirements;
+- Knowledge Package schema;
+- examples;
+- tests;
+- version;
+- compatibility metadata.
+
+## Restrictions
+
+A skill or plugin must not:
+
+- contain secrets;
+- silently broaden permissions;
+- bypass CMM OS validation;
+- duplicate the primary memory store;
+- couple the core to one assistant vendor;
+- export restricted knowledge automatically;
+- become the only usable form of a capability.
+
+---
+
+# 11.53 — Context Layer Mode
+
+## Objective
+
+Allow CMM OS to operate as a private context and validation layer behind another AI interface.
+
+## Flow
+
+```text
+External assistant
+↓
+Authorized CMM OS interface
+↓
+Context resolution
+↓
+Knowledge Package
+↓
+Privacy and permission filtering
+↓
+Model or external-assistant execution
+↓
+Response validation
+↓
+Audit and optional memory update
+```
+
+## Capabilities
+
+- context retrieval;
+- portable Knowledge Packages;
+- prompt-independent provenance;
+- privacy filtering;
+- response validation;
+- provider comparison;
+- model-independent memory;
+- optional write-back;
+- explicit approval before persistent updates.
+
+Context Layer Mode must work even when the external assistant changes.
+
+---
+
+# 11.54 — Exit and Portability Strategy
+
+## Objective
+
+Ensure that accumulated knowledge, workflows, policies, and domain logic remain usable if CMM OS changes direction, a provider disappears, or the full platform is discontinued.
+
+## Portable Assets
+
+- Knowledge Packages;
+- domain schemas;
+- prompts;
+- validation rules;
+- workflows;
+- operation definitions;
+- benchmark suites;
+- model policies;
+- privacy policies;
+- audit records;
+- exported memory;
+- documentation;
+- skills and plugins.
+
+## Exit Modes
+
+```text
+Full CMM OS platform
+CMM OS as private backend
+CMM OS as context layer
+CMM OS as MCP server
+CMM OS skills and plugins
+Portable Knowledge Package archive
+Standalone domain tools
+```
+
+## Requirements
+
+- documented export formats;
+- versioned schemas;
+- provider-independent data;
+- reproducible migrations;
+- checksum verification;
+- restore tests;
+- no mandatory proprietary cloud;
+- no provider lock-in;
+- clear deprecation paths;
+- preserved auditability.
+
+Failure of the complete product must not invalidate the reusable infrastructure already built.
+
+---
+
 # Version Plan
 
 ## 11.1 — Integration Core
@@ -3522,6 +4497,22 @@ These capabilities may be developed after the platform has been stabilized.
 - Plugin System;
 - SDK;
 - Model Gateway;
+- Provider Registry;
+- Routing Policy Engine;
+- Model Evaluation Framework;
+- Response Validation;
+- Cost Management Layer;
+- consumption modes;
+- model and cost dashboard;
+- continuous provider evaluation;
+- provider cache and prompt optimization;
+- Knowledge Package export;
+- model usage audit;
+- reusable backend interfaces;
+- MCP, REST, and Actions adapters;
+- skills and plugin packaging;
+- Context Layer Mode;
+- exit and portability strategy;
 - adapters;
 - n8n;
 - integrations;
@@ -3537,7 +4528,13 @@ These capabilities may be developed after the platform has been stabilized.
 - traces;
 - alerts;
 - recovery;
-- updates.
+- updates;
+- private deployment;
+- Mac principal runtime;
+- optional iCloud synchronization;
+- secure remote access;
+- synchronization recovery;
+- verified rollback.
 
 ## Quality
 
@@ -3640,6 +4637,13 @@ CMM OS will stop being a set of specialized engines and become a complete person
 - coordinating domains;
 - integrating with external services;
 - operating locally;
+- selecting local or remote models without provider coupling;
+- controlling cost and privacy;
+- validating and escalating model responses;
+- serving as a reusable private backend;
+- exposing authorized capabilities through MCP, REST, Actions, and plugins;
+- exporting portable provider-independent context;
+- remaining useful through partial or full exit modes;
 - showing its state;
 - justifying its conclusions;
 - preserving human control.
