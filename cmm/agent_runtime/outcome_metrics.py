@@ -6,12 +6,16 @@ duration, cost, custom registered evaluators) without dynamic code execution.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from cmm.agent_runtime.enums import CriterionEvaluationStatus
 from cmm.agent_runtime.errors import OutcomeMetricError
 from cmm.agent_runtime.outcome_evaluation_contracts import OutcomeMetricResult
+from cmm.agent_runtime.runtime_event_errors import AgentRuntimeEventError
+
+logger = logging.getLogger(__name__)
 
 
 class OutcomeMetricEvaluator:
@@ -33,8 +37,12 @@ class OutcomeMetricEvaluator:
         if self._event_bus and hasattr(self._event_bus, "publish"):
             try:
                 self._event_bus.publish(event_type, payload)
-            except Exception:
-                pass
+            except AgentRuntimeEventError as exc:
+                logger.warning(
+                    "Runtime event publication failed for %s: %s",
+                    event_type,
+                    exc,
+                )
 
     def evaluate_metric(
         self,

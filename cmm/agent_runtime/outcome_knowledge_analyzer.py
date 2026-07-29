@@ -6,6 +6,7 @@ and remaining pending tasks resulting from goal execution.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -15,6 +16,9 @@ from cmm.agent_runtime.outcome_evaluation_contracts import (
     OutcomeKnowledgeAcquisition,
     OutcomeTaskStatus,
 )
+from cmm.agent_runtime.runtime_event_errors import AgentRuntimeEventError
+
+logger = logging.getLogger(__name__)
 
 
 class OutcomeKnowledgeAnalyzer:
@@ -27,8 +31,12 @@ class OutcomeKnowledgeAnalyzer:
         if self._event_bus and hasattr(self._event_bus, "publish"):
             try:
                 self._event_bus.publish(event_type, payload)
-            except Exception:
-                pass
+            except AgentRuntimeEventError as exc:
+                logger.warning(
+                    "Runtime event publication failed for %s: %s",
+                    event_type,
+                    exc,
+                )
 
     def analyze_knowledge_and_gaps(
         self,

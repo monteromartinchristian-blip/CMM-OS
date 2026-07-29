@@ -363,7 +363,7 @@ def test_repo_thread_safety() -> None:
                 outcome=Outcome.SUCCESS,
             )
             repo.save_evaluation(ev)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - capture worker failures
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(50)]

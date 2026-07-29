@@ -101,10 +101,10 @@ class AgentRegistry:
         the caller must call :py:meth:`_release_reserved_aliases` with
         that set to roll back.
         """
+        identity = self._key(descriptor.agent_id, descriptor.version)
         reserved: set[str] = set()
         for alias in descriptor.aliases:
             owners = self._alias_owners.setdefault(alias, set())
-            identity = self._key(descriptor.agent_id, descriptor.version)
             if identity in owners:
                 continue
             if owners:
@@ -172,7 +172,6 @@ class AgentRegistry:
     def register(self, descriptor: AgentDescriptor) -> AgentRegistrationStatus:
         with self._lock:
             self._validator.validate(descriptor)
-            identity = self._key(descriptor.agent_id, descriptor.version)
             existing = self._store.get(descriptor.agent_id, descriptor.version)
             if existing is not None:
                 # Same identity already present -> conflict.
@@ -195,7 +194,7 @@ class AgentRegistry:
             except AgentRegistryError:
                 self._release_reserved_aliases(descriptor, reserved)
                 raise
-            except Exception:
+            except Exception:  # noqa: BLE001 - defensive store boundary
                 # Defensive boundary: unexpected store failures must
                 # roll back alias ownership and surface a safe
                 # ``AgentRegistryError`` without leaking the original
@@ -207,9 +206,7 @@ class AgentRegistry:
                 ) from None
             return AgentRegistrationStatus.REGISTERED
 
-    def unregister(
-        self, agent_id: str, version: AgentVersion
-    ) -> AgentDescriptor:
+    def unregister(self, agent_id: str, version: AgentVersion) -> AgentDescriptor:
         with self._lock:
             descriptor = self._store.get(agent_id, version)
             if descriptor is None:
@@ -245,6 +242,7 @@ class AgentRegistry:
             versions = [d for d in self._store.list() if d.agent_id == agent_id]
             if not versions:
                 return None
+
             # Sort by lifecycle priority ACTIVE first, then by version.
             def _sort_key(d: AgentDescriptor) -> tuple[int, str]:
                 priority = 0 if d.lifecycle == AgentLifecycle.ACTIVE else 1
@@ -282,9 +280,7 @@ class AgentRegistry:
     def find_by_alias(self, alias: str) -> tuple[AgentDescriptor, ...]:
         return self._store.find_by_alias(alias)
 
-    def find_by_capability(
-        self, capability: str
-    ) -> tuple[AgentDescriptor, ...]:
+    def find_by_capability(self, capability: str) -> tuple[AgentDescriptor, ...]:
         return self._store.find_by_capability(capability)
 
     def find_by_kind(self, kind: AgentKind) -> tuple[AgentDescriptor, ...]:
@@ -302,9 +298,7 @@ class AgentRegistry:
     # ── lifecycle transitions ─────────────────────────────────────────────
 
     def enable(self, agent_id: str, version: AgentVersion) -> AgentDescriptor:
-        return self._lifecycle_transition(
-            agent_id, version, AgentLifecycle.ACTIVE
-        )
+        return self._lifecycle_transition(agent_id, version, AgentLifecycle.ACTIVE)
 
     def disable(self, agent_id: str, version: AgentVersion) -> AgentDescriptor:
         # DISABLED is reachable through with_lifecycle.
@@ -325,12 +319,8 @@ class AgentRegistry:
             self._store.add(new_descriptor)
             return new_descriptor
 
-    def deprecate(
-        self, agent_id: str, version: AgentVersion
-    ) -> AgentDescriptor:
-        return self._lifecycle_transition(
-            agent_id, version, AgentLifecycle.DEPRECATED
-        )
+    def deprecate(self, agent_id: str, version: AgentVersion) -> AgentDescriptor:
+        return self._lifecycle_transition(agent_id, version, AgentLifecycle.DEPRECATED)
 
     def retire(
         self,
@@ -369,9 +359,7 @@ class AgentRegistry:
             self._release_aliases(removed_desc)
             return removed_desc
 
-    def contains(
-        self, agent_id: str, version: AgentVersion | None = None
-    ) -> bool:
+    def contains(self, agent_id: str, version: AgentVersion | None = None) -> bool:
         with self._lock:
             if version is not None:
                 return self._store.get(agent_id, version) is not None

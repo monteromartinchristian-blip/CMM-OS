@@ -7,6 +7,7 @@ immutable OutcomeCriterionResult contracts.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from cmm.agent_runtime.enums import (
@@ -21,6 +22,9 @@ from cmm.agent_runtime.outcome_evaluation_contracts import (
     OutcomeEvidence,
     OutcomeUserConfirmationRequirement,
 )
+from cmm.agent_runtime.runtime_event_errors import AgentRuntimeEventError
+
+logger = logging.getLogger(__name__)
 
 
 class OutcomeCriterionEvaluator:
@@ -33,8 +37,12 @@ class OutcomeCriterionEvaluator:
         if self._event_bus and hasattr(self._event_bus, "publish"):
             try:
                 self._event_bus.publish(event_type, payload)
-            except Exception:
-                pass
+            except AgentRuntimeEventError as exc:
+                logger.warning(
+                    "Runtime event publication failed for %s: %s",
+                    event_type,
+                    exc,
+                )
 
     def evaluate_criterion(
         self,
@@ -140,9 +148,8 @@ class OutcomeCriterionEvaluator:
             matching_validations.append(bool(val_success))
 
         # Check user confirmation requirement if applicable
-        if (
-            criterion.metadata.get("requires_user_confirmation")
-            and (user_confirmation is None or user_confirmation.status != "confirmed")
+        if criterion.metadata.get("requires_user_confirmation") and (
+            user_confirmation is None or user_confirmation.status != "confirmed"
         ):
             warnings.append(
                 f"Criterion {criterion.id} requires user confirmation which is absent or unconfirmed"

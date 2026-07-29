@@ -6,6 +6,7 @@ idempotency guarantees, event publishing, and optional terminal Goal state trans
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from cmm.agent_runtime.enums import (
@@ -14,6 +15,7 @@ from cmm.agent_runtime.enums import (
     GoalStatus,
 )
 from cmm.agent_runtime.errors import (
+    GoalError,
     OutcomeEvaluationExecutionError,
 )
 from cmm.agent_runtime.goal_completion_decision_engine import (
@@ -31,6 +33,8 @@ from cmm.agent_runtime.outcome_evaluation_repository import (
     InMemoryOutcomeEvaluationRepository,
     OutcomeEvaluationRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OutcomeEvaluationManager:
@@ -116,8 +120,13 @@ class OutcomeEvaluationManager:
                             self.goal_manager.evaluate_success_criteria(
                                 decision.goal_id, eval_map, actor_id=actor_id
                             )
-                        except Exception:
-                            pass
+                        except GoalError as exc:
+                            logger.warning(
+                                "Goal success-criteria synchronization failed "
+                                "for %s: %s",
+                                decision.goal_id,
+                                exc,
+                            )
 
                 if decision.decision == GoalCompletionDecisionKind.COMPLETE:
                     if hasattr(self.goal_manager, "complete_goal"):
@@ -141,9 +150,8 @@ class OutcomeEvaluationManager:
                             actor_id=actor_id,
                             reason=f"Goal partially completed via evaluation {evaluation.outcome_evaluation_id}",
                         )
-                elif (
-                    decision.decision == GoalCompletionDecisionKind.FAIL
-                    and hasattr(self.goal_manager, "change_status")
+                elif decision.decision == GoalCompletionDecisionKind.FAIL and hasattr(
+                    self.goal_manager, "change_status"
                 ):
                     self.goal_manager.change_status(
                         decision.goal_id,

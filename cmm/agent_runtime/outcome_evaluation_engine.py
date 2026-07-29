@@ -6,6 +6,7 @@ state comparators, regression detectors, impact analyzers, and knowledge analyze
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -35,6 +36,9 @@ from cmm.agent_runtime.outcome_knowledge_analyzer import OutcomeKnowledgeAnalyze
 from cmm.agent_runtime.outcome_metrics import OutcomeMetricEvaluator
 from cmm.agent_runtime.outcome_regression_detector import OutcomeRegressionDetector
 from cmm.agent_runtime.outcome_state_comparator import OutcomeStateComparator
+from cmm.agent_runtime.runtime_event_errors import AgentRuntimeEventError
+
+logger = logging.getLogger(__name__)
 
 
 class OutcomeEvaluationEngine:
@@ -74,8 +78,12 @@ class OutcomeEvaluationEngine:
         if self._event_bus and hasattr(self._event_bus, "publish"):
             try:
                 self._event_bus.publish(event_type, payload)
-            except Exception:
-                pass
+            except AgentRuntimeEventError as exc:
+                logger.warning(
+                    "Runtime event publication failed for %s: %s",
+                    event_type,
+                    exc,
+                )
 
     def evaluate(
         self,

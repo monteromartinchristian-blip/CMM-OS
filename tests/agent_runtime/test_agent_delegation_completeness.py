@@ -34,7 +34,6 @@ from cmm.agent_runtime import (
 from cmm.agent_runtime.agent_delegation_errors import (
     AgentDelegationCycleDetectedError,
     AgentDelegationInvalidStateTransitionError,
-    AgentDelegationMaxDepthExceededError,
     AgentDelegationPolicyDeniedError,
     AgentDelegationValidationError,
 )
@@ -835,7 +834,6 @@ class TestDepthValidation:
 
         current_parent_id = parent.id
         current_source = "agent-source"
-        target_agent = "agent-target"
         depths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         next_target = "agent-target"
         for depth in depths:

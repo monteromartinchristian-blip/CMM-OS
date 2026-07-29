@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,9 @@ from cmm.agent_runtime.runtime_event_contracts import (
     AgentRuntimeEventHeader,
     AgentRuntimeEventPayload,
 )
+
+if TYPE_CHECKING:
+    from cmm.agent_runtime.agent_resolver import AgentResolver
 
 
 @runtime_checkable
@@ -220,7 +223,10 @@ class AgentDelegationService:
                 details={"agent_id": agent_id},
             )
 
-        if descriptor.lifecycle not in {AgentLifecycle.ACTIVE, AgentLifecycle.EXPERIMENTAL}:
+        if descriptor.lifecycle not in {
+            AgentLifecycle.ACTIVE,
+            AgentLifecycle.EXPERIMENTAL,
+        }:
             raise AgentDelegationTargetUnsupportedGoalError(
                 f"Target agent {agent_id} is not available",
                 details={"agent_id": agent_id, "lifecycle": descriptor.lifecycle.value},
@@ -243,7 +249,11 @@ class AgentDelegationService:
                 details={"goal_id": goal_id},
             )
 
-        if goal.status in {GoalStatus.COMPLETED, GoalStatus.FAILED, GoalStatus.CANCELLED}:
+        if goal.status in {
+            GoalStatus.COMPLETED,
+            GoalStatus.FAILED,
+            GoalStatus.CANCELLED,
+        }:
             raise AgentDelegationParentGoalTerminalError(
                 f"Parent goal {goal_id} is in terminal state {goal.status.value}",
                 details={"goal_id": goal_id, "status": goal.status.value},
@@ -338,7 +348,10 @@ class AgentDelegationService:
         if target_autonomy > source_autonomy:
             raise AgentDelegationAutonomyEscalationError(
                 f"Target agent autonomy level {target_autonomy} exceeds source {source_autonomy}",
-                details={"source_autonomy": source_autonomy, "target_autonomy": target_autonomy},
+                details={
+                    "source_autonomy": source_autonomy,
+                    "target_autonomy": target_autonomy,
+                },
             )
 
         if self._policy_engine:
@@ -357,7 +370,9 @@ class AgentDelegationService:
                 if hasattr(result, "decision") and result.decision == "deny":
                     raise AgentDelegationPolicyDeniedError(
                         f"Policy denied delegation: {getattr(result, 'reason', 'unknown')}",
-                        details={"policy_decision": getattr(result, "decision", "deny")},
+                        details={
+                            "policy_decision": getattr(result, "decision", "deny")
+                        },
                     )
             except AgentDelegationPolicyDeniedError:
                 raise
@@ -381,7 +396,11 @@ class AgentDelegationService:
         ):
             raise AgentDelegationCycleDetectedError(
                 f"Delegation would create a cycle between {source_agent_id} and {target_agent_id}",
-                details={"source_agent_id": source_agent_id, "target_agent_id": target_agent_id, "parent_goal_id": parent_goal_id},
+                details={
+                    "source_agent_id": source_agent_id,
+                    "target_agent_id": target_agent_id,
+                    "parent_goal_id": parent_goal_id,
+                },
             )
 
         adjacency: dict[str, list[str]] = {}
@@ -402,11 +421,14 @@ class AgentDelegationService:
             if current_agent == source_agent_id:
                 raise AgentDelegationCycleDetectedError(
                     "Delegation would create an indirect cycle",
-                    details={"source_agent_id": source_agent_id, "target_agent_id": target_agent_id, "parent_goal_id": parent_goal_id},
+                    details={
+                        "source_agent_id": source_agent_id,
+                        "target_agent_id": target_agent_id,
+                        "parent_goal_id": parent_goal_id,
+                    },
                 )
 
-            for next_agent in adjacency.get(current_agent, []):
-                stack.append(next_agent)
+            stack.extend(adjacency.get(current_agent, []))
 
     def _validate_no_duplicate(
         self, source_agent_id: str, target_agent_id: str, parent_goal_id: str
@@ -417,7 +439,11 @@ class AgentDelegationService:
         ):
             raise AgentDelegationDuplicateError(
                 f"Active delegation already exists between {source_agent_id} and {target_agent_id} for goal {parent_goal_id}",
-                details={"source_agent_id": source_agent_id, "target_agent_id": target_agent_id, "parent_goal_id": parent_goal_id},
+                details={
+                    "source_agent_id": source_agent_id,
+                    "target_agent_id": target_agent_id,
+                    "parent_goal_id": parent_goal_id,
+                },
             )
 
     def _validate_depth(self, depth: int) -> None:
@@ -425,7 +451,10 @@ class AgentDelegationService:
         if depth > self._config.max_delegation_depth:
             raise AgentDelegationMaxDepthExceededError(
                 f"Delegation depth {depth} exceeds maximum {self._config.max_delegation_depth}",
-                details={"depth": depth, "max_depth": self._config.max_delegation_depth},
+                details={
+                    "depth": depth,
+                    "max_depth": self._config.max_delegation_depth,
+                },
             )
 
     def _validate_child_goal_constraints(
@@ -437,12 +466,18 @@ class AgentDelegationService:
 
         for parent_constraint in parent_goal.constraints:
             for child_constraint in child_goal.constraints:
-                if parent_constraint.kind == child_constraint.kind and not self._constraints_compatible(
-                    parent_constraint, child_constraint
+                if (
+                    parent_constraint.kind == child_constraint.kind
+                    and not self._constraints_compatible(
+                        parent_constraint, child_constraint
+                    )
                 ):
                     raise AgentDelegationChildGoalIncompatibleError(
                         f"Child goal constraint {child_constraint.kind.value} incompatible with parent constraint {parent_constraint.kind.value}",
-                        details={"parent_constraint": parent_constraint.to_dict(), "child_constraint": child_constraint.to_dict()},
+                        details={
+                            "parent_constraint": parent_constraint.to_dict(),
+                            "child_constraint": child_constraint.to_dict(),
+                        },
                     )
 
     def _constraints_compatible(
@@ -454,19 +489,25 @@ class AgentDelegationService:
 
         if parent.kind == GoalConstraintKind.TIME:
             try:
-                return float(child.condition.get("value", 0)) <= float(parent.condition.get("value", 0))
+                return float(child.condition.get("value", 0)) <= float(
+                    parent.condition.get("value", 0)
+                )
             except (ValueError, TypeError):
                 return True
 
         if parent.kind == GoalConstraintKind.COST:
             try:
-                return float(child.condition.get("value", 0)) <= float(parent.condition.get("value", 0))
+                return float(child.condition.get("value", 0)) <= float(
+                    parent.condition.get("value", 0)
+                )
             except (ValueError, TypeError):
                 return True
 
         if parent.kind == GoalConstraintKind.QUALITY:
             try:
-                return float(child.condition.get("value", 0)) >= float(parent.condition.get("value", 0))
+                return float(child.condition.get("value", 0)) >= float(
+                    parent.condition.get("value", 0)
+                )
             except (ValueError, TypeError):
                 return True
 
@@ -565,14 +606,20 @@ class AgentDelegationService:
             owner_actor_id=parent_goal.owner_actor_id,
             assigned_agent_id=target_agent.agent_id,
             autonomy_level=min(
-                target_agent.metadata.get("autonomy_level", 0) if target_agent.metadata else 0,
-                source_agent.metadata.get("autonomy_level", 0) if source_agent.metadata else 0,
+                target_agent.metadata.get("autonomy_level", 0)
+                if target_agent.metadata
+                else 0,
+                source_agent.metadata.get("autonomy_level", 0)
+                if source_agent.metadata
+                else 0,
             ),
             deadline=parent_goal.deadline,
             temporal_scope=parent_goal.temporal_scope,
             sensitivity=parent_goal.sensitivity,
             permissions=tuple(
-                p for p in (target_agent.required_permissions or ()) if p in parent_goal.permissions
+                p
+                for p in (target_agent.required_permissions or ())
+                if p in parent_goal.permissions
             ),
             created_at=now,
             updated_at=now,
@@ -638,7 +685,9 @@ class AgentDelegationService:
 
         return delegation
 
-    def accept(self, delegation_id: str, target_agent_run_id: str | None = None) -> DelegatedGoal:
+    def accept(
+        self, delegation_id: str, target_agent_run_id: str | None = None
+    ) -> DelegatedGoal:
         """Accept a proposed delegation."""
         delegation = self._store.get(delegation_id)
         if delegation is None:
@@ -650,7 +699,10 @@ class AgentDelegationService:
         if delegation.status != DelegationStatus.PROPOSED:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot accept delegation in status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         if target_agent_run_id and self._run_repo:
@@ -658,7 +710,10 @@ class AgentDelegationService:
             if run is None or run.agent_id != delegation.target_agent_id:
                 raise AgentDelegationValidationError(
                     f"Target agent run {target_agent_run_id} does not match delegation target",
-                    details={"target_agent_run_id": target_agent_run_id, "expected_agent_id": delegation.target_agent_id},
+                    details={
+                        "target_agent_run_id": target_agent_run_id,
+                        "expected_agent_id": delegation.target_agent_id,
+                    },
                 )
 
         now = _now_utc()
@@ -735,10 +790,16 @@ class AgentDelegationService:
                 details={"delegation_id": delegation_id},
             )
 
-        if delegation.status not in {DelegationStatus.PROPOSED, DelegationStatus.ACCEPTED}:
+        if delegation.status not in {
+            DelegationStatus.PROPOSED,
+            DelegationStatus.ACCEPTED,
+        }:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot reject delegation in status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         now = _now_utc()
@@ -758,7 +819,9 @@ class AgentDelegationService:
             completed_at=now,
             depth=delegation.depth,
             correlation_id=delegation.correlation_id,
-            metadata=MappingProxyType({**dict(delegation.metadata), "rejection_reason": reason}),
+            metadata=MappingProxyType(
+                {**dict(delegation.metadata), "rejection_reason": reason}
+            ),
         )
         self._store.update(updated)
 
@@ -818,7 +881,10 @@ class AgentDelegationService:
         if delegation.status != DelegationStatus.ACCEPTED:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot start delegation in status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         from cmm.agent_runtime.enums import AgentRuntimeStatus
@@ -916,7 +982,10 @@ class AgentDelegationService:
         if delegation.status not in {DelegationStatus.ACTIVE, DelegationStatus.WAITING}:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot complete delegation in status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         if result.delegation_id != delegation_id:
@@ -928,18 +997,26 @@ class AgentDelegationService:
         if result.parent_goal_id != delegation.parent_goal_id:
             raise AgentDelegationValidationError(
                 "Result parent_goal_id does not match",
-                details={"expected": delegation.parent_goal_id, "got": result.parent_goal_id},
+                details={
+                    "expected": delegation.parent_goal_id,
+                    "got": result.parent_goal_id,
+                },
             )
 
         if result.child_goal_id != delegation.child_goal_id:
             raise AgentDelegationValidationError(
                 "Result child_goal_id does not match",
-                details={"expected": delegation.child_goal_id, "got": result.child_goal_id},
+                details={
+                    "expected": delegation.child_goal_id,
+                    "got": result.child_goal_id,
+                },
             )
 
         now = _now_utc()
         final_status = (
-            DelegationStatus.COMPLETED if result.status == DelegationStatus.COMPLETED else DelegationStatus.FAILED
+            DelegationStatus.COMPLETED
+            if result.status == DelegationStatus.COMPLETED
+            else DelegationStatus.FAILED
         )
 
         updated = replace(
@@ -947,25 +1024,35 @@ class AgentDelegationService:
             status=final_status,
             completed_at=result.completed_at,
             updated_at=now,
-            metadata=MappingProxyType({**dict(delegation.metadata), "result": result.to_dict()}),
+            metadata=MappingProxyType(
+                {**dict(delegation.metadata), "result": result.to_dict()}
+            ),
         )
         self._store.update(updated)
 
         if self._goal_repo:
             child_goal = self._goal_repo.get(delegation.child_goal_id)
             if child_goal:
-                child_status = GoalStatus.COMPLETED if result.status == DelegationStatus.COMPLETED else GoalStatus.FAILED
+                child_status = (
+                    GoalStatus.COMPLETED
+                    if result.status == DelegationStatus.COMPLETED
+                    else GoalStatus.FAILED
+                )
                 updated_child = replace(
                     child_goal,
                     status=child_status,
-                    completed_at=result.completed_at if result.status == DelegationStatus.COMPLETED else None,
+                    completed_at=result.completed_at
+                    if result.status == DelegationStatus.COMPLETED
+                    else None,
                     updated_at=now,
                 )
                 self._goal_repo.update(updated_child)
 
         if self._goal_manager and self._goal_repo:
             parent_goal = self._goal_repo.get(delegation.parent_goal_id)
-            if parent_goal and hasattr(self._goal_manager, "incorporate_delegation_result"):
+            if parent_goal and hasattr(
+                self._goal_manager, "incorporate_delegation_result"
+            ):
                 try:
                     self._goal_manager.incorporate_delegation_result(
                         parent_goal_id=delegation.parent_goal_id,
@@ -977,11 +1064,17 @@ class AgentDelegationService:
                         delegation.parent_goal_id,
                     )
                     current_metadata = dict(delegation.metadata)
-                    current_metadata.setdefault("warnings", []).append(f"result_incorporation_failed: {exc}")
-                    updated = replace(updated, metadata=MappingProxyType(current_metadata))
+                    current_metadata.setdefault("warnings", []).append(
+                        f"result_incorporation_failed: {exc}"
+                    )
+                    updated = replace(
+                        updated, metadata=MappingProxyType(current_metadata)
+                    )
 
         event_type = (
-            DelegationEventType.COMPLETED if result.status == DelegationStatus.COMPLETED else DelegationEventType.FAILED
+            DelegationEventType.COMPLETED
+            if result.status == DelegationStatus.COMPLETED
+            else DelegationEventType.FAILED
         )
         self._emit_event(
             event_type,
@@ -1010,7 +1103,10 @@ class AgentDelegationService:
         if delegation.is_terminal:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot fail delegation in terminal status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         now = _now_utc()
@@ -1043,7 +1139,9 @@ class AgentDelegationService:
 
         return updated
 
-    def cancel(self, delegation_id: str, reason: str = "Cancelled by user") -> DelegatedGoal:
+    def cancel(
+        self, delegation_id: str, reason: str = "Cancelled by user"
+    ) -> DelegatedGoal:
         """Cancel a delegation."""
         delegation = self._store.get(delegation_id)
         if delegation is None:
@@ -1055,7 +1153,10 @@ class AgentDelegationService:
         if delegation.is_terminal:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot cancel delegation in terminal status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         now = _now_utc()
@@ -1064,7 +1165,9 @@ class AgentDelegationService:
             status=DelegationStatus.CANCELLED,
             completed_at=now,
             updated_at=now,
-            metadata=MappingProxyType({**dict(delegation.metadata), "cancellation_reason": reason}),
+            metadata=MappingProxyType(
+                {**dict(delegation.metadata), "cancellation_reason": reason}
+            ),
         )
         self._store.update(updated)
 
@@ -1108,7 +1211,10 @@ class AgentDelegationService:
         if delegation.status != DelegationStatus.ACTIVE:
             raise AgentDelegationInvalidStateTransitionError(
                 f"Cannot set waiting on delegation in status {delegation.status.value}",
-                details={"delegation_id": delegation_id, "current_status": delegation.status.value},
+                details={
+                    "delegation_id": delegation_id,
+                    "current_status": delegation.status.value,
+                },
             )
 
         now = _now_utc()
