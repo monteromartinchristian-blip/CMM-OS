@@ -38,6 +38,12 @@ TERMINAL_GOAL_STATUSES: set[GoalStatus] = {
     GoalStatus.SUPERSEDED,
 }
 
+
+def _normalize_goal_status(status: GoalStatus | str) -> GoalStatus:
+    """Normalize a contract status before lifecycle evaluation."""
+    return status if isinstance(status, GoalStatus) else GoalStatus(status)
+
+
 ALLOWED_TRANSITIONS: dict[GoalStatus, set[GoalStatus]] = {
     GoalStatus.PROPOSED: {
         GoalStatus.ACCEPTED,
@@ -219,7 +225,7 @@ class GoalManager:
         target_status = (
             GoalStatus(new_status) if isinstance(new_status, str) else new_status
         )
-        current_status = current_goal.status
+        current_status = _normalize_goal_status(current_goal.status)
 
         if current_status == target_status:
             return current_goal
@@ -234,13 +240,19 @@ class GoalManager:
         # Check required success criteria when completing
         if target_status in (GoalStatus.COMPLETED, GoalStatus.PARTIALLY_COMPLETED):
             for sc in current_goal.success_criteria:
-                if sc.required and sc.status not in (
+                criterion_status = (
+                    sc.status
+                    if isinstance(sc.status, SuccessCriterionStatus)
+                    else SuccessCriterionStatus(sc.status)
+                )
+                if sc.required and criterion_status not in (
                     SuccessCriterionStatus.SATISFIED,
                     SuccessCriterionStatus.WAIVED,
                 ):
                     raise GoalCompletionError(
                         f"Cannot mark goal {goal_id!r} as completed: "
-                        f"required criterion '{sc.id}' is unsatisfied (status: '{sc.status.value}')"
+                        f"required criterion '{sc.id}' is unsatisfied "
+                        f"(status: '{criterion_status.value}')"
                     )
 
         now = datetime.now(timezone.utc)
@@ -283,9 +295,11 @@ class GoalManager:
         if current_goal is None:
             raise GoalNotFoundError(f"Goal with ID {goal_id!r} not found")
 
-        if current_goal.status in TERMINAL_GOAL_STATUSES:
+        current_status = _normalize_goal_status(current_goal.status)
+        if current_status in TERMINAL_GOAL_STATUSES:
             raise InvalidGoalTransitionError(
-                f"Cannot pause goal {goal_id!r} in terminal status '{current_goal.status.value}'"
+                f"Cannot pause goal {goal_id!r} in terminal status "
+                f"'{current_status.value}'"
             )
 
         return self.change_status(
@@ -301,9 +315,11 @@ class GoalManager:
         if current_goal is None:
             raise GoalNotFoundError(f"Goal with ID {goal_id!r} not found")
 
-        if current_goal.status != GoalStatus.PAUSED:
+        current_status = _normalize_goal_status(current_goal.status)
+        if current_status != GoalStatus.PAUSED:
             raise InvalidGoalTransitionError(
-                f"Cannot resume goal {goal_id!r}: current status is '{current_goal.status.value}', not 'paused'"
+                f"Cannot resume goal {goal_id!r}: current status is "
+                f"'{current_status.value}', not 'paused'"
             )
 
         # Look up history to find pre-paused status
@@ -316,7 +332,7 @@ class GoalManager:
                 and entry.previous_status
                 not in (GoalStatus.PAUSED, *TERMINAL_GOAL_STATUSES)
             ):
-                restored_status = entry.previous_status
+                restored_status = _normalize_goal_status(entry.previous_status)
                 break
 
         return self.change_status(
@@ -332,12 +348,14 @@ class GoalManager:
         if current_goal is None:
             raise GoalNotFoundError(f"Goal with ID {goal_id!r} not found")
 
-        if current_goal.status == GoalStatus.CANCELLED:
+        current_status = _normalize_goal_status(current_goal.status)
+        if current_status == GoalStatus.CANCELLED:
             return current_goal
 
-        if current_goal.status in TERMINAL_GOAL_STATUSES:
+        if current_status in TERMINAL_GOAL_STATUSES:
             raise InvalidGoalTransitionError(
-                f"Cannot cancel goal {goal_id!r} in terminal status '{current_goal.status.value}'"
+                f"Cannot cancel goal {goal_id!r} in terminal status "
+                f"'{current_status.value}'"
             )
 
         return self.change_status(

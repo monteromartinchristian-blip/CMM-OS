@@ -115,7 +115,10 @@ class GoalObserver(ObserverMetadataMixin):
                         observer=self.name,
                         kind=ObservationKind.GOAL,
                         subject_id=f"goal:{goal.id}",
-                        statement=f"Goal '{goal.title}' is currently {goal.status.value}",
+                        statement=(
+                            f"Goal '{goal.title}' is currently "
+                            f"{goal.status.value if hasattr(goal.status, 'value') else goal.status}"
+                        ),
                         value=obs_val,
                         confidence=goal.confidence,
                     )
