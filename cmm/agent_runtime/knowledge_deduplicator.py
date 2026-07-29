@@ -76,7 +76,11 @@ class KnowledgeDeduplicator:
 
             # 2. Same Title/Topic, complementary (non-conflicting) fields -> MERGE
             item_content = getattr(item, "content", None)
-            if cand_title == item_title and _is_complementary(item_content):
+            if (
+                cand_title == item_title
+                and isinstance(item_content, dict)
+                and _is_complementary(item_content)
+            ):
                 merged_content = {**item_content, **candidate.content}
                 return KnowledgeDeduplicationResult(
                     candidate_id=candidate.candidate_id,
