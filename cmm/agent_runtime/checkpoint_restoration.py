@@ -174,7 +174,7 @@ class CheckpointRestorationManager:
                         try:
                             self._lock_manager.release(lk_id, request.agent_run_id)
                         except Exception as rel_exc:  # noqa: BLE001
-                            restoration_err = (
+                            _release_error = (
                                 f"Failed to release lock '{lk_id}': {rel_exc}"
                             )
                     raise CheckpointRestorationBlockedError(
