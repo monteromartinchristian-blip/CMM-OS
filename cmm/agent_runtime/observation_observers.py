@@ -29,6 +29,7 @@ from cmm.agent_runtime.observation_contracts import (
 from cmm.agent_runtime.observer_protocol import ObserverMetadataMixin
 from cmm.execution.services.git_service import GitService, GitServiceError
 from cmm.memory.technical_memory import TechnicalMemory
+from cmm.validation.observability.history import ValidationHistoryQuery
 from cmm.validation.observability.service import ValidationObservabilityService
 
 
@@ -309,12 +310,14 @@ class GitObserver(ObserverMetadataMixin):
 
             # Get recent commit for source version
             log_data = self.git_service.log(self.workspace_root, limit=1)
-            entries = log_data.get("entries", [])
-            head_commit = (
-                entries[0]["commit"]
-                if entries and isinstance(entries[0], dict)
-                else "unknown"
-            )
+            raw_entries = log_data.get("entries")
+            head_commit = "unknown"
+            if isinstance(raw_entries, list) and raw_entries:
+                first_entry = raw_entries[0]
+                if isinstance(first_entry, dict):
+                    commit = first_entry.get("commit")
+                    if isinstance(commit, str) and commit:
+                        head_commit = commit
 
             source_ver = ObservationSourceVersion(
                 source_name="git",
@@ -387,15 +390,14 @@ class ValidationObserver(ObserverMetadataMixin):
             )
 
         try:
-            history = self.service.get_history(limit=5)
+            history_page = self.service.list_history(ValidationHistoryQuery(limit=5))
+            history = history_page.items
             if history:
                 latest = history[0]
                 val_data = {
-                    "execution_id": latest.id
-                    if hasattr(latest, "id")
-                    else getattr(latest, "execution_id", "unknown"),
-                    "status": latest.status if hasattr(latest, "status") else "unknown",
-                    "total_runs": len(history),
+                    "execution_id": latest.id,
+                    "status": latest.status,
+                    "total_runs": history_page.total,
                 }
                 observations.append(
                     Observation(
