@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Self, SupportsIndex
 
 from cmm.agent_runtime.agent_runtime_integration_enums import (
     RESULT_SNAPSHOT_STATES,
@@ -93,8 +93,16 @@ class _FrozenList(list[Any]):
 
     __setitem__ = _reject_mutation
     __delitem__ = _reject_mutation
-    __iadd__ = _reject_mutation
-    __imul__ = _reject_mutation
+
+    def __add__(self, value: Iterable[Any]) -> Self:
+        raise TypeError("canonical snapshot collections are immutable")
+
+    def __iadd__(self, value: Iterable[Any]) -> Self:
+        raise TypeError("canonical snapshot collections are immutable")
+
+    def __imul__(self, value: SupportsIndex) -> Self:
+        raise TypeError("canonical snapshot collections are immutable")
+
     append = _reject_mutation
     clear = _reject_mutation
     extend = _reject_mutation
