@@ -413,6 +413,12 @@ class AgentPermissionContext:
                 return _ensure_tz_aware(parsed, name)
             raise InvalidSecurityContractError(f"{name} must be datetime or ISO string")
 
+        def parse_required_dt(val: Any, name: str) -> datetime:
+            parsed = parse_dt(val, name)
+            if parsed is None:
+                raise InvalidSecurityContractError(f"{name} is required")
+            return parsed
+
         levels_raw = mapping["allowed_sensitivity_levels"]
         levels = [SensitivityLevel(l) if isinstance(l, str) else l for l in levels_raw]
 
@@ -442,7 +448,7 @@ class AgentPermissionContext:
                 mapping.get("allow_permission_elevation", False)
             ),
             expires_at=parse_dt(mapping.get("expires_at"), "expires_at"),
-            created_at=parse_dt(mapping["created_at"], "created_at"),
+            created_at=parse_required_dt(mapping["created_at"], "created_at"),
             metadata=MappingProxyType(dict(mapping.get("metadata", {}))),
         )
 
@@ -1123,6 +1129,12 @@ class KillSwitchReport:
                 return _ensure_tz_aware(parsed, name)
             raise InvalidSecurityContractError(f"{name} must be datetime or ISO string")
 
+        def parse_required_dt(val: Any, name: str) -> datetime:
+            parsed = parse_dt(val, name)
+            if parsed is None:
+                raise InvalidSecurityContractError(f"{name} is required")
+            return parsed
+
         return cls(
             id=str(mapping["id"]),
             state=mapping["state"],
@@ -1135,7 +1147,7 @@ class KillSwitchReport:
             ),
             recovery_requested=bool(mapping["recovery_requested"]),
             errors=tuple(mapping["errors"]),
-            activated_at=parse_dt(mapping["activated_at"], "activated_at"),
+            activated_at=parse_required_dt(mapping["activated_at"], "activated_at"),
             activated_by=str(mapping["activated_by"]),
             reason=str(mapping["reason"]),
             released_at=parse_dt(mapping.get("released_at"), "released_at"),

@@ -347,6 +347,12 @@ class DelegatedGoal:
                 f"{name} must be datetime or ISO string"
             )
 
+        def parse_required_dt(val: Any, name: str) -> datetime:
+            parsed = parse_dt(val, name)
+            if parsed is None:
+                raise AgentDelegationValidationError(f"{name} is required")
+            return parsed
+
         c_raw = mapping.get("constraints", ())
         c_list = [
             GoalConstraint.from_mapping(item) if isinstance(item, Mapping) else item
@@ -364,8 +370,8 @@ class DelegatedGoal:
             expected_result=MappingProxyType(dict(mapping["expected_result"])),
             constraints=tuple(c_list),
             status=mapping["status"],
-            created_at=parse_dt(mapping["created_at"], "created_at"),
-            updated_at=parse_dt(mapping["updated_at"], "updated_at"),
+            created_at=parse_required_dt(mapping["created_at"], "created_at"),
+            updated_at=parse_required_dt(mapping["updated_at"], "updated_at"),
             completed_at=parse_dt(mapping.get("completed_at"), "completed_at"),
             metadata=MappingProxyType(dict(mapping.get("metadata", {}))),
             depth=mapping.get("depth", 0),
