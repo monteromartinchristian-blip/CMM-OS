@@ -300,6 +300,11 @@ class AgentFactoryRegistry:
             self._request_cache[(factory.factory_id, context.request_id)] = instance
             return
         if factory.scope == AgentFactoryScope.RUN:
+            if not context.run_id:
+                raise AgentFactoryCreationError(
+                    "RUN-scoped factory requires a non-empty run_id",
+                    {"factory_id": factory.factory_id},
+                )
             self._run_cache[(factory.factory_id, context.run_id)] = instance
             return
 
