@@ -1,4 +1,4 @@
-"""Phase 10.1 – Domain Enums.
+"""Phase 10 – Domain Enums.
 
 Immutable enumerations for the Domain Intelligence subsystem.
 """
@@ -35,7 +35,33 @@ class DomainKind(str, Enum):
     EXPERIMENTAL = "experimental"
 
 
+class DomainPackKind(str, Enum):
+    """How a domain pack is distributed and what initial trust level it has.
+
+    Distinct from DomainKind, which describes the functional nature of the domain.
+    """
+
+    INTERNAL = "internal"
+    EXTERNAL = "external"
+    EXPERIMENTAL = "experimental"
+
+
+class DomainPackStatus(str, Enum):
+    """States of a domain pack — not the full lifecycle of a registered domain."""
+
+    DECLARED = "declared"
+    VALID = "valid"
+    INVALID = "invalid"
+    INSTALLED = "installed"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    DEGRADED = "degraded"
+    INCOMPATIBLE = "incompatible"
+
+
 __all__ = [
     "DomainKind",
+    "DomainPackKind",
+    "DomainPackStatus",
     "DomainStatus",
 ]

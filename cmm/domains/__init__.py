@@ -16,6 +16,8 @@ from cmm.domains.contracts import (
 )
 from cmm.domains.enums import (
     DomainKind,
+    DomainPackKind,
+    DomainPackStatus,
     DomainStatus,
 )
 from cmm.domains.errors import (
@@ -29,9 +31,21 @@ from cmm.domains.identifiers import (
     DomainManifestId,
     DomainResultId,
 )
+from cmm.domains.manifest import (
+    DomainCompatibility,
+    DomainComponentReference,
+    DomainManifest,
+    DomainPermissionReference,
+)
+from cmm.domains.pack import (
+    DomainPack,
+    ParsedDomainPack,
+)
 
 __all__ = [
     "DomainCapability",
+    "DomainCompatibility",
+    "DomainComponentReference",
     "DomainConflict",
     "DomainContractError",
     "DomainContractValidationError",
@@ -40,10 +54,16 @@ __all__ = [
     "DomainError",
     "DomainId",
     "DomainKind",
+    "DomainManifest",
     "DomainManifestId",
     "DomainMetadata",
+    "DomainPack",
+    "DomainPackKind",
+    "DomainPackStatus",
+    "DomainPermissionReference",
     "DomainResult",
     "DomainResultId",
     "DomainSerializationError",
     "DomainStatus",
+    "ParsedDomainPack",
 ]

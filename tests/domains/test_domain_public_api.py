@@ -17,6 +17,8 @@ class TestPublicAPI:
     def test_enums_exported(self) -> None:
         assert hasattr(cmm.domains, "DomainStatus")
         assert hasattr(cmm.domains, "DomainKind")
+        assert hasattr(cmm.domains, "DomainPackKind")
+        assert hasattr(cmm.domains, "DomainPackStatus")
 
     def test_identifiers_exported(self) -> None:
         assert hasattr(cmm.domains, "DomainId")
@@ -30,11 +32,19 @@ class TestPublicAPI:
         assert hasattr(cmm.domains, "DomainConflict")
         assert hasattr(cmm.domains, "DomainDefinition")
         assert hasattr(cmm.domains, "DomainResult")
+        assert hasattr(cmm.domains, "DomainManifest")
+        assert hasattr(cmm.domains, "DomainComponentReference")
+        assert hasattr(cmm.domains, "DomainPermissionReference")
+        assert hasattr(cmm.domains, "DomainCompatibility")
+        assert hasattr(cmm.domains, "DomainPack")
+        assert hasattr(cmm.domains, "ParsedDomainPack")
 
     def test_all_symbols_in_all(self) -> None:
         """Check that all expected symbols are in __all__."""
         expected = {
             "DomainCapability",
+            "DomainCompatibility",
+            "DomainComponentReference",
             "DomainConflict",
             "DomainContractError",
             "DomainContractValidationError",
@@ -43,12 +53,18 @@ class TestPublicAPI:
             "DomainError",
             "DomainId",
             "DomainKind",
+            "DomainManifest",
             "DomainManifestId",
             "DomainMetadata",
+            "DomainPack",
+            "DomainPackKind",
+            "DomainPackStatus",
+            "DomainPermissionReference",
             "DomainResult",
             "DomainResultId",
             "DomainSerializationError",
             "DomainStatus",
+            "ParsedDomainPack",
         }
         assert set(cmm.domains.__all__) == expected
 
@@ -59,7 +75,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 15
+        assert len(cmm.domains.__all__) == 23
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
