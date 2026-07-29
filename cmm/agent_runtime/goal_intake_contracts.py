@@ -582,7 +582,7 @@ class GoalNormalizationRequest:
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     def serialize(self) -> dict[str, Any]:
-        exp_p = None
+        exp_p: dict[str, Any] | float | None = None
         if isinstance(self.explicit_priority, GoalPriority):
             exp_p = self.explicit_priority.serialize()
         elif isinstance(self.explicit_priority, (int, float)):

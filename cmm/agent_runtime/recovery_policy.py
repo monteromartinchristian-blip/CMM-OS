@@ -156,7 +156,7 @@ class RollbackPolicyEvaluator:
         req_approval = (
             operation_id in policy.approval_required_for
             or not policy.automatic_for
-            or (policy.automatic_for and operation_id not in policy.automatic_for)
+            or bool(policy.automatic_for and operation_id not in policy.automatic_for)
         )
 
         return RollbackPolicyEvaluation(

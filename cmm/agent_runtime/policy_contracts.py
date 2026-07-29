@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -89,7 +90,7 @@ class PolicySubject:
     kind: PolicySubjectKind = PolicySubjectKind.AGENT
     roles: tuple[str, ...] = ()
     permissions: tuple[str, ...] = ()
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -130,7 +131,7 @@ class PolicyResource:
     sensitivity: str = "internal"
     path: str | None = None
     owner_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -177,10 +178,10 @@ class PolicyAction:
 
     name: str
     operation_name: str | None = None
-    parameters: Mapping[str, Any] = field(default_factory=dict)
+    parameters: Mapping[str, Any] = dataclass_field(default_factory=dict)
     is_mutation: bool = False
     is_reversible: bool = True
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -220,8 +221,8 @@ class PolicyEnvironment:
     name: str = "development"
     is_production: bool = False
     ip_address: str | None = None
-    timestamp: str = field(default_factory=_now_iso)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    timestamp: str = dataclass_field(default_factory=_now_iso)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -263,7 +264,7 @@ class PolicyCondition:
     value: Any
     case_sensitive: bool = True
     negate: bool = False
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.field or not self.field.strip():
@@ -319,7 +320,7 @@ class PolicyTarget:
     resource_kinds: tuple[PolicyResourceKind, ...] = ()
     action_names: tuple[str, ...] = ()
     conditions: tuple[PolicyCondition, ...] = ()
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scopes", _as_tuple_enum(self.scopes, PolicyScope))
@@ -375,11 +376,11 @@ class PolicyObligation:
     kind: PolicyObligationKind
     required: bool = True
     blocking: bool = True
-    parameters: Mapping[str, Any] = field(default_factory=dict)
+    parameters: Mapping[str, Any] = dataclass_field(default_factory=dict)
     reason: str | None = None
     source_policy_id: str | None = None
     source_rule_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, PolicyObligationKind):
@@ -427,10 +428,10 @@ class PolicyRestriction:
 
     kind: str
     description: str
-    parameters: Mapping[str, Any] = field(default_factory=dict)
+    parameters: Mapping[str, Any] = dataclass_field(default_factory=dict)
     source_policy_id: str | None = None
     source_rule_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.kind or not self.kind.strip():
@@ -482,7 +483,7 @@ class PolicyAdvice:
     message: str
     source_policy_id: str | None = None
     source_rule_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.code or not self.code.strip():
@@ -528,7 +529,7 @@ class PolicyViolation:
     severity: PolicySeverity = PolicySeverity.ERROR
     policy_id: str | None = None
     rule_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.code or not self.code.strip():
@@ -577,7 +578,7 @@ class PolicyWarning:
     message: str
     policy_id: str | None = None
     rule_id: str | None = None
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.code or not self.code.strip():
@@ -618,7 +619,7 @@ class PolicyError:
 
     code: str
     message: str
-    details: Mapping[str, Any] = field(default_factory=dict)
+    details: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.code or not self.code.strip():
@@ -660,7 +661,7 @@ class PolicyRule:
     obligations: tuple[PolicyObligation, ...] = ()
     restrictions: tuple[PolicyRestriction, ...] = ()
     enabled: bool = True
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -773,9 +774,9 @@ class Policy:
     valid_from: str | None = None
     valid_until: str | None = None
     actor_id: str | None = None
-    created_at: str = field(default_factory=_now_iso)
-    updated_at: str = field(default_factory=_now_iso)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    created_at: str = dataclass_field(default_factory=_now_iso)
+    updated_at: str = dataclass_field(default_factory=_now_iso)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -833,10 +834,13 @@ class Policy:
         object.__setattr__(self, "obligations", tuple(obs))
 
         rests: list[PolicyRestriction] = []
-        for r in self.restrictions:
-            rests.append(
-                PolicyRestriction.from_mapping(r) if isinstance(r, Mapping) else r
+        for restriction in self.restrictions:
+            restriction_obj = (
+                PolicyRestriction.from_mapping(restriction)
+                if isinstance(restriction, Mapping)
+                else restriction
             )
+            rests.append(restriction_obj)
         object.__setattr__(self, "restrictions", tuple(rests))
 
         if self.actor_id is not None:
@@ -925,9 +929,9 @@ class PolicySet:
     )
     policy_ids: tuple[str, ...] = ()
     policies: tuple[Policy, ...] = ()
-    created_at: str = field(default_factory=_now_iso)
-    updated_at: str = field(default_factory=_now_iso)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    created_at: str = dataclass_field(default_factory=_now_iso)
+    updated_at: str = dataclass_field(default_factory=_now_iso)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -1017,10 +1021,10 @@ class PolicyVersion:
 
     policy_id: str
     version: int
-    created_at: str = field(default_factory=_now_iso)
+    created_at: str = dataclass_field(default_factory=_now_iso)
     author_id: str | None = None
     change_summary: str = ""
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.policy_id or not self.policy_id.strip():
@@ -1046,9 +1050,9 @@ class PolicyTraceReference:
 
     id: str
     request_id: str
-    evaluated_at: str = field(default_factory=_now_iso)
+    evaluated_at: str = dataclass_field(default_factory=_now_iso)
     summary: str = ""
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -1083,8 +1087,8 @@ class PolicyEvaluationRequest:
     task_id: str | None = None
     operation_id: str | None = None
     actor_id: str | None = None
-    created_at: str = field(default_factory=_now_iso)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    created_at: str = dataclass_field(default_factory=_now_iso)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():
@@ -1206,8 +1210,8 @@ class PolicyEvaluationContext:
     workflow_ref: Any | None = None
     task_ref: Any | None = None
     operation_ref: Any | None = None
-    temporal_reference: str = field(default_factory=_now_iso)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    temporal_reference: str = dataclass_field(default_factory=_now_iso)
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "permissions", _as_tuple_str(self.permissions))
@@ -1235,7 +1239,7 @@ class PolicyRuleEvaluation:
     condition_results: tuple[dict[str, Any], ...] = ()
     obligations: tuple[PolicyObligation, ...] = ()
     restrictions: tuple[PolicyRestriction, ...] = ()
-    evaluated_at: str = field(default_factory=_now_iso)
+    evaluated_at: str = dataclass_field(default_factory=_now_iso)
 
     def serialize(self) -> dict[str, Any]:
         return {
@@ -1277,9 +1281,11 @@ class PolicyEvaluationResult:
     errors: tuple[PolicyError, ...] = ()
     reason_codes: tuple[str, ...] = ()
     confidence: float = 1.0
-    evaluated_at: str = field(default_factory=_now_iso)
-    policy_trace_id: str = field(default_factory=lambda: f"trace-{_now_iso()}")
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    evaluated_at: str = dataclass_field(default_factory=_now_iso)
+    policy_trace_id: str = dataclass_field(
+        default_factory=lambda: f"trace-{_now_iso()}"
+    )
+    metadata: Mapping[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():

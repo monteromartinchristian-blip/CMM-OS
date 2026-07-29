@@ -940,9 +940,7 @@ class AgentWorkflowPlanValidation:
             else str(self.status),
             "is_valid": self.is_valid,
             "blocking_errors": list(self.blocking_errors),
-            "warnings": [
-                w.to_dict() if hasattr(w, "to_dict") else dict(w) for w in self.warnings
-            ],
+            "warnings": [warning.to_dict() for warning in self.warnings],
             "findings": [dict(f) for f in self.findings],
             "validated_at": self.validated_at,
             "metadata": dict(self.metadata),

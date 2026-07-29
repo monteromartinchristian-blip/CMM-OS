@@ -441,6 +441,8 @@ class AgentResolver:
                 for c in candidates
                 if c.compatibility == AgentCompatibilityStatus.COMPATIBLE
             ]
+            selected: AgentDescriptor | None
+
             if (
                 requirement.agent_id is not None
                 and strategy == AgentResolutionStrategy.EXACT
@@ -583,7 +585,7 @@ class AgentResolver:
     @staticmethod
     def _candidate_sort_key(
         candidate: AgentResolutionCandidate,
-    ) -> tuple[int, int, int, int, str, str]:
+    ) -> tuple[int, int, int, int, int, str, str]:
         # 1) compatible first
         # 2) higher score
         # 3) more matched capabilities

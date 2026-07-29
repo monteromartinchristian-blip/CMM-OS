@@ -146,8 +146,9 @@ class RecoveryDecisionEngine:
                 if checkpoint_obj is not None:
                     integrity = self.checkpoint_verifier.verify(checkpoint_obj)
                     if (
-                        not integrity.is_valid
-                        or integrity.status != CheckpointIntegrityStatus.VALID
+                        integrity.status != CheckpointIntegrityStatus.VALID.value
+                        or not integrity.fingerprint_valid
+                        or not integrity.resources_valid
                     ):
                         cp_valid = False
                 elif context.metadata and context.metadata.get(
