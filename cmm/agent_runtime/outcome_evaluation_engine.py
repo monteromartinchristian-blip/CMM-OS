@@ -131,9 +131,11 @@ class OutcomeEvaluationEngine:
         try:
             # 1. State comparison
             diff = self._state_comparator.compare_states(
-                expected_state=req.expected_state,
-                actual_state=req.actual_state,
-                previous_state=req.previous_state,
+                expected_state=dict(req.expected_state),
+                actual_state=dict(req.actual_state),
+                previous_state=(
+                    dict(req.previous_state) if req.previous_state else None
+                ),
             )
 
             # 2. Evaluate metrics
@@ -160,8 +162,8 @@ class OutcomeEvaluationEngine:
             for crit in goal_criteria:
                 c_res = self._criterion_evaluator.evaluate_criterion(
                     criterion=crit,
-                    expected_state=req.expected_state,
-                    actual_state=req.actual_state,
+                    expected_state=dict(req.expected_state),
+                    actual_state=dict(req.actual_state),
                     validations=req.validations,
                     metrics=tuple(metric_results),
                     evidence=req.evidence,
@@ -194,8 +196,8 @@ class OutcomeEvaluationEngine:
             )
 
             # Collect warnings and validation IDs
-            warnings = []
-            val_ids = []
+            warnings: list[str] = []
+            val_ids: list[str] = []
             for val in req.validations:
                 v_id = getattr(val, "validation_id", getattr(val, "id", ""))
                 if v_id:
