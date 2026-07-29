@@ -231,7 +231,7 @@ class AgentDefinition:
             approval_policy=str(mapping.get("approval_policy", "")),
             recovery_policy=str(mapping.get("recovery_policy", "")),
             enabled=bool(mapping.get("enabled", True)),
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -397,7 +397,7 @@ class AgentRun:
             completed_at=_parse_datetime(completed_raw, "completed_at")
             if completed_raw
             else None,
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -514,7 +514,7 @@ class RuntimeDecision:
             inputs=tuple(mapping.get("inputs", ())),
             policy_results=tuple(mapping.get("policy_results", ())),
             requires_approval=bool(mapping.get("requires_approval", False)),
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod
@@ -727,7 +727,7 @@ class AgentResult:
             memory_updates=tuple(mapping.get("memory_updates", ())),
             side_effects=tuple(mapping.get("side_effects", ())),
             remaining_work=tuple(mapping.get("remaining_work", ())),
-            metadata=mapping.get("metadata") or {},
+            metadata=_freeze_metadata(mapping.get("metadata") or {}),
         )
 
     @classmethod

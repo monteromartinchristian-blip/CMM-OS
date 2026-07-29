@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from cmm.agent_runtime.enums import (
@@ -199,7 +200,7 @@ class DeterministicGoalNormalizer:
             confidence=confidence,
             status=status,
             created_at=created_at,
-            metadata=meta_dict,
+            metadata=MappingProxyType(dict(meta_dict)),
         )
 
         decisions = [
@@ -228,7 +229,7 @@ class DeterministicGoalNormalizer:
             else ("Proposal contains unresolved ambiguities.",),
             errors=(),
             confidence=confidence,
-            metadata=meta_dict,
+            metadata=MappingProxyType(dict(meta_dict)),
         )
 
 
@@ -498,7 +499,7 @@ class GoalIntakeService:
                 sensitivity=proposal.proposed_sensitivity,
                 permissions=proposal.proposed_permissions,
                 created_at=proposal.created_at,
-                metadata=meta,
+                metadata=MappingProxyType(dict(meta)),
             )
         except Exception as exc:
             raise GoalProposalConversionError(
