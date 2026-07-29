@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import MappingProxyType
 
 from .action_budget_contracts import (
     ActionBudget,
@@ -168,7 +169,7 @@ class ActionBudgetApprovalAdapter:
             description=reason,
             required_approvers=("role:supervisor", "role:admin"),
             scope=f"budget.increase.{res_t.value}",
-            metadata=meta,
+            metadata=MappingProxyType(dict(meta)),
         )
 
     @staticmethod

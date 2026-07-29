@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any
 
 from .approval_contracts import ApprovalRequirement
@@ -123,7 +124,7 @@ def create_requirement_from_policy(
         workflow_id=workflow_id,
         operation_id=operation_id,
         expires_at=expires_at,
-        metadata=meta,
+        metadata=MappingProxyType(dict(meta)),
     )
 
 
@@ -191,7 +192,7 @@ def create_requirement_from_autonomy(
         workflow_id=workflow_id,
         operation_id=operation_id,
         expires_at=expires_at,
-        metadata=meta,
+        metadata=MappingProxyType(dict(meta)),
     )
 
 
@@ -240,5 +241,5 @@ def create_requirement_from_workflow_plan(
         workflow_id=workflow_id,
         operation_id=node_id,
         expires_at=expires_at,
-        metadata=meta,
+        metadata=MappingProxyType(dict(meta)),
     )

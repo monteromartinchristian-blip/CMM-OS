@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from .approval_contracts import (
@@ -89,7 +90,7 @@ class ApprovalService:
             supersedes_request_id=supersedes_request_id,
             created_at=now,
             updated_at=now,
-            metadata=merged_meta,
+            metadata=MappingProxyType(dict(merged_meta)),
         )
 
         return self._repo.add_request(request)
@@ -139,7 +140,7 @@ class ApprovalService:
             status=ApprovalRequestStatus.PENDING,
             created_at=now,
             updated_at=now,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
 
         return self._repo.add_request(request)
@@ -224,7 +225,7 @@ class ApprovalService:
             actor_id=actor_id,
             conditions=conditions,
             comment=comment,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         return self.submit_decision(decision)
 
@@ -243,10 +244,10 @@ class ApprovalService:
             request_id=request_id,
             decision=ApprovalDecisionType.APPROVE_WITH_CHANGES,
             actor_id=actor_id,
-            modified_parameters=modified_parameters,
+            modified_parameters=MappingProxyType(dict(modified_parameters)),
             conditions=conditions,
             comment=comment,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         return self.submit_decision(decision)
 
@@ -264,7 +265,7 @@ class ApprovalService:
             decision=ApprovalDecisionType.REJECT,
             actor_id=actor_id,
             comment=comment,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         return self.submit_decision(decision)
 
@@ -282,7 +283,7 @@ class ApprovalService:
             decision=ApprovalDecisionType.POSTPONE,
             actor_id=actor_id,
             comment=comment,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         return self.submit_decision(decision)
 
@@ -300,7 +301,7 @@ class ApprovalService:
             decision=ApprovalDecisionType.CANCEL,
             actor_id=actor_id,
             comment=comment,
-            metadata=metadata or {},
+            metadata=MappingProxyType(dict(metadata or {})),
         )
         return self.submit_decision(decision)
 
@@ -411,7 +412,9 @@ class ApprovalService:
             approval_count=len(approvals) + len(approvals_with_changes),
             rejection_count=len(rejections),
             required_approval_count=request.minimum_approvals,
-            approved_parameters=approved_params if is_app_changes else {},
+            approved_parameters=MappingProxyType(
+                dict(approved_params) if is_app_changes else {}
+            ),
             conditions=tuple(all_conditions),
             reason_codes=tuple(sorted(set(reason_codes))),
             requires_policy_reevaluation=is_app_changes,
@@ -419,7 +422,7 @@ class ApprovalService:
             requires_budget_recalculation=is_app_changes,
             requires_plan_update=is_app_changes,
             resolved_at=current_time,
-            metadata={"risk_level": request.risk_level.value},
+            metadata=MappingProxyType({"risk_level": request.risk_level.value}),
         )
 
         return self._repo.resolve_request(resolution)
@@ -492,7 +495,7 @@ class ApprovalService:
             may_execute=False,
             reason_codes=("approval.superseded",),
             resolved_at=now,
-            metadata={"superseded_by": created_new.id},
+            metadata=MappingProxyType({"superseded_by": created_new.id}),
         )
         self._repo.resolve_request(old_resolution)
 

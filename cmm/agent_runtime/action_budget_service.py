@@ -11,6 +11,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import MappingProxyType
 
 from .action_budget_adapters import ActionBudgetApprovalAdapter
 from .action_budget_contracts import (
@@ -1156,5 +1157,5 @@ class ActionBudgetService:
             description=reason,
             required_approvers=("role:supervisor", "role:admin"),
             scope="budget.increase",
-            metadata=meta,
+            metadata=MappingProxyType(dict(meta)),
         )
