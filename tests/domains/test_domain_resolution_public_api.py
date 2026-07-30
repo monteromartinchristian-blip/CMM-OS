@@ -28,15 +28,31 @@ class TestResolutionPublicAPI:
         assert hasattr(pkg, "DomainResolutionSnapshotError")
         assert hasattr(pkg, "DomainResolutionLimitExceeded")
 
-    def test_no_resolver_exported_yet(self) -> None:
-        """Phase 10.6 must NOT export DomainResolver or DomainResolutionResult."""
-        assert not hasattr(pkg, "DomainResolver")
-        assert not hasattr(pkg, "DomainResolutionResult")
-        assert not hasattr(pkg, "DomainResolutionStatus")
+    def test_phase_10_7_symbols_exported(self) -> None:
+        """Phase 10.7 must export resolver symbols."""
+        assert hasattr(pkg, "DomainResolver")
+        assert hasattr(pkg, "DomainResolutionResult")
+        assert hasattr(pkg, "DomainResolutionStatus")
+        assert hasattr(pkg, "DomainResolutionReason")
+        assert hasattr(pkg, "DomainCandidateScore")
+        assert hasattr(pkg, "DomainCandidateScorer")
+        assert hasattr(pkg, "DomainScoringPolicy")
+        assert hasattr(pkg, "DefaultDomainResolver")
+        assert hasattr(pkg, "DomainResolverError")
+        assert hasattr(pkg, "DomainResolverConfigurationError")
+        assert hasattr(pkg, "DomainResolverExecutionError")
+        assert hasattr(pkg, "DomainResolutionAmbiguityError")
+        assert hasattr(pkg, "DomainResolutionUnsupportedError")
+        assert hasattr(pkg, "DomainResolutionBlockedError")
 
     def test_all_symbols_in_all(self) -> None:
         """All resolution symbols must be in __all__."""
         resolution_symbols = [
+            "DefaultDomainResolver",
+            "DomainCandidateScore",
+            "DomainCandidateScorer",
+            "DomainResolutionAmbiguityError",
+            "DomainResolutionBlockedError",
             "DomainResolutionContext",
             "DomainResolutionContextBuilder",
             "DomainResolutionContextInvalid",
@@ -49,10 +65,19 @@ class TestResolutionPublicAPI:
             "DomainResolutionLimitExceeded",
             "DomainResolutionPolicy",
             "DomainResolutionPolicyError",
+            "DomainResolutionReason",
             "DomainResolutionResource",
+            "DomainResolutionResult",
             "DomainResolutionSerializationError",
             "DomainResolutionSignal",
             "DomainResolutionSnapshotError",
+            "DomainResolutionStatus",
+            "DomainResolutionUnsupportedError",
+            "DomainResolver",
+            "DomainResolverConfigurationError",
+            "DomainResolverError",
+            "DomainResolverExecutionError",
+            "DomainScoringPolicy",
         ]
         for name in resolution_symbols:
             assert name in pkg.__all__, f"{name} missing from __all__"

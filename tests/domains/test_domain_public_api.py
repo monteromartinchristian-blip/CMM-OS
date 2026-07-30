@@ -44,8 +44,11 @@ class TestPublicAPI:
         expected = {
             "ALL_DOMAIN_STEPS",
             "DeclarativeDomainLoader",
+            "DefaultDomainResolver",
             "DomainCandidate",
             "DomainCandidateInvalid",
+            "DomainCandidateScore",
+            "DomainCandidateScorer",
             "DomainCapability",
             "DomainCapabilityConflict",
             "DomainChecksumMismatch",
@@ -98,6 +101,8 @@ class TestPublicAPI:
             "DomainRegistryVersionError",
             "DomainReloadFailed",
             "DomainReloadRollbackFailed",
+            "DomainResolutionAmbiguityError",
+            "DomainResolutionBlockedError",
             "DomainResolutionContext",
             "DomainResolutionContextBuilder",
             "DomainResolutionContextInvalid",
@@ -110,13 +115,22 @@ class TestPublicAPI:
             "DomainResolutionLimitExceeded",
             "DomainResolutionPolicy",
             "DomainResolutionPolicyError",
+            "DomainResolutionReason",
             "DomainResolutionResource",
+            "DomainResolutionResult",
             "DomainResolutionSerializationError",
             "DomainResolutionSignal",
             "DomainResolutionSnapshotError",
+            "DomainResolutionStatus",
+            "DomainResolutionUnsupportedError",
+            "DomainResolver",
+            "DomainResolverConfigurationError",
+            "DomainResolverError",
+            "DomainResolverExecutionError",
             "DomainResult",
             "DomainResultId",
             "DomainRollbackFailed",
+            "DomainScoringPolicy",
             "DomainSerializationError",
             "DomainSource",
             "DomainSourceKind",
@@ -154,7 +168,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 102
+        assert len(cmm.domains.__all__) == 116
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

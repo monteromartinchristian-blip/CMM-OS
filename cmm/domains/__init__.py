@@ -29,6 +29,7 @@ from cmm.domains.enums import (
     DomainLoadStatus,
     DomainPackKind,
     DomainPackStatus,
+    DomainResolutionStatus,
     DomainSourceKind,
     DomainStatus,
     DomainValidationStatus,
@@ -56,6 +57,8 @@ from cmm.domains.errors import (
     DomainRegistryVersionError,
     DomainReloadFailed,
     DomainReloadRollbackFailed,
+    DomainResolutionAmbiguityError,
+    DomainResolutionBlockedError,
     DomainResolutionContextInvalid,
     DomainResolutionContractError,
     DomainResolutionError,
@@ -63,6 +66,10 @@ from cmm.domains.errors import (
     DomainResolutionPolicyError,
     DomainResolutionSerializationError,
     DomainResolutionSnapshotError,
+    DomainResolutionUnsupportedError,
+    DomainResolverConfigurationError,
+    DomainResolverError,
+    DomainResolverExecutionError,
     DomainRollbackFailed,
     DomainSerializationError,
     DomainSourceUntrusted,
@@ -136,6 +143,21 @@ from cmm.domains.resolution_contracts import (
     DomainResolutionSignal,
 )
 
+# Phase 10.7 – Domain Resolver
+from cmm.domains.resolver import (
+    DefaultDomainResolver,
+    DomainResolver,
+)
+from cmm.domains.resolver_contracts import (
+    DomainCandidateScore,
+    DomainResolutionReason,
+    DomainResolutionResult,
+    DomainScoringPolicy,
+)
+from cmm.domains.resolver_scoring import (
+    DomainCandidateScorer,
+)
+
 # Phase 10.5 – Domain Validation
 from cmm.domains.validation import (
     PipelineDomainValidator,
@@ -160,8 +182,11 @@ from cmm.domains.validation_steps import (
 __all__ = [
     "ALL_DOMAIN_STEPS",
     "DeclarativeDomainLoader",
+    "DefaultDomainResolver",
     "DomainCandidate",
     "DomainCandidateInvalid",
+    "DomainCandidateScore",
+    "DomainCandidateScorer",
     "DomainCapability",
     "DomainCapabilityConflict",
     "DomainChecksumMismatch",
@@ -214,6 +239,8 @@ __all__ = [
     "DomainRegistryVersionError",
     "DomainReloadFailed",
     "DomainReloadRollbackFailed",
+    "DomainResolutionAmbiguityError",
+    "DomainResolutionBlockedError",
     "DomainResolutionContext",
     "DomainResolutionContextBuilder",
     "DomainResolutionContextInvalid",
@@ -226,13 +253,22 @@ __all__ = [
     "DomainResolutionLimitExceeded",
     "DomainResolutionPolicy",
     "DomainResolutionPolicyError",
+    "DomainResolutionReason",
     "DomainResolutionResource",
+    "DomainResolutionResult",
     "DomainResolutionSerializationError",
     "DomainResolutionSignal",
     "DomainResolutionSnapshotError",
+    "DomainResolutionStatus",
+    "DomainResolutionUnsupportedError",
+    "DomainResolver",
+    "DomainResolverConfigurationError",
+    "DomainResolverError",
+    "DomainResolverExecutionError",
     "DomainResult",
     "DomainResultId",
     "DomainRollbackFailed",
+    "DomainScoringPolicy",
     "DomainSerializationError",
     "DomainSource",
     "DomainSourceKind",

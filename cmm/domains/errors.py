@@ -303,6 +303,52 @@ class DomainResolutionLimitExceeded(DomainResolutionError):
     code = "DOMAIN_RESOLUTION_LIMIT_EXCEEDED"
 
 
+# ── Phase 10.7 – Domain Resolver Errors ────────────────────────────────────────
+
+
+class DomainResolverError(DomainResolutionError):
+    """Base error for Domain Resolver operations (Phase 10.7)."""
+
+    code = "DOMAIN_RESOLVER_ERROR"
+
+
+class DomainResolverConfigurationError(DomainResolverError):
+    """Raised when the resolver is configured with invalid or incompatible settings."""
+
+    code = "DOMAIN_RESOLVER_CONFIGURATION_ERROR"
+
+
+class DomainResolverExecutionError(DomainResolverError):
+    """Raised when the resolver encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_RESOLVER_EXECUTION_ERROR"
+
+
+class DomainResolutionAmbiguityError(DomainResolverError):
+    """Raised when the resolver detects material ambiguity and cannot proceed.
+
+    Normally ambiguity produces an AMBIGUOUS result; this exception is reserved
+    for cases where the caller explicitly requires a non-ambiguous resolution.
+    """
+
+    code = "DOMAIN_RESOLUTION_AMBIGUITY_ERROR"
+
+
+class DomainResolutionUnsupportedError(DomainResolverError):
+    """Raised when no eligible domain is available and no fallback is safe."""
+
+    code = "DOMAIN_RESOLUTION_UNSUPPORTED_ERROR"
+
+
+class DomainResolutionBlockedError(DomainResolverError):
+    """Raised when a relevant candidate exists but policy/permissions block it."""
+
+    code = "DOMAIN_RESOLUTION_BLOCKED_ERROR"
+
+
 __all__ = [
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
@@ -326,6 +372,8 @@ __all__ = [
     "DomainRegistryVersionError",
     "DomainReloadFailed",
     "DomainReloadRollbackFailed",
+    "DomainResolutionAmbiguityError",
+    "DomainResolutionBlockedError",
     "DomainResolutionContextInvalid",
     "DomainResolutionContractError",
     "DomainResolutionError",
@@ -333,6 +381,10 @@ __all__ = [
     "DomainResolutionPolicyError",
     "DomainResolutionSerializationError",
     "DomainResolutionSnapshotError",
+    "DomainResolutionUnsupportedError",
+    "DomainResolverConfigurationError",
+    "DomainResolverError",
+    "DomainResolverExecutionError",
     "DomainRollbackFailed",
     "DomainSerializationError",
     "DomainSourceUntrusted",

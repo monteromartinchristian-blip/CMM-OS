@@ -117,11 +117,26 @@ class DomainValidationStatus(str, Enum):
     ERROR = "error"
 
 
+class DomainResolutionStatus(str, Enum):
+    """Status of a domain resolution operation (Phase 10.7).
+
+    Does not include composition statuses (those belong to Phase 10.8).
+    """
+
+    RESOLVED = "resolved"
+    AMBIGUOUS = "ambiguous"
+    INSUFFICIENT_INFORMATION = "insufficient_information"
+    UNSUPPORTED = "unsupported"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
 __all__ = [
     "DomainKind",
     "DomainLoadStatus",
     "DomainPackKind",
     "DomainPackStatus",
+    "DomainResolutionStatus",
     "DomainSourceKind",
     "DomainStatus",
     "DomainValidationStatus",
