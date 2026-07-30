@@ -98,6 +98,22 @@ class TestPublicAPI:
             "DomainRegistryVersionError",
             "DomainReloadFailed",
             "DomainReloadRollbackFailed",
+            "DomainResolutionContext",
+            "DomainResolutionContextBuilder",
+            "DomainResolutionContextInvalid",
+            "DomainResolutionContractError",
+            "DomainResolutionEntity",
+            "DomainResolutionError",
+            "DomainResolutionEvent",
+            "DomainResolutionHistoryItem",
+            "DomainResolutionKnowledgeItem",
+            "DomainResolutionLimitExceeded",
+            "DomainResolutionPolicy",
+            "DomainResolutionPolicyError",
+            "DomainResolutionResource",
+            "DomainResolutionSerializationError",
+            "DomainResolutionSignal",
+            "DomainResolutionSnapshotError",
             "DomainResult",
             "DomainResultId",
             "DomainRollbackFailed",
@@ -138,7 +154,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 86
+        assert len(cmm.domains.__all__) == 102
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

@@ -56,6 +56,13 @@ from cmm.domains.errors import (
     DomainRegistryVersionError,
     DomainReloadFailed,
     DomainReloadRollbackFailed,
+    DomainResolutionContextInvalid,
+    DomainResolutionContractError,
+    DomainResolutionError,
+    DomainResolutionLimitExceeded,
+    DomainResolutionPolicyError,
+    DomainResolutionSerializationError,
+    DomainResolutionSnapshotError,
     DomainRollbackFailed,
     DomainSerializationError,
     DomainSourceUntrusted,
@@ -112,6 +119,21 @@ from cmm.domains.registry_store import (
 )
 from cmm.domains.registry_validation import (
     DomainDefinitionRegistryValidator,
+)
+
+# Phase 10.6 – Domain Resolution Context
+from cmm.domains.resolution_builder import (
+    DomainResolutionContextBuilder,
+)
+from cmm.domains.resolution_contracts import (
+    DomainResolutionContext,
+    DomainResolutionEntity,
+    DomainResolutionEvent,
+    DomainResolutionHistoryItem,
+    DomainResolutionKnowledgeItem,
+    DomainResolutionPolicy,
+    DomainResolutionResource,
+    DomainResolutionSignal,
 )
 
 # Phase 10.5 – Domain Validation
@@ -192,6 +214,22 @@ __all__ = [
     "DomainRegistryVersionError",
     "DomainReloadFailed",
     "DomainReloadRollbackFailed",
+    "DomainResolutionContext",
+    "DomainResolutionContextBuilder",
+    "DomainResolutionContextInvalid",
+    "DomainResolutionContractError",
+    "DomainResolutionEntity",
+    "DomainResolutionError",
+    "DomainResolutionEvent",
+    "DomainResolutionHistoryItem",
+    "DomainResolutionKnowledgeItem",
+    "DomainResolutionLimitExceeded",
+    "DomainResolutionPolicy",
+    "DomainResolutionPolicyError",
+    "DomainResolutionResource",
+    "DomainResolutionSerializationError",
+    "DomainResolutionSignal",
+    "DomainResolutionSnapshotError",
     "DomainResult",
     "DomainResultId",
     "DomainRollbackFailed",

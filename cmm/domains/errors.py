@@ -258,6 +258,51 @@ class DomainValidationContextInvalid(DomainValidationError):
     code = "DOMAIN_VALIDATION_CONTEXT_INVALID"
 
 
+# ── Phase 10.6 – Domain Resolution Errors ──────────────────────────────────────
+
+
+class DomainResolutionError(DomainError):
+    """Base error for Domain Resolution operations (Phase 10.6)."""
+
+    code = "DOMAIN_RESOLUTION_ERROR"
+
+
+class DomainResolutionContractError(DomainResolutionError, ValueError):
+    """Raised when a resolution contract invariant is violated."""
+
+    code = "DOMAIN_RESOLUTION_CONTRACT_ERROR"
+
+
+class DomainResolutionSerializationError(DomainResolutionError):
+    """Raised when serialization or deserialization of resolution contracts fails."""
+
+    code = "DOMAIN_RESOLUTION_SERIALIZATION_ERROR"
+
+
+class DomainResolutionContextInvalid(DomainResolutionError):
+    """Raised when a DomainResolutionContext is structurally invalid or empty."""
+
+    code = "DOMAIN_RESOLUTION_CONTEXT_INVALID"
+
+
+class DomainResolutionPolicyError(DomainResolutionError):
+    """Raised when a DomainResolutionPolicy has invalid invariants."""
+
+    code = "DOMAIN_RESOLUTION_POLICY_ERROR"
+
+
+class DomainResolutionSnapshotError(DomainResolutionError):
+    """Raised when a registry snapshot used for resolution is invalid."""
+
+    code = "DOMAIN_RESOLUTION_SNAPSHOT_ERROR"
+
+
+class DomainResolutionLimitExceeded(DomainResolutionError):
+    """Raised when a resolution input exceeds configured limits."""
+
+    code = "DOMAIN_RESOLUTION_LIMIT_EXCEEDED"
+
+
 __all__ = [
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
@@ -281,6 +326,13 @@ __all__ = [
     "DomainRegistryVersionError",
     "DomainReloadFailed",
     "DomainReloadRollbackFailed",
+    "DomainResolutionContextInvalid",
+    "DomainResolutionContractError",
+    "DomainResolutionError",
+    "DomainResolutionLimitExceeded",
+    "DomainResolutionPolicyError",
+    "DomainResolutionSerializationError",
+    "DomainResolutionSnapshotError",
     "DomainRollbackFailed",
     "DomainSerializationError",
     "DomainSourceUntrusted",
