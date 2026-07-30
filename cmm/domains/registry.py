@@ -29,6 +29,7 @@ from cmm.domains.registry_contracts import (
     DomainQuery,
     DomainRegistryRecord,
     DomainRegistrySnapshot,
+    DomainRegistryStoreSnapshot,
     DomainValidationResult,
     _canonical_slug,
     _compare_records,
@@ -183,6 +184,58 @@ class DomainRegistry:
             self._store.add(record)
             stored = self._store.get(slug, version)
             return stored.definition
+
+    def restore_record(self, record: DomainRegistryRecord) -> DomainRegistryRecord:
+        """Restore an exact registry record for rollback purposes.
+
+        Unlike ``register()``, this bypasses dependency/conflict validation
+        and status normalization: it persists *record* verbatim (including
+        its lifecycle ``status`` and original timestamps), overwriting any
+        existing entry with the same identity. Intended exclusively for
+        callers (e.g. the domain loader) that must restore a previously
+        captured record after a failed rollback-requiring operation — not
+        for ordinary registration.
+        """
+        if not isinstance(record, DomainRegistryRecord):
+            raise DomainContractValidationError(
+                f"record must be a DomainRegistryRecord, got {type(record).__name__}",
+                field="record",
+            )
+        slug = _canonical_slug(record.definition.id.slug)
+        version = _canonical_version(record.definition.version)
+        with self._lock:
+            existing = self._store.get(slug, version)
+            if existing is not None:
+                self._store.replace(record)
+            else:
+                self._store.add(record)
+            stored = self._store.get(slug, version)
+            return stored
+
+    def snapshot_state(self) -> DomainRegistryStoreSnapshot:
+        """Capture the full store state (every record and index) for
+        transactional rollback. Callers that need to roll back a
+        multi-step operation should capture this immediately before
+        their first mutation and pass it to ``restore_state()`` on
+        failure.
+        """
+        with self._lock:
+            return self._store.snapshot_state()
+
+    def restore_state(self, snapshot: DomainRegistryStoreSnapshot) -> None:
+        """Restore the full store state from a snapshot captured by
+        ``snapshot_state()``. Replaces every record and index — this is
+        the atomic counterpart to ``snapshot_state()`` and the mechanism
+        loader transactions must use for rollback (never several
+        independent compensating operations).
+        """
+        if not isinstance(snapshot, DomainRegistryStoreSnapshot):
+            raise DomainContractValidationError(
+                f"snapshot must be a DomainRegistryStoreSnapshot, got {type(snapshot).__name__}",
+                field="snapshot",
+            )
+        with self._lock:
+            self._store.restore_state(snapshot)
 
     def unregister(
         self,

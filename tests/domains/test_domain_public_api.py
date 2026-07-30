@@ -42,8 +42,12 @@ class TestPublicAPI:
     def test_all_symbols_in_all(self) -> None:
         """Check that all expected symbols are in __all__."""
         expected = {
+            "DeclarativeDomainLoader",
+            "DomainCandidate",
+            "DomainCandidateInvalid",
             "DomainCapability",
             "DomainCapabilityConflict",
+            "DomainChecksumMismatch",
             "DomainCompatibility",
             "DomainComponentReference",
             "DomainConflict",
@@ -53,15 +57,31 @@ class TestPublicAPI:
             "DomainDefinitionRegistryValidator",
             "DomainDependency",
             "DomainDependencyMissing",
+            "DomainDiscovery",
+            "DomainDiscoveryError",
+            "DomainDiscoveryIssue",
+            "DomainDiscoveryResult",
+            "DomainDiscoverySourceError",
             "DomainError",
             "DomainId",
             "DomainKind",
+            "DomainLoadFailed",
+            "DomainLoadRejected",
+            "DomainLoadResult",
+            "DomainLoadRollbackFailed",
+            "DomainLoadStatus",
+            "DomainLoader",
+            "DomainLoaderError",
+            "DomainLoaderSnapshot",
             "DomainManifest",
             "DomainManifestId",
+            "DomainManifestDocument",
+            "DomainManifestReader",
             "DomainMetadata",
             "DomainPack",
             "DomainPackKind",
             "DomainPackStatus",
+            "DomainPathEscape",
             "DomainPermissionReference",
             "DomainQuery",
             "DomainRegistry",
@@ -75,12 +95,22 @@ class TestPublicAPI:
             "DomainRegistryStore",
             "DomainRegistryValidationError",
             "DomainRegistryVersionError",
+            "DomainReloadFailed",
+            "DomainReloadRollbackFailed",
             "DomainResult",
             "DomainResultId",
+            "DomainRollbackFailed",
             "DomainSerializationError",
+            "DomainSource",
+            "DomainSourceKind",
+            "DomainSourceUntrusted",
             "DomainStatus",
+            "DomainUnloadFailed",
+            "DomainUnloadRollbackFailed",
             "DomainValidationResult",
+            "FileSystemDomainDiscovery",
             "InMemoryDomainRegistryStore",
+            "JsonDomainManifestReader",
             "ParsedDomainPack",
         }
         assert set(cmm.domains.__all__) == expected
@@ -92,7 +122,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 40
+        assert len(cmm.domains.__all__) == 70
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
@@ -114,3 +144,31 @@ class TestPublicAPI:
     def test_no_duplicate_exports(self) -> None:
         """Ensure __all__ has no duplicates."""
         assert len(cmm.domains.__all__) == len(set(cmm.domains.__all__))
+
+    def test_discovery_and_loader_symbols_exported(self) -> None:
+        assert hasattr(cmm.domains, "DomainSource")
+        assert hasattr(cmm.domains, "DomainCandidate")
+        assert hasattr(cmm.domains, "DomainDiscoveryIssue")
+        assert hasattr(cmm.domains, "DomainDiscoveryResult")
+        assert hasattr(cmm.domains, "DomainDiscovery")
+        assert hasattr(cmm.domains, "FileSystemDomainDiscovery")
+        assert hasattr(cmm.domains, "DomainManifestReader")
+        assert hasattr(cmm.domains, "JsonDomainManifestReader")
+        assert hasattr(cmm.domains, "DomainLoader")
+        assert hasattr(cmm.domains, "DeclarativeDomainLoader")
+        assert hasattr(cmm.domains, "DomainLoadResult")
+        assert hasattr(cmm.domains, "DomainLoaderSnapshot")
+        assert hasattr(cmm.domains, "DomainSourceKind")
+        assert hasattr(cmm.domains, "DomainLoadStatus")
+
+    def test_no_internal_helpers_exported(self) -> None:
+        """Path, checksum, and parsing internals must never be public."""
+        forbidden = {
+            "_validate_safe_relative_path",
+            "_walk_directories",
+            "_extract_identity",
+            "_compare_sources",
+            "_compare_candidates",
+            "_strip_internal_metadata",
+        }
+        assert forbidden.isdisjoint(set(cmm.domains.__all__))

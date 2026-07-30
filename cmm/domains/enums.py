@@ -59,9 +59,48 @@ class DomainPackStatus(str, Enum):
     INCOMPATIBLE = "incompatible"
 
 
+class DomainSourceKind(str, Enum):
+    """Kinds of discovery sources for domain packs.
+
+    Only INTERNAL, DIRECTORY, DEVELOPMENT, and TEST have real operational
+    support in Phase 10.4. The remaining kinds are contractually
+    representable but must not be treated as operationally supported.
+    """
+
+    INTERNAL = "internal"
+    DIRECTORY = "directory"
+    INSTALLED = "installed"
+    PLUGIN = "plugin"
+    REPOSITORY = "repository"
+    USER = "user"
+    DEVELOPMENT = "development"
+    TEST = "test"
+
+
+class DomainLoadStatus(str, Enum):
+    """Lifecycle states of a single domain loader operation.
+
+    Distinct from ``DomainStatus``, which represents registry lifecycle.
+    """
+
+    DISCOVERED = "discovered"
+    VALIDATING = "validating"
+    VALID = "valid"
+    LOADING = "loading"
+    LOADED = "loaded"
+    RELOADING = "reloading"
+    UNLOADING = "unloading"
+    UNLOADED = "unloaded"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
 __all__ = [
     "DomainKind",
+    "DomainLoadStatus",
     "DomainPackKind",
     "DomainPackStatus",
+    "DomainSourceKind",
     "DomainStatus",
 ]

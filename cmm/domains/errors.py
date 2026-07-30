@@ -121,17 +121,130 @@ class DomainCapabilityConflict(DomainRegistryError):
     code = "DOMAIN_CAPABILITY_CONFLICT"
 
 
+class DomainDiscoveryError(DomainError):
+    """Base error for Domain Discovery operations."""
+
+    code = "DOMAIN_DISCOVERY_ERROR"
+
+
+class DomainDiscoverySourceError(DomainDiscoveryError):
+    """Raised when a discovery source cannot be scanned."""
+
+    code = "DOMAIN_DISCOVERY_SOURCE_ERROR"
+
+
+class DomainCandidateInvalid(DomainDiscoveryError):
+    """Raised when a discovered candidate fails structural validation."""
+
+    code = "DOMAIN_CANDIDATE_INVALID"
+
+
+class DomainPathEscape(DomainDiscoveryError):
+    """Raised when a resolved path escapes its authorized root."""
+
+    code = "DOMAIN_PATH_ESCAPE"
+
+
+class DomainLoaderError(DomainError):
+    """Base error for Domain Loader operations."""
+
+    code = "DOMAIN_LOADER_ERROR"
+
+
+class DomainLoadRejected(DomainLoaderError):
+    """Raised when a load is rejected by policy (e.g. untrusted source)."""
+
+    code = "DOMAIN_LOAD_REJECTED"
+
+
+class DomainLoadFailed(DomainLoaderError):
+    """Raised when a load operation fails."""
+
+    code = "DOMAIN_LOAD_FAILED"
+
+
+class DomainUnloadFailed(DomainLoaderError):
+    """Raised when an unload operation fails."""
+
+    code = "DOMAIN_UNLOAD_FAILED"
+
+
+class DomainReloadFailed(DomainLoaderError):
+    """Raised when a reload operation fails."""
+
+    code = "DOMAIN_RELOAD_FAILED"
+
+
+class DomainChecksumMismatch(DomainLoaderError):
+    """Raised when a recalculated checksum does not match the declared one."""
+
+    code = "DOMAIN_CHECKSUM_MISMATCH"
+
+
+class DomainSourceUntrusted(DomainLoaderError):
+    """Raised when an untrusted candidate is loaded without explicit opt-in."""
+
+    code = "DOMAIN_SOURCE_UNTRUSTED"
+
+
+class DomainRollbackFailed(DomainLoaderError):
+    """Base error for a failed rollback of a loader transaction.
+
+    Raised when a loader operation (load/unload/reload) fails *and* the
+    subsequent attempt to restore the registry to its pre-operation
+    snapshot also fails. This must never be swallowed: a failed rollback
+    means atomicity is lost, and callers must be told explicitly rather
+    than have the loader silently continue in a possibly-inconsistent
+    state.
+    """
+
+    code = "DOMAIN_ROLLBACK_FAILED"
+
+
+class DomainLoadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed load() also fails."""
+
+    code = "DOMAIN_LOAD_ROLLBACK_FAILED"
+
+
+class DomainUnloadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed unload() also fails."""
+
+    code = "DOMAIN_UNLOAD_ROLLBACK_FAILED"
+
+
+class DomainReloadRollbackFailed(DomainRollbackFailed):
+    """Raised when rollback after a failed reload() also fails."""
+
+    code = "DOMAIN_RELOAD_ROLLBACK_FAILED"
+
+
 __all__ = [
+    "DomainCandidateInvalid",
     "DomainCapabilityConflict",
+    "DomainChecksumMismatch",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDependencyMissing",
+    "DomainDiscoveryError",
+    "DomainDiscoverySourceError",
     "DomainError",
+    "DomainLoadFailed",
+    "DomainLoadRejected",
+    "DomainLoadRollbackFailed",
+    "DomainLoaderError",
+    "DomainPathEscape",
     "DomainRegistryConflict",
     "DomainRegistryError",
     "DomainRegistryNotFound",
     "DomainRegistryStateError",
     "DomainRegistryValidationError",
     "DomainRegistryVersionError",
+    "DomainReloadFailed",
+    "DomainReloadRollbackFailed",
+    "DomainRollbackFailed",
     "DomainSerializationError",
+    "DomainSourceUntrusted",
+    "DomainUnloadFailed",
+    "DomainUnloadRollbackFailed",
 ]
