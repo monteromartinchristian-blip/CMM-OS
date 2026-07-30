@@ -219,6 +219,45 @@ class DomainReloadRollbackFailed(DomainRollbackFailed):
     code = "DOMAIN_RELOAD_ROLLBACK_FAILED"
 
 
+# ── Phase 10.5 – Domain Validation Errors ──────────────────────────────────────
+
+
+class DomainValidationError(DomainError):
+    """Base error for Domain Validation operations (Phase 10.5)."""
+
+    code = "DOMAIN_VALIDATION_ERROR"
+
+
+class DomainValidationRequestInvalid(DomainValidationError):
+    """Raised when a DomainValidationRequest is structurally invalid."""
+
+    code = "DOMAIN_VALIDATION_REQUEST_INVALID"
+
+
+class DomainValidationExecutionError(DomainValidationError):
+    """Raised when validation execution fails unexpectedly."""
+
+    code = "DOMAIN_VALIDATION_EXECUTION_ERROR"
+
+
+class DomainValidationBlocked(DomainValidationError):
+    """Raised when a domain operation is blocked by validation results."""
+
+    code = "DOMAIN_VALIDATION_BLOCKED"
+
+
+class DomainValidationStepMissing(DomainValidationError):
+    """Raised when a required validation step is absent."""
+
+    code = "DOMAIN_VALIDATION_STEP_MISSING"
+
+
+class DomainValidationContextInvalid(DomainValidationError):
+    """Raised when the validation context is invalid or inconsistent."""
+
+    code = "DOMAIN_VALIDATION_CONTEXT_INVALID"
+
+
 __all__ = [
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
@@ -247,4 +286,10 @@ __all__ = [
     "DomainSourceUntrusted",
     "DomainUnloadFailed",
     "DomainUnloadRollbackFailed",
+    "DomainValidationBlocked",
+    "DomainValidationContextInvalid",
+    "DomainValidationError",
+    "DomainValidationExecutionError",
+    "DomainValidationRequestInvalid",
+    "DomainValidationStepMissing",
 ]

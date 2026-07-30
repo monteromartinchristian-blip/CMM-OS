@@ -42,6 +42,7 @@ class TestPublicAPI:
     def test_all_symbols_in_all(self) -> None:
         """Check that all expected symbols are in __all__."""
         expected = {
+            "ALL_DOMAIN_STEPS",
             "DeclarativeDomainLoader",
             "DomainCandidate",
             "DomainCandidateInvalid",
@@ -107,11 +108,26 @@ class TestPublicAPI:
             "DomainStatus",
             "DomainUnloadFailed",
             "DomainUnloadRollbackFailed",
+            "DomainValidationBlocked",
+            "DomainValidationContextInvalid",
+            "DomainValidationError",
+            "DomainValidationExecutionContext",
+            "DomainValidationExecutionError",
+            "DomainValidationRequest",
+            "DomainValidationRequestInvalid",
             "DomainValidationResult",
+            "DomainValidationResult10",
+            "DomainValidationStatus",
+            "DomainValidationStepMissing",
             "FileSystemDomainDiscovery",
             "InMemoryDomainRegistryStore",
             "JsonDomainManifestReader",
             "ParsedDomainPack",
+            "PipelineDomainValidator",
+            "build_domain_validation_context",
+            "build_domain_validation_result",
+            "build_domain_validation_steps",
+            "ensure_domain_validation_allows_install",
         }
         assert set(cmm.domains.__all__) == expected
 
@@ -122,7 +138,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 70
+        assert len(cmm.domains.__all__) == 86
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

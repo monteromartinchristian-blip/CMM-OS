@@ -31,6 +31,7 @@ from cmm.domains.enums import (
     DomainPackStatus,
     DomainSourceKind,
     DomainStatus,
+    DomainValidationStatus,
 )
 from cmm.domains.errors import (
     DomainCandidateInvalid,
@@ -60,6 +61,12 @@ from cmm.domains.errors import (
     DomainSourceUntrusted,
     DomainUnloadFailed,
     DomainUnloadRollbackFailed,
+    DomainValidationBlocked,
+    DomainValidationContextInvalid,
+    DomainValidationError,
+    DomainValidationExecutionError,
+    DomainValidationRequestInvalid,
+    DomainValidationStepMissing,
 )
 from cmm.domains.identifiers import (
     DomainId,
@@ -107,7 +114,29 @@ from cmm.domains.registry_validation import (
     DomainDefinitionRegistryValidator,
 )
 
+# Phase 10.5 – Domain Validation
+from cmm.domains.validation import (
+    PipelineDomainValidator,
+    build_domain_validation_result,
+    ensure_domain_validation_allows_install,
+)
+from cmm.domains.validation_context import (
+    build_domain_validation_context,
+)
+from cmm.domains.validation_contracts import (
+    DomainValidationExecutionContext,
+    DomainValidationRequest,
+)
+from cmm.domains.validation_contracts import (
+    DomainValidationResult as DomainValidationResult10,
+)
+from cmm.domains.validation_steps import (
+    ALL_DOMAIN_STEPS,
+    build_domain_validation_steps,
+)
+
 __all__ = [
+    "ALL_DOMAIN_STEPS",
     "DeclarativeDomainLoader",
     "DomainCandidate",
     "DomainCandidateInvalid",
@@ -173,9 +202,24 @@ __all__ = [
     "DomainStatus",
     "DomainUnloadFailed",
     "DomainUnloadRollbackFailed",
+    "DomainValidationBlocked",
+    "DomainValidationContextInvalid",
+    "DomainValidationError",
+    "DomainValidationExecutionContext",
+    "DomainValidationExecutionError",
+    "DomainValidationRequest",
+    "DomainValidationRequestInvalid",
     "DomainValidationResult",
+    "DomainValidationResult10",
+    "DomainValidationStatus",
+    "DomainValidationStepMissing",
     "FileSystemDomainDiscovery",
     "InMemoryDomainRegistryStore",
     "JsonDomainManifestReader",
     "ParsedDomainPack",
+    "PipelineDomainValidator",
+    "build_domain_validation_context",
+    "build_domain_validation_result",
+    "build_domain_validation_steps",
+    "ensure_domain_validation_allows_install",
 ]

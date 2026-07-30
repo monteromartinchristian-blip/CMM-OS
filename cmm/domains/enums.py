@@ -96,6 +96,27 @@ class DomainLoadStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class DomainValidationStatus(str, Enum):
+    """Validation status for domain packs (Phase 10.5).
+
+    Maps to :class:`cmm.validation.enums.ValidationStatus`:
+        PASSED    → PASSED
+        WARNING   → WARNING
+        FAILED    → FAILED
+        ERROR     → ERROR
+        CANCELLED → ERROR
+        TIMED_OUT → ERROR
+        SKIPPED   → ERROR (when mandatory)
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PASSED = "passed"
+    WARNING = "warning"
+    FAILED = "failed"
+    ERROR = "error"
+
+
 __all__ = [
     "DomainKind",
     "DomainLoadStatus",
@@ -103,4 +124,5 @@ __all__ = [
     "DomainPackStatus",
     "DomainSourceKind",
     "DomainStatus",
+    "DomainValidationStatus",
 ]
