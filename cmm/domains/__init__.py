@@ -21,9 +21,17 @@ from cmm.domains.enums import (
     DomainStatus,
 )
 from cmm.domains.errors import (
+    DomainCapabilityConflict,
     DomainContractError,
     DomainContractValidationError,
+    DomainDependencyMissing,
     DomainError,
+    DomainRegistryConflict,
+    DomainRegistryError,
+    DomainRegistryNotFound,
+    DomainRegistryStateError,
+    DomainRegistryValidationError,
+    DomainRegistryVersionError,
     DomainSerializationError,
 )
 from cmm.domains.identifiers import (
@@ -41,16 +49,36 @@ from cmm.domains.pack import (
     DomainPack,
     ParsedDomainPack,
 )
+from cmm.domains.registry import (
+    DomainRegistry,
+)
+from cmm.domains.registry_contracts import (
+    DomainQuery,
+    DomainRegistryRecord,
+    DomainRegistrySnapshot,
+    DomainRegistryStoreSnapshot,
+    DomainValidationResult,
+)
+from cmm.domains.registry_store import (
+    DomainRegistryStore,
+    InMemoryDomainRegistryStore,
+)
+from cmm.domains.registry_validation import (
+    DomainDefinitionRegistryValidator,
+)
 
 __all__ = [
     "DomainCapability",
+    "DomainCapabilityConflict",
     "DomainCompatibility",
     "DomainComponentReference",
     "DomainConflict",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDefinition",
+    "DomainDefinitionRegistryValidator",
     "DomainDependency",
+    "DomainDependencyMissing",
     "DomainError",
     "DomainId",
     "DomainKind",
@@ -61,9 +89,23 @@ __all__ = [
     "DomainPackKind",
     "DomainPackStatus",
     "DomainPermissionReference",
+    "DomainQuery",
+    "DomainRegistry",
+    "DomainRegistryConflict",
+    "DomainRegistryError",
+    "DomainRegistryNotFound",
+    "DomainRegistryRecord",
+    "DomainRegistrySnapshot",
+    "DomainRegistryStateError",
+    "DomainRegistryStore",
+    "DomainRegistryStoreSnapshot",
+    "DomainRegistryValidationError",
+    "DomainRegistryVersionError",
     "DomainResult",
     "DomainResultId",
     "DomainSerializationError",
     "DomainStatus",
+    "DomainValidationResult",
+    "InMemoryDomainRegistryStore",
     "ParsedDomainPack",
 ]

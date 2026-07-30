@@ -73,9 +73,65 @@ class DomainSerializationError(DomainError):
     code = "DOMAIN_SERIALIZATION_ERROR"
 
 
+class DomainRegistryError(DomainError):
+    """Base error for Domain Registry operations."""
+
+    code = "DOMAIN_REGISTRY_ERROR"
+
+
+class DomainRegistryValidationError(DomainRegistryError):
+    """Raised when registry validation fails."""
+
+    code = "DOMAIN_REGISTRY_VALIDATION_ERROR"
+
+
+class DomainRegistryConflict(DomainRegistryError):
+    """Raised when a registry conflict is detected (duplicate, incompatible states)."""
+
+    code = "DOMAIN_REGISTRY_CONFLICT"
+
+
+class DomainRegistryNotFound(DomainRegistryError):
+    """Raised when a domain entry is not found in the registry."""
+
+    code = "DOMAIN_REGISTRY_NOT_FOUND"
+
+
+class DomainRegistryVersionError(DomainRegistryError):
+    """Raised when version constraints or semantics are violated."""
+
+    code = "DOMAIN_REGISTRY_VERSION_ERROR"
+
+
+class DomainRegistryStateError(DomainRegistryError):
+    """Raised when a state transition is invalid."""
+
+    code = "DOMAIN_REGISTRY_STATE_ERROR"
+
+
+class DomainDependencyMissing(DomainRegistryError):
+    """Raised when a required dependency is absent."""
+
+    code = "DOMAIN_DEPENDENCY_MISSING"
+
+
+class DomainCapabilityConflict(DomainRegistryError):
+    """Raised when capabilities conflict across domains."""
+
+    code = "DOMAIN_CAPABILITY_CONFLICT"
+
+
 __all__ = [
+    "DomainCapabilityConflict",
     "DomainContractError",
     "DomainContractValidationError",
+    "DomainDependencyMissing",
     "DomainError",
+    "DomainRegistryConflict",
+    "DomainRegistryError",
+    "DomainRegistryNotFound",
+    "DomainRegistryStateError",
+    "DomainRegistryValidationError",
+    "DomainRegistryVersionError",
     "DomainSerializationError",
 ]

@@ -43,13 +43,16 @@ class TestPublicAPI:
         """Check that all expected symbols are in __all__."""
         expected = {
             "DomainCapability",
+            "DomainCapabilityConflict",
             "DomainCompatibility",
             "DomainComponentReference",
             "DomainConflict",
             "DomainContractError",
             "DomainContractValidationError",
             "DomainDefinition",
+            "DomainDefinitionRegistryValidator",
             "DomainDependency",
+            "DomainDependencyMissing",
             "DomainError",
             "DomainId",
             "DomainKind",
@@ -60,10 +63,24 @@ class TestPublicAPI:
             "DomainPackKind",
             "DomainPackStatus",
             "DomainPermissionReference",
+            "DomainQuery",
+            "DomainRegistry",
+            "DomainRegistryConflict",
+            "DomainRegistryError",
+            "DomainRegistryNotFound",
+            "DomainRegistryRecord",
+            "DomainRegistrySnapshot",
+            "DomainRegistryStoreSnapshot",
+            "DomainRegistryStateError",
+            "DomainRegistryStore",
+            "DomainRegistryValidationError",
+            "DomainRegistryVersionError",
             "DomainResult",
             "DomainResultId",
             "DomainSerializationError",
             "DomainStatus",
+            "DomainValidationResult",
+            "InMemoryDomainRegistryStore",
             "ParsedDomainPack",
         }
         assert set(cmm.domains.__all__) == expected
@@ -75,7 +92,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 23
+        assert len(cmm.domains.__all__) == 40
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
