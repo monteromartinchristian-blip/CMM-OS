@@ -385,7 +385,68 @@ class DomainCompositionExecutionError(DomainCompositionError):
     code = "DOMAIN_COMPOSITION_EXECUTION_ERROR"
 
 
+# ── Phase 10.9 – Cross-Domain Engine Errors ────────────────────────────────────
+
+
+class CrossDomainError(DomainError):
+    """Base error for Cross-Domain Engine operations (Phase 10.9)."""
+
+    code = "CROSS_DOMAIN_ERROR"
+
+
+class CrossDomainContractError(CrossDomainError, ValueError):
+    """Raised when a Cross-Domain contract invariant is violated."""
+
+    code = "CROSS_DOMAIN_CONTRACT_ERROR"
+
+
+class CrossDomainSerializationError(CrossDomainError):
+    """Raised when serialization or deserialization of Cross-Domain contracts fails."""
+
+    code = "CROSS_DOMAIN_SERIALIZATION_ERROR"
+
+
+class CrossDomainConfigurationError(CrossDomainError):
+    """Raised when the engine is configured with invalid or incompatible settings."""
+
+    code = "CROSS_DOMAIN_CONFIGURATION_ERROR"
+
+
+class CrossDomainLimitError(CrossDomainError):
+    """Raised when a limit configuration is invalid.
+
+    Reaching a runtime limit is never an exception — it becomes a
+    ``LIMIT_REACHED``/``PARTIAL`` result status. This error is reserved for
+    invalid limit *configuration* (e.g. non-positive maximums).
+    """
+
+    code = "CROSS_DOMAIN_LIMIT_ERROR"
+
+
+class CrossDomainPortError(CrossDomainError):
+    """Raised when a port contract is violated (e.g. an unexpected return type)."""
+
+    code = "CROSS_DOMAIN_PORT_ERROR"
+
+
+class CrossDomainExecutionError(CrossDomainError):
+    """Raised when the engine encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind
+    ``except Exception``. Unexpected adapter errors propagate as-is.
+    """
+
+    code = "CROSS_DOMAIN_EXECUTION_ERROR"
+
+
 __all__ = [
+    "CrossDomainConfigurationError",
+    "CrossDomainContractError",
+    "CrossDomainError",
+    "CrossDomainExecutionError",
+    "CrossDomainLimitError",
+    "CrossDomainPortError",
+    "CrossDomainSerializationError",
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
     "DomainChecksumMismatch",

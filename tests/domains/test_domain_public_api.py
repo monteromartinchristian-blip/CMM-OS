@@ -43,7 +43,46 @@ class TestPublicAPI:
         """Check that all expected symbols are in __all__."""
         expected = {
             "ALL_DOMAIN_STEPS",
+            "DOMAIN_STATUS_PRECEDENCE",
+            "KNOWN_CROSS_DOMAIN_PORTS",
+            "CrossDomainAgentPort",
+            "CrossDomainCognitivePort",
+            "CrossDomainConfigurationError",
+            "CrossDomainContextBuilder",
+            "CrossDomainContextSnapshot",
+            "CrossDomainContextTransfer",
+            "CrossDomainContractError",
+            "CrossDomainContradiction",
+            "CrossDomainDecision",
+            "CrossDomainDependency",
+            "CrossDomainDomainResult",
+            "CrossDomainEngine",
+            "CrossDomainError",
+            "CrossDomainExecutionError",
+            "CrossDomainFinding",
+            "CrossDomainGap",
+            "CrossDomainKnowledgePort",
+            "CrossDomainKnowledgeResult",
+            "CrossDomainLimitError",
+            "CrossDomainLimitTracker",
+            "CrossDomainLimits",
+            "CrossDomainOperationPort",
+            "CrossDomainOperationResult",
+            "CrossDomainPlanResult",
+            "CrossDomainPlannerPort",
+            "CrossDomainPolicy",
+            "CrossDomainPortError",
+            "CrossDomainQuestion",
+            "CrossDomainRequest",
+            "CrossDomainResult",
+            "CrossDomainSerializationError",
+            "CrossDomainSeverity",
+            "CrossDomainStage",
+            "CrossDomainStatus",
+            "CrossDomainWorkflowPort",
+            "CrossDomainWorkflowResult",
             "DeclarativeDomainLoader",
+            "DefaultCrossDomainEngine",
             "DefaultDomainComposer",
             "DefaultDomainResolver",
             "DomainCandidate",
@@ -65,6 +104,7 @@ class TestPublicAPI:
             "DomainCompositionExecutionError",
             "DomainCompositionItem",
             "DomainCompositionPolicy",
+            "DomainCompositionPort",
             "DomainCompositionSerializationError",
             "DomainCompositionStatus",
             "DomainConflict",
@@ -129,6 +169,7 @@ class TestPublicAPI:
             "DomainResolutionLimitExceeded",
             "DomainResolutionPolicy",
             "DomainResolutionPolicyError",
+            "DomainResolutionPort",
             "DomainResolutionReason",
             "DomainResolutionResource",
             "DomainResolutionResult",
@@ -174,7 +215,16 @@ class TestPublicAPI:
             "build_domain_validation_context",
             "build_domain_validation_result",
             "build_domain_validation_steps",
+            "derive_confidence",
+            "derive_cross_domain_status",
             "ensure_domain_validation_allows_install",
+            "merge_contradictions",
+            "merge_dependencies",
+            "merge_domain_results",
+            "merge_findings",
+            "merge_gaps",
+            "merge_questions",
+            "merge_recommendations",
         }
         assert set(cmm.domains.__all__) == expected
 
@@ -185,7 +235,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 133
+        assert len(cmm.domains.__all__) == 183
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

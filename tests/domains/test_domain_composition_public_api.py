@@ -30,8 +30,10 @@ def test_expected_exports_present():
 
 
 def test_forbidden_exports_absent():
+    # NOTE: CrossDomainEngine was forbidden here as a Phase 10.8 scope guard
+    # (composition must not become an orchestrator). It is now legitimately
+    # exported as part of Phase 10.9's own, separate orchestration surface.
     forbidden = [
-        "CrossDomainEngine",
         "DomainCompositionExecutor",
         "RegistryDomainComposer",
         "WorkflowExecutor",

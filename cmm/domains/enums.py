@@ -148,7 +148,48 @@ class DomainConflictPolicy(str, Enum):
     BLOCK_ON_CONFLICT = "block_on_conflict"
 
 
+class CrossDomainStatus(str, Enum):
+    """Status of a Cross-Domain Engine execution (Phase 10.9).
+
+    Final results may never use ``PENDING`` or ``RUNNING``.
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    REQUIRES_REVIEW = "requires_review"
+    LIMIT_REACHED = "limit_reached"
+
+
+class CrossDomainSeverity(str, Enum):
+    """Closed severity levels for cross-domain contradictions (Phase 10.9)."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class CrossDomainStage(str, Enum):
+    """Closed coordination stages for cross-domain decisions (Phase 10.9)."""
+
+    RESOLUTION = "resolution"
+    COMPOSITION = "composition"
+    KNOWLEDGE = "knowledge"
+    PLANNING = "planning"
+    DOMAIN_EXECUTION = "domain_execution"
+    WORKFLOW_COORDINATION = "workflow_coordination"
+    OPERATION_COORDINATION = "operation_coordination"
+    AGGREGATION = "aggregation"
+
+
 __all__ = [
+    "CrossDomainSeverity",
+    "CrossDomainStage",
+    "CrossDomainStatus",
     "DomainCompositionStatus",
     "DomainConflictPolicy",
     "DomainKind",
