@@ -349,10 +349,51 @@ class DomainResolutionBlockedError(DomainResolverError):
     code = "DOMAIN_RESOLUTION_BLOCKED_ERROR"
 
 
+# ── Phase 10.8 – Domain Composition Errors ──────────────────────────────────────
+
+
+class DomainCompositionError(DomainError):
+    """Base error for Domain Composition operations (Phase 10.8)."""
+
+    code = "DOMAIN_COMPOSITION_ERROR"
+
+
+class DomainCompositionContractError(DomainCompositionError, ValueError):
+    """Raised when a composition contract invariant is violated."""
+
+    code = "DOMAIN_COMPOSITION_CONTRACT_ERROR"
+
+
+class DomainCompositionSerializationError(DomainCompositionError):
+    """Raised when serialization or deserialization of composition contracts fails."""
+
+    code = "DOMAIN_COMPOSITION_SERIALIZATION_ERROR"
+
+
+class DomainCompositionConfigurationError(DomainCompositionError):
+    """Raised when the composer is configured with invalid settings."""
+
+    code = "DOMAIN_COMPOSITION_CONFIGURATION_ERROR"
+
+
+class DomainCompositionExecutionError(DomainCompositionError):
+    """Raised when the composer encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_COMPOSITION_EXECUTION_ERROR"
+
+
 __all__ = [
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
     "DomainChecksumMismatch",
+    "DomainCompositionConfigurationError",
+    "DomainCompositionContractError",
+    "DomainCompositionError",
+    "DomainCompositionExecutionError",
+    "DomainCompositionSerializationError",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDependencyMissing",

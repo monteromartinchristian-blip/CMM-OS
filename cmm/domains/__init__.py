@@ -6,6 +6,21 @@ Domain Intelligence subsystem.
 
 from __future__ import annotations
 
+# Phase 10.8 – Domain Composition
+from cmm.domains.composer import (
+    DefaultDomainComposer,
+    DomainComposer,
+)
+from cmm.domains.composition_contracts import (
+    DomainComposition,
+    DomainCompositionConflict,
+    DomainCompositionDecision,
+    DomainCompositionItem,
+    DomainCompositionPolicy,
+    EffectiveReasoningProfile,
+    PermissionComposition,
+    PresentationComposition,
+)
 from cmm.domains.contracts import (
     DomainCapability,
     DomainConflict,
@@ -25,6 +40,8 @@ from cmm.domains.discovery_contracts import (
     DomainSource,
 )
 from cmm.domains.enums import (
+    DomainCompositionStatus,
+    DomainConflictPolicy,
     DomainKind,
     DomainLoadStatus,
     DomainPackKind,
@@ -38,6 +55,11 @@ from cmm.domains.errors import (
     DomainCandidateInvalid,
     DomainCapabilityConflict,
     DomainChecksumMismatch,
+    DomainCompositionConfigurationError,
+    DomainCompositionContractError,
+    DomainCompositionError,
+    DomainCompositionExecutionError,
+    DomainCompositionSerializationError,
     DomainContractError,
     DomainContractValidationError,
     DomainDependencyMissing,
@@ -182,6 +204,7 @@ from cmm.domains.validation_steps import (
 __all__ = [
     "ALL_DOMAIN_STEPS",
     "DeclarativeDomainLoader",
+    "DefaultDomainComposer",
     "DefaultDomainResolver",
     "DomainCandidate",
     "DomainCandidateInvalid",
@@ -192,7 +215,20 @@ __all__ = [
     "DomainChecksumMismatch",
     "DomainCompatibility",
     "DomainComponentReference",
+    "DomainComposer",
+    "DomainComposition",
+    "DomainCompositionConfigurationError",
+    "DomainCompositionConflict",
+    "DomainCompositionContractError",
+    "DomainCompositionDecision",
+    "DomainCompositionError",
+    "DomainCompositionExecutionError",
+    "DomainCompositionItem",
+    "DomainCompositionPolicy",
+    "DomainCompositionSerializationError",
+    "DomainCompositionStatus",
     "DomainConflict",
+    "DomainConflictPolicy",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDefinition",
@@ -287,11 +323,14 @@ __all__ = [
     "DomainValidationResult10",
     "DomainValidationStatus",
     "DomainValidationStepMissing",
+    "EffectiveReasoningProfile",
     "FileSystemDomainDiscovery",
     "InMemoryDomainRegistryStore",
     "JsonDomainManifestReader",
     "ParsedDomainPack",
+    "PermissionComposition",
     "PipelineDomainValidator",
+    "PresentationComposition",
     "build_domain_validation_context",
     "build_domain_validation_result",
     "build_domain_validation_steps",

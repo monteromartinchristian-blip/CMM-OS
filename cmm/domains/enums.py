@@ -131,7 +131,26 @@ class DomainResolutionStatus(str, Enum):
     FAILED = "failed"
 
 
+class DomainCompositionStatus(str, Enum):
+    """Status of a domain composition result (Phase 10.8)."""
+
+    COMPOSED = "composed"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class DomainConflictPolicy(str, Enum):
+    """Conflict resolution strategies for domain composition (Phase 10.8)."""
+
+    MOST_RESTRICTIVE = "most_restrictive"
+    PRIMARY_PRECEDENCE = "primary_precedence"
+    BLOCK_ON_CONFLICT = "block_on_conflict"
+
+
 __all__ = [
+    "DomainCompositionStatus",
+    "DomainConflictPolicy",
     "DomainKind",
     "DomainLoadStatus",
     "DomainPackKind",

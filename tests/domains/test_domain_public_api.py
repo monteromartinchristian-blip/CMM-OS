@@ -44,6 +44,7 @@ class TestPublicAPI:
         expected = {
             "ALL_DOMAIN_STEPS",
             "DeclarativeDomainLoader",
+            "DefaultDomainComposer",
             "DefaultDomainResolver",
             "DomainCandidate",
             "DomainCandidateInvalid",
@@ -53,8 +54,21 @@ class TestPublicAPI:
             "DomainCapabilityConflict",
             "DomainChecksumMismatch",
             "DomainCompatibility",
+            "DomainComposer",
             "DomainComponentReference",
+            "DomainComposition",
+            "DomainCompositionConfigurationError",
+            "DomainCompositionConflict",
+            "DomainCompositionContractError",
+            "DomainCompositionDecision",
+            "DomainCompositionError",
+            "DomainCompositionExecutionError",
+            "DomainCompositionItem",
+            "DomainCompositionPolicy",
+            "DomainCompositionSerializationError",
+            "DomainCompositionStatus",
             "DomainConflict",
+            "DomainConflictPolicy",
             "DomainContractError",
             "DomainContractValidationError",
             "DomainDefinition",
@@ -124,6 +138,7 @@ class TestPublicAPI:
             "DomainResolutionStatus",
             "DomainResolutionUnsupportedError",
             "DomainResolver",
+            "EffectiveReasoningProfile",
             "DomainResolverConfigurationError",
             "DomainResolverError",
             "DomainResolverExecutionError",
@@ -153,7 +168,9 @@ class TestPublicAPI:
             "InMemoryDomainRegistryStore",
             "JsonDomainManifestReader",
             "ParsedDomainPack",
+            "PermissionComposition",
             "PipelineDomainValidator",
+            "PresentationComposition",
             "build_domain_validation_context",
             "build_domain_validation_result",
             "build_domain_validation_steps",
@@ -168,7 +185,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 116
+        assert len(cmm.domains.__all__) == 133
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
