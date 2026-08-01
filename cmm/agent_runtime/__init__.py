@@ -1233,6 +1233,7 @@ from cmm.agent_runtime.errors import (
     AgentOperationValidationError,
     AgentOperationVersionNotRegisteredError,
     AgentValidationError,
+    ControlledOperationExecutionError,
     DuplicateAgentOperationError,
     DuplicateAgentOperationRequestError,
     DuplicateAgentOperationResultError,
@@ -1275,6 +1276,11 @@ from cmm.agent_runtime.operation_execution_repository import (
 from cmm.agent_runtime.operation_registry import (
     AgentOperationRegistry,
     InMemoryAgentOperationRegistry,
+)
+from cmm.agent_runtime.operation_schema import (
+    OperationSchemaIssue,
+    OperationSchemaValidationError,
+    validate_operation_schema,
 )
 from cmm.agent_runtime.validation_execution_adapter import (
     AgentValidationAdapter,
@@ -1377,6 +1383,7 @@ __all__ += [
     "CompensationAction",
     "CompensationError",
     "CompletePartiallyStrategyExecutor",
+    "ControlledOperationExecutionError",
     "DefaultRestorationValidator",
     "DuplicateAgentOperationError",
     "DuplicateAgentOperationRequestError",
@@ -1414,6 +1421,8 @@ __all__ += [
     "OperationExecutionGateResult",
     "OperationRecoveryKind",
     "OperationReversibility",
+    "OperationSchemaIssue",
+    "OperationSchemaValidationError",
     "RecoveryApprovalRequiredError",
     "RecoveryAttempt",
     "RecoveryBackoffCalculator",
@@ -1522,6 +1531,7 @@ __all__ += [
     "compute_checkpoint_fingerprint",
     "compute_recovery_context_fingerprint",
     "compute_recovery_decision_fingerprint",
+    "validate_operation_schema",
 ]
 
 # ── Phase 9.17 – Outcome Evaluation Exports ────────────────────────────────

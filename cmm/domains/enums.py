@@ -348,6 +348,33 @@ class DomainRuleConflictSeverity(str, Enum):
     BLOCKING = "blocking"
 
 
+# ── Phase 10.13 – Domain Operations ─────────────────────────────────────────
+
+
+class DomainOperationType(str, Enum):
+    READ = "read"
+    ANALYSIS = "analysis"
+    PREPARATION = "preparation"
+    MEMORY = "memory"
+    PLANNING = "planning"
+    EXTERNAL = "external"
+    SENSITIVE = "sensitive"
+    DESTRUCTIVE = "destructive"
+
+
+class DomainOperationStatus(str, Enum):
+    REGISTERED = "registered"
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    BLOCKED = "blocked"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ROLLED_BACK = "rolled_back"
+    CANCELLED = "cancelled"
+
+
 __all__ = [
     "CrossDomainSeverity",
     "CrossDomainStage",
@@ -356,6 +383,8 @@ __all__ = [
     "DomainConflictPolicy",
     "DomainKind",
     "DomainLoadStatus",
+    "DomainOperationStatus",
+    "DomainOperationType",
     "DomainPackKind",
     "DomainPackStatus",
     "DomainProfileConflictSeverity",

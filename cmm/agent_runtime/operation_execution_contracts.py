@@ -48,6 +48,17 @@ def _freeze_mapping(data: Mapping[str, Any]) -> MappingProxyType:
     return MappingProxyType(normalized)
 
 
+def _unfreeze_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
+    def thaw(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {key: thaw(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return [thaw(item) for item in value]
+        return value
+
+    return {key: thaw(item) for key, item in data.items()}
+
+
 @dataclass(frozen=True)
 class AgentOperationRequest:
     """Immutable request to execute a registered operation."""
@@ -408,6 +419,8 @@ class AgentOperationExecutionResult:
     reason_codes: tuple[str, ...] = ()
     started_at: str = field(default_factory=_now_iso)
     completed_at: str = field(default_factory=_now_iso)
+    output: Mapping[str, Any] = field(default_factory=dict)
+    error: Mapping[str, Any] | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -468,6 +481,27 @@ class AgentOperationExecutionResult:
             ),
         )
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
+        if not isinstance(self.output, Mapping):
+            raise InvalidAgentOperationContractError("output must be a mapping.")
+        try:
+            json.dumps(self.output, allow_nan=False)
+        except (TypeError, ValueError) as err:
+            raise InvalidAgentOperationContractError(
+                "output must be finite JSON serializable."
+            ) from err
+        object.__setattr__(self, "output", _freeze_mapping(dict(self.output)))
+        if self.error is not None:
+            if not isinstance(self.error, Mapping):
+                raise InvalidAgentOperationContractError(
+                    "error must be a mapping or None."
+                )
+            try:
+                json.dumps(self.error, allow_nan=False)
+            except (TypeError, ValueError) as err:
+                raise InvalidAgentOperationContractError(
+                    "error must be finite JSON serializable."
+                ) from err
+            object.__setattr__(self, "error", _freeze_mapping(dict(self.error)))
         object.__setattr__(self, "metadata", _freeze_mapping(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -489,6 +523,8 @@ class AgentOperationExecutionResult:
             "artifacts": list(self.artifacts),
             "validation_result_ids": list(self.validation_result_ids),
             "budget_consumption_id": self.budget_consumption_id,
+            "checkpoint_id": self.checkpoint_id,
+            "transaction_boundary_id": self.transaction_boundary_id,
             "rollback_available": self.rollback_available,
             "rollback_reference": self.rollback_reference,
             "resource_versions_before": dict(self.resource_versions_before),
@@ -496,5 +532,11 @@ class AgentOperationExecutionResult:
             "reason_codes": list(self.reason_codes),
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "output": _unfreeze_mapping(self.output),
+            "error": _unfreeze_mapping(self.error) if self.error is not None else None,
             "metadata": dict(self.metadata),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AgentOperationExecutionResult:
+        return cls(**data)

@@ -323,6 +323,40 @@ class TestPublicAPI:
                 "build_initial_reasoning_rule_catalog",
             }
         )
+        expected.update(
+            {
+                "DefaultDomainOperationOrchestrator",
+                "DomainOperationApprovalRequiredError",
+                "DomainOperationAvailability",
+                "DomainOperationAvailabilityContext",
+                "DomainOperationAvailabilityResolver",
+                "DomainOperationCancellationError",
+                "DomainOperationContext",
+                "DomainOperationContractError",
+                "DomainOperationDefinition",
+                "DomainOperationError",
+                "DomainOperationExecutionDelegate",
+                "DomainOperationExecutionError",
+                "DomainOperationPermissionDeniedError",
+                "DomainOperationRegistryError",
+                "DomainOperationRequest",
+                "DomainOperationResolutionError",
+                "DomainOperationResult",
+                "DomainOperationRollbackError",
+                "DomainOperationRollbackResult",
+                "DomainOperationSerializationError",
+                "DomainOperationStatus",
+                "DomainOperationTraceEntry",
+                "DomainOperationType",
+                "DomainOperationUnavailableError",
+                "DomainOperationValidationError",
+                "INITIAL_DOMAIN_OPERATION_IDS",
+                "InMemoryDomainOperationRegistry",
+                "build_domain_operation_approval_requirement",
+                "build_initial_domain_operation_catalog",
+                "validate_domain_operation_transition",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -332,7 +366,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 276
+        assert len(cmm.domains.__all__) == 306
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

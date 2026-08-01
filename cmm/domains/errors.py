@@ -559,6 +559,70 @@ class DomainRuleExecutionError(DomainRuleError, RuntimeError):
     code = "DOMAIN_RULE_EXECUTION_ERROR"
 
 
+# ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
+
+
+class DomainOperationError(DomainError):
+    code = "DOMAIN_OPERATION_ERROR"
+
+    def to_dict(self) -> dict[str, Any]:
+        def thaw(value: Any) -> Any:
+            if isinstance(value, MappingProxyType):
+                return {key: thaw(item) for key, item in value.items()}
+            if isinstance(value, (tuple, frozenset)):
+                return [thaw(item) for item in value]
+            return value
+
+        details = thaw(self.details)
+        if self.field is not None and "field" not in details:
+            details["field"] = self.field
+        return {"code": self.code, "message": self.message, "details": details}
+
+
+class DomainOperationContractError(DomainOperationError, ValueError):
+    code = "DOMAIN_OPERATION_CONTRACT_ERROR"
+
+
+class DomainOperationRegistryError(DomainOperationError):
+    code = "DOMAIN_OPERATION_REGISTRY_ERROR"
+
+
+class DomainOperationResolutionError(DomainOperationError):
+    code = "DOMAIN_OPERATION_RESOLUTION_ERROR"
+
+
+class DomainOperationUnavailableError(DomainOperationError):
+    code = "DOMAIN_OPERATION_UNAVAILABLE_ERROR"
+
+
+class DomainOperationPermissionDeniedError(DomainOperationError, PermissionError):
+    code = "DOMAIN_OPERATION_PERMISSION_DENIED_ERROR"
+
+
+class DomainOperationApprovalRequiredError(DomainOperationError):
+    code = "DOMAIN_OPERATION_APPROVAL_REQUIRED_ERROR"
+
+
+class DomainOperationValidationError(DomainOperationError):
+    code = "DOMAIN_OPERATION_VALIDATION_ERROR"
+
+
+class DomainOperationExecutionError(DomainOperationError, RuntimeError):
+    code = "DOMAIN_OPERATION_EXECUTION_ERROR"
+
+
+class DomainOperationRollbackError(DomainOperationError, RuntimeError):
+    code = "DOMAIN_OPERATION_ROLLBACK_ERROR"
+
+
+class DomainOperationCancellationError(DomainOperationError):
+    code = "DOMAIN_OPERATION_CANCELLATION_ERROR"
+
+
+class DomainOperationSerializationError(DomainOperationError, ValueError):
+    code = "DOMAIN_OPERATION_SERIALIZATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -585,6 +649,18 @@ __all__ = [
     "DomainLoadRejected",
     "DomainLoadRollbackFailed",
     "DomainLoaderError",
+    "DomainOperationApprovalRequiredError",
+    "DomainOperationCancellationError",
+    "DomainOperationContractError",
+    "DomainOperationError",
+    "DomainOperationExecutionError",
+    "DomainOperationPermissionDeniedError",
+    "DomainOperationRegistryError",
+    "DomainOperationResolutionError",
+    "DomainOperationRollbackError",
+    "DomainOperationSerializationError",
+    "DomainOperationUnavailableError",
+    "DomainOperationValidationError",
     "DomainPathEscape",
     "DomainProfileCompositionError",
     "DomainProfileConfigurationError",
