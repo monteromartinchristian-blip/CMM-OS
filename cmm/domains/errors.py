@@ -439,6 +439,54 @@ class CrossDomainExecutionError(CrossDomainError):
     code = "CROSS_DOMAIN_EXECUTION_ERROR"
 
 
+# ── Phase 10.10 – Domain Resource Errors ───────────────────────────────────────
+
+
+class DomainResourceError(DomainError):
+    """Base error for Domain Resource operations (Phase 10.10)."""
+
+    code = "DOMAIN_RESOURCE_ERROR"
+
+
+class DomainResourceContractError(DomainResourceError, ValueError):
+    """Raised when a Domain Resource contract invariant is violated."""
+
+    code = "DOMAIN_RESOURCE_CONTRACT_ERROR"
+
+
+class DomainResourceSerializationError(DomainResourceError):
+    """Raised when serialization or deserialization of resource contracts fails."""
+
+    code = "DOMAIN_RESOURCE_SERIALIZATION_ERROR"
+
+
+class DomainResourceConfigurationError(DomainResourceError):
+    """Raised when a resource component is configured with invalid settings."""
+
+    code = "DOMAIN_RESOURCE_CONFIGURATION_ERROR"
+
+
+class DomainResourceRegistryError(DomainResourceError):
+    """Raised when a Domain Resource registry operation fails."""
+
+    code = "DOMAIN_RESOURCE_REGISTRY_ERROR"
+
+
+class DomainResourceResolutionError(DomainResourceError):
+    """Raised when a Domain Resource resolution encounters a controlled internal error.
+
+    Only raised via explicit controlled paths, never from blind ``except Exception``.
+    """
+
+    code = "DOMAIN_RESOURCE_RESOLUTION_ERROR"
+
+
+class DomainResourceDerivationError(DomainResourceError):
+    """Raised when a Domain Resource derivation invariant is violated."""
+
+    code = "DOMAIN_RESOURCE_DERIVATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -487,6 +535,13 @@ __all__ = [
     "DomainResolverConfigurationError",
     "DomainResolverError",
     "DomainResolverExecutionError",
+    "DomainResourceConfigurationError",
+    "DomainResourceContractError",
+    "DomainResourceDerivationError",
+    "DomainResourceError",
+    "DomainResourceRegistryError",
+    "DomainResourceResolutionError",
+    "DomainResourceSerializationError",
     "DomainRollbackFailed",
     "DomainSerializationError",
     "DomainSourceUntrusted",

@@ -186,6 +186,53 @@ class CrossDomainStage(str, Enum):
     AGGREGATION = "aggregation"
 
 
+class DomainResourceResolutionStatus(str, Enum):
+    """Status of a Domain Resource resolution operation (Phase 10.10)."""
+
+    RESOLVED = "resolved"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    REJECTED = "rejected"
+    FAILED = "failed"
+
+
+class DomainResourceDecisionCode(str, Enum):
+    """Closed decision codes produced during Domain Resource resolution (Phase 10.10)."""
+
+    DEFINITION_SELECTED = "definition_selected"
+    DEFINITION_SKIPPED = "definition_skipped"
+    DOMAIN_NOT_APPLICABLE = "domain_not_applicable"
+    PERMISSION_DENIED = "permission_denied"
+    SENSITIVITY_RESTRICTED = "sensitivity_restricted"
+    TEMPORAL_POLICY_FAILED = "temporal_policy_failed"
+    VALIDATION_FAILED = "validation_failed"
+    RESOURCE_SHARED = "resource_shared"
+    DERIVATION_RECORDED = "derivation_recorded"
+    SOURCE_PRIORITY_APPLIED = "source_priority_applied"
+    RELIABILITY_APPLIED = "reliability_applied"
+
+
+class DomainResourceValidationSeverity(str, Enum):
+    """Closed severity levels for Domain Resource validation results (Phase 10.10)."""
+
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    BLOCKING = "blocking"
+
+
+class DomainResourceValidationOperator(str, Enum):
+    """Closed set of declarative validation operators for Domain Resources (Phase 10.10)."""
+
+    EXISTS = "exists"
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    CONTAINS = "contains"
+    IN = "in"
+    MINIMUM = "minimum"
+    MAXIMUM = "maximum"
+
+
 __all__ = [
     "CrossDomainSeverity",
     "CrossDomainStage",
@@ -197,6 +244,10 @@ __all__ = [
     "DomainPackKind",
     "DomainPackStatus",
     "DomainResolutionStatus",
+    "DomainResourceDecisionCode",
+    "DomainResourceResolutionStatus",
+    "DomainResourceValidationOperator",
+    "DomainResourceValidationSeverity",
     "DomainSourceKind",
     "DomainStatus",
     "DomainValidationStatus",

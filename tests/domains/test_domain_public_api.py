@@ -224,6 +224,35 @@ class TestPublicAPI:
             "merge_findings",
             "merge_gaps",
             "merge_questions",
+            "DefaultDomainResourceResolver",
+            "DefaultDomainResourceValidator",
+            "DomainResourceBinding",
+            "DomainResourceChecksum",
+            "DomainResourceConfigurationError",
+            "DomainResourceContext",
+            "DomainResourceContractError",
+            "DomainResourceDecision",
+            "DomainResourceDecisionCode",
+            "DomainResourceDefinition",
+            "DomainResourceDerivation",
+            "DomainResourceDerivationError",
+            "DomainResourceDerivationService",
+            "DomainResourceError",
+            "DomainResourceRegistry",
+            "DomainResourceRegistryError",
+            "DomainResourceRejection",
+            "DomainResourceResolution",
+            "DomainResourceResolutionError",
+            "DomainResourceResolutionStatus",
+            "DomainResourceResolver",
+            "DomainResourceSerializationError",
+            "DomainResourceTemporalPolicy",
+            "DomainResourceValidationOperator",
+            "DomainResourceValidationResult",
+            "DomainResourceValidationRule",
+            "DomainResourceValidationSeverity",
+            "DomainResourceValidator",
+            "InMemoryDomainResourceRegistry",
             "merge_recommendations",
         }
         assert set(cmm.domains.__all__) == expected
@@ -235,7 +264,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 183
+        assert len(cmm.domains.__all__) == 212
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
