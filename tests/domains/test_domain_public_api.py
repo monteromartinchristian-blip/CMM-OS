@@ -254,6 +254,41 @@ class TestPublicAPI:
             "DomainResourceValidator",
             "InMemoryDomainResourceRegistry",
             "merge_recommendations",
+            "INITIAL_DOMAIN_PROFILE_NAMES",
+            "DefaultDomainProfileComposer",
+            "DefaultDomainProfileResolver",
+            "DomainMemoryPolicy",
+            "DomainPresentationPolicy",
+            "DomainProductionPolicy",
+            "DomainProfileComposer",
+            "DomainProfileCompositionError",
+            "DomainProfileCompositionResult",
+            "DomainProfileConfigurationError",
+            "DomainProfileConflict",
+            "DomainProfileConflictSeverity",
+            "DomainProfileContractError",
+            "DomainProfileDecision",
+            "DomainProfileDecisionCode",
+            "DomainProfileDefinition",
+            "DomainProfileDraft",
+            "DomainProfileError",
+            "DomainProfileModification",
+            "DomainProfileOverlay",
+            "DomainProfileRegistry",
+            "DomainProfileRegistryError",
+            "DomainProfileRejection",
+            "DomainProfileResolution",
+            "DomainProfileResolutionError",
+            "DomainProfileResolutionRequest",
+            "DomainProfileResolutionStatus",
+            "DomainProfileResolver",
+            "DomainProfileSerializationError",
+            "DomainProfileSource",
+            "DomainQuestionPolicy",
+            "DomainReasoningDepth",
+            "DomainTemporalPolicy",
+            "InMemoryDomainProfileRegistry",
+            "ResolvedDomainProfile",
         }
         assert set(cmm.domains.__all__) == expected
 
@@ -264,7 +299,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 212
+        assert len(cmm.domains.__all__) == 247
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

@@ -487,6 +487,51 @@ class DomainResourceDerivationError(DomainResourceError):
     code = "DOMAIN_RESOURCE_DERIVATION_ERROR"
 
 
+# ── Phase 10.11 – Domain Profile Errors ────────────────────────────────────────
+
+
+class DomainProfileError(DomainError):
+    """Base error for Domain Profile operations (Phase 10.11)."""
+
+    code = "DOMAIN_PROFILE_ERROR"
+
+
+class DomainProfileContractError(DomainProfileError, ValueError):
+    """Raised when a Domain Profile contract invariant is violated."""
+
+    code = "DOMAIN_PROFILE_CONTRACT_ERROR"
+
+
+class DomainProfileSerializationError(DomainProfileError):
+    """Raised when serialization or deserialization of profile contracts fails."""
+
+    code = "DOMAIN_PROFILE_SERIALIZATION_ERROR"
+
+
+class DomainProfileConfigurationError(DomainProfileError):
+    """Raised when a profile component is configured with invalid settings."""
+
+    code = "DOMAIN_PROFILE_CONFIGURATION_ERROR"
+
+
+class DomainProfileRegistryError(DomainProfileError):
+    """Raised when a Domain Profile registry operation fails."""
+
+    code = "DOMAIN_PROFILE_REGISTRY_ERROR"
+
+
+class DomainProfileCompositionError(DomainProfileError):
+    """Raised when Domain Profile composition encounters a controlled internal error."""
+
+    code = "DOMAIN_PROFILE_COMPOSITION_ERROR"
+
+
+class DomainProfileResolutionError(DomainProfileError):
+    """Raised when Domain Profile resolution encounters a controlled internal error."""
+
+    code = "DOMAIN_PROFILE_RESOLUTION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -514,6 +559,13 @@ __all__ = [
     "DomainLoadRollbackFailed",
     "DomainLoaderError",
     "DomainPathEscape",
+    "DomainProfileCompositionError",
+    "DomainProfileConfigurationError",
+    "DomainProfileContractError",
+    "DomainProfileError",
+    "DomainProfileRegistryError",
+    "DomainProfileResolutionError",
+    "DomainProfileSerializationError",
     "DomainRegistryConflict",
     "DomainRegistryError",
     "DomainRegistryNotFound",

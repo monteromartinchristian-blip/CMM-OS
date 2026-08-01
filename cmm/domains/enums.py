@@ -233,6 +233,70 @@ class DomainResourceValidationOperator(str, Enum):
     MAXIMUM = "maximum"
 
 
+class DomainProfileResolutionStatus(str, Enum):
+    """Closed status values for Domain Profile resolution outcomes (Phase 10.11)."""
+
+    RESOLVED = "resolved"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class DomainProfileSource(str, Enum):
+    """Closed set of sources that can contribute to a Domain Profile resolution (Phase 10.11)."""
+
+    GLOBAL_POLICY = "global_policy"
+    PRIMARY_DOMAIN = "primary_domain"
+    SUPPORTING_DOMAIN = "supporting_domain"
+    WORKFLOW = "workflow"
+    OPERATION = "operation"
+    RISK = "risk"
+    ACTOR = "actor"
+    AUTONOMY = "autonomy"
+    EXPLICIT_REQUEST = "explicit_request"
+
+
+class DomainProfileDecisionCode(str, Enum):
+    """Closed decision codes produced during Domain Profile resolution (Phase 10.11)."""
+
+    PROFILE_APPLIED = "profile_applied"
+    OVERLAY_APPLIED = "overlay_applied"
+    OVERLAY_SKIPPED = "overlay_skipped"
+    MANDATORY_RULE_PRESERVED = "mandatory_rule_preserved"
+    PROHIBITED_RULE_PREVAILED = "prohibited_rule_prevailed"
+    RESOURCE_RESTRICTED = "resource_restricted"
+    CONFIDENCE_RAISED = "confidence_raised"
+    LIMIT_RESTRICTED = "limit_restricted"
+    INFERENCE_PROHIBITED = "inference_prohibited"
+    ACTION_PROHIBITED = "action_prohibited"
+    PERMISSION_RESTRICTED = "permission_restricted"
+    ESCALATION_ADDED = "escalation_added"
+    POLICY_RESTRICTED = "policy_restricted"
+    CONFLICT_RECORDED = "conflict_recorded"
+
+
+class DomainProfileConflictSeverity(str, Enum):
+    """Closed severity levels for Domain Profile conflicts (Phase 10.11)."""
+
+    WARNING = "warning"
+    ERROR = "error"
+    BLOCKING = "blocking"
+
+
+class DomainReasoningDepth(str, Enum):
+    """Closed, ordered set of maximum permitted reasoning depths (Phase 10.11).
+
+    Ordering (shallowest to deepest) is SHALLOW < STANDARD < DEEP < EXHAUSTIVE.
+    This field represents a maximum permitted depth, so composition always
+    selects the minimum (most restrictive) value across contributing sources.
+    """
+
+    SHALLOW = "shallow"
+    STANDARD = "standard"
+    DEEP = "deep"
+    EXHAUSTIVE = "exhaustive"
+
+
 __all__ = [
     "CrossDomainSeverity",
     "CrossDomainStage",
@@ -243,6 +307,11 @@ __all__ = [
     "DomainLoadStatus",
     "DomainPackKind",
     "DomainPackStatus",
+    "DomainProfileConflictSeverity",
+    "DomainProfileDecisionCode",
+    "DomainProfileResolutionStatus",
+    "DomainProfileSource",
+    "DomainReasoningDepth",
     "DomainResolutionStatus",
     "DomainResourceDecisionCode",
     "DomainResourceResolutionStatus",
