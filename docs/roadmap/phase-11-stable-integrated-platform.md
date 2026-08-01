@@ -2021,9 +2021,34 @@ Initial adapters may include:
 - Alibaba / Qwen;
 - Google / Gemini;
 - Ollama;
-- OpenAI-compatible providers.
+- OpenAI-compatible providers;
+- experimental Cline CLI adapter for ClinePass-backed models such as Kimi K3.
 
 The architecture must not depend on a closed provider list.
+
+### Experimental Cline CLI Adapter
+
+The Model Gateway may expose an optional `ClineCliProvider` that invokes Cline through its non-interactive CLI and normalizes its event stream into the shared `ModelResponse` contract.
+
+The adapter is an external worker integration, not a replacement for the Model Gateway, Agent Runtime, routing, memory, validation, or policy layers. It must remain disabled by default and explicitly marked experimental.
+
+Initial execution profiles:
+
+- `repository_worker`: controlled repository and terminal access for long-running analysis or development tasks;
+- `personal_assistant`: isolated working directory, no repository access, no terminal tools, and conversational use such as organizing concerns or preparing medical appointments.
+
+Required safeguards:
+
+- feature-flagged activation;
+- executable discovery and version capture;
+- subprocess isolation, timeout, cancellation, and output-size limits;
+- structured event parsing and deterministic error normalization;
+- no provider-side weakening of domain permissions, privacy, cost, or approval policies;
+- explicit tool allowlists per execution profile;
+- audit records identifying Cline, ClinePass, the selected underlying model when available, and all granted capabilities;
+- fallback only to providers compatible with the original privacy and permission constraints.
+
+The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline.
 
 ## Policies
 

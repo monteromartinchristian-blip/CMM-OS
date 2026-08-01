@@ -552,6 +552,8 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - conversational interface;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
+- provider-independent Model Gateway with an optional experimental `ClineCliProvider` for ClinePass-backed models such as Kimi K3;
+- isolated `repository_worker` and tool-free `personal_assistant` execution profiles for the Cline CLI adapter;
 - goals, workflows, approvals, agents, and memory UI;
 - artifacts and trace inspection;
 - real-time updates;
