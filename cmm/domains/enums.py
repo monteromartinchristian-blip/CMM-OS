@@ -297,6 +297,57 @@ class DomainReasoningDepth(str, Enum):
     EXHAUSTIVE = "exhaustive"
 
 
+# ── Phase 10.12 – Domain Rules ────────────────────────────────────────────────
+
+
+class DomainRuleSelectionStatus(str, Enum):
+    READY = "ready"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class DomainRuleExecutionStatus(str, Enum):
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    PARTIAL = "partial"
+    COMPLETED = "completed"
+    NO_APPLICABLE_RULES = "no_applicable_rules"
+
+
+class DomainRuleSource(str, Enum):
+    GLOBAL_MANDATORY = "global_mandatory"
+    SECURITY = "security"
+    PRIMARY_DOMAIN = "primary_domain"
+    SUPPORTING_DOMAIN = "supporting_domain"
+    OPTIONAL = "optional"
+    PRESENTATION = "presentation"
+    PROFILE = "profile"
+    OVERLAY = "overlay"
+    EXPLICIT_REQUEST = "explicit_request"
+    COMPOSITION = "composition"
+
+
+class DomainRuleSelectionDecisionCode(str, Enum):
+    RULE_SELECTED = "rule_selected"
+    RULE_OMITTED = "rule_omitted"
+    RULE_BLOCKED = "rule_blocked"
+    RULE_PROHIBITED = "rule_prohibited"
+    RULE_MISSING = "rule_missing"
+    RULE_DISABLED = "rule_disabled"
+    PERMISSION_MISSING = "permission_missing"
+    DOMAIN_MISMATCH = "domain_mismatch"
+    VERSION_RESOLVED = "version_resolved"
+    RULE_DEDUPLICATED = "rule_deduplicated"
+    GLOBAL_RULE_PRESERVED = "global_rule_preserved"
+
+
+class DomainRuleConflictSeverity(str, Enum):
+    WARNING = "warning"
+    ERROR = "error"
+    BLOCKING = "blocking"
+
+
 __all__ = [
     "CrossDomainSeverity",
     "CrossDomainStage",
@@ -317,6 +368,11 @@ __all__ = [
     "DomainResourceResolutionStatus",
     "DomainResourceValidationOperator",
     "DomainResourceValidationSeverity",
+    "DomainRuleConflictSeverity",
+    "DomainRuleExecutionStatus",
+    "DomainRuleSelectionDecisionCode",
+    "DomainRuleSelectionStatus",
+    "DomainRuleSource",
     "DomainSourceKind",
     "DomainStatus",
     "DomainValidationStatus",

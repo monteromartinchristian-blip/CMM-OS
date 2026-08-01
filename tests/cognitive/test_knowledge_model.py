@@ -77,13 +77,13 @@ def make_item(
     kind: KnowledgeKind = KnowledgeKind.OBSERVATION,
     item_id: str | None = None,
 ) -> KnowledgeItem:
-    kwargs: dict = dict(
-        statement=statement,
-        kind=kind,
-        confidence=confidence(),
-        created_at=NOW,
-        updated_at=NOW,
-    )
+    kwargs: dict = {
+        "statement": statement,
+        "kind": kind,
+        "confidence": confidence(),
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
     if item_id is not None:
         kwargs["id"] = item_id
     return KnowledgeItem(**kwargs)
@@ -180,7 +180,7 @@ def test_temporal_scope_rejects_naive_datetimes() -> None:
     with pytest.raises(InvalidTemporalValidityError):
         TemporalScope(
             kind=TemporalScopeKind.POINT_IN_TIME,
-            observed_at=datetime(2026, 7, 25, 12, 0),
+            observed_at=datetime(2026, 7, 25, 12, 0),  # noqa: DTZ001
         )
 
 
@@ -228,7 +228,7 @@ def test_temporal_scope_validity_status_enum() -> None:
 
 def test_temporal_scope_immutable() -> None:
     scope = TemporalScope(kind=TemporalScopeKind.TIMELESS)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         scope.kind = TemporalScopeKind.UNKNOWN  # type: ignore[misc]
 
 
@@ -347,13 +347,13 @@ def test_evidence_rejects_naive_observed_at() -> None:
             resource_id="res:test:x",
             fragment="content",
             confidence=confidence(),
-            observed_at=datetime(2026, 7, 25, 12, 0),
+            observed_at=datetime(2026, 7, 25, 12, 0),  # noqa: DTZ001
         )
 
 
 def test_evidence_immutable() -> None:
     ev = make_evidence()
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         ev.fragment = "mutated"  # type: ignore[misc]
 
 
@@ -687,7 +687,7 @@ def test_mark_superseded_preserves_original() -> None:
 
 def test_knowledge_item_immutable() -> None:
     item = make_item()
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         item.statement = "mutated"  # type: ignore[misc]
 
 
@@ -797,7 +797,7 @@ def test_contradiction_immutable() -> None:
         item_b_id="knowledge-item:knowledge:b",
         created_at=NOW,
     )
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         c.status = ContradictionStatus.RESOLVED  # type: ignore[misc]
 
 
@@ -870,7 +870,7 @@ def test_bundle_serialization_and_round_trip() -> None:
 
 def test_bundle_immutable() -> None:
     bundle = KnowledgeBundle(created_at=NOW)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         bundle.status = "mutated"  # type: ignore[misc]
 
 
@@ -879,7 +879,6 @@ def test_bundle_immutable() -> None:
 
 def test_metadata_immutability_input_dict_mutation() -> None:
     input_meta = {"key": "initial"}
-    item = make_item()
     scope = TemporalScope(metadata=input_meta)
 
     # Mutate original dictionary

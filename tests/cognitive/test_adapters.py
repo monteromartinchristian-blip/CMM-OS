@@ -99,7 +99,7 @@ def test_resource_input_rejects_naive_content_created_at() -> None:
             id="i1",
             source_kind=ResourceSourceKind.USER_INPUT,
             payload="x",
-            content_created_at=datetime(2026, 1, 1),  # naive
+            content_created_at=datetime(2026, 1, 1),  # naive  # noqa: DTZ001
         )
 
 
@@ -150,7 +150,7 @@ def test_adaptation_context_rejects_naive_timestamp() -> None:
     from cmm.cognitive import InvalidAdaptationError
 
     with pytest.raises(InvalidAdaptationError, match="timezone-aware"):
-        AdaptationContext(timestamp=datetime(2026, 1, 1))
+        AdaptationContext(timestamp=datetime(2026, 1, 1))  # noqa: DTZ001
 
 
 def test_adaptation_context_to_dict() -> None:
@@ -275,7 +275,7 @@ class TestPlainTextResourceAdapter:
 
     def test_result_is_immutable(self) -> None:
         result = self.adapter.adapt(_simple_text_input())
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             result.status = AdaptationStatus.FAILED  # type: ignore[misc]
 
     def test_result_successful_property(self) -> None:
@@ -449,7 +449,7 @@ class TestExistingResourceAdapter:
 class TestResourceAdaptationResultContract:
     def test_result_is_frozen(self) -> None:
         result = PlainTextResourceAdapter().adapt(_simple_text_input())
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             result.status = AdaptationStatus.FAILED  # type: ignore[misc]
 
     def test_result_requires_tz_aware_created_at(self) -> None:
@@ -461,7 +461,7 @@ class TestResourceAdaptationResultContract:
                 adapter_version="1",
                 input_id="i1",
                 status=AdaptationStatus.COMPLETED,
-                created_at=datetime(2026, 1, 1),  # naive
+                created_at=datetime(2026, 1, 1),  # naive  # noqa: DTZ001
             )
 
     def test_result_rejects_negative_duration(self) -> None:

@@ -188,7 +188,7 @@ def test_result_requires_timezone_aware_timestamp() -> None:
             objective="Evaluate available evidence",
             status=CognitiveStatus.PENDING,
             confidence=Confidence(0),
-            created_at=datetime(2026, 7, 25),
+            created_at=datetime(2026, 7, 25),  # noqa: DTZ001
         )
 
 

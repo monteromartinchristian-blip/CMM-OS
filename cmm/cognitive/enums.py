@@ -203,3 +203,48 @@ class ContradictionStatus(str, Enum):
     RESOLVED = "resolved"
     DEFERRED = "deferred"
     ACKNOWLEDGED = "acknowledged"
+
+
+# ── Phase 10.12 – Common Reasoning Rules ─────────────────────────────────────
+
+
+class ReasoningRuleScope(str, Enum):
+    GLOBAL = "global"
+    DOMAIN = "domain"
+
+
+class ReasoningRuleCategory(str, Enum):
+    EPISTEMIC = "epistemic"
+    SAFETY = "safety"
+    TEMPORALITY = "temporality"
+    CONSISTENCY = "consistency"
+    INFERENCE = "inference"
+    VALIDATION = "validation"
+    PRESENTATION = "presentation"
+
+
+class ReasoningRuleStatus(str, Enum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
+class ReasoningRiskLevel(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ReasoningRuleResultStatus(str, Enum):
+    APPLIED = "applied"
+    NOT_APPLICABLE = "not_applicable"
+    SKIPPED = "skipped"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
+class ReasoningSeverity(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"

@@ -346,3 +346,64 @@ class InvalidCognitiveValidationContextError(CognitiveValidationError, ValueErro
 
 class CognitiveValidationExecutionError(CognitiveValidationError, RuntimeError):
     """Raised when a cognitive validation rule encounters an execution error."""
+
+
+# ── Phase 10.12 – Common Reasoning Rule errors ───────────────────────────────
+
+
+class ReasoningRuleError(CognitiveError):
+    """Base error for common reasoning-rule infrastructure."""
+
+    code = "REASONING_RULE_ERROR"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+        self.details = _freeze_reasoning_details(details or {})
+
+
+def _freeze_reasoning_details(value: object) -> object:
+    """Deeply freeze diagnostic details without retaining caller aliases."""
+    from collections.abc import Mapping
+    from types import MappingProxyType
+
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_reasoning_details(nested) for key, nested in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_reasoning_details(nested) for nested in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_reasoning_details(nested) for nested in value)
+    return value
+
+
+class ReasoningRuleContractError(ReasoningRuleError, ValueError):
+    """Raised when a common reasoning-rule contract is invalid."""
+
+    code = "REASONING_RULE_CONTRACT_ERROR"
+
+
+class ReasoningRuleSerializationError(ReasoningRuleError, ValueError):
+    """Raised when strict reasoning-rule serialization fails."""
+
+    code = "REASONING_RULE_SERIALIZATION_ERROR"
+
+
+class ReasoningRuleRegistryError(ReasoningRuleError):
+    """Raised when reasoning-rule registration or lookup fails."""
+
+    code = "REASONING_RULE_REGISTRY_ERROR"
+
+
+class ReasoningRuleExecutionError(ReasoningRuleError, RuntimeError):
+    """Controlled failure reported by reasoning-rule execution."""
+
+    code = "REASONING_RULE_EXECUTION_ERROR"

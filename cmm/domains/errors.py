@@ -532,6 +532,33 @@ class DomainProfileResolutionError(DomainProfileError):
     code = "DOMAIN_PROFILE_RESOLUTION_ERROR"
 
 
+# ── Phase 10.12 – Domain Rule Errors ─────────────────────────────────────────
+
+
+class DomainRuleError(DomainError):
+    code = "DOMAIN_RULE_ERROR"
+
+
+class DomainRuleContractError(DomainRuleError, ValueError):
+    code = "DOMAIN_RULE_CONTRACT_ERROR"
+
+
+class DomainRuleSerializationError(DomainRuleError, ValueError):
+    code = "DOMAIN_RULE_SERIALIZATION_ERROR"
+
+
+class DomainRuleConfigurationError(DomainRuleError):
+    code = "DOMAIN_RULE_CONFIGURATION_ERROR"
+
+
+class DomainRuleSelectionError(DomainRuleError):
+    code = "DOMAIN_RULE_SELECTION_ERROR"
+
+
+class DomainRuleExecutionError(DomainRuleError, RuntimeError):
+    code = "DOMAIN_RULE_EXECUTION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -595,6 +622,12 @@ __all__ = [
     "DomainResourceResolutionError",
     "DomainResourceSerializationError",
     "DomainRollbackFailed",
+    "DomainRuleConfigurationError",
+    "DomainRuleContractError",
+    "DomainRuleError",
+    "DomainRuleExecutionError",
+    "DomainRuleSelectionError",
+    "DomainRuleSerializationError",
     "DomainSerializationError",
     "DomainSourceUntrusted",
     "DomainUnloadFailed",

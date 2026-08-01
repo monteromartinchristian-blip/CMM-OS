@@ -6,6 +6,8 @@ Domain Intelligence subsystem.
 
 from __future__ import annotations
 
+from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
+
 # Phase 10.8 – Domain Composition
 from cmm.domains.composer import (
     DefaultDomainComposer,
@@ -107,6 +109,11 @@ from cmm.domains.enums import (
     DomainResourceResolutionStatus,
     DomainResourceValidationOperator,
     DomainResourceValidationSeverity,
+    DomainRuleConflictSeverity,
+    DomainRuleExecutionStatus,
+    DomainRuleSelectionDecisionCode,
+    DomainRuleSelectionStatus,
+    DomainRuleSource,
     DomainSourceKind,
     DomainStatus,
     DomainValidationStatus,
@@ -174,6 +181,12 @@ from cmm.domains.errors import (
     DomainResourceResolutionError,
     DomainResourceSerializationError,
     DomainRollbackFailed,
+    DomainRuleConfigurationError,
+    DomainRuleContractError,
+    DomainRuleError,
+    DomainRuleExecutionError,
+    DomainRuleSelectionError,
+    DomainRuleSerializationError,
     DomainSerializationError,
     DomainSourceUntrusted,
     DomainUnloadFailed,
@@ -320,6 +333,33 @@ from cmm.domains.resource_resolver import (
     DomainResourceValidator,
 )
 
+# Phase 10.12 – Domain Rules
+from cmm.domains.rule_catalog import (
+    INITIAL_DOMAIN_REASONING_RULE_IDS,
+    build_initial_reasoning_rule_catalog,
+)
+from cmm.domains.rule_contracts import (
+    DOMAIN_RULE_CONTRACT_VERSION,
+    DomainReasoningRuleDefinition,
+    DomainRuleExecutionPlan,
+    DomainRuleExecutionPolicy,
+    DomainRuleExecutionResult,
+    DomainRuleResult,
+    DomainRuleSelectionConflict,
+    DomainRuleSelectionDecision,
+    DomainRuleSelectionPolicy,
+    DomainRuleSourceRecord,
+    SelectedReasoningRule,
+)
+from cmm.domains.rule_execution import (
+    DefaultDomainRuleExecutor,
+    DomainRuleExecutor,
+)
+from cmm.domains.rule_selection import (
+    DefaultDomainRuleSelector,
+    DomainRuleSelector,
+)
+
 # Phase 10.5 – Domain Validation
 from cmm.domains.validation import (
     PipelineDomainValidator,
@@ -343,8 +383,10 @@ from cmm.domains.validation_steps import (
 
 __all__ = [
     "ALL_DOMAIN_STEPS",
+    "DOMAIN_RULE_CONTRACT_VERSION",
     "DOMAIN_STATUS_PRECEDENCE",
     "INITIAL_DOMAIN_PROFILE_NAMES",
+    "INITIAL_DOMAIN_REASONING_RULE_IDS",
     "KNOWN_CROSS_DOMAIN_PORTS",
     "CrossDomainAgentPort",
     "CrossDomainCognitivePort",
@@ -390,6 +432,8 @@ __all__ = [
     "DefaultDomainResolver",
     "DefaultDomainResourceResolver",
     "DefaultDomainResourceValidator",
+    "DefaultDomainRuleExecutor",
+    "DefaultDomainRuleSelector",
     "DomainCandidate",
     "DomainCandidateInvalid",
     "DomainCandidateScore",
@@ -476,6 +520,7 @@ __all__ = [
     "DomainQuery",
     "DomainQuestionPolicy",
     "DomainReasoningDepth",
+    "DomainReasoningRuleDefinition",
     "DomainRegistry",
     "DomainRegistryConflict",
     "DomainRegistryError",
@@ -545,6 +590,27 @@ __all__ = [
     "DomainResult",
     "DomainResultId",
     "DomainRollbackFailed",
+    "DomainRuleConfigurationError",
+    "DomainRuleConflictSeverity",
+    "DomainRuleContractError",
+    "DomainRuleError",
+    "DomainRuleExecutionError",
+    "DomainRuleExecutionPlan",
+    "DomainRuleExecutionPolicy",
+    "DomainRuleExecutionResult",
+    "DomainRuleExecutionStatus",
+    "DomainRuleExecutor",
+    "DomainRuleResult",
+    "DomainRuleSelectionConflict",
+    "DomainRuleSelectionDecision",
+    "DomainRuleSelectionDecisionCode",
+    "DomainRuleSelectionError",
+    "DomainRuleSelectionPolicy",
+    "DomainRuleSelectionStatus",
+    "DomainRuleSelector",
+    "DomainRuleSerializationError",
+    "DomainRuleSource",
+    "DomainRuleSourceRecord",
     "DomainScoringPolicy",
     "DomainSerializationError",
     "DomainSource",
@@ -570,15 +636,18 @@ __all__ = [
     "InMemoryDomainProfileRegistry",
     "InMemoryDomainRegistryStore",
     "InMemoryDomainResourceRegistry",
+    "InMemoryReasoningRuleRegistry",
     "JsonDomainManifestReader",
     "ParsedDomainPack",
     "PermissionComposition",
     "PipelineDomainValidator",
     "PresentationComposition",
     "ResolvedDomainProfile",
+    "SelectedReasoningRule",
     "build_domain_validation_context",
     "build_domain_validation_result",
     "build_domain_validation_steps",
+    "build_initial_reasoning_rule_catalog",
     "derive_confidence",
     "derive_cross_domain_status",
     "ensure_domain_validation_allows_install",

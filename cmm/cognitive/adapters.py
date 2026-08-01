@@ -524,9 +524,7 @@ class MappingResourceAdapter:
         if mime in _MAPPING_MIME_TYPES and isinstance(payload, dict):
             return True
         hint = (source.format_hint or "").lower()
-        if hint in _MAPPING_FORMAT_HINTS and isinstance(payload, (dict, list)):
-            return True
-        return False
+        return hint in _MAPPING_FORMAT_HINTS and isinstance(payload, (dict, list))
 
     def adapt(
         self,

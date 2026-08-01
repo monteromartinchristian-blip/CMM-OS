@@ -290,6 +290,39 @@ class TestPublicAPI:
             "InMemoryDomainProfileRegistry",
             "ResolvedDomainProfile",
         }
+        expected.update(
+            {
+                "DOMAIN_RULE_CONTRACT_VERSION",
+                "DefaultDomainRuleExecutor",
+                "DefaultDomainRuleSelector",
+                "DomainReasoningRuleDefinition",
+                "DomainRuleConfigurationError",
+                "DomainRuleConflictSeverity",
+                "DomainRuleContractError",
+                "DomainRuleError",
+                "DomainRuleExecutionError",
+                "DomainRuleExecutionPlan",
+                "DomainRuleExecutionPolicy",
+                "DomainRuleExecutionResult",
+                "DomainRuleExecutionStatus",
+                "DomainRuleExecutor",
+                "DomainRuleResult",
+                "DomainRuleSelectionConflict",
+                "DomainRuleSelectionDecision",
+                "DomainRuleSelectionDecisionCode",
+                "DomainRuleSelectionError",
+                "DomainRuleSelectionPolicy",
+                "DomainRuleSelectionStatus",
+                "DomainRuleSelector",
+                "DomainRuleSerializationError",
+                "DomainRuleSource",
+                "DomainRuleSourceRecord",
+                "INITIAL_DOMAIN_REASONING_RULE_IDS",
+                "InMemoryReasoningRuleRegistry",
+                "SelectedReasoningRule",
+                "build_initial_reasoning_rule_catalog",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -299,7 +332,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 247
+        assert len(cmm.domains.__all__) == 276
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

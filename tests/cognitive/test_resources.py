@@ -100,7 +100,7 @@ def test_resource_temporal_scope_rejects_invalid_validity_interval() -> None:
 def test_resource_temporal_scope_rejects_naive_datetime() -> None:
     with pytest.raises(InvalidResourceTemporalScopeError):
         ResourceTemporalScope(
-            ingested_at=datetime(2026, 7, 25, 12, 0),
+            ingested_at=datetime(2026, 7, 25, 12, 0),  # noqa: DTZ001
         )
 
 

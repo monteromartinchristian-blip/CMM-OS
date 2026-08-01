@@ -199,9 +199,7 @@ class ResourceTemporalScope:
 
         if self.valid_from is not None and moment < self.valid_from:
             return False
-        if self.valid_until is not None and moment > self.valid_until:
-            return False
-        return True
+        return self.valid_until is None or moment <= self.valid_until
 
     @property
     def expired(self) -> bool:
@@ -319,10 +317,7 @@ class ResourcePermission:
         if self.allowed_actor_ids and actor_id not in self.allowed_actor_ids:
             return False
 
-        if self.allowed_domains and domain not in self.allowed_domains:
-            return False
-
-        return True
+        return not self.allowed_domains or domain in self.allowed_domains
 
     def to_dict(self) -> dict[str, Any]:
         return {
