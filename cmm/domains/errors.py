@@ -128,6 +128,31 @@ class DomainPresentationWarningPriorityError(DomainPresentationError):
     code = "DOMAIN_PRESENTATION_INVALID_WARNING_PRIORITY"
 
 
+# Phase 10.17 – Domain Trace
+class DomainTraceError(DomainError):
+    """Base error for reference-only Domain Trace operations."""
+
+    code = "DOMAIN_TRACE_ERROR"
+
+
+class DomainTraceContractError(DomainTraceError, ValueError):
+    """Raised when a Domain Trace contract is invalid."""
+
+    code = "DOMAIN_TRACE_CONTRACT_ERROR"
+
+
+class DomainTraceSerializationError(DomainTraceError):
+    """Raised when a Domain Trace payload is invalid."""
+
+    code = "DOMAIN_TRACE_SERIALIZATION_ERROR"
+
+
+class DomainTraceValidationError(DomainTraceError):
+    """Raised when a Domain Trace fails reference-only validation."""
+
+    code = "DOMAIN_TRACE_VALIDATION_ERROR"
+
+
 class DomainPresentationConflictError(DomainPresentationError):
     """Raised when multi-domain presentation constraints remain unresolved."""
 

@@ -8,10 +8,11 @@ Canonical requirements for Phases 10.16–10.30 are maintained in the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
 with source-clause evidence in the
 [Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).
-Phase 10.15 remains closed. Phase 10.16 — Domain Presentation is complete
-(2026-08-02). Its implemented boundary is
-[Domain Presentation](../reference/domain-presentation.md); the remaining work
-proceeds sequentially from 10.17 through 10.30.
+Phase 10.15 remains closed. Phase 10.16 — Domain Presentation and Phase 10.17
+— Domain Trace are complete (2026-08-02). Their implemented boundaries are
+[Domain Presentation](../reference/domain-presentation.md) and
+[Domain Trace](../reference/domain-trace.md); the remaining work proceeds from
+10.18 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -2117,81 +2118,22 @@ Componentes initial
 
 ⸻
 
-10.17 - Domain Trace
+10.17 - Domain Trace — Complete (2026-08-02)
 
-Objective
+`DomainTrace` is a final, frozen, deterministic reference-only aggregate.  It
+records request/goal identity, participating primary/supporting domains,
+contributions grouped by domain, typed global references, result/trace
+pairings, final status and timezone-aware timing.  It does not contain an
+objective or copied upstream content.  The pure assembler derives duration,
+digest and ID; the external typed inventory validator enforces category,
+attribution, pairing, privacy and integrity rules. Authoritative selections are
+bound to their resolution/composition source IDs; cross-domain result and trace
+IDs resolve through distinct typed categories; DomainResult order is canonical;
+and corrupt diagnostics fail closed without echoing unsafe values. See
+[Domain Trace](../reference/domain-trace.md).
 
-Record how each domain was resolved, composed, and used during an execution.
-
-Domain Trace
-
-DomainTrace(
-id="domain-trace-123",
-objective="...",
-resolution_context_id="domain-resolution-context-123",
-resolution_result_id="domain-resolution-123",
-primary_domain="domain:life-plan",
-supporting_domains=[],
-composition_id="domain-composition-123",
-loaded_resources=[],
-applied_profiles=[],
-applied_rules=[],
-executed_operations=[],
-executed_workflows=[],
-permission_decisions=[],
-approval_decisions=[],
-cross_domain_transfers=[],
-conflicts=[],
-warnings=[],
-reasoning_trace_ids=[],
-started_at="...",
-completed_at="...",
-duration_ms=820,
-metadata={},
-)
-
-Cross-Domain Transfer Trace
-
-CrossDomainTransferTrace(
-source_domain="domain:health",
-target_domain="domain:life-plan",
-transferred_knowledge_ids=[],
-transferred_entity_ids=[],
-purpose="Apply health constraints to planning",
-permissions=[],
-filtered_items=[],
-created_at="...",
-metadata={},
-)
-
-The following information should be available:
-
-* why a domain was selected
-* what dominion was main,
-* which domains have been involved,
-* which resources were provided by each domain;
-* what rules have been put forward by each domain,
-* which effective profile was used;
-* what permissions have been applied,
-* what information was transferred;
-* what information was leaked,
-* which operations were executed;
-* what approvals have been requested;
-* which conflicts appeared;
-* how they were resolved;
-* What resulted from each domain.
-
-Restrictions
-
-The strap should not include:
-
-* internal chains of thought;
-* secrets;
-* credenciales;
-* contenido sensible innecesario;
-* information outside permissions;
-* prompts privados;
-* information not used.
+No cross-domain transfer trace type, second AgentTrace/ReasoningTrace/KnowledgePackage,
+store, stream, provider audit, private prompt or chain-of-thought is created.
 
 ⸻
 
