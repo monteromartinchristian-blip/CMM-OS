@@ -8,8 +8,10 @@ Canonical requirements for Phases 10.16–10.30 are maintained in the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
 with source-clause evidence in the
 [Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).
-Phase 10.15 remains closed. Later work proceeds sequentially from 10.16 through
-10.30; this reference does not mark 10.16 as started.
+Phase 10.15 remains closed. Phase 10.16 — Domain Presentation is complete
+(2026-08-02). Its implemented boundary is
+[Domain Presentation](../reference/domain-presentation.md); the remaining work
+proceeds sequentially from 10.17 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -2043,6 +2045,11 @@ metadata={},
 ⸻
 
 10.16 - Domain Presentation
+
+Status: Complete (2026-08-02). The implementation is constrained by the
+[Domain Presentation reference](../reference/domain-presentation.md): it plans
+reference-only structure and visibility after upstream resolution, preserves
+semantics through validation, and does not render or decide interaction.
 
 Objective
 

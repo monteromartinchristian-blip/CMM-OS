@@ -467,8 +467,52 @@ _PRESENTATION_POLICY_KNOWN = frozenset(
         "allow_speculation",
         "require_disclaimers",
         "metadata",
+        "required_sections",
+        "optional_sections",
+        "suppressible_sections",
+        "preferred_section_order",
+        "protected_terms",
+        "term_glosses",
+        "preferred_components",
+        "preferred_views",
+        "warning_position",
+        "allowed_output_types",
+        "preferred_output_types",
     }
 )
+
+PRESENTATION_WARNING_POSITIONS: tuple[str, ...] = (
+    "before_content",
+    "in_context",
+    "after_content",
+)
+
+PRESENTATION_OUTPUT_TYPES: tuple[str, ...] = (
+    "HUMAN_READABLE",
+    "STRUCTURED",
+    "UI_COMPONENTS",
+    "ARTIFACT_REQUEST",
+)
+
+
+def _validate_term_glosses(value: Any) -> MappingProxyType[str, str]:
+    """Freeze explanatory glosses without allowing terminology replacement."""
+    if not isinstance(value, Mapping):
+        raise DomainProfileContractError(
+            "term_glosses must be a mapping", field="term_glosses"
+        )
+    frozen: dict[str, str] = {}
+    for term, gloss in value.items():
+        if not isinstance(term, str) or not term:
+            raise DomainProfileContractError(
+                "term_glosses keys must be non-empty strings", field="term_glosses"
+            )
+        if not isinstance(gloss, str) or not gloss:
+            raise DomainProfileContractError(
+                "term_glosses values must be non-empty strings", field="term_glosses"
+            )
+        frozen[term] = gloss
+    return MappingProxyType(frozen)
 
 
 @dataclass(frozen=True, slots=True)
@@ -486,6 +530,21 @@ class DomainPresentationPolicy:
     metadata: MappingProxyType[str, Any] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    # Phase 10.16 structural fields are deliberately appended to retain the
+    # positional compatibility of all Phase 10.11 callers.
+    required_sections: tuple[str, ...] = ()
+    optional_sections: tuple[str, ...] = ()
+    suppressible_sections: tuple[str, ...] = ()
+    preferred_section_order: tuple[str, ...] = ()
+    protected_terms: tuple[str, ...] = ()
+    term_glosses: MappingProxyType[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    preferred_components: tuple[str, ...] = ()
+    preferred_views: tuple[str, ...] = ()
+    warning_position: str | None = None
+    allowed_output_types: tuple[str, ...] | None = None
+    preferred_output_types: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -510,6 +569,73 @@ class DomainPresentationPolicy:
         object.__setattr__(
             self, "metadata", _validate_json_safe_metadata(self.metadata, "metadata")
         )
+        for attr_name in (
+            "required_sections",
+            "optional_sections",
+            "suppressible_sections",
+            "preferred_section_order",
+            "protected_terms",
+            "preferred_components",
+            "preferred_views",
+            "preferred_output_types",
+        ):
+            object.__setattr__(
+                self,
+                attr_name,
+                _freeze_unique_str_tuple(getattr(self, attr_name), attr_name),
+            )
+        object.__setattr__(
+            self, "term_glosses", _validate_term_glosses(self.term_glosses)
+        )
+        object.__setattr__(
+            self,
+            "warning_position",
+            _validate_ordered_choice_opt(
+                self.warning_position,
+                "warning_position",
+                PRESENTATION_WARNING_POSITIONS,
+            ),
+        )
+        allowed_output_types = _freeze_optional_unique_str_tuple(
+            self.allowed_output_types, "allowed_output_types"
+        )
+        if allowed_output_types is not None:
+            unknown_outputs = set(allowed_output_types) - set(PRESENTATION_OUTPUT_TYPES)
+            if unknown_outputs:
+                raise DomainProfileContractError(
+                    "allowed_output_types contains unsupported values: "
+                    f"{sorted(unknown_outputs)}",
+                    field="allowed_output_types",
+                )
+        object.__setattr__(self, "allowed_output_types", allowed_output_types)
+        unknown_preferred = set(self.preferred_output_types) - set(
+            PRESENTATION_OUTPUT_TYPES
+        )
+        if unknown_preferred:
+            raise DomainProfileContractError(
+                "preferred_output_types contains unsupported values: "
+                f"{sorted(unknown_preferred)}",
+                field="preferred_output_types",
+            )
+        if (
+            self.allowed_output_types is not None
+            and not set(self.preferred_output_types).issubset(self.allowed_output_types)
+        ):
+            raise DomainProfileContractError(
+                "preferred_output_types must be allowed_output_types",
+                field="preferred_output_types",
+            )
+        required = set(self.required_sections)
+        if required & set(self.suppressible_sections):
+            raise DomainProfileContractError(
+                "required_sections must not overlap suppressible_sections",
+                field="suppressible_sections",
+            )
+        if not set(self.term_glosses).issubset(self.protected_terms):
+            raise DomainProfileContractError(
+                "term_glosses keys must be present in protected_terms",
+                field="term_glosses",
+            )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -521,6 +647,21 @@ class DomainPresentationPolicy:
             "allow_speculation": self.allow_speculation,
             "require_disclaimers": self.require_disclaimers,
             "metadata": _deep_unfreeze_value(self.metadata),
+            "required_sections": list(self.required_sections),
+            "optional_sections": list(self.optional_sections),
+            "suppressible_sections": list(self.suppressible_sections),
+            "preferred_section_order": list(self.preferred_section_order),
+            "protected_terms": list(self.protected_terms),
+            "term_glosses": dict(self.term_glosses),
+            "preferred_components": list(self.preferred_components),
+            "preferred_views": list(self.preferred_views),
+            "warning_position": self.warning_position,
+            "allowed_output_types": (
+                list(self.allowed_output_types)
+                if self.allowed_output_types is not None
+                else None
+            ),
+            "preferred_output_types": list(self.preferred_output_types),
         }
 
     @classmethod

@@ -358,6 +358,39 @@ def merge_presentation_policy(
                 require_disclaimers,
             )
         )
+    required_sections = _ordered_union(
+        current.required_sections, incoming.required_sections
+    )
+    optional_sections = _ordered_union(
+        current.optional_sections, incoming.optional_sections
+    )
+    suppressible_sections = _ordered_difference(
+        _ordered_union(current.suppressible_sections, incoming.suppressible_sections),
+        required_sections,
+    )
+    protected_terms = _ordered_union(current.protected_terms, incoming.protected_terms)
+    term_glosses = dict(current.term_glosses)
+    for term, gloss in incoming.term_glosses.items():
+        if term not in term_glosses:
+            term_glosses[term] = gloss
+    preferred_section_order = _ordered_union(
+        current.preferred_section_order, incoming.preferred_section_order
+    )
+    preferred_components = _ordered_union(
+        current.preferred_components, incoming.preferred_components
+    )
+    preferred_views = _ordered_union(current.preferred_views, incoming.preferred_views)
+    warning_position = current.warning_position or incoming.warning_position
+    allowed_output_types = _fold_restrictive_constraint(
+        current.allowed_output_types, incoming.allowed_output_types
+    )
+    preferred_output_types = tuple(
+        output
+        for output in _ordered_union(
+            current.preferred_output_types, incoming.preferred_output_types
+        )
+        if allowed_output_types is None or output in allowed_output_types
+    )
     merged = replace(
         current,
         detail_level=detail_level,
@@ -366,6 +399,17 @@ def merge_presentation_policy(
         include_alternatives=include_alternatives,
         allow_speculation=allow_speculation,
         require_disclaimers=require_disclaimers,
+        required_sections=required_sections,
+        optional_sections=optional_sections,
+        suppressible_sections=suppressible_sections,
+        preferred_section_order=preferred_section_order,
+        protected_terms=protected_terms,
+        term_glosses=term_glosses,
+        preferred_components=preferred_components,
+        preferred_views=preferred_views,
+        warning_position=warning_position,
+        allowed_output_types=allowed_output_types,
+        preferred_output_types=preferred_output_types,
     )
     return merged, tuple(changes)
 

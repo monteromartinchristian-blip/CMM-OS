@@ -67,6 +67,73 @@ class DomainContractValidationError(DomainContractError):
     code = "DOMAIN_CONTRACT_VALIDATION_ERROR"
 
 
+# Phase 10.16 – Domain Presentation
+class DomainPresentationError(DomainError):
+    """Base error for reference-only Domain Presentation operations."""
+
+    code = "DOMAIN_PRESENTATION_ERROR"
+
+
+class DomainPresentationContractError(DomainPresentationError, ValueError):
+    """Raised when a Domain Presentation contract is invalid."""
+
+    code = "DOMAIN_PRESENTATION_CONTRACT_ERROR"
+
+
+class DomainPresentationSerializationError(DomainPresentationError):
+    """Raised when a Domain Presentation payload is invalid."""
+
+    code = "DOMAIN_PRESENTATION_SERIALIZATION_ERROR"
+
+
+class DomainPresentationPolicyError(DomainPresentationError):
+    """Raised when the effective presentation policy is incompatible."""
+
+    code = "DOMAIN_PRESENTATION_POLICY_INCOMPATIBLE"
+
+
+class DomainPresentationRequiredSectionError(DomainPresentationError):
+    """Raised when a mandatory presentation section is suppressed."""
+
+    code = "DOMAIN_PRESENTATION_MANDATORY_SUPPRESSED"
+
+
+class DomainPresentationTerminologyError(DomainPresentationError):
+    """Raised when protected terminology cannot be preserved."""
+
+    code = "DOMAIN_PRESENTATION_TERMINOLOGY_INCOMPATIBLE"
+
+
+class DomainPresentationOutputIntentError(DomainPresentationError):
+    """Raised when a logical output intent is not allowed by policy."""
+
+    code = "DOMAIN_PRESENTATION_OUTPUT_INTENT_NOT_ALLOWED"
+
+
+class DomainPresentationUnknownReferenceError(DomainPresentationError):
+    """Raised when a plan contains a reference absent from its request."""
+
+    code = "DOMAIN_PRESENTATION_UNKNOWN_REFERENCE"
+
+
+class DomainPresentationPreservationError(DomainPresentationError):
+    """Raised when presentation would change protected upstream semantics."""
+
+    code = "DOMAIN_PRESENTATION_PRESERVATION_BREACH"
+
+
+class DomainPresentationWarningPriorityError(DomainPresentationError):
+    """Raised when resolved warning priority is not preserved."""
+
+    code = "DOMAIN_PRESENTATION_INVALID_WARNING_PRIORITY"
+
+
+class DomainPresentationConflictError(DomainPresentationError):
+    """Raised when multi-domain presentation constraints remain unresolved."""
+
+    code = "DOMAIN_PRESENTATION_UNRESOLVED_MULTIDOMAIN_CONFLICT"
+
+
 class DomainSerializationError(DomainError):
     """Raised when serialization or deserialization fails."""
 

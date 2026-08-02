@@ -460,17 +460,20 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 ## Phase 10 — Domain Intelligence
 
-**Status:** Planned.
+**Status:** In progress.
 
-**Implemented through:** Phase 10.15 — Domain Permissions, completed and
-audited on 2026-08-02. Later Domain Intelligence phases remain planned.
+**Implemented through:** Phase 10.16 — Domain Presentation, completed on
+2026-08-02. Phase 10.15 remains closed; later Domain Intelligence phases
+remain planned.
 
 The canonical source of requirements for Phases 10.16–10.30 is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
 supported by the
 [Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
-Phase 10.15 remains closed, and the remaining phases must proceed sequentially
-from 10.16 through 10.30. Phase 10.16 is not marked as started.
+The Phase 10.16 implementation boundary is documented in
+[Domain Presentation](docs/reference/domain-presentation.md). Phase 10.15
+remains closed, and the remaining phases must proceed sequentially from 10.17
+through 10.30.
 
 ### Objective
 
