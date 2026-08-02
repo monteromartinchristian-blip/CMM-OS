@@ -46,9 +46,7 @@ def policy_model_requirement_sources(
             ModelRequirementsSource(
                 source_kind="policy",
                 source_id=source_id,
-                requirements=model_requirements_from_dict(
-                    restriction.parameters
-                ),
+                requirements=model_requirements_from_dict(restriction.parameters),
                 priority=50,
                 metadata={
                     "evaluation_id": result.id,

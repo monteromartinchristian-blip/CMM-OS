@@ -139,16 +139,12 @@ def test_resolution_rejects_disjoint_allowed_providers() -> None:
                 _source(
                     "goal",
                     "goal-1",
-                    requirements=ModelRequirements(
-                        allowed_providers=("provider-a",)
-                    ),
+                    requirements=ModelRequirements(allowed_providers=("provider-a",)),
                 ),
                 _source(
                     "operation",
                     "operation-1",
-                    requirements=ModelRequirements(
-                        allowed_providers=("provider-b",)
-                    ),
+                    requirements=ModelRequirements(allowed_providers=("provider-b",)),
                 ),
             )
         )
@@ -161,16 +157,12 @@ def test_resolution_rejects_allowed_excluded_overlap() -> None:
                 _source(
                     "goal",
                     "goal-1",
-                    requirements=ModelRequirements(
-                        allowed_providers=("provider-a",)
-                    ),
+                    requirements=ModelRequirements(allowed_providers=("provider-a",)),
                 ),
                 _source(
                     "policy",
                     "policy-1",
-                    requirements=ModelRequirements(
-                        excluded_providers=("provider-a",)
-                    ),
+                    requirements=ModelRequirements(excluded_providers=("provider-a",)),
                 ),
             )
         )
@@ -182,9 +174,7 @@ def test_sensitive_privacy_is_strictest() -> None:
             _source(
                 "agent",
                 "agent-1",
-                requirements=ModelRequirements(
-                    privacy="PREMIUM_ALLOWED"
-                ),
+                requirements=ModelRequirements(privacy="PREMIUM_ALLOWED"),
             ),
             _source(
                 "policy",

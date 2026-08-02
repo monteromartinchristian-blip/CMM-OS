@@ -30,7 +30,9 @@ class EconomicBudgetActionBudgetAdapter:
         existing = self.service.find_budget_by_agent_run(agent_run_id)
         if existing is not None:
             if existing.currency.upper() != currency.upper():
-                raise EconomicBudgetError("ActionBudget and economic budget currency differs")
+                raise EconomicBudgetError(
+                    "ActionBudget and economic budget currency differs"
+                )
             current_limit = existing.limit_for(BudgetResourceType.COST)
             if current_limit is None or current_limit > maximum_cost:
                 try:
@@ -69,17 +71,30 @@ class EconomicBudgetActionBudgetAdapter:
         estimate_version: str = "1",
     ) -> BudgetReservation:
         if not estimate.complete:
-            raise EconomicBudgetError("cannot reserve an incomplete economic cost estimate")
+            raise EconomicBudgetError(
+                "cannot reserve an incomplete economic cost estimate"
+            )
         if budget.currency.upper() != estimate.currency.upper():
             raise EconomicBudgetError("ActionBudget and model cost currency differs")
         key_payload = {
-            "goal_id": goal_id, "workflow_id": workflow_id, "operation_id": operation_id,
-            "run_id": run_id, "budget_id": budget.id, "model_id": model_id,
-            "provider_id": provider_id, "routing_decision": routing_decision,
-            "cost": str(estimate.total_cost), "currency": estimate.currency,
+            "goal_id": goal_id,
+            "workflow_id": workflow_id,
+            "operation_id": operation_id,
+            "run_id": run_id,
+            "budget_id": budget.id,
+            "model_id": model_id,
+            "provider_id": provider_id,
+            "routing_decision": routing_decision,
+            "cost": str(estimate.total_cost),
+            "currency": estimate.currency,
             "estimate_version": estimate_version,
         }
-        key = "economic:" + hashlib.sha256(json.dumps(key_payload, sort_keys=True).encode()).hexdigest()
+        key = (
+            "economic:"
+            + hashlib.sha256(
+                json.dumps(key_payload, sort_keys=True).encode()
+            ).hexdigest()
+        )
         return self.service.reserve(
             budget.id,
             [BudgetAllocation(BudgetResourceType.COST, estimate.total_cost)],
@@ -118,7 +133,9 @@ class EconomicBudgetActionBudgetAdapter:
             [BudgetAllocation(BudgetResourceType.COST, actual_amount)],
         )
 
-    def release(self, reservation_id: str, reason: str = "not_executed") -> BudgetReservation:
+    def release(
+        self, reservation_id: str, reason: str = "not_executed"
+    ) -> BudgetReservation:
         return self.service.release(reservation_id, reason=reason)
 
     def fail(
@@ -132,5 +149,9 @@ class EconomicBudgetActionBudgetAdapter:
         budget = self.service.get_budget(reservation.budget_id)
         if (currency or budget.currency).upper() != budget.currency.upper():
             raise EconomicBudgetError("ActionBudget and partial cost currency differs")
-        allocations = [BudgetAllocation(BudgetResourceType.COST, partial_cost)] if partial_cost else []
+        allocations = (
+            [BudgetAllocation(BudgetResourceType.COST, partial_cost)]
+            if partial_cost
+            else []
+        )
         return self.service.fail(reservation_id, consumed_allocations=allocations)

@@ -283,9 +283,7 @@ def test_agent_descriptor_accepts_and_serializes_model_requirements() -> None:
     payload = descriptor.to_dict()
 
     assert descriptor.model_requirements == _requirements()
-    assert payload["model_requirements"] == model_requirements_to_dict(
-        _requirements()
-    )
+    assert payload["model_requirements"] == model_requirements_to_dict(_requirements())
 
 
 def test_agent_descriptor_lifecycle_preserves_model_requirements() -> None:

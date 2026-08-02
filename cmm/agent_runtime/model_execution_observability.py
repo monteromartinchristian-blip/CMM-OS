@@ -20,8 +20,15 @@ class ModelExecutionObservabilityProjector:
         self._service = service
 
     def project(self, record: ModelExecutionRecord) -> AgentModelInvocationRecord:
-        outcome = AgentAuditOutcome.FAILED if record.execution_status.value == "failed" else AgentAuditOutcome.SUCCESS
-        if record.acceptance_status in {AcceptanceStatus.PENDING, AcceptanceStatus.ACCEPTED_WITH_WARNING}:
+        outcome = (
+            AgentAuditOutcome.FAILED
+            if record.execution_status.value == "failed"
+            else AgentAuditOutcome.SUCCESS
+        )
+        if record.acceptance_status in {
+            AcceptanceStatus.PENDING,
+            AcceptanceStatus.ACCEPTED_WITH_WARNING,
+        }:
             outcome = AgentAuditOutcome.PARTIAL
         return self._service.record_model_invocation(
             AgentModelInvocationRecord(
@@ -42,7 +49,9 @@ class ModelExecutionObservabilityProjector:
                 # The canonical observability contract requires a Decimal. Zero is
                 # an explicit sentinel here; metadata preserves availability so
                 # estimated cost is never presented as actual cost.
-                actual_cost=record.actual_cost if record.actual_cost is not None else Decimal(0),
+                actual_cost=record.actual_cost
+                if record.actual_cost is not None
+                else Decimal(0),
                 latency_ms=record.latency_ms,
                 retry_count=record.retry_number,
                 fallback=record.fallback_from is not None,

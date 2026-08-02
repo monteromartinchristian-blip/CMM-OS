@@ -25,10 +25,20 @@ class ModelExecutionRecordRepository(Protocol):
 
 class InMemoryModelExecutionRecordRepository:
     _FILTERS = frozenset(ModelExecutionRecord.__dataclass_fields__)
-    _IMMUTABLE_FIELDS = frozenset({
-        "id", "agent_run_id", "goal_id", "workflow_id", "task_id", "operation_id",
-        "provider_id", "model_id", "model_version", "created_at",
-    })
+    _IMMUTABLE_FIELDS = frozenset(
+        {
+            "id",
+            "agent_run_id",
+            "goal_id",
+            "workflow_id",
+            "task_id",
+            "operation_id",
+            "provider_id",
+            "model_id",
+            "model_version",
+            "created_at",
+        }
+    )
 
     def __init__(self) -> None:
         self._records: dict[str, ModelExecutionRecord] = {}
@@ -37,7 +47,9 @@ class InMemoryModelExecutionRecordRepository:
     def add(self, record: ModelExecutionRecord) -> ModelExecutionRecord:
         with self._lock:
             if record.id in self._records:
-                raise ModelExecutionDuplicateError(f"record already exists: {record.id}")
+                raise ModelExecutionDuplicateError(
+                    f"record already exists: {record.id}"
+                )
             self._records[record.id] = record
         return record
 
@@ -57,14 +69,21 @@ class InMemoryModelExecutionRecordRepository:
             if record.id not in self._records:
                 raise ModelExecutionNotFoundError(record.id)
             current = self._records[record.id]
-            if any(getattr(current, name) != getattr(record, name) for name in self._IMMUTABLE_FIELDS):
-                raise InvalidModelExecutionRecordError("immutable execution identity cannot change")
+            if any(
+                getattr(current, name) != getattr(record, name)
+                for name in self._IMMUTABLE_FIELDS
+            ):
+                raise InvalidModelExecutionRecordError(
+                    "immutable execution identity cannot change"
+                )
             self._records[record.id] = record
         return record
 
     update_record = update
 
-    def _list(self, values: Iterable[ModelExecutionRecord]) -> tuple[ModelExecutionRecord, ...]:
+    def _list(
+        self, values: Iterable[ModelExecutionRecord]
+    ) -> tuple[ModelExecutionRecord, ...]:
         return tuple(sorted(values, key=lambda item: (item.created_at, item.id)))
 
     def query(self, **filters: object) -> tuple[ModelExecutionRecord, ...]:
@@ -77,12 +96,19 @@ class InMemoryModelExecutionRecordRepository:
             values = tuple(self._records.values())
         normalized = {
             name: self._normalize_filter(name, value)
-            for name, value in filters.items() if value is not None
+            for name, value in filters.items()
+            if value is not None
         }
         return self._list(
-            record for record in values
+            record
+            for record in values
             if all(
-                (getattr(record, name).value if isinstance(getattr(record, name), Enum) else getattr(record, name)) == value
+                (
+                    getattr(record, name).value
+                    if isinstance(getattr(record, name), Enum)
+                    else getattr(record, name)
+                )
+                == value
                 for name, value in normalized.items()
             )
         )
@@ -93,7 +119,12 @@ class InMemoryModelExecutionRecordRepository:
             value = value.value
         if name in {"provider_id", "model_id"} and isinstance(value, str):
             return value.strip().lower()
-        if name in {"execution_status", "acceptance_status", "content_retention", "privacy_classification"}:
+        if name in {
+            "execution_status",
+            "acceptance_status",
+            "content_retention",
+            "privacy_classification",
+        }:
             return value
         return value
 
@@ -120,13 +151,17 @@ class InMemoryModelExecutionRecordRepository:
     def list_by_model(self, model_id: str) -> tuple[ModelExecutionRecord, ...]:
         return self.query(model_id=model_id)
 
-    def list_by_acceptance_status(self, status: AcceptanceStatus | str) -> tuple[ModelExecutionRecord, ...]:
+    def list_by_acceptance_status(
+        self, status: AcceptanceStatus | str
+    ) -> tuple[ModelExecutionRecord, ...]:
         return self.query(acceptance_status=status)
 
     def list_by_trace(self, trace_id: str) -> tuple[ModelExecutionRecord, ...]:
         return self.query(trace_id=trace_id)
 
-    def list_by_correlation(self, correlation_id: str) -> tuple[ModelExecutionRecord, ...]:
+    def list_by_correlation(
+        self, correlation_id: str
+    ) -> tuple[ModelExecutionRecord, ...]:
         return self.query(correlation_id=correlation_id)
 
     def __len__(self) -> int:

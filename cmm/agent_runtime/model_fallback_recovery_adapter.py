@@ -38,7 +38,8 @@ class ModelFallbackRecoveryAdapter:
         transient = {"timeout", "rate_limit", "provider_unavailable", "transient_error"}
         reasons = tuple(
             reason_map.get(code, RecoveryReasonCode.TRANSIENT_ERROR)
-            if code not in transient else RecoveryReasonCode.TRANSIENT_ERROR
+            if code not in transient
+            else RecoveryReasonCode.TRANSIENT_ERROR
             for code in decision.reason_codes
         ) or (RecoveryReasonCode.UNKNOWN_FAILURE,)
         return RecoveryDecision(
@@ -52,5 +53,8 @@ class ModelFallbackRecoveryAdapter:
                 "provider_id": decision.selected_provider_id,
             },
             idempotency_key=decision.idempotency_key,
-            metadata={"model_fallback_action": decision.action.value, **dict(decision.metadata)},
+            metadata={
+                "model_fallback_action": decision.action.value,
+                **dict(decision.metadata),
+            },
         )

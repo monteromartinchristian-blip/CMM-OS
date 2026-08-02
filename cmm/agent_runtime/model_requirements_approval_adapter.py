@@ -24,9 +24,7 @@ def approval_model_requirement_sources(
             "resolution must be an ApprovalResolution"
         )
 
-    payload = resolution.approved_parameters.get(
-        MODEL_REQUIREMENTS_APPROVAL_KEY
-    )
+    payload = resolution.approved_parameters.get(MODEL_REQUIREMENTS_APPROVAL_KEY)
     if payload is None:
         return ()
 

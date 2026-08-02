@@ -155,18 +155,26 @@ def test_serialization_is_deterministic() -> None:
 # 5. firma estable para contextos equivalentes
 def test_context_signature_stable_for_equivalent_context() -> None:
     sig_a = build_cognitive_cache_context_signature(
-        objective="  Summarize   Health   Records ", profile_version="p1", dependency_ids=["b", "a"]
+        objective="  Summarize   Health   Records ",
+        profile_version="p1",
+        dependency_ids=["b", "a"],
     )
     sig_b = build_cognitive_cache_context_signature(
-        objective="summarize health records", profile_version="p1", dependency_ids=["a", "b"]
+        objective="summarize health records",
+        profile_version="p1",
+        dependency_ids=["a", "b"],
     )
     assert sig_a == sig_b
 
 
 # 6. firma distinta para contextos distintos
 def test_context_signature_differs_for_different_context() -> None:
-    sig_a = build_cognitive_cache_context_signature(objective="summarize health records", profile_version="p1")
-    sig_b = build_cognitive_cache_context_signature(objective="summarize health records", profile_version="p2")
+    sig_a = build_cognitive_cache_context_signature(
+        objective="summarize health records", profile_version="p1"
+    )
+    sig_b = build_cognitive_cache_context_signature(
+        objective="summarize health records", profile_version="p2"
+    )
     assert sig_a != sig_b
 
 
@@ -353,10 +361,14 @@ def test_sensitivity_preserved_and_enforced() -> None:
     store.put(entry)
     assert store.get(entry.id).sensitivity is SensitivityLevel.HIGHLY_SENSITIVE
 
-    denied = cache.get(entry.key, make_context(sensitivity_clearance=SensitivityLevel.INTERNAL))
+    denied = cache.get(
+        entry.key, make_context(sensitivity_clearance=SensitivityLevel.INTERNAL)
+    )
     assert denied.status is CognitiveCacheLookupStatus.PERMISSION_DENIED
 
-    allowed = cache.get(entry.key, make_context(sensitivity_clearance=SensitivityLevel.RESTRICTED))
+    allowed = cache.get(
+        entry.key, make_context(sensitivity_clearance=SensitivityLevel.RESTRICTED)
+    )
     assert allowed.status is CognitiveCacheLookupStatus.HIT_REUSABLE
 
 
@@ -422,7 +434,9 @@ def test_invalidation_audit_trail() -> None:
 
 # 30. integración con KnowledgePackage
 def test_cache_entry_from_knowledge_package() -> None:
-    package = KnowledgePackage(id="pkg-1", objective="summarize", profile="profile-1", created_at=NOW)
+    package = KnowledgePackage(
+        id="pkg-1", objective="summarize", profile="profile-1", created_at=NOW
+    )
     entry = cache_entry_from_knowledge_package(
         package,
         key="objective:summarize",
@@ -694,7 +708,9 @@ def test_cache_entry_from_package_never_downgrades_sensitivity() -> None:
     package = KnowledgePackage(
         id="pkg-sensitive",
         objective="summarize",
-        resources=(make_resource("resource:sensitive", SensitivityLevel.HIGHLY_SENSITIVE),),
+        resources=(
+            make_resource("resource:sensitive", SensitivityLevel.HIGHLY_SENSITIVE),
+        ),
         created_at=NOW,
     )
     entry = cache_entry_from_knowledge_package(
@@ -707,7 +723,9 @@ def test_cache_entry_from_package_never_downgrades_sensitivity() -> None:
 
 
 def test_cache_entry_from_package_defaults_to_restrictive_without_signal() -> None:
-    package = KnowledgePackage(id="pkg-no-signal", objective="summarize", created_at=NOW)
+    package = KnowledgePackage(
+        id="pkg-no-signal", objective="summarize", created_at=NOW
+    )
     entry = cache_entry_from_knowledge_package(
         package, key="k-no-signal", context_signature="sig-no-signal"
     )

@@ -37,24 +37,39 @@ def _routing() -> RoutingDecision:
         RoutingCandidate(3, "p2/m3", "p2", "m3", Decimal(1), Decimal(1), 100),
     )
     return RoutingDecision(
-        id="routing-1", status="selected", selected_model_id="m1",
-        selected_provider_id="p1", candidates=candidates, rejected_models=(),
-        requirements=requirements, ranking_policy=ModelRankingPolicy(),
+        id="routing-1",
+        status="selected",
+        selected_model_id="m1",
+        selected_provider_id="p1",
+        candidates=candidates,
+        rejected_models=(),
+        requirements=requirements,
+        ranking_policy=ModelRankingPolicy(),
     )
 
 
 def _context(**kwargs: object) -> ModelFallbackContext:
     policy = kwargs.pop("policy", ModelFallbackPolicy())
     result = ModelAttemptResult(
-        operation_id="op-1", attempt_index=1, model_id="m1", provider_id="p1",
-        trigger=ModelFallbackTrigger.TIMEOUT, estimated_cost=Decimal("0.01"),
-        actual_cost=Decimal("0.01"), **kwargs,
+        operation_id="op-1",
+        attempt_index=1,
+        model_id="m1",
+        provider_id="p1",
+        trigger=ModelFallbackTrigger.TIMEOUT,
+        estimated_cost=Decimal("0.01"),
+        actual_cost=Decimal("0.01"),
+        **kwargs,
     )
     return ModelFallbackContext(
-        operation_id="op-1", workflow_id="wf-1", routing_decision=_routing(),
+        operation_id="op-1",
+        workflow_id="wf-1",
+        routing_decision=_routing(),
         effective_requirements=ModelRequirements(reasoning=True),
-        latest_result=result, history=ModelAttemptHistory((result,)),
-        policy=policy, approval={"approved": False}, budget={"available": True},
+        latest_result=result,
+        history=ModelAttemptHistory((result,)),
+        policy=policy,
+        approval={"approved": False},
+        budget={"available": True},
     )
 
 
@@ -91,16 +106,23 @@ def test_premium_requires_approval_and_requirements_are_preserved() -> None:
 def test_history_excludes_used_model_and_provider() -> None:
     policy = ModelFallbackPolicy(exclude_failed_provider=True)
     result = ModelAttemptResult(
-        operation_id="op-1", attempt_index=2, model_id="m2", provider_id="p1",
+        operation_id="op-1",
+        attempt_index=2,
+        model_id="m2",
+        provider_id="p1",
         trigger=ModelFallbackTrigger.MODEL_UNAVAILABLE,
     )
     context = _context(policy=policy)
     context = ModelFallbackContext(
-        operation_id=context.operation_id, workflow_id=context.workflow_id,
+        operation_id=context.operation_id,
+        workflow_id=context.workflow_id,
         routing_decision=context.routing_decision,
-        effective_requirements=context.effective_requirements, latest_result=result,
+        effective_requirements=context.effective_requirements,
+        latest_result=result,
         history=ModelAttemptHistory((context.latest_result, result)),
-        policy=context.policy, approval=context.approval, budget=context.budget,
+        policy=context.policy,
+        approval=context.approval,
+        budget=context.budget,
     )
 
     decision = ModelFallbackDecisionEngine().decide(context)
@@ -112,7 +134,9 @@ def test_history_excludes_used_model_and_provider() -> None:
 
 def test_operation_fallback_policy_round_trip_and_recovery_adapter() -> None:
     operation = AgentWorkflowOperation(
-        id="op-1", task_id="task-1", operation_name="llm.complete",
+        id="op-1",
+        task_id="task-1",
+        operation_name="llm.complete",
         model_fallback_policy=ModelFallbackPolicy(),
     )
     restored = AgentWorkflowOperation.from_dict(operation.to_dict())
@@ -169,7 +193,9 @@ def test_context_rejects_invalid_history_and_policy_types() -> None:
         ModelFallbackContext(**kwargs)
 
 
-@pytest.mark.parametrize("field", ("approval", "budget", "privacy", "policy_context", "metadata"))
+@pytest.mark.parametrize(
+    "field", ("approval", "budget", "privacy", "policy_context", "metadata")
+)
 @pytest.mark.parametrize("value", ([], "invalid", True))
 def test_context_rejects_non_mapping_snapshots(field: str, value: object) -> None:
     context = _context()
@@ -194,16 +220,27 @@ def test_context_rejects_non_mapping_snapshots(field: str, value: object) -> Non
 
 def test_history_rejects_inconsistent_indices_and_operations() -> None:
     first = ModelAttemptResult(
-        operation_id="op-1", attempt_index=2, model_id="m1", provider_id="p1",
+        operation_id="op-1",
+        attempt_index=2,
+        model_id="m1",
+        provider_id="p1",
         trigger=ModelFallbackTrigger.TIMEOUT,
     )
     with pytest.raises(InvalidModelFallbackContractError):
         ModelAttemptHistory((first, first))
     with pytest.raises(InvalidModelFallbackContractError):
-        ModelAttemptHistory((first, ModelAttemptResult(
-            operation_id="op-2", attempt_index=3, model_id="m2", provider_id="p1",
-            trigger=ModelFallbackTrigger.TIMEOUT,
-        )))
+        ModelAttemptHistory(
+            (
+                first,
+                ModelAttemptResult(
+                    operation_id="op-2",
+                    attempt_index=3,
+                    model_id="m2",
+                    provider_id="p1",
+                    trigger=ModelFallbackTrigger.TIMEOUT,
+                ),
+            )
+        )
 
 
 def test_fallback_candidates_are_requested_through_injected_router() -> None:
@@ -213,7 +250,9 @@ def test_fallback_candidates_are_requested_through_injected_router() -> None:
         calls.append(decision.id)
         return decision.candidates[1:]
 
-    decision = ModelFallbackDecisionEngine(fallback_provider=fallback_provider).decide(_context())
+    decision = ModelFallbackDecisionEngine(fallback_provider=fallback_provider).decide(
+        _context()
+    )
     assert decision.selected_model_id == "m2"
     assert calls == ["routing-1"]
 
@@ -221,7 +260,8 @@ def test_fallback_candidates_are_requested_through_injected_router() -> None:
 def test_invalid_candidate_is_skipped_and_reason_is_recorded() -> None:
     context = _context()
     routing = RoutingDecision(
-        id=context.routing_decision.id, status=context.routing_decision.status,
+        id=context.routing_decision.id,
+        status=context.routing_decision.status,
         selected_model_id=context.routing_decision.selected_model_id,
         selected_provider_id=context.routing_decision.selected_provider_id,
         candidates=(
@@ -233,11 +273,16 @@ def test_invalid_candidate_is_skipped_and_reason_is_recorded() -> None:
         ranking_policy=context.routing_decision.ranking_policy,
     )
     context = ModelFallbackContext(
-        operation_id=context.operation_id, workflow_id=context.workflow_id,
-        routing_decision=routing, effective_requirements=ModelRequirements(
+        operation_id=context.operation_id,
+        workflow_id=context.workflow_id,
+        routing_decision=routing,
+        effective_requirements=ModelRequirements(
             reasoning=True, maximum_input_cost_per_million=Decimal(1)
-        ), latest_result=context.latest_result, history=context.history,
-        policy=context.policy, budget=context.budget,
+        ),
+        latest_result=context.latest_result,
+        history=context.history,
+        policy=context.policy,
+        budget=context.budget,
     )
     decision = ModelFallbackDecisionEngine().decide(context)
     assert decision.action is ModelFallbackAction.REROUTE
@@ -246,8 +291,10 @@ def test_invalid_candidate_is_skipped_and_reason_is_recorded() -> None:
 
 def test_premium_approval_is_only_requested_when_explicitly_required() -> None:
     policy = ModelFallbackPolicy(
-        actions=(ModelFallbackAction.SELECT_HIGHER_QUALITY_MODEL,
-                 ModelFallbackAction.NEXT_ROUTING_CANDIDATE),
+        actions=(
+            ModelFallbackAction.SELECT_HIGHER_QUALITY_MODEL,
+            ModelFallbackAction.NEXT_ROUTING_CANDIDATE,
+        ),
         allow_premium_with_approval=True,
     )
     context = _context(policy=policy)
@@ -255,11 +302,15 @@ def test_premium_approval_is_only_requested_when_explicitly_required() -> None:
     assert decision.action is ModelFallbackAction.NEXT_ROUTING_CANDIDATE
 
     context = ModelFallbackContext(
-        operation_id=context.operation_id, workflow_id=context.workflow_id,
+        operation_id=context.operation_id,
+        workflow_id=context.workflow_id,
         routing_decision=context.routing_decision,
         effective_requirements=context.effective_requirements,
-        latest_result=context.latest_result, history=context.history,
-        policy=policy, approval=context.approval, budget=context.budget,
+        latest_result=context.latest_result,
+        history=context.history,
+        policy=policy,
+        approval=context.approval,
+        budget=context.budget,
         policy_context={"premium_required": True},
     )
     decision = ModelFallbackDecisionEngine().decide(context)
@@ -269,16 +320,29 @@ def test_premium_approval_is_only_requested_when_explicitly_required() -> None:
 def test_recovery_adapter_preserves_structured_reason_codes() -> None:
     context = _context()
     context = ModelFallbackContext(
-        operation_id=context.operation_id, workflow_id=context.workflow_id,
+        operation_id=context.operation_id,
+        workflow_id=context.workflow_id,
         routing_decision=context.routing_decision,
         effective_requirements=context.effective_requirements,
         latest_result=ModelAttemptResult(
-            operation_id="op-1", attempt_index=1, model_id="m1", provider_id="p1",
+            operation_id="op-1",
+            attempt_index=1,
+            model_id="m1",
+            provider_id="p1",
             trigger=ModelFallbackTrigger.BUDGET_EXHAUSTED,
-        ), history=ModelAttemptHistory((ModelAttemptResult(
-            operation_id="op-1", attempt_index=1, model_id="m1", provider_id="p1",
-            trigger=ModelFallbackTrigger.BUDGET_EXHAUSTED,
-        ),)), policy=context.policy,
+        ),
+        history=ModelAttemptHistory(
+            (
+                ModelAttemptResult(
+                    operation_id="op-1",
+                    attempt_index=1,
+                    model_id="m1",
+                    provider_id="p1",
+                    trigger=ModelFallbackTrigger.BUDGET_EXHAUSTED,
+                ),
+            )
+        ),
+        policy=context.policy,
         budget={"available": False},
     )
     decision = ModelFallbackDecisionEngine().decide(context)
@@ -303,11 +367,14 @@ def test_requested_recovery_actions_are_reachable(
     context = _context()
     policy = ModelFallbackPolicy(actions=(requested_action,))
     context = ModelFallbackContext(
-        operation_id=context.operation_id, workflow_id=context.workflow_id,
+        operation_id=context.operation_id,
+        workflow_id=context.workflow_id,
         routing_decision=context.routing_decision,
         effective_requirements=context.effective_requirements,
-        latest_result=context.latest_result, history=context.history,
-        policy=policy, budget=context.budget,
+        latest_result=context.latest_result,
+        history=context.history,
+        policy=policy,
+        budget=context.budget,
         policy_context={"requested_action": requested_action.value},
     )
     assert ModelFallbackDecisionEngine().decide(context).action is expected
@@ -322,17 +389,24 @@ def test_requested_recovery_actions_are_reachable(
     ],
 )
 def test_restricted_precedence_escalates_only_when_enabled(
-    field: str, value: object, reason: str,
+    field: str,
+    value: object,
+    reason: str,
 ) -> None:
     context = _context()
     policy = ModelFallbackPolicy(actions=(ModelFallbackAction.ESCALATE,))
     kwargs = {
-        "operation_id": context.operation_id, "workflow_id": context.workflow_id,
+        "operation_id": context.operation_id,
+        "workflow_id": context.workflow_id,
         "routing_decision": context.routing_decision,
         "effective_requirements": context.effective_requirements,
-        "latest_result": context.latest_result, "history": context.history,
-        "policy": policy, "approval": context.approval, "budget": context.budget,
-        "privacy": context.privacy, "policy_context": context.policy_context,
+        "latest_result": context.latest_result,
+        "history": context.history,
+        "policy": policy,
+        "approval": context.approval,
+        "budget": context.budget,
+        "privacy": context.privacy,
+        "policy_context": context.policy_context,
     }
     kwargs[field] = value
     decision = ModelFallbackDecisionEngine().decide(ModelFallbackContext(**kwargs))
@@ -345,10 +419,13 @@ def test_idempotency_changes_for_policy_or_routing_inputs() -> None:
     base = _context()
     changed = ModelFallbackDecisionEngine().decide(
         ModelFallbackContext(
-            operation_id="op-1", workflow_id="wf-1", routing_decision=_routing(),
+            operation_id="op-1",
+            workflow_id="wf-1",
+            routing_decision=_routing(),
             effective_requirements=ModelRequirements(reasoning=False),
             latest_result=base.latest_result,
-            history=base.history, policy=ModelFallbackPolicy(version="2"),
+            history=base.history,
+            policy=ModelFallbackPolicy(version="2"),
             budget={"available": True},
         )
     )

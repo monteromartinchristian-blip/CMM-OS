@@ -60,12 +60,20 @@ class ModelExecutionRecordAssembler:
         exclusion_reasons: tuple[str, ...] = (),
         privacy_policy_version: str = "1",
     ) -> ModelExecutionRecord:
-        if estimate is not None and actual is not None and estimate.currency != actual.currency:
-            raise InvalidModelExecutionRecordError("estimate and actual costs must use the same currency")
+        if (
+            estimate is not None
+            and actual is not None
+            and estimate.currency != actual.currency
+        ):
+            raise InvalidModelExecutionRecordError(
+                "estimate and actual costs must use the same currency"
+            )
         resolved_currency = (
-            estimate.currency if estimate is not None else
-            actual.currency if actual is not None else
-            currency or "USD"
+            estimate.currency
+            if estimate is not None
+            else actual.currency
+            if actual is not None
+            else currency or "USD"
         )
         return ModelExecutionRecord(
             id=record_id,
@@ -80,7 +88,9 @@ class ModelExecutionRecordAssembler:
             input_tokens=estimate.input_tokens or 0 if estimate else 0,
             output_tokens=estimate.output_tokens or 0 if estimate else 0,
             cached_tokens=estimate.cached_input_tokens or 0 if estimate else 0,
-            estimated_cost=estimate.total_cost if estimate else (attempt.estimated_cost or Decimal(0)),
+            estimated_cost=estimate.total_cost
+            if estimate
+            else (attempt.estimated_cost or Decimal(0)),
             actual_cost=actual.total_cost if actual else attempt.actual_cost,
             currency=resolved_currency,
             latency_ms=attempt.latency_ms or 0,
@@ -89,13 +99,16 @@ class ModelExecutionRecordAssembler:
             routing_provider_id=getattr(routing_decision, "selected_provider_id", None),
             routing_model_id=getattr(routing_decision, "selected_model_id", None),
             routing_reason_codes=tuple(getattr(routing_decision, "reason_codes", ())),
-            rejected_candidates_count=len(getattr(routing_decision, "rejected_models", ())),
+            rejected_candidates_count=len(
+                getattr(routing_decision, "rejected_models", ())
+            ),
             fallback_from=fallback_from,
             fallback_trigger=ModelExecutionRecordAssembler._value(
                 fallback_trigger if fallback_trigger is not None else attempt.trigger
             ),
             fallback_action=ModelExecutionRecordAssembler._value(fallback_action),
-            attempt_history_reference=attempt_history_reference or f"operation:{attempt.operation_id}",
+            attempt_history_reference=attempt_history_reference
+            or f"operation:{attempt.operation_id}",
             budget_id=budget_id,
             reservation_id=reservation_id,
             economic_decision=ModelExecutionRecordAssembler._value(economic_decision),
@@ -110,11 +123,14 @@ class ModelExecutionRecordAssembler:
             causation_id=causation_id,
             content_reference=content_reference,
             content_retention=ModelExecutionRecordAssembler._value(content_retention),
-            privacy_classification=ModelExecutionRecordAssembler._value(privacy_classification),
+            privacy_classification=ModelExecutionRecordAssembler._value(
+                privacy_classification
+            ),
             exclusion_reasons=exclusion_reasons,
             privacy_policy_version=privacy_policy_version,
             policy_version=policy_version,
-            configuration_version=configuration_version or getattr(routing_decision, "configuration_version", None),
+            configuration_version=configuration_version
+            or getattr(routing_decision, "configuration_version", None),
             execution_status="completed" if attempt.success else "failed",
             acceptance_status="pending",
             created_at=datetime.now(timezone.utc),

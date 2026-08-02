@@ -763,9 +763,8 @@ class Goal:
             self, "permissions", _freeze_str_tuple(self.permissions, "permissions")
         )
 
-        if (
-            self.model_requirements is not None
-            and not isinstance(self.model_requirements, ModelRequirements)
+        if self.model_requirements is not None and not isinstance(
+            self.model_requirements, ModelRequirements
         ):
             raise InvalidGoalContractError(
                 "model_requirements must be a ModelRequirements instance or None"
@@ -859,7 +858,9 @@ class Goal:
                 else None
             ),
             "economic_budget": (
-                self.economic_budget.to_dict() if self.economic_budget is not None else None
+                self.economic_budget.to_dict()
+                if self.economic_budget is not None
+                else None
             ),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

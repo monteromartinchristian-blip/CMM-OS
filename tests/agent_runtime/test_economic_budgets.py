@@ -49,7 +49,9 @@ def test_economic_budget_round_trip_is_json_safe_and_immutable():
         budget.metadata["new"] = "value"
 
 
-@pytest.mark.parametrize("value", [True, Decimal("NaN"), Decimal("Infinity"), Decimal(-1)])
+@pytest.mark.parametrize(
+    "value", [True, Decimal("NaN"), Decimal("Infinity"), Decimal(-1)]
+)
 def test_economic_budget_rejects_unsafe_money(value):
     with pytest.raises(InvalidEconomicBudgetContractError):
         EconomicBudget(id="b1", maximum_cost=value)
@@ -150,13 +152,18 @@ def test_adapter_reserves_confirms_and_releases_canonical_cost_resource():
     )
     adapter.confirm(reservation.id, Decimal("1.50"))
 
-    assert service.get_budget("ab-1").used_for(BudgetResourceType.COST) == Decimal("1.50")
+    assert service.get_budget("ab-1").used_for(BudgetResourceType.COST) == Decimal(
+        "1.50"
+    )
 
 
 def test_adapter_uses_service_public_lookup_and_enforces_currency_on_reuse():
     service = ActionBudgetService()
     service.create_budget(
-        "run-existing", {BudgetResourceType.COST: Decimal(5)}, currency="USD", budget_id="ab-existing"
+        "run-existing",
+        {BudgetResourceType.COST: Decimal(5)},
+        currency="USD",
+        budget_id="ab-existing",
     )
     adapter = EconomicBudgetActionBudgetAdapter(service)
 
@@ -177,39 +184,76 @@ def test_adapter_rejects_currency_mismatch_on_reserve_and_confirm():
         "run-2", {BudgetResourceType.COST: Decimal(5)}, currency="EUR", budget_id="ab-2"
     )
     adapter = EconomicBudgetActionBudgetAdapter(service)
-    estimate = ModelCostEstimate(Decimal(1), Decimal(0), Decimal(1), Decimal(2), currency="USD")
+    estimate = ModelCostEstimate(
+        Decimal(1), Decimal(0), Decimal(1), Decimal(2), currency="USD"
+    )
     with pytest.raises(Exception, match="currency"):
-        adapter.reserve(budget, estimate, goal_id="g", workflow_id="w", operation_id="o", run_id="r", model_id="m", provider_id="p")
+        adapter.reserve(
+            budget,
+            estimate,
+            goal_id="g",
+            workflow_id="w",
+            operation_id="o",
+            run_id="r",
+            model_id="m",
+            provider_id="p",
+        )
 
     reservation = adapter.reserve(
         budget,
-        ModelCostEstimate(Decimal(1), Decimal(0), Decimal(1), Decimal(2), currency="EUR"),
-        goal_id="g", workflow_id="w", operation_id="o", run_id="r", model_id="m", provider_id="p",
+        ModelCostEstimate(
+            Decimal(1), Decimal(0), Decimal(1), Decimal(2), currency="EUR"
+        ),
+        goal_id="g",
+        workflow_id="w",
+        operation_id="o",
+        run_id="r",
+        model_id="m",
+        provider_id="p",
     )
     with pytest.raises(Exception, match="currency"):
         adapter.confirm(reservation.id, Decimal(1), currency="USD")
 
 
 def test_incomplete_estimate_is_explicit_and_cannot_be_reserved():
-    model = ModelSpec(id="partial", provider_id="provider", output_cost_per_million=Decimal(2))
-    estimate = ModelCostCalculator().estimate(model, input_tokens=10, output_tokens=10, allow_partial=True)
+    model = ModelSpec(
+        id="partial", provider_id="provider", output_cost_per_million=Decimal(2)
+    )
+    estimate = ModelCostCalculator().estimate(
+        model, input_tokens=10, output_tokens=10, allow_partial=True
+    )
     assert estimate.complete is False
     assert estimate.missing_prices == ("input",)
     assert estimate.known_cost == Decimal("0.00002")
 
     service = ActionBudgetService()
-    budget = service.create_budget("run-3", {BudgetResourceType.COST: Decimal(5)}, budget_id="ab-3")
+    budget = service.create_budget(
+        "run-3", {BudgetResourceType.COST: Decimal(5)}, budget_id="ab-3"
+    )
     with pytest.raises(Exception, match="incomplete"):
         EconomicBudgetActionBudgetAdapter(service).reserve(
-            budget, estimate, goal_id="g", workflow_id="w", operation_id="o", run_id="r", model_id="m", provider_id="p"
+            budget,
+            estimate,
+            goal_id="g",
+            workflow_id="w",
+            operation_id="o",
+            run_id="r",
+            model_id="m",
+            provider_id="p",
         )
 
 
 def test_incomplete_estimate_with_limit_fails_closed_in_resolver():
-    model = ModelSpec(id="partial-limit", provider_id="provider", output_cost_per_million=Decimal(2))
-    estimate = ModelCostCalculator().estimate(model, input_tokens=10, output_tokens=10, allow_partial=True)
+    model = ModelSpec(
+        id="partial-limit", provider_id="provider", output_cost_per_million=Decimal(2)
+    )
+    estimate = ModelCostCalculator().estimate(
+        model, input_tokens=10, output_tokens=10, allow_partial=True
+    )
     resolved = EconomicBudgetResolver().resolve(
-        goal=EconomicBudget(id="g-limit", maximum_cost=Decimal(1), allow_overrun_with_approval=False)
+        goal=EconomicBudget(
+            id="g-limit", maximum_cost=Decimal(1), allow_overrun_with_approval=False
+        )
     )
     decision = EconomicBudgetResolver.decide(estimate, resolved)
     assert decision.decision is EconomicBudgetAction.PAUSE
@@ -288,7 +332,9 @@ def test_goal_and_workflow_contracts_preserve_optional_economic_budget():
         task_id="task-1",
         operation_name="model_call",
         risk=WorkflowPlanRisk.NONE,
-        economic_budget=EconomicBudget(id="op-budget", source="operation", maximum_cost=Decimal(1)),
+        economic_budget=EconomicBudget(
+            id="op-budget", source="operation", maximum_cost=Decimal(1)
+        ),
     )
     plan = AgentWorkflowPlan(
         id="plan-1",
@@ -297,7 +343,9 @@ def test_goal_and_workflow_contracts_preserve_optional_economic_budget():
         workflow_id="workflow-1",
         status=WorkflowPlanStatus.DRAFT,
         operations=[operation],
-        economic_budget=EconomicBudget(id="workflow-budget", source="workflow", maximum_cost=Decimal(2)),
+        economic_budget=EconomicBudget(
+            id="workflow-budget", source="workflow", maximum_cost=Decimal(2)
+        ),
     )
 
     assert Goal.from_dict(goal.to_dict()).economic_budget == economic
@@ -334,11 +382,20 @@ def test_estimate_decision_applies_token_and_operation_limits():
 
 def test_estimate_decision_allows_valid_operation_and_marks_warning():
     estimate = ModelCostEstimate(
-        Decimal(1), Decimal(0), Decimal("0.7"), Decimal("1.7"), currency="EUR",
-        input_tokens=1, output_tokens=1, cached_input_tokens=0, total_tokens=2,
+        Decimal(1),
+        Decimal(0),
+        Decimal("0.7"),
+        Decimal("1.7"),
+        currency="EUR",
+        input_tokens=1,
+        output_tokens=1,
+        cached_input_tokens=0,
+        total_tokens=2,
     )
     resolved = EconomicBudgetResolver().resolve(
-        goal=EconomicBudget(id="warning", maximum_cost=Decimal(2), warning_threshold_percent=80)
+        goal=EconomicBudget(
+            id="warning", maximum_cost=Decimal(2), warning_threshold_percent=80
+        )
     )
     decision = EconomicBudgetResolver.decide(estimate, resolved, used_cost=Decimal(0))
     assert decision.decision is EconomicBudgetAction.WARN
@@ -357,7 +414,10 @@ def test_actual_decision_handles_tolerance_and_approval():
         )
     )
     decision = EconomicBudgetResolver.decide_actual(
-        actual_cost=Decimal("5.75"), estimated_cost=Decimal(4), reserved_cost=Decimal(5), resolved=resolved
+        actual_cost=Decimal("5.75"),
+        estimated_cost=Decimal(4),
+        reserved_cost=Decimal(5),
+        resolved=resolved,
     )
     assert decision.resolved.actual_cost_excessive is True
     assert decision.resolved.approval_required is True
@@ -367,11 +427,16 @@ def test_actual_decision_handles_tolerance_and_approval():
 def test_ensure_action_budget_reconciles_more_permissive_existing_limit():
     service = ActionBudgetService()
     service.create_budget(
-        "run-reconcile", {BudgetResourceType.COST: Decimal(10)}, budget_id="ab-reconcile"
+        "run-reconcile",
+        {BudgetResourceType.COST: Decimal(10)},
+        budget_id="ab-reconcile",
     )
     adapter = EconomicBudgetActionBudgetAdapter(service)
     budget = adapter.ensure_action_budget(
-        "economic-reconcile", agent_run_id="run-reconcile", maximum_cost=Decimal(5), currency="EUR"
+        "economic-reconcile",
+        agent_run_id="run-reconcile",
+        maximum_cost=Decimal(5),
+        currency="EUR",
     )
     assert budget.limit_for(BudgetResourceType.COST) == Decimal(5)
 
@@ -379,13 +444,18 @@ def test_ensure_action_budget_reconciles_more_permissive_existing_limit():
 def test_ensure_action_budget_preserves_existing_commitment_when_reduction_is_unsafe():
     service = ActionBudgetService()
     budget = service.create_budget(
-        "run-committed", {BudgetResourceType.COST: Decimal(10)}, budget_id="ab-committed"
+        "run-committed",
+        {BudgetResourceType.COST: Decimal(10)},
+        budget_id="ab-committed",
     )
     reservation = service.reserve(
         budget.id, [BudgetAllocation(BudgetResourceType.COST, Decimal(6))]
     )
     with pytest.raises(Exception, match="committed|below"):
         EconomicBudgetActionBudgetAdapter(service).ensure_action_budget(
-            "economic-committed", agent_run_id="run-committed", maximum_cost=Decimal(5), currency="EUR"
+            "economic-committed",
+            agent_run_id="run-committed",
+            maximum_cost=Decimal(5),
+            currency="EUR",
         )
     assert service.get_reservation(reservation.id).status.value == "reserved"

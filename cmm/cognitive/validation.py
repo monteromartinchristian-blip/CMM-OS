@@ -229,9 +229,13 @@ class CognitiveValidationContext:
             tuple(self.invalidated_dependency_ids or ()),
         )
         object.__setattr__(
-            self, "permission_context", MappingProxyType(dict(self.permission_context or {}))
+            self,
+            "permission_context",
+            MappingProxyType(dict(self.permission_context or {})),
         )
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata or {})))
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
     def to_privacy_operation_context(self) -> PrivacyOperationContext:
         """Build a Phase 8.25 ``PrivacyOperationContext`` from this context."""
@@ -263,7 +267,9 @@ class CognitiveValidationContext:
             "domain_version": self.domain_version,
             "processing_location": self.processing_location.value,
             "target_operation": (
-                self.target_operation.value if self.target_operation is not None else None
+                self.target_operation.value
+                if self.target_operation is not None
+                else None
             ),
             "permission_context": dict(self.permission_context),
             "known_dependency_ids": list(self.known_dependency_ids),
@@ -309,7 +315,9 @@ class CognitiveValidationResult:
 
     def __post_init__(self) -> None:
         if not self.id.strip():
-            raise CognitiveValidationError("CognitiveValidationResult.id must not be empty")
+            raise CognitiveValidationError(
+                "CognitiveValidationResult.id must not be empty"
+            )
         if not self.target_id.strip():
             raise CognitiveValidationError(
                 "CognitiveValidationResult.target_id must not be empty"
@@ -325,19 +333,41 @@ class CognitiveValidationResult:
         if not isinstance(self.status, ValidationStatus):
             raise CognitiveValidationError("status must be a ValidationStatus")
         if not isinstance(self.decision, CognitiveValidationDecision):
-            raise CognitiveValidationError("decision must be a CognitiveValidationDecision")
+            raise CognitiveValidationError(
+                "decision must be a CognitiveValidationDecision"
+            )
         _require_aware(self.created_at, "created_at")
 
         object.__setattr__(self, "findings", tuple(self.findings or ()))
-        object.__setattr__(self, "blocking_findings", tuple(self.blocking_findings or ()))
+        object.__setattr__(
+            self, "blocking_findings", tuple(self.blocking_findings or ())
+        )
         object.__setattr__(self, "warnings", tuple(self.warnings or ()))
         object.__setattr__(self, "validated_rules", tuple(self.validated_rules or ()))
-        object.__setattr__(self, "privacy_result", MappingProxyType(dict(self.privacy_result or {})))
-        object.__setattr__(self, "temporal_result", MappingProxyType(dict(self.temporal_result or {})))
-        object.__setattr__(self, "provenance_result", MappingProxyType(dict(self.provenance_result or {})))
-        object.__setattr__(self, "epistemology_result", MappingProxyType(dict(self.epistemology_result or {})))
-        object.__setattr__(self, "contradiction_result", MappingProxyType(dict(self.contradiction_result or {})))
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata or {})))
+        object.__setattr__(
+            self, "privacy_result", MappingProxyType(dict(self.privacy_result or {}))
+        )
+        object.__setattr__(
+            self, "temporal_result", MappingProxyType(dict(self.temporal_result or {}))
+        )
+        object.__setattr__(
+            self,
+            "provenance_result",
+            MappingProxyType(dict(self.provenance_result or {})),
+        )
+        object.__setattr__(
+            self,
+            "epistemology_result",
+            MappingProxyType(dict(self.epistemology_result or {})),
+        )
+        object.__setattr__(
+            self,
+            "contradiction_result",
+            MappingProxyType(dict(self.contradiction_result or {})),
+        )
+        object.__setattr__(
+            self, "metadata", MappingProxyType(dict(self.metadata or {}))
+        )
 
     @property
     def is_accept(self) -> bool:
@@ -363,9 +393,13 @@ class CognitiveValidationResult:
             "provenance_result": dict(self.provenance_result),
             "epistemology_result": dict(self.epistemology_result),
             "contradiction_result": dict(self.contradiction_result),
-            "cache_result": dict(self.cache_result) if self.cache_result is not None else None,
+            "cache_result": dict(self.cache_result)
+            if self.cache_result is not None
+            else None,
             "phase7_result": (
-                self.phase7_result.serialize() if self.phase7_result is not None else None
+                self.phase7_result.serialize()
+                if self.phase7_result is not None
+                else None
             ),
             "created_at": self.created_at.isoformat(),
             "metadata": dict(self.metadata),
@@ -389,7 +423,9 @@ class CognitiveValidationResult:
                     raise CognitiveValidationError(
                         f"Invalid ISO timestamp for {name}: {raw}"
                     ) from exc
-            raise CognitiveValidationError(f"Expected timestamp string for {name}: {raw}")
+            raise CognitiveValidationError(
+                f"Expected timestamp string for {name}: {raw}"
+            )
 
         def _finding(raw: Any) -> ValidationFinding:
             if isinstance(raw, ValidationFinding):
@@ -412,7 +448,9 @@ class CognitiveValidationResult:
 
         status_raw = payload.get("status", ValidationStatus.PASSED.value)
         status = (
-            status_raw if isinstance(status_raw, ValidationStatus) else ValidationStatus(status_raw)
+            status_raw
+            if isinstance(status_raw, ValidationStatus)
+            else ValidationStatus(status_raw)
         )
         decision_raw = payload.get("decision", CognitiveValidationDecision.ACCEPT.value)
         decision = (
@@ -434,9 +472,7 @@ class CognitiveValidationResult:
                     duration_ms=int(phase7_raw.get("duration_ms", 0)),
                     stdout=str(phase7_raw.get("stdout", "")),
                     stderr=str(phase7_raw.get("stderr", "")),
-                    findings=tuple(
-                        _finding(f) for f in phase7_raw.get("findings", ())
-                    ),
+                    findings=tuple(_finding(f) for f in phase7_raw.get("findings", ())),
                     artifacts=(),
                     started_at=None,
                     completed_at=None,
@@ -450,7 +486,9 @@ class CognitiveValidationResult:
             status=status,
             decision=decision,
             findings=tuple(_finding(f) for f in payload.get("findings", ())),
-            blocking_findings=tuple(_finding(f) for f in payload.get("blocking_findings", ())),
+            blocking_findings=tuple(
+                _finding(f) for f in payload.get("blocking_findings", ())
+            ),
             warnings=tuple(_finding(f) for f in payload.get("warnings", ())),
             validated_rules=tuple(str(r) for r in payload.get("validated_rules", ())),
             privacy_result=dict(payload.get("privacy_result") or {}),
@@ -459,12 +497,16 @@ class CognitiveValidationResult:
             epistemology_result=dict(payload.get("epistemology_result") or {}),
             contradiction_result=dict(payload.get("contradiction_result") or {}),
             cache_result=(
-                dict(payload["cache_result"]) if payload.get("cache_result") is not None else None
+                dict(payload["cache_result"])
+                if payload.get("cache_result") is not None
+                else None
             ),
             phase7_result=phase7,
             created_at=_parse_dt(payload.get("created_at"), "created_at"),
             metadata=dict(payload.get("metadata") or {}),
-            schema_version=int(payload.get("schema_version", COGNITIVE_VALIDATION_SCHEMA_VERSION)),
+            schema_version=int(
+                payload.get("schema_version", COGNITIVE_VALIDATION_SCHEMA_VERSION)
+            ),
         )
 
     @classmethod
@@ -497,7 +539,10 @@ def derive_cognitive_validation_decision(
                     most_restrictive = code_decision
             else:
                 # Unknown blocking finding → escalate
-                if _DECISION_RANK[CognitiveValidationDecision.ESCALATE] > _DECISION_RANK[most_restrictive]:
+                if (
+                    _DECISION_RANK[CognitiveValidationDecision.ESCALATE]
+                    > _DECISION_RANK[most_restrictive]
+                ):
                     most_restrictive = CognitiveValidationDecision.ESCALATE
         elif finding.severity in (ValidationSeverity.WARNING, ValidationSeverity.ERROR):
             has_warning = True
@@ -546,7 +591,9 @@ def _finding(
         severity=severity,
         source=_SOURCE,
         blocking=blocking,
-        metadata=dict(metadata or {}, **({"target_id": target_id} if target_id else {})),
+        metadata=dict(
+            metadata or {}, **({"target_id": target_id} if target_id else {})
+        ),
     )
 
 
@@ -570,7 +617,9 @@ class SchemaRule:
     name = "cognitive.schema"
 
     def applies(self, target: Any) -> bool:
-        return isinstance(target, (KnowledgePackage, CognitiveCacheEntry, KnowledgeItem))
+        return isinstance(
+            target, (KnowledgePackage, CognitiveCacheEntry, KnowledgeItem)
+        )
 
     def evaluate(
         self, target: Any, context: CognitiveValidationContext
@@ -587,7 +636,10 @@ class SchemaRule:
                         severity=ValidationSeverity.CRITICAL,
                         blocking=True,
                         target_id=target_id,
-                        metadata={"expected": KP_SCHEMA_VERSION, "actual": target.schema_version},
+                        metadata={
+                            "expected": KP_SCHEMA_VERSION,
+                            "actual": target.schema_version,
+                        },
                     )
                 )
             if not target.id.strip():
@@ -691,7 +743,9 @@ class TemporalityRule:
     name = "cognitive.temporality"
 
     def applies(self, target: Any) -> bool:
-        return isinstance(target, (KnowledgePackage, CognitiveCacheEntry, KnowledgeItem))
+        return isinstance(
+            target, (KnowledgePackage, CognitiveCacheEntry, KnowledgeItem)
+        )
 
     def evaluate(
         self, target: Any, context: CognitiveValidationContext
@@ -753,7 +807,10 @@ class TemporalityRule:
 
         elif isinstance(target, KnowledgeItem):
             status = target.temporal_scope.validity_status
-            if status is TemporalValidityStatus.EXPIRED and context.require_current_information:
+            if (
+                status is TemporalValidityStatus.EXPIRED
+                and context.require_current_information
+            ):
                 findings.append(
                     _finding(
                         COG_TEMPORAL_EXPIRED,
@@ -787,7 +844,12 @@ class EpistemologyRule:
 
         items: tuple[KnowledgeItem, ...] = ()
         if isinstance(target, KnowledgePackage):
-            items = target.facts + target.observations + target.inferences + target.hypotheses
+            items = (
+                target.facts
+                + target.observations
+                + target.inferences
+                + target.hypotheses
+            )
         elif isinstance(target, KnowledgeItem):
             items = (target,)
 
@@ -814,7 +876,10 @@ class EpistemologyRule:
                         severity=ValidationSeverity.INFO,
                         blocking=False,
                         target_id=target_id,
-                        metadata={"item_id": item.id, "confidence": item.confidence.value},
+                        metadata={
+                            "item_id": item.id,
+                            "confidence": item.confidence.value,
+                        },
                     )
                 )
             if item.kind is KnowledgeKind.INFERENCE and not item.evidence:
@@ -926,7 +991,10 @@ class PrivacyRule:
                     severity=ValidationSeverity.CRITICAL,
                     blocking=True,
                     target_id=target_id,
-                    metadata={"reason_code": decision.reason_code, "operation": operation.value},
+                    metadata={
+                        "reason_code": decision.reason_code,
+                        "operation": operation.value,
+                    },
                 )
             )
         elif decision.status is PrivacyDecisionStatus.REDACTION_REQUIRED:
@@ -998,7 +1066,11 @@ class KnowledgePackageRule:
                 )
 
         # Unresolved contradictions
-        unresolved = [c for c in target.contradictions if c.status is ContradictionStatus.UNRESOLVED]
+        unresolved = [
+            c
+            for c in target.contradictions
+            if c.status is ContradictionStatus.UNRESOLVED
+        ]
         if unresolved:
             findings.append(
                 _finding(
@@ -1260,9 +1332,7 @@ class CognitiveValidator:
 
     __slots__ = ("_rules",)
 
-    def __init__(
-        self, rules: Sequence[CognitiveValidationRule] | None = None
-    ) -> None:
+    def __init__(self, rules: Sequence[CognitiveValidationRule] | None = None) -> None:
         self._rules: tuple[CognitiveValidationRule, ...] = tuple(
             rules if rules is not None else default_cognitive_validation_rules()
         )
@@ -1310,34 +1380,50 @@ class CognitiveValidator:
         findings_tuple = tuple(all_findings)
         blocking = tuple(f for f in findings_tuple if f.blocking)
         warnings = tuple(
-            f for f in findings_tuple if not f.blocking and f.severity == ValidationSeverity.WARNING
+            f
+            for f in findings_tuple
+            if not f.blocking and f.severity == ValidationSeverity.WARNING
         )
         decision = derive_cognitive_validation_decision(findings_tuple)
         status = _status_from_findings(findings_tuple)
         target_id = _target_id(target)
         target_kind = _target_kind(target)
-        result_id = _deterministic_result_id(target_id, target_kind, validated_rule_names)
+        result_id = _deterministic_result_id(
+            target_id, target_kind, validated_rule_names
+        )
 
         # Build partial results
         privacy_result = {
-            "findings": [f.serialize() for f in rule_results.get("cognitive.privacy", ())],
+            "findings": [
+                f.serialize() for f in rule_results.get("cognitive.privacy", ())
+            ],
         }
         temporal_result = {
-            "findings": [f.serialize() for f in rule_results.get("cognitive.temporality", ())],
+            "findings": [
+                f.serialize() for f in rule_results.get("cognitive.temporality", ())
+            ],
         }
         provenance_result = {
-            "findings": [f.serialize() for f in rule_results.get("cognitive.provenance", ())],
+            "findings": [
+                f.serialize() for f in rule_results.get("cognitive.provenance", ())
+            ],
         }
         epistemology_result = {
-            "findings": [f.serialize() for f in rule_results.get("cognitive.epistemology", ())],
+            "findings": [
+                f.serialize() for f in rule_results.get("cognitive.epistemology", ())
+            ],
         }
         contradiction_result = {
-            "findings": [f.serialize() for f in rule_results.get("cognitive.contradictions", ())],
+            "findings": [
+                f.serialize() for f in rule_results.get("cognitive.contradictions", ())
+            ],
         }
         cache_result = None
         if "cognitive.cache" in rule_results:
             cache_result = {
-                "findings": [f.serialize() for f in rule_results.get("cognitive.cache", ())],
+                "findings": [
+                    f.serialize() for f in rule_results.get("cognitive.cache", ())
+                ],
             }
 
         return CognitiveValidationResult(

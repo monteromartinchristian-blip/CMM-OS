@@ -80,9 +80,7 @@ def _utc_now() -> datetime:
 
 
 def _require_aware(value: datetime | None, name: str) -> None:
-    if value is not None and (
-        not isinstance(value, datetime) or value.tzinfo is None
-    ):
+    if value is not None and (not isinstance(value, datetime) or value.tzinfo is None):
         raise InvalidCognitiveCacheEntryError(f"{name} must be timezone-aware")
 
 
@@ -322,7 +320,9 @@ class CognitiveCacheEntry:
                         f"Invalid privacy: {privacy!r}"
                     )
             except InvalidPrivacyMetadataError as exc:
-                raise InvalidCognitiveCacheEntryError(f"Invalid privacy: {exc}") from exc
+                raise InvalidCognitiveCacheEntryError(
+                    f"Invalid privacy: {exc}"
+                ) from exc
             object.__setattr__(self, "privacy", privacy)
 
         for name in (
@@ -336,7 +336,9 @@ class CognitiveCacheEntry:
         if not isinstance(self.created_at, datetime):
             raise InvalidCognitiveCacheEntryError("created_at must be a datetime")
         if not isinstance(self.last_validated_at, datetime):
-            raise InvalidCognitiveCacheEntryError("last_validated_at must be a datetime")
+            raise InvalidCognitiveCacheEntryError(
+                "last_validated_at must be a datetime"
+            )
         if self.last_validated_at < self.created_at:
             raise InvalidCognitiveCacheEntryError(
                 "last_validated_at must not precede created_at"
@@ -462,7 +464,9 @@ class CognitiveCacheEntry:
                 self.updated_at.isoformat() if self.updated_at is not None else None
             ),
             "invalidated_at": (
-                self.invalidated_at.isoformat() if self.invalidated_at is not None else None
+                self.invalidated_at.isoformat()
+                if self.invalidated_at is not None
+                else None
             ),
             "valid_until": (
                 self.valid_until.isoformat() if self.valid_until is not None else None
@@ -499,7 +503,9 @@ class CognitiveCacheEntry:
                     ) from exc
             raise InvalidCognitiveCacheEntryError("datetime value is invalid")
 
-        created_at = parse_dt(payload.get("created_at"), default=_utc_now()) or _utc_now()
+        created_at = (
+            parse_dt(payload.get("created_at"), default=_utc_now()) or _utc_now()
+        )
         return cls(
             id=payload.get("id", ""),
             key=payload.get("key", ""),
@@ -531,7 +537,9 @@ class CognitiveCacheEntry:
             provenance=tuple(payload.get("provenance") or ()),
             status=payload.get("status", CognitiveCacheEntryStatus.VALID.value),
             metadata=dict(payload.get("metadata") or {}),
-            schema_version=payload.get("schema_version", COGNITIVE_CACHE_SCHEMA_VERSION),
+            schema_version=payload.get(
+                "schema_version", COGNITIVE_CACHE_SCHEMA_VERSION
+            ),
             audit_log=tuple(payload.get("audit_log") or ()),
         )
 
@@ -853,17 +861,23 @@ class InMemoryCognitiveCacheStore:
             self._entries[updated.id] = updated
             return updated
 
-    def _find(self, index: Mapping[str, set[str]], key: str) -> tuple[CognitiveCacheEntry, ...]:
+    def _find(
+        self, index: Mapping[str, set[str]], key: str
+    ) -> tuple[CognitiveCacheEntry, ...]:
         with self._lock:
             ids = index.get(key, set())
-            matches = [self._entries[entry_id] for entry_id in ids if entry_id in self._entries]
+            matches = [
+                self._entries[entry_id] for entry_id in ids if entry_id in self._entries
+            ]
         matches.sort(key=lambda e: (e.created_at, e.id))
         return tuple(matches)
 
     def find_by_source_id(self, source_id: str) -> tuple[CognitiveCacheEntry, ...]:
         return self._find(self._source_index, source_id)
 
-    def find_by_dependency_id(self, dependency_id: str) -> tuple[CognitiveCacheEntry, ...]:
+    def find_by_dependency_id(
+        self, dependency_id: str
+    ) -> tuple[CognitiveCacheEntry, ...]:
         return self._find(self._dependency_index, dependency_id)
 
     def find_by_invalidation_key(self, key: str) -> tuple[CognitiveCacheEntry, ...]:
@@ -937,8 +951,9 @@ class CognitiveCache:
     ) -> bool:
         return evaluate_cache_permission_denied(entry, context)
 
-
-    def get(self, key: str, context: CognitiveCacheContext) -> CognitiveCacheLookupResult:
+    def get(
+        self, key: str, context: CognitiveCacheContext
+    ) -> CognitiveCacheLookupResult:
         if not isinstance(context, CognitiveCacheContext):
             raise InvalidCognitiveCacheEntryError(
                 "context must be a CognitiveCacheContext"
@@ -1076,7 +1091,9 @@ class CognitiveCache:
             requires_revalidation=False,
         )
 
-    def reuse(self, key: str, context: CognitiveCacheContext) -> CognitiveCacheLookupResult:
+    def reuse(
+        self, key: str, context: CognitiveCacheContext
+    ) -> CognitiveCacheLookupResult:
         """Alias of :meth:`get` for call sites emphasising reuse intent."""
         return self.get(key, context)
 
@@ -1170,7 +1187,9 @@ class CognitiveCache:
     ) -> tuple[CognitiveCacheEntry, ...]:
         reference = at or self._clock()
         return self._invalidate_matching(
-            lambda entry: entry.valid_until is not None and entry.valid_until <= reference,
+            lambda entry: (
+                entry.valid_until is not None and entry.valid_until <= reference
+            ),
             reason or "entry expired",
             status=CognitiveCacheEntryStatus.EXPIRED,
         )
@@ -1184,8 +1203,6 @@ class CognitiveCache:
     # permission updates propagate, callers needing this should invalidate by
     # the `source_id`/`dependency_id`/`invalidation_key` whose policy actually
     # changed, using the wrappers above.
-
-
 
 
 def evaluate_cache_permission_denied(
@@ -1216,6 +1233,7 @@ def evaluate_cache_permission_denied(
         if not allowed:
             return True
     return False
+
 
 def _most_restrictive_sensitivity(
     package: KnowledgePackage, explicit: SensitivityLevel | None

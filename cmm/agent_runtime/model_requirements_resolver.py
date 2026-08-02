@@ -126,26 +126,22 @@ def resolve_model_requirements(
 
     capability_values = {
         field_name: any(
-            bool(getattr(source.requirements, field_name))
-            for source in ordered_sources
+            bool(getattr(source.requirements, field_name)) for source in ordered_sources
         )
         for field_name in _CAPABILITY_FIELDS
     }
 
     premium_allowed = all(
-        source.requirements.premium_allowed
-        for source in ordered_sources
+        source.requirements.premium_allowed for source in ordered_sources
     )
     premium_requested = any(
-        source.requirements.premium_allowed
-        for source in ordered_sources
+        source.requirements.premium_allowed for source in ordered_sources
     )
 
     try:
         effective = ModelRequirements(
             minimum_context_window=max(
-                source.requirements.minimum_context_window
-                for source in ordered_sources
+                source.requirements.minimum_context_window for source in ordered_sources
             ),
             privacy=_strictest_privacy(ordered_sources),
             allowed_providers=allowed_providers,
@@ -183,8 +179,6 @@ def resolve_model_requirements(
             "resolution_strategy": "most_restrictive",
         },
     )
-
-
 
 
 def resolve_runtime_model_requirements(
@@ -238,9 +232,7 @@ def resolve_runtime_model_requirements(
 
     if goal is not None:
         if not isinstance(goal, Goal):
-            raise ModelRequirementsResolutionError(
-                "goal must be a Goal or None"
-            )
+            raise ModelRequirementsResolutionError("goal must be a Goal or None")
         if goal.model_requirements is not None:
             sources.append(
                 ModelRequirementsSource(
@@ -303,9 +295,7 @@ def resolve_runtime_model_requirements(
             raise ModelRequirementsResolutionError(
                 "approval_resolution must be an ApprovalResolution or None"
             )
-        sources.extend(
-            approval_model_requirement_sources(approval_resolution)
-        )
+        sources.extend(approval_model_requirement_sources(approval_resolution))
 
     if not sources:
         raise ModelRequirementsResolutionError(
