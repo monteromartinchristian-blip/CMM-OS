@@ -465,6 +465,13 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 **Implemented through:** Phase 10.15 — Domain Permissions, completed and
 audited on 2026-08-02. Later Domain Intelligence phases remain planned.
 
+The canonical source of requirements for Phases 10.16–10.30 is the
+[Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
+supported by the
+[Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
+Phase 10.15 remains closed, and the remaining phases must proceed sequentially
+from 10.16 through 10.30. Phase 10.16 is not marked as started.
+
 ### Objective
 
 Specialize CMM OS for different areas of work and life without creating separate kernels, memories, planners, or agent runtimes.

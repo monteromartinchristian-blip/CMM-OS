@@ -4,6 +4,13 @@ Objective
 
 To build specialized infrastructure that will allow CMM OS to understand, reason, plan and act differently depending on the area of life or work involved, without fragmenting the system or creating independent architecture.
 
+Canonical requirements for Phases 10.16–10.30 are maintained in the
+[Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
+with source-clause evidence in the
+[Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).
+Phase 10.15 remains closed. Later work proceeds sequentially from 10.16 through
+10.30; this reference does not mark 10.16 as started.
+
 Domain Intelligence will not be a collection of separate assistants.
 
 It will be a shared specialization layer that configures, for each domain:
