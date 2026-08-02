@@ -2022,9 +2022,46 @@ Initial adapters may include:
 - Google / Gemini;
 - Ollama;
 - OpenAI-compatible providers;
-- experimental Cline CLI adapter for ClinePass-backed models such as Kimi K3.
+- preferred `OpenCodeGoProvider` adapter for direct access to the OpenCode Go multimodel subscription through provider-compatible APIs;
+- experimental `ClineCliProvider` for ClinePass-backed models and Cline-specific external-worker workflows.
 
 The architecture must not depend on a closed provider list.
+
+### Preferred OpenCode Go Adapter
+
+The Model Gateway should prioritize an `OpenCodeGoProvider` as the first subscription-backed multimodel adapter for everyday CMM OS operation. The provider must connect through supported OpenAI-compatible or Anthropic-compatible interfaces and normalize every request and response into the shared `ModelRequest` and `ModelResponse` contracts.
+
+OpenCode Go is preferred over routing ordinary CMM OS requests through Cline because it allows CMM OS to remain the sole orchestrator. CMM OS must retain direct control over:
+
+- prompt and context construction;
+- domain and reasoning-profile selection;
+- tools and operation permissions;
+- memory and Knowledge Package use;
+- privacy and sensitivity policies;
+- response validation and escalation;
+- model routing, fallback, latency, and cost accounting.
+
+Initial use cases include:
+
+- general and domain conversation;
+- personal-assistant workflows;
+- preparation of medical appointments and structured health summaries, subject to health-domain safeguards;
+- long-context analysis;
+- document and knowledge processing;
+- coding and repository tasks when a direct model call is preferable to a second agent runtime.
+
+Required safeguards:
+
+- configuration-driven model discovery and enablement;
+- provider and model capability metadata;
+- per-model privacy, retention, and sensitivity restrictions;
+- deterministic routing and explicit exclusions;
+- timeout, retry, circuit-breaker, and fallback policies;
+- token, latency, and cost accounting;
+- audit records for the selected provider, model, policy, and validation result;
+- no assumption that every model in the subscription is suitable for sensitive domains.
+
+The first evaluation set should compare available models by domain, operation, quality, privacy, latency, and effective subscription limits. Exact model availability and commercial limits must remain configurable rather than hard-coded.
 
 ### Experimental Cline CLI Adapter
 
@@ -2048,7 +2085,17 @@ Required safeguards:
 - audit records identifying Cline, ClinePass, the selected underlying model when available, and all granted capabilities;
 - fallback only to providers compatible with the original privacy and permission constraints.
 
-The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline.
+The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline. This adapter is secondary to `OpenCodeGoProvider` for ordinary conversational, domain, and Model Gateway traffic.
+
+## Provider Priority
+
+Initial implementation priority:
+
+1. direct provider adapters and `OpenCodeGoProvider`;
+2. provider registry, routing, validation, privacy, and cost controls;
+3. experimental `ClineCliProvider` for workflows that specifically benefit from Cline as an external agent.
+
+Provider priority is an implementation default, not a permanent lock-in. Continuous evaluation may change routing preferences without coupling the core to any subscription or vendor.
 
 ## Policies
 

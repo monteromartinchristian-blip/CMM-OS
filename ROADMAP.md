@@ -552,8 +552,9 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - conversational interface;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
-- provider-independent Model Gateway with an optional experimental `ClineCliProvider` for ClinePass-backed models such as Kimi K3;
-- isolated `repository_worker` and tool-free `personal_assistant` execution profiles for the Cline CLI adapter;
+- provider-independent Model Gateway with `OpenCodeGoProvider` as the preferred low-cost multimodel subscription adapter for direct CMM OS use;
+- optional experimental `ClineCliProvider` retained as a secondary external-worker integration for Cline-specific agent workflows;
+- provider routing that keeps CMM OS in control of prompts, context, tools, permissions, memory, validation, privacy, and cost policies;
 - goals, workflows, approvals, agents, and memory UI;
 - artifacts and trace inspection;
 - real-time updates;
