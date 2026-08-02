@@ -61,6 +61,10 @@ class InvalidAgentContractError(AgentRuntimeError, ValueError):
     """Raised when an Agent Runtime contract is invalid, malformed, or violates invariants."""
 
 
+class InvalidPermissionRestrictionError(InvalidAgentContractError):
+    """Raised when a closed declarative permission restriction is invalid."""
+
+
 class InvalidAgentIdentifierError(AgentRuntimeError, ValueError):
     """Raised when an Agent Runtime identifier is malformed or invalid."""
 
@@ -378,6 +382,10 @@ class ApprovalError(AgentRuntimeError):
 
 class InvalidApprovalContractError(ApprovalError, InvalidAgentContractError):
     """Raised when an Approval contract is invalid, malformed, or violates invariants."""
+
+
+class ApprovalAtomicityUnavailableError(ApprovalError, RuntimeError):
+    """Raised when a repository cannot guarantee atomic approval consumption."""
 
 
 class ApprovalRequestNotFoundError(ApprovalError, KeyError):

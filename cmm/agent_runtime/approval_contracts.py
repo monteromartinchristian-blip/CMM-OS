@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
+from .domain_permission_contracts import PermissionApprovalRequirement
 from .enums import (
     ApprovalDecisionType,
     ApprovalRequestStatus,
@@ -186,6 +187,7 @@ def _compute_request_fingerprint(
     required_approvers: tuple[str, ...],
     minimum_approvals: int,
     rollback_available: bool,
+    permission_requirement: PermissionApprovalRequirement | None,
     metadata: MappingProxyType[str, Any],
 ) -> str:
     """Compute a deterministic SHA-256 fingerprint for request uniqueness and deduplication."""
@@ -202,6 +204,11 @@ def _compute_request_fingerprint(
         "required_approvers": sorted(required_approvers),
         "minimum_approvals": minimum_approvals,
         "rollback_available": rollback_available,
+        "permission_requirement": (
+            permission_requirement.to_dict()
+            if permission_requirement is not None
+            else None
+        ),
         "scope": metadata.get("scope"),
         "operation_parameters": metadata.get("operation_parameters"),
     }
@@ -245,6 +252,7 @@ class ApprovalRequirement:
     metadata: MappingProxyType[str, Any] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    permission_requirement: PermissionApprovalRequirement | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _validate_non_empty_str(self.id, "id"))
@@ -299,6 +307,21 @@ class ApprovalRequirement:
             "operation_id",
             _validate_optional_str(self.operation_id, "operation_id"),
         )
+        if isinstance(self.permission_requirement, Mapping):
+            object.__setattr__(
+                self,
+                "permission_requirement",
+                PermissionApprovalRequirement.from_dict(self.permission_requirement),
+            )
+        elif (
+            self.permission_requirement is not None
+            and not isinstance(
+                self.permission_requirement, PermissionApprovalRequirement
+            )
+        ):
+            raise InvalidApprovalContractError(
+                "permission_requirement must be a PermissionApprovalRequirement or None"
+            )
 
         if self.expires_at is not None:
             object.__setattr__(
@@ -350,6 +373,11 @@ class ApprovalRequirement:
             "goal_id": self.goal_id,
             "workflow_id": self.workflow_id,
             "operation_id": self.operation_id,
+            "permission_requirement": (
+                self.permission_requirement.to_dict()
+                if self.permission_requirement is not None
+                else None
+            ),
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "allow_modifications": self.allow_modifications,
             "allow_postpone": self.allow_postpone,
@@ -384,6 +412,7 @@ class ApprovalRequirement:
             goal_id=data.get("goal_id"),
             workflow_id=data.get("workflow_id"),
             operation_id=data.get("operation_id"),
+            permission_requirement=data.get("permission_requirement"),
             expires_at=data.get("expires_at"),
             allow_modifications=data.get("allow_modifications", True),
             allow_postpone=data.get("allow_postpone", True),
@@ -429,6 +458,7 @@ class ApprovalRequest:
     metadata: MappingProxyType[str, Any] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    permission_requirement: PermissionApprovalRequirement | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _validate_non_empty_str(self.id, "id"))
@@ -460,6 +490,21 @@ class ApprovalRequest:
             "operation_id",
             _validate_optional_str(self.operation_id, "operation_id"),
         )
+        if isinstance(self.permission_requirement, Mapping):
+            object.__setattr__(
+                self,
+                "permission_requirement",
+                PermissionApprovalRequirement.from_dict(self.permission_requirement),
+            )
+        elif (
+            self.permission_requirement is not None
+            and not isinstance(
+                self.permission_requirement, PermissionApprovalRequirement
+            )
+        ):
+            raise InvalidApprovalContractError(
+                "permission_requirement must be a PermissionApprovalRequirement or None"
+            )
 
         object.__setattr__(
             self, "reason_codes", _freeze_str_tuple(self.reason_codes, "reason_codes")
@@ -546,6 +591,7 @@ class ApprovalRequest:
                 required_approvers=self.required_approvers,
                 minimum_approvals=self.minimum_approvals,
                 rollback_available=self.rollback_available,
+                permission_requirement=self.permission_requirement,
                 metadata=self.metadata,
             )
         object.__setattr__(self, "request_fingerprint", fp.strip())
@@ -578,6 +624,11 @@ class ApprovalRequest:
             "goal_id": self.goal_id,
             "workflow_id": self.workflow_id,
             "operation_id": self.operation_id,
+            "permission_requirement": (
+                self.permission_requirement.to_dict()
+                if self.permission_requirement is not None
+                else None
+            ),
             "reason_codes": list(self.reason_codes),
             "risk_level": self.risk_level.value,
             "expected_effects": list(self.expected_effects),
@@ -613,6 +664,7 @@ class ApprovalRequest:
             goal_id=data.get("goal_id"),
             workflow_id=data.get("workflow_id"),
             operation_id=data.get("operation_id"),
+            permission_requirement=data.get("permission_requirement"),
             reason_codes=data.get("reason_codes", ()),
             risk_level=data.get("risk_level", PolicyRiskLevel.MEDIUM),
             expected_effects=data.get("expected_effects", ()),
@@ -889,3 +941,117 @@ class ApprovalResolution:
         )
 
     from_dict = from_mapping
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalConsumptionEvidence:
+    """Structured evidence produced by validate_and_consume.
+
+    Contains all information required for traceability (section 8)
+    without storing intermediate reasoning or sensitive content by value.
+    """
+
+    request_id: str
+    requirement_id: str | None = None
+    actor_id: str = ""
+    session_id: str = ""
+    domain_id: str = ""
+    target_domain: str | None = None
+    action: str = ""
+    scope: str = "operation"
+    one_time: bool = True
+    reusable: bool = False
+    consumed: bool = False
+    granted: bool = False
+    validated_at: datetime = field(default_factory=_now_utc)
+    denial_reason: str | None = None
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "request_id", _validate_non_empty_str(self.request_id, "request_id")
+        )
+        if self.requirement_id is not None:
+            object.__setattr__(
+                self,
+                "requirement_id",
+                _validate_non_empty_str(self.requirement_id, "requirement_id"),
+            )
+        for name in ("actor_id", "session_id", "domain_id", "action", "scope"):
+            val = getattr(self, name)
+            if val:
+                object.__setattr__(self, name, val.strip())
+        if self.target_domain is not None:
+            object.__setattr__(
+                self,
+                "target_domain",
+                _validate_optional_str(self.target_domain, "target_domain"),
+            )
+        if not isinstance(self.one_time, bool):
+            raise InvalidApprovalContractError("one_time must be a bool")
+        if not isinstance(self.reusable, bool):
+            raise InvalidApprovalContractError("reusable must be a bool")
+        if not isinstance(self.consumed, bool):
+            raise InvalidApprovalContractError("consumed must be a bool")
+        if not isinstance(self.granted, bool):
+            raise InvalidApprovalContractError("granted must be a bool")
+        object.__setattr__(
+            self, "validated_at", _parse_dt(self.validated_at, "validated_at")
+        )
+        if self.denial_reason is not None:
+            object.__setattr__(
+                self,
+                "denial_reason",
+                _validate_optional_str(self.denial_reason, "denial_reason"),
+            )
+        object.__setattr__(self, "metadata", _freeze_dict(self.metadata, "metadata"))
+
+        if self.granted and self.denial_reason is not None:
+            raise InvalidApprovalContractError(
+                "granted evidence cannot have a denial_reason"
+            )
+        if not self.granted and self.denial_reason is None:
+            raise InvalidApprovalContractError(
+                "denied evidence must specify a denial_reason"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "requirement_id": self.requirement_id,
+            "actor_id": self.actor_id,
+            "session_id": self.session_id,
+            "domain_id": self.domain_id,
+            "target_domain": self.target_domain,
+            "action": self.action,
+            "scope": self.scope,
+            "one_time": self.one_time,
+            "reusable": self.reusable,
+            "consumed": self.consumed,
+            "granted": self.granted,
+            "validated_at": self.validated_at.isoformat(),
+            "denial_reason": self.denial_reason,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> ApprovalConsumptionEvidence:
+        if not isinstance(data, Mapping):
+            raise InvalidApprovalContractError(
+                "ApprovalConsumptionEvidence.from_mapping requires a mapping"
+            )
+        unknown = set(data) - set(cls.__dataclass_fields__)
+        if unknown:
+            raise InvalidApprovalContractError(
+                f"unknown ApprovalConsumptionEvidence fields: {sorted(unknown)}"
+            )
+        values = dict(data)
+        if isinstance(values.get("validated_at"), str):
+            values["validated_at"] = datetime.fromisoformat(values["validated_at"])
+        return cls(**values)
+
+    from_dict = from_mapping
+
+    serialize = to_dict

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from cmm.agent_runtime.agent_security_enums import SensitivityLevel
 from cmm.domains.workflow_errors import DomainWorkflowValidationError
 from cmm.workflows.contracts import WorkflowDefinition, WorkflowNode, WorkflowRun
 from cmm.workflows.enums import WorkflowAvailabilityStatus
@@ -27,6 +28,8 @@ class DomainWorkflowDefinition:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     completion_criteria: Mapping[str, Any] = field(default_factory=dict)
     approval_gates: tuple[str, ...] = ()
+    purpose: str | None = None
+    sensitivity: SensitivityLevel | None = None
 
     def __post_init__(self) -> None:
         if not self.workflow_id or not self.domain_id.startswith("domain:"):
@@ -42,9 +45,59 @@ class DomainWorkflowDefinition:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
         object.__setattr__(self, "completion_criteria", MappingProxyType(dict(self.completion_criteria)))
         object.__setattr__(self, "approval_gates", tuple(self.approval_gates))
+        if self.purpose is not None and (
+            not isinstance(self.purpose, str) or not self.purpose.strip()
+        ):
+            raise DomainWorkflowValidationError("purpose must be non-empty or None")
+        object.__setattr__(
+            self, "purpose", None if self.purpose is None else self.purpose.strip()
+        )
+        try:
+            sensitivity = (
+                None
+                if self.sensitivity is None
+                else SensitivityLevel(self.sensitivity)
+            )
+        except (TypeError, ValueError) as exc:
+            raise DomainWorkflowValidationError("invalid workflow sensitivity") from exc
+        object.__setattr__(self, "sensitivity", sensitivity)
 
     def to_common(self) -> WorkflowDefinition:
         return WorkflowDefinition(self.workflow_id, self.version, self.name, self.description, self.nodes, self.enabled, self.metadata, self.completion_criteria)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "workflow_id": self.workflow_id,
+            "domain_id": self.domain_id,
+            "version": self.version,
+            "name": self.name,
+            "description": self.description,
+            "nodes": [node.to_dict() for node in self.nodes],
+            "input_schema": dict(self.input_schema),
+            "output_schema": dict(self.output_schema),
+            "required_permissions": list(self.required_permissions),
+            "required_resources": list(self.required_resources),
+            "supporting_domain_ids": list(self.supporting_domain_ids),
+            "enabled": self.enabled,
+            "metadata": dict(self.metadata),
+            "completion_criteria": dict(self.completion_criteria),
+            "approval_gates": list(self.approval_gates),
+            "purpose": self.purpose,
+            "sensitivity": self.sensitivity.value if self.sensitivity is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainWorkflowDefinition:
+        unknown = set(data) - set(cls.__dataclass_fields__)
+        if unknown:
+            raise DomainWorkflowValidationError(
+                f"unknown workflow definition fields: {sorted(unknown)}"
+            )
+        values = dict(data)
+        values["nodes"] = tuple(
+            WorkflowNode.from_dict(item) for item in values.get("nodes", ())
+        )
+        return cls(**values)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1929,6 +1929,13 @@ Capacidades
 
 10.15 - Domain Permissions
 
+Status: Complete and audited (2026-08-02). The implementation includes
+restrictive composition, source/target cross-domain policy, canonical atomic
+approvals, real operation/workflow gates, declarative source/egress/export
+restrictions, post-verification obligations, public serialization contracts,
+and dependency-direction tests. Connectors, real provider calls, effective
+redaction, secrets, full traces and Phase 11 RBAC remain out of scope.
+
 Objective
 
 Control what resources, inferences, operations and workflows can use each domain.

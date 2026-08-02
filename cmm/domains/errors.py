@@ -623,6 +623,46 @@ class DomainOperationSerializationError(DomainOperationError, ValueError):
     code = "DOMAIN_OPERATION_SERIALIZATION_ERROR"
 
 
+class DomainPermissionError(DomainError):
+    code = "DOMAIN_PERMISSION_ERROR"
+
+
+class DomainPermissionContractError(DomainPermissionError, ValueError):
+    code = "DOMAIN_PERMISSION_CONTRACT_ERROR"
+
+
+class DomainPermissionRegistryError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_REGISTRY_ERROR"
+
+
+class DomainPermissionResolutionError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_RESOLUTION_ERROR"
+
+
+class DomainPermissionEvaluationError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_EVALUATION_ERROR"
+
+
+class DomainPermissionDeniedError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_DENIED_ERROR"
+
+
+class DomainPermissionApprovalRequiredError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_APPROVAL_REQUIRED_ERROR"
+
+
+class DomainPermissionConflictError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_CONFLICT_ERROR"
+
+
+class DomainPermissionCrossDomainError(DomainPermissionError):
+    code = "DOMAIN_PERMISSION_CROSS_DOMAIN_ERROR"
+
+
+class DomainPermissionSerializationError(DomainPermissionError, ValueError):
+    code = "DOMAIN_PERMISSION_SERIALIZATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -662,6 +702,16 @@ __all__ = [
     "DomainOperationUnavailableError",
     "DomainOperationValidationError",
     "DomainPathEscape",
+    "DomainPermissionApprovalRequiredError",
+    "DomainPermissionConflictError",
+    "DomainPermissionContractError",
+    "DomainPermissionCrossDomainError",
+    "DomainPermissionDeniedError",
+    "DomainPermissionError",
+    "DomainPermissionEvaluationError",
+    "DomainPermissionRegistryError",
+    "DomainPermissionResolutionError",
+    "DomainPermissionSerializationError",
     "DomainProfileCompositionError",
     "DomainProfileConfigurationError",
     "DomainProfileContractError",

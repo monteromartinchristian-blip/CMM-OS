@@ -357,6 +357,46 @@ class TestPublicAPI:
                 "validate_domain_operation_transition",
             }
         )
+        expected.update(
+            {
+                "CrossDomainDuration",
+                "CrossDomainPermissionDecision",
+                "CrossDomainPermissionRequest",
+                "DomainOperationPermissionDecision",
+                "DomainRulePermissionDecision",
+                "DomainWorkflowPermissionDecision",
+                "DomainAutonomyLimits",
+                "DomainPermissionConflict",
+                "DomainPermissionPolicy",
+                "DomainPermissionRequest",
+                "DomainPermissionRegistry",
+                "DomainPermissionResolution",
+                "DomainPermissionResolver",
+                "DomainPermissionApprovalRequiredError",
+                "DomainPermissionConflictError",
+                "DomainPermissionContractError",
+                "DomainPermissionCrossDomainError",
+                "DomainPermissionDeniedError",
+                "DomainPermissionError",
+                "DomainPermissionEvaluationError",
+                "DomainPermissionGate",
+                "DomainPermissionRegistryError",
+                "DomainPermissionResolutionError",
+                "DomainPermissionSerializationError",
+                "PermissionGateOutcome",
+                "PermissionGateReason",
+                "PermissionGateResult",
+                "build_initial_permission_catalog",
+                "evaluate_domain_policy",
+                "evaluate_domain_operation",
+                "evaluate_domain_rule",
+                "evaluate_domain_workflow",
+                "evaluate_domain_workflow_node",
+                "request_for_operation",
+                "request_for_rule_permission",
+                "request_for_workflow",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -366,7 +406,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 306
+        assert len(cmm.domains.__all__) == 342
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

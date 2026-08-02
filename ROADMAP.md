@@ -462,6 +462,9 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** Planned.
 
+**Implemented through:** Phase 10.15 — Domain Permissions, completed and
+audited on 2026-08-02. Later Domain Intelligence phases remain planned.
+
 ### Objective
 
 Specialize CMM OS for different areas of work and life without creating separate kernels, memories, planners, or agent runtimes.

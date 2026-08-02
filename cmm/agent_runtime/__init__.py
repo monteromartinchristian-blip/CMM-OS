@@ -153,6 +153,7 @@ from cmm.agent_runtime.enums import (
 )
 from cmm.agent_runtime.errors import (
     AgentRuntimeError,
+    ApprovalAtomicityUnavailableError,
     BackupRequiredError,
     CheckpointAlreadyExistsError,
     CheckpointConcurrencyError,
@@ -955,11 +956,13 @@ from cmm.agent_runtime.errors import (
     DuplicateApprovalRequestError,
     InvalidApprovalContractError,
     InvalidApprovalTransitionError,
+    InvalidPermissionRestrictionError,
 )
 
 __all__ += [
     "ApprovalActorNotAuthorizedError",
     "ApprovalAlreadyResolvedError",
+    "ApprovalAtomicityUnavailableError",
     "ApprovalAutonomyIntegrationError",
     "ApprovalDecision",
     "ApprovalDecisionNotFoundError",
@@ -981,6 +984,7 @@ __all__ += [
     "InMemoryApprovalRepository",
     "InvalidApprovalContractError",
     "InvalidApprovalTransitionError",
+    "InvalidPermissionRestrictionError",
     "create_requirement_from_autonomy",
     "create_requirement_from_policy",
     "create_requirement_from_workflow_plan",
@@ -2704,4 +2708,52 @@ __all__ += [
     "PrivacyClassification",
     "QualityEvaluation",
     "is_valid_acceptance_transition",
+]
+
+from cmm.agent_runtime.domain_permission_contracts import (
+    MANDATORY_APPROVAL_CAPABILITIES,
+    EffectivePermissionResult,
+    PermissionApprovalGrant,
+    PermissionApprovalRequirement,
+    PermissionCapability,
+    PermissionLayer,
+    PermissionLayerEvaluation,
+    PermissionOutcome,
+    intersect_permission_layers,
+)
+from cmm.agent_runtime.permission_restriction_contracts import (
+    ExportContentKind,
+    ExportPolicy,
+    ExportRequest,
+    ExternalProviderEgressPolicy,
+    ExternalProviderEgressRequest,
+    ExternalSourceClass,
+    ExternalSourceRequirement,
+    ExternalSourceUse,
+    PostVerificationKind,
+    PostVerificationRequirement,
+    ProviderLocation,
+)
+
+__all__ += [
+    "MANDATORY_APPROVAL_CAPABILITIES",
+    "EffectivePermissionResult",
+    "ExportContentKind",
+    "ExportPolicy",
+    "ExportRequest",
+    "ExternalProviderEgressPolicy",
+    "ExternalProviderEgressRequest",
+    "ExternalSourceClass",
+    "ExternalSourceRequirement",
+    "ExternalSourceUse",
+    "PermissionApprovalGrant",
+    "PermissionApprovalRequirement",
+    "PermissionCapability",
+    "PermissionLayer",
+    "PermissionLayerEvaluation",
+    "PermissionOutcome",
+    "PostVerificationKind",
+    "PostVerificationRequirement",
+    "ProviderLocation",
+    "intersect_permission_layers",
 ]

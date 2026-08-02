@@ -11,6 +11,12 @@ from cmm.workflows.contracts import WorkflowNode
 from cmm.workflows.enums import WorkflowAvailabilityStatus, WorkflowRunStatus
 
 
+def test_domain_workflow_definition_security_fields_round_trip():
+    item = definition(purpose="clinical-review", sensitivity="confidential")
+
+    assert DomainWorkflowDefinition.from_dict(item.to_dict()) == item
+
+
 def definition(**kwargs):
     values = {"workflow_id": "x.flow", "domain_id": "domain:x", "version": "1.0.0", "name": "X", "nodes": (WorkflowNode("n", "complete", "N"),)}
     values.update(kwargs)

@@ -12,12 +12,14 @@ from types import MappingProxyType
 from typing import Any
 
 from .approval_contracts import (
+    ApprovalConsumptionEvidence,
     ApprovalDecision,
     ApprovalRequest,
     ApprovalRequirement,
     ApprovalResolution,
 )
 from .approval_repository import ApprovalRepository, InMemoryApprovalRepository
+from .domain_permission_contracts import PermissionApprovalRequirement
 from .enums import (
     ApprovalDecisionType,
     ApprovalRequestStatus,
@@ -25,8 +27,10 @@ from .enums import (
 from .errors import (
     ApprovalActorNotAuthorizedError,
     ApprovalAlreadyResolvedError,
+    ApprovalAtomicityUnavailableError,
     ApprovalDecisionNotFoundError,
     ApprovalExpiredError,
+    ApprovalRequestNotFoundError,
     ApprovalSupersessionError,
     InvalidApprovalContractError,
 )
@@ -41,7 +45,15 @@ class ApprovalService:
     """Core domain service for managing human approval requests, decisions, and resolutions."""
 
     def __init__(self, repository: ApprovalRepository | None = None) -> None:
-        self._repo: ApprovalRepository = repository or InMemoryApprovalRepository()
+        candidate = repository or InMemoryApprovalRepository()
+        if (
+            not callable(getattr(candidate, "critical_section", None))
+            or getattr(candidate, "atomic_consumption_guaranteed", False) is not True
+        ):
+            raise ApprovalAtomicityUnavailableError(
+                "Approval repository must guarantee one atomic critical section"
+            )
+        self._repo: ApprovalRepository = candidate
 
     @property
     def repository(self) -> ApprovalRepository:
@@ -77,6 +89,7 @@ class ApprovalService:
             goal_id=requirement.goal_id,
             workflow_id=requirement.workflow_id,
             operation_id=requirement.operation_id,
+            permission_requirement=requirement.permission_requirement,
             reason_codes=requirement.reason_codes,
             risk_level=requirement.risk_level,
             expected_effects=requirement.expected_effects,
@@ -540,6 +553,269 @@ class ApprovalService:
             satisfied=False,
             may_execute=False,
             reason_codes=("approval.expired",),
+            resolved_at=current_time,
+        )
+        return self._repo.resolve_request(resolution)
+
+    def validate_and_consume(
+        self,
+        request_id: str,
+        *,
+        actor_id: str,
+        session_id: str,
+        action: str = "",
+        domain_id: str = "",
+        target_domain: str | None = None,
+        scope: str = "operation",
+        one_time: bool = True,
+        requirement_id: str | None = None,
+        expected_requirement: PermissionApprovalRequirement | None = None,
+        sensitivity: str | None = None,
+        constraints: dict[str, Any] | None = None,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> ApprovalConsumptionEvidence:
+        """Atomically validate and consume an approval.
+
+        Steps:
+        1. Locate the approval
+        2. Match the complete typed permission requirement, when present
+        3. Check expiration
+        4. Check revocation
+        5. Check that it was not already consumed
+        6. Check constraints and sensitivity (typed binding or strict legacy fields)
+        7. Consume when one_time (skip if dry_run)
+        8. Return structured authorization evidence
+
+        Guarantees:
+        - Two concurrent calls cannot consume the same one_time grant
+        - A dry_run/preview/evaluation does not consume the grant
+        - A reusable grant is not consumed but still subject to expiration/revocation
+        - After dispatch, a consumed one_time grant is NOT restored on failure
+        """
+        current_time = now or _now_utc()
+
+        def _evidence_context(
+            binding: PermissionApprovalRequirement | None,
+        ) -> dict[str, Any]:
+            if binding is None:
+                return {
+                    "requirement_id": requirement_id,
+                    "actor_id": actor_id,
+                    "session_id": session_id,
+                    "domain_id": domain_id,
+                    "target_domain": target_domain,
+                    "action": action,
+                    "scope": scope,
+                    "one_time": one_time,
+                    "reusable": not one_time,
+                }
+            return {
+                "requirement_id": binding.requirement_id,
+                "actor_id": binding.actor_id,
+                "session_id": binding.session_id,
+                "domain_id": binding.domain_id,
+                "target_domain": binding.target_domain,
+                "action": binding.action.value,
+                "scope": binding.scope,
+                "one_time": binding.one_time,
+                "reusable": binding.reusable,
+            }
+
+        def _deny(
+            reason: str,
+            binding: PermissionApprovalRequirement | None = None,
+        ) -> ApprovalConsumptionEvidence:
+            return ApprovalConsumptionEvidence(
+                request_id=request_id,
+                **_evidence_context(binding),
+                consumed=False,
+                granted=False,
+                validated_at=current_time,
+                denial_reason=reason,
+            )
+
+        # The repository owns the complete atomic boundary.  Every read,
+        # state check and the final consume transition below occurs while its
+        # re-entrant lock/transaction is held.
+        with self._repo.critical_section():
+            try:
+                request = self._repo.get_request(request_id)
+            except ApprovalRequestNotFoundError:
+                return _deny("approval_not_found", expected_requirement)
+
+            binding = request.permission_requirement
+            if expected_requirement is not None:
+                if binding is None:
+                    return _deny("permission_requirement_missing", expected_requirement)
+                for field_name in expected_requirement.__dataclass_fields__:
+                    if getattr(binding, field_name) != getattr(
+                        expected_requirement, field_name
+                    ):
+                        return _deny(
+                            f"requirement_mismatch:{field_name}",
+                            expected_requirement,
+                        )
+            elif binding is not None:
+                return _deny("expected_requirement_missing", binding)
+
+            if binding is not None:
+                supplied_checks = (
+                    ("actor_id", actor_id, binding.actor_id),
+                    ("session_id", session_id, binding.session_id),
+                    ("domain_id", domain_id, binding.domain_id),
+                    ("target_domain", target_domain, binding.target_domain),
+                    ("action", action, binding.action.value),
+                    ("scope", scope, binding.scope),
+                    ("one_time", one_time, binding.one_time),
+                    ("requirement_id", requirement_id, binding.requirement_id),
+                )
+                for field_name, supplied, authoritative in supplied_checks:
+                    if supplied is not None and supplied != "" and supplied != authoritative:
+                        return _deny(f"requirement_mismatch:{field_name}", binding)
+
+            meta = dict(request.metadata)
+            if binding is None:
+                req_scope = meta.get("scope", "operation")
+                req_domain = meta.get("primary_domain_id", meta.get("domain_id", ""))
+                req_action = meta.get("action", "")
+                if scope and req_scope and scope != req_scope:
+                    return _deny("scope_mismatch")
+                if domain_id and req_domain and domain_id != req_domain:
+                    return _deny("domain_mismatch")
+                if action and req_action and action != req_action:
+                    return _deny("action_mismatch")
+
+            if request.expires_at is not None and request.expires_at <= current_time:
+                return _deny("expired", binding)
+            if request.status == ApprovalRequestStatus.EXPIRED:
+                return _deny("expired", binding)
+            if (
+                binding is not None
+                and binding.expires_at is not None
+                and datetime.fromisoformat(binding.expires_at) <= current_time
+            ):
+                return _deny("expired", binding)
+
+            if self._repo.is_revoked(request_id):
+                return _deny("revoked", binding)
+            if request.status == ApprovalRequestStatus.CANCELLED:
+                return _deny("revoked", binding)
+
+            effective_one_time = binding.one_time if binding is not None else one_time
+            if effective_one_time and self._repo.is_consumed(request_id):
+                return _deny("already_consumed", binding)
+
+            if binding is None:
+                if sensitivity and meta.get("sensitivity") != sensitivity:
+                    return _deny("sensitivity_mismatch")
+                if constraints is not None:
+                    meta_constraints = meta.get("constraints", {})
+                    for key, expected in constraints.items():
+                        if meta_constraints.get(key) != expected:
+                            return _deny(f"constraint_mismatch:{key}")
+
+            resolution = self._repo.get_resolution(request_id)
+            if resolution is None:
+                resolution = self.resolve(request_id, now=current_time)
+            if not resolution.satisfied:
+                return _deny("not_satisfied", binding)
+            if (
+                not resolution.may_execute
+                and resolution.status != ApprovalRequestStatus.APPROVED_WITH_CHANGES
+            ):
+                return _deny("not_executable", binding)
+
+            consumed = False
+            if effective_one_time and not dry_run:
+                consumed = self._repo.mark_consumed(request_id, now=current_time)
+                if not consumed:
+                    return _deny("already_consumed", binding)
+
+            return ApprovalConsumptionEvidence(
+                request_id=request_id,
+                **_evidence_context(binding),
+                consumed=consumed,
+                granted=True,
+                validated_at=current_time,
+            )
+
+    def validate_and_consume_batch(
+        self,
+        approvals: tuple[tuple[str, PermissionApprovalRequirement], ...],
+        *,
+        dry_run: bool = False,
+        now: datetime | None = None,
+    ) -> tuple[ApprovalConsumptionEvidence, ...]:
+        """Validate all bindings and consume them atomically as one repository unit."""
+        current_time = now or _now_utc()
+        with self._repo.critical_section():
+            previews = tuple(
+                self.validate_and_consume(
+                    request_id,
+                    actor_id=requirement.actor_id,
+                    session_id=requirement.session_id,
+                    action=requirement.action.value,
+                    domain_id=requirement.domain_id,
+                    target_domain=requirement.target_domain,
+                    scope=requirement.scope,
+                    one_time=requirement.one_time,
+                    requirement_id=requirement.requirement_id,
+                    expected_requirement=requirement,
+                    dry_run=True,
+                    now=current_time,
+                )
+                for request_id, requirement in approvals
+            )
+            if dry_run or any(not evidence.granted for evidence in previews):
+                return previews
+            return tuple(
+                self.validate_and_consume(
+                    request_id,
+                    actor_id=requirement.actor_id,
+                    session_id=requirement.session_id,
+                    action=requirement.action.value,
+                    domain_id=requirement.domain_id,
+                    target_domain=requirement.target_domain,
+                    scope=requirement.scope,
+                    one_time=requirement.one_time,
+                    requirement_id=requirement.requirement_id,
+                    expected_requirement=requirement,
+                    dry_run=False,
+                    now=current_time,
+                )
+                for request_id, requirement in approvals
+            )
+
+    def revoke(
+        self,
+        request_id: str,
+        actor_id: str,
+        *,
+        reason: str = "manual_revocation",
+        now: datetime | None = None,
+    ) -> ApprovalResolution:
+        """Revoke an approval request. Returns the resolution after revocation."""
+        current_time = now or _now_utc()
+        request = self._repo.get_request(request_id)
+
+        self._repo.mark_revoked(request_id, actor_id, now=current_time)
+
+        updated_req = ApprovalRequest.from_mapping(
+            {
+                **request.to_dict(),
+                "status": ApprovalRequestStatus.CANCELLED.value,
+                "updated_at": current_time.isoformat(),
+            }
+        )
+        self._repo.update_request(updated_req)
+
+        resolution = ApprovalResolution(
+            request_id=request_id,
+            status=ApprovalRequestStatus.CANCELLED,
+            satisfied=False,
+            may_execute=False,
+            reason_codes=("approval.revoked", reason),
             resolved_at=current_time,
         )
         return self._repo.resolve_request(resolution)

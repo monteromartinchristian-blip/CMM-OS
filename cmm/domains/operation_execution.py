@@ -40,6 +40,11 @@ from cmm.domains.operation_contracts import (
     _thaw,
 )
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_gate import (
+    DomainPermissionGate,
+    PermissionGateOutcome,
+    PermissionGateReason,
+)
 
 
 class DomainOperationExecutionDelegate:
@@ -75,6 +80,7 @@ class DefaultDomainOperationOrchestrator:
         *,
         availability_resolver: DomainOperationAvailabilityResolver | None = None,
         approval_service: Any | None = None,
+        permission_gate: DomainPermissionGate | None = None,
         transaction_manager: Any | None = None,
         rollback_executor: Any | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -90,6 +96,7 @@ class DefaultDomainOperationOrchestrator:
             availability_resolver or DomainOperationAvailabilityResolver()
         )
         self._approval_service = approval_service
+        self._permission_gate = permission_gate
         self._transaction_manager = transaction_manager
         self._rollback_executor = rollback_executor
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -114,10 +121,36 @@ class DefaultDomainOperationOrchestrator:
                 details={"path": first.path, "reason_code": first.code},
             )
 
+        if self._permission_gate is None and (
+            request.granted_permissions or request.approval_request_id is not None
+        ):
+            now = self._clock()
+            return DomainOperationResult(
+                result_id=self._id_factory(),
+                request_id=request.request_id,
+                operation_id=request.operation_id,
+                operation_version=request.operation_version,
+                domain_id=definition.domain_id,
+                status=DomainOperationStatus.BLOCKED,
+                started_at=now,
+                completed_at=now,
+                trace_entries=(
+                    DomainOperationTraceEntry(
+                        code="permission:gate_unavailable",
+                        status=DomainOperationStatus.BLOCKED,
+                        occurred_at=now,
+                        reason_code=PermissionGateReason.GATE_UNAVAILABLE.value,
+                    ),
+                ),
+            )
+
         approval_status: ApprovalRequestStatus | None = None
         approval_fingerprint: str | None = None
         if request.approval_request_id and self._approval_service is not None:
-            approval = self._approval_service.get_request(request.approval_request_id)
+            get_request = getattr(self._approval_service, "get_request", None)
+            if get_request is None:
+                get_request = self._approval_service.repository.get_request
+            approval = get_request(request.approval_request_id)
             approval_status = ApprovalRequestStatus(
                 getattr(approval.status, "value", approval.status)
             )
@@ -163,6 +196,69 @@ class DefaultDomainOperationOrchestrator:
             return self._non_executed_result(
                 request, definition.domain_id, availability
             )
+
+        # ── Phase 10.15 Permission Gate ──────────────────────────────────
+        gate_result = None
+        if self._permission_gate is not None:
+            approval_request_ids = request.metadata.get("approval_request_ids", {})
+            if not isinstance(approval_request_ids, Mapping):
+                approval_request_ids = {}
+            gate_result = self._permission_gate.evaluate_operation_definition(
+                definition,
+                request_id=request.request_id,
+                actor_id=request.metadata.get("actor_id", request.agent_run_id),
+                session_id=request.session_id or request.agent_run_id,
+                approval_request_id=request.approval_request_id,
+                approval_request_ids=approval_request_ids,
+            )
+            if gate_result.denied:
+                reason_code = (
+                    gate_result.reasons[-1]
+                    if gate_result.outcome == PermissionGateOutcome.APPROVAL_DENIED
+                    else PermissionGateReason.POLICY_DENIED.value
+                )
+                now = self._clock()
+                return DomainOperationResult(
+                    result_id=self._id_factory(),
+                    request_id=request.request_id,
+                    operation_id=request.operation_id,
+                    operation_version=request.operation_version,
+                    domain_id=definition.domain_id,
+                    status=DomainOperationStatus.BLOCKED,
+                    started_at=now,
+                    completed_at=now,
+                    trace_entries=(
+                        DomainOperationTraceEntry(
+                            code="permission:denied",
+                            status=DomainOperationStatus.BLOCKED,
+                            occurred_at=now,
+                            reason_code=reason_code,
+                        ),
+                    ),
+                    metadata={"permission_gate": gate_result.to_trace_dict()},
+                )
+            if gate_result.requires_approval:
+                now = self._clock()
+                return DomainOperationResult(
+                    result_id=self._id_factory(),
+                    request_id=request.request_id,
+                    operation_id=request.operation_id,
+                    operation_version=request.operation_version,
+                    domain_id=definition.domain_id,
+                    status=DomainOperationStatus.WAITING_FOR_APPROVAL,
+                    started_at=now,
+                    completed_at=now,
+                    trace_entries=(
+                        DomainOperationTraceEntry(
+                            code="permission:approval_required",
+                            status=DomainOperationStatus.WAITING_FOR_APPROVAL,
+                            occurred_at=now,
+                            reason_code=PermissionGateReason.APPROVAL_MISSING.value,
+                        ),
+                    ),
+                    metadata={"permission_gate": gate_result.to_trace_dict()},
+                )
+        # ── End Permission Gate ──────────────────────────────────────────
 
         started_at = self._clock()
         transaction_id: str | None = None
@@ -292,14 +388,24 @@ class DefaultDomainOperationOrchestrator:
                 effects=common_result.effects,
             )
             self._transaction_manager.commit(transaction_id)
+        post_verification = (
+            gate_result.effective_constraints.get("post_verification")
+            if gate_result is not None
+            else None
+        )
         return self._result(
             request,
             definition.domain_id,
-            DomainOperationStatus.COMPLETED,
+            DomainOperationStatus.RUNNING
+            if post_verification is not None
+            else DomainOperationStatus.COMPLETED,
             started_at,
             output=common_result.output,
             transaction_id=transaction_id,
             approval_request_id=request.approval_request_id,
+            metadata={"post_verification": post_verification}
+            if post_verification is not None
+            else None,
         )
 
     def _non_executed_result(
@@ -499,6 +605,7 @@ class DefaultDomainOperationOrchestrator:
         approval_request_id: str | None = None,
         error: Mapping[str, Any] | None = None,
         rollback_result: DomainOperationRollbackResult | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> DomainOperationResult:
         completed_at = self._clock()
         return DomainOperationResult(
@@ -515,6 +622,7 @@ class DefaultDomainOperationOrchestrator:
             started_at=started_at,
             completed_at=completed_at,
             error=error,
+            metadata=metadata or {},
             trace_entries=(
                 DomainOperationTraceEntry(
                     code=f"execution:{status.value}",

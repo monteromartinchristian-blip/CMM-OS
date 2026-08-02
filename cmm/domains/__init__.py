@@ -159,6 +159,16 @@ from cmm.domains.errors import (
     DomainOperationUnavailableError,
     DomainOperationValidationError,
     DomainPathEscape,
+    DomainPermissionApprovalRequiredError,
+    DomainPermissionConflictError,
+    DomainPermissionContractError,
+    DomainPermissionCrossDomainError,
+    DomainPermissionDeniedError,
+    DomainPermissionError,
+    DomainPermissionEvaluationError,
+    DomainPermissionRegistryError,
+    DomainPermissionResolutionError,
+    DomainPermissionSerializationError,
     DomainProfileCompositionError,
     DomainProfileConfigurationError,
     DomainProfileContractError,
@@ -212,7 +222,6 @@ from cmm.domains.errors import (
     DomainValidationRequestInvalid,
     DomainValidationStepMissing,
 )
-
 from cmm.domains.identifiers import (
     DomainId,
     DomainManifestId,
@@ -727,4 +736,78 @@ __all__ = [
     "merge_questions",
     "merge_recommendations",
     "validate_domain_operation_transition",
+]
+
+from cmm.domains.permission_adapters import (
+    DomainOperationPermissionDecision,
+    DomainRulePermissionDecision,
+    DomainWorkflowPermissionDecision,
+    evaluate_domain_operation,
+    evaluate_domain_rule,
+    evaluate_domain_workflow,
+    evaluate_domain_workflow_node,
+    request_for_operation,
+    request_for_rule_permission,
+    request_for_workflow,
+)
+from cmm.domains.permission_catalog import build_initial_permission_catalog
+from cmm.domains.permission_contracts import (
+    CrossDomainDuration,
+    CrossDomainPermissionDecision,
+    CrossDomainPermissionRequest,
+    DomainAutonomyLimits,
+    DomainPermissionConflict,
+    DomainPermissionPolicy,
+    DomainPermissionRequest,
+)
+from cmm.domains.permission_evaluator import evaluate_domain_policy
+from cmm.domains.permission_gate import (
+    DomainPermissionGate,
+    PermissionGateOutcome,
+    PermissionGateReason,
+    PermissionGateResult,
+)
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import (
+    DomainPermissionResolution,
+    DomainPermissionResolver,
+)
+
+__all__ += [
+    "CrossDomainDuration",
+    "CrossDomainPermissionDecision",
+    "CrossDomainPermissionRequest",
+    "DomainAutonomyLimits",
+    "DomainOperationPermissionDecision",
+    "DomainPermissionApprovalRequiredError",
+    "DomainPermissionConflict",
+    "DomainPermissionConflictError",
+    "DomainPermissionContractError",
+    "DomainPermissionCrossDomainError",
+    "DomainPermissionDeniedError",
+    "DomainPermissionError",
+    "DomainPermissionEvaluationError",
+    "DomainPermissionGate",
+    "DomainPermissionPolicy",
+    "DomainPermissionRegistry",
+    "DomainPermissionRegistryError",
+    "DomainPermissionRequest",
+    "DomainPermissionResolution",
+    "DomainPermissionResolutionError",
+    "DomainPermissionResolver",
+    "DomainPermissionSerializationError",
+    "DomainRulePermissionDecision",
+    "DomainWorkflowPermissionDecision",
+    "PermissionGateOutcome",
+    "PermissionGateReason",
+    "PermissionGateResult",
+    "build_initial_permission_catalog",
+    "evaluate_domain_operation",
+    "evaluate_domain_policy",
+    "evaluate_domain_rule",
+    "evaluate_domain_workflow",
+    "evaluate_domain_workflow_node",
+    "request_for_operation",
+    "request_for_rule_permission",
+    "request_for_workflow",
 ]
