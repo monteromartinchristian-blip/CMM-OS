@@ -739,6 +739,14 @@ __all__ = [
 ]
 
 from cmm.domains.errors import (
+    DomainMemoryContractError,
+    DomainMemoryError,
+    DomainMemoryPermissionError,
+    DomainMemoryPrivacyError,
+    DomainMemoryProposalBindingError,
+    DomainMemoryResolutionError,
+    DomainMemorySerializationError,
+    DomainMemoryValidationError,
     DomainPresentationConflictError,
     DomainPresentationContractError,
     DomainPresentationError,
@@ -754,6 +762,39 @@ from cmm.domains.errors import (
     DomainTraceError,
     DomainTraceSerializationError,
     DomainTraceValidationError,
+)
+
+# Phase 10.18 – Domain Memory Integration
+from cmm.domains.memory_contracts import (
+    DomainMemoryApprovalDecisionSnapshot,
+    DomainMemoryApprovalRequestSnapshot,
+    DomainMemoryCapability,
+    DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryProposalBinding,
+    DomainMemoryProposalKind,
+    DomainMemoryProposalSnapshot,
+    DomainMemoryReference,
+    DomainMemoryReferenceInventory,
+    DomainMemoryReferenceKind,
+    DomainMemorySelectionDecision,
+    DomainMemorySelectionDecisionCode,
+    DomainMemorySensitivityLevel,
+    DomainMemoryTemporalKind,
+    DomainMemoryTemporalSnapshot,
+    DomainMemoryTraceSnapshot,
+    DomainMemoryValidationCode,
+    DomainMemoryValidationResult,
+    DomainMemoryView,
+    DomainMemoryViewRequest,
+    DomainMemoryViewSnapshot,
+)
+from cmm.domains.memory_validation import (
+    DefaultDomainMemoryIntegrationValidator,
+    DomainMemoryIntegrationValidator,
+)
+from cmm.domains.memory_view import (
+    DefaultDomainMemoryViewResolver,
+    DomainMemoryViewResolver,
 )
 from cmm.domains.permission_adapters import (
     DomainOperationPermissionDecision,
@@ -807,6 +848,14 @@ from cmm.domains.presentation_contracts import (
     DomainPresentationValidationResult,
     DomainPresentationValidationState,
 )
+from cmm.domains.presentation_planner import (
+    DefaultDomainPresentationPlanner,
+    DomainPresentationPlanner,
+)
+from cmm.domains.presentation_validation import (
+    DefaultDomainPresentationPreservationValidator,
+    DomainPresentationPreservationValidator,
+)
 from cmm.domains.trace_assembler import DomainTraceAssembler
 from cmm.domains.trace_contracts import (
     CrossDomainTraceReference,
@@ -829,22 +878,49 @@ from cmm.domains.trace_validation import (
     DefaultDomainTraceReferenceValidator,
     DomainTraceReferenceValidator,
 )
-from cmm.domains.presentation_planner import (
-    DefaultDomainPresentationPlanner,
-    DomainPresentationPlanner,
-)
-from cmm.domains.presentation_validation import (
-    DefaultDomainPresentationPreservationValidator,
-    DomainPresentationPreservationValidator,
-)
 
 __all__ += [
     "CrossDomainDuration",
     "CrossDomainPermissionDecision",
     "CrossDomainPermissionRequest",
+    "CrossDomainTraceReference",
+    "DefaultDomainMemoryIntegrationValidator",
+    "DefaultDomainMemoryViewResolver",
     "DefaultDomainPresentationPlanner",
     "DefaultDomainPresentationPreservationValidator",
+    "DefaultDomainTraceReferenceValidator",
     "DomainAutonomyLimits",
+    "DomainMemoryApprovalDecisionSnapshot",
+    "DomainMemoryApprovalRequestSnapshot",
+    "DomainMemoryCapability",
+    "DomainMemoryContractError",
+    "DomainMemoryError",
+    "DomainMemoryIntegrationValidator",
+    "DomainMemoryPermissionDecisionSnapshot",
+    "DomainMemoryPermissionError",
+    "DomainMemoryPrivacyError",
+    "DomainMemoryProposalBinding",
+    "DomainMemoryProposalBindingError",
+    "DomainMemoryProposalKind",
+    "DomainMemoryProposalSnapshot",
+    "DomainMemoryReference",
+    "DomainMemoryReferenceInventory",
+    "DomainMemoryReferenceKind",
+    "DomainMemoryResolutionError",
+    "DomainMemorySelectionDecision",
+    "DomainMemorySelectionDecisionCode",
+    "DomainMemorySensitivityLevel",
+    "DomainMemorySerializationError",
+    "DomainMemoryTemporalKind",
+    "DomainMemoryTemporalSnapshot",
+    "DomainMemoryTraceSnapshot",
+    "DomainMemoryValidationCode",
+    "DomainMemoryValidationError",
+    "DomainMemoryValidationResult",
+    "DomainMemoryView",
+    "DomainMemoryViewRequest",
+    "DomainMemoryViewResolver",
+    "DomainMemoryViewSnapshot",
     "DomainOperationPermissionDecision",
     "DomainOutputIntent",
     "DomainOutputIntentType",
@@ -892,20 +968,19 @@ __all__ += [
     "DomainPresentationValidationResult",
     "DomainPresentationValidationState",
     "DomainPresentationWarningPriorityError",
-    "DefaultDomainTraceReferenceValidator",
-    "CrossDomainTraceReference",
     "DomainResultTraceReference",
+    "DomainRulePermissionDecision",
     "DomainTrace",
     "DomainTraceAssembler",
     "DomainTraceAssemblyRequest",
+    "DomainTraceContractError",
     "DomainTraceContribution",
     "DomainTraceDomainSelection",
-    "DomainTraceContractError",
     "DomainTraceError",
-    "DomainTraceReferenceValidator",
     "DomainTraceReference",
     "DomainTraceReferenceInventory",
     "DomainTraceReferenceKind",
+    "DomainTraceReferenceValidator",
     "DomainTraceReferences",
     "DomainTraceRole",
     "DomainTraceSerializationError",
@@ -914,7 +989,6 @@ __all__ += [
     "DomainTraceValidationError",
     "DomainTraceValidationResult",
     "DomainTraceValidationState",
-    "DomainRulePermissionDecision",
     "DomainWorkflowPermissionDecision",
     "PermissionGateOutcome",
     "PermissionGateReason",

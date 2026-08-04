@@ -153,6 +153,56 @@ class DomainTraceValidationError(DomainTraceError):
     code = "DOMAIN_TRACE_VALIDATION_ERROR"
 
 
+# Phase 10.18 – Domain Memory Integration
+class DomainMemoryError(DomainError):
+    """Base error for reference-only Domain Memory Integration operations."""
+
+    code = "DOMAIN_MEMORY_ERROR"
+
+
+class DomainMemoryContractError(DomainMemoryError, ValueError):
+    """Raised when a Domain Memory contract is invalid."""
+
+    code = "DOMAIN_MEMORY_CONTRACT_ERROR"
+
+
+class DomainMemorySerializationError(DomainMemoryError):
+    """Raised when a Domain Memory payload is invalid."""
+
+    code = "DOMAIN_MEMORY_SERIALIZATION_ERROR"
+
+
+class DomainMemoryResolutionError(DomainMemoryError):
+    """Raised when Domain Memory resolution encounters a controlled error."""
+
+    code = "DOMAIN_MEMORY_RESOLUTION_ERROR"
+
+
+class DomainMemoryValidationError(DomainMemoryError):
+    """Raised when Domain Memory validation fails."""
+
+    code = "DOMAIN_MEMORY_VALIDATION_ERROR"
+
+
+class DomainMemoryPermissionError(DomainMemoryError):
+    """Raised when Domain Memory permission checks fail."""
+
+    code = "DOMAIN_MEMORY_PERMISSION_ERROR"
+
+
+class DomainMemoryProposalBindingError(DomainMemoryError):
+    """Raised when Domain Memory proposal binding invariants are violated."""
+
+    code = "DOMAIN_MEMORY_PROPOSAL_BINDING_ERROR"
+
+
+class DomainMemoryPrivacyError(DomainMemoryError):
+    """Raised when Domain Memory metadata or payload contains forbidden private keys/content."""
+
+    code = "DOMAIN_MEMORY_PRIVACY_ERROR"
+
+
+
 class DomainPresentationConflictError(DomainPresentationError):
     """Raised when multi-domain presentation constraints remain unresolved."""
 
@@ -781,6 +831,14 @@ __all__ = [
     "DomainLoadRejected",
     "DomainLoadRollbackFailed",
     "DomainLoaderError",
+    "DomainMemoryContractError",
+    "DomainMemoryError",
+    "DomainMemoryPermissionError",
+    "DomainMemoryPrivacyError",
+    "DomainMemoryProposalBindingError",
+    "DomainMemoryResolutionError",
+    "DomainMemorySerializationError",
+    "DomainMemoryValidationError",
     "DomainOperationApprovalRequiredError",
     "DomainOperationCancellationError",
     "DomainOperationContractError",

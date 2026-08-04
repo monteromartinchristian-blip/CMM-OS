@@ -462,11 +462,9 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Implemented through:** Phase 10.17 — Domain Trace, completed on 2026-08-02.
-Phase 10.15 remains closed; Phase 10.18 — Domain Memory Integration is next.
-The 10.17 closure includes canonical DomainResult ordering, source-bound
-authoritative selections, typed cross-domain trace resolution, fail-closed
-sanitized diagnostics, and token-aware recursive privacy validation.
+**Implemented through:** Phase 10.18 — Domain Memory Integration, completed on 2026-08-03.
+Phase 10.15 remains closed; Phase 10.19 — Domain Presentation & Reasoning Integration is next.
+The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 
 The canonical source of requirements for Phases 10.16–10.30 is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),

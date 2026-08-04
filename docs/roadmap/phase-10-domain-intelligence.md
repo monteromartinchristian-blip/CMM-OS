@@ -8,11 +8,13 @@ Canonical requirements for Phases 10.16–10.30 are maintained in the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
 with source-clause evidence in the
 [Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).
-Phase 10.15 remains closed. Phase 10.16 — Domain Presentation and Phase 10.17
-— Domain Trace are complete (2026-08-02). Their implemented boundaries are
-[Domain Presentation](../reference/domain-presentation.md) and
-[Domain Trace](../reference/domain-trace.md); the remaining work proceeds from
-10.18 through 10.30.
+Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
+— Domain Trace (2026-08-02), and Phase 10.18 — Domain Memory Integration
+(2026-08-03) are complete. Their implemented boundaries are
+[Domain Presentation](../reference/domain-presentation.md),
+[Domain Trace](../reference/domain-trace.md), and
+[Domain Memory Integration](../reference/domain-memory-integration.md); the remaining work proceeds from
+10.19 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -307,7 +309,7 @@ metadata={},
 
 Contract Restrictions
 
-Domains should be free to:
+Domains must not be free to:
 
 * redefinir KnowledgeItem;
 * redefinir Resource;
@@ -2137,64 +2139,21 @@ store, stream, provider audit, private prompt or chain-of-thought is created.
 
 ⸻
 
-10.18 - Domain Memory Integration
+10.18 - Domain Memory Integration (Completed 2026-08-03)
 
 Objective
 
-Allow domains to read and propose updates about common memory without creating separate warehouses.
+Allow domains to select reference-only memory views and bind update proposals to shared memory without creating separate domain warehouses, persistent copies, or parallel claim models.
 
-Principio general
+Implemented Architecture & Contracts
 
-No:
+1. **One Shared Memory**: All knowledge, entities, relations, evidence, resources, and temporal scopes reside in `cmm.cognitive`.
+2. **DomainMemoryView**: A deterministic, reference-only view result containing `view_id`, `request_id`, `primary_domain`, required full canonical `request_digest` (SHA-256 of `DomainMemoryViewRequest`), optional `trace_id` and `temporal_reference`, canonical `selection_decisions`, `selected_references`, `content_digest`, and `digest`. `view_id` is content-bound to `request_digest` and selection decisions.
+3. **DomainMemoryProposalBinding**: Reference-only binding linking domain execution (`domain_id`, `trace_id`, `view_id`, `view_digest`) to existing canonical Phase 8 `MemoryUpdateProposal` and Phase 9 `AgentKnowledgeUpdateProposal` objects by ID.
+4. **Capability Separation**: Read permission does not imply proposal or write authorization (`READ != PROPOSE != APPROVE != APPLY != INVALIDATE != DELETE`).
+5. **Fail-Closed Validation**: `DefaultDomainMemoryIntegrationValidator` enforces exact proposal affected-reference inventory coverage, reference integrity, and privacy bounds without side-effects or store mutations.
 
-HealthMemory
-UniversityMemory
-RelationshipMemory
-ProjectMemory
-
-A common memory with:
-
-* knowledge
-* entities;
-* relaciones;
-* procedencia;
-* applicable domains;
-* sensibilidad;
-* permissions
-* temporality;
-* versions.
-
-Domain Memory View
-
-DomainMemoryView(
-domain_id="domain:university",
-knowledge_ids=[],
-entity_ids=[],
-relation_ids=[],
-filters={},
-permissions=[],
-generated_at="...",
-metadata={},
-)
-
-The view will be a leaked consultation, not a copy.
-
-Domain Memory Update Proposal
-
-DomainMemoryUpdateProposal(
-id="domain-memory-proposal-123",
-domain_id="domain:health",
-session_id="session-123",
-additions=[],
-updates=[],
-invalidations=[],
-relations=[],
-cross_domain_links=[],
-requires_confirmation=True,
-confidence=0.9,
-reasons=[],
-metadata={},
-)
+See [Domain Memory Integration Reference](../reference/domain-memory-integration.md).
 
 Capacidades
 
@@ -2213,17 +2172,13 @@ Capacidades
 
 Preventing fragmentation
 
-Domains should be free to:
+Domains must not be free to:
 
-* create independent persistent copies
-* To cover up knowledge with other authorized domains;
-* duplicate personas;
-* duplicate events;
-* double targets
-* duplicate decisiones;
-* sobrescribir preferencias;
+* create independent persistent copies;
+* duplicate personas/events/goals/decisions;
+* overwrite preferences;
 * remove versions;
-* Keep knowledge without sources.
+* retain source-free knowledge.
 
 ⸻
 
@@ -4293,7 +4248,7 @@ Objective
 
 Ensure that specialization does not turn CMM OS into an unconnected set of subsystems.
 
-Domains should be free to:
+Domains must not be free to:
 
 * To create an own memory
 * create an own Knowledge Store
