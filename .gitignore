@@ -52,3 +52,6 @@ dist/
 Thumbs.db
 # CMM OS local runtime state
 .cmm/
+
+# Local TokenSave state
+.tokensave/
