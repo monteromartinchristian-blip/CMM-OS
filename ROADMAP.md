@@ -552,6 +552,16 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - conversational interface;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
+- external audio ingestion and Plaud synchronization through a replaceable MCP adapter;
+- automatic transcription with timestamps, diarization, and reviewed transcript resources;
+- conversation-level file workspaces for uploaded and generated artifacts;
+- global file library with cross-device preview and download;
+- complete and selective chat export to Markdown and PDF;
+- conversation import from Claude, ChatGPT, and compatible Markdown formats;
+- continuation of imported conversations inside CMM OS;
+- supervised extraction of memory and knowledge from imported chats;
+- provider-independent Model Gateway with an optional experimental `ClineCliProvider` for ClinePass-backed models such as Kimi K3;
+- isolated `repository_worker` and tool-free `personal_assistant` execution profiles for the Cline CLI adapter;
 - goals, workflows, approvals, agents, and memory UI;
 - artifacts and trace inspection;
 - real-time updates;
@@ -581,6 +591,12 @@ Domain Intelligence
 Storage, Memory and Knowledge
         ↓
 Communication Profile and Response Rendering
+        ↓
+External Audio Ingestion and Transcription
+        ↓
+Conversation Files and Global Artifact Library
+        ↓
+Conversation Import, Export and Memory Review
         ↓
 Observability, Recovery and UI
 ```

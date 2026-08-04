@@ -697,7 +697,13 @@ Build the main natural-interaction interface for CMM OS.
 - streamed responses;
 - cancellation;
 - attachments;
-- quick commands.
+- quick commands;
+- dedicated conversation file tab;
+- cross-device artifact preview and download;
+- complete and selective conversation export;
+- Markdown and PDF export preview;
+- import of Claude, ChatGPT, and compatible Markdown conversations;
+- continuation of imported conversations.
 
 ## Conversation Message
 
@@ -761,6 +767,9 @@ When relevant, the interface must show:
 - approvals;
 - visible sources;
 - complete Orchestrator integration;
+- conversation file workspace;
+- selective Markdown and PDF export;
+- conversation import and continuation;
 - E2E tests.
 
 ---
@@ -1234,7 +1243,10 @@ Allow users to review what CMM OS remembers and control its retention.
 - mark sensitivity;
 - block use;
 - export;
-- import.
+- import;
+- review imported-conversation memory candidates;
+- accept, reject, edit, or merge proposed updates;
+- trace imported memories to conversation, message, and original file.
 
 ## Memory Policy
 
@@ -1272,6 +1284,8 @@ MemoryUpdateProposal(
 - sensitivity control;
 - audit trail;
 - export;
+- supervised imported-memory review;
+- duplicate and contradiction handling;
 - privacy tests.
 
 ---
@@ -1567,6 +1581,12 @@ For:
 - attachments;
 - backups;
 - artifacts;
+- conversation uploads;
+- model-generated files;
+- tool- and workflow-generated files;
+- imported conversation originals;
+- exported conversations;
+- multi-file download archives;
 - large logs;
 - results.
 
@@ -1580,7 +1600,10 @@ Provider-independent contracts:
 - `KnowledgeRepository`;
 - `MemoryRepository`;
 - `EventRepository`;
-- `DocumentRepository`.
+- `DocumentRepository`;
+- `ArtifactRepository`;
+- `ConversationImportRepository`;
+- `ConversationExportRepository`.
 
 ## Capabilities
 
@@ -1738,13 +1761,17 @@ Formats:
 - JSONL;
 - CSV;
 - Markdown;
+- PDF;
 - GraphML;
 - compressed archives;
 - complete backup.
 
 Exportable elements:
 
-- conversations;
+- conversations, complete or selectively scoped;
+- conversation files and generated artifacts;
+- global file-library metadata;
+- imported conversation originals;
 - memory;
 - knowledge;
 - goals;
@@ -1758,6 +1785,9 @@ Exportable elements:
 
 It must support:
 
+- Claude and ChatGPT Markdown conversation import;
+- provider-specific adapters behind shared contracts;
+- archive-only, continuation, and supervised-memory modes;
 - format validation;
 - duplicate detection;
 - schema mapping;
@@ -1771,8 +1801,12 @@ It must support:
 ## Completion Criteria
 
 - complete export;
-- selective export;
+- selective export by conversation, message range, or explicit message selection;
+- Markdown and PDF conversation rendering;
+- optional inclusion of authorized files and artifacts;
 - import;
+- imported-conversation continuation;
+- supervised memory and knowledge integration;
 - preview;
 - conflict resolution;
 - documentation;
@@ -2021,9 +2055,34 @@ Initial adapters may include:
 - Alibaba / Qwen;
 - Google / Gemini;
 - Ollama;
-- OpenAI-compatible providers.
+- OpenAI-compatible providers;
+- experimental Cline CLI adapter for ClinePass-backed models such as Kimi K3.
 
 The architecture must not depend on a closed provider list.
+
+### Experimental Cline CLI Adapter
+
+The Model Gateway may expose an optional `ClineCliProvider` that invokes Cline through its non-interactive CLI and normalizes its event stream into the shared `ModelResponse` contract.
+
+The adapter is an external worker integration, not a replacement for the Model Gateway, Agent Runtime, routing, memory, validation, or policy layers. It must remain disabled by default and explicitly marked experimental.
+
+Initial execution profiles:
+
+- `repository_worker`: controlled repository and terminal access for long-running analysis or development tasks;
+- `personal_assistant`: isolated working directory, no repository access, no terminal tools, and conversational use such as organizing concerns or preparing medical appointments.
+
+Required safeguards:
+
+- feature-flagged activation;
+- executable discovery and version capture;
+- subprocess isolation, timeout, cancellation, and output-size limits;
+- structured event parsing and deterministic error normalization;
+- no provider-side weakening of domain permissions, privacy, cost, or approval policies;
+- explicit tool allowlists per execution profile;
+- audit records identifying Cline, ClinePass, the selected underlying model when available, and all granted capabilities;
+- fallback only to providers compatible with the original privacy and permission constraints.
+
+The first supported experimental target is Kimi K3 through ClinePass, without assuming that the subscription provides a general-purpose model API outside Cline.
 
 ## Policies
 
@@ -2361,6 +2420,10 @@ Build a modular interface capable of evolving without coupling itself to interna
 ## Modules
 
 - Conversation;
+- Conversation Files;
+- Global File Library;
+- Import Center;
+- Export Center;
 - Goals;
 - Workflows;
 - Review Center;
@@ -2408,6 +2471,8 @@ unauthorized
 - dark mode;
 - accessibility;
 - mobile support;
+- cross-device artifact preview and download;
+- import and export progress views;
 - reload recovery.
 
 ## Completion Criteria
@@ -3553,7 +3618,9 @@ Synchronization may include:
 - timeline events;
 - notifications;
 - configuration;
-- client state.
+- client state;
+- artifact metadata and selected offline files;
+- import and export job state.
 
 ## Requirements
 
@@ -3999,6 +4066,371 @@ The renderer must verify that style transformation:
 - unit tests;
 - integration tests;
 - E2E validation across at least two clients;
+- documentation;
+- green global suite.
+
+---
+
+# 11.56 — External Audio Ingestion and Plaud MCP Integration
+
+## Objective
+
+Allow CMM OS to discover, import, transcribe, structure, and process audio recordings from Plaud through a replaceable MCP adapter while keeping the core ingestion pipeline independent from Plaud, MCP, and any concrete transcription provider.
+
+Plaud is an initial external source, not a mandatory platform dependency.
+
+## Architecture
+
+```text
+Plaud
+  ↓
+Plaud MCP Adapter
+  ↓
+External Audio Ingestion Pipeline
+  ↓
+Transcription Provider
+  ↓
+AudioResource + TranscriptResource
+  ↓
+Cognitive Layer
+  ↓
+Knowledge / Timeline / Memory
+```
+
+The same ingestion pipeline must support future sources such as uploaded files, watched folders, mobile clients, voice notes, and other recorder integrations.
+
+## Resource Contracts
+
+```python
+AudioResource(
+    id="resource-audio-123",
+    source="plaud",
+    external_id="plaud-recording-123",
+    recording_started_at="...",
+    duration_seconds=1800,
+    checksum="...",
+    storage_location="...",
+    privacy={},
+    provenance={},
+    metadata={},
+)
+```
+
+```python
+TranscriptResource(
+    id="resource-transcript-123",
+    audio_resource_id="resource-audio-123",
+    transcription_provider="...",
+    language="es",
+    text="...",
+    segments=[],
+    speakers=[],
+    confidence=None,
+    created_at="...",
+    privacy={},
+    provenance={},
+    metadata={},
+)
+```
+
+## Required Capabilities
+
+- connect to Plaud through a replaceable MCP adapter;
+- discover recordings through manual synchronization or scheduled polling;
+- import recordings idempotently through external identifiers and checksums;
+- preserve original audio and source metadata;
+- select local or approved remote transcription through the Model Gateway;
+- generate timestamped transcripts;
+- support speaker diarization with graceful fallback;
+- detect or configure language;
+- preserve confidence and uncertainty per segment when available;
+- resume interrupted imports and transcription jobs;
+- retry transient failures without creating duplicates;
+- expose ingestion and transcription status;
+- version corrected transcripts without overwriting originals;
+- link transcripts to timelines, sessions, people, domains, and Knowledge Packages;
+- require human review before sensitive knowledge or memory updates;
+- remain usable when Plaud or its MCP adapter is unavailable.
+
+## Privacy and Security
+
+Plaud recordings must default to `SENSITIVE` unless explicitly reclassified.
+
+The pipeline must support `LOCAL_ONLY`, `LOCAL_PREFERRED`, and approved remote transcription; require explicit approval before sending sensitive audio remotely; avoid raw sensitive content in logs; protect credentials; apply independent retention and deletion policies to audio and transcripts; preserve provenance; and prevent automatic memory updates from unreviewed sensitive inferences.
+
+## MCP Boundary
+
+The Plaud MCP adapter may authenticate, list recordings, retrieve metadata and authorized audio, and expose synchronization health.
+
+It must not write directly to memory or the Knowledge Store, bypass ingestion validation, choose privacy policy, select transcription models independently, or convert model output directly into facts.
+
+## Completion Criteria
+
+- provider-independent `AudioResource` and `TranscriptResource`;
+- external-audio ingestion service;
+- replaceable Plaud MCP adapter;
+- manual and scheduled synchronization;
+- idempotent import and duplicate prevention;
+- resumable transcription jobs;
+- local and approved remote transcription;
+- timestamped segments;
+- diarization with graceful fallback;
+- language and confidence metadata;
+- privacy, approval, retention, and deletion controls;
+- transcript versioning and human correction;
+- Cognitive Layer, Timeline, and Knowledge Package integration;
+- structured audit records;
+- unit, integration, and E2E tests;
+- documentation;
+- green global suite.
+
+---
+
+# 11.57 — Conversation Files, Global Artifact Library and Cross-Device Access
+
+## Objective
+
+Provide every conversation with an organized file workspace containing user-uploaded files and artifacts generated by models, tools, or workflows, while also exposing a global file library across conversations and authorized devices.
+
+Files must remain accessible independently from the device that created or uploaded them.
+
+## Conversation File Workspace
+
+Each conversation must expose a dedicated `Files` tab containing:
+
+- files uploaded by the user;
+- files generated by a model;
+- files generated by tools or workflows;
+- derived versions;
+- processing state;
+- source-message links;
+- preview and download actions.
+
+The interface must distinguish clearly between:
+
+```text
+Uploaded by user
+Generated by CMM OS
+Generated by tool or workflow
+```
+
+## Global File Library
+
+The platform must aggregate authorized files from all conversations and support:
+
+- search;
+- filters by conversation, domain, origin, format, date, author, and sensitivity;
+- sorting;
+- recent files;
+- favorites or pinned files;
+- source-conversation and source-message navigation;
+- preview;
+- individual and bulk download;
+- deletion and retention controls;
+- duplicate detection;
+- storage-usage visibility.
+
+## Artifact Contract
+
+```python
+ConversationArtifact(
+    id="artifact-123",
+    conversation_id="conversation-456",
+    source_message_id="message-789",
+    source_workflow_id=None,
+    created_by="user|model|tool|workflow",
+    filename="report.pdf",
+    media_type="application/pdf",
+    size_bytes=0,
+    checksum="...",
+    storage_key="...",
+    version=1,
+    status="available",
+    sensitivity="SENSITIVE",
+    created_at="...",
+    metadata={},
+)
+```
+
+## Preview and Download
+
+Initial previews should support PDF, images, Markdown, plain text, source code, and common office documents when a safe renderer is available.
+
+Downloads must support desktop and mobile browsers, authorized remote devices, resumable transfer when available, individual files, multiple-file archives, original files, and selected versions.
+
+Artifact delivery must use authenticated backend access or short-lived signed download URLs. Clients must not receive permanent object-storage credentials.
+
+## Cross-Device Availability
+
+Artifacts must be stored in CMM OS object storage rather than only in temporary client state.
+
+The platform must support access from the main Mac, iPhone, other authorized Macs or devices, encrypted transport, device authorization, permission-aware synchronization, selective offline availability, and recovery from interrupted synchronization.
+
+## Versioning and Provenance
+
+Regenerated or modified artifacts must create new versions rather than silently replacing prior files.
+
+Every version must preserve its source conversation, source message or workflow, generating model or tool, checksum, creation time, transformation history, privacy classification, and deletion state.
+
+## Privacy and Deletion
+
+The system must enforce conversation, domain, and resource permissions; preserve privacy classifications; clarify whether deletion removes only a conversation link or the stored object; prevent orphaned sensitive objects; minimize audit payloads; and revoke access promptly when permissions change.
+
+## Completion Criteria
+
+- conversation-level `Files` tab;
+- global file library;
+- unified artifact contract;
+- user, model, tool, and workflow origin metadata;
+- source-message and source-conversation navigation;
+- preview for initial supported formats;
+- authenticated cross-device download;
+- mobile-compatible access;
+- artifact versioning;
+- checksum and duplicate detection;
+- privacy, retention, deletion, and audit controls;
+- unit, integration, mobile-web, and E2E tests;
+- documentation;
+- green global suite.
+
+---
+
+# 11.58 — Conversation Import, Export and Supervised Memory Integration
+
+## Objective
+
+Allow CMM OS to import conversations from Claude, ChatGPT, and compatible Markdown exports, continue them inside CMM OS, export complete or selected conversations, and integrate candidate memory or knowledge only through supervised review.
+
+## Architecture
+
+```text
+Claude / ChatGPT Markdown
+        ↓
+Conversation Importer
+        ↓
+Format Detection and Parsing
+        ↓
+Import Preview
+        ↓
+CMM OS Conversation
+        ↓
+Optional Memory and Knowledge Extraction
+        ↓
+Human Review
+        ↓
+Approved Updates
+```
+
+## Conversation Import
+
+Initial imports must support Markdown exports from Claude and ChatGPT through replaceable format adapters.
+
+The importer must:
+
+- detect the source format when possible;
+- preserve the original file and checksum;
+- parse title, roles, messages, timestamps when present, code blocks, citations, and file references;
+- create a new conversation or append to an existing one;
+- preserve message order;
+- distinguish imported messages from later CMM OS messages;
+- support long conversations through bounded or resumable processing;
+- detect duplicate and partial imports;
+- expose a preview before persistence;
+- allow correction of parsing errors;
+- preserve source provider, format, importer version, and provenance;
+- fail safely when the structure is ambiguous.
+
+## Import Modes
+
+```text
+ARCHIVE_ONLY
+CONTINUE_CONVERSATION
+CONTINUE_AND_REVIEW_MEMORY
+```
+
+- `ARCHIVE_ONLY`: preserve the source as a consultable artifact without creating an active session.
+- `CONTINUE_CONVERSATION`: create or extend a CMM OS conversation.
+- `CONTINUE_AND_REVIEW_MEMORY`: continue the conversation and generate supervised memory and knowledge proposals.
+
+## Supervised Memory and Knowledge Integration
+
+```text
+Imported Conversation
+        ↓
+Candidate Facts / Preferences / Events / Decisions
+        ↓
+MemoryUpdateProposal / KnowledgeUpdateProposal
+        ↓
+Accept / Reject / Edit / Merge
+        ↓
+Memory and Knowledge Store
+```
+
+The review interface must distinguish user statements, assistant statements, quoted third-party content, inferred information, uncertain or contradictory claims, already-known information, and sensitive candidates.
+
+The system must not automatically persist model hypotheses or hallucinations, unconfirmed inferences, quoted third-party claims, jokes or role-play, context-dependent statements without sufficient scope, stale information, sensitive inferences, or duplicates.
+
+Each accepted update must preserve provenance back to the imported conversation, source message, original file, and review decision.
+
+## Conversation Export
+
+The interface must support exporting:
+
+- the complete conversation;
+- a contiguous message range;
+- individually selected messages;
+- user messages only;
+- assistant messages only;
+- both roles.
+
+Initial formats:
+
+- Markdown;
+- PDF.
+
+Export options must include title, timestamps, author labels, sources, citations, attachments, generated artifacts, code blocks, tables, conversation metadata, page layout, and a table of contents for PDF when appropriate.
+
+The user must receive a preview of the selected scope before generation.
+
+## Export Contract
+
+```python
+ConversationExportRequest(
+    conversation_id="conversation-123",
+    scope="complete|range|selection",
+    message_ids=[],
+    role_filter="all|user|assistant",
+    format="markdown|pdf",
+    include_sources=True,
+    include_attachments=False,
+    include_generated_artifacts=False,
+    metadata={},
+)
+```
+
+## Validation, Privacy and Portability
+
+Import and export must validate format and schema, preserve provenance and ordering, enforce permissions and sensitivity, exclude unselected or unauthorized content, detect duplicates and conflicts, support cancellation and rollback, keep provider-specific parsing outside the core, and avoid treating imported assistant output as trusted knowledge.
+
+## Completion Criteria
+
+- provider-independent conversation-import contract;
+- Claude Markdown adapter;
+- ChatGPT Markdown adapter;
+- source-format detection;
+- original-file preservation and checksums;
+- archive, continuation, and memory-review modes;
+- import preview and parsing correction;
+- duplicate and partial-import detection;
+- continuation inside CMM OS;
+- supervised memory and knowledge proposals;
+- accept, reject, edit, and merge review actions;
+- complete and selective chat export;
+- Markdown and PDF renderers;
+- export preview;
+- role filtering;
+- optional inclusion of authorized files and artifacts;
+- unit, adapter-contract, memory-integration, and E2E tests;
 - documentation;
 - green global suite.
 
@@ -4591,6 +5023,11 @@ These capabilities may be developed after the platform has been stabilized.
 - conversational interface;
 - configurable communication profiles;
 - neutral and Calm Authority presentation profiles;
+- conversation file workspaces;
+- global artifact library;
+- complete and selective Markdown and PDF chat export;
+- Claude and ChatGPT Markdown conversation import;
+- cross-device artifact preview and download;
 - Goal Workspace;
 - Workflow Manager;
 - Review Center;
@@ -4650,6 +5087,8 @@ These capabilities may be developed after the platform has been stabilized.
 - restore;
 - import;
 - export;
+- versioned artifact storage;
+- imported-conversation originals;
 - retention.
 
 ## Extensibility
@@ -4670,6 +5109,8 @@ These capabilities may be developed after the platform has been stabilized.
 - model usage audit;
 - reusable backend interfaces;
 - MCP, REST, and Actions adapters;
+- external audio ingestion and Plaud MCP synchronization;
+- provider-independent conversation import adapters;
 - skills and plugin packaging;
 - Context Layer Mode;
 - exit and portability strategy;
@@ -4777,6 +5218,23 @@ The phase will be considered complete when CMM OS can reliably execute the follo
 36. A backup is created.
 37. The backup is successfully restored in a clean environment.
 38. The global suite remains green.
+39. The user opens an existing conversation from an iPhone.
+40. The conversation `Files` tab shows uploaded and generated artifacts.
+41. The user previews and downloads a PDF created previously on the main Mac.
+42. The same artifact is available through the global file library.
+43. The user selects a message range and previews a Markdown and PDF export.
+44. The export includes only authorized selected content and optionally related artifacts.
+45. The user imports a Markdown conversation from Claude or ChatGPT.
+46. The system detects the format and displays the parsed conversation before persistence.
+47. The user continues the imported conversation inside CMM OS.
+48. The system proposes candidate facts, preferences, events, and decisions.
+49. The user accepts, rejects, edits, or merges each proposal.
+50. Only approved updates reach Memory and the Knowledge Store.
+51. A new Plaud recording is discovered through the MCP adapter.
+52. CMM OS imports it without duplication and preserves the original audio.
+53. The recording is transcribed with timestamps and diarization when available.
+54. The user reviews the transcript before Timeline, Knowledge, or Memory updates are proposed.
+55. The complete flow remains auditable and the global suite remains green.
 
 ---
 
@@ -4801,6 +5259,12 @@ CMM OS will stop being a set of specialized engines and become a complete person
 - integrating with external services;
 - operating locally;
 - presenting results through configurable communication profiles;
+- ingesting and transcribing authorized Plaud recordings through a replaceable MCP adapter;
+- organizing uploaded and generated artifacts by conversation;
+- providing a global cross-device file library;
+- exporting complete or selected chats to Markdown and PDF;
+- importing and continuing Claude, ChatGPT, and compatible Markdown conversations;
+- integrating imported memory and knowledge only through supervised review;
 - preserving meaning while adapting language, register, and channel;
 - selecting local or remote models without provider coupling;
 - controlling cost and privacy;
