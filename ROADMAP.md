@@ -565,6 +565,14 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - conversational interface;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
+- external audio ingestion and Plaud synchronization through a replaceable MCP adapter;
+- automatic transcription with timestamps, diarization, and reviewed transcript resources;
+- conversation-level file workspaces for uploaded and generated artifacts;
+- global file library with cross-device preview and download;
+- complete and selective chat export to Markdown and PDF;
+- conversation import from Claude, ChatGPT, and compatible Markdown formats;
+- continuation of imported conversations inside CMM OS;
+- supervised extraction of memory and knowledge from imported chats;
 - provider-independent Model Gateway with `OpenCodeGoProvider` as the preferred low-cost multimodel subscription adapter for direct CMM OS use;
 - optional experimental `ClineCliProvider` retained as a secondary external-worker integration for Cline-specific agent workflows;
 - provider routing that keeps CMM OS in control of prompts, context, tools, permissions, memory, validation, privacy, and cost policies;
