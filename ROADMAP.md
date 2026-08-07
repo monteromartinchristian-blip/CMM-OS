@@ -462,9 +462,10 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Implemented through:** Phase 10.18 — Domain Memory Integration, completed on 2026-08-03.
-Phase 10.15 remains closed; Phase 10.19 — Domain Presentation & Reasoning Integration is next.
+**Implemented through:** Phase 10.19 — General Domain, implemented pending audit.
+Phase 10.15 remains closed; Phase 10.20 — Health Domain is next.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
+The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 
 The canonical source of requirements for Phases 10.16–10.30 is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),

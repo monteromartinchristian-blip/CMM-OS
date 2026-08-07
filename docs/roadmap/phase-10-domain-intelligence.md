@@ -2184,6 +2184,8 @@ Domains must not be free to:
 
 10.19 - General Domain
 
+**Status:** Implemented, pending audit.
+
 Objective
 
 Provide a basic domain for nonspecialist applications, common behavior and secure fallback.
@@ -2238,6 +2240,21 @@ Permissions
 General Domain should not become a domain that quietly absorbes all applications.
 
 When a specialized domain is available, it should be used.
+
+### Implementation notes
+
+- `domain:general` is implemented via pure factories under `cmm/domains/general/`.
+- 13 production modules (including `catalog.py`); 17 test modules.
+- The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for the 8 operations, 6 rules, 9 resources, and 4 workflows.
+- The Phase 10.13 `INITIAL_DOMAIN_OPERATION_IDS` contains 4 historical `general.*` placeholders with different semantics; they are preserved for backward compatibility and do not collide with the Phase 10.19 canonical set.
+- Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries.
+- Canonical bootstrap: `build_standard_general_domain_bootstrap()` constructs the standard registries with General Domain fully integrated.
+- The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=DomainId(slug="general")`, using the standard `DomainScoringPolicy` (no manual `minimum_resolution_score` adjustment required).
+- Operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
+- Permission policy is low-risk/fail-closed: no automatic external actions, no sensitive inference, no memory write, no file modification.
+- Memory is accessed via proposals only (`allow_write=False`).
+- Specialized domains always prevail when valid and authorized.
+- General Domain is not added as a supporting domain by default.
 
 ⸻
 

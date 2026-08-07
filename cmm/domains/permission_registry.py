@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
 
 from cmm.domains.errors import DomainPermissionRegistryError
 from cmm.domains.permission_contracts import DomainPermissionPolicy
 from cmm.domains.registry_contracts import parse_semver
+
+
+@dataclass(frozen=True, slots=True)
+class DomainPermissionRegistrySnapshot:
+    """Immutable snapshot of the permission registry state.
+
+    ``policies`` is the canonical ordered tuple of registered policies.
+    """
+
+    policies: tuple[DomainPermissionPolicy, ...]
 
 
 class DomainPermissionRegistry:
@@ -58,5 +69,58 @@ class DomainPermissionRegistry:
         with self._lock:
             return tuple(sorted(self._policies.values(), key=lambda p: (p.domain_id, parse_semver(p.version), p.policy_id)))
 
+    # ── Snapshot / restore ───────────────────────────────────────────────────
 
-__all__ = ["DomainPermissionRegistry"]
+    def snapshot_state(self) -> DomainPermissionRegistrySnapshot:
+        """Capture the full registry state for transactional rollback."""
+        with self._lock:
+            policies = tuple(
+                sorted(
+                    self._policies.values(),
+                    key=lambda p: (p.domain_id, parse_semver(p.version), p.policy_id),
+                )
+            )
+        return DomainPermissionRegistrySnapshot(policies=policies)
+
+    def restore_state(self, snapshot: DomainPermissionRegistrySnapshot) -> None:
+        """Restore the full registry state from a snapshot.
+
+        Validates the snapshot completely before mutating.  Rejects wrong
+        types and invalid snapshots without modifying the registry.
+        """
+        if not isinstance(snapshot, DomainPermissionRegistrySnapshot):
+            raise DomainPermissionRegistryError(
+                "snapshot must be a DomainPermissionRegistrySnapshot",
+                field="snapshot",
+            )
+        if not isinstance(snapshot.policies, tuple):
+            raise DomainPermissionRegistryError(
+                "snapshot.policies must be a tuple",
+                field="snapshot.policies",
+            )
+        for policy in snapshot.policies:
+            if not isinstance(policy, DomainPermissionPolicy):
+                raise DomainPermissionRegistryError(
+                    "snapshot.policies contains a non-DomainPermissionPolicy",
+                    field="snapshot.policies",
+                )
+
+        # Reject duplicate (policy_id, version) keys before reconstructing
+        keys = [(p.policy_id, p.version) for p in snapshot.policies]
+        if len(keys) != len(set(keys)):
+            raise DomainPermissionRegistryError(
+                "snapshot.policies contains duplicate (policy_id, version) keys",
+                field="snapshot.policies",
+            )
+
+        # All validation passed — mutate
+        with self._lock:
+            self._policies = {
+                (p.policy_id, p.version): p for p in snapshot.policies
+            }
+
+
+__all__ = [
+    "DomainPermissionRegistry",
+    "DomainPermissionRegistrySnapshot",
+]

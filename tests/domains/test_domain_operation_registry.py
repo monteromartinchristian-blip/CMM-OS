@@ -201,3 +201,51 @@ def test_registry_can_query_by_resolved_availability() -> None:
         resolver=DomainOperationAvailabilityResolver(),
         context=context,
     ) == (definition,)
+def test_unimplemented_operation_cannot_be_enabled() -> None:
+    """Audit v2 P1: an operation without an implementation cannot be enabled."""
+    registry = InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry())
+    definition = _definition()
+    registry.register(definition)  # no implementation -> fail-closed disabled
+
+    # Initially unregistered implementation and disabled definition.
+    assert registry.get(definition.operation_id, definition.version).enabled is False
+    with pytest.raises(DomainOperationRegistryError):
+        registry.get_implementation(definition.operation_id, definition.version)
+    assert registry.resolve_active(definition.operation_id, required=False) is None
+
+    # Contract: enabling without an implementation is rejected.
+    with pytest.raises(DomainOperationRegistryError):
+        registry.set_enabled(definition.operation_id, definition.version, True)
+
+    # No mutation on the failed attempt.
+    assert registry.get(definition.operation_id, definition.version).enabled is False
+    assert registry.resolve_active(definition.operation_id, required=False) is None
+    common_desc = registry.common_registry.resolve(
+        definition.operation_id, definition.version
+    )
+    assert common_desc.enabled is False
+    with pytest.raises(DomainOperationRegistryError):
+        registry.get_implementation(definition.operation_id, definition.version)
+
+
+def test_implemented_operation_can_be_disabled_and_reenabled() -> None:
+    """Legitimate toggling of an implemented operation stays supported."""
+    registry = InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry())
+    definition = _definition()
+    implementation = Implementation(definition)
+    registry.register(definition, implementation)
+
+    registry.set_enabled(definition.operation_id, definition.version, False)
+    assert registry.get(definition.operation_id, definition.version).enabled is False
+    assert registry.resolve_active(definition.operation_id, required=False) is None
+
+    registry.set_enabled(definition.operation_id, definition.version, True)
+    assert registry.get(definition.operation_id, definition.version).enabled is True
+    assert (
+        registry.resolve_active(definition.operation_id).operation_id
+        == definition.operation_id
+    )
+    assert (
+        registry.get_implementation(definition.operation_id, definition.version)
+        is implementation
+    )

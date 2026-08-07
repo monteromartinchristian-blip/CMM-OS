@@ -240,6 +240,19 @@ class DefaultDomainResolver:
         primary_score = eligible_scores[0]
         primary = primary_score.domain_id
 
+        # Central invariant: a configured fallback domain must never become primary
+        # through this (normal) RESOLVED path when an explicitly signaled
+        # non-fallback domain is ineligible for a fail-closed reason.
+        if self._fallback_domain is not None and primary == self._fallback_domain:
+            blocked_reason = self._fallback_blocked_reason(context)
+            if blocked_reason is not None:
+                return self._blocked_fallback_result(
+                    context,
+                    candidates=candidates,
+                    rejected_domains=rejected_domains,
+                    blocked_reason=blocked_reason,
+                )
+
         supporting = self._select_supporting(
             eligible_scores, primary, primary_score, context, candidates
         )
@@ -489,11 +502,20 @@ class DefaultDomainResolver:
                 fallback_primary = None
                 fallback_used = False
                 if self._fallback_domain is not None:
-                    fb_candidate = self._is_fallback_eligible(context, candidates)
-                    if (
-                        fb_candidate is not None
-                        and fb_candidate.domain_id.slug not in ambiguous_slugs
-                    ):
+                    fb_candidate, blocked = self._resolve_fallback_primary(
+                        context,
+                        candidates,
+                        excluded_slugs=set(ambiguous_slugs),
+                    )
+                    if blocked is not None:
+                        return self._blocked_fallback_result(
+                            context,
+                            candidates=candidates,
+                            rejected_domains=rejected_domains,
+                            blocked_reason=blocked,
+                            ambiguous_domains=ambiguous_domains,
+                        )
+                    if fb_candidate is not None:
                         fallback_primary = fb_candidate.domain_id
                         fallback_used = True
 
@@ -539,11 +561,20 @@ class DefaultDomainResolver:
                 fallback_primary = None
                 fallback_used = False
                 if self._fallback_domain is not None:
-                    fb_candidate = self._is_fallback_eligible(context, candidates)
-                    if (
-                        fb_candidate is not None
-                        and fb_candidate.domain_id.slug not in ambiguous_slugs
-                    ):
+                    fb_candidate, blocked = self._resolve_fallback_primary(
+                        context,
+                        candidates,
+                        excluded_slugs=ambiguous_slugs,
+                    )
+                    if blocked is not None:
+                        return self._blocked_fallback_result(
+                            context,
+                            candidates=candidates,
+                            rejected_domains=rejected_domains,
+                            blocked_reason=blocked,
+                            ambiguous_domains=ambiguous_domains,
+                        )
+                    if fb_candidate is not None:
                         fallback_primary = fb_candidate.domain_id
                         fallback_used = True
 
@@ -637,7 +668,16 @@ class DefaultDomainResolver:
                     # No second candidate — try fallback
                     fallback_primary = None
                     fallback_used = False
-                    fb_candidate = self._is_fallback_eligible(context, candidates)
+                    fb_candidate, blocked = self._resolve_fallback_primary(
+                        context, candidates
+                    )
+                    if blocked is not None:
+                        return self._blocked_fallback_result(
+                            context,
+                            candidates=candidates,
+                            rejected_domains=rejected_domains,
+                            blocked_reason=blocked,
+                        )
                     if fb_candidate is not None:
                         fallback_primary = fb_candidate.domain_id
                         fallback_used = True
@@ -754,6 +794,203 @@ class DefaultDomainResolver:
             and not allow_degraded
         )
 
+    def _fallback_blocked_reason(
+        self, context: DomainResolutionContext
+    ) -> DomainResolutionReason | None:
+        """Return a blocking reason when the fallback domain must not be applied.
+
+        Generic, domain-agnostic rule.  If a signal explicitly implicates a
+        domain (other than the configured fallback) that is ineligible for a
+        fail-closed reason — not available, denied by policy, excluded by
+        ``allowed_domains``, missing authorization (when authorization is
+        required), disabled (when policy disallows disabled), or degraded (when
+        policy disallows degraded) — then the fallback domain must NOT silently
+        take over.  Fail-closed.
+
+        Deterministic precedence, aligned with the rejection semantics of
+        ``_filter_and_score``: not available -> denied -> not allowed ->
+        unauthorized -> disabled -> degraded.
+        """
+        if self._fallback_domain is None:
+            return None
+
+        fb_slug = self._fallback_domain.slug
+        available_slugs = {d.slug for d in context.available_domains}
+
+        require_auth = True
+        denied_slugs: set[str] = set()
+        allowed_slugs: set[str] | None = None
+        allow_disabled = False
+        allow_degraded = True
+        if context.system_policy is not None:
+            require_auth = context.system_policy.require_authorization
+            denied_slugs = {d.slug for d in context.system_policy.denied_domains}
+            allow_disabled = context.system_policy.allow_disabled
+            allow_degraded = context.system_policy.allow_degraded
+            if context.system_policy.allowed_domains:
+                allowed_slugs = {d.slug for d in context.system_policy.allowed_domains}
+
+        authorized_slugs = {d.slug for d in context.authorized_domains}
+
+        registry_versions: dict[str, list[dict[str, str]]] = {}
+        raw_meta = dict(context.metadata)
+        if "_resolution_registry_versions" in raw_meta:
+            registry_versions = raw_meta["_resolution_registry_versions"]
+
+        for signal in context.signals:
+            for domain_id in signal.domain_ids:
+                slug = domain_id.slug
+                if slug == fb_slug:
+                    continue
+                # Not available — the signaled domain cannot serve at all.
+                if slug not in available_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                        message=(
+                            f"Signaled domain {domain_id} is not available; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Denied by policy — most specific reason.
+                if slug in denied_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_POLICY_DENIED",
+                        message=(
+                            f"Signaled domain {domain_id} is denied by policy; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Excluded by allowed_domains.
+                if allowed_slugs is not None and slug not in allowed_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_POLICY_NOT_ALLOWED",
+                        message=(
+                            f"Signaled domain {domain_id} is not in the allowed "
+                            f"domains; fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Not authorized (when authorization is required).
+                if require_auth and slug not in authorized_slugs:
+                    return DomainResolutionReason(
+                        code="DOMAIN_UNAUTHORIZED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is not authorized; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Disabled (when policy disallows disabled).
+                domain_statuses = self._get_domain_statuses(
+                    slug, registry_versions
+                )
+                if (
+                    DomainStatus.DISABLED.value in domain_statuses
+                    and not allow_disabled
+                ):
+                    return DomainResolutionReason(
+                        code="DOMAIN_DISABLED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is disabled; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+                # Degraded (when policy disallows degraded).
+                if (
+                    DomainStatus.DEGRADED.value in domain_statuses
+                    and not allow_degraded
+                ):
+                    return DomainResolutionReason(
+                        code="DOMAIN_DEGRADED_REJECTED",
+                        message=(
+                            f"Signaled domain {domain_id} is degraded and policy "
+                            f"disallows degraded; fallback {self._fallback_domain} "
+                            f"is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+        return None
+
+    def _resolve_fallback_primary(
+        self,
+        context: DomainResolutionContext,
+        candidates: list[DomainCandidateScore],
+        *,
+        excluded_slugs: set[str] | None = None,
+    ) -> tuple[DomainCandidateScore | None, DomainResolutionReason | None]:
+        """Decide whether the configured fallback may become primary in this path.
+
+        Central invariant: a configured fallback domain must never become primary
+        through any resolver path when an explicitly signaled non-fallback domain
+        is ineligible for a fail-closed reason.
+
+        Returns ``(fallback_candidate, blocking_reason)``:
+
+        * ``(None, None)`` — no fallback configured, or the fallback is ineligible
+          (or excluded) for this specific path;
+        * ``(DomainCandidateScore, None)`` — the fallback may be used as primary;
+        * ``(None, blocking_reason)`` — the fallback must NOT become primary
+          (fail-closed).
+        """
+        if self._fallback_domain is None:
+            return None, None
+
+        fb_candidate = self._is_fallback_eligible(context, candidates)
+        if fb_candidate is None:
+            return None, None
+
+        if (
+            excluded_slugs is not None
+            and fb_candidate.domain_id.slug in excluded_slugs
+        ):
+            return None, None
+
+        blocked_reason = self._fallback_blocked_reason(context)
+        if blocked_reason is not None:
+            return None, blocked_reason
+
+        return fb_candidate, None
+
+    def _blocked_fallback_result(
+        self,
+        context: DomainResolutionContext,
+        *,
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        blocked_reason: DomainResolutionReason,
+        ambiguous_domains: tuple[DomainId, ...] = (),
+    ) -> DomainResolutionResult:
+        """Build a fail-closed BLOCKED result for the fallback guard.
+
+        A BLOCKED result requires at least one rejected domain, so the offending
+        signaled domain carried by ``blocked_reason`` is guaranteed to be present
+        (it may be a signaled domain that was not in ``available_domains`` and
+        therefore never scored as a candidate).
+        """
+        reason_domain = blocked_reason.domain_id
+        final_domains: set[DomainId] = set(rejected_domains)
+        if reason_domain is not None:
+            final_domains.add(reason_domain)
+        final_rejected = tuple(sorted(final_domains, key=lambda d: d.slug))
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.BLOCKED,
+            primary=None,
+            rejected_domains=final_rejected,
+            ambiguous_domains=ambiguous_domains,
+            reasons=(blocked_reason,),
+            candidate_scores=tuple(candidates),
+        )
+
     def _try_fallback(
         self,
         context: DomainResolutionContext,
@@ -761,9 +998,22 @@ class DefaultDomainResolver:
         eligible_scores: list[DomainCandidateScore],
         rejected_list: list[DomainCandidateScore],
     ) -> DomainResolutionResult | None:
-        fb_candidate = self._is_fallback_eligible(context, candidates)
-        if fb_candidate is None:
+        fb_candidate, blocked_reason = self._resolve_fallback_primary(
+            context, candidates
+        )
+        if fb_candidate is None and blocked_reason is None:
             return None
+
+        if blocked_reason is not None:
+            rejected_tuple = tuple(
+                sorted((c.domain_id for c in rejected_list), key=lambda d: d.slug)
+            )
+            return self._blocked_fallback_result(
+                context,
+                candidates=candidates,
+                rejected_domains=rejected_tuple,
+                blocked_reason=blocked_reason,
+            )
 
         return self._build_result(
             context=context,
