@@ -2262,7 +2262,7 @@ When a specialized domain is available, it should be used.
 
 10.20 - Health Domain
 
-**Status:** Implemented, pending audit (2026-08-08).
+**Status:** Complete and audited (2026-08-08).
 
 Objective
 
