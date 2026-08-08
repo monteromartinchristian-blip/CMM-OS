@@ -70,6 +70,37 @@ def test_import_no_side_effects():
     assert module is not None
 
 
+def test_clean_import_in_fresh_interpreter():
+    """Importing cmm.domains.health from a clean interpreter has no side effects.
+
+    Mirrors the canonical General-domain clean-import regression: a brand-new
+    Python interpreter must import the module with exit code 0, empty stdout,
+    empty stderr, and no global registries created by the import itself.
+    """
+    import pathlib
+    import subprocess
+    import sys
+
+    # Repo root is three directory levels up from tests/domains/test_...py.
+    repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+
+    script = (
+        "import cmm.domains.health;"
+        "assert not hasattr(cmm.domains.health, '_GLOBAL_REGISTRIES'), "
+        "'cmm.domains.health must not create global registries on import'"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
 def test_no_cycles():
     import cmm.domains
     import cmm.domains.health  # noqa: F401

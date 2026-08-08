@@ -103,12 +103,19 @@ def classify_clinical_statement(
     documented -> observation -> diagnosis -> provisional -> hypothesis ->
     user possibility.  A system-flagged ``is_diagnosis`` with a provisional
     flag stays provisional; it is never promoted to ``documented_diagnosis``.
+
+    ``provenance`` records the *origin* of a statement (source origin) and is
+    deliberately NOT treated as documentary evidence (source origin !=
+    epistemic status).  Only an explicit ``is_documented`` flag — a genuine
+    documentary/clinical-document status — classifies a diagnosis as
+    ``documented_diagnosis``.  A user-reported statement, inference, or
+    possibility keeps its epistemic category even when provenance is present.
     """
     if is_user_possibility and not (is_documented or is_clinical_observation):
         return EPISTEMIC_CATEGORY_POSSIBILITY
     if is_system_hypothesis and not (is_documented or is_clinical_observation):
         return EPISTEMIC_CATEGORY_HYPOTHESIS
-    if is_documentary := (bool(provenance) or is_documented):
+    if is_documented:
         if is_diagnosis:
             if is_provisional:
                 return EPISTEMIC_CATEGORY_PROVISIONAL
@@ -120,7 +127,6 @@ def classify_clinical_statement(
         return EPISTEMIC_CATEGORY_PROVISIONAL
     if is_user_reported:
         return EPISTEMIC_CATEGORY_REPORTED_SYMPTOM
-    _ = is_documentary
     return EPISTEMIC_CATEGORY_HYPOTHESIS
 
 
@@ -294,27 +300,34 @@ def validate_diagnostic_claim(
 
     Hard invariant: being documented (present in a source) or evidenced
     (supported by material) does NOT confirm a diagnosis.  A claim is
-    definitive only when an explicit ``confirmed`` status is present and the
-    claim is not provisional.  Confirmation is never derived from evidence
-    presence, source existence, or documentary provenance.  Anything less
-    must remain provisional/hypothesis and never be presented as definitive.
+    definitive only when an explicit ``confirmed`` status is present AND the
+    claim is documented clinical evidence AND it is not provisional.
+    Confirmation is never derived from evidence presence, source existence, or
+    documentary provenance alone.  A bare ``confirmed=True`` boolean, without
+    documented clinical evidence, cannot produce a definitive diagnosis — it
+    would otherwise let a system hypothesis or user claim be promoted to a
+    definitive diagnosis merely because an input boolean said confirmed.
     """
-    is_definitive = bool(confirmed) and not provisional
+    grounded = bool(confirmed) and documented and evidence and not provisional
+    is_definitive = grounded
     supported_category = classify_clinical_statement(
         provenance="documented" if documented else None,
         is_documented=documented,
         is_diagnosis=True,
-        is_provisional=provisional or not confirmed,
+        is_provisional=provisional or not grounded,
         is_system_hypothesis=(not documented and not confirmed),
     )
     return {
         "is_definitive": is_definitive,
-        "may_present_as_definitive": is_definitive,
+        "may_present_as_definitive": grounded,
         "supported_category": supported_category,
         "reason": (
-            "Explicit confirmation establishes a definitive diagnostic claim."
+            "Explicit confirmation of documented clinical evidence establishes "
+            "a definitive diagnostic claim."
             if is_definitive
-            else ("Diagnostic claim lacks explicit confirmation; keep provisional.")
+            else (
+                "Diagnostic claim lacks confirmed documented evidence; keep provisional."
+            )
         ),
     }
 

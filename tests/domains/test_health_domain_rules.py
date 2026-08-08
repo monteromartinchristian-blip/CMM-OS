@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.health import build_health_rules
-from cmm.domains.health.rules import validate_diagnostic_claim
+from cmm.domains.health.rules import (
+    classify_clinical_statement,
+    validate_diagnostic_claim,
+)
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -158,6 +161,110 @@ def test_explicit_confirmation_alone_may_allow_definitive():
     )
     assert verdict["is_definitive"] is True
     assert verdict["may_present_as_definitive"] is True
+
+
+def test_provenance_does_not_imply_documentary_diagnosis():
+    """source origin != epistemic status: provenance alone (user_statement) must
+    never classify a diagnosis as documented_diagnosis."""
+    assert (
+        classify_clinical_statement(
+            provenance="user_statement",
+            is_user_reported=True,
+            is_diagnosis=True,
+        )
+        != "documented_diagnosis"
+    )
+
+
+def test_inference_provenance_does_not_promote_hypothesis():
+    """Provenance of an inference must not promote a system hypothesis to a
+    documented diagnosis."""
+    assert (
+        classify_clinical_statement(
+            provenance="inference",
+            is_diagnosis=True,
+            is_system_hypothesis=True,
+        )
+        == "system_hypothesis"
+    )
+
+
+def test_user_possibility_stays_possibility_with_provenance():
+    assert (
+        classify_clinical_statement(
+            provenance="user_statement",
+            is_user_possibility=True,
+        )
+        == "user_possibility"
+    )
+
+
+def test_only_explicit_documentary_status_classifies_documented_diagnosis():
+    """A diagnosis becomes documented_diagnosis only from an explicit documented
+    flag, never from the presence of provenance alone."""
+    assert (
+        classify_clinical_statement(
+            provenance="medical_record",
+            is_diagnosis=True,
+            is_documented=True,
+        )
+        == "documented_diagnosis"
+    )
+    # Provenance alone, without an explicit documented flag, must not.
+    assert (
+        classify_clinical_statement(provenance="medical_record", is_diagnosis=True)
+        != "documented_diagnosis"
+    )
+
+
+def test_confirmed_flag_alone_cannot_make_claim_definitive():
+    """confirmed=True with no documented status and no evidence is NOT
+    definitive and MUST NOT be presentable as definitive."""
+    verdict = validate_diagnostic_claim(
+        evidence=False,
+        documented=False,
+        confirmed=True,
+        provisional=False,
+    )
+    assert verdict["is_definitive"] is False
+    assert verdict["may_present_as_definitive"] is False
+
+
+def test_no_definitive_result_is_hypothesis_possibility_or_provisional():
+    """No result may simultaneously be definitive and carry a hypothesis,
+    possibility, or provisional category."""
+    for category in ("system_hypothesis", "user_possibility", "provisional_diagnosis"):
+        for confirmed in (True, False):
+            verdict = validate_diagnostic_claim(
+                evidence=True, documented=True, confirmed=confirmed, provisional=False
+            )
+            assert not (
+                verdict["is_definitive"] is True
+                and verdict["supported_category"] == category
+            )
+
+
+def test_confirmed_plus_provisional_remains_non_definitive():
+    verdict = validate_diagnostic_claim(
+        evidence=True, documented=True, confirmed=True, provisional=True
+    )
+    assert verdict["is_definitive"] is False
+    assert verdict["may_present_as_definitive"] is False
+
+
+def test_confirmed_documented_evidenced_diagnosis_may_be_represented():
+    """A confirmed diagnosis grounded in documented clinical evidence may be
+    represented as definitive (confirmed AND documented AND evidence AND NOT
+    provisional)."""
+    verdict = validate_diagnostic_claim(
+        evidence=True,
+        documented=True,
+        confirmed=True,
+        provisional=False,
+    )
+    assert verdict["is_definitive"] is True
+    assert verdict["may_present_as_definitive"] is True
+    assert verdict["supported_category"] == "documented_diagnosis"
 
 
 def test_medical_red_flag_escalates():
