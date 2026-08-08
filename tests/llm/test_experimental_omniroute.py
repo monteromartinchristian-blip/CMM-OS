@@ -253,3 +253,31 @@ def test_factory_rejects_omniroute_provider_model_mismatch() -> None:
             model=mismatched_model,
             client=RecordingCompatibleClient(),
         )
+
+
+def test_omniroute_public_api_is_exported() -> None:
+    from kernel.llm import (
+        OMNIROUTE_API_KEY_ENV as api_key_env,
+    )
+    from kernel.llm import (
+        OMNIROUTE_BASE_URL_ENV as base_url_env,
+    )
+    from kernel.llm import (
+        OMNIROUTE_DEEPSEEK_V4_FLASH as deepseek_model,
+    )
+    from kernel.llm import (
+        OMNIROUTE_DEFAULT_BASE_URL as default_base_url,
+    )
+    from kernel.llm import (
+        OMNIROUTE_PROVIDER_ID as provider_id,
+    )
+    from kernel.llm import (
+        register_experimental_omniroute as register,
+    )
+
+    assert provider_id == "omniroute"
+    assert default_base_url == "http://localhost:20128/v1"
+    assert base_url_env == "CMM_OMNIROUTE_BASE_URL"
+    assert api_key_env == "CMM_OMNIROUTE_API_KEY"
+    assert deepseek_model == "cp/cline-pass/deepseek-v4-flash"
+    assert callable(register)
