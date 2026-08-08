@@ -362,12 +362,15 @@ def test_deterministic_helpers():
     )
     assert classify_relationship_perspective() == "unknown"
 
-    # detect_relationship_pattern is always a hypothesis.
+    # detect_relationship_pattern is always a hypothesis; grounding is derived
+    # from real support references, never from a caller integer.
     pattern = detect_relationship_pattern(
-        pattern_kind="conflict_repair_cycle", support_count=5
+        pattern_kind="conflict_repair_cycle",
+        references=("s1", "s2", "s3", "s4", "s5"),
     )
     assert pattern["hypothesis"] is True
     assert pattern["psychological_cause"] is None
+    assert pattern["support_count"] == 5
     assert pattern["uncertainty"] == "low"
 
     # evaluate_boundary_consistency.

@@ -66,6 +66,22 @@ PATTERN_FREQUENCY_CHANGE = "frequency_change"
 PATTERN_BOUNDARY_CONFLICT = "boundary_conflict"
 PATTERN_COMMITMENT_NON_FULFILMENT = "commitment_non_fulfilment"
 
+# Closed pattern taxonomy derived from the canonical constants above.  This is
+# the single canonical tuple/set used by both the rule layer and the operation
+# schema; arbitrary psychological/personality labels are structurally rejected.
+CANONICAL_RELATIONSHIPS_PATTERN_KINDS: tuple[str, ...] = (
+    PATTERN_APPROACH_DISTANCE_CYCLE,
+    PATTERN_CONFLICT_REPAIR_CYCLE,
+    PATTERN_REPEATED_CANCELLATION,
+    PATTERN_SUPPORT_ASYMMETRY,
+    PATTERN_FREQUENCY_CHANGE,
+    PATTERN_BOUNDARY_CONFLICT,
+    PATTERN_COMMITMENT_NON_FULFILMENT,
+)
+CANONICAL_RELATIONSHIPS_PATTERN_KIND_SET: frozenset[str] = frozenset(
+    CANONICAL_RELATIONSHIPS_PATTERN_KINDS
+)
+
 # ── Closed boundary consistency states (spec §13) ─────────────────────────────
 
 BOUNDARY_EXPRESSED = "expressed"
@@ -119,6 +135,27 @@ def _reference_from(
         if usable is not None:
             return usable
     return None
+
+
+def _normalize_references(values: Any) -> tuple[str, ...]:
+    """Normalize a collection of reference IDs into a deterministic,
+    order-preserving, de-duplicated tuple of usable references.
+
+    Blank/placeholder IDs are dropped and never count as evidence.  This never
+    fabricates a placeholder (e.g. ``"unknown"``) for a missing identifier.
+    """
+    if isinstance(values, str):
+        values = (values,)
+    if not isinstance(values, (list, tuple)):
+        return ()
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for value in values:
+        usable = _usable_reference(value)
+        if usable is not None and usable not in seen_set:
+            seen_set.add(usable)
+            seen.append(usable)
+    return tuple(seen)
 
 
 def classify_relationship_statement(
@@ -211,26 +248,45 @@ def detect_relationship_pattern(
     counterexample is never silently discarded.  Repetition may strengthen
     confidence in an observational pattern but never establishes motive,
     personality, or psychological cause.
+
+    Pattern kinds are structurally closed: only the canonical seven Phase 10.21
+    kinds are accepted.  An unrecognized kind (including any arbitrary
+    psychological/personality diagnostic label) is rejected with ``ValueError``
+    and can never become a hypothesis.
+
+    Grounding is the source of truth: ``support_count`` and
+    ``counterexample_count`` are DERIVED from the usable supporting /
+    counterexample reference IDs, never from caller-supplied integers.  A
+    caller integer alone cannot generate confidence; with no grounded support
+    references the pattern remains an ungrounded hypothesis with high
+    uncertainty.
     """
-    support = max(0, int(support_count))
-    counter = max(0, int(counterexample_count))
-    # Simple deterministic uncertainty that accounts for BOTH support and
-    # counterevidence: substantial counterexamples temper confidence even when
-    # support is high, so certainty is never misleadingly low while real
-    # counterevidence exists.
-    if support < 2 or counter >= 2:
+    if pattern_kind not in CANONICAL_RELATIONSHIPS_PATTERN_KIND_SET:
+        raise ValueError(
+            f"Unknown relationship pattern kind: {pattern_kind!r}. "
+            "Only canonical Phase 10.21 pattern kinds are allowed."
+        )
+    support = _normalize_references(references)
+    counter = _normalize_references(counterexample_references)
+    support_n = len(support)
+    counter_n = len(counter)
+    # Simple deterministic uncertainty that accounts for BOTH grounded support
+    # and counterevidence: substantial grounded counterexamples temper
+    # confidence even when support is high, so certainty is never misleadingly
+    # low while real counterevidence exists.
+    if support_n < 2 or counter_n >= 2:
         uncertainty = "high"
-    elif support < 4 or counter >= 1:
+    elif support_n < 4 or counter_n >= 1:
         uncertainty = "medium"
     else:
         uncertainty = "low"
     return {
         "pattern_kind": pattern_kind,
         "hypothesis": True,
-        "support_count": support,
-        "counterexample_count": counter,
-        "references": tuple(references),
-        "counterexample_references": tuple(counterexample_references),
+        "support_count": support_n,
+        "counterexample_count": counter_n,
+        "references": support,
+        "counterexample_references": counter,
         "period_start": period_start,
         "period_end": period_end,
         "temporal_range": (period_start, period_end),
@@ -294,7 +350,12 @@ def separate_emotion_need_expectation(
     for statement in statements:
         if not isinstance(statement, Mapping):
             continue
-        statement_id = statement.get("id", "unknown")
+        # Only a real, usable statement id may represent the item in a bucket.
+        # A missing/blank id is never replaced with a fabricated placeholder
+        # ("unknown") that could later leak into reference collections.
+        statement_id = _usable_reference(statement.get("id"))
+        if statement_id is None:
+            continue
         if statement.get("emotion"):
             result["emotions"].append(statement_id)
         if statement.get("need"):
@@ -501,7 +562,7 @@ class SeparateRelationshipFactInterpretationRule:
         for statement in statements:
             if not isinstance(statement, Mapping):
                 continue
-            statement_id = statement.get("id", "unknown")
+            statement_id = _usable_reference(statement.get("id"))
             category = classify_relationship_statement(
                 provenance=statement.get("provenance"),
                 is_observed=bool(statement.get("observed")),
@@ -514,6 +575,9 @@ class SeparateRelationshipFactInterpretationRule:
                     statement.get("evidence_references", ()) or ()
                 ),
             )
+            # A missing/blank id is never replaced with a fabricated
+            # placeholder reference; the finding simply carries no reference.
+            references = (statement_id,) if statement_id is not None else ()
             findings.append(
                 ReasoningFinding(
                     code="EPISTEMIC_CATEGORY",
@@ -521,7 +585,7 @@ class SeparateRelationshipFactInterpretationRule:
                     severity=ReasoningSeverity.INFO,
                     rule_id=self.definition.id,
                     domain_id=self.definition.domain_id,
-                    references=(statement_id,),
+                    references=references,
                 )
             )
         return _result(
@@ -642,8 +706,9 @@ class RelationshipTimelineRule:
         for item in timeline:
             if not isinstance(item, Mapping):
                 continue
-            item_id = item.get("id", "unknown")
+            item_id = _usable_reference(item.get("id"))
             kind = item.get("kind", "unknown")
+            references = (item_id,) if item_id is not None else ()
             findings.append(
                 ReasoningFinding(
                     code="TIMELINE_ITEM",
@@ -651,7 +716,7 @@ class RelationshipTimelineRule:
                     severity=ReasoningSeverity.INFO,
                     rule_id=self.definition.id,
                     domain_id=self.definition.domain_id,
-                    references=(item_id,),
+                    references=references,
                 )
             )
         # Temporal proximity is not causation: a change following an event is
@@ -698,8 +763,31 @@ class PatternWithoutCertaintyRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No pattern metadata supplied.",
             )
+        kind = str(pattern.get("pattern_kind", "unknown"))
+        # The pattern taxonomy is structurally closed: an arbitrary
+        # psychological/personality label is blocked and never becomes a
+        # PATTERN_HYPOTHESIS.
+        if kind not in CANONICAL_RELATIONSHIPS_PATTERN_KIND_SET:
+            finding = ReasoningFinding(
+                code="PATTERN_KIND_REJECTED",
+                message=(
+                    f"Pattern kind {kind!r} is not a canonical Phase 10.21 "
+                    "relationship pattern kind and is blocked."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                findings=(finding,),
+                code="PATTERN_KIND_REJECTED",
+                message="Unsupported pattern kind blocked.",
+            )
         record = detect_relationship_pattern(
-            pattern_kind=str(pattern.get("pattern_kind", "unknown")),
+            pattern_kind=kind,
             support_count=int(pattern.get("support_count", 0)),
             counterexample_count=int(pattern.get("counterexample_count", 0)),
             references=tuple(pattern.get("references", ()) or ()),
@@ -806,6 +894,8 @@ class BoundaryConsistencyRule:
             violated=bool(boundary.get("violated")),
             changed=bool(boundary.get("changed")),
         )
+        boundary_id = _usable_reference(boundary.get("id"))
+        references = (boundary_id,) if boundary_id is not None else ()
         finding = ReasoningFinding(
             code="BOUNDARY_STATE",
             message=f"Boundary consistency state: {state}.",
@@ -814,7 +904,7 @@ class BoundaryConsistencyRule:
             else ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
-            references=(str(boundary.get("id", "unknown")),),
+            references=references,
         )
         return _result(
             self.definition,
@@ -985,7 +1075,8 @@ class SelfOtherPerspectiveRule:
         for claim in claims:
             if not isinstance(claim, Mapping):
                 continue
-            claim_id = claim.get("id", "unknown")
+            claim_id = _usable_reference(claim.get("id"))
+            claim_references = (claim_id,) if claim_id is not None else ()
             perspective = classify_relationship_perspective(
                 is_self_experience=bool(claim.get("self_experience")),
                 is_other_observable=bool(claim.get("other_observable")),
@@ -1002,7 +1093,7 @@ class SelfOtherPerspectiveRule:
                         severity=ReasoningSeverity.WARNING,
                         rule_id=self.definition.id,
                         domain_id=self.definition.domain_id,
-                        references=(claim_id,),
+                        references=claim_references,
                     )
                 )
             else:
@@ -1013,7 +1104,7 @@ class SelfOtherPerspectiveRule:
                         severity=ReasoningSeverity.INFO,
                         rule_id=self.definition.id,
                         domain_id=self.definition.domain_id,
-                        references=(claim_id,),
+                        references=claim_references,
                     )
                 )
         return _result(
@@ -1114,6 +1205,8 @@ __all__ = [
     "BOUNDARY_EXPRESSED",
     "BOUNDARY_UNRESOLVED",
     "BOUNDARY_VIOLATED",
+    "CANONICAL_RELATIONSHIPS_PATTERN_KINDS",
+    "CANONICAL_RELATIONSHIPS_PATTERN_KIND_SET",
     "EPISTEMIC_CATEGORY_DIRECT_STATEMENT",
     "EPISTEMIC_CATEGORY_OBSERVED_FACT",
     "EPISTEMIC_CATEGORY_POSSIBLE_FUNCTION",

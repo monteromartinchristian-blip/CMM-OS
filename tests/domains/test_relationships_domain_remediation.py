@@ -262,24 +262,28 @@ def test_pattern_counterexamples_preserved_in_rule_result():
 
 
 def test_pattern_counterexamples_affect_uncertainty():
-    """High support with substantial counterevidence is NOT misleadingly 'low'."""
+    """High grounded support with substantial counterevidence is NOT
+    misleadingly 'low'."""
     from cmm.domains.relationships.rules import detect_relationship_pattern
 
     with_counterexamples = detect_relationship_pattern(
-        pattern_kind="x",
-        support_count=4,
-        counterexample_count=2,
+        pattern_kind="approach_distance_cycle",
+        references=("s1", "s2", "s3", "s4"),
+        counterexample_references=("c1", "c2"),
     )
     assert with_counterexamples["psychological_cause"] is None
     assert with_counterexamples["hypothesis"] is True
+    assert with_counterexamples["support_count"] == 4
+    assert with_counterexamples["counterexample_count"] == 2
     assert with_counterexamples["uncertainty"] != "low"
 
-    # Without counterexamples, the same support may be lower uncertainty.
+    # Without counterexamples, the same grounded support may be lower
+    # uncertainty.
     without_counterexamples = detect_relationship_pattern(
-        pattern_kind="x",
-        support_count=4,
-        counterexample_count=0,
+        pattern_kind="approach_distance_cycle",
+        references=("s1", "s2", "s3", "s4"),
     )
+    assert without_counterexamples["support_count"] == 4
     assert without_counterexamples["uncertainty"] == "low"
 
 
@@ -795,3 +799,244 @@ def test_separate_facts_interpretations_structurally_separates_categories():
     category_props = category_map["properties"]
     for category in ("facts", "statements", "interpretations", "hypotheses"):
         assert category in category_props
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V3 — Patterns are grounded + closed (P1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _pattern(**kw):
+    from cmm.domains.relationships.rules import detect_relationship_pattern
+
+    return detect_relationship_pattern(**kw)
+
+
+def test_pattern_count_alone_never_generates_low_confidence():
+    """A caller-supplied integer count with zero grounded support references MUST
+    NOT generate low/medium confidence (RED A)."""
+    record = _pattern(
+        pattern_kind="approach_distance_cycle",
+        support_count=4,
+        counterexample_count=0,
+        references=(),
+    )
+    assert record["support_count"] == 0
+    assert record["uncertainty"] != "low"
+    assert record["uncertainty"] != "medium"
+
+
+def test_pattern_support_count_derived_from_grounded_references():
+    """Grounded references produce the deterministic support count (RED B)."""
+    record = _pattern(
+        pattern_kind="approach_distance_cycle",
+        references=("s1", "s2", "s3", "s4"),
+    )
+    assert record["support_count"] == 4
+    assert record["references"] == ("s1", "s2", "s3", "s4")
+
+
+def test_pattern_counterexample_count_derived_from_references():
+    """Counterexample count derives from actual counterexample references and
+    tempers confidence (RED C)."""
+    record = _pattern(
+        pattern_kind="approach_distance_cycle",
+        references=("s1", "s2", "s3", "s4"),
+        counterexample_references=("c1", "c2"),
+    )
+    assert record["counterexample_count"] == 2
+    assert record["uncertainty"] != "low"
+
+
+def test_pattern_blank_references_never_count_as_support():
+    """Blank reference IDs are ignored and never count as support (RED D)."""
+    record = _pattern(
+        pattern_kind="approach_distance_cycle",
+        references=("s1", "", "  ", "s1"),
+    )
+    assert record["support_count"] == 1
+    assert record["references"] == ("s1",)
+
+
+def test_pattern_invalid_kind_is_rejected_never_hypothesis():
+    """An arbitrary psychological/personality pattern kind is rejected and never
+    becomes PATTERN_HYPOTHESIS (RED E)."""
+    from cmm.domains.relationships.rules import detect_relationship_pattern
+
+    try:
+        detect_relationship_pattern(
+            pattern_kind="narcissistic_personality_pattern",
+            references=("s1", "s2", "s3", "s4"),
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid pattern kind was not rejected")
+
+    # The rule path must BLOCK, never emit PATTERN_HYPOTHESIS.
+    result = _RULES["relationships.pattern_without_certainty"].evaluate(
+        _context(
+            pattern={
+                "pattern_kind": "narcissistic_personality_pattern",
+                "support_count": 4,
+                "references": ("s1", "s2", "s3", "s4"),
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert not any(finding.code == "PATTERN_HYPOTHESIS" for finding in result.findings)
+
+
+def test_all_seven_canonical_pattern_kinds_accepted():
+    """All seven canonical pattern kinds remain accepted (RED F)."""
+    from cmm.domains.relationships.rules import CANONICAL_RELATIONSHIPS_PATTERN_KINDS
+
+    for kind in CANONICAL_RELATIONSHIPS_PATTERN_KINDS:
+        record = _pattern(
+            pattern_kind=kind,
+            references=("s1", "s2", "s3", "s4"),
+        )
+        assert record["pattern_kind"] == kind
+        assert record["hypothesis"] is True
+
+
+def test_detect_patterns_schema_rejects_narcissistic_kind():
+    """The detect_patterns operation schema rejects an arbitrary psychological
+    pattern kind via enum (RED G)."""
+    operation = _relationship_operations()["relationships.detect_patterns"]
+    payload = {
+        "patterns": [
+            {
+                "kind": "narcissistic_personality_pattern",
+                "hypothesis": True,
+                "support_references": ("s1",),
+                "uncertainty": "medium",
+            }
+        ]
+    }
+    issues = validate_operation_schema(payload, operation.output_schema)
+    assert any(issue.code == "enum" for issue in issues)
+    assert any("kind" in issue.path for issue in issues)
+
+
+def test_detect_patterns_schema_requires_support_grounding():
+    """A pattern item must structurally require supporting references (minItems 1)
+    and uncertainty/hypothesis status."""
+    operation = _relationship_operations()["relationships.detect_patterns"]
+    payload = {
+        "patterns": [
+            {
+                "kind": "frequency_change",
+                "hypothesis": True,
+                "support_references": (),
+                "uncertainty": "medium",
+            }
+        ]
+    }
+    issues = validate_operation_schema(payload, operation.output_schema)
+    assert any(issue.code == "min_items" for issue in issues)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V3 — never fabricate "unknown" as a reference ID (P2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _all_references(result):
+    refs = []
+    for f in result.findings:
+        refs.extend(f.references)
+    for g in result.gaps:
+        refs.extend(g.references)
+    return refs
+
+
+def test_statement_without_id_has_no_unknown_reference():
+    """A statement with no id must not inject a fabricated 'unknown' reference."""
+    rule = _RULES["relationships.separate_facts_interpretations"]
+    result = rule.evaluate(
+        _context(
+            relationship_statements=[
+                {"observed": True, "evidence_references": ("res-1",)},
+            ]
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert all("unknown" != ref for ref in _all_references(result))
+
+
+def test_timeline_item_without_id_has_no_unknown_reference():
+    """A timeline item with no id must not inject 'unknown' into references."""
+    rule = _RULES["relationships.relationship_timeline"]
+    result = rule.evaluate(
+        _context(timeline=[{"kind": "event"}]),
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert all("unknown" != ref for ref in _all_references(result))
+
+
+def test_boundary_without_id_has_no_unknown_reference():
+    """A boundary with no id must not inject 'unknown' into references."""
+    rule = _RULES["relationships.boundary_consistency"]
+    result = rule.evaluate(
+        _context(boundary={"expressed": True, "applied": True, "violated": True}),
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert all("unknown" != ref for ref in _all_references(result))
+
+
+def test_perspective_claim_without_id_has_no_unknown_reference():
+    """A perspective claim with no id must not inject 'unknown' into any
+    gap/finding reference."""
+    rule = _RULES["relationships.self_other_perspective"]
+    # Unknown perspective -> gap path.
+    unknown_result = rule.evaluate(
+        _context(perspective_claims=[{"other_possible": True}]),
+    )
+    for ref in _all_references(unknown_result):
+        assert "unknown" != ref
+    # Sourced diagnosis path must not inject 'unknown' either.
+    diagnosis_result = rule.evaluate(
+        _context(
+            third_party_diagnosis_claim={
+                "label": "depression",
+                "source_statement": True,
+                "source_reference": "doc-1",
+            }
+        )
+    )
+    assert diagnosis_result.status is ReasoningRuleResultStatus.APPLIED
+    assert all("unknown" != ref for ref in _all_references(diagnosis_result))
+
+
+def test_emotion_need_separation_missing_id_no_fabricated_reference():
+    """Emotion/need separation with missing ids must not let a fabricated ID
+    reach rule-result references."""
+    rule = _RULES["relationships.emotion_need_distinction"]
+    result = rule.evaluate(
+        _context(
+            statements=[
+                {"emotion": True},
+                {"emotion": True, "id": "real-id"},
+            ]
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    refs = _all_references(result)
+    assert "unknown" not in refs
+    # Real ids are still preserved exactly.
+    assert "real-id" in refs
+
+
+def test_real_ids_preserved_exactly():
+    """Real IDs must continue to be preserved exactly in references."""
+    rule = _RULES["relationships.separate_facts_interpretations"]
+    result = rule.evaluate(
+        _context(
+            relationship_statements=[
+                {"id": "s-1", "observed": True, "evidence_references": ("res-1",)},
+            ]
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert "s-1" in _all_references(result)

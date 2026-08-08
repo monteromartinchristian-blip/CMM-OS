@@ -23,6 +23,7 @@ from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.relationships.catalog import CANONICAL_RELATIONSHIPS_OPERATION_IDS
+from cmm.domains.relationships.rules import CANONICAL_RELATIONSHIPS_PATTERN_KINDS
 
 RELATIONSHIPS_OPERATION_IDS: tuple[str, ...] = CANONICAL_RELATIONSHIPS_OPERATION_IDS
 
@@ -176,12 +177,20 @@ _PERIOD_COMPARISON = _schema(
 # A detected pattern is a **hypothesis** with supporting and counterexample
 # references and an explicit uncertainty status.  It deliberately provides no
 # field that could establish intent, personality, or psychological cause.
+# The pattern kind is constrained to the canonical seven Phase 10.21 kinds via
+# ``enum``, so arbitrary psychological/personality labels cannot enter the
+# operation output contract.  Supporting grounding is structurally required
+# (``support_references`` with at least one item) along with uncertainty and
+# hypothesis status.
 _PATTERN_ITEM = _schema(
-    ("kind", "hypothesis"),
+    ("kind", "hypothesis", "support_references", "uncertainty"),
     {
-        "kind": {"type": "string"},
+        "kind": {
+            "type": "string",
+            "enum": list(CANONICAL_RELATIONSHIPS_PATTERN_KINDS),
+        },
         "hypothesis": {"type": "boolean"},
-        "support_references": _ID_ARRAY,
+        "support_references": _ids(1),
         "counterexample_references": _ID_ARRAY,
         "uncertainty": {"type": "string"},
         "period_start": {"type": "string"},
