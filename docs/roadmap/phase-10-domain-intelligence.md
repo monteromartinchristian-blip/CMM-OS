@@ -2462,6 +2462,8 @@ Permissions
 
 10.21 - Relationships Domain
 
+**Status:** Implemented, pending audit (2026-08-08).
+
 Objective
 
 Specify CMM OS to discuss links, events, patterns, emotions, needs and boundaries without attributing intents as events.
