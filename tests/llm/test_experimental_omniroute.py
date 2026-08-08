@@ -138,3 +138,118 @@ def test_omniroute_rejects_empty_model_ids_before_registration() -> None:
         raise AssertionError("ProviderError was not raised")
 
     assert not providers.has("omniroute")
+
+from typing import Any
+
+import pytest
+
+from kernel.llm.exceptions import ProviderError
+from kernel.llm.model_catalog import ModelSpec
+from kernel.llm.models import LLMRequest
+from kernel.llm.openai_compatible_provider import OpenAICompatibleProvider
+from kernel.llm.provider_factory import ProviderFactory
+
+
+class RecordingCompatibleClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def generate(
+        self,
+        *,
+        model: str,
+        system: str | None,
+        prompt: str,
+        temperature: float,
+        max_tokens: int | None,
+    ) -> tuple[str, int, int, str]:
+        self.calls.append(
+            {
+                "model": model,
+                "system": system,
+                "prompt": prompt,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return "omniroute-ok", 12, 4, "stop"
+
+
+def test_factory_executes_omniroute_model_without_rewriting_id() -> None:
+    providers = ProviderRegistry()
+    catalog = ModelCatalog(providers)
+    provider_spec, models = register_experimental_omniroute(
+        providers,
+        catalog,
+        enabled=True,
+    )
+    model_spec = models[0]
+    client = RecordingCompatibleClient()
+
+    provider = ProviderFactory().create(
+        provider=provider_spec,
+        model=model_spec,
+        client=client,
+    )
+
+    response = provider.generate(
+        LLMRequest(
+            prompt="hello",
+            system_prompt="system",
+            temperature=0.2,
+            metadata={"max_tokens": 64},
+        )
+    )
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert response.content == "omniroute-ok"
+    assert response.model == "cp/cline-pass/deepseek-v4-flash"
+    assert response.metadata["provider_id"] == "omniroute"
+    assert client.calls[0]["model"] == (
+        "cp/cline-pass/deepseek-v4-flash"
+    )
+    assert client.calls[0]["max_tokens"] == 64
+
+
+def test_factory_rejects_disabled_omniroute_provider() -> None:
+    providers = ProviderRegistry()
+    catalog = ModelCatalog(providers)
+    provider_spec, models = register_experimental_omniroute(
+        providers,
+        catalog,
+    )
+
+    with pytest.raises(
+        ProviderError,
+        match="Provider is disabled: omniroute",
+    ):
+        ProviderFactory().create(
+            provider=provider_spec,
+            model=models[0],
+            client=RecordingCompatibleClient(),
+        )
+
+
+def test_factory_rejects_omniroute_provider_model_mismatch() -> None:
+    providers = ProviderRegistry()
+    catalog = ModelCatalog(providers)
+    provider_spec, _ = register_experimental_omniroute(
+        providers,
+        catalog,
+        enabled=True,
+    )
+
+    mismatched_model = ModelSpec(
+        id="some-model",
+        provider_id="another-provider",
+    )
+
+    with pytest.raises(
+        ProviderError,
+        match="does not match",
+    ):
+        ProviderFactory().create(
+            provider=provider_spec,
+            model=mismatched_model,
+            client=RecordingCompatibleClient(),
+        )
