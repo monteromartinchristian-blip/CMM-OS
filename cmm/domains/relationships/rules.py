@@ -89,6 +89,38 @@ PERSPECTIVE_UNKNOWN = "unknown"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _usable_reference(value: Any) -> str | None:
+    """Return a usable reference identifier from a raw value, or ``None``.
+
+    A reference is usable only when it is a non-empty string.  Lists/tuples
+    yield the first usable reference.  This deliberately never fabricates a
+    placeholder (e.g. ``"unknown"``): an absent or blank reference is
+    ``None``, never a fake evidence ID.
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if stripped else None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            usable = _usable_reference(item)
+            if usable is not None:
+                return usable
+    return None
+
+
+def _reference_from(
+    mapping: Mapping,
+    *keys: str,
+) -> str | None:
+    """Extract the first usable reference from ``mapping`` under any of ``keys``."""
+    for key in keys:
+        value = mapping.get(key)
+        usable = _usable_reference(value)
+        if usable is not None:
+            return usable
+    return None
+
+
 def classify_relationship_statement(
     *,
     provenance: str | None = None,
@@ -98,6 +130,7 @@ def classify_relationship_statement(
     is_system_hypothesis: bool = False,
     is_possible_function: bool = False,
     is_possible_origin: bool = False,
+    evidence_reference_ids: tuple[str, ...] = (),
 ) -> str:
     """Classify a relationship statement into a closed epistemic category.
 
@@ -107,25 +140,32 @@ def classify_relationship_statement(
     ``provenance`` records the *origin* of a statement (source origin) and is
     deliberately NOT treated as epistemic evidence.  The mere presence of
     provenance never promotes a user interpretation, system hypothesis, possible
-    function, or possible origin into an ``observed_fact``.  Only an explicit
-    ``is_observed`` flag — genuine direct evidence of a behavior/event — may
-    classify a statement as ``observed_fact``.
+    function, or possible origin into an ``observed_fact``.
+
+    Grounding is fail-closed: an ``observed_fact`` may only be emitted when
+    BOTH an explicit ``is_observed`` flag AND at least one usable grounded
+    evidence reference (``evidence_reference_ids``) are present.  A bare
+    ``is_observed=True`` boolean with no grounded evidence reference never
+    bypasses grounding.  When the observed flag is ungrounded, the safe
+    epistemic component (interpretation, hypothesis, possible function/origin)
+    wins — the factual proposition is only promoted where it is separately
+    grounded.
 
     A ``possible_function`` or ``possible_origin`` is a sub-kind of hypothesis
     and is never promoted to fact or intention.
     """
-    if is_possible_origin and not (is_observed or is_direct_statement):
-        return EPISTEMIC_CATEGORY_POSSIBLE_ORIGIN
-    if is_possible_function and not (is_observed or is_direct_statement):
-        return EPISTEMIC_CATEGORY_POSSIBLE_FUNCTION
-    if is_user_interpretation and not (is_observed or is_direct_statement):
-        return EPISTEMIC_CATEGORY_USER_INTERPRETATION
-    if is_system_hypothesis and not (is_observed or is_direct_statement):
-        return EPISTEMIC_CATEGORY_SYSTEM_HYPOTHESIS
-    if is_observed:
+    if is_observed and _usable_reference(evidence_reference_ids) is not None:
         return EPISTEMIC_CATEGORY_OBSERVED_FACT
     if is_direct_statement:
         return EPISTEMIC_CATEGORY_DIRECT_STATEMENT
+    if is_possible_origin:
+        return EPISTEMIC_CATEGORY_POSSIBLE_ORIGIN
+    if is_possible_function:
+        return EPISTEMIC_CATEGORY_POSSIBLE_FUNCTION
+    if is_user_interpretation:
+        return EPISTEMIC_CATEGORY_USER_INTERPRETATION
+    if is_system_hypothesis:
+        return EPISTEMIC_CATEGORY_SYSTEM_HYPOTHESIS
     return EPISTEMIC_CATEGORY_UNKNOWN
 
 
@@ -134,16 +174,20 @@ def classify_relationship_perspective(
     is_self_experience: bool = False,
     is_other_observable: bool = False,
     is_other_possible: bool = False,
+    evidence_reference_ids: tuple[str, ...] = (),
 ) -> str:
     """Classify a claim into a closed self/other perspective category.
 
-    Possible other perspectives are never facts: without direct observable
-    evidence the claim is ``possible_other_perspective``, and without any
-    information it is ``unknown``.
+    ``other_observable_behavior`` requires directly observed/documented
+    behavior: an ``is_other_observable`` boolean alone never establishes it
+    without a grounded evidence reference.  Possible other perspectives are
+    never facts: without direct observable evidence the claim is
+    ``possible_other_perspective``, and without any information it is
+    ``unknown``.
     """
     if is_self_experience:
         return PERSPECTIVE_SELF_EXPERIENCE
-    if is_other_observable:
+    if is_other_observable and _usable_reference(evidence_reference_ids) is not None:
         return PERSPECTIVE_OTHER_OBSERVABLE
     if is_other_possible:
         return PERSPECTIVE_OTHER_POSSIBLE
@@ -466,6 +510,9 @@ class SeparateRelationshipFactInterpretationRule:
                 is_system_hypothesis=bool(statement.get("system_hypothesis")),
                 is_possible_function=bool(statement.get("possible_function")),
                 is_possible_origin=bool(statement.get("possible_origin")),
+                evidence_reference_ids=tuple(
+                    statement.get("evidence_references", ()) or ()
+                ),
             )
             findings.append(
                 ReasoningFinding(
@@ -508,7 +555,21 @@ class DoNotInferIntentRule:
             )
         has_direct_evidence = bool(intent.get("direct_evidence"))
         is_sourced_statement = bool(intent.get("sourced_statement"))
-        if has_direct_evidence:
+        # Grounding is fail-closed: a bare boolean never bypasses grounding and
+        # no placeholder reference is ever fabricated.  Direct evidence requires
+        # an evidence/source reference; a sourced statement requires a real
+        # source reference.
+        direct_reference = _reference_from(
+            intent,
+            "evidence_reference",
+            "source_reference",
+            "references",
+            "evidence_references",
+        )
+        source_reference = _reference_from(
+            intent, "source_reference", "source", "references"
+        )
+        if has_direct_evidence and direct_reference is not None:
             return _result(
                 self.definition,
                 context,
@@ -516,14 +577,14 @@ class DoNotInferIntentRule:
                 code="INTENT_DIRECTLY_EVIDENCED",
                 message="Intent is directly evidenced/attributed by an authorized source.",
             )
-        if is_sourced_statement:
+        if is_sourced_statement and source_reference is not None:
             finding = ReasoningFinding(
                 code="INTENT_SOURCED_NOT_FACT",
                 message="A source states this intention; it is represented with provenance, not as system fact.",
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
-                references=(str(intent.get("source", "unknown")),),
+                references=(source_reference,),
             )
             return _result(
                 self.definition,
@@ -535,7 +596,7 @@ class DoNotInferIntentRule:
             )
         finding = ReasoningFinding(
             code="INTENT_NOT_ESTABLISHED",
-            message="Intention cannot be established without direct evidence.",
+            message="Intention cannot be established without grounded evidence or a sourced reference.",
             severity=ReasoningSeverity.WARNING,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
@@ -856,13 +917,15 @@ class SelfOtherPerspectiveRule:
         if diagnosis_claim is not None:
             label = str(diagnosis_claim.get("label", "unspecified"))
             source_statement = bool(diagnosis_claim.get("source_statement"))
-            source_reference = str(diagnosis_claim.get("source_reference", "") or "")
-            if not source_statement:
+            source_reference = _reference_from(
+                diagnosis_claim, "source_reference", "source", "references"
+            )
+            if not source_statement or source_reference is None:
                 finding = ReasoningFinding(
                     code="THIRD_PARTY_DIAGNOSIS_UNSUPPORTED",
                     message=(
-                        f"Unsupported third-party diagnosis claim ({label}) is "
-                        "blocked; it is not a system diagnosis."
+                        f"Unsupported or ungrounded third-party diagnosis claim "
+                        f"({label}) is blocked; it is not a system diagnosis."
                     ),
                     severity=ReasoningSeverity.WARNING,
                     rule_id=self.definition.id,
@@ -885,9 +948,8 @@ class SelfOtherPerspectiveRule:
                     code="THIRD_PARTY_DIAGNOSIS_BLOCKED",
                     message="Unsupported third-party diagnosis blocked.",
                 )
-            # Authorized source states the diagnosis: represent with provenance,
-            # never adopt as a system diagnosis.
-            references = (source_reference,) if source_reference else ()
+            # Authorized source states the diagnosis with a real source reference:
+            # represent with provenance, never adopt as a system diagnosis.
             finding = ReasoningFinding(
                 code="THIRD_PARTY_DIAGNOSIS_SOURCED",
                 message=(
@@ -898,7 +960,7 @@ class SelfOtherPerspectiveRule:
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
-                references=references,
+                references=(source_reference,),
                 metadata={"adopted_as_system_diagnosis": False},
             )
             return _result(
@@ -928,6 +990,9 @@ class SelfOtherPerspectiveRule:
                 is_self_experience=bool(claim.get("self_experience")),
                 is_other_observable=bool(claim.get("other_observable")),
                 is_other_possible=bool(claim.get("other_possible")),
+                evidence_reference_ids=tuple(
+                    claim.get("evidence_references", ()) or ()
+                ),
             )
             if perspective == PERSPECTIVE_UNKNOWN:
                 gaps.append(

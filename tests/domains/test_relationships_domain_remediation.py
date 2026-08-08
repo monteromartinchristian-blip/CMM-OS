@@ -8,12 +8,14 @@ helpers directly, so they prove the production path is fixed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 
 from cmm.agent_runtime.operation_schema import validate_operation_schema
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains import relationships
+from cmm.domains.relationships.rules import classify_relationship_statement
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -423,8 +425,8 @@ def test_third_party_diagnosis_sourced_remains_sourced_statement():
 
 
 def test_third_party_diagnosis_adversarial_missing_source_reference_blocks():
-    """A sourced claim without a usable source reference is not a system
-    diagnosis either — it must not be adopted without provenance."""
+    """A sourced claim without a usable source reference is not a sourced
+    statement — it is blocked, not adopted as a system diagnosis."""
     rule = _RULES["relationships.self_other_perspective"]
     result = rule.evaluate(
         _context(
@@ -436,8 +438,360 @@ def test_third_party_diagnosis_adversarial_missing_source_reference_blocks():
         )
     )
     # An empty/unusable reference cannot back a sourced statement: the claim
-    # must not be adopted as a system diagnosis.
+    # is BLOCKED and never adopted as a system diagnosis.
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert result.escalation is not None
+    assert result.escalation.code == "THIRD_PARTY_DIAGNOSIS_BLOCKED"
     assert any(
         finding.metadata.get("adopted_as_system_diagnosis") is False
         for finding in result.findings
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V2 — Grounding cannot be bypassed by a boolean (P1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_observed_boolean_alone_never_emits_observed_fact():
+    """is_observed=True with no grounded evidence reference is fail-closed."""
+    assert classify_relationship_statement(is_observed=True) == "unknown"
+    assert (
+        classify_relationship_statement(is_observed=True, provenance="res-1")
+        == "unknown"
+    )
+
+
+def test_observed_with_grounded_reference_may_emit_observed_fact():
+    assert (
+        classify_relationship_statement(
+            is_observed=True, evidence_reference_ids=("res-1",)
+        )
+        == "observed_fact"
+    )
+
+
+def test_ungrounded_observed_does_not_promote_interpretation():
+    """Mixed flags: is_observed=True + is_user_interpretation=True with no
+    factual evidence reference must NOT promote the interpretation to fact."""
+    assert (
+        classify_relationship_statement(is_observed=True, is_user_interpretation=True)
+        == "user_interpretation"
+    )
+
+
+def test_ungrounded_observed_does_not_promote_hypothesis():
+    """Mixed flags: is_observed=True + is_system_hypothesis=True with no
+    separate grounded factual proposition must NOT promote the hypothesis."""
+    assert (
+        classify_relationship_statement(is_observed=True, is_system_hypothesis=True)
+        == "system_hypothesis"
+    )
+
+
+def test_ungrounded_observed_does_not_promote_possible_origin():
+    assert (
+        classify_relationship_statement(is_observed=True, is_possible_origin=True)
+        == "possible_origin"
+    )
+
+
+def test_grounded_observed_wins_over_interpretation():
+    """A separately grounded factual proposition still yields observed_fact."""
+    assert (
+        classify_relationship_statement(
+            is_observed=True,
+            is_user_interpretation=True,
+            evidence_reference_ids=("res-1",),
+        )
+        == "observed_fact"
+    )
+
+
+def test_other_observable_boolean_alone_never_establishes_behavior():
+    from cmm.domains.relationships.rules import classify_relationship_perspective
+
+    # Without grounded evidence, other_observable stays possible/unknown, never
+    # fact.
+    assert classify_relationship_perspective(is_other_observable=True) == "unknown"
+    assert (
+        classify_relationship_perspective(
+            is_other_observable=True, is_other_possible=True
+        )
+        == "possible_other_perspective"
+    )
+    assert (
+        classify_relationship_perspective(
+            is_other_observable=True, evidence_reference_ids=("res-1",)
+        )
+        == "other_observable_behavior"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V2 — DoNotInferIntentRule grounding (P1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_direct_evidence_requires_grounding_reference():
+    """direct_evidence=True with no usable evidence/source reference is
+    BLOCKED / not established."""
+    rule = _RULES["relationships.do_not_infer_intent"]
+    result = rule.evaluate(
+        _context(intent_claim={"intent": "x", "direct_evidence": True})
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+
+
+def test_direct_evidence_with_grounding_is_applied():
+    rule = _RULES["relationships.do_not_infer_intent"]
+    result = rule.evaluate(
+        _context(
+            intent_claim={
+                "intent": "x",
+                "direct_evidence": True,
+                "evidence_reference": "res-1",
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+
+
+def test_sourced_statement_requires_real_source_reference():
+    """sourced_statement=True with a missing/blank source is BLOCKED / invalidly
+    grounded; no fake 'unknown' reference is fabricated."""
+    rule = _RULES["relationships.do_not_infer_intent"]
+    for claim in (
+        {"intent": "x", "sourced_statement": True},
+        {"intent": "x", "sourced_statement": True, "source": ""},
+    ):
+        result = rule.evaluate(_context(intent_claim=claim))
+        assert result.status is ReasoningRuleResultStatus.BLOCKED
+        for finding in result.findings:
+            assert all("unknown" != ref for ref in finding.references)
+
+
+def test_sourced_statement_with_real_source_is_applied_not_fact():
+    rule = _RULES["relationships.do_not_infer_intent"]
+    result = rule.evaluate(
+        _context(
+            intent_claim={
+                "intent": "x",
+                "sourced_statement": True,
+                "source_reference": "doc-1",
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert any(finding.code == "INTENT_SOURCED_NOT_FACT" for finding in result.findings)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V2 — Operation schemas are recursively closed (P1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _relationship_operations():
+    return {
+        op.operation_id: op
+        for op in relationships.build_relationships_operation_definitions()
+    }
+
+
+def _collect_nested_object_schemas(schema, path):
+    """Yield (path, schema) for every nested structured object owned by
+    Relationships reachable from ``schema``."""
+    found = []
+    if isinstance(schema, Mapping):
+        if schema.get("type") == "object" and (
+            "properties" in schema or "required" in schema
+        ):
+            found.append((path, schema))
+        for key, child in schema.items():
+            if key in ("properties",):
+                continue
+            found.extend(_collect_nested_object_schemas(child, path))
+        properties = schema.get("properties")
+        if isinstance(properties, Mapping):
+            for prop_name, prop_schema in properties.items():
+                found.extend(
+                    _collect_nested_object_schemas(prop_schema, f"{path}.{prop_name}")
+                )
+    elif isinstance(schema, list):
+        for index, child in enumerate(schema):
+            found.extend(_collect_nested_object_schemas(child, f"{path}[{index}]"))
+    return found
+
+
+def test_all_relationships_nested_object_schemas_recursively_closed():
+    """Every Relationships-owned nested structured object must be closed
+    (additionalProperties False)."""
+    for operation in _relationship_operations().values():
+        for output_schema in (operation.input_schema, operation.output_schema):
+            for path, schema in _collect_nested_object_schemas(output_schema, "$"):
+                assert schema.get("additionalProperties") is False, (
+                    f"{operation.operation_id} nested schema at {path} is not closed"
+                )
+
+
+def test_representative_valid_outputs_validate():
+    """Representative valid outputs for the closed nested schemas must validate."""
+    valid_outputs = {
+        "relationships.build_timeline": {
+            "events": [
+                {
+                    "id": "e1",
+                    "kind": "interaction",
+                    "timestamp": "2026-01-01",
+                    "source_references": ("res-1",),
+                }
+            ]
+        },
+        "relationships.compare_periods": {
+            "comparison": {
+                "period_a": "2026-01-01",
+                "period_b": "2026-02-01",
+                "observed_changes": ("c1",),
+                "summary": "no change",
+            }
+        },
+        "relationships.detect_patterns": {
+            "patterns": [
+                {
+                    "kind": "frequency_change",
+                    "hypothesis": True,
+                    "support_references": ("s1",),
+                    "counterexample_references": (),
+                    "uncertainty": "medium",
+                }
+            ]
+        },
+        "relationships.extract_events": {
+            "events": [{"id": "e1", "kind": "rupture", "timestamp": "2026-01-01"}]
+        },
+        "relationships.identify_needs": {
+            "needs": [{"kind": "clarity", "source_references": ("res-1",)}]
+        },
+        "relationships.prepare_conversation": {
+            "preparation": {
+                "objective": "discuss boundaries",
+                "facts": ("f1",),
+                "feelings": ("g1",),
+                "needs": ("n1",),
+                "questions": ("q1",),
+                "boundary_options": ("b1",),
+                "possible_wording": ("w1",),
+                "risks": ("r1",),
+                "uncertainties": ("u1",),
+                "alternatives": ("a1",),
+            }
+        },
+        "relationships.review_boundaries": {
+            "review": {"boundary_id": "b1", "state": "violated", "violations": ("v1",)}
+        },
+        "relationships.separate_facts_interpretations": {
+            "category_map": {
+                "facts": ("f1",),
+                "statements": ("s1",),
+                "interpretations": ("i1",),
+                "hypotheses": ("h1",),
+            }
+        },
+        "relationships.track_open_questions": {"questions": ("q1",)},
+    }
+    operations = _relationship_operations()
+    for operation_id, payload in valid_outputs.items():
+        issues = validate_operation_schema(
+            payload, operations[operation_id].output_schema
+        )
+        assert issues == (), (
+            f"{operation_id} valid output failed: {[i.message for i in issues]}"
+        )
+
+
+def test_prepare_conversation_cannot_schema_authorize_send_contact():
+    """prepare_conversation.preparation must NOT schema-authorize sent/contacted/
+    initiated/executed."""
+    operation = _relationship_operations()["relationships.prepare_conversation"]
+    forbidden = {
+        "preparation": {"sent": True},
+    }
+    forbidden2 = {
+        "preparation": {"objective": "x", "contacted": True},
+    }
+    for payload in (forbidden, forbidden2):
+        issues = validate_operation_schema(payload, operation.output_schema)
+        assert any(issue.code == "additional_property" for issue in issues), (
+            f"forbidden field was not rejected: {payload}"
+        )
+
+
+def test_prepare_conversation_valid_preparation_has_no_send_field():
+    schema = _relationship_operations()[
+        "relationships.prepare_conversation"
+    ].output_schema
+    preparation = schema["properties"]["preparation"]["properties"]
+    for forbidden in ("sent", "contacted", "initiated", "executed"):
+        assert forbidden not in preparation
+
+
+def test_detect_patterns_cannot_authorize_psychological_cause():
+    """A pattern item must not encode a psychological cause / intent / diagnosis."""
+    operation = _relationship_operations()["relationships.detect_patterns"]
+    payload = {
+        "patterns": [
+            {"kind": "x", "hypothesis": True, "psychological_cause": "narcissism"}
+        ]
+    }
+    issues = validate_operation_schema(payload, operation.output_schema)
+    assert any(issue.code == "additional_property" for issue in issues)
+
+
+def test_pattern_item_schema_has_no_inference_fields():
+    pattern_schema = _relationship_operations()[
+        "relationships.detect_patterns"
+    ].output_schema
+    item = pattern_schema["properties"]["patterns"]["items"]["properties"]
+    for forbidden in (
+        "psychological_cause",
+        "intent",
+        "personality_diagnosis",
+        "diagnosis",
+    ):
+        assert forbidden not in item
+
+
+def test_review_boundaries_cannot_authorize_mutation():
+    """review_boundaries.review must remain REVIEW output, not a mutation result."""
+    operation = _relationship_operations()["relationships.review_boundaries"]
+    payload = {
+        "review": {
+            "boundary_id": "b1",
+            "state": "violated",
+            "enforced": True,
+        }
+    }
+    issues = validate_operation_schema(payload, operation.output_schema)
+    assert any(issue.code == "additional_property" for issue in issues)
+
+
+def test_review_boundaries_schema_has_no_mutation_field():
+    review_schema = _relationship_operations()[
+        "relationships.review_boundaries"
+    ].output_schema
+    review_props = review_schema["properties"]["review"]["properties"]
+    for forbidden in ("enforced", "modified", "communicated", "withdrawn"):
+        assert forbidden not in review_props
+
+
+def test_separate_facts_interpretations_structurally_separates_categories():
+    """category_map must structurally separate facts/statements/interpretations/
+    hypotheses."""
+    category_map = _relationship_operations()[
+        "relationships.separate_facts_interpretations"
+    ].output_schema["properties"]["category_map"]
+    assert category_map["type"] == "object"
+    assert category_map["additionalProperties"] is False
+    category_props = category_map["properties"]
+    for category in ("facts", "statements", "interpretations", "hypotheses"):
+        assert category in category_props

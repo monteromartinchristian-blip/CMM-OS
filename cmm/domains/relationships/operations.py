@@ -147,33 +147,142 @@ _INPUT_SCHEMAS = {
     ),
 }
 
+# A timeline event is a structured factual record with a timestamp, kind, and
+# grounded references.  It never carries an inferred intent or psychological
+# cause.
+_TIMELINE_EVENT = _schema(
+    ("id", "kind", "timestamp"),
+    {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "timestamp": _DATE_STRING,
+        "source_references": _ID_ARRAY,
+        "notes": {"type": "string"},
+    },
+)
+
+# A comparison between two periods is a structured review of change, never an
+# assertion of cause or intent.
+_PERIOD_COMPARISON = _schema(
+    ("period_a", "period_b"),
+    {
+        "period_a": _DATE_STRING,
+        "period_b": _DATE_STRING,
+        "observed_changes": _ID_ARRAY,
+        "summary": {"type": "string"},
+    },
+)
+
+# A detected pattern is a **hypothesis** with supporting and counterexample
+# references and an explicit uncertainty status.  It deliberately provides no
+# field that could establish intent, personality, or psychological cause.
+_PATTERN_ITEM = _schema(
+    ("kind", "hypothesis"),
+    {
+        "kind": {"type": "string"},
+        "hypothesis": {"type": "boolean"},
+        "support_references": _ID_ARRAY,
+        "counterexample_references": _ID_ARRAY,
+        "uncertainty": {"type": "string"},
+        "period_start": {"type": "string"},
+        "period_end": {"type": "string"},
+    },
+)
+
+# An extracted event is a structured factual record with a reference.
+_EVENT = _schema(
+    ("id", "kind"),
+    {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "timestamp": _DATE_STRING,
+        "source_references": _ID_ARRAY,
+    },
+)
+
+# An identified need refers to a user-reported item; it is never inferred from
+# another bucket.
+_NEED = _schema(
+    ("kind",),
+    {
+        "kind": {"type": "string"},
+        "source_references": _ID_ARRAY,
+        "confidence": {"type": "string"},
+    },
+)
+
+# Conversation preparation is PREPARATION-only: it may describe the structure
+# of a future conversation but never schema-authorizes sending, contacting,
+# initiating, or executing anything.
+_PREPARATION = _schema(
+    ("objective",),
+    {
+        "objective": {"type": "string"},
+        "facts": _ID_ARRAY,
+        "feelings": _ID_ARRAY,
+        "needs": _ID_ARRAY,
+        "questions": _ID_ARRAY,
+        "boundary_options": _ID_ARRAY,
+        "possible_wording": _ID_ARRAY,
+        "risks": _ID_ARRAY,
+        "uncertainties": _ID_ARRAY,
+        "alternatives": _ID_ARRAY,
+    },
+)
+
+# Boundary review is REVIEW output, not a boundary mutation result: it reports
+# a consistency state and never carries a mutation/execution field.
+_BOUNDARY_REVIEW = _schema(
+    ("boundary_id", "state"),
+    {
+        "boundary_id": {"type": "string"},
+        "state": {"type": "string"},
+        "violations": _ID_ARRAY,
+        "notes": {"type": "string"},
+    },
+)
+
+# The fact/interpretation separation structurally separates facts, statements,
+# interpretations, and hypotheses.
+_CATEGORY_MAP = _schema(
+    ("facts", "statements", "interpretations", "hypotheses"),
+    {
+        "facts": _ID_ARRAY,
+        "statements": _ID_ARRAY,
+        "interpretations": _ID_ARRAY,
+        "hypotheses": _ID_ARRAY,
+        "possible_functions": _ID_ARRAY,
+        "possible_origins": _ID_ARRAY,
+    },
+)
+
 _OUTPUT_SCHEMAS = {
     "relationships.build_timeline": _schema(
-        ("events",), {"events": {"type": "array", "items": {"type": "object"}}}
+        ("events",), {"events": {"type": "array", "items": _TIMELINE_EVENT}}
     ),
     "relationships.compare_periods": _schema(
-        ("comparison",), {"comparison": {"type": "object"}}
+        ("comparison",), {"comparison": _PERIOD_COMPARISON}
     ),
     "relationships.detect_patterns": _schema(
-        ("patterns",), {"patterns": {"type": "array", "items": {"type": "object"}}}
+        ("patterns",), {"patterns": {"type": "array", "items": _PATTERN_ITEM}}
     ),
     "relationships.extract_events": _schema(
-        ("events",), {"events": {"type": "array", "items": {"type": "object"}}}
+        ("events",), {"events": {"type": "array", "items": _EVENT}}
     ),
     "relationships.generate_relationship_summary": _schema(
         ("summary",), {"summary": {"type": "string"}}
     ),
     "relationships.identify_needs": _schema(
-        ("needs",), {"needs": {"type": "array", "items": {"type": "object"}}}
+        ("needs",), {"needs": {"type": "array", "items": _NEED}}
     ),
     "relationships.prepare_conversation": _schema(
-        ("preparation",), {"preparation": {"type": "object"}}
+        ("preparation",), {"preparation": _PREPARATION}
     ),
     "relationships.review_boundaries": _schema(
-        ("review",), {"review": {"type": "object"}}
+        ("review",), {"review": _BOUNDARY_REVIEW}
     ),
     "relationships.separate_facts_interpretations": _schema(
-        ("category_map",), {"category_map": {"type": "object"}}
+        ("category_map",), {"category_map": _CATEGORY_MAP}
     ),
     "relationships.track_open_questions": _schema(
         ("questions",), {"questions": {"type": "array", "items": {"type": "string"}}}

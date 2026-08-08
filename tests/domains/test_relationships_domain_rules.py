@@ -37,13 +37,14 @@ def test_eight_rules_and_ids():
 
 
 def test_separate_facts_interpretations_classifies_observed():
-    """A directly observed behavior classifies as observed_fact."""
+    """A directly observed behavior with grounded evidence classifies as
+    observed_fact; a bare observed boolean does not."""
     rules = _by_id(build_relationships_rules())
     rule = rules["relationships.separate_facts_interpretations"]
     result = rule.evaluate(
         _context(
             relationship_statements=[
-                {"id": "s1", "observed": True},
+                {"id": "s1", "observed": True, "evidence_references": ("res-1",)},
             ]
         )
     )
@@ -51,6 +52,18 @@ def test_separate_facts_interpretations_classifies_observed():
     assert any(
         finding.code == "EPISTEMIC_CATEGORY" and "observed_fact" in finding.message
         for finding in result.findings
+    )
+    # Fail-closed: observed without a grounded evidence reference is not a fact.
+    ungrounded = rule.evaluate(
+        _context(
+            relationship_statements=[
+                {"id": "s1", "observed": True},
+            ]
+        )
+    )
+    assert not any(
+        finding.code == "EPISTEMIC_CATEGORY" and "observed_fact" in finding.message
+        for finding in ungrounded.findings
     )
 
 
@@ -117,28 +130,59 @@ def test_do_not_infer_intent_blocks_without_source():
 
 
 def test_do_not_infer_intent_allows_direct_evidence():
-    """Intent directly evidenced / attributed by an authorized source is allowed."""
+    """Intent directly evidenced / attributed by an authorized source requires a
+    grounded evidence reference; a bare boolean is fail-closed."""
     rules = _by_id(build_relationships_rules())
     rule = rules["relationships.do_not_infer_intent"]
+    # Grounded: a real evidence reference backs the direct evidence.
     result = rule.evaluate(
+        _context(
+            intent_claim={
+                "intent": "left me",
+                "direct_evidence": True,
+                "evidence_reference": "res-1",
+            },
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    # Ungrounded: direct_evidence=True with no usable reference is blocked.
+    blocked = rule.evaluate(
         _context(
             intent_claim={"intent": "left me", "direct_evidence": True},
         )
     )
-    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert blocked.status is ReasoningRuleResultStatus.BLOCKED
 
 
 def test_do_not_infer_intent_sourced_not_fact():
-    """A source stating an intention is represented with provenance, not fact."""
+    """A source stating an intention is represented with provenance, not fact;
+    a sourced statement requires a real source reference."""
     rules = _by_id(build_relationships_rules())
     rule = rules["relationships.do_not_infer_intent"]
     result = rule.evaluate(
         _context(
-            intent_claim={"intent": "left me", "sourced_statement": True},
+            intent_claim={
+                "intent": "left me",
+                "sourced_statement": True,
+                "source_reference": "doc-1",
+            },
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(finding.code == "INTENT_SOURCED_NOT_FACT" for finding in result.findings)
+    # A sourced statement with no usable source reference is blocked, and no
+    # fake "unknown" reference is fabricated.
+    blocked = rule.evaluate(
+        _context(
+            intent_claim={"intent": "left me", "sourced_statement": True},
+        )
+    )
+    assert blocked.status is ReasoningRuleResultStatus.BLOCKED
+    assert all(
+        "unknown" not in reference
+        for finding in blocked.findings
+        for reference in finding.references
+    )
 
 
 def test_relationship_timeline_never_causal_ordering():
@@ -275,7 +319,20 @@ def test_deterministic_helpers():
         classify_relationship_statement(provenance="user", is_possible_origin=True)
         == "possible_origin"
     )
-    assert classify_relationship_statement(is_observed=True) == "observed_fact"
+    # Grounded observed requires an evidence reference; a bare boolean is
+    # fail-closed and never becomes observed_fact.
+    assert classify_relationship_statement(is_observed=True) == "unknown"
+    assert (
+        classify_relationship_statement(
+            is_observed=True, evidence_reference_ids=("res-1",)
+        )
+        == "observed_fact"
+    )
+    # Provenance presence is not evidence: a grounded reference is required.
+    assert (
+        classify_relationship_statement(provenance="res-1", is_observed=True)
+        == "unknown"
+    )
     assert (
         classify_relationship_statement(is_direct_statement=True) == "direct_statement"
     )
@@ -291,8 +348,12 @@ def test_deterministic_helpers():
     assert (
         classify_relationship_perspective(is_self_experience=True) == "self_experience"
     )
+    # other_observable_behavior requires a grounded evidence reference.
+    assert classify_relationship_perspective(is_other_observable=True) == "unknown"
     assert (
-        classify_relationship_perspective(is_other_observable=True)
+        classify_relationship_perspective(
+            is_other_observable=True, evidence_reference_ids=("res-1",)
+        )
         == "other_observable_behavior"
     )
     assert (

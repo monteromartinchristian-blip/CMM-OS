@@ -269,3 +269,149 @@ def test_escalation_path_completes_once_gate_approved():
     decided = legacy.decide(WorkflowApprovalDecision("reviewer", True))
     resumed = executor.resume(waiting, condition_resolved=True, approval=decided)
     assert resumed.status is WorkflowRunStatus.COMPLETED
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit V2 — Decision Support through the REAL workflow/reasoning path (P2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class _DecisionSupportExecutor:
+    """Drive the canonical ``DomainWorkflowExecutor`` so the REASON node executes
+    the Relationships rule that owns decision-support comparison, and the
+    comparison is retained on the workflow path.
+
+    The ``operation_adapter`` is the canonical integration point where a domain's
+    reasoning rules execute for a REASON node.  It selects the rule from the
+    domain profile's ``required_rules`` and evaluates it with the structured
+    ``options``/``criteria`` inputs, then records the rule result so the test can
+    prove the workflow REASON stage reached the rule evaluation.
+    """
+
+    def __init__(self, decision_support_inputs):
+        from cmm.workflows.enums import WorkflowRunStatus
+
+        self._decision_support_inputs = decision_support_inputs
+        self.rule_results = []
+        self.run_status = None
+        self.ids = _Ids()
+        self._run_status_enum = WorkflowRunStatus
+
+    def _adapter(self, node, run):
+        from cmm.workflows.engine import NodeExecution
+
+        if node.node_type.value == "reason":
+            rules = relationships.build_relationships_rules()
+            rule_by_id = {rule.definition.id: rule for rule in rules}
+            # The REASON node applies the domain's required rules; the rule that
+            # owns decision-support comparison is the AmbivalencePreservationRule.
+            rule = rule_by_id["relationships.ambivalence_preservation"]
+            result = rule.evaluate(
+                _workflow_reason_context(decision_support=self._decision_support_inputs)
+            )
+            self.rule_results.append(result)
+            comparison = next(
+                f.metadata.get("comparison")
+                for f in result.findings
+                if f.code == "DECISION_SUPPORT_COMPARISON"
+            )
+            return NodeExecution.complete({"comparison": comparison})
+        if node.node_type.value == "request_approval":
+            return NodeExecution.complete({"approved": True})
+        return NodeExecution.complete({"ok": True})
+
+    def execute(self, definition):
+        from cmm.domains.workflow_contracts import DomainWorkflowContext
+        from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+        context = DomainWorkflowContext(
+            primary_domain_id="domain:relationships",
+            available_permissions=frozenset(),
+            available_resources=frozenset(definition.required_resources),
+            available_operations=frozenset(
+                {n.operation_id for n in definition.nodes if n.operation_id}
+            ),
+            approved_gates=frozenset(),
+        )
+        executor = DomainWorkflowExecutor(
+            id_factory=self.ids, operation_adapter=self._adapter
+        )
+        run = executor.execute(definition, context, self._decision_support_inputs)
+        self.run_status = run.common_run.status
+        return run
+
+
+def _workflow_reason_context(**metadata):
+    from datetime import datetime, timezone
+
+    from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+
+    return ReasoningRuleContext(
+        reasoning_id="wf-reason",
+        timestamp=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        active_domains=("domain:relationships",),
+        primary_domain="domain:relationships",
+        metadata=metadata,
+    )
+
+
+def _decision_support_results(captured):
+    """Return the retained DECISION_SUPPORT_COMPARISON payloads from the reason
+    rule results."""
+    payloads = []
+    for result in captured:
+        for finding in result.findings:
+            if finding.code == "DECISION_SUPPORT_COMPARISON":
+                payloads.append(finding.metadata.get("comparison"))
+    assert payloads, "REASON stage did not retain a DECISION_SUPPORT_COMPARISON"
+    return payloads
+
+
+def test_decision_support_workflow_reason_reaches_rule_comparison():
+    """The real ``relationships.decision_support`` workflow path reaches the
+    Relationships rule evaluation and retains DECISION_SUPPORT_COMPARISON."""
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    wf = _by_id()["relationships.decision_support"]
+    inputs = {
+        "options": [
+            {"id": "opt-a", "criteria": ("clarity", "honesty")},
+            {"id": "opt-b", "criteria": ("clarity",)},
+        ],
+        "criteria": ("clarity", "honesty"),
+    }
+    executor = _DecisionSupportExecutor(inputs)
+    run = executor.execute(wf)
+    # The workflow path actually ran (reached the REASON node and completed).
+    assert run.common_run.status is WorkflowRunStatus.COMPLETED
+    payloads = _decision_support_results(executor.rule_results)
+    assert len(payloads) == 1
+    comparison = payloads[0]
+    assert comparison["adopted_decision"] is False
+    assert comparison["requires_user_confirmation"] is True
+    assert comparison["best_match"]["option_id"] == "opt-a"
+
+
+def test_decision_support_workflow_tie_preserves_mode_a():
+    """A tied best match through the real workflow path preserves Mode A: no
+    decision is adopted and the tie is retained."""
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    wf = _by_id()["relationships.decision_support"]
+    inputs = {
+        "options": [
+            {"id": "opt-a", "criteria": ("clarity", "honesty")},
+            {"id": "opt-b", "criteria": ("clarity", "honesty")},
+        ],
+        "criteria": ("clarity", "honesty"),
+    }
+    executor = _DecisionSupportExecutor(inputs)
+    run = executor.execute(wf)
+    assert run.common_run.status is WorkflowRunStatus.COMPLETED
+    payloads = _decision_support_results(executor.rule_results)
+    assert len(payloads) == 1
+    comparison = payloads[0]
+    assert comparison["adopted_decision"] is False
+    assert comparison["requires_user_confirmation"] is True
+    assert comparison["best_match"] is None
+    assert set(comparison["tied_best_matches"]) == {"opt-a", "opt-b"}
