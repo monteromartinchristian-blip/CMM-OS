@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from cmm.domains.memory_contracts import (
-    _DIGEST_PREFIX_LENGTH,
+    DIGEST_PREFIX_LENGTH,
     DomainMemoryProposalBinding,
     DomainMemoryReferenceInventory,
     DomainMemorySelectionDecisionCode,
@@ -87,22 +87,16 @@ class DefaultDomainMemoryIntegrationValidator:
                 )
 
             inventory_permission_ids = {
-                decision.decision_id
-                for decision in inventory.permission_decisions
+                decision.decision_id for decision in inventory.permission_decisions
             }
             unknown_permission_ids = tuple(
-                sorted(
-                    set(request.permission_decision_ids)
-                    - inventory_permission_ids
-                )
+                sorted(set(request.permission_decision_ids) - inventory_permission_ids)
             )
             if unknown_permission_ids:
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,
-                    codes=(
-                        DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,
-                    ),
+                    codes=(DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,),
                     affected_object_ids=unknown_permission_ids,
                 )
 
@@ -115,8 +109,8 @@ class DefaultDomainMemoryIntegrationValidator:
                     codes=(DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,),
                 )
 
-            view_suffix = view.view_id[len(expected_prefix):]
-            if view_suffix != view.content_digest[:_DIGEST_PREFIX_LENGTH]:
+            view_suffix = view.view_id[len(expected_prefix) :]
+            if view_suffix != view.content_digest[:DIGEST_PREFIX_LENGTH]:
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,
@@ -140,14 +134,18 @@ class DefaultDomainMemoryIntegrationValidator:
                     )
 
             # Re-evaluate policy via resolver to ensure strict 1-to-1 match
-            expected_view = DefaultDomainMemoryViewResolver().resolve(request, inventory)
+            expected_view = DefaultDomainMemoryViewResolver().resolve(
+                request, inventory
+            )
 
             if (
                 view.view_id != expected_view.view_id
                 or view.request_id != expected_view.request_id
                 or str(view.primary_domain) != str(expected_view.primary_domain)
-                or len(view.selection_decisions) != len(expected_view.selection_decisions)
-                or len(view.selected_references) != len(expected_view.selected_references)
+                or len(view.selection_decisions)
+                != len(expected_view.selection_decisions)
+                or len(view.selected_references)
+                != len(expected_view.selected_references)
             ):
                 return DomainMemoryValidationResult(
                     is_valid=False,
@@ -156,7 +154,9 @@ class DefaultDomainMemoryIntegrationValidator:
                 )
 
             # Verify selection_decisions exact match
-            for v_dec, e_dec in zip(view.selection_decisions, expected_view.selection_decisions):
+            for v_dec, e_dec in zip(
+                view.selection_decisions, expected_view.selection_decisions
+            ):
                 if (
                     v_dec.reference_id != e_dec.reference_id
                     or v_dec.code != e_dec.code
@@ -164,9 +164,15 @@ class DefaultDomainMemoryIntegrationValidator:
                     or v_dec.permission_decision_ids != e_dec.permission_decision_ids
                 ):
                     code = DomainMemoryValidationCode.INVALID_REFERENCE_INTEGRITY
-                    if e_dec.code == DomainMemorySelectionDecisionCode.EXCLUDED_PERMISSION_DENIED:
+                    if (
+                        e_dec.code
+                        == DomainMemorySelectionDecisionCode.EXCLUDED_PERMISSION_DENIED
+                    ):
                         code = DomainMemoryValidationCode.INVALID_PERMISSION_DENIED
-                    elif e_dec.code == DomainMemorySelectionDecisionCode.EXCLUDED_SENSITIVITY_RESTRICTED:
+                    elif (
+                        e_dec.code
+                        == DomainMemorySelectionDecisionCode.EXCLUDED_SENSITIVITY_RESTRICTED
+                    ):
                         code = DomainMemoryValidationCode.INVALID_PRIVACY_BREACH
                     return DomainMemoryValidationResult(
                         is_valid=False,
@@ -180,7 +186,10 @@ class DefaultDomainMemoryIntegrationValidator:
             inventory_ref_map = {r.reference_id: r for r in inventory.references}
 
             for r in view.selected_references:
-                if r.reference_id not in req_cand_map or r.reference_id not in inventory_ref_map:
+                if (
+                    r.reference_id not in req_cand_map
+                    or r.reference_id not in inventory_ref_map
+                ):
                     return DomainMemoryValidationResult(
                         is_valid=False,
                         code=DomainMemoryValidationCode.INVALID_REFERENCE_INTEGRITY,
@@ -191,7 +200,12 @@ class DefaultDomainMemoryIntegrationValidator:
                 req_c = req_cand_map[r.reference_id]
                 inv_r = inventory_ref_map[r.reference_id]
 
-                if r != req_c or r != inv_r or r.digest != req_c.digest or r.digest != inv_r.digest:
+                if (
+                    r != req_c
+                    or r != inv_r
+                    or r.digest != req_c.digest
+                    or r.digest != inv_r.digest
+                ):
                     return DomainMemoryValidationResult(
                         is_valid=False,
                         code=DomainMemoryValidationCode.INVALID_REFERENCE_INTEGRITY,
@@ -246,8 +260,8 @@ class DefaultDomainMemoryIntegrationValidator:
                     codes=(DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,),
                 )
 
-            binding_suffix = binding.binding_id[len(expected_prefix):]
-            if binding_suffix != binding.content_digest[:_DIGEST_PREFIX_LENGTH]:
+            binding_suffix = binding.binding_id[len(expected_prefix) :]
+            if binding_suffix != binding.content_digest[:DIGEST_PREFIX_LENGTH]:
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,
@@ -268,9 +282,7 @@ class DefaultDomainMemoryIntegrationValidator:
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,
-                    codes=(
-                        DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,
-                    ),
+                    codes=(DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED,),
                 )
 
             if str(view_snap.primary_domain) != str(binding.domain_id):
@@ -387,18 +399,13 @@ class DefaultDomainMemoryIntegrationValidator:
             perm_map = {pd.decision_id: pd for pd in inventory.permission_decisions}
 
             unknown_permission_ids = tuple(
-                sorted(
-                    set(binding.permission_decision_ids)
-                    - set(perm_map)
-                )
+                sorted(set(binding.permission_decision_ids) - set(perm_map))
             )
             if unknown_permission_ids:
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,
-                    codes=(
-                        DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,
-                    ),
+                    codes=(DomainMemoryValidationCode.INVALID_PERMISSION_DENIED,),
                     affected_object_ids=unknown_permission_ids,
                 )
 
@@ -506,7 +513,10 @@ class DefaultDomainMemoryIntegrationValidator:
                         )
 
             # Ensure no extra unlinked approval requests or decisions are bound
-            if bound_app_req_ids != used_app_req_ids or bound_app_dec_ids != used_app_dec_ids:
+            if (
+                bound_app_req_ids != used_app_req_ids
+                or bound_app_dec_ids != used_app_dec_ids
+            ):
                 return DomainMemoryValidationResult(
                     is_valid=False,
                     code=DomainMemoryValidationCode.INVALID_APPROVAL_COVERAGE_MISMATCH,

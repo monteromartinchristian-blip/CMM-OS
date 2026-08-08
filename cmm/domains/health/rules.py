@@ -154,7 +154,9 @@ def build_medication_temporal_relation(
     }
 
 
-def classify_escalation_level(*, symptom_severity: int = 0, is_red_flag: bool = False) -> str:
+def classify_escalation_level(
+    *, symptom_severity: int = 0, is_red_flag: bool = False
+) -> str:
     """Classify an escalation level from deterministic inputs (0-10 severity)."""
     if is_red_flag or symptom_severity >= 9:
         return ESCALATION_URGENT_ATTENTION
@@ -183,8 +185,12 @@ def evaluate_clinical_temporality(
 ) -> str:
     """Evaluate a closed temporal validity classification for clinical data.
 
-    Returns one of: ``current``, ``historical``, ``pending``, ``expired``,
-    ``superseded``, ``future``, ``unknown``.
+    Returns one of: ``current``, ``historical``, ``provisional``, ``pending``,
+    ``stale``, ``expired``, ``superseded``, ``future``, ``unknown``.
+
+    A ``provisional`` record **stays provisional**; it is never promoted to
+    ``current`` even when flagged active, because an unconfirmed status cannot
+    be treated as current clinical truth.
     """
     if state == "unknown":
         return "unknown"
@@ -192,6 +198,10 @@ def evaluate_clinical_temporality(
         return "pending"
     if state == "future":
         return "future"
+    if state == "provisional":
+        return "provisional"
+    if state == "stale":
+        return "stale"
     if superseded:
         return "superseded"
     if withdrawn:
@@ -212,7 +222,9 @@ class MedicationConflict:
     medication_ids: tuple[str, ...]
 
 
-def detect_medication_conflicts(records: list | tuple) -> tuple[MedicationConflict, ...]:
+def detect_medication_conflicts(
+    records: list | tuple,
+) -> tuple[MedicationConflict, ...]:
     """Detect structured medication inconsistencies without deciding correctness.
 
     Detecting a conflict is not equivalent to determining which record is
@@ -238,6 +250,20 @@ def detect_medication_conflicts(records: list | tuple) -> tuple[MedicationConfli
                     medication_ids=(med,),
                 )
             )
+        for record in entries:
+            start = record.get("start_date")
+            end = record.get("end_date")
+            if start and end and end < start:
+                conflicts.append(
+                    MedicationConflict(
+                        code="MEDICATION_DATE_ORDER",
+                        message=(
+                            "Medication record has an end date before its start date."
+                        ),
+                        medication_ids=(med,),
+                    )
+                )
+                break
         if len({r.get("dose") for r in entries}) > 1:
             conflicts.append(
                 MedicationConflict(
@@ -288,10 +314,7 @@ def validate_diagnostic_claim(
         "reason": (
             "Explicit confirmation establishes a definitive diagnostic claim."
             if is_definitive
-            else (
-                "Diagnostic claim lacks explicit confirmation; "
-                "keep provisional."
-            )
+            else ("Diagnostic claim lacks explicit confirmation; keep provisional.")
         ),
     }
 
@@ -413,7 +436,9 @@ class HealthSymptomDiagnosisHypothesisRule:
         statements = _seq(context.metadata, "clinical_statements")
         if not statements:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No clinical statements supplied.",
             )
@@ -443,8 +468,11 @@ class HealthSymptomDiagnosisHypothesisRule:
                 )
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=tuple(findings), code="EPISTEMIC_CATEGORIES_ASSIGNED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=tuple(findings),
+            code="EPISTEMIC_CATEGORIES_ASSIGNED",
             message="Epistemic categories assigned without promotion.",
         )
 
@@ -462,7 +490,9 @@ class HealthMedicationTemporalRelationshipRule:
         relation = _mapping(context.metadata, "medication_relation")
         if relation is None:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No medication relation metadata supplied.",
             )
@@ -478,8 +508,11 @@ class HealthMedicationTemporalRelationshipRule:
             ),
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=(finding,), code="TEMPORAL_ASSOCIATION_RECORDED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="TEMPORAL_ASSOCIATION_RECORDED",
             message="Temporal association recorded without causation.",
         )
 
@@ -497,7 +530,9 @@ class HealthMedicalRedFlagRule:
         red_flag = context.metadata.get("red_flag")
         if not isinstance(red_flag, Mapping):
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No red flag metadata supplied.",
             )
@@ -514,16 +549,26 @@ class HealthMedicalRedFlagRule:
             domain_id=self.definition.domain_id,
             references=(str(red_flag.get("id", "unknown")),),
         )
-        escalation = ReasoningEscalation(
-            code="PROFESSIONAL_REVIEW_REQUIRED",
-            message="A red flag requires professional review, not a diagnosis.",
-            severity=ReasoningSeverity.WARNING,
-            rule_id=self.definition.id,
-            domain_id=self.definition.domain_id,
+        # Escalation follows the actual values: only a red flag or a high
+        # severity (i.e. anything above monitoring) warrants professional
+        # review.  A low-severity, non-flagged symptom stays at monitoring.
+        escalation = (
+            ReasoningEscalation(
+                code="PROFESSIONAL_REVIEW_REQUIRED",
+                message="A red flag requires professional review, not a diagnosis.",
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            )
+            if level != ESCALATION_MONITORING
+            else None
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=(finding,), escalation=escalation,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            escalation=escalation,
             code="RED_FLAG_CLASSIFIED",
             message="Red flag classified; cause not diagnosed.",
         )
@@ -542,7 +587,9 @@ class HealthClinicalSourcePriorityRule:
         sources = _seq(context.metadata, "sources")
         if not sources:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No source metadata supplied.",
             )
@@ -563,8 +610,11 @@ class HealthClinicalSourcePriorityRule:
                 )
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=tuple(findings), code="SOURCE_PRIORITY_RANKED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=tuple(findings),
+            code="SOURCE_PRIORITY_RANKED",
             message="Source priority ranked; provenance preserved.",
         )
 
@@ -582,7 +632,9 @@ class HealthMedicalTemporalValidityRule:
         temporal = _mapping(context.metadata, "temporal")
         if temporal is None:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No temporal metadata supplied.",
             )
@@ -601,8 +653,11 @@ class HealthMedicalTemporalValidityRule:
                 domain_id=self.definition.domain_id,
             )
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
-                gaps=(gap,), code="TEMPORAL_UNKNOWN_RECORDED",
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                gaps=(gap,),
+                code="TEMPORAL_UNKNOWN_RECORDED",
                 message="Unknown temporality recorded as gap.",
             )
         if state == "expired":
@@ -614,12 +669,17 @@ class HealthMedicalTemporalValidityRule:
                 domain_id=self.definition.domain_id,
             )
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
-                findings=(finding,), code="TEMPORAL_EXPIRED_RECORDED",
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="TEMPORAL_EXPIRED_RECORDED",
                 message="Expired temporality recorded.",
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
             code="TEMPORAL_STATE_CLASSIFIED",
             message=f"Temporal state classified as {state}.",
         )
@@ -638,7 +698,9 @@ class HealthMedicationConsistencyRule:
         records = _seq(context.metadata, "medication_records")
         if not records:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No medication records supplied.",
             )
@@ -655,8 +717,11 @@ class HealthMedicationConsistencyRule:
             for conflict in conflicts
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=findings, code="MEDICATION_CONSISTENCY_EVALUATED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=findings,
+            code="MEDICATION_CONSISTENCY_EVALUATED",
             message="Medication consistency evaluated without deciding correctness.",
         )
 
@@ -674,7 +739,9 @@ class HealthNoDefinitiveDiagnosisRule:
         claim = _mapping(context.metadata, "diagnostic_claim")
         if claim is None:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No diagnostic claim metadata supplied.",
             )
@@ -686,7 +753,9 @@ class HealthNoDefinitiveDiagnosisRule:
         )
         if verdict["is_definitive"]:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
                 code="DEFINITIVE_CLAIM_DOCUMENTED",
                 message="Definitive diagnostic claim is documented.",
             )
@@ -705,8 +774,11 @@ class HealthNoDefinitiveDiagnosisRule:
             domain_id=self.definition.domain_id,
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.BLOCKED,
-            findings=(finding,), escalation=escalation,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.BLOCKED,
+            findings=(finding,),
+            escalation=escalation,
             code="DEFINITIVE_DIAGNOSIS_BLOCKED",
             message=verdict["reason"],
         )
@@ -725,7 +797,9 @@ class HealthProfessionalEscalationRule:
         factors = _mapping(context.metadata, "escalation_factors")
         if factors is None:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No escalation factor metadata supplied.",
             )
@@ -740,7 +814,9 @@ class HealthProfessionalEscalationRule:
         )
         if not verdict["escalate"]:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
                 code="NO_ESCALATION_REQUIRED",
                 message=verdict["reason"],
             )
@@ -759,8 +835,11 @@ class HealthProfessionalEscalationRule:
             domain_id=self.definition.domain_id,
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.BLOCKED,
-            findings=(finding,), escalation=escalation,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.BLOCKED,
+            findings=(finding,),
+            escalation=escalation,
             code="PROFESSIONAL_ESCALATION_RECOMMENDED",
             message=verdict["reason"],
         )
@@ -776,27 +855,35 @@ def build_health_rules() -> tuple[Any, ...]:
     by_id = {
         "health.clinical_source_priority": HealthClinicalSourcePriorityRule(
             definition=_definition(
-                "health.clinical_source_priority", "HealthClinicalSourcePriorityRule",
-                ReasoningRuleCategory.EPISTEMIC.value, 730,
+                "health.clinical_source_priority",
+                "HealthClinicalSourcePriorityRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                730,
             )
         ),
         "health.medical_red_flag": HealthMedicalRedFlagRule(
             definition=_definition(
-                "health.medical_red_flag", "HealthMedicalRedFlagRule",
-                ReasoningRuleCategory.SAFETY.value, 790,
+                "health.medical_red_flag",
+                "HealthMedicalRedFlagRule",
+                ReasoningRuleCategory.SAFETY.value,
+                790,
                 risk_level=ReasoningRiskLevel.HIGH,
             )
         ),
         "health.medical_temporal_validity": HealthMedicalTemporalValidityRule(
             definition=_definition(
-                "health.medical_temporal_validity", "HealthMedicalTemporalValidityRule",
-                ReasoningRuleCategory.TEMPORALITY.value, 760,
+                "health.medical_temporal_validity",
+                "HealthMedicalTemporalValidityRule",
+                ReasoningRuleCategory.TEMPORALITY.value,
+                760,
             )
         ),
         "health.medication_consistency": HealthMedicationConsistencyRule(
             definition=_definition(
-                "health.medication_consistency", "HealthMedicationConsistencyRule",
-                ReasoningRuleCategory.CONSISTENCY.value, 750,
+                "health.medication_consistency",
+                "HealthMedicationConsistencyRule",
+                ReasoningRuleCategory.CONSISTENCY.value,
+                750,
                 risk_level=ReasoningRiskLevel.MEDIUM,
             )
         ),
@@ -804,21 +891,26 @@ def build_health_rules() -> tuple[Any, ...]:
             definition=_definition(
                 "health.medication_temporal_relationship",
                 "HealthMedicationTemporalRelationshipRule",
-                ReasoningRuleCategory.TEMPORALITY.value, 740,
+                ReasoningRuleCategory.TEMPORALITY.value,
+                740,
                 risk_level=ReasoningRiskLevel.MEDIUM,
             )
         ),
         "health.no_definitive_diagnosis": HealthNoDefinitiveDiagnosisRule(
             definition=_definition(
-                "health.no_definitive_diagnosis", "HealthNoDefinitiveDiagnosisRule",
-                ReasoningRuleCategory.SAFETY.value, 810,
+                "health.no_definitive_diagnosis",
+                "HealthNoDefinitiveDiagnosisRule",
+                ReasoningRuleCategory.SAFETY.value,
+                810,
                 risk_level=ReasoningRiskLevel.HIGH,
             )
         ),
         "health.professional_escalation": HealthProfessionalEscalationRule(
             definition=_definition(
-                "health.professional_escalation", "HealthProfessionalEscalationRule",
-                ReasoningRuleCategory.SAFETY.value, 800,
+                "health.professional_escalation",
+                "HealthProfessionalEscalationRule",
+                ReasoningRuleCategory.SAFETY.value,
+                800,
                 risk_level=ReasoningRiskLevel.HIGH,
             )
         ),
@@ -826,7 +918,8 @@ def build_health_rules() -> tuple[Any, ...]:
             definition=_definition(
                 "health.symptom_diagnosis_hypothesis",
                 "HealthSymptomDiagnosisHypothesisRule",
-                ReasoningRuleCategory.EPISTEMIC.value, 720,
+                ReasoningRuleCategory.EPISTEMIC.value,
+                720,
             )
         ),
     }

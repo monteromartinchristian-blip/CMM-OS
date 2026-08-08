@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from cmm.domains.health.definition import HEALTH_DOMAIN_ID
 from cmm.domains.memory_contracts import (
-    _DIGEST_PREFIX_LENGTH,
+    DIGEST_PREFIX_LENGTH,
     DomainMemoryCapability,
     DomainMemoryProposalBinding,
     DomainMemoryProposalKind,
@@ -21,7 +21,7 @@ from cmm.domains.memory_contracts import (
     DomainMemoryValidationResult,
     DomainMemoryView,
     DomainMemoryViewRequest,
-    _sha256_digest,
+    sha256_digest,
 )
 
 
@@ -108,10 +108,10 @@ def build_health_symptom_binding(
         "approval_request_ids": list(approval_request_ids),
         "approval_decision_ids": list(approval_decision_ids),
     }
-    content_digest = _sha256_digest(content_payload)
+    content_digest = sha256_digest(content_payload)
     binding_id = (
         f"binding:{domain_id}:{trace_id}:{view.view_id}:"
-        f"{content_digest[:_DIGEST_PREFIX_LENGTH]}"
+        f"{content_digest[:DIGEST_PREFIX_LENGTH]}"
     )
     return DomainMemoryProposalBinding(
         binding_id=binding_id,

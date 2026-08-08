@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from cmm.domains.errors import DomainMemoryResolutionError
 from cmm.domains.memory_contracts import (
-    _DIGEST_PREFIX_LENGTH,
+    DIGEST_PREFIX_LENGTH,
     DomainMemoryPermissionDecisionSnapshot,
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
@@ -24,7 +24,7 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTemporalSnapshot,
     DomainMemoryView,
     DomainMemoryViewRequest,
-    _sha256_digest,
+    sha256_digest,
 )
 
 
@@ -297,8 +297,8 @@ class DefaultDomainMemoryViewResolver:
             content_payload["trace_id"] = request.trace_id
         if request.temporal_reference is not None:
             content_payload["temporal_reference"] = request.temporal_reference
-        content_digest = _sha256_digest(content_payload)
-        view_id = f"view:{request.request_id}:{content_digest[:_DIGEST_PREFIX_LENGTH]}"
+        content_digest = sha256_digest(content_payload)
+        view_id = f"view:{request.request_id}:{content_digest[:DIGEST_PREFIX_LENGTH]}"
 
         return DomainMemoryView(
             view_id=view_id,

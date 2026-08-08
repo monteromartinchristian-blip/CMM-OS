@@ -146,6 +146,8 @@ def _parse_json_dict_item(
             f"{field_name} element must be a JSON object (dict)", field=field_name
         )
     return parser_func(item)
+
+
 _MAX_METADATA_ITEMS = 32
 _MAX_METADATA_SEQUENCE_ITEMS = 64
 _MAX_METADATA_STRING_LENGTH = 128
@@ -250,9 +252,15 @@ _STRUCTURAL_CATEGORY_VALUES = frozenset(
 )
 _STRUCTURAL_STATUS_VALUES = frozenset({"draft", "active", "archived", "superseded"})
 _STRUCTURAL_PRIORITY_VALUES = frozenset({"low", "medium", "high", "critical"})
-_STRUCTURAL_TAG_VALUES = frozenset({"temporal", "epistemic", "provenance", "actionable"})
-_STRUCTURAL_SOURCE_TYPE_VALUES = frozenset({"manual", "automated", "imported", "derived"})
-_STRUCTURAL_DOMAIN_TAG_VALUES = frozenset({"health", "fitness", "education", "finance", "career"})
+_STRUCTURAL_TAG_VALUES = frozenset(
+    {"temporal", "epistemic", "provenance", "actionable"}
+)
+_STRUCTURAL_SOURCE_TYPE_VALUES = frozenset(
+    {"manual", "automated", "imported", "derived"}
+)
+_STRUCTURAL_DOMAIN_TAG_VALUES = frozenset(
+    {"health", "fitness", "education", "finance", "career"}
+)
 
 # Allowed metadata keys and their value validators
 _ALLOWED_METADATA_KEYS = frozenset(
@@ -319,9 +327,7 @@ def _parse_domain_id(val: Any) -> DomainId:
             try:
                 return DomainId.from_str(val)
             except Exception as exc:
-                raise DomainMemoryContractError(
-                    "Invalid domain string"
-                ) from exc
+                raise DomainMemoryContractError("Invalid domain string") from exc
         try:
             return DomainId(slug=val)
         except Exception as exc:
@@ -339,9 +345,7 @@ def _validate_metadata_value(key: str, val: str) -> None:
     vocab = _METADATA_VOCABULARIES.get(key)
     if vocab is not None:
         if val not in vocab:
-            raise DomainMemoryPrivacyError(
-                "Metadata value not in closed vocabulary"
-            )
+            raise DomainMemoryPrivacyError("Metadata value not in closed vocabulary")
         return
 
     # Fallback: must be a canonical ID string (prefix:rest)
@@ -369,9 +373,7 @@ def _validate_and_freeze_metadata(
             raise DomainMemoryContractError("Metadata keys must be strings")
 
         if key not in _ALLOWED_METADATA_KEYS:
-            raise DomainMemoryPrivacyError(
-                "Unrecognized structural metadata key"
-            )
+            raise DomainMemoryPrivacyError("Unrecognized structural metadata key")
 
         if _contains_private_marker(key):
             raise DomainMemoryPrivacyError(
@@ -383,14 +385,14 @@ def _validate_and_freeze_metadata(
     return MappingProxyType(frozen)
 
 
-def _validate_and_freeze_value(val: Any, depth: int, meta_key: str | None = None) -> Any:
+def _validate_and_freeze_value(
+    val: Any, depth: int, meta_key: str | None = None
+) -> Any:
     if depth > _MAX_METADATA_DEPTH:
         raise DomainMemoryPrivacyError("Metadata exceeds maximum allowed depth")
 
     if val is None or isinstance(val, bool):
-        raise DomainMemoryContractError(
-            "Metadata values cannot be None or boolean"
-        )
+        raise DomainMemoryContractError("Metadata values cannot be None or boolean")
 
     if isinstance(val, int):
         if val < 0 or val > 1_000_000:
@@ -454,6 +456,22 @@ def _canonical_json(data: Any) -> str:
 
 def _sha256_digest(data: Any) -> str:
     return hashlib.sha256(_canonical_json(data).encode("utf-8")).hexdigest()
+
+
+# ── Public generic digest API (Phase 10.20) ─────────────────────────────────
+# Smallest public surface needed by memory integrations (General/Health/memory
+# view/memory validation) so they do not reach into private helpers.
+DIGEST_PREFIX_LENGTH = _DIGEST_PREFIX_LENGTH
+
+
+def sha256_digest(data: Any) -> str:
+    """Return the canonical SHA-256 hex digest of ``data``."""
+    return _sha256_digest(data)
+
+
+def digest_prefix(data: Any) -> str:
+    """Return the short stable identifier prefix for ``data``."""
+    return sha256_digest(data)[:DIGEST_PREFIX_LENGTH]
 
 
 def _digest_prefix(data: Any) -> str:
@@ -561,7 +579,9 @@ class DomainMemoryValidationCode(str, Enum):
     INVALID_VERSION_INVARIANT = "invalid_version_invariant"
     INVALID_PROPOSAL_COVERAGE = "invalid_proposal_coverage"
     INVALID_PROPOSAL_KIND_MISMATCH = "invalid_proposal_kind_mismatch"
-    INVALID_DUPLICATE_PROPOSAL_CLASSIFICATION = "invalid_duplicate_proposal_classification"
+    INVALID_DUPLICATE_PROPOSAL_CLASSIFICATION = (
+        "invalid_duplicate_proposal_classification"
+    )
     INVALID_TRACE_VIEW_MISMATCH = "invalid_trace_view_mismatch"
     INVALID_DIGEST_TAMPERED = "invalid_digest_tampered"
     INVALID_MISSING_REFERENCE = "invalid_missing_reference"
@@ -589,19 +609,15 @@ class DomainMemoryTemporalSnapshot:
     superseded_by: str | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.kind, str) and not isinstance(self.kind, DomainMemoryTemporalKind):
+        if isinstance(self.kind, str) and not isinstance(
+            self.kind, DomainMemoryTemporalKind
+        ):
             try:
-                object.__setattr__(
-                    self, "kind", DomainMemoryTemporalKind(self.kind)
-                )
+                object.__setattr__(self, "kind", DomainMemoryTemporalKind(self.kind))
             except ValueError:
-                raise DomainMemoryContractError(
-                    "Invalid temporal kind"
-                )
+                raise DomainMemoryContractError("Invalid temporal kind")
         elif not isinstance(self.kind, DomainMemoryTemporalKind):
-            raise DomainMemoryContractError(
-                "kind must be a DomainMemoryTemporalKind"
-            )
+            raise DomainMemoryContractError("kind must be a DomainMemoryTemporalKind")
 
         # Validate ISO-8601 strings
         for field_name in (
@@ -631,16 +647,11 @@ class DomainMemoryTemporalSnapshot:
         if self.superseded_by is not None:
             _validate_superseded_by(self.superseded_by)
 
-        if (
-            self.valid_from is not None
-            and self.valid_to is not None
-        ):
+        if self.valid_from is not None and self.valid_to is not None:
             from_dt = datetime.fromisoformat(self.valid_from.replace("Z", "+00:00"))
             to_dt = datetime.fromisoformat(self.valid_to.replace("Z", "+00:00"))
             if to_dt < from_dt:
-                raise DomainMemoryContractError(
-                    "valid_to cannot be before valid_from"
-                )
+                raise DomainMemoryContractError("valid_to cannot be before valid_from")
 
     @property
     def is_current(self) -> bool:
@@ -723,19 +734,13 @@ class DomainMemoryTemporalSnapshot:
 def _validate_iso_datetime(val: str, field_name: str) -> None:
     """Validate that a string is a canonical ISO-8601 datetime."""
     if not isinstance(val, str) or isinstance(val, bool):
-        raise DomainMemoryContractError(
-            f"{field_name} must be an ISO-8601 string"
-        )
+        raise DomainMemoryContractError(f"{field_name} must be an ISO-8601 string")
     try:
         dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            raise DomainMemoryContractError(
-                f"{field_name} must be timezone-aware"
-            )
+            raise DomainMemoryContractError(f"{field_name} must be timezone-aware")
     except (ValueError, TypeError):
-        raise DomainMemoryContractError(
-            f"{field_name} must be a valid ISO-8601 string"
-        )
+        raise DomainMemoryContractError(f"{field_name} must be a valid ISO-8601 string")
 
 
 @dataclass(frozen=True)
@@ -755,9 +760,7 @@ class DomainMemoryPermissionDecisionSnapshot:
             raise DomainMemoryContractError("allowed must be a boolean")
 
         caps: list[DomainMemoryCapability] = []
-        raw_caps = _validate_collection_constructor(
-            self.capabilities, "capabilities"
-        )
+        raw_caps = _validate_collection_constructor(self.capabilities, "capabilities")
         caps: list[DomainMemoryCapability] = []
         for c in raw_caps:
             if isinstance(c, DomainMemoryCapability):
@@ -773,13 +776,19 @@ class DomainMemoryPermissionDecisionSnapshot:
         object.__setattr__(self, "capabilities", sorted_caps)
 
         if self.source_domain_id is not None:
-            if isinstance(self.source_domain_id, str) and not self.source_domain_id.strip():
+            if (
+                isinstance(self.source_domain_id, str)
+                and not self.source_domain_id.strip()
+            ):
                 raise DomainMemoryContractError("source_domain_id cannot be empty")
             object.__setattr__(
                 self, "source_domain_id", _parse_domain_id(self.source_domain_id)
             )
         if self.target_domain_id is not None:
-            if isinstance(self.target_domain_id, str) and not self.target_domain_id.strip():
+            if (
+                isinstance(self.target_domain_id, str)
+                and not self.target_domain_id.strip()
+            ):
                 raise DomainMemoryContractError("target_domain_id cannot be empty")
             object.__setattr__(
                 self, "target_domain_id", _parse_domain_id(self.target_domain_id)
@@ -856,14 +865,10 @@ class DomainMemoryPermissionDecisionSnapshot:
                 allowed=data["allowed"],
                 capabilities=tuple(caps_raw),
                 source_domain_id=(
-                    _parse_domain_id(src_dom)
-                    if src_dom is not None
-                    else None
+                    _parse_domain_id(src_dom) if src_dom is not None else None
                 ),
                 target_domain_id=(
-                    _parse_domain_id(tgt_dom)
-                    if tgt_dom is not None
-                    else None
+                    _parse_domain_id(tgt_dom) if tgt_dom is not None else None
                 ),
                 sensitivity_levels=tuple(sens_raw),
             )
@@ -909,9 +914,7 @@ class DomainMemoryProposalSnapshot:
                     DomainMemoryProposalKind(self.proposal_kind),
                 )
             except ValueError:
-                raise DomainMemoryContractError(
-                    "Invalid proposal_kind"
-                )
+                raise DomainMemoryContractError("Invalid proposal_kind")
         else:
             raise DomainMemoryContractError(
                 "proposal_kind must be a DomainMemoryProposalKind enum or string"
@@ -921,12 +924,7 @@ class DomainMemoryProposalSnapshot:
             self.affected_reference_ids, "affected_reference_ids"
         )
         aff = tuple(
-            sorted(
-                {
-                    _validate_id(i, "affected_reference_ids element")
-                    for i in raw_aff
-                }
-            )
+            sorted({_validate_id(i, "affected_reference_ids element") for i in raw_aff})
         )
         object.__setattr__(self, "affected_reference_ids", aff)
 
@@ -941,13 +939,9 @@ class DomainMemoryProposalSnapshot:
                 try:
                     caps.append(DomainMemoryCapability(c))
                 except ValueError:
-                    raise DomainMemoryContractError(
-                        "Invalid required capability"
-                    )
+                    raise DomainMemoryContractError("Invalid required capability")
             else:
-                raise DomainMemoryContractError(
-                    "Invalid required capability element"
-                )
+                raise DomainMemoryContractError("Invalid required capability element")
 
         # Defecto 1: at least one capability required, READ never allowed
         if not caps:
@@ -1222,8 +1216,7 @@ class DomainMemoryViewSnapshot:
             not isinstance(self.view_digest, str)
             or len(self.view_digest) != 64
             or any(
-                character not in "0123456789abcdef"
-                for character in self.view_digest
+                character not in "0123456789abcdef" for character in self.view_digest
             )
         ):
             raise DomainMemoryContractError(
@@ -1238,7 +1231,7 @@ class DomainMemoryViewSnapshot:
                 field="view_id",
             )
 
-        suffix = self.view_id[len(expected_prefix):]
+        suffix = self.view_id[len(expected_prefix) :]
         if suffix != self.view_digest[:_DIGEST_PREFIX_LENGTH]:
             raise DomainMemoryContractError(
                 "view_id suffix must match view_digest prefix",
@@ -1360,14 +1353,10 @@ class DomainMemoryReference:
                 self.sensitivity_level, bool
             ):
                 try:
-                    sens_enum = DomainMemorySensitivityLevel(
-                        self.sensitivity_level
-                    )
+                    sens_enum = DomainMemorySensitivityLevel(self.sensitivity_level)
                     object.__setattr__(self, "sensitivity_level", sens_enum.value)
                 except ValueError:
-                    raise DomainMemoryContractError(
-                        "Invalid sensitivity_level"
-                    )
+                    raise DomainMemoryContractError("Invalid sensitivity_level")
             else:
                 raise DomainMemoryContractError(
                     "sensitivity_level must be a string or DomainMemorySensitivityLevel enum"
@@ -1383,23 +1372,15 @@ class DomainMemoryReference:
         if self.superseded_by_id is not None:
             _validate_id(self.superseded_by_id, "superseded_by_id")
 
-        raw_ev = _validate_collection_constructor(
-            self.evidence_ids, "evidence_ids"
-        )
+        raw_ev = _validate_collection_constructor(self.evidence_ids, "evidence_ids")
         ev_ids = tuple(
-            sorted(
-                {_validate_id(ev, "evidence_ids element") for ev in raw_ev}
-            )
+            sorted({_validate_id(ev, "evidence_ids element") for ev in raw_ev})
         )
         object.__setattr__(self, "evidence_ids", ev_ids)
 
-        raw_res = _validate_collection_constructor(
-            self.resource_ids, "resource_ids"
-        )
+        raw_res = _validate_collection_constructor(self.resource_ids, "resource_ids")
         res_ids = tuple(
-            sorted(
-                {_validate_id(res, "resource_ids element") for res in raw_res}
-            )
+            sorted({_validate_id(res, "resource_ids element") for res in raw_res})
         )
         object.__setattr__(self, "resource_ids", res_ids)
 
@@ -1411,7 +1392,9 @@ class DomainMemoryReference:
         if self.temporal is not None:
             if isinstance(self.temporal, dict):
                 object.__setattr__(
-                    self, "temporal", DomainMemoryTemporalSnapshot.from_dict(self.temporal)
+                    self,
+                    "temporal",
+                    DomainMemoryTemporalSnapshot.from_dict(self.temporal),
                 )
             elif not isinstance(self.temporal, DomainMemoryTemporalSnapshot):
                 raise DomainMemoryContractError(
@@ -1498,9 +1481,7 @@ class DomainMemoryReference:
                 kind=DomainMemoryReferenceKind(data["kind"]),
                 canonical_id=data["canonical_id"],
                 domain_id=_parse_domain_id(data["domain_id"]),
-                applicable_domains=tuple(
-                    _parse_domain_id(d) for d in raw_app
-                ),
+                applicable_domains=tuple(_parse_domain_id(d) for d in raw_app),
                 sensitivity_level=data.get("sensitivity_level"),
                 version=data.get("version"),
                 superseded_by_id=data.get("superseded_by_id"),
@@ -1587,9 +1568,7 @@ class DomainMemoryViewRequest:
         unique_kinds = sorted(set(kinds), key=lambda x: x.value)
         object.__setattr__(self, "requested_kinds", tuple(unique_kinds))
 
-        raw_cands = _validate_collection_constructor(
-            self.candidates, "candidates"
-        )
+        raw_cands = _validate_collection_constructor(self.candidates, "candidates")
         cand_refs: list[DomainMemoryReference] = []
         seen_ref_ids: set[str] = set()
         seen_canonical_map: dict[str, DomainMemoryReference] = {}
@@ -1689,21 +1668,15 @@ class DomainMemoryViewRequest:
                     c, "candidates", DomainMemoryReference.from_dict
                 ),
             )
-            perms_raw = _validate_collection_from_dict(
-                data, "permission_decision_ids"
-            )
+            perms_raw = _validate_collection_from_dict(data, "permission_decision_ids")
 
             return cls(
                 request_id=data["request_id"],
                 primary_domain=_parse_domain_id(data["primary_domain"]),
-                supporting_domains=tuple(
-                    _parse_domain_id(d) for d in supp_raw
-                ),
+                supporting_domains=tuple(_parse_domain_id(d) for d in supp_raw),
                 trace_id=data.get("trace_id"),
                 resolution_reference_id=data.get("resolution_reference_id"),
-                requested_kinds=tuple(
-                    DomainMemoryReferenceKind(k) for k in kinds_raw
-                ),
+                requested_kinds=tuple(DomainMemoryReferenceKind(k) for k in kinds_raw),
                 candidates=cands_raw,
                 permission_decision_ids=tuple(perms_raw),
                 temporal_reference=data.get("temporal_reference"),
@@ -1746,12 +1719,7 @@ class DomainMemorySelectionDecision:
             self.related_reference_ids, "related_reference_ids"
         )
         rel_ids = tuple(
-            sorted(
-                {
-                    _validate_id(r, "related_reference_ids element")
-                    for r in raw_rel
-                }
-            )
+            sorted({_validate_id(r, "related_reference_ids element") for r in raw_rel})
         )
         object.__setattr__(self, "related_reference_ids", rel_ids)
 
@@ -1760,10 +1728,7 @@ class DomainMemorySelectionDecision:
         )
         p_ids = tuple(
             sorted(
-                {
-                    _validate_id(p, "permission_decision_ids element")
-                    for p in raw_perms
-                }
+                {_validate_id(p, "permission_decision_ids element") for p in raw_perms}
             )
         )
         object.__setattr__(self, "permission_decision_ids", p_ids)
@@ -1796,9 +1761,7 @@ class DomainMemorySelectionDecision:
             )
         try:
             rel_raw = _validate_collection_from_dict(data, "related_reference_ids")
-            perms_raw = _validate_collection_from_dict(
-                data, "permission_decision_ids"
-            )
+            perms_raw = _validate_collection_from_dict(data, "permission_decision_ids")
             return cls(
                 reference_id=data["reference_id"],
                 code=DomainMemorySelectionDecisionCode(data["code"]),
@@ -1916,7 +1879,7 @@ class DomainMemoryView:
                 "selected_references must exactly match candidate decisions with SELECTED code"
             )
 
-        suffix = self.view_id[len(expected_prefix):]
+        suffix = self.view_id[len(expected_prefix) :]
         if suffix != self.content_digest[:_DIGEST_PREFIX_LENGTH]:
             raise DomainMemoryContractError(
                 "view_id suffix must match content_digest prefix",
@@ -1946,12 +1909,8 @@ class DomainMemoryView:
             "request_id": self.request_id,
             "primary_domain": str(self.primary_domain),
             "request_digest": self.request_digest,
-            "selection_decisions": [
-                d.to_dict() for d in self.selection_decisions
-            ],
-            "selected_references": [
-                r.to_dict() for r in self.selected_references
-            ],
+            "selection_decisions": [d.to_dict() for d in self.selection_decisions],
+            "selected_references": [r.to_dict() for r in self.selected_references],
         }
         if self.trace_id is not None:
             payload["trace_id"] = self.trace_id
@@ -1995,7 +1954,12 @@ class DomainMemoryView:
                 "invalid DomainMemoryView payload", field="data"
             )
         req_digest = data.get("request_digest")
-        if req_digest is None or not isinstance(req_digest, str) or len(req_digest) != 64 or any(c not in "0123456789abcdef" for c in req_digest):
+        if (
+            req_digest is None
+            or not isinstance(req_digest, str)
+            or len(req_digest) != 64
+            or any(c not in "0123456789abcdef" for c in req_digest)
+        ):
             raise DomainMemorySerializationError(
                 "invalid DomainMemoryView payload", field="request_digest"
             )
@@ -2066,8 +2030,7 @@ class DomainMemoryProposalBinding:
             not isinstance(self.view_digest, str)
             or len(self.view_digest) != 64
             or any(
-                character not in "0123456789abcdef"
-                for character in self.view_digest
+                character not in "0123456789abcdef" for character in self.view_digest
             )
         ):
             raise DomainMemoryContractError(
@@ -2107,23 +2070,11 @@ class DomainMemoryProposalBinding:
                 "At least one memory or agent knowledge proposal ID must be bound"
             )
 
-        mp_ids = tuple(
-            sorted(
-                {
-                    _validate_id(i, "memory_proposal_ids")
-                    for i in raw_mp
-                }
-            )
-        )
+        mp_ids = tuple(sorted({_validate_id(i, "memory_proposal_ids") for i in raw_mp}))
         object.__setattr__(self, "memory_proposal_ids", mp_ids)
 
         akp_ids = tuple(
-            sorted(
-                {
-                    _validate_id(i, "agent_knowledge_proposal_ids")
-                    for i in raw_akp
-                }
-            )
+            sorted({_validate_id(i, "agent_knowledge_proposal_ids") for i in raw_akp})
         )
         object.__setattr__(self, "agent_knowledge_proposal_ids", akp_ids)
 
@@ -2136,12 +2087,7 @@ class DomainMemoryProposalBinding:
             self.affected_reference_ids, "affected_reference_ids"
         )
         aff_ids = tuple(
-            sorted(
-                {
-                    _validate_id(i, "affected_reference_ids")
-                    for i in raw_aff
-                }
-            )
+            sorted({_validate_id(i, "affected_reference_ids") for i in raw_aff})
         )
         object.__setattr__(self, "affected_reference_ids", aff_ids)
 
@@ -2149,12 +2095,7 @@ class DomainMemoryProposalBinding:
             self.permission_decision_ids, "permission_decision_ids"
         )
         perm_ids = tuple(
-            sorted(
-                {
-                    _validate_id(i, "permission_decision_ids")
-                    for i in raw_perms
-                }
-            )
+            sorted({_validate_id(i, "permission_decision_ids") for i in raw_perms})
         )
         object.__setattr__(self, "permission_decision_ids", perm_ids)
 
@@ -2162,12 +2103,7 @@ class DomainMemoryProposalBinding:
             self.approval_request_ids, "approval_request_ids"
         )
         app_reqs = tuple(
-            sorted(
-                {
-                    _validate_id(i, "approval_request_ids")
-                    for i in raw_reqs
-                }
-            )
+            sorted({_validate_id(i, "approval_request_ids") for i in raw_reqs})
         )
         object.__setattr__(self, "approval_request_ids", app_reqs)
 
@@ -2175,16 +2111,11 @@ class DomainMemoryProposalBinding:
             self.approval_decision_ids, "approval_decision_ids"
         )
         app_decs = tuple(
-            sorted(
-                {
-                    _validate_id(i, "approval_decision_ids")
-                    for i in raw_decs
-                }
-            )
+            sorted({_validate_id(i, "approval_decision_ids") for i in raw_decs})
         )
         object.__setattr__(self, "approval_decision_ids", app_decs)
 
-        suffix = self.binding_id[len(expected_prefix):]
+        suffix = self.binding_id[len(expected_prefix) :]
         if suffix != self.content_digest[:_DIGEST_PREFIX_LENGTH]:
             raise DomainMemoryContractError(
                 "binding_id suffix must match content_digest prefix",
@@ -2209,9 +2140,7 @@ class DomainMemoryProposalBinding:
                 "view_id": self.view_id,
                 "view_digest": self.view_digest,
                 "memory_proposal_ids": list(self.memory_proposal_ids),
-                "agent_knowledge_proposal_ids": list(
-                    self.agent_knowledge_proposal_ids
-                ),
+                "agent_knowledge_proposal_ids": list(self.agent_knowledge_proposal_ids),
                 "affected_reference_ids": list(self.affected_reference_ids),
                 "permission_decision_ids": list(self.permission_decision_ids),
                 "approval_request_ids": list(self.approval_request_ids),
@@ -2228,9 +2157,7 @@ class DomainMemoryProposalBinding:
                 "view_id": self.view_id,
                 "view_digest": self.view_digest,
                 "memory_proposal_ids": list(self.memory_proposal_ids),
-                "agent_knowledge_proposal_ids": list(
-                    self.agent_knowledge_proposal_ids
-                ),
+                "agent_knowledge_proposal_ids": list(self.agent_knowledge_proposal_ids),
                 "affected_reference_ids": list(self.affected_reference_ids),
                 "permission_decision_ids": list(self.permission_decision_ids),
                 "approval_request_ids": list(self.approval_request_ids),
@@ -2267,9 +2194,7 @@ class DomainMemoryProposalBinding:
                 data, "agent_knowledge_proposal_ids"
             )
             raw_aff = _validate_collection_from_dict(data, "affected_reference_ids")
-            raw_perms = _validate_collection_from_dict(
-                data, "permission_decision_ids"
-            )
+            raw_perms = _validate_collection_from_dict(data, "permission_decision_ids")
             raw_reqs = _validate_collection_from_dict(data, "approval_request_ids")
             raw_decs = _validate_collection_from_dict(data, "approval_decision_ids")
 
@@ -2326,12 +2251,8 @@ class DomainMemoryReferenceInventory:
     views: tuple[DomainMemoryViewSnapshot, ...] = ()
 
     def __post_init__(self) -> None:
-        raw_refs = _validate_collection_constructor(
-            self.references, "references"
-        )
-        raw_props = _validate_collection_constructor(
-            self.proposals, "proposals"
-        )
+        raw_refs = _validate_collection_constructor(self.references, "references")
+        raw_props = _validate_collection_constructor(self.proposals, "proposals")
         raw_perms = _validate_collection_constructor(
             self.permission_decisions, "permission_decisions"
         )
@@ -2341,12 +2262,8 @@ class DomainMemoryReferenceInventory:
         raw_app_decs = _validate_collection_constructor(
             self.approval_decisions, "approval_decisions"
         )
-        raw_traces = _validate_collection_constructor(
-            self.traces, "traces"
-        )
-        raw_views = _validate_collection_constructor(
-            self.views, "views"
-        )
+        raw_traces = _validate_collection_constructor(self.traces, "traces")
+        raw_views = _validate_collection_constructor(self.views, "views")
 
         ref_map: dict[str, DomainMemoryReference] = {}
         canonical_map: dict[str, DomainMemoryReference] = {}
@@ -2402,9 +2319,7 @@ class DomainMemoryReferenceInventory:
 
         app_req_map: dict[str, DomainMemoryApprovalRequestSnapshot] = {}
         for ar in raw_app_reqs:
-            parsed_ar = _parse_inventory_item(
-                ar, DomainMemoryApprovalRequestSnapshot
-            )
+            parsed_ar = _parse_inventory_item(ar, DomainMemoryApprovalRequestSnapshot)
             if parsed_ar.request_id in app_req_map:
                 raise DomainMemoryContractError(
                     f"Duplicate approval request_id in inventory: {parsed_ar.request_id}"
@@ -2417,9 +2332,7 @@ class DomainMemoryReferenceInventory:
 
         app_dec_map: dict[str, DomainMemoryApprovalDecisionSnapshot] = {}
         for ad in raw_app_decs:
-            parsed_ad = _parse_inventory_item(
-                ad, DomainMemoryApprovalDecisionSnapshot
-            )
+            parsed_ad = _parse_inventory_item(ad, DomainMemoryApprovalDecisionSnapshot)
             if parsed_ad.decision_id in app_dec_map:
                 raise DomainMemoryContractError(
                     f"Duplicate approval decision_id in inventory: {parsed_ad.decision_id}"
@@ -2520,21 +2433,27 @@ class DomainMemoryReferenceInventory:
                 data,
                 "permission_decisions",
                 elem_parser=lambda pd: _parse_json_dict_item(
-                    pd, "permission_decisions", DomainMemoryPermissionDecisionSnapshot.from_dict
+                    pd,
+                    "permission_decisions",
+                    DomainMemoryPermissionDecisionSnapshot.from_dict,
                 ),
             )
             app_reqs = _validate_collection_from_dict(
                 data,
                 "approval_requests",
                 elem_parser=lambda ar: _parse_json_dict_item(
-                    ar, "approval_requests", DomainMemoryApprovalRequestSnapshot.from_dict
+                    ar,
+                    "approval_requests",
+                    DomainMemoryApprovalRequestSnapshot.from_dict,
                 ),
             )
             app_decs = _validate_collection_from_dict(
                 data,
                 "approval_decisions",
                 elem_parser=lambda ad: _parse_json_dict_item(
-                    ad, "approval_decisions", DomainMemoryApprovalDecisionSnapshot.from_dict
+                    ad,
+                    "approval_decisions",
+                    DomainMemoryApprovalDecisionSnapshot.from_dict,
                 ),
             )
             traces = _validate_collection_from_dict(
@@ -2595,9 +2514,7 @@ class DomainMemoryValidationResult:
                     "code must be DomainMemoryValidationCode"
                 )
 
-        raw_codes = _validate_collection_constructor(
-            self.codes, "codes"
-        )
+        raw_codes = _validate_collection_constructor(self.codes, "codes")
         parsed_codes: list[DomainMemoryValidationCode] = []
         for c in raw_codes:
             if isinstance(c, str):
@@ -2619,10 +2536,7 @@ class DomainMemoryValidationResult:
         )
         aff_ref = tuple(
             sorted(
-                {
-                    _validate_id(r, "affected_reference_ids element")
-                    for r in raw_aff_ref
-                }
+                {_validate_id(r, "affected_reference_ids element") for r in raw_aff_ref}
             )
         )
         object.__setattr__(self, "affected_reference_ids", aff_ref)
@@ -2632,10 +2546,7 @@ class DomainMemoryValidationResult:
         )
         aff_obj = tuple(
             sorted(
-                {
-                    _validate_id(o, "affected_object_ids element")
-                    for o in raw_aff_obj
-                }
+                {_validate_id(o, "affected_object_ids element") for o in raw_aff_obj}
             )
         )
         object.__setattr__(self, "affected_object_ids", aff_obj)
@@ -2644,9 +2555,7 @@ class DomainMemoryValidationResult:
             if self.code != DomainMemoryValidationCode.VALID:
                 raise DomainMemoryContractError("is_valid=True requires code=VALID")
             if self.codes != (DomainMemoryValidationCode.VALID,):
-                raise DomainMemoryContractError(
-                    "is_valid=True requires codes=(VALID,)"
-                )
+                raise DomainMemoryContractError("is_valid=True requires codes=(VALID,)")
         else:
             if self.code == DomainMemoryValidationCode.VALID:
                 raise DomainMemoryContractError(
@@ -2689,19 +2598,13 @@ class DomainMemoryValidationResult:
             )
         try:
             raw_codes = _validate_collection_from_dict(data, "codes")
-            raw_aff_ref = _validate_collection_from_dict(
-                data, "affected_reference_ids"
-            )
-            raw_aff_obj = _validate_collection_from_dict(
-                data, "affected_object_ids"
-            )
+            raw_aff_ref = _validate_collection_from_dict(data, "affected_reference_ids")
+            raw_aff_obj = _validate_collection_from_dict(data, "affected_object_ids")
 
             return cls(
                 is_valid=data["is_valid"],
                 code=DomainMemoryValidationCode(data["code"]),
-                codes=tuple(
-                    DomainMemoryValidationCode(c) for c in raw_codes
-                ),
+                codes=tuple(DomainMemoryValidationCode(c) for c in raw_codes),
                 affected_reference_ids=tuple(raw_aff_ref),
                 affected_object_ids=tuple(raw_aff_obj),
             )

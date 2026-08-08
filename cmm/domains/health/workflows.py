@@ -5,6 +5,15 @@ applies the conservative health profile, reasons under the eight Health
 rules, detects gaps, optionally executes one or more Health operations, and
 only ever *proposes* memory or *prepares* for approval — never acting on a
 person's health autonomously.
+
+Safety ordering: ``load -> profile -> reason`` is a strict dependency chain
+(an analytical operation can never run before reasoning, and reasoning never
+before the profile/context are loaded).  A terminal ``COMPLETE`` node always
+transitively depends on a ``VALIDATE`` node, so completion cannot bypass
+validation.  High-impact workflows (e.g. medication review) carry a real
+``REQUEST_APPROVAL`` escalation gate on the path to completion, so a path
+requiring professional/human escalation cannot proceed as ordinary
+successful completion without the gate.
 """
 
 from __future__ import annotations
@@ -39,12 +48,61 @@ def _node(
     )
 
 
-def _dose_propose_memory() -> tuple[WorkflowNode, ...]:
+def _ordered_prefix() -> tuple[WorkflowNode, ...]:
+    """Strict safety prefix: load -> profile -> reason (enforced as deps)."""
+    return (
+        _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadHealthSources"),
+        _node(
+            "profile",
+            WorkflowNodeType.APPLY_PROFILE,
+            "ApplyHealthProfile",
+            dependencies=("load",),
+        ),
+        _node(
+            "reason",
+            WorkflowNodeType.REASON,
+            "ApplyHealthRules",
+            dependencies=("profile",),
+        ),
+    )
+
+
+def _propose_memory_tail() -> tuple[WorkflowNode, ...]:
     # Shared tail: validate then propose memory (never write without approval).
     return (
-        _node("validate", WorkflowNodeType.VALIDATE, "Validate", dependencies=("questions",)),
-        _node("memory", WorkflowNodeType.PROPOSE_MEMORY, "ProposeMemory", dependencies=("validate",)),
-        _node("complete", WorkflowNodeType.COMPLETE, "Complete", dependencies=("memory",)),
+        _node(
+            "validate",
+            WorkflowNodeType.VALIDATE,
+            "Validate",
+            dependencies=("questions",),
+        ),
+        _node(
+            "memory",
+            WorkflowNodeType.PROPOSE_MEMORY,
+            "ProposeMemory",
+            dependencies=("validate",),
+        ),
+        _node(
+            "complete", WorkflowNodeType.COMPLETE, "Complete", dependencies=("memory",)
+        ),
+    )
+
+
+def _validate_only_tail() -> tuple[WorkflowNode, ...]:
+    # Tail that completes without proposing memory (memory proposal optional).
+    return (
+        _node(
+            "validate",
+            WorkflowNodeType.VALIDATE,
+            "Validate",
+            dependencies=("questions",),
+        ),
+        _node(
+            "complete",
+            WorkflowNodeType.COMPLETE,
+            "Complete",
+            dependencies=("validate",),
+        ),
     )
 
 
@@ -56,14 +114,22 @@ def _chronic_condition_timeline() -> DomainWorkflowDefinition:
         name="ChronicConditionTimeline",
         description="Build a traceable timeline for a chronic condition.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadHealthSources"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("timeline", WorkflowNodeType.EXECUTE_OPERATION, "BuildMedicalTimeline",
-                  dependencies=("reason",), operation_id="health.build_medical_timeline"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("timeline",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "timeline",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "BuildMedicalTimeline",
+                dependencies=("reason",),
+                operation_id="health.build_medical_timeline",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("timeline",),
+                operation_id="health.prepare_questions",
+            ),
+            *_propose_memory_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Chronic condition timeline",
@@ -79,14 +145,22 @@ def _diagnostic_process_review() -> DomainWorkflowDefinition:
         name="DiagnosticProcessReview",
         description="Review the diagnostic conversation without diagnosing.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadDiagnosticContext"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("timeline", WorkflowNodeType.EXECUTE_OPERATION, "BuildSymptomTimeline",
-                  dependencies=("reason",), operation_id="health.build_symptom_timeline"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "DetectOpenQuestions",
-                  dependencies=("timeline",), operation_id="health.detect_open_medical_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "timeline",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "BuildSymptomTimeline",
+                dependencies=("reason",),
+                operation_id="health.build_symptom_timeline",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "DetectOpenQuestions",
+                dependencies=("timeline",),
+                operation_id="health.detect_open_medical_questions",
+            ),
+            *_validate_only_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Diagnostic process review (no definitive diagnosis)",
@@ -102,14 +176,22 @@ def _medical_follow_up() -> DomainWorkflowDefinition:
         name="MedicalFollowUp",
         description="Review follow-up for a condition or symptom trend.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadFollowUpContext"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("review", WorkflowNodeType.EXECUTE_OPERATION, "ReviewFollowUp",
-                  dependencies=("reason",), operation_id="health.review_follow_up"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("review",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "review",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewFollowUp",
+                dependencies=("reason",),
+                operation_id="health.review_follow_up",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("review",),
+                operation_id="health.prepare_questions",
+            ),
+            *_propose_memory_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Medical follow-up review",
@@ -125,14 +207,22 @@ def _medical_report_comparison() -> DomainWorkflowDefinition:
         name="MedicalReportComparison",
         description="Compare two medical reports on supported criteria.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadReports"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("compare", WorkflowNodeType.EXECUTE_OPERATION, "CompareReports",
-                  dependencies=("reason",), operation_id="health.compare_reports"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("compare",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "compare",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "CompareReports",
+                dependencies=("reason",),
+                operation_id="health.compare_reports",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("compare",),
+                operation_id="health.prepare_questions",
+            ),
+            *_validate_only_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Medical report comparison",
@@ -148,14 +238,46 @@ def _medication_change_review() -> DomainWorkflowDefinition:
         name="MedicationChangeReview",
         description="Review medication temporal associations without changing medication.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadMedicationRecords"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("review", WorkflowNodeType.EXECUTE_OPERATION, "ReviewMedicationChanges",
-                  dependencies=("reason",), operation_id="health.review_medication_changes"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("review",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "review",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewMedicationChanges",
+                dependencies=("reason",),
+                operation_id="health.review_medication_changes",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("review",),
+                operation_id="health.prepare_questions",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "Validate",
+                dependencies=("questions",),
+            ),
+            _node(
+                "escalate",
+                WorkflowNodeType.REQUEST_APPROVAL,
+                "EscalateMedicationReview",
+                dependencies=("validate",),
+                approval_gate="health.medication_review",
+            ),
+            _node(
+                "memory",
+                WorkflowNodeType.PROPOSE_MEMORY,
+                "ProposeMemory",
+                dependencies=("escalate",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "Complete",
+                dependencies=("memory",),
+            ),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Medication change review (never modifies medication)",
@@ -171,14 +293,22 @@ def _postoperative_follow_up() -> DomainWorkflowDefinition:
         name="PostoperativeFollowUp",
         description="Review postoperative follow-up information.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadPostoperativeContext"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("symptom_timeline", WorkflowNodeType.EXECUTE_OPERATION, "BuildSymptomTimeline",
-                  dependencies=("reason",), operation_id="health.build_symptom_timeline"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("symptom_timeline",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "symptom_timeline",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "BuildSymptomTimeline",
+                dependencies=("reason",),
+                operation_id="health.build_symptom_timeline",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("symptom_timeline",),
+                operation_id="health.prepare_questions",
+            ),
+            *_propose_memory_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Postoperative follow-up",
@@ -194,16 +324,29 @@ def _specialist_appointment_preparation() -> DomainWorkflowDefinition:
         name="SpecialistAppointmentPreparation",
         description="Prepare for a specialist appointment without booking it.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadHealthSources"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("summary", WorkflowNodeType.EXECUTE_OPERATION, "GenerateMedicalSummary",
-                  dependencies=("reason",), operation_id="health.generate_medical_summary"),
-            _node("prepare", WorkflowNodeType.EXECUTE_OPERATION, "PrepareAppointment",
-                  dependencies=("summary",), operation_id="health.prepare_medical_appointment"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("prepare",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "summary",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "GenerateMedicalSummary",
+                dependencies=("reason",),
+                operation_id="health.generate_medical_summary",
+            ),
+            _node(
+                "prepare",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareAppointment",
+                dependencies=("summary",),
+                operation_id="health.prepare_medical_appointment",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("prepare",),
+                operation_id="health.prepare_questions",
+            ),
+            *_validate_only_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Specialist appointment preparation (no booking)",
@@ -219,14 +362,22 @@ def _symptom_review() -> DomainWorkflowDefinition:
         name="SymptomReview",
         description="Review reported symptoms, classify epistemic status, detect red flags.",
         nodes=(
-            _node("load", WorkflowNodeType.LOAD_RESOURCE, "LoadSymptomContext"),
-            _node("profile", WorkflowNodeType.APPLY_PROFILE, "ApplyHealthProfile"),
-            _node("reason", WorkflowNodeType.REASON, "ApplyHealthRules"),
-            _node("symptom_timeline", WorkflowNodeType.EXECUTE_OPERATION, "BuildSymptomTimeline",
-                  dependencies=("reason",), operation_id="health.build_symptom_timeline"),
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions",
-                  dependencies=("symptom_timeline",), operation_id="health.prepare_questions"),
-            *_dose_propose_memory(),
+            *_ordered_prefix(),
+            _node(
+                "symptom_timeline",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "BuildSymptomTimeline",
+                dependencies=("reason",),
+                operation_id="health.build_symptom_timeline",
+            ),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("symptom_timeline",),
+                operation_id="health.prepare_questions",
+            ),
+            *_propose_memory_tail(),
         ),
         completion_criteria={"all_required_nodes_completed": True},
         purpose="Symptom review",

@@ -95,10 +95,7 @@ def test_no_definitive_diagnosis_blocks_without_evidence():
         _context(diagnostic_claim={"evidence": False, "documented": False})
     )
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert any(
-        finding.code == "NO_DEFINITIVE_DIAGNOSIS"
-        for finding in result.findings
-    )
+    assert any(finding.code == "NO_DEFINITIVE_DIAGNOSIS" for finding in result.findings)
 
 
 def test_no_definitive_diagnosis_allows_confirmed():
@@ -125,10 +122,7 @@ def test_no_definitive_diagnosis_blocks_documented_without_confirmation():
         _context(diagnostic_claim={"evidence": True, "documented": True})
     )
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert any(
-        finding.code == "NO_DEFINITIVE_DIAGNOSIS"
-        for finding in result.findings
-    )
+    assert any(finding.code == "NO_DEFINITIVE_DIAGNOSIS" for finding in result.findings)
 
 
 def test_provisional_documented_claim_remains_provisional():
@@ -149,7 +143,9 @@ def test_documented_evidence_without_confirmation_not_definitive():
 def test_system_hypothesis_with_evidence_not_promoted():
     """A system hypothesis with evidence is not promoted to a definitive,
     documented diagnosis."""
-    verdict = validate_diagnostic_claim(evidence=True, documented=False, confirmed=False)
+    verdict = validate_diagnostic_claim(
+        evidence=True, documented=False, confirmed=False
+    )
     assert verdict["is_definitive"] is False
     assert verdict["supported_category"] == "system_hypothesis"
 
@@ -200,26 +196,124 @@ def test_deterministic_helpers():
     )
 
     assert (
-        classify_clinical_statement(
-            is_user_possibility=True, is_system_hypothesis=True
-        )
+        classify_clinical_statement(is_user_possibility=True, is_system_hypothesis=True)
         == "user_possibility"
     )
-    assert (
-        classify_clinical_statement(is_system_hypothesis=True)
-        == "system_hypothesis"
-    )
-    relation = build_medication_temporal_relation(
-        medication="medx", event_kind="start"
-    )
+    assert classify_clinical_statement(is_system_hypothesis=True) == "system_hypothesis"
+    relation = build_medication_temporal_relation(medication="medx", event_kind="start")
     assert relation["temporal_association"] is True
     assert relation["causation"] is False
     assert clinical_source_rank("medical_report") < clinical_source_rank("inference")
     assert evaluate_clinical_temporality(state="expired") == "expired"
-    verdict = validate_diagnostic_claim(
-        evidence=True, documented=True, confirmed=True
-    )
+    verdict = validate_diagnostic_claim(evidence=True, documented=True, confirmed=True)
     assert verdict["is_definitive"] is True
     # Documented + evidence but NOT confirmed must NOT be definitive.
     verdict = validate_diagnostic_claim(evidence=True, documented=True)
     assert verdict["is_definitive"] is False
+
+
+def test_medication_date_conflict_start_after_end():
+    """A start date after an end date is reported as a date-order conflict
+    without discarding records or declaring a winner."""
+    from cmm.domains.health.rules import detect_medication_conflicts
+
+    records = [
+        {
+            "medication_id": "medx",
+            "active": True,
+            "start_date": "2026-08-10",
+            "end_date": "2026-08-01",
+        },
+        {
+            "medication_id": "medx",
+            "active": True,
+            "start_date": "2026-08-02",
+            "end_date": "2026-09-01",
+        },
+    ]
+    conflicts = detect_medication_conflicts(records)
+    assert any(
+        c.code == "MEDICATION_DATE_ORDER" and c.medication_ids == ("medx",)
+        for c in conflicts
+    )
+    # Both records are preserved; no winner is chosen.
+    assert len(records) == 2
+
+
+def test_medication_date_conflict_no_false_positive():
+    from cmm.domains.health.rules import detect_medication_conflicts
+
+    conflicts = detect_medication_conflicts(
+        [
+            {
+                "medication_id": "medx",
+                "active": True,
+                "start_date": "2026-08-01",
+                "end_date": "2026-09-01",
+            },
+        ]
+    )
+    assert not any(c.code == "MEDICATION_DATE_ORDER" for c in conflicts)
+
+
+def test_temporal_states_are_distinguishable():
+    """The temporal validity model distinguishes current, historical,
+    provisional, pending, stale, superseded, future, and unknown; a provisional
+    record stays provisional and is never promoted to current."""
+    from cmm.domains.health.rules import evaluate_clinical_temporality
+
+    assert evaluate_clinical_temporality(state="current", active=True) == "current"
+    assert (
+        evaluate_clinical_temporality(state="historical", active=False) == "historical"
+    )
+    assert (
+        evaluate_clinical_temporality(state="provisional", active=False)
+        == "provisional"
+    )
+    assert evaluate_clinical_temporality(state="pending") == "pending"
+    assert evaluate_clinical_temporality(state="stale") == "stale"
+    assert (
+        evaluate_clinical_temporality(state="superseded", superseded=True)
+        == "superseded"
+    )
+    assert evaluate_clinical_temporality(state="future") == "future"
+    assert evaluate_clinical_temporality(state="unknown") == "unknown"
+    # Provisional must not be promoted to current even when active-flagged.
+    assert (
+        evaluate_clinical_temporality(state="provisional", active=True) == "provisional"
+    )
+
+
+def test_red_flag_escalation_depends_on_actual_values():
+    """Red-flag escalation must follow the actual severity/flag values: a low
+    severity with no red flag never escalates; a true red flag or high severity
+    does.  The rule never claims to diagnose the cause."""
+    from cmm.domains.health.rules import classify_escalation_level
+
+    assert classify_escalation_level(symptom_severity=1) == "monitoring"
+    assert (
+        classify_escalation_level(symptom_severity=2, is_red_flag=False) == "monitoring"
+    )
+    assert classify_escalation_level(is_red_flag=True) == "urgent_attention"
+    assert classify_escalation_level(symptom_severity=9) == "urgent_attention"
+    assert classify_escalation_level(symptom_severity=7) == "priority_review"
+    assert classify_escalation_level(symptom_severity=4) == "professional_review"
+
+
+def test_medical_red_flag_rule_no_escalation_on_low_value():
+    """The medical_red_flag rule must NOT attach an escalation when the actual
+    values do not warrant professional review (monitoring level)."""
+    from cmm.domains.health.rules import ESCALATION_MONITORING
+
+    rules = _by_id(build_health_rules())
+    rule = rules["health.medical_red_flag"]
+    result = rule.evaluate(
+        _context(red_flag={"id": "f0", "is_red_flag": False, "symptom_severity": 1})
+    )
+    assert result.escalation is None
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert any(
+        finding.code == "RED_FLAG_ESCALATION_LEVEL"
+        and ESCALATION_MONITORING in finding.message
+        for finding in result.findings
+    )
