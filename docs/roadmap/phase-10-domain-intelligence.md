@@ -13,8 +13,10 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 (2026-08-03) are complete. Their implemented boundaries are
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
-[Domain Memory Integration](../reference/domain-memory-integration.md); the remaining work proceeds from
-10.19 through 10.30.
+[Domain Memory Integration](../reference/domain-memory-integration.md).
+Phase 10.19 — General Domain and Phase 10.20 — Health Domain are also
+implemented; the remaining work proceeds from
+10.21 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -2260,6 +2262,8 @@ When a specialized domain is available, it should be used.
 
 10.20 - Health Domain
 
+**Status:** Implemented, pending audit (2026-08-08).
+
 Objective
 
 Specify CMM OS to organize health information, analyse temporary evolution, prepare consultations and detect contradictions or signs that require professional review.
@@ -2439,6 +2443,20 @@ Permissions
 * without writing of clinical decisions
 * confirmation for sensitive memory
 * Mandatory human climbing as appropriate.
+
+### Implementation notes
+
+- `domain:health` is implemented via pure factories under `cmm/domains/health/`.
+- 14 modules (including the `catalog.py` single source of truth and the `__init__.py` public surface), plus 17 test modules.
+- The canonical catalog (`cmm/domains/health/catalog.py`) is the single source of truth for the 12 operations, 8 rules, 15 entities, 12 resources, and 8 workflows, all derived from the sorted-tuple convention.
+- `DomainKind` is `PERSONAL` and all health resources are `HIGHLY_SENSITIVE`.
+- Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries (mirrors General).
+- Canonical bootstrap: `build_standard_health_domain_bootstrap()` constructs the standard registries with the Health Domain fully integrated and a `DefaultDomainResolver` configured with `fallback_domain=DomainId(slug="health")`.
+- Operations are declared and remain **UNAVAILABLE** by default (fail-closed); real implementations must be injected explicitly. SENSITIVE and external operations (e.g. `health.export_medical_context`, `health.register_symptom_update`) are approval-gated.
+- Permission policy is HIGH-sensitivity, fail-closed: read-only surface, no automatic external communications, no memory write, no sensitive-inference persistence, no definitive diagnosis.
+- Memory is proposal-only (`allow_write=False`); Health never autonomously makes a definitive diagnosis, changes medication, or overrides clinician instructions.
+- `NoDefinitiveDiagnosisRule` blocks any non-documented diagnosis claim; `ProfessionalEscalationRule` blocks under risk factors and requests human review.
+- General Domain remains the fallback, but Section 15 is honored: a desired Health signal is never silently absorbed by General when Health is unavailable, denied, unauthorized, or disabled (it resolves BLOCKED instead).
 
 ⸻
 
