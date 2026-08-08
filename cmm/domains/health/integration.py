@@ -10,6 +10,7 @@ restored to their exact prior state via public ``restore_state()`` APIs.
 
 from __future__ import annotations
 
+from cmm.domains.errors import DomainPermissionRegistryError
 from cmm.domains.health.definition import (
     build_health_domain_definition,
 )
@@ -269,11 +270,13 @@ def _validate_all(
     if permission_registry is not None:
         try:
             permission_registry.get(permission_policy.policy_id)
-        except Exception as exc:  # noqa: BLE001 -- not registered yet
-            _ = exc
+        except DomainPermissionRegistryError:
+            # Not registered yet — safe to proceed.  Only the canonical
+            # not-found error is swallowed; any other exception (a genuine
+            # error raised by ``get``) propagates instead of being treated as
+            # "not registered yet".
+            pass
         else:
-            from cmm.domains.errors import DomainPermissionRegistryError
-
             raise DomainPermissionRegistryError(
                 "Permission policy already registered",
                 details={"policy_id": permission_policy.policy_id},

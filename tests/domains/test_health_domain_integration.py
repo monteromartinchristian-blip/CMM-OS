@@ -116,6 +116,28 @@ def test_validation_first_rejects_unknown_implementation():
     assert len(r["operation_registry"].list_definitions()) == 0
 
 
+def test_validation_first_rejects_pre_registered_permission_policy():
+    """A pre-registered permission policy is caught before any mutation."""
+    r = _registries()
+    from cmm.domains.errors import DomainPermissionRegistryError
+    from cmm.domains.health.permissions import build_health_permission_policy
+
+    r["permission_registry"].register(build_health_permission_policy())
+    with pytest.raises(DomainPermissionRegistryError):
+        register_health_domain(
+            domain_registry=r["domain_registry"],
+            profile_registry=r["profile_registry"],
+            resource_registry=r["resource_registry"],
+            rule_registry=r["rule_registry"],
+            operation_registry=r["operation_registry"],
+            workflow_registry=r["workflow_registry"],
+            permission_registry=r["permission_registry"],
+        )
+    # Validation-first: no mutation occurred.
+    assert r["domain_registry"].get(HEALTH_DOMAIN_ID) is None
+    assert len(r["operation_registry"].list_definitions()) == 0
+
+
 def test_validation_first_rejects_duplicate_domain():
     r = _registries()
     register_health_domain(

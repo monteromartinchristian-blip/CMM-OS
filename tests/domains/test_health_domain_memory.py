@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from cmm.domains.health.memory import (
     build_health_memory_view,
     build_health_memory_view_request,
@@ -47,6 +49,22 @@ def test_symptom_proposal_requires_confirmation():
     assert proposal.proposal_kind is DomainMemoryProposalKind.MEMORY_UPDATE
     assert DomainMemoryCapability.PROPOSE in proposal.required_capabilities
     assert proposal.requires_confirmation is True
+
+
+def test_symptom_proposal_confirmation_invariant_not_overridable():
+    """Sensitive Health memory must always require confirmation.
+
+    A caller must not be able to opt out of confirmation for a symptom
+    proposal (see the profile's unconfirmed_sensitive_memory_persistence
+    prohibition).  The builder exposes no override: passing
+    ``requires_confirmation`` is rejected.
+    """
+    proposal = build_health_symptom_proposal(proposal_id="prop1")
+    assert proposal.requires_confirmation is True
+    with pytest.raises(TypeError):
+        build_health_symptom_proposal(
+            proposal_id="prop1", requires_confirmation=False
+        )
 
 
 def test_proposal_is_reference_only_and_never_applied():

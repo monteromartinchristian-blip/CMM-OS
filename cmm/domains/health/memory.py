@@ -48,15 +48,21 @@ def build_health_symptom_proposal(
     *,
     proposal_id: str,
     affected_reference_ids: tuple[str, ...] = (),
-    requires_confirmation: bool = True,
 ) -> DomainMemoryProposalSnapshot:
-    """Build a symptom registration proposal (proposal-only, never applied)."""
+    """Build a symptom registration proposal (proposal-only, never applied).
+
+    Sensitive Health memory is never written autonomously: every symptom
+    proposal is registered with ``requires_confirmation=True`` and the builder
+    exposes no override, so the confirmation invariant (see the profile's
+    ``unconfirmed_sensitive_memory_persistence`` prohibition) cannot be
+    silently disabled by a caller.
+    """
     return DomainMemoryProposalSnapshot(
         proposal_id=proposal_id,
         proposal_kind=DomainMemoryProposalKind.MEMORY_UPDATE,
         affected_reference_ids=affected_reference_ids,
         required_capabilities=(DomainMemoryCapability.PROPOSE,),
-        requires_confirmation=requires_confirmation,
+        requires_confirmation=True,
     )
 
 
