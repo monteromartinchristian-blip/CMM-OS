@@ -59,3 +59,4 @@ Thumbs.db
 
 # tokensave local cache
 .tokensave/
+.worktrees/
