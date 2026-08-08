@@ -170,7 +170,16 @@ def detect_relationship_pattern(
     """
     support = max(0, int(support_count))
     counter = max(0, int(counterexample_count))
-    uncertainty = "high" if support < 2 else "medium" if support < 4 else "low"
+    # Simple deterministic uncertainty that accounts for BOTH support and
+    # counterevidence: substantial counterexamples temper confidence even when
+    # support is high, so certainty is never misleadingly low while real
+    # counterevidence exists.
+    if support < 2 or counter >= 2:
+        uncertainty = "high"
+    elif support < 4 or counter >= 1:
+        uncertainty = "medium"
+    else:
+        uncertainty = "low"
     return {
         "pattern_kind": pattern_kind,
         "hypothesis": True,
@@ -279,7 +288,11 @@ def preserve_relationship_ambivalence(
         coexisting.append("misses_person")
     if relief_without_contact:
         coexisting.append("relief_without_contact")
-    contradictory = wants_closeness and wants_distance
+    # Both approved ambivalence pairs are first-class: the pull toward closeness
+    # while wanting distance, and the simultaneous miss + relief at no contact.
+    contradictory = (wants_closeness and wants_distance) or (
+        misses_person and relief_without_contact
+    )
     return {
         "feelings": tuple(coexisting),
         "ambivalent": contradictory,
@@ -324,21 +337,24 @@ def compare_relationship_options(
             }
         )
     best = None
+    tied: tuple[str, ...] = ()
     if scored and criteria_list:
-        best = max(scored, key=lambda s: s["match_count"])
-        if best["match_count"] == 0:
-            best = None
-        else:
-            best = dict(best)
-            best["statement"] = (
-                f"Option {best['option_id']} currently matches "
-                f"{best['match_count']}/{best['total_criteria']} criteria "
-                "you explicitly prioritized."
-            )
+        max_count = max((s["match_count"] for s in scored), default=0)
+        if max_count > 0:
+            top = [s for s in scored if s["match_count"] == max_count]
+            tied = tuple(s["option_id"] for s in top)
+            if len(top) == 1:
+                best = dict(top[0])
+                best["statement"] = (
+                    f"Option {best['option_id']} currently matches "
+                    f"{best['match_count']}/{best['total_criteria']} criteria "
+                    "you explicitly prioritized."
+                )
     return {
         "options": tuple(scored),
         "criteria": criteria_list,
         "best_match": best,
+        "tied_best_matches": tied,
         "adopted_decision": False,
         "requires_user_confirmation": True,
     }
@@ -644,6 +660,11 @@ class PatternWithoutCertaintyRule:
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
             references=record["references"],
+            metadata={
+                "counterexample_references": record["counterexample_references"],
+                "counterexample_count": record["counterexample_count"],
+                "uncertainty": record["uncertainty"],
+            },
         )
         return _result(
             self.definition,
@@ -754,6 +775,35 @@ class AmbivalencePreservationRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        # Decision Support Mode A path: the rule that owns preservation of
+        # decision ambiguity also carries the option/criteria comparison.  It
+        # retains the comparison and never adopts a decision or drops the
+        # confirmation requirement.
+        decision_support = _mapping(context.metadata, "decision_support")
+        if decision_support is not None:
+            comparison = compare_relationship_options(
+                options=tuple(decision_support.get("options", ()) or ()),
+                criteria=tuple(decision_support.get("criteria", ()) or ()),
+            )
+            finding = ReasoningFinding(
+                code="DECISION_SUPPORT_COMPARISON",
+                message=(
+                    "Candidate options compared against explicit criteria; no "
+                    "relational decision is adopted."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={"comparison": comparison},
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="DECISION_SUPPORT_COMPARISON",
+                message="Options compared; decision ambiguity preserved.",
+            )
         ambivalence = _mapping(context.metadata, "ambivalence")
         if ambivalence is None:
             return _result(
@@ -796,6 +846,69 @@ class SelfOtherPerspectiveRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        # Third-party diagnosis policy: the domain never diagnoses a third party
+        # on its own.  A structured claim is blocked unless an authorized source
+        # explicitly states the diagnosis, in which case it is represented as a
+        # *sourced statement* with provenance — never adopted as a system
+        # diagnosis.  The rule enforces this on the structured claim semantics,
+        # not on the label text (no medical keyword detector).
+        diagnosis_claim = _mapping(context.metadata, "third_party_diagnosis_claim")
+        if diagnosis_claim is not None:
+            label = str(diagnosis_claim.get("label", "unspecified"))
+            source_statement = bool(diagnosis_claim.get("source_statement"))
+            source_reference = str(diagnosis_claim.get("source_reference", "") or "")
+            if not source_statement:
+                finding = ReasoningFinding(
+                    code="THIRD_PARTY_DIAGNOSIS_UNSUPPORTED",
+                    message=(
+                        f"Unsupported third-party diagnosis claim ({label}) is "
+                        "blocked; it is not a system diagnosis."
+                    ),
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                    metadata={"adopted_as_system_diagnosis": False},
+                )
+                escalation = ReasoningEscalation(
+                    code="THIRD_PARTY_DIAGNOSIS_BLOCKED",
+                    message="Third-party diagnosis is blocked; it must not be presented as fact.",
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                )
+                return _result(
+                    self.definition,
+                    context,
+                    ReasoningRuleResultStatus.BLOCKED,
+                    findings=(finding,),
+                    escalation=escalation,
+                    code="THIRD_PARTY_DIAGNOSIS_BLOCKED",
+                    message="Unsupported third-party diagnosis blocked.",
+                )
+            # Authorized source states the diagnosis: represent with provenance,
+            # never adopt as a system diagnosis.
+            references = (source_reference,) if source_reference else ()
+            finding = ReasoningFinding(
+                code="THIRD_PARTY_DIAGNOSIS_SOURCED",
+                message=(
+                    f"A source states '{label}' for a third party; it is "
+                    "represented with provenance, not adopted as a system "
+                    "diagnosis."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                references=references,
+                metadata={"adopted_as_system_diagnosis": False},
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="THIRD_PARTY_DIAGNOSIS_SOURCED",
+                message="Third-party diagnosis represented as a sourced statement only.",
+            )
         claims = _seq(context.metadata, "perspective_claims")
         if not claims:
             return _result(

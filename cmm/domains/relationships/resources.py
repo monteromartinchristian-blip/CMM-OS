@@ -119,6 +119,8 @@ def build_relationships_resource_definitions() -> tuple[DomainResourceDefinition
                 "rupture",
                 "reconciliation",
                 "interaction",
+                "commitment",
+                "support_event",
             ),
             sensitivity=SensitivityLevel.HIGHLY_SENSITIVE,
             reliability=0.7,

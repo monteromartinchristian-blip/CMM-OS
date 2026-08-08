@@ -90,13 +90,38 @@ def _ids(min_items: int) -> dict:
     return {"type": "array", "items": {"type": "string"}, "minItems": min_items}
 
 
+# A date/time value is represented as a plain ISO-ish string, matching the
+# repository's existing date/time schema convention (see health operations).
+_DATE_STRING = {"type": "string"}
+
+
+def _period() -> dict:
+    """A closed period object with explicit ``start``/``end`` properties.
+
+    The period carries its known semantic fields and forbids unknown keys;
+    ``start``/``end`` are required yet declared as properties so a valid payload
+    can actually validate (an empty ``properties`` dict with
+    ``additionalProperties=False`` would make required keys simultaneously
+    forbidden).
+    """
+    return {
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {
+            "start": _DATE_STRING,
+            "end": _DATE_STRING,
+        },
+        "additionalProperties": False,
+    }
+
+
 _INPUT_SCHEMAS = {
     "relationships.build_timeline": _schema(("source_ids",), {"source_ids": _ids(1)}),
     "relationships.compare_periods": _schema(
         ("period_a", "period_b"),
         {
-            "period_a": _schema(("start", "end"), {}),
-            "period_b": _schema(("start", "end"), {}),
+            "period_a": _period(),
+            "period_b": _period(),
         },
     ),
     "relationships.detect_patterns": _schema(("source_ids",), {"source_ids": _ids(1)}),
