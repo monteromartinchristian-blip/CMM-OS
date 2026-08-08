@@ -5,9 +5,12 @@ domain registries with Health Domain integrated.  This is the canonical
 composition path for callers that need a complete, discoverable Health
 Domain without manual registry wiring.
 
-The bootstrap builds the standard registries, registers Health Domain
-atomically, and exposes the standard ``DefaultDomainResolver`` configured
-with ``domain:health`` as its fallback domain.
+The bootstrap reuses the standard General Domain registries, registers the
+Health Domain into those exact same registries, and returns a bootstrap
+exposing the composed registries.  Health is a specialised/high-impact
+domain; General is the generic fallback.  The resolver therefore keeps
+``fallback_domain=domain:general`` so a generic request never resolves to
+Health merely because Health is present.
 
 Operations are registered as **UNAVAILABLE** (fail-closed) unless real
 implementations are injected via ``operation_implementations``.  No fake
@@ -22,11 +25,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
-from cmm.domains.health.definition import HEALTH_DOMAIN_ID
+from cmm.domains.general.bootstrap import (
+    build_standard_general_domain_bootstrap,
+)
 from cmm.domains.health.integration import register_health_domain
-from cmm.domains.identifiers import DomainId
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
@@ -34,7 +37,6 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
-from cmm.workflows.registry import InMemoryWorkflowRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,53 +59,46 @@ def build_standard_health_domain_bootstrap(
 ) -> HealthDomainBootstrap:
     """Build the standard registries with Health Domain integrated.
 
-    This is the canonical, recommended composition path.  It creates fresh
-    registries, registers the complete Health Domain atomically, and
-    returns the composed system.  No global state is modified.
+    This is the canonical, recommended composition path.  It reuses the
+    standard General Domain bootstrap (shared registries + a resolver whose
+    fallback is ``domain:general``), registers the complete Health Domain
+    into those exact same registries, and returns the composed system.  No
+    global state is modified.
 
-    The returned bootstrap exposes the standard ``DefaultDomainResolver``
-    configured with ``fallback_domain=DomainId.from_str(HEALTH_DOMAIN_ID)``.
+    The returned bootstrap therefore contains BOTH General and Health on the
+    SAME registries, and exposes the standard ``DefaultDomainResolver``
+    configured with ``fallback_domain=DomainId.from_str(GENERAL_DOMAIN_ID)``.
+    A generic request resolves to General; a Health signal routes to Health
+    when eligible, and is fail-closed (never silently diverted to General)
+    when it is not.
 
     ``operation_implementations`` is an optional mapping of
-    ``operation_id -> implementation``.  Operations without an injected
-    implementation are registered as **UNAVAILABLE** (fail-closed) and are
-    never reported as available or successful.
+    ``operation_id -> implementation`` for the HEALTH operations.  Operations
+    without an injected implementation are registered as **UNAVAILABLE**
+    (fail-closed) and are never reported as available or successful.
     """
-    domain_registry = DomainRegistry()
-    profile_registry = InMemoryDomainProfileRegistry()
-    resource_registry = InMemoryDomainResourceRegistry()
-    rule_registry = InMemoryReasoningRuleRegistry()
-    operation_registry = InMemoryDomainOperationRegistry(
-        InMemoryAgentOperationRegistry()
-    )
-    workflow_registry = InMemoryDomainWorkflowRegistry(
-        InMemoryWorkflowRegistry()
-    )
-    permission_registry = DomainPermissionRegistry()
-    resolver = DefaultDomainResolver(
-        fallback_domain=DomainId.from_str(HEALTH_DOMAIN_ID),
-    )
+    general = build_standard_general_domain_bootstrap()
 
     register_health_domain(
-        domain_registry=domain_registry,
-        profile_registry=profile_registry,
-        resource_registry=resource_registry,
-        rule_registry=rule_registry,
-        operation_registry=operation_registry,
-        workflow_registry=workflow_registry,
-        permission_registry=permission_registry,
+        domain_registry=general.domain_registry,
+        profile_registry=general.profile_registry,
+        resource_registry=general.resource_registry,
+        rule_registry=general.rule_registry,
+        operation_registry=general.operation_registry,
+        workflow_registry=general.workflow_registry,
+        permission_registry=general.permission_registry,
         operation_implementations=operation_implementations,
     )
 
     return HealthDomainBootstrap(
-        domain_registry=domain_registry,
-        profile_registry=profile_registry,
-        resource_registry=resource_registry,
-        rule_registry=rule_registry,
-        operation_registry=operation_registry,
-        workflow_registry=workflow_registry,
-        permission_registry=permission_registry,
-        resolver=resolver,
+        domain_registry=general.domain_registry,
+        profile_registry=general.profile_registry,
+        resource_registry=general.resource_registry,
+        rule_registry=general.rule_registry,
+        operation_registry=general.operation_registry,
+        workflow_registry=general.workflow_registry,
+        permission_registry=general.permission_registry,
+        resolver=general.resolver,
     )
 
 

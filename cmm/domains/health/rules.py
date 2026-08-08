@@ -257,26 +257,41 @@ def detect_medication_conflicts(records: list | tuple) -> tuple[MedicationConfli
     return tuple(conflicts)
 
 
-def validate_diagnostic_claim(*, evidence: bool = False, documented: bool = False) -> dict:
+def validate_diagnostic_claim(
+    *,
+    evidence: bool = False,
+    documented: bool = False,
+    confirmed: bool = False,
+    provisional: bool = False,
+) -> dict:
     """Validate whether a diagnostic claim may be considered definitive.
 
-    A claim is definitive only when documentary evidence supports it.  A
-    claim without documentary evidence must remain a hypothesis/provisional
-    and must never be persisted or presented as definitive.
+    Hard invariant: being documented (present in a source) or evidenced
+    (supported by material) does NOT confirm a diagnosis.  A claim is
+    definitive only when an explicit ``confirmed`` status is present and the
+    claim is not provisional.  Confirmation is never derived from evidence
+    presence, source existence, or documentary provenance.  Anything less
+    must remain provisional/hypothesis and never be presented as definitive.
     """
-    is_definitive = bool(evidence and documented)
+    is_definitive = bool(confirmed) and not provisional
+    supported_category = classify_clinical_statement(
+        provenance="documented" if documented else None,
+        is_documented=documented,
+        is_diagnosis=True,
+        is_provisional=provisional or not confirmed,
+        is_system_hypothesis=(not documented and not confirmed),
+    )
     return {
         "is_definitive": is_definitive,
         "may_present_as_definitive": is_definitive,
-        "supported_category": (
-            EPISTEMIC_CATEGORY_DOCUMENTED_DIAGNOSIS
-            if is_definitive
-            else EPISTEMIC_CATEGORY_PROVISIONAL
-        ),
+        "supported_category": supported_category,
         "reason": (
-            "Documentary evidence supports a definitive diagnostic claim."
+            "Explicit confirmation establishes a definitive diagnostic claim."
             if is_definitive
-            else "Diagnostic claim lacks documentary evidence; keep provisional."
+            else (
+                "Diagnostic claim lacks explicit confirmation; "
+                "keep provisional."
+            )
         ),
     }
 
@@ -666,6 +681,8 @@ class HealthNoDefinitiveDiagnosisRule:
         verdict = validate_diagnostic_claim(
             evidence=bool(claim.get("evidence")),
             documented=bool(claim.get("documented")),
+            confirmed=bool(claim.get("confirmed")),
+            provisional=bool(claim.get("provisional")),
         )
         if verdict["is_definitive"]:
             return _result(

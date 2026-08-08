@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.health import build_health_rules
+from cmm.domains.health.rules import validate_diagnostic_claim
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -100,13 +101,67 @@ def test_no_definitive_diagnosis_blocks_without_evidence():
     )
 
 
-def test_no_definitive_diagnosis_allows_documented():
+def test_no_definitive_diagnosis_allows_confirmed():
+    rules = _by_id(build_health_rules())
+    rule = rules["health.no_definitive_diagnosis"]
+    result = rule.evaluate(
+        _context(
+            diagnostic_claim={
+                "evidence": True,
+                "documented": True,
+                "confirmed": True,
+            }
+        )
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+
+
+def test_no_definitive_diagnosis_blocks_documented_without_confirmation():
+    """Documented + evidence alone is NOT definitive; only explicit
+    confirmation allows definitive presentation."""
     rules = _by_id(build_health_rules())
     rule = rules["health.no_definitive_diagnosis"]
     result = rule.evaluate(
         _context(diagnostic_claim={"evidence": True, "documented": True})
     )
-    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert any(
+        finding.code == "NO_DEFINITIVE_DIAGNOSIS"
+        for finding in result.findings
+    )
+
+
+def test_provisional_documented_claim_remains_provisional():
+    """A provisional diagnosis stays provisional even when documented+evidenced."""
+    verdict = validate_diagnostic_claim(
+        evidence=True, documented=True, provisional=True, confirmed=False
+    )
+    assert verdict["is_definitive"] is False
+    assert verdict["may_present_as_definitive"] is False
+
+
+def test_documented_evidence_without_confirmation_not_definitive():
+    verdict = validate_diagnostic_claim(evidence=True, documented=True, confirmed=False)
+    assert verdict["is_definitive"] is False
+    assert verdict["may_present_as_definitive"] is False
+
+
+def test_system_hypothesis_with_evidence_not_promoted():
+    """A system hypothesis with evidence is not promoted to a definitive,
+    documented diagnosis."""
+    verdict = validate_diagnostic_claim(evidence=True, documented=False, confirmed=False)
+    assert verdict["is_definitive"] is False
+    assert verdict["supported_category"] == "system_hypothesis"
+
+
+def test_explicit_confirmation_alone_may_allow_definitive():
+    """Only an explicit confirmed/established status allows definitive
+    presentation."""
+    verdict = validate_diagnostic_claim(
+        evidence=True, documented=True, confirmed=True, provisional=False
+    )
+    assert verdict["is_definitive"] is True
+    assert verdict["may_present_as_definitive"] is True
 
 
 def test_medical_red_flag_escalates():
@@ -161,5 +216,10 @@ def test_deterministic_helpers():
     assert relation["causation"] is False
     assert clinical_source_rank("medical_report") < clinical_source_rank("inference")
     assert evaluate_clinical_temporality(state="expired") == "expired"
-    verdict = validate_diagnostic_claim(evidence=True, documented=True)
+    verdict = validate_diagnostic_claim(
+        evidence=True, documented=True, confirmed=True
+    )
     assert verdict["is_definitive"] is True
+    # Documented + evidence but NOT confirmed must NOT be definitive.
+    verdict = validate_diagnostic_claim(evidence=True, documented=True)
+    assert verdict["is_definitive"] is False
