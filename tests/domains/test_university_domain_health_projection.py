@@ -107,19 +107,27 @@ def test_workload_helper_accepts_only_scalar_constraint_signal():
 def test_supporting_health_cannot_widen_university_permissions():
     """Supporting-domain participation must not widen University permissions.
 
-    The University permission policy is a closed read-only surface; a Health
-    capability (e.g. MEMORY_WRITE or DOMAIN_CROSS_ACCESS) is not granted by
-    University's own policy and is not in its allowed set.
+    The University permission policy is a closed surface; a Health capability
+    (e.g. MEMORY_WRITE or SENSITIVE_INFERENCE_PERSIST or EXPORT) is not granted
+    by University's own policy and is not in its allowed set.  Inbound
+    ``domain_cross_access`` is accepted only as a scoped, approval-gated
+    minimal projection — it is never granted as an autonomous outbound
+    capability and never widens University's mutating surface.
     """
     policy = university.build_university_permission_policy()
     for capability in (
         PermissionCapability.MEMORY_WRITE,
-        PermissionCapability.DOMAIN_CROSS_ACCESS,
         PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
         PermissionCapability.EXPORT,
     ):
         assert capability not in policy.allowed_capabilities
         assert capability in policy.prohibited_capabilities
+    # Inbound cross-domain is scoped and approval-gated, not an autonomous
+    # outbound grant; University grants no outbound cross-domain access.
+    assert PermissionCapability.DOMAIN_CROSS_ACCESS not in policy.allowed_capabilities
+    assert PermissionCapability.DOMAIN_CROSS_ACCESS not in policy.prohibited_capabilities
+    assert PermissionCapability.DOMAIN_CROSS_ACCESS in policy.approval_capabilities
+    assert policy.allow_cross_domain_access is False
 
 
 def test_most_restrictive_effective_policy_wins():

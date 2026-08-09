@@ -95,8 +95,15 @@ def test_no_autonomous_external_communication_or_calendar():
     assert PermissionCapability.COMMUNICATION_EXTERNAL in policy.prohibited_capabilities
     assert policy.allow_external_communication is False
     assert PermissionCapability.COMMUNICATION_EXTERNAL in policy.approval_capabilities
-    assert PermissionCapability.SCHEDULE_MODIFY in policy.prohibited_capabilities
-    assert PermissionCapability.TASK_CREATE in policy.prohibited_capabilities
+    # Calendar/task mutation is NOT hard-denied: it is approval-gated.  Denied by
+    # default (no approval), but reachable through a valid scoped approval rather
+    # than destroyed by a hard deny.
+    assert PermissionCapability.SCHEDULE_MODIFY in policy.allowed_capabilities
+    assert PermissionCapability.SCHEDULE_MODIFY in policy.approval_capabilities
+    assert PermissionCapability.SCHEDULE_MODIFY not in policy.prohibited_capabilities
+    assert PermissionCapability.TASK_CREATE in policy.allowed_capabilities
+    assert PermissionCapability.TASK_CREATE in policy.approval_capabilities
+    assert PermissionCapability.TASK_CREATE not in policy.prohibited_capabilities
 
 
 def test_prepare_exam_is_preparation_not_send():

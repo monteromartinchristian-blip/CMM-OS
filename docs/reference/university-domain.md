@@ -187,18 +187,28 @@ Safety ordering is enforced as a strict dependency chain:
 The University permission policy is fail-closed:
 
 - **Allowed**: `RESOURCE_READ`, `MEMORY_READ`, `OPERATION_EXECUTE`,
-  `WORKFLOW_EXECUTE`
-- **Denied** (24 capabilities): external search/models, memory write, file
-  modify, schedule modify, task create, goal update, external communication,
-  sensitive inference (+persist), export, publication, external domain
-  activate, irreversible change, knowledge delete, permission modify,
-  cross-domain access, and all medical/legal/financial decisions/actions/spend
-- **Approval**: `COMMUNICATION_EXTERNAL`, `EXPORT`, `FILE_MODIFY`
+  `WORKFLOW_EXECUTE`, plus three narrow authorization-enriched paths that are
+  never autonomous: `SEARCH_EXTERNAL` (OFFICIAL_ONLY-gated),
+  `TASK_CREATE` and `SCHEDULE_MODIFY` (approval-gated)
+- **Denied** (hard): memory write, file modify, goal update, external
+  communication, sensitive inference (+persist), export, publication, external
+  domain activate, irreversible change, knowledge delete, permission modify,
+  and all medical/legal/financial decisions/actions/spend
+- **Approval-gated** (denied by default, reachable only with a valid scoped
+  approval — not hard-denied): `TASK_CREATE`, `SCHEDULE_MODIFY`,
+  `COMMUNICATION_EXTERNAL`, `EXPORT`, `FILE_MODIFY`, and inbound
+  `DOMAIN_CROSS_ACCESS`
+- **External verification OFFICIAL_ONLY**: `SEARCH_EXTERNAL` is denied without
+  a source and denied for any non-official source class; only an `OFFICIAL_ONLY`
+  source is accepted, and the permitted search is read-only verification that
+  never authorizes an action
 - **Autonomy**: `maximum_autonomy_level=0`, no reversible or irreversible
   autonomous changes
 
-Calendar and task mutation are only reachable through shared approval-gated
-capabilities; `update_subject_status` remains INTERNAL Academic State only.
+Calendar and task mutation are reachable only through a valid scoped approval;
+`update_subject_status` remains INTERNAL Academic State only. University grants
+no outbound cross-domain access (`allow_cross_domain_access=False`) and never
+adopts a supporting domain's permissions.
 
 ## Fallback
 

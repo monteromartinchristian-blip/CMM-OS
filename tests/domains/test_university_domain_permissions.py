@@ -18,9 +18,6 @@ _SENSITIVE_ACADEMIC = {
     PermissionCapability.KNOWLEDGE_DELETE,
     PermissionCapability.PERMISSION_MODIFY,
     PermissionCapability.MEMORY_WRITE,
-    PermissionCapability.DOMAIN_CROSS_ACCESS,
-    PermissionCapability.SCHEDULE_MODIFY,
-    PermissionCapability.TASK_CREATE,
 }
 
 
@@ -33,13 +30,26 @@ def test_policy_identity():
 
 def test_allowed_surface_is_read_only():
     policy = build_university_permission_policy()
+    # The autonomous core is read + memory-read + execute.  Three narrow,
+    # authorization-enriched paths are additionally allowed but never
+    # autonomous: external verification is OFFICIAL_ONLY-gated, and
+    # task/schedule mutation is approval-gated.
     assert policy.allowed_capabilities == (
         PermissionCapability.RESOURCE_READ,
         PermissionCapability.MEMORY_READ,
         PermissionCapability.OPERATION_EXECUTE,
         PermissionCapability.WORKFLOW_EXECUTE,
+        PermissionCapability.SEARCH_EXTERNAL,
+        PermissionCapability.TASK_CREATE,
+        PermissionCapability.SCHEDULE_MODIFY,
     )
     assert policy.allow_memory_write is False
+    # The deny-by-default intent is not lost: the narrow paths are gated, not
+    # auto-granted.
+    assert policy.allow_task_creation is False
+    assert policy.allow_schedule_modification is False
+    assert policy.allow_external_search is False
+    assert policy.source_requirement is not None
 
 
 def test_academic_and_sensitive_capabilities_denied():
@@ -50,13 +60,20 @@ def test_academic_and_sensitive_capabilities_denied():
 
 
 def test_calendar_and_task_denied():
-    """Calendar/task mutation is denied by default; only reachable via shared
-    approval-gated capabilities, never auto-granted."""
+    """Calendar/task mutation is denied by default and approval-gated, not
+    hard-denied: the capability is allowed only with a valid scoped approval
+    and never auto-granted."""
     policy = build_university_permission_policy()
     assert policy.allow_schedule_modification is False
     assert policy.allow_task_creation is False
-    assert PermissionCapability.SCHEDULE_MODIFY in policy.prohibited_capabilities
-    assert PermissionCapability.TASK_CREATE in policy.prohibited_capabilities
+    # Approval-gated, not hard-denied: the capability is in the allowed set AND
+    # requires a scoped approval before it may execute.
+    assert PermissionCapability.SCHEDULE_MODIFY in policy.allowed_capabilities
+    assert PermissionCapability.TASK_CREATE in policy.allowed_capabilities
+    assert PermissionCapability.SCHEDULE_MODIFY in policy.approval_capabilities
+    assert PermissionCapability.TASK_CREATE in policy.approval_capabilities
+    assert PermissionCapability.SCHEDULE_MODIFY not in policy.prohibited_capabilities
+    assert PermissionCapability.TASK_CREATE not in policy.prohibited_capabilities
 
 
 def test_external_actions_require_approval():
