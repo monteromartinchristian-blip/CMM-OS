@@ -195,9 +195,11 @@ The University permission policy is fail-closed:
   domain activate, irreversible change, knowledge delete, permission modify,
   and all medical/legal/financial decisions/actions/spend
 - **Approval-gated** (denied by default, reachable only with a valid scoped
-  approval — not hard-denied): `TASK_CREATE`, `SCHEDULE_MODIFY`,
-  `COMMUNICATION_EXTERNAL`, `EXPORT`, `FILE_MODIFY`, and inbound
+  approval — not hard-denied): `TASK_CREATE`, `SCHEDULE_MODIFY`, and inbound
   `DOMAIN_CROSS_ACCESS`
+- **Hard-denied external effects**: `COMMUNICATION_EXTERNAL`, `EXPORT`, and
+  `FILE_MODIFY`; approval metadata does not override the absence of a base
+  capability grant or an explicit prohibition
 - **External verification OFFICIAL_ONLY**: `SEARCH_EXTERNAL` is denied without
   a source and denied for any non-official source class; only an `OFFICIAL_ONLY`
   source is accepted, and the permitted search is read-only verification that
