@@ -2614,6 +2614,8 @@ Permissions
 
 10.22 - University Domain
 
+**Status:** Implemented, pending audit (2026-08-09).
+
 Objective
 
 Specify CMM OS to manage subjects, convocation, jobs, performance, academic burden and university planning.
