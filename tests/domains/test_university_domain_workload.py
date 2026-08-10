@@ -321,3 +321,100 @@ def test_canonical_rule_scalar_scenarios_collection_does_not_crash():
     result = _canonical_result({"scenarios": 7, "total_ect": 30})
     assert result.status is not None
     assert result.findings
+
+
+# ── V8-B1/V8-B2: malformed collection evidence must not be silently treated ──
+# ── as an empty collection, because malformed constraints are not equivalent ──
+# ── to no constraints. ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "workload",
+    (
+        {
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "hard_constraints": 7,
+        },
+        {
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "preferences": 7,
+        },
+        {"scenarios": 7, "total_ect": 30},
+    ),
+)
+def test_canonical_rule_malformed_top_level_collections_preserve_uncertainty(
+    workload,
+):
+    """Malformed top-level collection-shaped metadata must not be treated as
+    an empty collection: the result is uncertain and no definite proposal is
+    emitted."""
+    result = _canonical_result(workload)
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["proposal"] is None
+    assert finding.metadata["feasible"] is False
+
+
+def test_canonical_rule_nested_scenario_malformed_hard_constraints_uncertain():
+    """A malformed nested ``scenario.hard_constraints`` value must not raise
+    TypeError and must not certify the scenario as definitely feasible."""
+    result = _canonical_result(
+        {
+            "scenarios": (
+                {
+                    "id": "s1",
+                    "credit_load": 30,
+                    "hard_constraints": 7,
+                },
+            ),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["proposal"] is None
+    assert "s1" in finding.metadata["unresolved_scenarios"]
+
+
+@pytest.mark.parametrize(
+    "nested_value",
+    ("bad", {"unexpected": "mapping"}, None),
+)
+def test_canonical_rule_nested_scenario_malformed_variants_do_not_crash(
+    nested_value,
+):
+    """None and other malformed nested values must remain safe and uncertain."""
+    result = _canonical_result(
+        {
+            "scenarios": (
+                {
+                    "id": "s1",
+                    "credit_load": 30,
+                    "hard_constraints": nested_value,
+                },
+            ),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["proposal"] is None
+
+
+def test_canonical_rule_empty_hard_constraints_remain_feasible():
+    """A valid empty hard_constraints collection keeps legitimate empty
+    semantics instead of being treated as malformed."""
+    result = _canonical_result(
+        {
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "hard_constraints": [],
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_ASSESSED"
+    assert finding.metadata["feasibility_uncertain"] is False
+    assert finding.metadata["feasible"] is True

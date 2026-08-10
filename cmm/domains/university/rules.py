@@ -1060,6 +1060,9 @@ def check_ects_consistency(
     records: tuple = (),
     degree_requirement: Mapping | None = None,
     derive_from_records: bool = False,
+    records_malformed: bool = False,
+    double_counted_malformed: bool = False,
+    contradictory_malformed: bool = False,
 ) -> dict:
     """Check ECTS credit consistency deterministically over distinct buckets.
 
@@ -1173,7 +1176,7 @@ def check_ects_consistency(
         required = None
     required_known = required is not None
     credit_state_sufficiently_grounded = (
-        bool(records) and not unknown_records
+        bool(records) and not unknown_records and not records_malformed
         if derive_from_records
         else True
     )
@@ -1182,8 +1185,8 @@ def check_ects_consistency(
     double_counted = tuple(dict.fromkeys((*double_counted, *derived_double_counted)))
     contradictory = tuple(dict.fromkeys((*contradictory, *derived_contradictory)))
     recognized_total = int(completed) + int(recognized)
-    double_counting = len(double_counted) > 0
-    contradiction = len(contradictory) > 0
+    double_counting = len(double_counted) > 0 or double_counted_malformed
+    contradiction = len(contradictory) > 0 or contradictory_malformed
     critical_requirement_uncertain = bool(
         critical_requirement_uncertain
         or not required_known
@@ -1222,6 +1225,9 @@ def check_ects_consistency(
         "double_counting": double_counting,
         "contradictory": tuple(contradictory),
         "contradiction": contradiction,
+        "records_malformed": records_malformed,
+        "double_counted_malformed": double_counted_malformed,
+        "contradictory_malformed": contradictory_malformed,
         "critical_requirement_uncertain": critical_requirement_uncertain,
         "completion_blocked": completion_blocked,
         "completion_determinable": not completion_blocked,
@@ -1232,7 +1238,14 @@ def check_ects_consistency(
             else None
         ),
         "unknown_records": tuple(sorted(set(unknown_records))),
-        "flagged": double_counting or contradiction or critical_requirement_uncertain,
+        "flagged": (
+            double_counting
+            or contradiction
+            or critical_requirement_uncertain
+            or records_malformed
+            or double_counted_malformed
+            or contradictory_malformed
+        ),
     }
 
 
@@ -1243,6 +1256,7 @@ def evaluate_exam_attempt(
     regulation_active: bool | None = None,
     regulation: Mapping | None = None,
     require_complete_evidence: bool = False,
+    attempts_malformed: bool = False,
 ) -> dict:
     """Evaluate exam attempts deterministically against the rules in force.
 
@@ -1345,6 +1359,11 @@ def evaluate_exam_attempt(
         elif entry.get("outcome") == "failed":
             failed_grade_not_consumed = True
 
+    if attempts_malformed:
+        # A malformed attempts collection is not authoritative zero-attempt
+        # evidence; attempt consumption is unknown.
+        unknown_attempts += 1
+
     if regulation_unknown or not regulation_current:
         return {
             "consumed_attempts": consumed_attempts,
@@ -1352,6 +1371,7 @@ def evaluate_exam_attempt(
             "ungrounded_attempts": ungrounded_attempts,
             "unknown_attempts": unknown_attempts,
             "attempt_evidence_unknown": bool(unknown_attempts),
+            "attempts_malformed": attempts_malformed,
             "canceled": canceled,
             "waived": waived,
             "failed_grade_not_consumed": failed_grade_not_consumed,
@@ -1373,6 +1393,7 @@ def evaluate_exam_attempt(
         "ungrounded_attempts": ungrounded_attempts,
         "unknown_attempts": unknown_attempts,
         "attempt_evidence_unknown": bool(unknown_attempts),
+        "attempts_malformed": attempts_malformed,
         "canceled": canceled,
         "waived": waived,
         "failed_grade_not_consumed": failed_grade_not_consumed,
@@ -1448,6 +1469,9 @@ def _evaluate_structured_workload(
     preferences: tuple,
     selected_scenario: str | None,
     scenarios: tuple,
+    hard_constraints_malformed: bool = False,
+    preferences_malformed: bool = False,
+    scenarios_malformed: bool = False,
 ) -> dict:
     scenario_records = tuple(item for item in scenarios if isinstance(item, Mapping))
     consumed_factors: set[str] = set()
@@ -1463,10 +1487,20 @@ def _evaluate_structured_workload(
         scenario_id = _usable_reference(scenario.get("id"))
         if scenario_id is None:
             continue
-        constraints = (*global_constraints, *tuple(
-            item for item in scenario.get("hard_constraints", ())
-            if isinstance(item, Mapping)
-        ))
+        scenario_constraints_present = "hard_constraints" in scenario
+        scenario_constraints_value = scenario.get("hard_constraints")
+        scenario_constraints_malformed = (
+            scenario_constraints_present
+            and not isinstance(scenario_constraints_value, (list, tuple))
+        )
+        scenario_constraints = ()
+        if scenario_constraints_present and not scenario_constraints_malformed:
+            scenario_constraints = tuple(
+                item
+                for item in scenario_constraints_value
+                if isinstance(item, Mapping)
+            )
+        constraints = (*global_constraints, *scenario_constraints)
         if (
             isinstance(health_constraint, Mapping)
             and health_constraint.get("authorized")
@@ -1495,7 +1529,9 @@ def _evaluate_structured_workload(
                     strict=True,
                 )
             )
-        if any(state is False for state in states):
+        if scenario_constraints_malformed:
+            unresolved_ids.append(scenario_id)
+        elif any(state is False for state in states):
             infeasible_ids.append(scenario_id)
         elif any(state is None for state in states):
             unresolved_ids.append(scenario_id)
@@ -1549,7 +1585,13 @@ def _evaluate_structured_workload(
                 if _usable_reference(scenario.get("id")) is not None
             )
 
-    all_feasible = bool(feasible_ids) and not unresolved_ids
+    all_feasible = (
+        bool(feasible_ids)
+        and not unresolved_ids
+        and not hard_constraints_malformed
+        and not preferences_malformed
+        and not scenarios_malformed
+    )
     if unresolved_ids or not all_feasible:
         stage = "feasibility"
     elif explicit_preferences:
@@ -1579,6 +1621,9 @@ def _evaluate_structured_workload(
         "consumed_factors": tuple(sorted(consumed_factors)),
         "clinical_details_consumed": False,
         "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+        "hard_constraints_malformed": hard_constraints_malformed,
+        "preferences_malformed": preferences_malformed,
+        "scenarios_malformed": scenarios_malformed,
     }
 
 
@@ -1592,6 +1637,9 @@ def evaluate_academic_workload(
     selected_scenario: str | None = None,
     scenarios: tuple = (),
     derive_from_facts: bool = False,
+    hard_constraints_malformed: bool = False,
+    preferences_malformed: bool = False,
+    scenarios_malformed: bool = False,
 ) -> dict:
     """Evaluate academic workload through the staged planning pipeline.
 
@@ -1610,6 +1658,9 @@ def evaluate_academic_workload(
             preferences=preferences,
             selected_scenario=selected_scenario,
             scenarios=tuple(scenarios),
+            hard_constraints_malformed=hard_constraints_malformed,
+            preferences_malformed=preferences_malformed,
+            scenarios_malformed=scenarios_malformed,
         )
 
     consumed_factors = set()
@@ -1840,6 +1891,8 @@ def evaluate_academic_dependency(
     dependencies: tuple = (),
     academic_records: tuple = (),
     derive_from_academic_state: bool = False,
+    prerequisites_malformed: bool = False,
+    academic_records_malformed: bool = False,
 ) -> dict:
     """Evaluate academic dependency relationships deterministically.
 
@@ -1867,7 +1920,10 @@ def evaluate_academic_dependency(
         )
         completed_credits = credit_evidence["completed_credits"]
         pending_credits = credit_evidence["pending_credits"]
-        credit_evidence_unknown = credit_evidence["credit_evidence_unknown"]
+        credit_evidence_unknown = (
+            credit_evidence["credit_evidence_unknown"]
+            or academic_records_malformed
+        )
 
         satisfied: list[str] = []
         open_prereqs: list[str] = []
@@ -1969,8 +2025,10 @@ def evaluate_academic_dependency(
             "amount_conflict_credit_identities": credit_evidence[
                 "amount_conflict_credit_identities"
             ],
+            "prerequisites_malformed": prerequisites_malformed,
+            "academic_records_malformed": academic_records_malformed,
             "dependency_blocked": bool(
-                blocked_ids or anonymous_prerequisite_count
+                blocked_ids or anonymous_prerequisite_count or prerequisites_malformed
             ),
         }
 
@@ -2006,8 +2064,13 @@ def evaluate_academic_dependency(
         "unknown_prerequisites": tuple(unknown_prereqs),
         "caller_passed_ignored": tuple(caller_passed_ignored),
         "anonymous_prerequisite_count": anonymous_prerequisite_count,
+        "prerequisites_malformed": prerequisites_malformed,
+        "academic_records_malformed": academic_records_malformed,
         "dependency_blocked": bool(
-            open_prereqs or unknown_prereqs or anonymous_prerequisite_count
+            open_prereqs
+            or unknown_prereqs
+            or anonymous_prerequisite_count
+            or prerequisites_malformed
         ),
     }
 
@@ -2516,6 +2579,36 @@ def _seq(metadata: Mapping, key: str) -> tuple | None:
     return value if isinstance(value, (list, tuple)) else None
 
 
+@dataclass(frozen=True, slots=True)
+class _CollectionEvidence:
+    """Malformed-aware collection normalization.
+
+    Preserves the epistemic distinction between an absent collection, a valid
+    (possibly empty) collection, and a malformed scalar/mapping where a sequence
+    was expected.  A malformed value is never silently coerced into an empty
+    collection: ``absent != valid empty != malformed``.
+    """
+
+    items: tuple
+    present: bool
+    malformed: bool
+
+
+def _normalize_collection(metadata: Mapping, key: str) -> _CollectionEvidence:
+    """Normalize a collection-shaped metadata field without losing state.
+
+    Returns ``(items, present, malformed)``.  Only ``list``/``tuple`` are valid
+    collections; strings, mappings, numbers, booleans and arbitrary objects are
+    malformed and are never coerced into one-element or empty sequences.
+    """
+    if key not in metadata:
+        return _CollectionEvidence((), False, False)
+    value = metadata[key]
+    if isinstance(value, (list, tuple)):
+        return _CollectionEvidence(tuple(value), True, False)
+    return _CollectionEvidence((), True, True)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AcademicSourceAuthorityRule
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2956,7 +3049,10 @@ class EctsConsistencyRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No ECTS metadata supplied.",
             )
-        records = tuple(_seq(ects, "records") or ())
+        records_evidence = _normalize_collection(ects, "records")
+        double_counted_evidence = _normalize_collection(ects, "double_counted")
+        contradictory_evidence = _normalize_collection(ects, "contradictory")
+        records = records_evidence.items
         degree_requirement = ects.get("degree_requirement")
         record = check_ects_consistency(
             completed=_parse_ects_integer(ects.get("completed", 0)) or 0,
@@ -2971,8 +3067,8 @@ class EctsConsistencyRule:
                 if ects.get("required") is not None
                 else None
             ),
-            double_counted=tuple(_seq(ects, "double_counted") or ()),
-            contradictory=tuple(_seq(ects, "contradictory") or ()),
+            double_counted=double_counted_evidence.items,
+            contradictory=contradictory_evidence.items,
             critical_requirement_uncertain=bool(
                 ects.get("critical_requirement_uncertain")
             ),
@@ -2983,6 +3079,9 @@ class EctsConsistencyRule:
                 else None
             ),
             derive_from_records=True,
+            records_malformed=records_evidence.malformed,
+            double_counted_malformed=double_counted_evidence.malformed,
+            contradictory_malformed=contradictory_evidence.malformed,
         )
         verification_fact_state = (
             "conflicting"
@@ -3112,11 +3211,13 @@ class ExamAttemptRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No exam attempt metadata supplied.",
             )
+        attempt_evidence = _normalize_collection(attempt, "attempts")
         record = evaluate_exam_attempt(
-            attempts=tuple(_seq(attempt, "attempts") or ()),
+            attempts=attempt_evidence.items,
             max_attempts=attempt.get("max_attempts"),
             regulation=attempt.get("regulation"),
             require_complete_evidence=True,
+            attempts_malformed=attempt_evidence.malformed,
         )
         if (
             record["regulation_unknown"]
@@ -3233,15 +3334,23 @@ class AcademicWorkloadRule:
         total_ect = _parse_ects_integer(workload.get("total_ect", 0))
         full_time_ect = _parse_ects_integer(workload.get("full_time_ect", 30))
         numeric_metadata_unknown = total_ect is None or full_time_ect is None
+        hard_constraints_evidence = _normalize_collection(
+            workload, "hard_constraints"
+        )
+        preferences_evidence = _normalize_collection(workload, "preferences")
+        scenarios_evidence = _normalize_collection(workload, "scenarios")
         record = evaluate_academic_workload(
             total_ect=total_ect if total_ect is not None else 0,
             full_time_ect=full_time_ect if full_time_ect is not None else 30,
             health_constraint=workload.get("health_constraint"),
-            hard_constraints=tuple(_seq(workload, "hard_constraints") or ()),
-            preferences=tuple(_seq(workload, "preferences") or ()),
+            hard_constraints=hard_constraints_evidence.items,
+            preferences=preferences_evidence.items,
             selected_scenario=workload.get("selected_scenario"),
-            scenarios=tuple(_seq(workload, "scenarios") or ()),
+            scenarios=scenarios_evidence.items,
             derive_from_facts=True,
+            hard_constraints_malformed=hard_constraints_evidence.malformed,
+            preferences_malformed=preferences_evidence.malformed,
+            scenarios_malformed=scenarios_evidence.malformed,
         )
         if numeric_metadata_unknown:
             record = {
@@ -3251,6 +3360,20 @@ class AcademicWorkloadRule:
                 "numeric_metadata_unknown": True,
                 "ranking": (),
                 "ranking_incomplete": True,
+            }
+        if (
+            hard_constraints_evidence.malformed
+            or preferences_evidence.malformed
+            or scenarios_evidence.malformed
+        ):
+            record = {
+                **record,
+                "feasible": False,
+                "feasibility_uncertain": True,
+                "proposal": None,
+                "hard_constraints_malformed": hard_constraints_evidence.malformed,
+                "preferences_malformed": preferences_evidence.malformed,
+                "scenarios_malformed": scenarios_evidence.malformed,
             }
         if record.get("feasibility_uncertain"):
             finding = ReasoningFinding(
@@ -3353,11 +3476,15 @@ class AcademicDependencyRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No dependency metadata supplied.",
             )
+        prereq_evidence = _normalize_collection(dependency, "prerequisites")
+        academic_evidence = _normalize_collection(dependency, "academic_records")
         record = evaluate_academic_dependency(
             subject_id=str(dependency.get("subject_id", "unknown")),
-            dependencies=tuple(_seq(dependency, "prerequisites") or ()),
-            academic_records=tuple(_seq(dependency, "academic_records") or ()),
+            dependencies=prereq_evidence.items,
+            academic_records=academic_evidence.items,
             derive_from_academic_state=True,
+            prerequisites_malformed=prereq_evidence.malformed,
+            academic_records_malformed=academic_evidence.malformed,
         )
         blocked_ids = tuple(
             dict.fromkeys(
@@ -3517,7 +3644,7 @@ class AcademicIntegrityRule:
             )
         code = (
             "INTEGRITY_RESTRICTION_APPLIED"
-            if resolved["restriction_grounded"]
+            if resolved["restriction_applies"]
             else "INTEGRITY_MODE_PRESERVED"
         )
         restriction_evidence = (

@@ -549,3 +549,70 @@ def test_canonical_rule_scalar_academic_records_collection_does_not_crash():
     )
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_BLOCKED"
+
+
+# ── V8-B1: malformed collection evidence is never silently coerced into an ──
+# ── empty collection, because malformed prerequisites are not equivalent to ──
+# ── no prerequisites. ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    (7, "bad", {"unexpected": "mapping"}),
+)
+def test_canonical_rule_malformed_prerequisites_block_not_satisfy(malformed):
+    """Malformed ``prerequisites`` must be blocking and never satisfied."""
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": malformed,
+        }
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code != "DEPENDENCY_SATISFIED"
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["prerequisites_malformed"] is True
+    assert finding.metadata["dependency_blocked"] is True
+
+
+def test_canonical_rule_empty_prerequisites_remain_legitimate():
+    """A valid empty prerequisites collection keeps legitimate empty
+    semantics instead of being treated as malformed."""
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": [],
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["prerequisites_malformed"] is False
+    assert finding.metadata["dependency_blocked"] is False
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    (7, "bad", {"unexpected": "mapping"}),
+)
+def test_canonical_rule_malformed_academic_records_cannot_confirm_credit(malformed):
+    """Malformed academic records cannot establish a credit prerequisite."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": malformed,
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.code != "DEPENDENCY_SATISFIED"
+    assert finding.metadata["academic_records_malformed"] is True
+    assert finding.metadata["credit_evidence_unknown"] is True
+    assert finding.metadata["satisfied_prerequisites"] == ()

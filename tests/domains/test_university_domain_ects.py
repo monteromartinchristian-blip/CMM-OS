@@ -446,3 +446,64 @@ def test_canonical_rule_scalar_contradictory_collection_does_not_crash():
     assert result.status is not None
     finding = result.findings[0]
     assert finding.metadata["satisfied"] is False
+
+
+# ── V8-B1: malformed ECTS conflict metadata must not be treated as no ───────
+# ── conflicts, and malformed records cannot confirm completion. ─────────────
+
+
+def _grounded_complete_records():
+    return tuple(_record(f"subject-{i}", 30, "completed") for i in range(6))
+
+
+def _grounded_degree_requirement():
+    return {
+        "required_ects": 180,
+        "grounded": True,
+        "source_reference": "degree-1",
+        "temporal": "valid",
+    }
+
+
+def test_canonical_rule_malformed_double_counted_blocks_otherwise_complete():
+    """A malformed ``double_counted`` value must not be treated as no
+    conflicts; an otherwise fully grounded completion is not confirmed."""
+    result = _canonical_result(
+        records=_grounded_complete_records(),
+        degree_requirement=_grounded_degree_requirement(),
+        double_counted=7,
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["completion_blocked"] is True
+    assert finding.metadata["double_counted_malformed"] is True
+
+
+def test_canonical_rule_malformed_contradictory_blocks_otherwise_complete():
+    """A malformed ``contradictory`` value must not be treated as no
+    contradictions; an otherwise fully grounded completion is not confirmed."""
+    result = _canonical_result(
+        records=_grounded_complete_records(),
+        degree_requirement=_grounded_degree_requirement(),
+        contradictory=7,
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["completion_blocked"] is True
+    assert finding.metadata["contradictory_malformed"] is True
+
+
+def test_canonical_rule_malformed_records_cannot_confirm_completion():
+    """A malformed ``records`` value is not authoritative grounded credit
+    evidence and cannot confirm a fully grounded completion."""
+    result = _canonical_result(
+        records=7,
+        degree_requirement=_grounded_degree_requirement(),
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["records_malformed"] is True
+    assert finding.metadata["credit_state_sufficiently_grounded"] is False

@@ -323,6 +323,36 @@ def test_canonical_rule_scalar_attempts_collection_does_not_crash():
     result = _canonical_result(attempts=7, regulation=_regulation(max_attempts=1))
     assert result.status is not None
     finding = result.findings[0]
-    assert finding.code == "EXAM_ATTEMPT_EVALUATED"
+    assert finding.code != "EXAM_ATTEMPT_EVALUATED"
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["attempts_malformed"] is True
+    assert finding.metadata["within_limits"] is False
     assert finding.metadata["consumed_attempts"] == 0
     assert finding.metadata["limit_exceeded"] is False
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    (7, "bad", {"unexpected": "mapping"}),
+)
+def test_canonical_rule_malformed_attempts_remain_unknown(malformed):
+    """Malformed attempts evidence is not authoritative zero-attempt evidence
+    and cannot produce a definite evaluated finding."""
+    result = _canonical_result(attempts=malformed, regulation=_regulation(max_attempts=1))
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code != "EXAM_ATTEMPT_EVALUATED"
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["attempts_malformed"] is True
+    assert finding.metadata["within_limits"] is False
+
+
+def test_canonical_rule_empty_attempts_remain_valid_zero_attempts():
+    """A valid empty attempts collection remains legitimate zero-attempt
+    evidence rather than being treated as malformed."""
+    result = _canonical_result(attempts=[], regulation=_regulation(max_attempts=1))
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_EVALUATED"
+    assert finding.metadata["attempts_malformed"] is False
+    assert finding.metadata["attempt_evidence_unknown"] is False
+    assert finding.metadata["within_limits"] is True

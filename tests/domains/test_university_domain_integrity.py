@@ -149,6 +149,7 @@ def test_canonical_rule_scoped_restriction_denies_only_prohibited_action():
     )
     finding = result.findings[0]
     assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "INTEGRITY_RESTRICTION_APPLIED"
     assert finding.metadata["assistance_permitted"] is False
     assert finding.metadata["restriction_applies"] is True
 
@@ -365,6 +366,8 @@ def test_finding_preserves_restriction_source_and_temporal_evidence():
     result = _canonical_result(
         {
             "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
             "requested_action": "draft_final_answer",
             "grounded_restriction": _restriction(),
         }
@@ -378,3 +381,37 @@ def test_finding_preserves_restriction_source_and_temporal_evidence():
         == "integrity-regulation-1"
     )
     assert "integrity-regulation-1" in finding.references
+
+
+@pytest.mark.parametrize(
+    "integrity",
+    (
+        {
+            "mode": "mode_c",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        },
+        {
+            "mode": "mode_c",
+            "course": "course-y",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        },
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        },
+    ),
+)
+def test_finding_code_does_not_claim_restriction_when_not_applied(integrity):
+    """``INTEGRITY_RESTRICTION_APPLIED`` is emitted only when the grounded
+    restriction actually applies."""
+    result = _canonical_result(integrity)
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is True
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.code != "INTEGRITY_RESTRICTION_APPLIED"
+    assert finding.code == "INTEGRITY_MODE_PRESERVED"
