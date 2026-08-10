@@ -311,3 +311,18 @@ def test_canonical_rule_non_mapping_attempt_evidence_remains_unknown():
     assert finding.metadata["unknown_attempts"] == 1
     assert finding.metadata["attempt_evidence_unknown"] is True
     assert finding.metadata["within_limits"] is False
+
+
+# ── V7-B4: malformed collection-shaped metadata must not leak TypeError; ─────
+# ── the rule must degrade to a conservative verification-needed result. ───────
+
+
+def test_canonical_rule_scalar_attempts_collection_does_not_crash():
+    """A scalar ``attempts`` value (not a list/tuple) must not raise TypeError
+    and must not fabricate consumed attempts or a limit exceedance."""
+    result = _canonical_result(attempts=7, regulation=_regulation(max_attempts=1))
+    assert result.status is not None
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_EVALUATED"
+    assert finding.metadata["consumed_attempts"] == 0
+    assert finding.metadata["limit_exceeded"] is False

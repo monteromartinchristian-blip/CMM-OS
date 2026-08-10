@@ -67,6 +67,21 @@ def _canonical_result(deadline):
     return rule.evaluate(context)
 
 
+def _canonical_context_result(metadata):
+    rule = {
+        rule.definition.id: rule
+        for rule in build_university_rules()
+    }["university.academic_deadline"]
+    context = ReasoningRuleContext(
+        reasoning_id="deadline-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata=metadata,
+    )
+    return rule.evaluate(context)
+
+
 def test_remembered_deadline_is_not_confirmed():
     result = classify_deadline_grounding(
         deadline=_deadline(source_class="personal_note", provenance="remembered")
@@ -191,6 +206,119 @@ def test_canonical_rule_unreferenced_official_critical_deadline_requires_verific
 def test_canonical_rule_referenced_official_deadline_remains_confirmed():
     result = _canonical_result(_deadline(critical=True))
     finding = result.findings[0]
+    assert finding.metadata["state"] == "confirmed_official"
+    assert finding.metadata["confirmed"] is True
+    assert finding.metadata["verification_needed"] is False
+
+
+# ── V7-B1: decision-critical context must propagate when a deadline payload ──
+# ── exists (context criticality is NOT optional payload detail). ─────────────
+
+
+def test_context_critical_remembered_deadline_requires_verification():
+    """Context-level ``deadline_decision_critical`` must propagate even when a
+    remembered deadline payload exists and its own ``critical`` is absent."""
+    result = _canonical_context_result(
+        {
+            "deadline_decision_critical": True,
+            "deadline": _deadline(
+                source_class="personal_note",
+                provenance="remembered",
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["state"] == "remembered"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["verification_needed"] is True
+    assert finding.metadata["verification_need"]["source_class"] == "official_only"
+    assert finding.metadata["verification_need"]["read_only"] is True
+
+
+def test_context_critical_reported_deadline_requires_verification():
+    """A context-critical reported (non-grounded-official) deadline cannot be
+    confirmed and must trigger verification."""
+    result = _canonical_context_result(
+        {
+            "deadline_decision_critical": True,
+            "deadline": _deadline(
+                source_class="user_recollection",
+                provenance="reported",
+                temporal="valid",
+                source_reference="personal-reminder",
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["verification_needed"] is True
+
+
+def test_context_critical_inferred_deadline_requires_verification():
+    result = _canonical_context_result(
+        {
+            "deadline_decision_critical": True,
+            "deadline": _deadline(
+                source_class="inferred",
+                provenance="inferred",
+                temporal="valid",
+                source_reference="inferred-reminder",
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["verification_needed"] is True
+
+
+def test_payload_critical_deadline_still_verifies_without_context_flag():
+    """A payload-level ``critical`` alone (no context flag) still triggers
+    verification for an under-grounded deadline."""
+    result = _canonical_context_result(
+        {
+            "deadline": _deadline(
+                source_class="user_recollection",
+                provenance="reported",
+                critical=True,
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["verification_needed"] is True
+
+
+def test_non_critical_remembered_deadline_no_fabricated_verification():
+    """A remembered deadline with no critical signal must not fabricate a
+    verification requirement."""
+    result = _canonical_context_result(
+        {
+            "deadline": _deadline(
+                source_class="personal_note",
+                provenance="remembered",
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_FACT"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["verification_needed"] is False
+
+
+def test_confirmed_referenced_official_critical_deadline_no_verification():
+    """A confirmed, referenced, official critical deadline does not need
+    unnecessary verification."""
+    result = _canonical_context_result(
+        {
+            "deadline_decision_critical": True,
+            "deadline": _deadline(critical=True),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_FACT"
     assert finding.metadata["state"] == "confirmed_official"
     assert finding.metadata["confirmed"] is True
     assert finding.metadata["verification_needed"] is False

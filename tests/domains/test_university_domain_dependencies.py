@@ -356,3 +356,196 @@ def test_canonical_rule_valid_identified_credits_satisfy_valid_threshold():
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_SATISFIED"
     assert finding.metadata["satisfied_prerequisites"] == ("degree-credits",)
+
+
+# ── V7-B3: dependency credit evidence must be deduplicated by canonical ─────
+# ── identity; contradictory same-identity evidence must not establish ──────
+# ── a definitive credit threshold. ──────────────────────────────────────────
+
+
+def test_duplicate_same_identity_credit_counts_once():
+    """Two compatible completed records for the same credit identity count the
+    identity once, never twice."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("credit-x", "completed", ects=90),
+                _academic_record("credit-x", "completed", ects=90),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    threshold = finding.metadata["credit_thresholds"]["degree-credits"]
+    assert threshold["completed"] == 90
+    assert threshold["status"] == "open"
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+def test_contradictory_same_identity_credit_blocks_threshold():
+    """A contradictory same-identity credit (completed + failed) must not
+    establish a definitive threshold; evidence is unknown."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("credit-x", "completed", ects=180),
+                _academic_record("credit-x", "failed", ects=180),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["credit_evidence_unknown"] is True
+    threshold = finding.metadata["credit_thresholds"]["degree-credits"]
+    assert threshold["status"] == "unknown"
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+def test_same_identity_conflicting_credit_amount_fails_closed():
+    """Two compatible completed records for the same identity with different
+    credit amounts cannot be summed or arbitrarily chosen."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("credit-x", "completed", ects=90),
+                _academic_record("credit-x", "completed", ects=120),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["credit_evidence_unknown"] is True
+    threshold = finding.metadata["credit_thresholds"]["degree-credits"]
+    assert threshold["status"] == "unknown"
+
+
+def test_distinct_identities_still_sum():
+    """Two distinct earned credit identities still sum toward the threshold."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("credit-a", "completed", ects=90),
+                _academic_record("credit-b", "completed", ects=90),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    threshold = finding.metadata["credit_thresholds"]["degree-credits"]
+    assert threshold["completed"] == 180
+    assert finding.metadata["satisfied_prerequisites"] == ("degree-credits",)
+
+
+def test_six_distinct_30_ects_remains_satisfied():
+    """Positive regression: six distinct subjects × 30 ECTS still satisfies a
+    180 threshold."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": tuple(
+                _academic_record(f"subject-{index}", "completed", ects=30)
+                for index in range(6)
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["satisfied_prerequisites"] == ("degree-credits",)
+
+
+def test_identityless_credits_still_cannot_satisfy():
+    """Positive regression: identityless credit records still cannot establish
+    a satisfied threshold."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                {
+                    "status": "completed",
+                    "ects": 180,
+                    "grounded": True,
+                    "source_reference": "official-credit-record",
+                    "temporal": "valid",
+                },
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+# ── V7-B4: malformed collection-shaped metadata must not leak TypeError; ─────
+# ── the rule must degrade to a conservative blocked/unknown result. ───────────
+
+
+def test_canonical_rule_scalar_prerequisites_collection_does_not_crash():
+    """A scalar ``prerequisites`` value must not raise TypeError and must not
+    fabricate a satisfied dependency."""
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": 7,
+        }
+    )
+    assert result.status is not None
+    assert result.findings
+
+
+def test_canonical_rule_scalar_academic_records_collection_does_not_crash():
+    """A scalar ``academic_records`` value must not raise TypeError."""
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": ({"id": "subj-1", "kind": "subject"},),
+            "academic_records": 7,
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"

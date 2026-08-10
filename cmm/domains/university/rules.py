@@ -1730,6 +1730,110 @@ def evaluate_academic_workload(
     }
 
 
+def _resolve_dependency_credit_evidence(records: tuple) -> dict:
+    """Resolve academic records into deterministic earned-credit evidence,
+    grouping by canonical credit identity (spec §§13–18).
+
+    A canonical identity is counted at most once with a single deterministic
+    amount.  Compatible duplicate evidence counts the identity once — never
+    twice.  A contradictory identity (earned + failed) or an amount conflict on
+    the same identity keeps the evidence unknown rather than fabricating a
+    satisfied threshold.  Identityless records cannot establish earned credits.
+    """
+    by_identity: dict[str, list[Mapping]] = {}
+    identityless = False
+    for index, record in enumerate(records):
+        if not isinstance(record, Mapping):
+            identityless = True
+            continue
+        identity = _usable_reference(
+            record.get("subject_id") or record.get("credit_id") or record.get("id")
+        )
+        if identity is None:
+            identityless = True
+            continue
+        by_identity.setdefault(identity, []).append(record)
+
+    completed_credits = 0
+    pending_credits = 0
+    credit_evidence_unknown = False
+    unknown_identities: set[str] = set()
+    contradictory_identities: set[str] = set()
+    amount_conflict_identities: set[str] = set()
+
+    for identity, group in sorted(by_identity.items()):
+        validated: list[dict] = []
+        has_unknown = False
+        for record in group:
+            grounded = bool(record.get("grounded")) and bool(
+                _usable_reference(
+                    record.get("source_reference") or record.get("source_ref")
+                )
+            )
+            current = (
+                _normalize_temporal(record.get("temporal"))
+                in _CURRENT_TEMPORAL_STATES
+            )
+            amount_i = _parse_ects_integer(
+                record.get("ects", record.get("credit_amount", 0))
+            )
+            state = str(record.get("status", record.get("state", "unknown")))
+            if not grounded or not current or amount_i is None:
+                has_unknown = True
+                continue
+            validated.append({"state": state, "amount": amount_i})
+        if has_unknown:
+            credit_evidence_unknown = True
+            unknown_identities.add(identity)
+            continue
+        if not validated:
+            continue
+        states = {entry["state"] for entry in validated}
+        earned = states & {"completed", "passed", "recognized"}
+        failed = states & {"failed", "not_completed"}
+        if earned and failed:
+            credit_evidence_unknown = True
+            contradictory_identities.add(identity)
+            continue
+        earned_amounts = [
+            entry["amount"]
+            for entry in validated
+            if entry["state"] in {"completed", "passed", "recognized"}
+        ]
+        if earned_amounts:
+            if len(set(earned_amounts)) != 1:
+                credit_evidence_unknown = True
+                amount_conflict_identities.add(identity)
+                continue
+            completed_credits += earned_amounts[0]
+            continue
+        pending_amounts = [
+            entry["amount"]
+            for entry in validated
+            if entry["state"] == "pending_recognition"
+        ]
+        if pending_amounts:
+            if len(set(pending_amounts)) != 1:
+                credit_evidence_unknown = True
+                amount_conflict_identities.add(identity)
+                continue
+            pending_credits += pending_amounts[0]
+            continue
+        if states <= {"failed", "not_completed"}:
+            continue
+        credit_evidence_unknown = True
+        unknown_identities.add(identity)
+
+    return {
+        "completed_credits": completed_credits,
+        "pending_credits": pending_credits,
+        "credit_evidence_unknown": credit_evidence_unknown or identityless,
+        "unknown_credit_identities": tuple(sorted(unknown_identities)),
+        "contradictory_credit_identities": tuple(sorted(contradictory_identities)),
+        "amount_conflict_credit_identities": tuple(sorted(amount_conflict_identities)),
+    }
+
+
 def evaluate_academic_dependency(
     *,
     subject_id: str,
@@ -1748,44 +1852,22 @@ def evaluate_academic_dependency(
     """
     if derive_from_academic_state:
         records_by_subject: dict[str, list[Mapping]] = {}
-        completed_credits = 0
-        pending_credits = 0
-        credit_evidence_unknown = False
         for record in academic_records:
             if not isinstance(record, Mapping):
-                credit_evidence_unknown = True
                 continue
             record_id = _usable_reference(
                 record.get("subject_id")
                 or record.get("credit_id")
                 or record.get("id")
             )
-            state = str(record.get("status", record.get("state", "unknown")))
-            grounded = bool(record.get("grounded")) and bool(
-                _usable_reference(
-                    record.get("source_reference") or record.get("source_ref")
-                )
-            )
-            current = (
-                _normalize_temporal(record.get("temporal"))
-                in _CURRENT_TEMPORAL_STATES
-            )
             if record_id is not None:
                 records_by_subject.setdefault(record_id, []).append(record)
-            amount = record.get("ects", record.get("credit_amount", 0))
-            amount_i = _parse_ects_integer(amount)
-            if record_id is None:
-                credit_evidence_unknown = True
-                continue
-            if not grounded or not current or amount_i is None:
-                credit_evidence_unknown = True
-                continue
-            if state in {"completed", "passed", "recognized"}:
-                completed_credits += amount_i
-            elif state == "pending_recognition":
-                pending_credits += amount_i
-            elif state not in {"failed", "not_completed"}:
-                credit_evidence_unknown = True
+        credit_evidence = _resolve_dependency_credit_evidence(
+            tuple(academic_records)
+        )
+        completed_credits = credit_evidence["completed_credits"]
+        pending_credits = credit_evidence["pending_credits"]
+        credit_evidence_unknown = credit_evidence["credit_evidence_unknown"]
 
         satisfied: list[str] = []
         open_prereqs: list[str] = []
@@ -1878,6 +1960,15 @@ def evaluate_academic_dependency(
             "anonymous_prerequisite_count": anonymous_prerequisite_count,
             "credit_thresholds": credit_thresholds,
             "credit_evidence_unknown": credit_evidence_unknown,
+            "unknown_credit_identities": credit_evidence[
+                "unknown_credit_identities"
+            ],
+            "contradictory_credit_identities": credit_evidence[
+                "contradictory_credit_identities"
+            ],
+            "amount_conflict_credit_identities": credit_evidence[
+                "amount_conflict_credit_identities"
+            ],
             "dependency_blocked": bool(
                 blocked_ids or anonymous_prerequisite_count
             ),
@@ -1974,6 +2065,7 @@ def evaluate_academic_integrity(
     restriction_grounded = False
     restriction_applies = False
     restriction_scope: tuple[str, ...] = ()
+    scope_applicability: str | None = None
     if isinstance(grounded_restriction, Mapping):
         status = grounded_restriction.get("status")
         grounded = bool(grounded_restriction.get("grounded"))
@@ -2001,22 +2093,21 @@ def evaluate_academic_integrity(
             assessment_scope = _usable_reference(
                 grounded_restriction.get("assessment")
             )
-            scope_matches = (
-                (course_scope is None or current_course is None or course_scope == current_course)
-                and (
-                    assessment_scope is None
-                    or current_assessment is None
-                    or assessment_scope == current_assessment
+            # Exact-scope fail-closed invariant: a scoped restriction applies
+            # only when its required scope is actually established.  An unknown
+            # current scope is NOT a matching scope.  Only a genuinely global
+            # restriction (no course/assessment scope) applies without a
+            # current scope.
+            scope_matches = True
+            if course_scope is not None:
+                scope_matches = (
+                    current_course is not None and course_scope == current_course
                 )
-            )
-            if current_course is not None and course_scope is not None and course_scope != current_course:
-                scope_matches = False
-            if (
-                current_assessment is not None
-                and assessment_scope is not None
-                and assessment_scope != current_assessment
-            ):
-                scope_matches = False
+            if assessment_scope is not None and scope_matches:
+                scope_matches = (
+                    current_assessment is not None
+                    and assessment_scope == current_assessment
+                )
             ambiguous = bool(grounded_restriction.get("ambiguous"))
             prohibited_actions = _normalize_references(
                 grounded_restriction.get("prohibited_actions")
@@ -2033,6 +2124,20 @@ def evaluate_academic_integrity(
                     and requested_action in prohibited_actions
                     and requested_action not in allowed_actions
                 )
+            # Diagnostic: distinguish an unresolved scope (unknown current
+            # scope) from a matched scope and a mismatched scope.  An unresolved
+            # scope is never authority to apply a restriction.
+            scope_applicability = "matched"
+            if course_scope is not None:
+                if current_course is None:
+                    scope_applicability = "unresolved"
+                elif course_scope != current_course:
+                    scope_applicability = "mismatched"
+            if assessment_scope is not None and scope_applicability == "matched":
+                if current_assessment is None:
+                    scope_applicability = "unresolved"
+                elif assessment_scope != current_assessment:
+                    scope_applicability = "mismatched"
 
     remembered_not_official = bool(
         remembered_restriction
@@ -2058,6 +2163,7 @@ def evaluate_academic_integrity(
         "requested_action": requested_action,
         "caller_forbidden_ignored": caller_forbidden and assistance_permitted,
         "remembered_not_official": remembered_not_official,
+        "scope_applicability": scope_applicability,
         "reason": (
             "Assistance permitted by default under Mode C; no applicable "
             "grounded restriction."
@@ -2701,13 +2807,20 @@ class AcademicDeadlineRule:
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
         deadline = _mapping(context.metadata, "deadline")
+        # Effective decision-criticality is resolved once and shared by the
+        # grounding classification, the verification trigger, and finding
+        # metadata.  A context-level ``deadline_decision_critical`` /
+        # ``deadline_required`` signal is NOT optional payload detail: it
+        # propagates even when a deadline payload carries no ``critical``.
+        context_critical = bool(
+            context.metadata.get("deadline_decision_critical")
+            or context.metadata.get("deadline_required")
+        )
         if deadline is None:
-            if context.metadata.get("deadline_required") or context.metadata.get(
-                "deadline_decision_critical"
-            ):
+            if context_critical:
                 verification_need = conditional_verification_trigger(
                     fact_state="missing",
-                    decision_critical=True,
+                    decision_critical=context_critical,
                     attribute="deadline",
                 )
                 finding = ReasoningFinding(
@@ -2741,15 +2854,30 @@ class AcademicDeadlineRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No deadline metadata supplied.",
             )
+        effective_critical = context_critical or bool(deadline.get("critical"))
         record = classify_deadline_grounding(
-            deadline=deadline, critical=bool(deadline.get("critical"))
+            deadline=deadline, critical=effective_critical
         )
         verification_need = conditional_verification_trigger(
             fact_state=record["state"],
-            decision_critical=bool(deadline.get("critical")),
+            decision_critical=effective_critical,
             attribute="deadline",
             scope=deadline.get("scope"),
         )
+        source_reference = _reference_from(
+            deadline, "source_reference", "source_ref"
+        )
+        references = (source_reference,) if source_reference is not None else ()
+        evidence_metadata = {
+            "state": record["state"],
+            "confirmed": record["confirmed"],
+            "verification_needed": record["verification_needed"],
+            "verification_need": verification_need,
+            "critical": effective_critical,
+            "source_class": _normalize_source_class(deadline.get("source_class")),
+            "temporal": _normalize_temporal(deadline.get("temporal")),
+            "provenance": _normalize_provenance(deadline.get("provenance")),
+        }
         if record["verification_needed"]:
             finding = ReasoningFinding(
                 code="DEADLINE_VERIFICATION_NEEDED",
@@ -2760,12 +2888,8 @@ class AcademicDeadlineRule:
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
-                metadata={
-                    "state": record["state"],
-                    "confirmed": record["confirmed"],
-                    "verification_needed": True,
-                    "verification_need": verification_need,
-                },
+                references=references,
+                metadata=evidence_metadata,
             )
             return _result(
                 self.definition,
@@ -2784,12 +2908,8 @@ class AcademicDeadlineRule:
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
-            metadata={
-                "state": record["state"],
-                "confirmed": record["confirmed"],
-                "verification_needed": False,
-                "verification_need": verification_need,
-            },
+            references=references,
+            metadata=evidence_metadata,
         )
         return _result(
             self.definition,
@@ -2836,7 +2956,7 @@ class EctsConsistencyRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No ECTS metadata supplied.",
             )
-        records = tuple(ects.get("records", ()) or ())
+        records = tuple(_seq(ects, "records") or ())
         degree_requirement = ects.get("degree_requirement")
         record = check_ects_consistency(
             completed=_parse_ects_integer(ects.get("completed", 0)) or 0,
@@ -2851,8 +2971,8 @@ class EctsConsistencyRule:
                 if ects.get("required") is not None
                 else None
             ),
-            double_counted=tuple(ects.get("double_counted", ())),
-            contradictory=tuple(ects.get("contradictory", ())),
+            double_counted=tuple(_seq(ects, "double_counted") or ()),
+            contradictory=tuple(_seq(ects, "contradictory") or ()),
             critical_requirement_uncertain=bool(
                 ects.get("critical_requirement_uncertain")
             ),
@@ -2993,7 +3113,7 @@ class ExamAttemptRule:
                 message="No exam attempt metadata supplied.",
             )
         record = evaluate_exam_attempt(
-            attempts=tuple(attempt.get("attempts", ())),
+            attempts=tuple(_seq(attempt, "attempts") or ()),
             max_attempts=attempt.get("max_attempts"),
             regulation=attempt.get("regulation"),
             require_complete_evidence=True,
@@ -3117,10 +3237,10 @@ class AcademicWorkloadRule:
             total_ect=total_ect if total_ect is not None else 0,
             full_time_ect=full_time_ect if full_time_ect is not None else 30,
             health_constraint=workload.get("health_constraint"),
-            hard_constraints=tuple(workload.get("hard_constraints", ())),
-            preferences=tuple(workload.get("preferences", ())),
+            hard_constraints=tuple(_seq(workload, "hard_constraints") or ()),
+            preferences=tuple(_seq(workload, "preferences") or ()),
             selected_scenario=workload.get("selected_scenario"),
-            scenarios=tuple(workload.get("scenarios", ()) or ()),
+            scenarios=tuple(_seq(workload, "scenarios") or ()),
             derive_from_facts=True,
         )
         if numeric_metadata_unknown:
@@ -3235,8 +3355,8 @@ class AcademicDependencyRule:
             )
         record = evaluate_academic_dependency(
             subject_id=str(dependency.get("subject_id", "unknown")),
-            dependencies=tuple(dependency.get("prerequisites", ()) or ()),
-            academic_records=tuple(dependency.get("academic_records", ()) or ()),
+            dependencies=tuple(_seq(dependency, "prerequisites") or ()),
+            academic_records=tuple(_seq(dependency, "academic_records") or ()),
             derive_from_academic_state=True,
         )
         blocked_ids = tuple(
@@ -3400,12 +3520,47 @@ class AcademicIntegrityRule:
             if resolved["restriction_grounded"]
             else "INTEGRITY_MODE_PRESERVED"
         )
+        restriction_evidence = (
+            integrity.get("grounded_restriction")
+            if isinstance(integrity.get("grounded_restriction"), Mapping)
+            else None
+        )
+        evidence_metadata = {
+            "restriction_source_class": (
+                restriction_evidence.get("source_class")
+                if restriction_evidence is not None
+                else None
+            ),
+            "restriction_temporal": (
+                restriction_evidence.get("temporal")
+                if restriction_evidence is not None
+                else None
+            ),
+            "restriction_provenance": (
+                restriction_evidence.get("provenance")
+                if restriction_evidence is not None
+                else None
+            ),
+            "restriction_source_reference": _reference_from(
+                restriction_evidence,
+                "source_reference",
+                "source_ref",
+            )
+            if restriction_evidence is not None
+            else None,
+        }
+        references = (
+            (evidence_metadata["restriction_source_reference"],)
+            if evidence_metadata["restriction_source_reference"] is not None
+            else ()
+        )
         finding = ReasoningFinding(
             code=code,
             message=resolved["reason"],
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
+            references=references,
             metadata={
                 "mode": resolved["mode"],
                 "assistance_permitted": resolved["assistance_permitted"],
@@ -3416,6 +3571,7 @@ class AcademicIntegrityRule:
                 "current_assessment": resolved["current_assessment"],
                 "requested_action": resolved["requested_action"],
                 "caller_forbidden_ignored": resolved["caller_forbidden_ignored"],
+                **evidence_metadata,
             },
         )
         return _result(

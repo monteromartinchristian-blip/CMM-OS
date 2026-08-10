@@ -256,3 +256,125 @@ def test_canonical_rule_unreferenced_official_restriction_cannot_prohibit(
     assert finding.metadata["restriction_grounded"] is False
     assert finding.metadata["restriction_applies"] is False
     assert finding.metadata["assistance_permitted"] is True
+
+
+# ── V7-B2: exact-scope fail-closed ───────────────────────────────────────────
+# A scoped restriction applies only when its required scope is actually
+# established.  Unknown current scope is NOT a matching scope.
+
+
+def test_course_scoped_restriction_does_not_apply_when_course_unknown():
+    """A course-scoped restriction with an unknown current course must not
+    prohibit (applicability is unresolved, not matching)."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["assistance_permitted"] is True
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["restriction_grounded"] is True
+
+
+def test_assessment_scoped_restriction_does_not_apply_when_assessment_unknown():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["assistance_permitted"] is True
+    assert finding.metadata["restriction_applies"] is False
+
+
+def test_course_and_assessment_scoped_restriction_needs_both_scopes():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+
+
+def test_exact_scope_match_still_applies():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_applies"] is True
+    assert finding.metadata["assistance_permitted"] is False
+
+
+def test_mismatched_scope_remains_non_applicable():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-y",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+
+
+def test_unscoped_general_restriction_may_apply_without_current_course():
+    """A genuinely global restriction (no course/assessment scope) may apply
+    even when no current course is supplied."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(
+                course=None,
+                assessment=None,
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is True
+    assert finding.metadata["restriction_applies"] is True
+    assert finding.metadata["assistance_permitted"] is False
+
+
+# ── Optional V7 cleanup: restrictor source/temporal evidence is preserved in ──
+# ── the finding so the epistemic basis of the restriction is not lost. ────────
+
+
+def test_finding_preserves_restriction_source_and_temporal_evidence():
+    """The integrity finding carries the grounded restriction's source_class,
+    temporal and source_reference so the epistemic basis is auditable."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "INTEGRITY_RESTRICTION_APPLIED"
+    assert finding.metadata["restriction_source_class"] == "official_regulation"
+    assert finding.metadata["restriction_temporal"] == "current"
+    assert (
+        finding.metadata["restriction_source_reference"]
+        == "integrity-regulation-1"
+    )
+    assert "integrity-regulation-1" in finding.references

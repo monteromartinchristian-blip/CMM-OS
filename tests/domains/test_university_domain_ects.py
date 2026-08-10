@@ -417,3 +417,32 @@ def test_canonical_rule_malformed_legacy_aggregates_without_structure_fail_close
     assert finding.code == "ECTS_COMPLETION_BLOCKED"
     assert finding.metadata["required_known"] is False
     assert finding.metadata["satisfied"] is False
+
+
+# ── V7-B4: malformed collection-shaped metadata must not leak TypeError; ─────
+# ── the rule must degrade to a conservative blocked/unknown result. ───────────
+
+
+def test_canonical_rule_scalar_records_collection_does_not_crash():
+    """A scalar ``records`` value (not a list/tuple) must not raise TypeError."""
+    result = _canonical_result(records=7, required=180)
+    assert result.status is not None
+    finding = result.findings[0]
+    assert finding.code in ("ECTS_COMPLETION_BLOCKED", "ECTS_REQUIREMENT_SATISFIED")
+    assert finding.metadata["satisfied"] is False
+
+
+def test_canonical_rule_scalar_double_counted_collection_does_not_crash():
+    """A scalar ``double_counted`` value must not raise TypeError."""
+    result = _canonical_result(required=180, double_counted=7)
+    assert result.status is not None
+    finding = result.findings[0]
+    assert finding.metadata["satisfied"] is False
+
+
+def test_canonical_rule_scalar_contradictory_collection_does_not_crash():
+    """A scalar ``contradictory`` value must not raise TypeError."""
+    result = _canonical_result(required=180, contradictory=7)
+    assert result.status is not None
+    finding = result.findings[0]
+    assert finding.metadata["satisfied"] is False

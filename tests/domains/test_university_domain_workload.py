@@ -296,3 +296,28 @@ def test_canonical_rule_incomplete_preference_ranking_is_order_invariant():
     finding = result.findings[0]
     assert finding.metadata["ranking"] == ()
     assert finding.metadata["ranking_incomplete"] is True
+
+
+# ── V7-B4: malformed collection-shaped metadata must not leak TypeError; ─────
+# ── the rule must degrade to a conservative result. ───────────────────────────
+
+
+def test_canonical_rule_scalar_hard_constraints_collection_does_not_crash():
+    """A scalar ``hard_constraints`` value must not raise TypeError."""
+    result = _canonical_result({"hard_constraints": 7, "total_ect": 30})
+    assert result.status is not None
+    assert result.findings
+
+
+def test_canonical_rule_scalar_preferences_collection_does_not_crash():
+    """A scalar ``preferences`` value must not raise TypeError."""
+    result = _canonical_result({"preferences": 7, "total_ect": 30})
+    assert result.status is not None
+    assert result.findings
+
+
+def test_canonical_rule_scalar_scenarios_collection_does_not_crash():
+    """A scalar ``scenarios`` value must not raise TypeError."""
+    result = _canonical_result({"scenarios": 7, "total_ect": 30})
+    assert result.status is not None
+    assert result.findings
