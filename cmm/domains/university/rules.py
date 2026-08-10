@@ -378,15 +378,58 @@ def _source_rank(source: Mapping, attribute: str) -> int:
         return 0
 
 
+def _value_missing(value: Any) -> bool:
+    """Return whether an authoritative fact value is absent.
+
+    Only ``None`` and blank strings are missing.  Numeric zero and ``False``
+    remain valid factual values.
+    """
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 def _values_compatible(left: Any, right: Any) -> bool:
     """Return whether two present claim values are exactly compatible."""
-    if left is None or right is None:
-        return False
-    if isinstance(left, str) and not left.strip():
-        return False
-    if isinstance(right, str) and not right.strip():
-        return False
-    return left == right
+    return not _value_missing(left) and not _value_missing(right) and left == right
+
+
+def _valid_supersession(candidate: Mapping, target: Mapping) -> bool:
+    """Return whether a claimed replacement can affect current authority.
+
+    A ``supersedes`` declaration is only a claimed relationship.  It takes
+    effect when both source records are grounded, currently applicable,
+    referenceable, scope-compatible, and the replacing source has at least the
+    target's attribute-specific authority.  The declared relation supplies the
+    version sequence; this helper does not infer one from observation order.
+    """
+    candidate_scope = candidate["scope"]
+    target_scope = target["scope"]
+    return bool(
+        candidate["source_id"]
+        and target["source_id"]
+        and candidate["source_id"] != target["source_id"]
+        and candidate["grounded"]
+        and target["grounded"]
+        and candidate["current"]
+        and (
+            target["current"]
+            or target["temporal"] == TEMPORAL_UNKNOWN
+        )
+        and candidate["rank"] > 0
+        and target["rank"] > 0
+        and (
+            candidate_scope is None
+            or target_scope is None
+            or candidate_scope == target_scope
+        )
+        and (
+            candidate["rank"] > target["rank"]
+            or (
+                candidate["rank"] == target["rank"]
+                and _SPECIFICITY_RANK[candidate["specificity"]]
+                >= _SPECIFICITY_RANK[target["specificity"]]
+            )
+        )
+    )
 
 
 def classify_academic_source_authority(
@@ -425,7 +468,7 @@ def classify_academic_source_authority(
         rank = _source_rank(source, attribute)
         evaluated.append(
             {
-                "source_id": source.get("source_id"),
+                "source_id": _usable_reference(source.get("source_id")),
                 "source_class": source_class,
                 "provenance": provenance,
                 "temporal": temporal,
@@ -441,7 +484,20 @@ def classify_academic_source_authority(
         )
 
     # Only grounded, currently-valid sources can carry current authority.
-    candidates = [e for e in evaluated if e["grounded"] and e["current"] and e["rank"] > 0]
+    candidates = [
+        evaluated
+        for evaluated in evaluated
+        if evaluated["grounded"] and evaluated["current"] and evaluated["rank"] > 0
+    ]
+    unresolved_temporal = [
+        evaluated
+        for evaluated in evaluated
+        if (
+            evaluated["grounded"]
+            and evaluated["temporal"] == TEMPORAL_UNKNOWN
+            and evaluated["rank"] > 0
+        )
+    ]
     if not candidates:
         return {
             "attribute": attribute,
@@ -449,6 +505,8 @@ def classify_academic_source_authority(
             "authoritative_source_id": None,
             "authority_class": None,
             "authoritative_value": None,
+            "fact_value_known": False,
+            "fact_resolved": False,
             "supporting_source_ids": (),
             "matched_sources": tuple(evaluated),
             "superseded_sources": (),
@@ -457,18 +515,29 @@ def classify_academic_source_authority(
             "reason": "no_grounded_current_authority",
         }
 
-    # Apply supersession: a candidate that is superseded by another grounded
-    # current candidate is demoted to history (not the current authority).
+    # Normalize both source representations into the same claimed replacement
+    # relation, then validate it before any candidate is demoted to history.
     superseded_ids: set[str] = set()
+    supersession_candidates = (*candidates, *unresolved_temporal)
+    by_source_id = {
+        candidate["source_id"]: candidate
+        for candidate in supersession_candidates
+        if candidate["source_id"] is not None
+    }
     for candidate in candidates:
         for target in candidate["supersedes"]:
-            targeting = [
-                e
-                for e in candidates
-                if e["source_id"] == target
-            ]
-            if targeting:
+            target_candidate = by_source_id.get(target)
+            if (
+                target_candidate is not None
+                and _valid_supersession(candidate, target_candidate)
+            ):
                 superseded_ids.add(target)
+        for target in supersession_candidates:
+            if (
+                candidate["source_id"] in target["superseded_by"]
+                and _valid_supersession(candidate, target)
+            ):
+                superseded_ids.add(target["source_id"])
 
     active = [e for e in candidates if e["source_id"] not in superseded_ids]
     if not active:
@@ -483,6 +552,43 @@ def classify_academic_source_authority(
         for e in best
         if _SPECIFICITY_RANK[e["specificity"]] == best_specificity
     ]
+
+    # Unknown temporality is not known non-current.  A grounded unknown source
+    # that could outrank the selected value (or tie it at the same specificity)
+    # keeps the present fact unresolved unless validated supersession demoted it.
+    potentially_current_unknown = [
+        candidate
+        for candidate in unresolved_temporal
+        if candidate["source_id"] not in superseded_ids
+        and (
+            candidate["rank"] > best_rank
+            or (
+                candidate["rank"] == best_rank
+                and _SPECIFICITY_RANK[candidate["specificity"]]
+                >= best_specificity
+            )
+        )
+        and any(
+            not _values_compatible(candidate["value"], current["value"])
+            for current in top
+        )
+    ]
+    if potentially_current_unknown:
+        return {
+            "attribute": attribute,
+            "authority_resolved": False,
+            "authoritative_source_id": None,
+            "authority_class": None,
+            "authoritative_value": None,
+            "fact_value_known": False,
+            "fact_resolved": False,
+            "supporting_source_ids": (),
+            "matched_sources": tuple(evaluated),
+            "superseded_sources": tuple(sorted(superseded_ids)),
+            "authority_unknown": True,
+            "conflict": True,
+            "reason": "temporal_authority_unresolved",
+        }
 
     if len(top) > 1:
         top_values = [candidate["value"] for candidate in top]
@@ -503,6 +609,8 @@ def classify_academic_source_authority(
                 "authoritative_source_id": None,
                 "authority_class": None,
                 "authoritative_value": top_values[0],
+                "fact_value_known": True,
+                "fact_resolved": True,
                 "supporting_source_ids": supporting_source_ids,
                 "matched_sources": tuple(evaluated),
                 "superseded_sources": tuple(sorted(superseded_ids)),
@@ -517,6 +625,8 @@ def classify_academic_source_authority(
             "authoritative_source_id": None,
             "authority_class": None,
             "authoritative_value": None,
+            "fact_value_known": False,
+            "fact_resolved": False,
             "supporting_source_ids": (),
             "matched_sources": tuple(evaluated),
             "superseded_sources": tuple(sorted(superseded_ids)),
@@ -526,12 +636,15 @@ def classify_academic_source_authority(
         }
 
     winner = top[0]
+    fact_value_known = not _value_missing(winner["value"])
     return {
         "attribute": attribute,
         "authority_resolved": True,
         "authoritative_source_id": winner["source_id"],
         "authority_class": winner["source_class"],
         "authoritative_value": winner["value"],
+        "fact_value_known": fact_value_known,
+        "fact_resolved": fact_value_known,
         "supporting_source_ids": (
             (_usable_reference(winner["source_id"]),)
             if _usable_reference(winner["source_id"]) is not None
@@ -668,6 +781,38 @@ def _claim_scope(claim: Mapping) -> str | None:
     return scope if isinstance(scope, str) and scope.strip() else None
 
 
+def _scope_matches(claim: Mapping, effective_scope: str | None) -> bool:
+    """Return whether a claim applies to an effective resolution scope.
+
+    Unscoped evidence retains the existing global applicability semantics and
+    may participate in any scoped resolution.  Scoped claims only participate
+    in their own scope; no new scope hierarchy is inferred.
+    """
+    claim_scope = _claim_scope(claim)
+    return (
+        effective_scope is None
+        or claim_scope is None
+        or claim_scope == effective_scope
+    )
+
+
+def _effective_scopes(
+    claims: tuple[Mapping, ...],
+    requested_scope: str | None = None,
+) -> tuple[str | None, ...]:
+    """Return deterministic resolution scopes without collapsing scoped facts."""
+    if requested_scope is not None:
+        return (requested_scope,)
+    scoped = sorted(
+        {
+            scope
+            for claim in claims
+            if (scope := _claim_scope(claim)) is not None
+        }
+    )
+    return tuple(scoped) if scoped else (None,)
+
+
 def _claim_attribute(claim: Mapping) -> str:
     attribute = _claim_field(claim, "attribute")
     return str(attribute) if isinstance(attribute, str) else "unknown"
@@ -693,6 +838,7 @@ def _claim_source(claim: Mapping) -> Mapping:
         "supplied_attributes": (_claim_attribute(claim),),
         "value": _claim_value(claim),
         "supersedes": claim.get("supersedes"),
+        "superseded_by": claim.get("superseded_by"),
     }
 
 
@@ -764,72 +910,87 @@ def resolve_academic_conflict(
 
     conflicts: list[dict] = []
     superseded_ids: set[str] = set()
-    current_by_attribute: dict[str, Any] = {}
+    current_by_scope: dict[tuple[str, str | None], Any] = {}
     material = False
     unresolved = False
 
     for attribute in sorted(grouped):
         attr_claims = sorted(grouped[attribute], key=_claim_sort_key)
-        relevant_claims = [
-            claim
-            for claim in attr_claims
-            if scope is None
-            or _claim_scope(claim) is None
-            or _claim_scope(claim) == scope
-        ]
-        current_claims = [claim for claim in relevant_claims if _claim_is_current(claim)]
-        conflict_claims = [
-            claim for claim in relevant_claims if _claim_is_temporally_relevant(claim)
-        ]
-        attribute_conflicts: list[dict] = []
+        for effective_scope in _effective_scopes(attr_claims, scope):
+            relevant_claims = [
+                claim
+                for claim in attr_claims
+                if _scope_matches(claim, effective_scope)
+            ]
+            conflict_claims = [
+                claim
+                for claim in relevant_claims
+                if _claim_is_temporally_relevant(claim)
+            ]
+            scope_conflicts: list[dict] = []
 
-        # Collect all temporally relevant, overlapping incompatible evidence
-        # first. No current value is selected during pair iteration.
-        for i, left in enumerate(conflict_claims):
-            for right in conflict_claims[i + 1 :]:
-                left_scope = _claim_scope(left)
-                right_scope = _claim_scope(right)
-                if (
-                    left_scope is not None
-                    and right_scope is not None
-                    and left_scope != right_scope
-                ):
-                    continue
-                if not _incompatible(_claim_value(left), _claim_value(right)):
-                    continue
-                attribute_conflicts.append(
-                    {
-                        "attribute": attribute,
-                        "left_id": left.get("id"),
-                        "right_id": right.get("id"),
-                        "left_value": _claim_value(left),
-                        "right_value": _claim_value(right),
-                    }
+            # Collect all temporally relevant, overlapping incompatible evidence
+            # first. No current value is selected during pair iteration.
+            for i, left in enumerate(conflict_claims):
+                for right in conflict_claims[i + 1 :]:
+                    left_scope = _claim_scope(left)
+                    right_scope = _claim_scope(right)
+                    if (
+                        left_scope is not None
+                        and right_scope is not None
+                        and left_scope != right_scope
+                    ):
+                        continue
+                    if not _incompatible(_claim_value(left), _claim_value(right)):
+                        continue
+                    scope_conflicts.append(
+                        {
+                            "attribute": attribute,
+                            "scope": effective_scope,
+                            "left_id": left.get("id"),
+                            "right_id": right.get("id"),
+                            "left_value": _claim_value(left),
+                            "right_value": _claim_value(right),
+                        }
+                    )
+                    if _claim_critical(left) or _claim_critical(right):
+                        material = True
+
+            conflicts.extend(scope_conflicts)
+            authority = classify_academic_source_authority(
+                attribute=attribute,
+                sources=tuple(_claim_source(claim) for claim in relevant_claims),
+                scope=effective_scope,
+            )
+            superseded_ids.update(authority["superseded_sources"])
+            if authority["authority_resolved"]:
+                current_by_scope[(attribute, effective_scope)] = authority.get(
+                    "authoritative_value"
                 )
-                if _claim_critical(left) or _claim_critical(right):
-                    material = True
-
-        conflicts.extend(attribute_conflicts)
-        authority = classify_academic_source_authority(
-            attribute=attribute,
-            sources=tuple(_claim_source(claim) for claim in current_claims),
-            scope=scope,
-        )
-        superseded_ids.update(authority["superseded_sources"])
-        if authority["authority_resolved"]:
-            current_by_attribute[attribute] = authority.get("authoritative_value")
-        elif attribute_conflicts:
-            unresolved = True
+            elif scope_conflicts:
+                unresolved = True
 
     resolved = not unresolved
     blocked = bool(conflicts) and unresolved and material
     conflicts.sort(
         key=lambda conflict: (
             str(conflict["attribute"]),
+            str(conflict.get("scope") or ""),
             str(conflict["left_id"]),
             str(conflict["right_id"]),
             repr(conflict["left_value"]),
             repr(conflict["right_value"]),
+        )
+    )
+    current_values_by_scope = tuple(
+        {
+            "attribute": attribute,
+            "scope": effective_scope,
+            "value": value,
+        }
+        for (attribute, effective_scope), value in sorted(
+            current_by_scope.items(),
+            key=lambda item: (item[0][0], item[0][1] or ""),
         )
     )
 
@@ -839,7 +1000,12 @@ def resolve_academic_conflict(
         "unresolved": bool(conflicts) and unresolved,
         "material": material,
         "blocked": blocked,
-        "current_value": _first_current(current_by_attribute),
+        "current_value": (
+            current_values_by_scope[0]["value"]
+            if len(current_values_by_scope) == 1
+            else None
+        ),
+        "current_values_by_scope": current_values_by_scope,
         "superseded_claims": tuple(sorted(superseded_ids)),
         "conflicts": tuple(conflicts),
     }
@@ -907,7 +1073,17 @@ def check_ects_consistency(
             if identity is None:
                 unknown_records.append(record_ref)
                 continue
-            if not bool(record.get("grounded")) or _normalize_temporal(record.get("temporal")) not in _CURRENT_TEMPORAL_STATES:
+            source_reference = _reference_from(
+                record,
+                "source_reference",
+                "source_ref",
+            )
+            if (
+                not bool(record.get("grounded"))
+                or source_reference is None
+                or _normalize_temporal(record.get("temporal"))
+                not in _CURRENT_TEMPORAL_STATES
+            ):
                 unknown_records.append(identity)
                 continue
             try:
@@ -944,12 +1120,21 @@ def check_ects_consistency(
         pending_recognition = bucket_totals["pending_recognition"]
 
     requirement_grounded = required is not None
+    requirement_temporal = TEMPORAL_UNKNOWN
     if degree_requirement is not None:
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
         requirement_grounded = bool(degree_requirement.get("grounded"))
         requirement_reference = _usable_reference(
             degree_requirement.get("source_reference")
             or degree_requirement.get("source_ref")
+        )
+        requirement_temporal = _normalize_temporal(
+            degree_requirement.get("temporal")
+        )
+        requirement_grounded = bool(
+            requirement_grounded
+            and requirement_reference is not None
+            and requirement_temporal in _CURRENT_TEMPORAL_STATES
         )
         required = (
             int(candidate)
@@ -1005,6 +1190,7 @@ def check_ects_consistency(
         "required": int(required) if required_known else None,
         "required_known": required_known,
         "requirement_grounded": requirement_grounded,
+        "requirement_temporal": requirement_temporal,
         "credit_state_sufficiently_grounded": credit_state_sufficiently_grounded,
         "double_counted": tuple(double_counted),
         "double_counting": double_counting,
@@ -2139,56 +2325,80 @@ class AcademicSourceAuthorityRule:
             if isinstance(claim, Mapping):
                 by_attribute.setdefault(_claim_attribute(claim), []).append(claim)
 
-        for attribute, attribute_claims in by_attribute.items():
-            authority = classify_academic_source_authority(
-                attribute=attribute,
-                sources=tuple(_claim_source(claim) for claim in attribute_claims),
-                scope=_claim_scope(attribute_claims[0]),
-            )
-            authoritative_id = authority["authoritative_source_id"]
-            authoritative_claim = next(
-                (
+        for attribute in sorted(by_attribute):
+            attribute_claims = by_attribute[attribute]
+            for effective_scope in _effective_scopes(tuple(attribute_claims)):
+                scoped_claims = tuple(
                     claim
                     for claim in attribute_claims
-                    if _usable_reference(claim.get("id")) == authoritative_id
-                ),
-                None,
-            )
-            supporting_source_ids = tuple(authority.get("supporting_source_ids", ()))
-            references = tuple(
-                ref
-                for claim in attribute_claims
-                if (ref := _usable_reference(claim.get("id"))) is not None
-            )
-            historical_ids = tuple(
-                ref
-                for claim in attribute_claims
-                if (ref := _usable_reference(claim.get("id"))) is not None
-                and ref not in supporting_source_ids
-            )
-            decision_critical = any(_claim_critical(claim) for claim in attribute_claims)
-            verification_need = (
-                conditional_verification_trigger(
-                    fact_state=(
-                        "conflicting"
-                        if authority["conflict"]
-                        else "unknown"
+                    if _scope_matches(claim, effective_scope)
+                )
+                authority = classify_academic_source_authority(
+                    attribute=attribute,
+                    sources=tuple(_claim_source(claim) for claim in scoped_claims),
+                    scope=effective_scope,
+                )
+                authoritative_id = authority["authoritative_source_id"]
+                authoritative_claim = next(
+                    (
+                        claim
+                        for claim in scoped_claims
+                        if _usable_reference(claim.get("id")) == authoritative_id
                     ),
-                    decision_critical=decision_critical,
-                    attribute=attribute,
-                    scope=_claim_scope(attribute_claims[0]),
+                    None,
                 )
-                if not authority["authority_resolved"]
-                else conditional_verification_trigger(
-                    fact_state="confirmed_official",
-                    decision_critical=False,
-                    attribute=attribute,
-                    scope=_claim_scope(attribute_claims[0]),
+                supporting_source_ids = tuple(
+                    authority.get("supporting_source_ids", ())
                 )
-            )
-            metadata = {
+                references = tuple(
+                    ref
+                    for claim in scoped_claims
+                    if (ref := _usable_reference(claim.get("id"))) is not None
+                )
+                historical_ids = tuple(
+                    sorted(
+                        ref
+                        for claim in scoped_claims
+                        if (ref := _usable_reference(claim.get("id"))) is not None
+                        and (
+                            ref in authority["superseded_sources"]
+                            or _normalize_temporal(claim.get("temporal"))
+                            == TEMPORAL_EXPIRED
+                        )
+                    )
+                )
+                decision_critical = any(
+                    _claim_critical(claim) for claim in scoped_claims
+                )
+                verification_need = (
+                    conditional_verification_trigger(
+                        fact_state=(
+                            "conflicting"
+                            if authority["conflict"]
+                            else "unknown"
+                        ),
+                        decision_critical=decision_critical,
+                        attribute=attribute,
+                        scope=effective_scope,
+                    )
+                    if not authority["authority_resolved"]
+                    else conditional_verification_trigger(
+                        fact_state="missing",
+                        decision_critical=decision_critical,
+                        attribute=attribute,
+                        scope=effective_scope,
+                    )
+                    if not authority["fact_value_known"]
+                    else conditional_verification_trigger(
+                        fact_state="confirmed_official",
+                        decision_critical=False,
+                        attribute=attribute,
+                        scope=effective_scope,
+                    )
+                )
+                metadata = {
                 "attribute": attribute,
-                "source_type": (
+                    "source_type": (
                     authoritative_claim.get("source_type")
                     if authoritative_claim is not None
                     else next(
@@ -2199,46 +2409,49 @@ class AcademicSourceAuthorityRule:
                         ),
                         SOURCE_AUTHORITY_UNKNOWN,
                     )
-                ),
-                "supplies_attribute": True,
-                "authority_resolved": authority["authority_resolved"],
-                "authority_conflict": authority["conflict"],
-                "authority_unknown": authority["authority_unknown"],
-                "authority_class": authority["authority_class"],
-                "authoritative_source_id": authoritative_id,
-                "authoritative_value": (
+                    ),
+                    "scope": effective_scope,
+                    "supplies_attribute": True,
+                    "authority_resolved": authority["authority_resolved"],
+                    "authority_conflict": authority["conflict"],
+                    "authority_unknown": authority["authority_unknown"],
+                    "authority_class": authority["authority_class"],
+                    "authoritative_source_id": authoritative_id,
+                    "fact_value_known": authority["fact_value_known"],
+                    "fact_resolved": authority["fact_resolved"],
+                    "authoritative_value": (
                     authoritative_claim.get("value")
                     if authoritative_claim is not None
                     else authority.get("authoritative_value")
-                ),
-                "supporting_source_ids": supporting_source_ids,
-                "historical_source_ids": historical_ids,
-                "superseded_source_ids": authority["superseded_sources"],
-                "matched_sources": authority["matched_sources"],
-                "verification_need": verification_need,
-            }
-            findings.append(
-                ReasoningFinding(
-                    code="ATTRIBUTE_AUTHORITY",
-                    message=(
+                    ),
+                    "supporting_source_ids": supporting_source_ids,
+                    "historical_source_ids": historical_ids,
+                    "superseded_source_ids": authority["superseded_sources"],
+                    "matched_sources": authority["matched_sources"],
+                    "verification_need": verification_need,
+                }
+                findings.append(
+                    ReasoningFinding(
+                        code="ATTRIBUTE_AUTHORITY",
+                        message=(
                         f"Attribute {attribute} authority resolved by grounded "
                         "source class, provenance, temporal validity, specificity "
                         "and scope."
                         if authority["authority_resolved"]
                         else f"Authority for attribute {attribute} remains unknown; "
                         "no unsupported source is selected."
-                    ),
-                    severity=(
+                        ),
+                        severity=(
                         ReasoningSeverity.INFO
                         if authority["authority_resolved"]
                         else ReasoningSeverity.WARNING
-                    ),
-                    rule_id=self.definition.id,
-                    domain_id=self.definition.domain_id,
-                    references=references,
-                    metadata=metadata,
+                        ),
+                        rule_id=self.definition.id,
+                        domain_id=self.definition.domain_id,
+                        references=references,
+                        metadata=metadata,
+                    )
                 )
-            )
         return _result(
             self.definition,
             context,

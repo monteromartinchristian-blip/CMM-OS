@@ -197,7 +197,12 @@ def test_canonical_rule_pending_recognition_is_only_conditional():
             _record("subject-complete", 174, "completed"),
             _record("subject-pending", 6, "pending_recognition"),
         ),
-        degree_requirement={"required_ects": 180, "grounded": True, "source_reference": "degree-1"},
+        degree_requirement={
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+            "temporal": "valid",
+        },
     )
     finding = result.findings[0]
     assert finding.metadata["recognized_total"] == 174
@@ -223,9 +228,75 @@ def test_canonical_rule_contradictory_current_credit_states_block_completion():
 def test_canonical_rule_grounded_records_can_confirm_completion():
     result = _canonical_result(
         records=tuple(_record(f"subject-{i}", 30, "completed") for i in range(6)),
-        degree_requirement={"required_ects": 180, "grounded": True, "source_reference": "degree-1"},
+        degree_requirement={
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+            "temporal": "valid",
+        },
     )
     finding = result.findings[0]
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
     assert finding.metadata["recognized_total"] == 180
+
+
+def test_canonical_rule_record_without_source_reference_cannot_confirm_completion():
+    for source in (None, "   "):
+        result = _canonical_result(
+            records=tuple(
+                _record(f"subject-{i}", 30, "completed", source=source)
+                for i in range(6)
+            ),
+            degree_requirement={
+                "required_ects": 180,
+                "grounded": True,
+                "source_reference": "degree-1",
+                "temporal": "valid",
+            },
+        )
+
+        finding = result.findings[0]
+        assert finding.code == "ECTS_COMPLETION_BLOCKED"
+        assert finding.metadata["satisfied"] is False
+        assert finding.metadata["credit_state_sufficiently_grounded"] is False
+        assert finding.metadata["verification_need"]["needed"] is True
+
+
+def test_canonical_rule_noncurrent_or_unknown_requirement_cannot_confirm_completion():
+    records = tuple(_record(f"subject-{i}", 30, "completed") for i in range(6))
+    for temporal in ("expired", "future", "unknown", None):
+        requirement = {
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+        }
+        if temporal is not None:
+            requirement["temporal"] = temporal
+
+        result = _canonical_result(
+            records=records,
+            degree_requirement=requirement,
+        )
+
+        finding = result.findings[0]
+        assert finding.code == "ECTS_COMPLETION_BLOCKED"
+        assert finding.metadata["satisfied"] is False
+        assert finding.metadata["required_known"] is False
+        assert finding.metadata["verification_need"]["needed"] is True
+
+
+def test_canonical_rule_timeless_grounded_requirement_can_confirm_completion():
+    result = _canonical_result(
+        records=tuple(_record(f"subject-{i}", 30, "completed") for i in range(6)),
+        degree_requirement={
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+            "temporal": "timeless",
+        },
+    )
+
+    finding = result.findings[0]
+    assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
+    assert finding.metadata["satisfied"] is True

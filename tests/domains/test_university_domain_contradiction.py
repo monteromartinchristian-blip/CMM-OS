@@ -254,7 +254,11 @@ def _canonical_contradiction_finding(result):
     return next(
         finding
         for finding in result.findings
-        if finding.code in {"CONTRADICTION_STATE", "CONTRADICTION_UNRESOLVED"}
+        if finding.code in {
+            "CONTRADICTION_STATE",
+            "CONTRADICTION_UNRESOLVED",
+            "MATERIAL_CONTRADICTION_UNRESOLVED",
+        }
     )
 
 
@@ -429,3 +433,87 @@ def test_canonical_rule_ignores_caller_unresolved_false():
     right["unresolved"] = False
     result = _canonical_result(left, right)
     assert result.status is ReasoningRuleResultStatus.BLOCKED
+
+
+def test_canonical_rule_preserves_independent_scoped_values_order_invariant():
+    claims = (
+        _claim(
+            "subject-a-call",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+            scope="subject-a",
+        ),
+        _claim(
+            "subject-b-call",
+            attribute="exam_date",
+            value="20",
+            source_class="specific_official_call",
+            specificity="specific",
+            scope="subject-b",
+        ),
+    )
+
+    semantic_results = []
+    for ordered_claims in (claims, tuple(reversed(claims))):
+        finding = _canonical_contradiction_finding(_canonical_result(*ordered_claims))
+        metadata = finding.metadata
+        semantic_results.append(
+            (
+                metadata["contradiction"],
+                metadata["resolved"],
+                metadata["unresolved"],
+                metadata["current_value"],
+                metadata["current_values_by_scope"],
+                metadata["verification_need"]["needed"],
+            )
+        )
+
+    assert semantic_results[0] == semantic_results[1]
+    assert semantic_results[0] == (
+        False,
+        True,
+        False,
+        None,
+        (
+            {"attribute": "exam_date", "scope": "subject-a", "value": "18"},
+            {"attribute": "exam_date", "scope": "subject-b", "value": "20"},
+        ),
+        False,
+    )
+
+
+def test_canonical_rule_unknown_temporal_conflict_remains_unresolved():
+    result = _canonical_result(
+        _claim(
+            "calendar",
+            attribute="exam_date",
+            value="17",
+            source_class="academic_calendar",
+            specificity="general",
+            scope="subject-a",
+            critical=True,
+        ),
+        _claim(
+            "specific-call",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            temporal="unknown",
+            specificity="specific",
+            scope="subject-a",
+            critical=True,
+        ),
+    )
+
+    finding = _canonical_contradiction_finding(result)
+    verification = finding.metadata["verification_need"]
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert finding.metadata["contradiction"] is True
+    assert finding.metadata["resolved"] is False
+    assert finding.metadata["unresolved"] is True
+    assert finding.metadata["current_value"] is None
+    assert verification["needed"] is True
+    assert verification["source_class"] == "official_only"
+    assert verification["read_only"] is True
