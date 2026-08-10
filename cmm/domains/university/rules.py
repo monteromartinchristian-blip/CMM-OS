@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -1031,9 +1032,18 @@ def _parse_ects_integer(value: Any, *, minimum: int = 0) -> int | None:
         return None
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return parsed if parsed >= minimum else None
+
+
+def _parse_non_negative_number(value: Any) -> int | float | None:
+    """Return a finite non-negative numeric value without coercing metadata."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not isfinite(value) or value < 0:
+        return None
+    return value
 
 
 def check_ects_consistency(
@@ -1250,10 +1260,14 @@ def evaluate_exam_attempt(
     canceled = 0
     waived = 0
     failed_grade_not_consumed = False
+    unknown_attempts = 0
 
     regulation_unknown = False
     regulation_stale = False
     regulation_current = False
+    parsed_input_limit = _parse_ects_integer(max_attempts, minimum=1)
+    limit_unknown = max_attempts is not None and parsed_input_limit is None
+    max_attempts = parsed_input_limit
     if isinstance(regulation, Mapping):
         regulation_grounded = bool(regulation.get("grounded"))
         regulation_temporal = _normalize_temporal(regulation.get("temporal"))
@@ -1277,8 +1291,12 @@ def evaluate_exam_attempt(
             TEMPORAL_FUTURE,
         }
         regulation_unknown = not regulation_current and not regulation_stale
-        if regulation_current and regulation.get("max_attempts") is not None:
-            max_attempts = int(regulation["max_attempts"])
+        if regulation_current:
+            max_attempts = _parse_ects_integer(
+                regulation.get("max_attempts"),
+                minimum=1,
+            )
+            limit_unknown = max_attempts is None
     elif require_complete_evidence:
         # The canonical rule never treats a caller boolean as the governing
         # regulation. Missing structured evidence remains unknown.
@@ -1296,6 +1314,7 @@ def evaluate_exam_attempt(
 
     for entry in attempts:
         if not isinstance(entry, Mapping):
+            unknown_attempts += 1
             continue
         complete_evidence = all(
             _usable_reference(entry.get(key)) is not None
@@ -1306,8 +1325,14 @@ def evaluate_exam_attempt(
         ):
             ungrounded_attempts += 1
             continue
-        kind = entry.get("kind", "ordinary")
-        status = entry.get("status", "consumed")
+        kind = entry.get("kind")
+        status = entry.get("status")
+        if kind not in {"ordinary", "reassessment"}:
+            unknown_attempts += 1
+            continue
+        if status not in {"consumed", "canceled", "waived", "not_consumed"}:
+            unknown_attempts += 1
+            continue
         if kind == "reassessment":
             reassessment_count += 1
             continue
@@ -1325,10 +1350,13 @@ def evaluate_exam_attempt(
             "consumed_attempts": consumed_attempts,
             "reassessment_count": reassessment_count,
             "ungrounded_attempts": ungrounded_attempts,
+            "unknown_attempts": unknown_attempts,
+            "attempt_evidence_unknown": bool(unknown_attempts),
             "canceled": canceled,
             "waived": waived,
             "failed_grade_not_consumed": failed_grade_not_consumed,
             "max_attempts": max_attempts,
+            "limit_unknown": limit_unknown,
             "regulation_inactive": not regulation_unknown,
             "regulation_unknown": regulation_unknown,
             "regulation_stale": regulation_stale,
@@ -1336,20 +1364,26 @@ def evaluate_exam_attempt(
             "limit_exceeded": False,
         }
 
-    within_limits = max_attempts is None or consumed_attempts <= max_attempts
+    within_limits = not (limit_unknown or unknown_attempts) and (
+        max_attempts is None or consumed_attempts <= max_attempts
+    )
     return {
         "consumed_attempts": consumed_attempts,
         "reassessment_count": reassessment_count,
         "ungrounded_attempts": ungrounded_attempts,
+        "unknown_attempts": unknown_attempts,
+        "attempt_evidence_unknown": bool(unknown_attempts),
         "canceled": canceled,
         "waived": waived,
         "failed_grade_not_consumed": failed_grade_not_consumed,
         "max_attempts": max_attempts,
+        "limit_unknown": limit_unknown,
         "regulation_inactive": False,
         "regulation_unknown": False,
         "regulation_stale": False,
         "within_limits": within_limits,
-        "limit_exceeded": not within_limits,
+        "limit_exceeded": not within_limits
+        and not (limit_unknown or unknown_attempts),
     }
 
 
@@ -1381,25 +1415,24 @@ def _evaluate_workload_constraint(
         return bool(actual) is bool(expected)
     if kind in {"availability", "minimum_hours", "credit_threshold"}:
         requirement = constraint.get("requirement", constraint.get("minimum"))
-        if requirement is None:
+        actual_number = _parse_non_negative_number(actual)
+        requirement_number = _parse_non_negative_number(requirement)
+        if actual_number is None or requirement_number is None:
             return None
-        try:
-            return float(actual) >= float(requirement)
-        except (TypeError, ValueError):
-            return None
+        return actual_number >= requirement_number
     if kind in {"workload_cap", "hours_cap", "credit_load", "maximum_hours"}:
         limit = constraint.get("limit", constraint.get("maximum"))
-        if limit is None:
+        actual_number = _parse_non_negative_number(actual)
+        limit_number = _parse_non_negative_number(limit)
+        if actual_number is None or limit_number is None:
             return None
-        try:
-            return float(actual) <= float(limit)
-        except (TypeError, ValueError):
-            return None
+        return actual_number <= limit_number
     if "limit" in constraint:
-        try:
-            return float(actual) <= float(constraint["limit"])
-        except (TypeError, ValueError):
+        actual_number = _parse_non_negative_number(actual)
+        limit_number = _parse_non_negative_number(constraint["limit"])
+        if actual_number is None or limit_number is None:
             return None
+        return actual_number <= limit_number
     if "requirement" in constraint:
         return actual == constraint["requirement"]
     if isinstance(actual, bool):
@@ -1475,12 +1508,31 @@ def _evaluate_structured_workload(
         if isinstance(pref, Mapping) and pref.get("dimension")
     )
     ranking: tuple[str, ...] = ()
+    ranking_incomplete = False
     if explicit_preferences and feasible_ids:
-        ranked = [scenario for scenario in scenario_records if _usable_reference(scenario.get("id")) in feasible_ids]
+        ranked = [
+            scenario
+            for scenario in scenario_records
+            if _usable_reference(scenario.get("id")) in feasible_ids
+        ]
         for preference in reversed(explicit_preferences):
             dimension = str(preference["dimension"])
             direction = str(preference.get("direction", "maximize")).lower()
             reverse = direction in {"maximize", "desc", "descending"}
+            values = tuple(
+                _parse_non_negative_number(
+                    scenario.get(
+                        dimension,
+                        scenario.get("preference_values", {}).get(dimension)
+                        if isinstance(scenario.get("preference_values"), Mapping)
+                        else None,
+                    )
+                )
+                for scenario in ranked
+            )
+            if any(value is None for value in values):
+                ranking_incomplete = True
+                break
             ranked.sort(
                 key=lambda scenario: scenario.get(
                     dimension,
@@ -1490,7 +1542,12 @@ def _evaluate_structured_workload(
                 ),
                 reverse=reverse,
             )
-        ranking = tuple(_usable_reference(scenario.get("id")) for scenario in ranked if _usable_reference(scenario.get("id")) is not None)
+        if not ranking_incomplete:
+            ranking = tuple(
+                _usable_reference(scenario.get("id"))
+                for scenario in ranked
+                if _usable_reference(scenario.get("id")) is not None
+            )
 
     all_feasible = bool(feasible_ids) and not unresolved_ids
     if unresolved_ids or not all_feasible:
@@ -1515,6 +1572,8 @@ def _evaluate_structured_workload(
         "unresolved_scenarios": tuple(unresolved_ids),
         "feasibility_uncertain": bool(unresolved_ids),
         "ranking": ranking,
+        "ranking_incomplete": ranking_incomplete,
+        "numeric_metadata_unknown": False,
         "proposal": proposal,
         "adopted_decision": False,
         "consumed_factors": tuple(sorted(consumed_factors)),
@@ -1691,56 +1750,64 @@ def evaluate_academic_dependency(
         records_by_subject: dict[str, list[Mapping]] = {}
         completed_credits = 0
         pending_credits = 0
+        credit_evidence_unknown = False
         for record in academic_records:
             if not isinstance(record, Mapping):
+                credit_evidence_unknown = True
                 continue
             record_id = _usable_reference(
                 record.get("subject_id")
                 or record.get("credit_id")
                 or record.get("id")
             )
+            state = str(record.get("status", record.get("state", "unknown")))
             grounded = bool(record.get("grounded")) and bool(
                 _usable_reference(
                     record.get("source_reference") or record.get("source_ref")
                 )
             )
-            current = _normalize_temporal(record.get("temporal")) in _CURRENT_TEMPORAL_STATES
+            current = (
+                _normalize_temporal(record.get("temporal"))
+                in _CURRENT_TEMPORAL_STATES
+            )
             if record_id is not None:
                 records_by_subject.setdefault(record_id, []).append(record)
-            if not grounded or not current:
-                continue
-            state = str(record.get("status", record.get("state", "unknown")))
             amount = record.get("ects", record.get("credit_amount", 0))
-            try:
-                amount_i = int(amount)
-            except (TypeError, ValueError):
-                amount_i = 0
+            amount_i = _parse_ects_integer(amount)
+            if record_id is None:
+                credit_evidence_unknown = True
+                continue
+            if not grounded or not current or amount_i is None:
+                credit_evidence_unknown = True
+                continue
             if state in {"completed", "passed", "recognized"}:
                 completed_credits += amount_i
             elif state == "pending_recognition":
                 pending_credits += amount_i
+            elif state not in {"failed", "not_completed"}:
+                credit_evidence_unknown = True
 
         satisfied: list[str] = []
         open_prereqs: list[str] = []
         unknown_prereqs: list[str] = []
         conditional_prereqs: list[str] = []
         caller_passed_ignored: list[str] = []
+        anonymous_prerequisite_count = 0
         credit_thresholds: dict[str, dict] = {}
         for dep in dependencies:
             if not isinstance(dep, Mapping):
+                anonymous_prerequisite_count += 1
                 continue
             dep_id = _usable_reference(dep.get("id"))
             if dep_id is None:
+                anonymous_prerequisite_count += 1
                 continue
             if dep.get("caller_passed") or dep.get("passed") or dep.get("grounded_passed"):
                 caller_passed_ignored.append(dep_id)
             kind = str(dep.get("kind", "subject")).lower()
             if kind in {"credit_threshold", "tfg_eligibility", "credit", "tfg"}:
                 required = dep.get("required_credits", dep.get("threshold"))
-                try:
-                    required_i = int(required)
-                except (TypeError, ValueError):
-                    required_i = None
+                required_i = _parse_ects_integer(required, minimum=1)
                 if required_i is None:
                     unknown_prereqs.append(dep_id)
                     continue
@@ -1751,6 +1818,8 @@ def evaluate_academic_dependency(
                 status = (
                     "satisfied"
                     if current_satisfied
+                    else "unknown"
+                    if credit_evidence_unknown
                     else "conditional"
                     if conditional_satisfied
                     else "open"
@@ -1806,20 +1875,27 @@ def evaluate_academic_dependency(
             "unknown_prerequisites": tuple(unknown_prereqs),
             "conditional_prerequisites": tuple(conditional_prereqs),
             "caller_passed_ignored": tuple(caller_passed_ignored),
+            "anonymous_prerequisite_count": anonymous_prerequisite_count,
             "credit_thresholds": credit_thresholds,
-            "dependency_blocked": bool(blocked_ids),
+            "credit_evidence_unknown": credit_evidence_unknown,
+            "dependency_blocked": bool(
+                blocked_ids or anonymous_prerequisite_count
+            ),
         }
 
     satisfied: list[str] = []
     open_prereqs: list[str] = []
     unknown_prereqs: list[str] = []
     caller_passed_ignored: list[str] = []
+    anonymous_prerequisite_count = 0
 
     for dep in dependencies:
         if not isinstance(dep, Mapping):
+            anonymous_prerequisite_count += 1
             continue
         dep_id = _usable_reference(dep.get("id"))
         if dep_id is None:
+            anonymous_prerequisite_count += 1
             continue
         if dep.get("grounded_passed"):
             satisfied.append(dep_id)
@@ -1838,7 +1914,10 @@ def evaluate_academic_dependency(
         "open_prerequisites": tuple(open_prereqs),
         "unknown_prerequisites": tuple(unknown_prereqs),
         "caller_passed_ignored": tuple(caller_passed_ignored),
-        "dependency_blocked": bool(open_prereqs or unknown_prereqs),
+        "anonymous_prerequisite_count": anonymous_prerequisite_count,
+        "dependency_blocked": bool(
+            open_prereqs or unknown_prereqs or anonymous_prerequisite_count
+        ),
     }
 
 
@@ -1900,9 +1979,15 @@ def evaluate_academic_integrity(
         grounded = bool(grounded_restriction.get("grounded"))
         source_class = str(grounded_restriction.get("source_class", ""))
         temporal = str(grounded_restriction.get("temporal", ""))
+        source_reference = _reference_from(
+            grounded_restriction,
+            "source_reference",
+            "source_ref",
+        )
         if (
             status == "prohibited"
             and grounded
+            and source_reference is not None
             and source_class == "official_regulation"
             and temporal == "current"
             and not grounded_restriction.get("superseded")
@@ -2133,11 +2218,14 @@ def _deadline_confirmed_by(
     source_class: str,
     provenance: str,
     temporal: str,
+    source_reference: str | None,
 ) -> bool:
     """A deadline is confirmed only when it has authorized grounding (grounded
     provenance), a source class suitable for that attribute (official/specific),
-    and current temporal applicability."""
+    current temporal applicability, and traceable source evidence."""
     if provenance not in _DEADLINE_PROVENANCE_GROUNDED:
+        return False
+    if source_reference is None:
         return False
     if temporal not in _CURRENT_TEMPORAL_STATES:
         return False
@@ -2182,6 +2270,11 @@ def classify_deadline_grounding(
     provenance_raw = deadline.get("provenance", "none")
     provenance = _normalize_provenance(provenance_raw)
     temporal = _normalize_temporal(deadline.get("temporal"))
+    source_reference = _reference_from(
+        deadline,
+        "source_reference",
+        "source_ref",
+    )
     conflicting = bool(deadline.get("conflicting"))
     critical = critical or bool(deadline.get("critical"))
     retrieval_date = _usable_reference(deadline.get("retrieval_date"))
@@ -2204,6 +2297,7 @@ def classify_deadline_grounding(
         source_class=source_class,
         provenance=provenance,
         temporal=temporal,
+        source_reference=source_reference,
     )
 
     if confirmed:
@@ -2904,7 +2998,12 @@ class ExamAttemptRule:
             regulation=attempt.get("regulation"),
             require_complete_evidence=True,
         )
-        if record["regulation_unknown"] or record["regulation_stale"]:
+        if (
+            record["regulation_unknown"]
+            or record["regulation_stale"]
+            or record["limit_unknown"]
+            or record["attempt_evidence_unknown"]
+        ):
             verification_need = conditional_verification_trigger(
                 fact_state="stale" if record["regulation_stale"] else "missing",
                 decision_critical=True,
@@ -2914,8 +3013,8 @@ class ExamAttemptRule:
             finding = ReasoningFinding(
                 code="EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED",
                 message=(
-                    "The current governing examination regulation is missing or "
-                    "stale; attempt consumption limits remain unknown."
+                    "The governing examination regulation or attempt evidence "
+                    "is incomplete; attempt consumption limits remain unknown."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
@@ -3011,9 +3110,12 @@ class AcademicWorkloadRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No workload metadata supplied.",
             )
+        total_ect = _parse_ects_integer(workload.get("total_ect", 0))
+        full_time_ect = _parse_ects_integer(workload.get("full_time_ect", 30))
+        numeric_metadata_unknown = total_ect is None or full_time_ect is None
         record = evaluate_academic_workload(
-            total_ect=int(workload.get("total_ect", 0)),
-            full_time_ect=int(workload.get("full_time_ect", 30)),
+            total_ect=total_ect if total_ect is not None else 0,
+            full_time_ect=full_time_ect if full_time_ect is not None else 30,
             health_constraint=workload.get("health_constraint"),
             hard_constraints=tuple(workload.get("hard_constraints", ())),
             preferences=tuple(workload.get("preferences", ())),
@@ -3021,6 +3123,15 @@ class AcademicWorkloadRule:
             scenarios=tuple(workload.get("scenarios", ()) or ()),
             derive_from_facts=True,
         )
+        if numeric_metadata_unknown:
+            record = {
+                **record,
+                "feasible": False,
+                "feasibility_uncertain": True,
+                "numeric_metadata_unknown": True,
+                "ranking": (),
+                "ranking_incomplete": True,
+            }
         if record.get("feasibility_uncertain"):
             finding = ReasoningFinding(
                 code="WORKLOAD_FEASIBILITY_UNCERTAIN",
@@ -3136,11 +3247,12 @@ class AcademicDependencyRule:
             )
         )
         if record["dependency_blocked"]:
+            blocked_summary = ", ".join(blocked_ids) or "unidentified prerequisite evidence"
             finding = ReasoningFinding(
                 code="DEPENDENCY_BLOCKED",
                 message=(
                     f"Unsatisfied prerequisites block planning for "
-                    f"{record['subject_id']}: {', '.join(blocked_ids)}."
+                    f"{record['subject_id']}: {blocked_summary}."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,

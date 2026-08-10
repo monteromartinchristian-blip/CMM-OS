@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -245,3 +247,112 @@ def test_canonical_rule_unknown_dependency_remains_unresolved():
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_BLOCKED"
     assert finding.metadata["unknown_prerequisites"] == ("subj-1",)
+
+
+def test_canonical_rule_dependency_without_id_remains_blocking_unknown():
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": ({"kind": "subject", "status": "unknown"},),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["dependency_blocked"] is True
+    assert finding.metadata["anonymous_prerequisite_count"] == 1
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+@pytest.mark.parametrize("required_credits", (-1, 0, 1.5, True, "abc"))
+def test_canonical_rule_invalid_credit_threshold_cannot_be_satisfied(
+    required_credits,
+):
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": required_credits,
+                },
+            ),
+            "academic_records": tuple(
+                _academic_record(f"subject-{index}", "completed", ects=30)
+                for index in range(6)
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["unknown_prerequisites"] == ("degree-credits",)
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+def test_canonical_rule_identityless_credits_cannot_satisfy_threshold():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                {
+                    "status": "completed",
+                    "ects": 180,
+                    "grounded": True,
+                    "source_reference": "official-credit-record",
+                    "temporal": "valid",
+                },
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+    assert finding.metadata["satisfied_prerequisites"] == ()
+
+
+def test_canonical_rule_unknown_credit_state_cannot_satisfy_threshold():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (_academic_record("record-1", "unknown", ects=180),),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+
+
+def test_canonical_rule_valid_identified_credits_satisfy_valid_threshold():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": tuple(
+                _academic_record(f"subject-{index}", "completed", ects=30)
+                for index in range(6)
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["satisfied_prerequisites"] == ("degree-credits",)

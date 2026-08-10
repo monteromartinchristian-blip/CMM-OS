@@ -10,7 +10,15 @@ conflicting or decision-critical under-grounded deadlines.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+import pytest
+
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import classify_deadline_grounding
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _deadline(
@@ -19,6 +27,7 @@ def _deadline(
     source_class="official_publication",
     provenance="grounded",
     temporal="valid",
+    source_reference="official-deadline-notice",
     retrieval_date="2026-08-01",
     effective_date="2026-09-15",
     scope=None,
@@ -30,6 +39,7 @@ def _deadline(
         "source_class": source_class,
         "provenance": provenance,
         "temporal": temporal,
+        "source_reference": source_reference,
         "retrieval_date": retrieval_date,
         "effective_date": effective_date,
     }
@@ -40,6 +50,21 @@ def _deadline(
     if critical:
         d["critical"] = True
     return d
+
+
+def _canonical_result(deadline):
+    rule = {
+        rule.definition.id: rule
+        for rule in build_university_rules()
+    }["university.academic_deadline"]
+    context = ReasoningRuleContext(
+        reasoning_id="deadline-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"deadline": deadline},
+    )
+    return rule.evaluate(context)
 
 
 def test_remembered_deadline_is_not_confirmed():
@@ -148,3 +173,24 @@ def test_complete_grounded_current_noncritical_no_verification_need():
         )
     )
     assert result["verification_needed"] is False
+
+
+@pytest.mark.parametrize("source_reference", (None, ""))
+def test_canonical_rule_unreferenced_official_critical_deadline_requires_verification(
+    source_reference,
+):
+    result = _canonical_result(
+        _deadline(critical=True, source_reference=source_reference)
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["verification_needed"] is True
+
+
+def test_canonical_rule_referenced_official_deadline_remains_confirmed():
+    result = _canonical_result(_deadline(critical=True))
+    finding = result.findings[0]
+    assert finding.metadata["state"] == "confirmed_official"
+    assert finding.metadata["confirmed"] is True
+    assert finding.metadata["verification_needed"] is False

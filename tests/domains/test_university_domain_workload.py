@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -245,3 +247,52 @@ def test_canonical_rule_health_functional_cap_changes_scenario_feasibility():
     finding = result.findings[0]
     assert finding.metadata["feasible_scenarios"] == ()
     assert finding.metadata["infeasible_scenarios"] == ("full",)
+
+
+def test_canonical_rule_missing_preference_value_keeps_ranking_incomplete():
+    result = _canonical_result(
+        {
+            "scenarios": (
+                _scenario("known-hours", hours=5),
+                _scenario("missing-hours"),
+            ),
+            "preferences": ({"dimension": "hours", "direction": "minimize"},),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["feasible_scenarios"] == (
+        "known-hours",
+        "missing-hours",
+    )
+    assert finding.metadata["ranking"] == ()
+    assert finding.metadata["ranking_incomplete"] is True
+
+
+@pytest.mark.parametrize(
+    "workload",
+    (
+        {"total_ect": "abc", "scenarios": (_scenario("a", hours=5),)},
+        {"full_time_ect": "invalid", "scenarios": (_scenario("a", hours=5),)},
+    ),
+)
+def test_canonical_rule_malformed_numeric_metadata_is_feasibility_unknown(workload):
+    result = _canonical_result(workload)
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["numeric_metadata_unknown"] is True
+    assert finding.metadata["feasibility_uncertain"] is True
+
+
+def test_canonical_rule_incomplete_preference_ranking_is_order_invariant():
+    result = _canonical_result(
+        {
+            "scenarios": (
+                _scenario("missing-hours"),
+                _scenario("known-hours", hours=5),
+            ),
+            "preferences": ({"dimension": "hours", "direction": "minimize"},),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["ranking"] == ()
+    assert finding.metadata["ranking_incomplete"] is True

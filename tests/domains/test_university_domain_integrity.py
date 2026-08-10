@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -43,6 +45,7 @@ def _restriction(**overrides):
         "grounded": True,
         "source_class": "official_regulation",
         "temporal": "current",
+        "source_reference": "integrity-regulation-1",
         "course": "course-x",
         "assessment": "assignment-a",
         "prohibited_actions": ("draft_final_answer",),
@@ -88,6 +91,7 @@ def test_grounded_restriction_respected_within_scope():
             "scope": ("final_exam_essay",),
             "source_class": "official_regulation",
             "temporal": "current",
+            "source_reference": "integrity-regulation-1",
         },
     )
     assert result["assistance_permitted"] is False
@@ -230,3 +234,25 @@ def test_canonical_rule_caller_boolean_without_restriction_allows():
         }
     )
     assert result.findings[0].metadata["assistance_permitted"] is True
+
+
+@pytest.mark.parametrize("source_reference", (None, ""))
+def test_canonical_rule_unreferenced_official_restriction_cannot_prohibit(
+    source_reference,
+):
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(
+                source_reference=source_reference
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "INTEGRITY_MODE_PRESERVED"
+    assert finding.metadata["restriction_grounded"] is False
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True

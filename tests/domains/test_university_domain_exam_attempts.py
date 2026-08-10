@@ -11,6 +11,9 @@ and the regulation in force governs the limit.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
+
+import pytest
 
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
@@ -238,3 +241,73 @@ def test_canonical_rule_reassessment_remains_separate_from_ordinary():
     finding = result.findings[0]
     assert finding.metadata["consumed_attempts"] == 1
     assert finding.metadata["reassessment_count"] == 1
+
+
+def test_canonical_rule_missing_attempt_limit_remains_unknown_and_verifies():
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=_regulation(max_attempts=None),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["max_attempts"] is None
+    assert finding.metadata["limit_unknown"] is True
+    assert finding.metadata["within_limits"] is False
+    assert finding.metadata["limit_exceeded"] is False
+
+
+@pytest.mark.parametrize(
+    "max_attempts",
+    ("abc", -1, 0, 1.5, True),
+)
+def test_canonical_rule_malformed_attempt_limit_remains_unknown_without_raising(
+    max_attempts,
+):
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=_regulation(max_attempts=max_attempts),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["max_attempts"] is None
+    assert finding.metadata["limit_unknown"] is True
+    assert finding.metadata["within_limits"] is False
+    assert finding.metadata["limit_exceeded"] is False
+
+
+def test_non_finite_decimal_attempt_limit_remains_unknown_without_raising():
+    result = evaluate_exam_attempt(
+        attempts=(_attempt(),),
+        max_attempts=Decimal("Infinity"),
+    )
+    assert result["max_attempts"] is None
+    assert result["limit_unknown"] is True
+    assert result["within_limits"] is False
+    assert result["limit_exceeded"] is False
+
+
+@pytest.mark.parametrize("kind", ("mystery", None))
+def test_canonical_rule_unknown_attempt_kind_is_not_counted_as_ordinary(kind):
+    result = _canonical_result(
+        attempts=(_grounded_attempt(kind=kind),),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["consumed_attempts"] == 0
+    assert finding.metadata["unknown_attempts"] == 1
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["within_limits"] is False
+
+
+def test_canonical_rule_non_mapping_attempt_evidence_remains_unknown():
+    result = _canonical_result(
+        attempts=("opaque-attempt",),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["consumed_attempts"] == 0
+    assert finding.metadata["unknown_attempts"] == 1
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["within_limits"] is False
