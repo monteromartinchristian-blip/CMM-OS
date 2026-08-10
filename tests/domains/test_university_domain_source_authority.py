@@ -695,3 +695,51 @@ def test_canonical_rule_falsey_authoritative_values_remain_known():
         assert finding.metadata["fact_resolved"] is True
         assert finding.metadata["authoritative_value"] == value
         assert finding.metadata["verification_need"]["needed"] is False
+
+
+def test_canonical_rule_unreferenced_grounded_source_cannot_establish_fact():
+    for source_id in (None, "", "   "):
+        claim = {
+            "attribute": "grade",
+            "value": "A",
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "critical": True,
+        }
+        if source_id is not None:
+            claim["id"] = source_id
+
+        finding = _authority_finding(_canonical_result(claim), "grade")
+        verification = finding.metadata["verification_need"]
+        assert finding.metadata["authority_resolved"] is False
+        assert finding.metadata["fact_resolved"] is False
+        assert finding.metadata["authoritative_source_id"] is None
+        assert finding.metadata["authoritative_value"] is None
+        assert verification["needed"] is True
+        assert verification["source_class"] == "official_only"
+        assert verification["read_only"] is True
+
+
+def test_canonical_rule_referenced_grounded_source_remains_authoritative():
+    finding = _authority_finding(
+        _canonical_result(
+            {
+                "id": "official-grade-record",
+                "attribute": "grade",
+                "value": "A",
+                "source_class": "official_academic_record",
+                "provenance": "grounded",
+                "temporal": "valid",
+                "specificity": "specific",
+                "critical": True,
+            }
+        ),
+        "grade",
+    )
+
+    assert finding.metadata["authority_resolved"] is True
+    assert finding.metadata["fact_resolved"] is True
+    assert finding.metadata["authoritative_source_id"] == "official-grade-record"
+    assert finding.metadata["authoritative_value"] == "A"

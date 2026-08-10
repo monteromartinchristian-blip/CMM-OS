@@ -300,3 +300,120 @@ def test_canonical_rule_timeless_grounded_requirement_can_confirm_completion():
     finding = result.findings[0]
     assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
     assert finding.metadata["satisfied"] is True
+
+
+def test_canonical_rule_unknown_structured_state_blocks_completion_conditionally():
+    for state in ("unknown", "mystery"):
+        result = _canonical_result(
+            records=(
+                _record("completed-subject", 174, "completed"),
+                _record("unresolved-subject", 6, state),
+            ),
+            degree_requirement={
+                "required_ects": 180,
+                "grounded": True,
+                "source_reference": "degree-1",
+                "temporal": "valid",
+            },
+        )
+
+        finding = result.findings[0]
+        assert finding.code == "ECTS_COMPLETION_BLOCKED"
+        assert finding.metadata["satisfied"] is False
+        assert finding.metadata["completion_determinable"] is False
+        assert finding.metadata["unknown_records"] == ("unresolved-subject",)
+        assert finding.metadata["credit_state_sufficiently_grounded"] is False
+
+
+def test_canonical_rule_known_failed_state_remains_deterministically_unsatisfied():
+    result = _canonical_result(
+        records=(
+            _record("completed-subject", 174, "completed"),
+            _record("failed-subject", 6, "failed"),
+        ),
+        degree_requirement={
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+            "temporal": "valid",
+        },
+    )
+
+    finding = result.findings[0]
+    assert finding.code == "ECTS_REQUIREMENT_NOT_SATISFIED"
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["completion_determinable"] is True
+    assert finding.metadata["unknown_records"] == ()
+
+
+def test_canonical_rule_unknown_records_are_order_invariant():
+    records = (
+        _record("subject-z", 6, "mystery"),
+        _record("subject-a", 6, "unknown"),
+    )
+    unknown_results = []
+    for ordered_records in (records, tuple(reversed(records))):
+        result = _canonical_result(
+            records=ordered_records,
+            degree_requirement={
+                "required_ects": 12,
+                "grounded": True,
+                "source_reference": "degree-1",
+                "temporal": "valid",
+            },
+        )
+        unknown_results.append(result.findings[0].metadata["unknown_records"])
+
+    assert unknown_results == [
+        ("subject-a", "subject-z"),
+        ("subject-a", "subject-z"),
+    ]
+
+
+def test_canonical_rule_malformed_degree_requirement_fails_closed():
+    records = tuple(_record(f"subject-{i}", 30, "completed") for i in range(6))
+    for required_ects in ("abc", -1, 0):
+        result = _canonical_result(
+            records=records,
+            degree_requirement={
+                "required_ects": required_ects,
+                "grounded": True,
+                "source_reference": "degree-1",
+                "temporal": "valid",
+            },
+        )
+
+        finding = result.findings[0]
+        assert finding.code == "ECTS_COMPLETION_BLOCKED"
+        assert finding.metadata["required_known"] is False
+        assert finding.metadata["completion_blocked"] is True
+        assert finding.metadata["satisfied"] is False
+
+
+def test_canonical_rule_malformed_legacy_aggregates_do_not_override_structured_evidence():
+    result = _canonical_result(
+        completed="garbage",
+        required="nonsense",
+        records=tuple(_record(f"subject-{i}", 30, "completed") for i in range(6)),
+        degree_requirement={
+            "required_ects": 180,
+            "grounded": True,
+            "source_reference": "degree-1",
+            "temporal": "valid",
+        },
+    )
+
+    finding = result.findings[0]
+    assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
+    assert finding.metadata["required"] == 180
+    assert finding.metadata["recognized_total"] == 180
+    assert finding.metadata["satisfied"] is True
+
+
+def test_canonical_rule_malformed_legacy_aggregates_without_structure_fail_closed():
+    result = _canonical_result(completed="garbage", required="nonsense")
+
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["required_known"] is False
+    assert finding.metadata["satisfied"] is False

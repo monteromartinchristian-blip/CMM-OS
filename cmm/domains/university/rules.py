@@ -487,13 +487,19 @@ def classify_academic_source_authority(
     candidates = [
         evaluated
         for evaluated in evaluated
-        if evaluated["grounded"] and evaluated["current"] and evaluated["rank"] > 0
+        if (
+            evaluated["source_id"] is not None
+            and evaluated["grounded"]
+            and evaluated["current"]
+            and evaluated["rank"] > 0
+        )
     ]
     unresolved_temporal = [
         evaluated
         for evaluated in evaluated
         if (
-            evaluated["grounded"]
+            evaluated["source_id"] is not None
+            and evaluated["grounded"]
             and evaluated["temporal"] == TEMPORAL_UNKNOWN
             and evaluated["rank"] > 0
         )
@@ -1017,6 +1023,19 @@ def _first_current(mapping: Mapping) -> Any:
     return None
 
 
+def _parse_ects_integer(value: Any, *, minimum: int = 0) -> int | None:
+    """Return a valid ECTS integer without raising for runtime metadata."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= minimum else None
+
+
 def check_ects_consistency(
     *,
     completed: int = 0,
@@ -1086,12 +1105,11 @@ def check_ects_consistency(
             ):
                 unknown_records.append(identity)
                 continue
-            try:
-                numeric_amount = int(amount)
-            except (TypeError, ValueError):
+            numeric_amount = _parse_ects_integer(amount)
+            if numeric_amount is None:
                 unknown_records.append(identity)
                 continue
-            if numeric_amount < 0:
+            if state not in {*bucket_totals, "failed", "not_completed"}:
                 unknown_records.append(identity)
                 continue
             recognition_status = str(record.get("recognition_status", ""))
@@ -1123,6 +1141,7 @@ def check_ects_consistency(
     requirement_temporal = TEMPORAL_UNKNOWN
     if degree_requirement is not None:
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
+        required_value = _parse_ects_integer(candidate, minimum=1)
         requirement_grounded = bool(degree_requirement.get("grounded"))
         requirement_reference = _usable_reference(
             degree_requirement.get("source_reference")
@@ -1135,12 +1154,9 @@ def check_ects_consistency(
             requirement_grounded
             and requirement_reference is not None
             and requirement_temporal in _CURRENT_TEMPORAL_STATES
+            and required_value is not None
         )
-        required = (
-            int(candidate)
-            if candidate is not None and requirement_grounded and requirement_reference
-            else None
-        )
+        required = required_value if requirement_grounded else None
     elif derive_from_records:
         # Strict callers may still report legacy aggregates for diagnostics,
         # but an absent structured requirement cannot establish a requirement.
@@ -1205,7 +1221,7 @@ def check_ects_consistency(
             if required_known
             else None
         ),
-        "unknown_records": tuple(dict.fromkeys(unknown_records)),
+        "unknown_records": tuple(sorted(set(unknown_records))),
         "flagged": double_counting or contradiction or critical_requirement_uncertain,
     }
 
@@ -2339,13 +2355,17 @@ class AcademicSourceAuthorityRule:
                     scope=effective_scope,
                 )
                 authoritative_id = authority["authoritative_source_id"]
-                authoritative_claim = next(
-                    (
-                        claim
-                        for claim in scoped_claims
-                        if _usable_reference(claim.get("id")) == authoritative_id
-                    ),
-                    None,
+                authoritative_claim = (
+                    next(
+                        (
+                            claim
+                            for claim in scoped_claims
+                            if _usable_reference(claim.get("id")) == authoritative_id
+                        ),
+                        None,
+                    )
+                    if authoritative_id is not None
+                    else None
                 )
                 supporting_source_ids = tuple(
                     authority.get("supporting_source_ids", ())
@@ -2725,13 +2745,15 @@ class EctsConsistencyRule:
         records = tuple(ects.get("records", ()) or ())
         degree_requirement = ects.get("degree_requirement")
         record = check_ects_consistency(
-            completed=int(ects.get("completed", 0)),
-            recognized=int(ects.get("recognized", 0)),
-            enrolled=int(ects.get("enrolled", 0)),
-            planned=int(ects.get("planned", 0)),
-            pending_recognition=int(ects.get("pending_recognition", 0)),
+            completed=_parse_ects_integer(ects.get("completed", 0)) or 0,
+            recognized=_parse_ects_integer(ects.get("recognized", 0)) or 0,
+            enrolled=_parse_ects_integer(ects.get("enrolled", 0)) or 0,
+            planned=_parse_ects_integer(ects.get("planned", 0)) or 0,
+            pending_recognition=(
+                _parse_ects_integer(ects.get("pending_recognition", 0)) or 0
+            ),
             required=(
-                int(ects["required"])
+                _parse_ects_integer(ects["required"], minimum=1)
                 if ects.get("required") is not None
                 else None
             ),
