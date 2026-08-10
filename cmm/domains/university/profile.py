@@ -164,7 +164,7 @@ def build_university_profile() -> DomainProfileDefinition:
                 "hypothesis": "unverified system proposition",
                 "uncertainty": "unknown confidence",
                 "contradiction": "conflicting information",
-                "academic_state": "official university record state",
+                "academic_state": "internal CMM structured academic state, never the official university record",
                 "personal_memory": "personal memory, never Academic State",
                 "performance_not_capacity": "observed performance never implies capacity",
                 "planning_proposal": "a candidate plan, not an adopted decision",

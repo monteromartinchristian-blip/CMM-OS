@@ -97,14 +97,30 @@ def test_source_authority_does_not_compete_for_unsupplied_attribute():
 
 
 def test_material_contradiction_fails_closed():
-    """A material contradiction that cannot be resolved blocks reasoning."""
+    """A decision-critical contradiction that cannot be resolved by authority
+    blocks reasoning (fail-closed).  Contradiction is derived from the claims,
+    not from caller booleans."""
     rules = _by_id()
     rule = rules["university.academic_contradiction"]
     result = rule.evaluate(
         _context(
             contradiction_statements=[
-                {"id": "a", "material": True, "unresolved": True},
-                {"id": "b", "material": True, "unresolved": True},
+                {
+                    "id": "a",
+                    "attribute": "assignment_deadline",
+                    "value": "2026-01-18",
+                    "source_class": "specific_official_call",
+                    "specificity": "specific",
+                    "critical": True,
+                },
+                {
+                    "id": "b",
+                    "attribute": "assignment_deadline",
+                    "value": "2026-01-17",
+                    "source_class": "specific_official_call",
+                    "specificity": "specific",
+                    "critical": True,
+                },
             ]
         )
     )
@@ -118,17 +134,19 @@ def test_material_contradiction_fails_closed():
 
 
 def test_resolved_contradiction_allows_proceeding():
+    """Compatible claims (no unresolved conflict) proceed."""
     rule = _by_id()["university.academic_contradiction"]
     result = rule.evaluate(
         _context(
             contradiction_statements=[
-                {"id": "a", "material": False, "unresolved": False},
+                {"id": "a", "attribute": "grade", "value": "B"},
+                {"id": "b", "attribute": "exam_date", "value": "2026-01-17"},
             ]
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "CONTRADICTION_STATE" and "resolved" in finding.message
+        finding.code == "CONTRADICTION_STATE"
         for finding in result.findings
     )
 
@@ -209,28 +227,71 @@ def test_decision_support_never_adopts():
 
 def test_deadline_never_auto_scheduled():
     rule = _by_id()["university.academic_deadline"]
-    result = rule.evaluate(_context(deadline={"value": "2026-09-15"}))
+    result = rule.evaluate(
+        _context(
+            deadline={
+                "value": "2026-09-15",
+                "source_class": "official_publication",
+                "provenance": "grounded",
+                "temporal": "valid",
+                "effective_date": "2026-09-15",
+            }
+        )
+    )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
         finding.code == "DEADLINE_FACT" for finding in result.findings
     )
+    assert all(
+        finding.metadata.get("auto_scheduled") is not True
+        for finding in result.findings
+    )
 
 
-def test_ects_inconsistency_flagged_as_hypothesis():
+def test_deadline_undergrounded_triggers_verification_need():
+    """A bare date string with no grounding is not a confirmed deadline and
+    raises a verification need rather than being treated as authoritative."""
+    rule = _by_id()["university.academic_deadline"]
+    result = rule.evaluate(_context(deadline={"value": "2026-09-15"}))
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert any(
+        finding.code == "DEADLINE_VERIFICATION_NEEDED"
+        for finding in result.findings
+    )
+
+
+def test_ects_double_counting_blocks_completion():
     rule = _by_id()["university.ects_consistency"]
     result = rule.evaluate(
-        _context(ects={"subject_ects": 6, "declared_workload_hours": 500})
+        _context(
+            ects={
+                "completed": 100,
+                "recognized": 100,
+                "required": 180,
+                "double_counted": ("subj-a",),
+            }
+        )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "ECTS_INCONSISTENCY" for finding in result.findings
+        finding.code == "ECTS_COMPLETION_BLOCKED" for finding in result.findings
     )
 
 
 def test_exam_attempt_limit_reported_not_acted_on():
     rule = _by_id()["university.exam_attempt"]
     result = rule.evaluate(
-        _context(exam_attempt={"attempt_count": 4, "max_attempts": 3, "passed": False})
+        _context(
+            exam_attempt={
+                "attempts": (
+                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+                ),
+                "max_attempts": 3,
+            }
+        )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
@@ -238,12 +299,24 @@ def test_exam_attempt_limit_reported_not_acted_on():
     )
 
 
-def test_workload_overcommit_flagged_as_risk():
+def test_workload_infeasibility_blocks_pipeline():
     rule = _by_id()["university.academic_workload"]
-    result = rule.evaluate(_context(workload={"total_ect": 60, "full_time_ect": 30}))
+    result = rule.evaluate(
+        _context(
+            workload={
+                "total_ect": 60,
+                "full_time_ect": 30,
+                "health_constraint": {"functional_cap_ect": 20, "authorized": True},
+            }
+        )
+    )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "WORKLOAD_OVERCOMMIT" for finding in result.findings
+        finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings
+    )
+    assert all(
+        finding.metadata.get("clinical_details_consumed") is False
+        for finding in result.findings
     )
 
 
@@ -304,34 +377,70 @@ def test_deterministic_helpers():
     )
     assert resolved_contradiction["state"] == "resolved"
 
-    # check_ects_consistency: reports a hypothesis, never rewrites the record.
-    assert check_ects_consistency(subject_ects=6, declared_workload_hours=150)[
-        "consistent"
-    ] is True
-    flagged = check_ects_consistency(subject_ects=6, declared_workload_hours=500)
-    assert flagged["flagged"] is True
+    # check_ects_consistency: reasons over credit buckets, never rewrites.
+    clean = check_ects_consistency(completed=180, required=180)
+    assert clean["satisfied"] is True
+    assert clean["completion_determinable"] is True
+    blocked = check_ects_consistency(
+        completed=100, recognized=100, required=180, double_counted=("s1",)
+    )
+    assert blocked["completion_blocked"] is True
+    assert blocked["satisfied"] is False
 
-    # evaluate_exam_attempt: reports, never authorizes a retake.
-    within = evaluate_exam_attempt(attempt_count=2, max_attempts=3)
+    # evaluate_exam_attempt: reports grounded attempts, never authorizes a
+    # retake; reassessment and non-consumed attempts do not count.
+    within = evaluate_exam_attempt(
+        attempts=(
+            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {"kind": "reassessment", "outcome": "failed", "grounded": True, "status": "consumed"},
+        ),
+        max_attempts=1,
+    )
     assert within["within_limits"] is True
-    exceeded = evaluate_exam_attempt(attempt_count=4, max_attempts=3)
+    assert within["reassessment_count"] == 1
+    exceeded = evaluate_exam_attempt(
+        attempts=(
+            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+        ),
+        max_attempts=3,
+    )
     assert exceeded["limit_exceeded"] is True
 
-    # evaluate_academic_workload: a hypothesis, not a definitive judgment.
-    assert evaluate_academic_workload(total_ect=30, full_time_ect=30)[
-        "overcommitted"
-    ] is False
-    assert evaluate_academic_workload(total_ect=60, full_time_ect=30)[
-        "flagged"
-    ] is True
+    # evaluate_academic_workload: staged pipeline, clinical details never
+    # consumed.
+    feasible = evaluate_academic_workload(
+        total_ect=30,
+        full_time_ect=30,
+        hard_constraints=({"id": "hc-1", "satisfied": True},),
+    )
+    assert feasible["feasible"] is True
+    assert feasible["clinical_details_consumed"] is False
+    infeasible = evaluate_academic_workload(
+        total_ect=40,
+        full_time_ect=30,
+        health_constraint={"functional_cap_ect": 20, "authorized": True},
+    )
+    assert infeasible["feasible"] is False
+    assert infeasible["stage"] == "feasibility"
 
-    # evaluate_academic_dependency: never auto-enrols.
+    # evaluate_academic_dependency: grounded-only, never auto-enrols.
     dep = evaluate_academic_dependency(
         subject_id="subj-2",
-        dependencies=({"id": "subj-1", "passed": True},),
+        dependencies=({"id": "subj-1", "grounded_passed": True, "status": "passed"},),
     )
     assert dep["dependency_blocked"] is False
     assert dep["satisfied_prerequisites"] == ("subj-1",)
+    # A caller-claimed ``caller_passed`` without grounding is not authoritative.
+    ungrounded = evaluate_academic_dependency(
+        subject_id="subj-2",
+        dependencies=({"id": "subj-1", "caller_passed": True},),
+    )
+    assert ungrounded["dependency_blocked"] is True
+    assert ungrounded["satisfied_prerequisites"] == ()
+    assert "subj-1" in ungrounded["caller_passed_ignored"]
 
     # evaluate_performance_capacity: performance never establishes capacity.
     perf = evaluate_performance_capacity(

@@ -75,15 +75,15 @@ def test_workload_rule_consumes_authorized_constraint_projection():
     }["university.academic_workload"]
     # The constraint projection is a *minimal functional constraint* already
     # authorized for transfer (e.g. "reduced available workload"), not clinical
-    # detail.
+    # detail.  An authorized functional cap that the plan exceeds makes the
+    # workload infeasible at the feasibility stage.
     result = rule.evaluate(
         _context(
             workload={
                 "total_ect": 60,
                 "full_time_ect": 30,
-                "max_ratio": 1.5,
-                "constraint_projection": {
-                    "reduced_workload": True,
+                "health_constraint": {
+                    "functional_cap_ect": 20,
                     "authorized": True,
                 },
             }
@@ -91,17 +91,20 @@ def test_workload_rule_consumes_authorized_constraint_projection():
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "WORKLOAD_OVERCOMMIT" for finding in result.findings
+        finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings
     )
 
 
 def test_workload_helper_accepts_only_scalar_constraint_signal():
-    """The deterministic workload helper reduces to a scalar signal; it never
-    carries clinical detail out of Health."""
+    """The deterministic workload helper reduces to a scalar planning signal; it
+    never carries clinical detail out of Health."""
     record = evaluate_academic_workload(total_ect=60, full_time_ect=30)
-    assert record["flagged"] is True
-    # The workload assessment is a scalar planning risk, never a Health record.
-    assert "total_ect" in record and "ratio" in record
+    # The workload assessment is a scalar planning signal, never a Health record:
+    # clinical details are never consumed, no raw Health detail is emitted, and
+    # the decision is never adopted.
+    assert record["clinical_details_consumed"] is False
+    assert record["feasible"] is True
+    assert record["adopted_decision"] is False
 
 
 def test_supporting_health_cannot_widen_university_permissions():

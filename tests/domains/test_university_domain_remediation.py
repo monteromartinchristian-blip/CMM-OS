@@ -62,10 +62,25 @@ def test_contradiction_without_id_has_no_unknown_reference():
     result = rule.evaluate(
         _context(
             contradiction_statements=[
-                {"material": True, "unresolved": True},
+                {
+                    "attribute": "assignment_deadline",
+                    "value": "2026-01-18",
+                    "source_class": "specific_official_call",
+                    "specificity": "specific",
+                    "critical": True,
+                },
+                {
+                    "attribute": "assignment_deadline",
+                    "value": "2026-01-17",
+                    "source_class": "specific_official_call",
+                    "specificity": "specific",
+                    "critical": True,
+                },
             ]
         )
     )
+    # Two equal-authority decision-critical claims conflict and cannot resolve:
+    # the contradiction is derived and fails closed.
     assert result.status is ReasoningRuleResultStatus.BLOCKED
     assert all("unknown" != ref for ref in _all_references(result))
 

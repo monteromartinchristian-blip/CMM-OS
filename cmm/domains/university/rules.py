@@ -136,6 +136,368 @@ def _normalize_references(values: Any) -> tuple[str, ...]:
     return tuple(seen)
 
 
+# ── Closed source classes (spec §6) ───────────────────────────────────────────
+# A source class is grounded academic-provenance metadata, distinct from a
+# caller's ``source_type`` claim.  Caller metadata cannot fabricate a class.
+
+SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD = "official_academic_record"
+SOURCE_CLASS_OFFICIAL_PUBLICATION = "official_publication"
+SOURCE_CLASS_REGULATION = "regulation"
+SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION = "official_act_resolution"
+SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL = "specific_official_call"
+SOURCE_CLASS_SUBJECT_GUIDE = "subject_guide"
+SOURCE_CLASS_PROFESSOR_INSTRUCTION = "professor_instruction"
+SOURCE_CLASS_INSTITUTIONAL_EMAIL = "institutional_email"
+SOURCE_CLASS_ACADEMIC_CALENDAR = "academic_calendar"
+SOURCE_CLASS_GENERAL_ACADEMIC_RECORD = "general_academic_record"
+SOURCE_CLASS_PERSONAL_NOTE = "personal_note"
+SOURCE_CLASS_USER_RECOLLECTION = "user_recollection"
+SOURCE_CLASS_STUDY_SESSION = "study_session"
+SOURCE_CLASS_INFERRED = "inferred"
+SOURCE_CLASS_UNKNOWN = "unknown"
+
+_SOURCE_CLASSES: tuple[str, ...] = (
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_INFERRED,
+    SOURCE_CLASS_UNKNOWN,
+)
+
+# ── Closed provenance states ───────────────────────────────────────────────────
+# ``grounded`` is the only provenance that can carry authority.  Caller-claimed
+# provenance is evidence of a claim, never authority itself.
+
+PROVENANCE_GROUNDED = "grounded"
+PROVENANCE_UNVERIFIED = "unverified"
+PROVENANCE_CALLER_CLAIMED = "caller_claimed"
+PROVENANCE_NONE = "none"
+
+_GROUNDED_PROVENANCES: frozenset[str] = frozenset({PROVENANCE_GROUNDED})
+
+# ── Closed specificity levels ─────────────────────────────────────────────────
+
+SPECIFICITY_SPECIFIC = "specific"
+SPECIFICITY_GENERAL = "general"
+SPECIFICITY_UNKNOWN = "unknown"
+
+_SPECIFICITY_RANK = {
+    SPECIFICITY_SPECIFIC: 2,
+    SPECIFICITY_GENERAL: 1,
+    SPECIFICITY_UNKNOWN: 0,
+}
+
+# ── Closed temporal states (align with shared TemporalValidityStatus) ─────────
+
+TEMPORAL_VALID = "valid"
+TEMPORAL_EXPIRED = "expired"
+TEMPORAL_FUTURE = "future"
+TEMPORAL_UNKNOWN = "unknown"
+TEMPORAL_TIMELESS = "timeless"
+
+_CURRENT_TEMPORAL_STATES: frozenset[str] = frozenset(
+    {TEMPORAL_VALID, TEMPORAL_TIMELESS}
+)
+
+# ── Per-attribute source-class priority (most authoritative first) ───────────
+# Reflects spec §6 attribute-specific hierarchies.  A class not listed for an
+# attribute is ``unknown`` for that attribute (rank 0).
+
+_OFFICIAL_RECORD_PRIORITY = (
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_INFERRED,
+)
+
+_REGULATION_PRIORITY = (
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_INFERRED,
+)
+
+_EXAM_DATE_PRIORITY = (
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_INFERRED,
+)
+
+_DEADLINE_PRIORITY = (
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_INFERRED,
+)
+
+_REQUIREMENT_PRIORITY = _REGULATION_PRIORITY
+
+_STUDY_PROGRESS_PRIORITY = (
+    SOURCE_CLASS_STUDY_SESSION,
+    SOURCE_CLASS_USER_RECOLLECTION,
+    SOURCE_CLASS_PERSONAL_NOTE,
+    SOURCE_CLASS_GENERAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+    SOURCE_CLASS_OFFICIAL_PUBLICATION,
+    SOURCE_CLASS_SUBJECT_GUIDE,
+    SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+    SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+    SOURCE_CLASS_ACADEMIC_CALENDAR,
+    SOURCE_CLASS_REGULATION,
+    SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+    SOURCE_CLASS_INFERRED,
+)
+
+_ATTRIBUTE_PRIORITY: dict[str, tuple[str, ...]] = {
+    "grade": _OFFICIAL_RECORD_PRIORITY,
+    "credit": _OFFICIAL_RECORD_PRIORITY,
+    "enrollment": _OFFICIAL_RECORD_PRIORITY,
+    "passed": _OFFICIAL_RECORD_PRIORITY,
+    "failed": _OFFICIAL_RECORD_PRIORITY,
+    "recognized_credit": _OFFICIAL_RECORD_PRIORITY,
+    "pending_credit": _OFFICIAL_RECORD_PRIORITY,
+    "subject_status": _OFFICIAL_RECORD_PRIORITY,
+    "requirement": _REQUIREMENT_PRIORITY,
+    "regulation": _REQUIREMENT_PRIORITY,
+    "exam_date": _EXAM_DATE_PRIORITY,
+    "call_date": _EXAM_DATE_PRIORITY,
+    "examination_date": _EXAM_DATE_PRIORITY,
+    "deadline": _DEADLINE_PRIORITY,
+    "assignment_deadline": _DEADLINE_PRIORITY,
+    "study_progress": _STUDY_PROGRESS_PRIORITY,
+    "study_hours": _STUDY_PROGRESS_PRIORITY,
+    "study_activity": _STUDY_PROGRESS_PRIORITY,
+}
+
+_DEFAULT_PRIORITY = _OFFICIAL_RECORD_PRIORITY
+
+
+def _normalize_source_class(value: Any) -> str:
+    if isinstance(value, str) and value in _SOURCE_CLASSES:
+        return value
+    return SOURCE_CLASS_UNKNOWN
+
+
+def _normalize_provenance(value: Any) -> str:
+    if isinstance(value, str) and value in (
+        PROVENANCE_GROUNDED,
+        PROVENANCE_UNVERIFIED,
+        PROVENANCE_CALLER_CLAIMED,
+        PROVENANCE_NONE,
+    ):
+        return value
+    return PROVENANCE_NONE
+
+
+def _normalize_temporal(value: Any) -> str:
+    if isinstance(value, str) and value in (
+        TEMPORAL_VALID,
+        TEMPORAL_EXPIRED,
+        TEMPORAL_FUTURE,
+        TEMPORAL_UNKNOWN,
+        TEMPORAL_TIMELESS,
+    ):
+        return value
+    return TEMPORAL_UNKNOWN
+
+
+def _normalize_specificity(value: Any) -> str:
+    if isinstance(value, str) and value in (
+        SPECIFICITY_SPECIFIC,
+        SPECIFICITY_GENERAL,
+        SPECIFICITY_UNKNOWN,
+    ):
+        return value
+    return SPECIFICITY_UNKNOWN
+
+
+def _source_scope(source: Mapping) -> str | None:
+    scope = source.get("scope")
+    return scope if isinstance(scope, str) and scope.strip() else None
+
+
+def _source_rank(source: Mapping, attribute: str) -> int:
+    """Return the source-class rank of ``source`` for ``attribute`` (0 = no
+    authority for that attribute)."""
+    priority = _ATTRIBUTE_PRIORITY.get(attribute, _DEFAULT_PRIORITY)
+    source_class = _normalize_source_class(source.get("source_class"))
+    try:
+        return len(priority) - priority.index(source_class)
+    except ValueError:
+        return 0
+
+
+def classify_academic_source_authority(
+    *,
+    attribute: str,
+    sources: tuple = (),
+    scope: str | None = None,
+) -> dict:
+    """Classify the authoritative source for a *single* academic attribute using
+    grounded, attribute-specific evidence.
+
+    Authority is derived from: attribute, source class, provenance, temporal
+    validity, specificity and scope (spec §6).  A caller cannot fabricate
+    ``official``: a source is authoritative only when its provenance is
+    ``grounded`` and its source class is grounded classification.  Recency alone
+    never wins.  Supersession resolves the current value while preserving the
+    superseded source as history.  Equal-authority incompatible claims with no
+    valid supersession remain unresolved (never an arbitrary choice).
+    """
+    evaluated: list[dict] = []
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+        supplied = source.get("supplied_attributes", ())
+        if not isinstance(supplied, (list, tuple)) or attribute not in supplied:
+            continue
+        scope_value = _source_scope(source)
+        if scope is not None and scope_value is not None and scope_value != scope:
+            continue
+        provenance = _normalize_provenance(source.get("provenance"))
+        temporal = _normalize_temporal(source.get("temporal"))
+        source_class = _normalize_source_class(source.get("source_class"))
+        specificity = _normalize_specificity(source.get("specificity"))
+        grounded = provenance in _GROUNDED_PROVENANCES
+        current = temporal in _CURRENT_TEMPORAL_STATES
+        rank = _source_rank(source, attribute)
+        evaluated.append(
+            {
+                "source_id": source.get("source_id"),
+                "source_class": source_class,
+                "provenance": provenance,
+                "temporal": temporal,
+                "specificity": specificity,
+                "scope": scope_value,
+                "grounded": grounded,
+                "current": current,
+                "rank": rank,
+                "supersedes": _normalize_references(source.get("supersedes")),
+                "superseded_by": _normalize_references(source.get("superseded_by")),
+            }
+        )
+
+    # Only grounded, currently-valid sources can carry current authority.
+    candidates = [e for e in evaluated if e["grounded"] and e["current"] and e["rank"] > 0]
+    if not candidates:
+        return {
+            "attribute": attribute,
+            "authority_resolved": False,
+            "authoritative_source_id": None,
+            "authority_class": None,
+            "matched_sources": tuple(evaluated),
+            "superseded_sources": (),
+            "authority_unknown": True,
+            "conflict": False,
+            "reason": "no_grounded_current_authority",
+        }
+
+    # Apply supersession: a candidate that is superseded by another grounded
+    # current candidate is demoted to history (not the current authority).
+    superseded_ids: set[str] = set()
+    for candidate in candidates:
+        for target in candidate["supersedes"]:
+            targeting = [
+                e
+                for e in candidates
+                if e["source_id"] == target
+            ]
+            if targeting:
+                superseded_ids.add(target)
+
+    active = [e for e in candidates if e["source_id"] not in superseded_ids]
+    if not active:
+        active = candidates
+
+    # Rank by source class, then specificity.
+    best_rank = max(e["rank"] for e in active)
+    best = [e for e in active if e["rank"] == best_rank]
+    best_specificity = max(_SPECIFICITY_RANK[e["specificity"]] for e in best)
+    top = [
+        e
+        for e in best
+        if _SPECIFICITY_RANK[e["specificity"]] == best_specificity
+    ]
+
+    if len(top) > 1:
+        # Equal-authority, equally-specific incompatible claims: unresolved.
+        return {
+            "attribute": attribute,
+            "authority_resolved": False,
+            "authoritative_source_id": None,
+            "authority_class": None,
+            "matched_sources": tuple(evaluated),
+            "superseded_sources": tuple(sorted(superseded_ids)),
+            "authority_unknown": True,
+            "conflict": True,
+            "reason": "equal_authority_conflict",
+        }
+
+    winner = top[0]
+    return {
+        "attribute": attribute,
+        "authority_resolved": True,
+        "authoritative_source_id": winner["source_id"],
+        "authority_class": winner["source_class"],
+        "matched_sources": tuple(evaluated),
+        "superseded_sources": tuple(sorted(superseded_ids)),
+        "authority_unknown": False,
+        "conflict": False,
+        "reason": "resolved",
+    }
+
+
 def resolve_source_authority_by_attribute(
     *,
     attribute: str,
@@ -235,97 +597,454 @@ def evaluate_academic_contradiction(
     }
 
 
+def _claim_field(claim: Mapping, key: str) -> Any:
+    return claim.get(key)
+
+
+def _claim_scope(claim: Mapping) -> str | None:
+    scope = _claim_field(claim, "scope")
+    return scope if isinstance(scope, str) and scope.strip() else None
+
+
+def _claim_attribute(claim: Mapping) -> str:
+    attribute = _claim_field(claim, "attribute")
+    return str(attribute) if isinstance(attribute, str) else "unknown"
+
+
+def _claim_value(claim: Mapping) -> Any:
+    return _claim_field(claim, "value")
+
+
+def _claim_critical(claim: Mapping) -> bool:
+    return bool(_claim_field(claim, "critical"))
+
+
+def _claim_source(claim: Mapping) -> Mapping:
+    """Build a source descriptor for authority resolution from a claim."""
+    return {
+        "source_id": _usable_reference(claim.get("id")),
+        "source_class": claim.get("source_class"),
+        "provenance": claim.get("provenance"),
+        "temporal": claim.get("temporal"),
+        "specificity": claim.get("specificity"),
+        "scope": _claim_scope(claim),
+        "supplied_attributes": (),
+        "supersedes": claim.get("supersedes"),
+    }
+
+
+def _incompatible(left: Any, right: Any) -> bool:
+    """Two values are incompatible when they are non-equal and neither is an
+    absent/unknown placeholder."""
+    if left is None or right is None:
+        return False
+    if isinstance(left, str) and not left.strip():
+        return False
+    if isinstance(right, str) and not right.strip():
+        return False
+    return left != right
+
+
+def resolve_academic_conflict(
+    *,
+    claims: tuple = (),
+    scope: str | None = None,
+) -> dict:
+    """Derive the academic contradiction state from structured claims.
+
+    Contradiction is DERIVED — never trusted from a caller boolean.  Two claims
+    conflict when they share an attribute, hold incompatible values, overlap in
+    relevant scope and are temporally contemporary.  Resolution is possible only
+    when a valid authoritative supersession (or a strictly higher authority)
+    justifies picking a current value; the superseded/historical claim is
+    preserved.  A material unresolved conflict blocks only the dependent
+    conclusion, not the whole domain.
+    """
+    if not claims:
+        return {
+            "contradiction": False,
+            "resolved": True,
+            "unresolved": False,
+            "material": False,
+            "blocked": False,
+            "current_value": None,
+            "superseded_claims": (),
+            "conflicts": (),
+        }
+
+    grouped: dict[str, list[Mapping]] = {}
+    for claim in claims:
+        if not isinstance(claim, Mapping):
+            continue
+        grouped.setdefault(_claim_attribute(claim), []).append(claim)
+
+    conflicts: list[dict] = []
+    superseded_ids: set[str] = set()
+    current_by_attribute: dict[str, Any] = {}
+    material = False
+    unresolved = False
+
+    for attribute, attr_claims in grouped.items():
+        if len(attr_claims) < 2:
+            continue
+        # Find the first pair of incompatible, scope-overlapping, contemporary
+        # claims for this attribute.
+        for i in range(len(attr_claims)):
+            for j in range(i + 1, len(attr_claims)):
+                left = attr_claims[i]
+                right = attr_claims[j]
+                left_scope = _claim_scope(left)
+                right_scope = _claim_scope(right)
+                # Scope overlap: two claims with different non-null scopes do not
+                # overlap, so they never conflict on the same attribute.
+                if (
+                    left_scope is not None
+                    and right_scope is not None
+                    and left_scope != right_scope
+                ):
+                    continue
+                if (
+                    scope is not None
+                    and left_scope is not None
+                    and left_scope != scope
+                ):
+                    continue
+                if (
+                    scope is not None
+                    and right_scope is not None
+                    and right_scope != scope
+                ):
+                    continue
+                if not _incompatible(_claim_value(left), _claim_value(right)):
+                    continue
+                # A conflict exists between these two claims.
+                conflicts.append(
+                    {
+                        "attribute": attribute,
+                        "left_id": left.get("id"),
+                        "right_id": right.get("id"),
+                        "left_value": _claim_value(left),
+                        "right_value": _claim_value(right),
+                    }
+                )
+                # Try supersession resolution.
+                left_supersedes = _normalize_references(left.get("supersedes"))
+                right_supersedes = _normalize_references(right.get("supersedes"))
+                left_id = left.get("id")
+                right_id = right.get("id")
+                if left_id in right_supersedes:
+                    superseded_ids.add(left_id)
+                    current_by_attribute.setdefault(attribute, _claim_value(right))
+                elif right_id in left_supersedes:
+                    superseded_ids.add(right_id)
+                    current_by_attribute.setdefault(attribute, _claim_value(left))
+                else:
+                    # No supersession: try authority resolution.
+                    authority = classify_academic_source_authority(
+                        attribute=attribute,
+                        sources=(_claim_source(left), _claim_source(right)),
+                        scope=scope,
+                    )
+                    if authority["authority_resolved"]:
+                        winner_id = authority["authoritative_source_id"]
+                        if winner_id == left_id:
+                            current_by_attribute.setdefault(
+                                attribute, _claim_value(left)
+                            )
+                        elif winner_id == right_id:
+                            current_by_attribute.setdefault(
+                                attribute, _claim_value(right)
+                            )
+                        else:
+                            unresolved = True
+                    else:
+                        unresolved = True
+                if _claim_critical(left) or _claim_critical(right):
+                    material = True
+        # Guard: if any pair for this attribute remained unresolved, mark.
+        # (handled above via unresolved flag when no resolution path applied)
+
+    resolved = not unresolved
+    blocked = bool(conflicts) and unresolved and material
+
+    return {
+        "contradiction": bool(conflicts),
+        "resolved": resolved,
+        "unresolved": bool(conflicts) and unresolved,
+        "material": material,
+        "blocked": blocked,
+        "current_value": _first_current(current_by_attribute),
+        "superseded_claims": tuple(sorted(superseded_ids)),
+        "conflicts": tuple(conflicts),
+    }
+
+
+def _first_current(mapping: Mapping) -> Any:
+    for value in mapping.values():
+        return value
+    return None
+
+
 def check_ects_consistency(
     *,
-    subject_ects: int = 0,
-    declared_workload_hours: int = 0,
-    hours_per_ect: float = 25.0,
+    completed: int = 0,
+    recognized: int = 0,
+    enrolled: int = 0,
+    planned: int = 0,
+    pending_recognition: int = 0,
+    required: int = 0,
+    double_counted: tuple = (),
+    contradictory: tuple = (),
+    critical_requirement_uncertain: bool = False,
 ) -> dict:
-    """Check ECTS/credit consistency deterministically.
+    """Check ECTS credit consistency deterministically over distinct buckets.
 
-    A declared workload that is implausibly far from the credit-derived
-    expectation is flagged as an inconsistency (a hypothesis, never an
-    authoritative correction).  The helper only *reports* the discrepancy; it
-    never rewrites the official record.
+    Credits are reasoned over as separate buckets: completed (earned),
+    recognized (officially recognized toward the degree), enrolled (committed
+    but not yet earned), planned (intended) and pending-recognition (submitted
+    but not yet recognized).  Only earned and recognized credits count toward
+    the requirement.  A credit present in more than one earned bucket is
+    double-counted and flagged rather than summed twice; contradictory buckets
+    are flagged, never silently reconciled into a confident total.  A
+    completion conclusion is blocked while a critical requirement's status is
+    uncertain.  The helper never reads the clock and never rewrites the
+    official record; it only reports.
     """
-    expected_hours = int(subject_ects * hours_per_ect)
-    if expected_hours <= 0:
-        return {
-            "expected_hours": expected_hours,
-            "declared_hours": declared_workload_hours,
-            "consistent": True,
-            "flagged": False,
-            "note": "No ECTS derived expectation to compare.",
-        }
-    tolerance = max(1, int(expected_hours * 0.5))
-    consistent = abs(declared_workload_hours - expected_hours) <= tolerance
+    recognized_total = int(completed) + int(recognized)
+    double_counting = len(double_counted) > 0
+    contradiction = len(contradictory) > 0
+    completion_blocked = critical_requirement_uncertain or double_counting or contradiction
+
+    satisfied = (
+        not completion_blocked
+        and recognized_total >= int(required)
+    )
+
     return {
-        "expected_hours": expected_hours,
-        "declared_hours": declared_workload_hours,
-        "consistent": consistent,
-        "flagged": not consistent,
-        "note": (
-            "consistent"
-            if consistent
-            else "declared workload diverges from ECTS-derived expectation"
-        ),
+        "recognized_total": recognized_total,
+        "completed": int(completed),
+        "recognized": int(recognized),
+        "enrolled": int(enrolled),
+        "planned": int(planned),
+        "pending_recognition": int(pending_recognition),
+        "required": int(required),
+        "double_counted": tuple(double_counted),
+        "double_counting": double_counting,
+        "contradictory": tuple(contradictory),
+        "contradiction": contradiction,
+        "critical_requirement_uncertain": critical_requirement_uncertain,
+        "completion_blocked": completion_blocked,
+        "completion_determinable": not completion_blocked,
+        "satisfied": satisfied,
+        "flagged": double_counting or contradiction or critical_requirement_uncertain,
     }
 
 
 def evaluate_exam_attempt(
     *,
-    attempt_count: int = 1,
+    attempts: tuple = (),
     max_attempts: int | None = 3,
-    passed: bool = False,
+    regulation_active: bool = True,
 ) -> dict:
-    """Evaluate an exam attempt deterministically against the rules in force.
+    """Evaluate exam attempts deterministically against the rules in force.
 
-    Reports whether the attempt count is within the permitted maximum and
-    whether the attempt is a pass.  The helper only *reports*; it never
-    modifies the official record and never authorizes a retake.
+    An attempt only counts against the budget when it is grounded, has a
+    consumed status, and is an ordinary (not reassessment) attempt.  A failed
+    grade does not by itself consume an attempt; a caller-claimed attempt with
+    no grounding is not authoritative; canceled or waived attempts do not
+    count.  When the governing regulation is not in force, limits cannot be
+    evaluated as authoritative.  The helper only *reports*; it never modifies
+    the official record and never authorizes a retake.
     """
-    returned = {
-        "attempt_count": attempt_count,
+    consumed_attempts = 0
+    reassessment_count = 0
+    ungrounded_attempts = 0
+    canceled = 0
+    waived = 0
+    failed_grade_not_consumed = False
+
+    for entry in attempts:
+        if not isinstance(entry, Mapping):
+            continue
+        if not entry.get("grounded"):
+            ungrounded_attempts += 1
+            continue
+        kind = entry.get("kind", "ordinary")
+        status = entry.get("status", "consumed")
+        if kind == "reassessment":
+            reassessment_count += 1
+            continue
+        if status == "canceled":
+            canceled += 1
+        elif status == "waived":
+            waived += 1
+        elif status == "consumed":
+            consumed_attempts += 1
+        elif entry.get("outcome") == "failed":
+            failed_grade_not_consumed = True
+
+    if not regulation_active:
+        return {
+            "consumed_attempts": consumed_attempts,
+            "reassessment_count": reassessment_count,
+            "ungrounded_attempts": ungrounded_attempts,
+            "canceled": canceled,
+            "waived": waived,
+            "failed_grade_not_consumed": failed_grade_not_consumed,
+            "max_attempts": max_attempts,
+            "regulation_inactive": True,
+            "within_limits": False,
+            "limit_exceeded": False,
+        }
+
+    within_limits = max_attempts is None or consumed_attempts <= max_attempts
+    return {
+        "consumed_attempts": consumed_attempts,
+        "reassessment_count": reassessment_count,
+        "ungrounded_attempts": ungrounded_attempts,
+        "canceled": canceled,
+        "waived": waived,
+        "failed_grade_not_consumed": failed_grade_not_consumed,
         "max_attempts": max_attempts,
-        "passed": bool(passed),
-        "within_limits": max_attempts is None or attempt_count <= max_attempts,
+        "regulation_inactive": False,
+        "within_limits": within_limits,
+        "limit_exceeded": not within_limits,
     }
-    if max_attempts is not None and attempt_count > max_attempts:
-        returned["limit_exceeded"] = True
-    else:
-        returned["limit_exceeded"] = False
-    return returned
 
 
 def evaluate_academic_workload(
     *,
     total_ect: int = 0,
     full_time_ect: int = 30,
-    max_ratio: float = 1.5,
+    health_constraint: Mapping | None = None,
+    hard_constraints: tuple = (),
+    preferences: tuple = (),
+    selected_scenario: str | None = None,
 ) -> dict:
-    """Evaluate academic workload against a reference full-time load.
+    """Evaluate academic workload through the staged planning pipeline.
 
-    Produces a workload assessment (a hypothesis).  ``total_ect`` is the
-    planned ECTS; ``full_time_ect`` is the nominal full-time reference.  An
-    overcommit beyond ``max_ratio`` of the full-time reference is flagged as a
-    planning risk, never a definitive overload judgment.
+    Pipeline: HARD CONSTRAINTS -> FEASIBILITY -> PREFERENCES -> TRADE-OFFS ->
+    SCENARIOS -> PROPOSAL.  An unsatisfied hard constraint stops the pipeline
+    before preferences are applied.  An authorized Health functional constraint
+    (e.g. a reduced-load cap) participates as a hard constraint affecting
+    feasibility; clinical details are never consumed by the domain.  A proposal
+    is only emitted at the final stage and never adopts a decision.
     """
-    if full_time_ect <= 0:
+    consumed_factors = set()
+    hard_constraint_ids = set()
+    for hard in hard_constraints:
+        if not isinstance(hard, Mapping):
+            continue
+        cid = _usable_reference(hard.get("id"))
+        if cid is None:
+            continue
+        hard_constraint_ids.add(cid)
+
+    # Authorized Health functional constraint is a hard constraint on
+    # feasibility; only the functional cap is read, never clinical details.
+    if isinstance(health_constraint, Mapping) and health_constraint.get("authorized"):
+        functional_cap = health_constraint.get("functional_cap_ect")
+        if functional_cap is not None:
+            consumed_factors.add("health_functional_cap")
+            if int(functional_cap) < int(total_ect):
+                hard_constraint_ids.add("health_functional_cap_unsatisfied")
+
+    satisfied = all(
+        hc.get("satisfied") for hc in hard_constraints if isinstance(hc, Mapping)
+    )
+    feasible = satisfied and not any(
+        cid.endswith("_unsatisfied") for cid in hard_constraint_ids
+    )
+    if not feasible:
         return {
-            "total_ect": total_ect,
-            "full_time_ect": full_time_ect,
-            "ratio": 0.0,
-            "overcommitted": False,
-            "flagged": False,
+            "feasible": False,
+            "stage": "feasibility",
+            "preferences_applied": False,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
         }
-    ratio = total_ect / full_time_ect
-    overcommitted = ratio > max_ratio
+
+    pref_list = tuple(p for p in preferences if isinstance(p, Mapping))
+    preferences_applied = bool(pref_list)
+    if not preferences_applied:
+        return {
+            "feasible": True,
+            "stage": "preferences",
+            "preferences_applied": False,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": selected_scenario,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+        }
+
+    # Trade-offs are surfaced when two preferences share the same rank and
+    # cannot both be satisfied without conflict.
+    ranks = sorted({int(p.get("rank", 0)) for p in pref_list})
+    conflicted_ranks = {
+        rank for rank in ranks if sum(int(p.get("rank", 0)) == rank for p in pref_list) > 1
+    }
+    tradeoffs = tuple(f"pref-rank-{rank}" for rank in sorted(conflicted_ranks))
+    if tradeoffs:
+        return {
+            "feasible": True,
+            "stage": "tradeoffs",
+            "preferences_applied": True,
+            "tradeoffs": tradeoffs,
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+        }
+
+    scenarios = tuple(f"scenario-{pref.get('id')}" for pref in pref_list)
+    if len(pref_list) < 2 and selected_scenario is None:
+        return {
+            "feasible": True,
+            "stage": "preferences",
+            "preferences_applied": True,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+        }
+    if selected_scenario is None:
+        return {
+            "feasible": True,
+            "stage": "scenarios",
+            "preferences_applied": True,
+            "tradeoffs": (),
+            "scenarios": scenarios,
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+        }
+
     return {
-        "total_ect": total_ect,
-        "full_time_ect": full_time_ect,
-        "ratio": round(ratio, 2),
-        "overcommitted": overcommitted,
-        "flagged": overcommitted,
+        "feasible": True,
+        "stage": "proposal",
+        "preferences_applied": True,
+        "tradeoffs": (),
+        "scenarios": scenarios,
+        "proposal": selected_scenario,
+        "adopted_decision": False,
+        "consumed_factors": tuple(sorted(consumed_factors)),
+        "clinical_details_consumed": False,
+        "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
     }
 
 
@@ -336,29 +1055,196 @@ def evaluate_academic_dependency(
 ) -> dict:
     """Evaluate academic dependency relationships deterministically.
 
-    A subject may list prerequisite subjects.  The helper reports which
-    prerequisites have been satisfied (passed) and which remain open, and
-    flags a dependency that blocks planning.  It never changes the official
-    record and never auto-enrols.
+    A subject may list prerequisite subjects (including credit/TFG sequencing).
+    A prerequisite is satisfied only by *grounded* evidence of passing; a
+    caller-claimed ``passed`` boolean with no grounding is not authoritative and
+    is ignored.  An unknown prerequisite status remains unresolved and is never
+    treated as satisfied.  The helper only *reports*; it never changes the
+    official record and never auto-enrols.
     """
-    open_prereqs: list[str] = []
     satisfied: list[str] = []
+    open_prereqs: list[str] = []
+    unknown_prereqs: list[str] = []
+    caller_passed_ignored: list[str] = []
+
     for dep in dependencies:
         if not isinstance(dep, Mapping):
             continue
         dep_id = _usable_reference(dep.get("id"))
         if dep_id is None:
             continue
-        if dep.get("passed"):
+        if dep.get("grounded_passed"):
             satisfied.append(dep_id)
-        else:
+            continue
+        if dep.get("caller_passed") and not dep.get("grounded_passed"):
+            caller_passed_ignored.append(dep_id)
+        status = dep.get("status")
+        if status in ("passed", "failed", "pending"):
             open_prereqs.append(dep_id)
+        else:
+            unknown_prereqs.append(dep_id)
+
     return {
         "subject_id": subject_id,
         "satisfied_prerequisites": tuple(satisfied),
         "open_prerequisites": tuple(open_prereqs),
-        "dependency_blocked": bool(open_prereqs),
+        "unknown_prerequisites": tuple(unknown_prereqs),
+        "caller_passed_ignored": tuple(caller_passed_ignored),
+        "dependency_blocked": bool(open_prereqs or unknown_prereqs),
     }
+
+
+def evaluate_academic_integrity(
+    *,
+    mode: str = INTEGRITY_MODE_C,
+    caller_restriction: Mapping | None = None,
+    grounded_restriction: Mapping | None = None,
+    remembered_restriction: bool = False,
+) -> dict:
+    """Resolve Academic Integrity Mode C assistance posture (spec §16).
+
+    Mode C is permissive by default: assistance is allowed when no applicable
+    restriction is grounded.  A caller cannot create a prohibition merely by
+    setting a boolean without grounding.  A remembered prohibition is not
+    automatically equivalent to a current official one.  When an explicit,
+    sufficiently grounded restriction exists, the concrete scope is respected
+    and its source/temporal validity are preserved.
+    """
+    if mode not in (INTEGRITY_MODE_A, INTEGRITY_MODE_B, INTEGRITY_MODE_C):
+        return {
+            "mode": mode,
+            "mode_valid": False,
+            "assistance_permitted": False,
+            "restriction": None,
+            "restriction_grounded": False,
+            "reason": f"Unknown integrity mode {mode!r}; not permissive.",
+        }
+
+    # Only Mode C is permissive by default; A and B are subject to their own
+    # (stricter) policies and are not treated as permissive here.
+    if mode != INTEGRITY_MODE_C:
+        return {
+            "mode": mode,
+            "mode_valid": True,
+            "assistance_permitted": False,
+            "restriction": None,
+            "restriction_grounded": False,
+            "reason": f"Integrity mode {mode} is not permissive by default.",
+        }
+
+    # A caller-provided restriction with no grounding cannot fabricate a
+    # prohibition.
+    caller_forbidden = False
+    if isinstance(caller_restriction, Mapping) and caller_restriction.get(
+        "ai_forbidden"
+    ):
+        caller_forbidden = True
+
+    # A grounded, current, official restriction is respected within its scope.
+    restriction_grounded = False
+    restriction_scope: tuple[str, ...] = ()
+    if isinstance(grounded_restriction, Mapping):
+        status = grounded_restriction.get("status")
+        grounded = bool(grounded_restriction.get("grounded"))
+        source_class = str(grounded_restriction.get("source_class", ""))
+        temporal = str(grounded_restriction.get("temporal", ""))
+        if (
+            status == "prohibited"
+            and grounded
+            and source_class == "official_regulation"
+            and temporal == "current"
+        ):
+            restriction_grounded = True
+            restriction_scope = _normalize_references(
+                grounded_restriction.get("scope")
+            )
+
+    remembered_not_official = bool(
+        remembered_restriction
+        or (
+            isinstance(grounded_restriction, Mapping)
+            and not restriction_grounded
+            and grounded_restriction.get("source_class") != "official_regulation"
+        )
+    )
+
+    assistance_permitted = not restriction_grounded
+
+    return {
+        "mode": mode,
+        "mode_valid": True,
+        "assistance_permitted": assistance_permitted,
+        "restriction": "prohibited" if restriction_grounded else None,
+        "restriction_grounded": restriction_grounded,
+        "restriction_scope": restriction_scope,
+        "caller_forbidden_ignored": caller_forbidden and assistance_permitted,
+        "remembered_not_official": remembered_not_official,
+        "reason": (
+            "Assistance permitted by default under Mode C; no applicable "
+            "grounded restriction."
+            if assistance_permitted
+            else "Assistance restricted by a grounded official restriction."
+        ),
+    }
+
+
+def conditional_verification_trigger(
+    *,
+    fact_state: str,
+    decision_critical: bool = False,
+) -> dict:
+    """Decide whether conditional official verification is warranted (spec §32).
+
+    Verification triggers only when an academic fact is missing, stale,
+    conflicting, or decision-critical and insufficiently grounded.  It is
+    always READ-ONLY and OFFICIAL_ONLY.  This is a deterministic helper that
+    returns a structured signal for the shared capability layer; it never
+    performs I/O, never authorizes an action, and is not a canonical operation
+    or rule.
+    """
+    state = _normalize_verification_fact_state(fact_state)
+
+    if state in ("unknown", "missing"):
+        reason = "missing"
+    elif state == "stale":
+        reason = "stale"
+    elif state == "conflicting":
+        reason = "conflicting"
+    elif state == "reported" and decision_critical:
+        reason = "decision_critical_insufficiently_grounded"
+    else:
+        reason = None
+
+    triggered = reason is not None
+    return {
+        "verification_triggered": triggered,
+        "reason": reason,
+        "fact_state": state,
+        "decision_critical": decision_critical,
+        "source_class": "official_only",
+        "read_only": True,
+        "authorizes_action": False,
+    }
+
+
+def _normalize_verification_fact_state(value: Any) -> str:
+    value_s = str(value)
+    if value_s in ("unknown", "missing", "missing_value"):
+        return "missing"
+    if value_s in ("reported", "remembered", "inferred", "calculated"):
+        return "reported"
+    allowed = {
+        "confirmed_official",
+        "confirmed",
+        "future",
+        "stale",
+        "conflicting",
+        "unknown",
+        "missing",
+    }
+    if value_s in allowed:
+        return value_s
+    return "unknown"
 
 
 def evaluate_performance_capacity(
@@ -405,6 +1291,153 @@ def evaluate_deadline(
         "deadline_present": usable is not None,
         "deadline": usable,
         "auto_scheduled": False,
+    }
+
+
+# ── Deadline epistemic states (spec §10) ──────────────────────────────────────
+
+DEADLINE_CONFIRMED_OFFICIAL = "confirmed_official"
+DEADLINE_REPORTED = "reported"
+DEADLINE_REMEMBERED = "remembered"
+DEADLINE_INFERRED = "inferred"
+DEADLINE_CALCULATED = "calculated"
+DEADLINE_CONFLICTING = "conflicting"
+DEADLINE_STALE = "stale"
+DEADLINE_UNKNOWN = "unknown"
+DEADLINE_FUTURE = "future"
+
+# Deadline provenance values (grounded vs recollection vs inference).
+_DEADLINE_PROVENANCE_GROUNDED = frozenset({"grounded", "reported", "calculated"})
+_DEADLINE_PROVENANCE_REMEMBERED = frozenset({"remembered"})
+_DEADLINE_PROVENANCE_INFERRED = frozenset({"inferred"})
+_DEADLINE_PROVENANCE_CALLER_CLAIMED = frozenset({"caller_claimed"})
+
+# Source classes suitable for confirming a deadline (official or attribute-specific).
+_DEADLINE_OFFICIAL_SOURCE_CLASSES = frozenset(
+    {
+        SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
+        SOURCE_CLASS_OFFICIAL_PUBLICATION,
+        SOURCE_CLASS_REGULATION,
+        SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
+        SOURCE_CLASS_SPECIFIC_OFFICIAL_CALL,
+        SOURCE_CLASS_SUBJECT_GUIDE,
+        SOURCE_CLASS_PROFESSOR_INSTRUCTION,
+        SOURCE_CLASS_INSTITUTIONAL_EMAIL,
+    }
+)
+
+
+def _deadline_confirmed_by(
+    *,
+    source_class: str,
+    provenance: str,
+    temporal: str,
+) -> bool:
+    """A deadline is confirmed only when it has authorized grounding (grounded
+    provenance), a source class suitable for that attribute (official/specific),
+    and current temporal applicability."""
+    if provenance not in _DEADLINE_PROVENANCE_GROUNDED:
+        return False
+    if temporal not in _CURRENT_TEMPORAL_STATES:
+        return False
+    return source_class in _DEADLINE_OFFICIAL_SOURCE_CLASSES
+
+
+def classify_deadline_grounding(
+    *,
+    deadline: Mapping | None = None,
+    critical: bool = False,
+) -> dict:
+    """Classify a deadline's epistemic state from grounded evidence.
+
+    Distinguishes confirmed, reported, remembered, inferred, calculated,
+    conflicting, stale, future and unknown.  A ``confirmed`` deadline requires
+    authorized grounding plus a source suitable for that attribute plus current
+    temporal applicability — a date string existing is never sufficient.  The
+    helper never reads the clock and never schedules.  A missing, stale,
+    conflicting or decision-critical under-grounded deadline produces a
+    *verification need* (a structured signal for the shared capability layer).
+    ``critical`` reflects decision-criticality supplied by the calling context.
+    """
+    if deadline is None:
+        return {
+            "state": DEADLINE_UNKNOWN,
+            "confirmed": False,
+            "verification_needed": True,
+            "reason": "missing",
+            "auto_scheduled": False,
+        }
+    usable = _usable_reference(deadline.get("value"))
+    if usable is None:
+        return {
+            "state": DEADLINE_UNKNOWN,
+            "confirmed": False,
+            "verification_needed": True,
+            "reason": "missing_value",
+            "auto_scheduled": False,
+        }
+
+    source_class = _normalize_source_class(deadline.get("source_class"))
+    provenance_raw = deadline.get("provenance", "none")
+    provenance = _normalize_provenance(provenance_raw)
+    temporal = _normalize_temporal(deadline.get("temporal"))
+    conflicting = bool(deadline.get("conflicting"))
+    critical = critical or bool(deadline.get("critical"))
+    retrieval_date = _usable_reference(deadline.get("retrieval_date"))
+    effective_date = _usable_reference(deadline.get("effective_date"))
+
+    # Conflicting evidence always supersedes a naive confirmation.
+    if conflicting:
+        return {
+            "state": DEADLINE_CONFLICTING,
+            "confirmed": False,
+            "verification_needed": True,
+            "reason": "conflicting",
+            "auto_scheduled": False,
+            "deadline": usable,
+            "retrieval_date": retrieval_date,
+            "effective_date": effective_date,
+        }
+
+    confirmed = _deadline_confirmed_by(
+        source_class=source_class,
+        provenance=provenance,
+        temporal=temporal,
+    )
+
+    if confirmed:
+        state = DEADLINE_CONFIRMED_OFFICIAL
+    elif temporal == TEMPORAL_EXPIRED:
+        state = DEADLINE_STALE
+    elif temporal == TEMPORAL_FUTURE:
+        state = DEADLINE_FUTURE
+    elif provenance_raw in _DEADLINE_PROVENANCE_REMEMBERED:
+        state = DEADLINE_REMEMBERED
+    elif provenance_raw in _DEADLINE_PROVENANCE_INFERRED:
+        state = DEADLINE_INFERRED
+    elif provenance_raw in _DEADLINE_PROVENANCE_GROUNDED:
+        state = DEADLINE_REPORTED
+    elif provenance_raw in _DEADLINE_PROVENANCE_CALLER_CLAIMED:
+        state = DEADLINE_UNKNOWN
+    else:
+        state = DEADLINE_UNKNOWN
+
+    # Verification need: missing, stale, conflicting, or decision-critical and
+    # insufficiently grounded.
+    verification_needed = (
+        state in (DEADLINE_STALE, DEADLINE_CONFLICTING, DEADLINE_UNKNOWN)
+        or (critical and not confirmed)
+    )
+
+    return {
+        "state": state,
+        "confirmed": confirmed,
+        "verification_needed": verification_needed,
+        "reason": state,
+        "auto_scheduled": False,
+        "deadline": usable,
+        "retrieval_date": retrieval_date,
+        "effective_date": effective_date,
     }
 
 
@@ -560,7 +1593,7 @@ class AcademicContradictionRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No contradiction statements supplied.",
             )
-        record = evaluate_academic_contradiction(statements=tuple(statements))
+        record = resolve_academic_conflict(claims=tuple(statements))
         references: tuple[str, ...] = ()
         for statement in statements:
             if not isinstance(statement, Mapping):
@@ -568,7 +1601,7 @@ class AcademicContradictionRule:
             ref = _usable_reference(statement.get("id"))
             if ref is not None:
                 references = (*references, ref)
-        if record["state"] == CONTRADICTION_MATERIAL:
+        if record["blocked"]:
             finding = ReasoningFinding(
                 code="MATERIAL_CONTRADICTION_UNRESOLVED",
                 message=(
@@ -597,9 +1630,33 @@ class AcademicContradictionRule:
                 code="MATERIAL_CONTRADICTION_BLOCKED",
                 message="Material contradiction unresolved; blocked.",
             )
+        if record["unresolved"]:
+            finding = ReasoningFinding(
+                code="CONTRADICTION_UNRESOLVED",
+                message=(
+                    "An academic contradiction is unresolved; the conflict is "
+                    "preserved and no arbitrary value is chosen."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                references=references,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="CONTRADICTION_UNRESOLVED",
+                message="Academic contradiction preserved as unresolved.",
+            )
         finding = ReasoningFinding(
             code="CONTRADICTION_STATE",
-            message=f"Academic contradiction state: {record['state']}.",
+            message=(
+                "Academic contradiction resolved while preserving history."
+                if record["contradiction"]
+                else "No academic contradiction among the supplied claims."
+            ),
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
@@ -634,17 +1691,47 @@ class AcademicDeadlineRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No deadline metadata supplied.",
             )
-        record = evaluate_deadline(deadline=deadline.get("value"))
+        record = classify_deadline_grounding(
+            deadline=deadline, critical=bool(deadline.get("critical"))
+        )
+        if record["verification_needed"]:
+            finding = ReasoningFinding(
+                code="DEADLINE_VERIFICATION_NEEDED",
+                message=(
+                    f"Deadline state is {record['state']}; official verification "
+                    "is needed before relying on it."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "state": record["state"],
+                    "confirmed": record["confirmed"],
+                    "verification_needed": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="DEADLINE_VERIFICATION_NEEDED",
+                message="Deadline state requires official verification.",
+            )
         finding = ReasoningFinding(
             code="DEADLINE_FACT",
             message=(
-                "Deadline represented as a structured fact with provenance; "
-                "no calendar event is created."
+                f"Deadline state {record['state']}; structured fact with "
+                "grounding; no calendar event is created."
             ),
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
-            metadata={"deadline_present": record["deadline_present"]},
+            metadata={
+                "state": record["state"],
+                "confirmed": record["confirmed"],
+                "verification_needed": False,
+            },
         )
         return _result(
             self.definition,
@@ -659,6 +1746,18 @@ class AcademicDeadlineRule:
 # ═══════════════════════════════════════════════════════════════════════════════
 # EctsConsistencyRule
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _ects_block_reason(record: Mapping) -> str:
+    """Build a human-readable reason string for a blocked ECTS conclusion."""
+    reasons: list[str] = []
+    if record.get("double_counting"):
+        reasons.append("credits double-counted")
+    if record.get("contradiction"):
+        reasons.append("credit buckets contradict each other")
+    if record.get("critical_requirement_uncertain"):
+        reasons.append("critical requirement status uncertain")
+    return "; ".join(reasons) if reasons else "completion not determinable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -676,17 +1775,25 @@ class EctsConsistencyRule:
                 message="No ECTS metadata supplied.",
             )
         record = check_ects_consistency(
-            subject_ects=int(ects.get("subject_ects", 0)),
-            declared_workload_hours=int(ects.get("declared_workload_hours", 0)),
-            hours_per_ect=float(ects.get("hours_per_ect", 25.0)),
+            completed=int(ects.get("completed", 0)),
+            recognized=int(ects.get("recognized", 0)),
+            enrolled=int(ects.get("enrolled", 0)),
+            planned=int(ects.get("planned", 0)),
+            pending_recognition=int(ects.get("pending_recognition", 0)),
+            required=int(ects.get("required", 0)),
+            double_counted=tuple(ects.get("double_counted", ())),
+            contradictory=tuple(ects.get("contradictory", ())),
+            critical_requirement_uncertain=bool(
+                ects.get("critical_requirement_uncertain")
+            ),
         )
-        if record["flagged"]:
+        if record["completion_blocked"]:
             finding = ReasoningFinding(
-                code="ECTS_INCONSISTENCY",
+                code="ECTS_COMPLETION_BLOCKED",
                 message=(
-                    f"Declared workload ({record['declared_hours']}h) diverges "
-                    f"from ECTS-derived expectation ({record['expected_hours']}h); "
-                    "reported as a hypothesis, never an authoritative correction."
+                    "ECTS completion cannot be concluded: "
+                    + _ects_block_reason(record)
+                    + "; reported, never silently summed."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
@@ -698,12 +1805,35 @@ class EctsConsistencyRule:
                 context,
                 ReasoningRuleResultStatus.APPLIED,
                 findings=(finding,),
-                code="ECTS_INCONSISTENCY_FLAGGED",
-                message="ECTS inconsistency flagged as a hypothesis.",
+                code="ECTS_COMPLETION_BLOCKED",
+                message="ECTS completion conclusion blocked.",
+            )
+        if record["satisfied"]:
+            finding = ReasoningFinding(
+                code="ECTS_REQUIREMENT_SATISFIED",
+                message=(
+                    f"Recognized credits ({record['recognized_total']}) "
+                    f"satisfy the requirement ({record['required']})."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata=record,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="ECTS_REQUIREMENT_SATISFIED",
+                message="ECTS requirement satisfied.",
             )
         finding = ReasoningFinding(
-            code="ECTS_CONSISTENT",
-            message="Credits and declared workload are consistent.",
+            code="ECTS_REQUIREMENT_NOT_SATISFIED",
+            message=(
+                f"Recognized credits ({record['recognized_total']}) do not yet "
+                f"satisfy the requirement ({record['required']})."
+            ),
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
@@ -714,8 +1844,8 @@ class EctsConsistencyRule:
             context,
             ReasoningRuleResultStatus.APPLIED,
             findings=(finding,),
-            code="ECTS_CONSISTENT",
-            message="ECTS consistency verified.",
+            code="ECTS_REQUIREMENT_NOT_SATISFIED",
+            message="ECTS requirement not yet satisfied.",
         )
 
 
@@ -739,17 +1869,37 @@ class ExamAttemptRule:
                 message="No exam attempt metadata supplied.",
             )
         record = evaluate_exam_attempt(
-            attempt_count=int(attempt.get("attempt_count", 1)),
+            attempts=tuple(attempt.get("attempts", ())),
             max_attempts=attempt.get("max_attempts"),
-            passed=bool(attempt.get("passed")),
+            regulation_active=bool(attempt.get("regulation_active", True)),
         )
+        if record["regulation_inactive"]:
+            finding = ReasoningFinding(
+                code="EXAM_ATTEMPT_REGULATION_INACTIVE",
+                message=(
+                    "The governing examination regulation is not currently in "
+                    "force; attempt limits cannot be evaluated authoritatively."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata=record,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="EXAM_ATTEMPT_REGULATION_INACTIVE",
+                message="Attempt regulation not in force.",
+            )
         if record["limit_exceeded"]:
             finding = ReasoningFinding(
                 code="EXAM_ATTEMPT_LIMIT_EXCEEDED",
                 message=(
-                    f"Attempt {record['attempt_count']} exceeds the permitted "
-                    f"maximum ({record['max_attempts']}); reported without "
-                    "authorizing a retake or modifying the record."
+                    f"{record['consumed_attempts']} grounded ordinary attempts "
+                    f"exceed the permitted maximum ({record['max_attempts']}); "
+                    "reported without authorizing a retake or modifying the record."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
@@ -766,7 +1916,10 @@ class ExamAttemptRule:
             )
         finding = ReasoningFinding(
             code="EXAM_ATTEMPT_EVALUATED",
-            message=f"Exam attempt within limits (attempt {record['attempt_count']}).",
+            message=(
+                f"{record['consumed_attempts']} grounded ordinary attempts "
+                f"within the permitted maximum ({record['max_attempts']})."
+            ),
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
@@ -804,16 +1957,18 @@ class AcademicWorkloadRule:
         record = evaluate_academic_workload(
             total_ect=int(workload.get("total_ect", 0)),
             full_time_ect=int(workload.get("full_time_ect", 30)),
-            max_ratio=float(workload.get("max_ratio", 1.5)),
+            health_constraint=workload.get("health_constraint"),
+            hard_constraints=tuple(workload.get("hard_constraints", ())),
+            preferences=tuple(workload.get("preferences", ())),
+            selected_scenario=workload.get("selected_scenario"),
         )
-        if record["flagged"]:
+        if not record["feasible"]:
             finding = ReasoningFinding(
-                code="WORKLOAD_OVERCOMMIT",
+                code="WORKLOAD_INFEASIBLE",
                 message=(
-                    f"Planned load ({record['total_ect']} ECTS) exceeds "
-                    f"{record['ratio']}x the full-time reference "
-                    f"({record['full_time_ect']} ECTS); flagged as a planning "
-                    "risk, not a definitive overload judgment."
+                    "Planned workload fails a hard constraint; the pipeline "
+                    "stops before applying preferences. Clinical details are "
+                    "not consumed."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
@@ -825,12 +1980,35 @@ class AcademicWorkloadRule:
                 context,
                 ReasoningRuleResultStatus.APPLIED,
                 findings=(finding,),
-                code="WORKLOAD_OVERCOMMIT_FLAGGED",
-                message="Workload overcommit flagged as a planning risk.",
+                code="WORKLOAD_INFEASIBLE",
+                message="Workload infeasible under hard constraints.",
+            )
+        if record["stage"] == "tradeoffs":
+            finding = ReasoningFinding(
+                code="WORKLOAD_TRADEOFFS",
+                message=(
+                    "Conflicting preferences require a trade-off before a "
+                    "scenario can be produced."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata=record,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="WORKLOAD_TRADEOFFS",
+                message="Workload trade-offs surfaced.",
             )
         finding = ReasoningFinding(
             code="WORKLOAD_ASSESSED",
-            message="Planned workload is within the reference full-time load.",
+            message=(
+                f"Workload pipeline reached stage '{record['stage']}'; "
+                "proposal (if any) never adopts a decision."
+            ),
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
@@ -842,7 +2020,7 @@ class AcademicWorkloadRule:
             ReasoningRuleResultStatus.APPLIED,
             findings=(finding,),
             code="WORKLOAD_ASSESSED",
-            message="Workload assessed within the reference load.",
+            message="Workload assessed through the planning pipeline.",
         )
 
 
@@ -869,17 +2047,20 @@ class AcademicDependencyRule:
             subject_id=str(dependency.get("subject_id", "unknown")),
             dependencies=tuple(dependency.get("prerequisites", ()) or ()),
         )
+        blocked_ids = tuple(
+            dict.fromkeys(record["open_prerequisites"] + record["unknown_prerequisites"])
+        )
         if record["dependency_blocked"]:
             finding = ReasoningFinding(
                 code="DEPENDENCY_BLOCKED",
                 message=(
-                    f"Open prerequisites block planning for "
-                    f"{record['subject_id']}: {', '.join(record['open_prerequisites'])}."
+                    f"Unsatisfied prerequisites block planning for "
+                    f"{record['subject_id']}: {', '.join(blocked_ids)}."
                 ),
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
-                references=record["open_prerequisites"],
+                references=blocked_ids,
                 metadata=record,
             )
             return _result(
@@ -984,15 +2165,20 @@ class AcademicIntegrityRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No integrity metadata supplied.",
             )
-        mode = str(integrity.get("mode", INTEGRITY_MODE_C))
-        # Academic Integrity Mode C is permissive-by-default (spec §17): the
-        # domain does not police academic conduct; it only preserves the user's
-        # stated mode and never substitutes its own integrity policing for the
-        # institution's rules.
-        if mode not in (INTEGRITY_MODE_A, INTEGRITY_MODE_B, INTEGRITY_MODE_C):
+        resolved = evaluate_academic_integrity(
+            mode=str(integrity.get("mode", INTEGRITY_MODE_C)),
+            caller_restriction=integrity.get("caller_restriction"),
+            grounded_restriction=integrity.get("grounded_restriction"),
+            remembered_restriction=bool(integrity.get("remembered_restriction")),
+        )
+        # Academic Integrity Mode C is permissive-by-default (spec §16): the
+        # domain does not police academic conduct; it preserves the user's
+        # stated mode, never substitutes its own policing for the institution's
+        # rules, and never treats a caller boolean as a grounded prohibition.
+        if not resolved["mode_valid"]:
             finding = ReasoningFinding(
                 code="INTEGRITY_MODE_REJECTED",
-                message=f"Unknown integrity mode {mode!r}; blocked.",
+                message=resolved["reason"],
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
@@ -1005,24 +2191,32 @@ class AcademicIntegrityRule:
                 code="INTEGRITY_MODE_REJECTED",
                 message="Unsupported integrity mode blocked.",
             )
+        code = (
+            "INTEGRITY_RESTRICTION_APPLIED"
+            if resolved["restriction_grounded"]
+            else "INTEGRITY_MODE_PRESERVED"
+        )
         finding = ReasoningFinding(
-            code="INTEGRITY_MODE_PRESERVED",
-            message=(
-                f"Academic integrity mode {mode} preserved; the domain does not "
-                "substitute its own policing for institutional rules."
-            ),
+            code=code,
+            message=resolved["reason"],
             severity=ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
-            metadata={"mode": mode},
+            metadata={
+                "mode": resolved["mode"],
+                "assistance_permitted": resolved["assistance_permitted"],
+                "restriction_grounded": resolved["restriction_grounded"],
+                "restriction_scope": resolved["restriction_scope"],
+                "caller_forbidden_ignored": resolved["caller_forbidden_ignored"],
+            },
         )
         return _result(
             self.definition,
             context,
             ReasoningRuleResultStatus.APPLIED,
             findings=(finding,),
-            code="INTEGRITY_MODE_PRESERVED",
-            message="Academic integrity mode preserved (Mode C permissive by default).",
+            code=code,
+            message=resolved["reason"],
         )
 
 
@@ -1188,8 +2382,10 @@ __all__ = [
     "ObservedPerformanceCapacityRule",
     "build_university_rules",
     "check_ects_consistency",
+    "conditional_verification_trigger",
     "evaluate_academic_contradiction",
     "evaluate_academic_dependency",
+    "evaluate_academic_integrity",
     "evaluate_academic_workload",
     "evaluate_deadline",
     "evaluate_exam_attempt",

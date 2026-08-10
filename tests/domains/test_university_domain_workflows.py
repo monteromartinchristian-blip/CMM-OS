@@ -211,11 +211,11 @@ def test_tfg_planning_has_approval_gate():
 
 
 def test_reassessment_internal_academic_state_only():
-    """Reassessment planning only touches internal Academic State, never the
-    official record."""
+    """Reassessment planning is a proposal and must not mutate academic state:
+    ``update_subject_status`` (a MEMORY write) is absent from the workflow."""
     wf = _by_id()["university.reassessment_planning"]
     op_ids = {node.operation_id for node in wf.nodes if node.operation_id}
-    assert "university.update_subject_status" in op_ids
+    assert "university.update_subject_status" not in op_ids
     assert all(
         word not in op for op in op_ids for word in ("official", "register", "submit")
     )

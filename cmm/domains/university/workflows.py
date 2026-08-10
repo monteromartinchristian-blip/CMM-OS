@@ -234,17 +234,10 @@ def _reassessment_planning() -> DomainWorkflowDefinition:
                 operation_id="university.review_academic_record",
             ),
             _node(
-                "status",
-                WorkflowNodeType.EXECUTE_OPERATION,
-                "UpdateSubjectStatus",
-                dependencies=("review",),
-                operation_id="university.update_subject_status",
-            ),
-            _node(
                 "questions",
                 WorkflowNodeType.EXECUTE_OPERATION,
                 "TrackDeadlines",
-                dependencies=("status",),
+                dependencies=("review",),
                 operation_id="university.track_deadlines",
             ),
             *_planning_tail("university.reassessment_planning"),
