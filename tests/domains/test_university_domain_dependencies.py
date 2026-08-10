@@ -216,6 +216,24 @@ def test_canonical_rule_pending_recognition_is_conditional_not_currently_satisfi
     assert threshold["scenario_if_recognized"] is True
 
 
+def test_canonical_rule_conditional_prerequisite_is_in_blocked_ids():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {"id": "degree-credits", "kind": "credit_threshold", "required_credits": 180},
+            ),
+            "academic_records": (
+                _academic_record("completed", "completed", ects=174),
+                _academic_record("pending", "pending_recognition", ects=6),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["conditional_prerequisites"] == ("degree-credits",)
+    assert "degree-credits" in finding.references
+
+
 def test_canonical_rule_unknown_dependency_remains_unresolved():
     result = _canonical_result(
         {

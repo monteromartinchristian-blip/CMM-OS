@@ -334,6 +334,36 @@ def test_canonical_rule_equal_current_authority_remains_unresolved():
     assert finding.metadata["authority_conflict"] is True
 
 
+def test_canonical_rule_equal_authority_same_value_is_corroborated():
+    result = _canonical_result(
+        {
+            "id": "call-a",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {
+            "id": "call-b",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert finding.metadata["authority_resolved"] is True
+    assert finding.metadata["authority_conflict"] is False
+    assert finding.metadata["authoritative_source_id"] is None
+    assert finding.metadata["authoritative_value"] == "18"
+    assert finding.metadata["supporting_source_ids"] == ("call-a", "call-b")
+    assert finding.metadata["verification_need"]["needed"] is False
+
+
 def test_canonical_rule_supersession_selects_new_value_and_preserves_old():
     result = _canonical_result(
         {

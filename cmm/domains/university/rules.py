@@ -378,6 +378,17 @@ def _source_rank(source: Mapping, attribute: str) -> int:
         return 0
 
 
+def _values_compatible(left: Any, right: Any) -> bool:
+    """Return whether two present claim values are exactly compatible."""
+    if left is None or right is None:
+        return False
+    if isinstance(left, str) and not left.strip():
+        return False
+    if isinstance(right, str) and not right.strip():
+        return False
+    return left == right
+
+
 def classify_academic_source_authority(
     *,
     attribute: str,
@@ -423,6 +434,7 @@ def classify_academic_source_authority(
                 "grounded": grounded,
                 "current": current,
                 "rank": rank,
+                "value": source.get("value"),
                 "supersedes": _normalize_references(source.get("supersedes")),
                 "superseded_by": _normalize_references(source.get("superseded_by")),
             }
@@ -436,6 +448,8 @@ def classify_academic_source_authority(
             "authority_resolved": False,
             "authoritative_source_id": None,
             "authority_class": None,
+            "authoritative_value": None,
+            "supporting_source_ids": (),
             "matched_sources": tuple(evaluated),
             "superseded_sources": (),
             "authority_unknown": True,
@@ -471,12 +485,39 @@ def classify_academic_source_authority(
     ]
 
     if len(top) > 1:
+        top_values = [candidate["value"] for candidate in top]
+        if all(_values_compatible(top_values[0], value) for value in top_values[1:]):
+            supporting_source_ids = tuple(
+                sorted(
+                    source_id
+                    for source_id in (
+                        _usable_reference(candidate["source_id"])
+                        for candidate in top
+                    )
+                    if source_id is not None
+                )
+            )
+            return {
+                "attribute": attribute,
+                "authority_resolved": True,
+                "authoritative_source_id": None,
+                "authority_class": None,
+                "authoritative_value": top_values[0],
+                "supporting_source_ids": supporting_source_ids,
+                "matched_sources": tuple(evaluated),
+                "superseded_sources": tuple(sorted(superseded_ids)),
+                "authority_unknown": False,
+                "conflict": False,
+                "reason": "corroborated",
+            }
         # Equal-authority, equally-specific incompatible claims: unresolved.
         return {
             "attribute": attribute,
             "authority_resolved": False,
             "authoritative_source_id": None,
             "authority_class": None,
+            "authoritative_value": None,
+            "supporting_source_ids": (),
             "matched_sources": tuple(evaluated),
             "superseded_sources": tuple(sorted(superseded_ids)),
             "authority_unknown": True,
@@ -490,6 +531,12 @@ def classify_academic_source_authority(
         "authority_resolved": True,
         "authoritative_source_id": winner["source_id"],
         "authority_class": winner["source_class"],
+        "authoritative_value": winner["value"],
+        "supporting_source_ids": (
+            (_usable_reference(winner["source_id"]),)
+            if _usable_reference(winner["source_id"]) is not None
+            else ()
+        ),
         "matched_sources": tuple(evaluated),
         "superseded_sources": tuple(sorted(superseded_ids)),
         "authority_unknown": False,
@@ -650,15 +697,36 @@ def _claim_source(claim: Mapping) -> Mapping:
 
 
 def _incompatible(left: Any, right: Any) -> bool:
-    """Two values are incompatible when they are non-equal and neither is an
-    absent/unknown placeholder."""
+    """Return whether two values are present and exactly incompatible."""
     if left is None or right is None:
         return False
     if isinstance(left, str) and not left.strip():
         return False
     if isinstance(right, str) and not right.strip():
         return False
-    return left != right
+    return not _values_compatible(left, right)
+
+
+def _claim_is_current(claim: Mapping) -> bool:
+    return _normalize_temporal(claim.get("temporal")) in _CURRENT_TEMPORAL_STATES
+
+
+def _claim_is_temporally_relevant(claim: Mapping) -> bool:
+    return _normalize_temporal(claim.get("temporal")) not in {
+        TEMPORAL_EXPIRED,
+        TEMPORAL_FUTURE,
+    }
+
+
+def _claim_sort_key(claim: Mapping) -> tuple[str, ...]:
+    return (
+        _claim_attribute(claim),
+        _claim_scope(claim) or "",
+        _usable_reference(claim.get("id")) or "",
+        repr(_claim_value(claim)),
+        _normalize_source_class(claim.get("source_class")),
+        _normalize_specificity(claim.get("specificity")),
+    )
 
 
 def resolve_academic_conflict(
@@ -700,41 +768,36 @@ def resolve_academic_conflict(
     material = False
     unresolved = False
 
-    for attribute, attr_claims in grouped.items():
-        if len(attr_claims) < 2:
-            continue
-        # Find the first pair of incompatible, scope-overlapping, contemporary
-        # claims for this attribute.
-        for i in range(len(attr_claims)):
-            for j in range(i + 1, len(attr_claims)):
-                left = attr_claims[i]
-                right = attr_claims[j]
+    for attribute in sorted(grouped):
+        attr_claims = sorted(grouped[attribute], key=_claim_sort_key)
+        relevant_claims = [
+            claim
+            for claim in attr_claims
+            if scope is None
+            or _claim_scope(claim) is None
+            or _claim_scope(claim) == scope
+        ]
+        current_claims = [claim for claim in relevant_claims if _claim_is_current(claim)]
+        conflict_claims = [
+            claim for claim in relevant_claims if _claim_is_temporally_relevant(claim)
+        ]
+        attribute_conflicts: list[dict] = []
+
+        # Collect all temporally relevant, overlapping incompatible evidence
+        # first. No current value is selected during pair iteration.
+        for i, left in enumerate(conflict_claims):
+            for right in conflict_claims[i + 1 :]:
                 left_scope = _claim_scope(left)
                 right_scope = _claim_scope(right)
-                # Scope overlap: two claims with different non-null scopes do not
-                # overlap, so they never conflict on the same attribute.
                 if (
                     left_scope is not None
                     and right_scope is not None
                     and left_scope != right_scope
                 ):
                     continue
-                if (
-                    scope is not None
-                    and left_scope is not None
-                    and left_scope != scope
-                ):
-                    continue
-                if (
-                    scope is not None
-                    and right_scope is not None
-                    and right_scope != scope
-                ):
-                    continue
                 if not _incompatible(_claim_value(left), _claim_value(right)):
                     continue
-                # A conflict exists between these two claims.
-                conflicts.append(
+                attribute_conflicts.append(
                     {
                         "attribute": attribute,
                         "left_id": left.get("id"),
@@ -743,45 +806,32 @@ def resolve_academic_conflict(
                         "right_value": _claim_value(right),
                     }
                 )
-                # Try supersession resolution.
-                left_supersedes = _normalize_references(left.get("supersedes"))
-                right_supersedes = _normalize_references(right.get("supersedes"))
-                left_id = left.get("id")
-                right_id = right.get("id")
-                if left_id in right_supersedes:
-                    superseded_ids.add(left_id)
-                    current_by_attribute.setdefault(attribute, _claim_value(right))
-                elif right_id in left_supersedes:
-                    superseded_ids.add(right_id)
-                    current_by_attribute.setdefault(attribute, _claim_value(left))
-                else:
-                    # No supersession: try authority resolution.
-                    authority = classify_academic_source_authority(
-                        attribute=attribute,
-                        sources=(_claim_source(left), _claim_source(right)),
-                        scope=scope,
-                    )
-                    if authority["authority_resolved"]:
-                        winner_id = authority["authoritative_source_id"]
-                        if winner_id == left_id:
-                            current_by_attribute.setdefault(
-                                attribute, _claim_value(left)
-                            )
-                        elif winner_id == right_id:
-                            current_by_attribute.setdefault(
-                                attribute, _claim_value(right)
-                            )
-                        else:
-                            unresolved = True
-                    else:
-                        unresolved = True
                 if _claim_critical(left) or _claim_critical(right):
                     material = True
-        # Guard: if any pair for this attribute remained unresolved, mark.
-        # (handled above via unresolved flag when no resolution path applied)
+
+        conflicts.extend(attribute_conflicts)
+        authority = classify_academic_source_authority(
+            attribute=attribute,
+            sources=tuple(_claim_source(claim) for claim in current_claims),
+            scope=scope,
+        )
+        superseded_ids.update(authority["superseded_sources"])
+        if authority["authority_resolved"]:
+            current_by_attribute[attribute] = authority.get("authoritative_value")
+        elif attribute_conflicts:
+            unresolved = True
 
     resolved = not unresolved
     blocked = bool(conflicts) and unresolved and material
+    conflicts.sort(
+        key=lambda conflict: (
+            str(conflict["attribute"]),
+            str(conflict["left_id"]),
+            str(conflict["right_id"]),
+            repr(conflict["left_value"]),
+            repr(conflict["right_value"]),
+        )
+    )
 
     return {
         "contradiction": bool(conflicts),
@@ -893,6 +943,7 @@ def check_ects_consistency(
         planned = bucket_totals["planned"]
         pending_recognition = bucket_totals["pending_recognition"]
 
+    requirement_grounded = required is not None
     if degree_requirement is not None:
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
         requirement_grounded = bool(degree_requirement.get("grounded"))
@@ -905,14 +956,34 @@ def check_ects_consistency(
             if candidate is not None and requirement_grounded and requirement_reference
             else None
         )
+    elif derive_from_records:
+        # Strict callers may still report legacy aggregates for diagnostics,
+        # but an absent structured requirement cannot establish a requirement.
+        required = None
     required_known = required is not None
+    credit_state_sufficiently_grounded = (
+        bool(records) and not unknown_records
+        if derive_from_records
+        else True
+    )
+    if derive_from_records and degree_requirement is None:
+        requirement_grounded = False
     double_counted = tuple(dict.fromkeys((*double_counted, *derived_double_counted)))
     contradictory = tuple(dict.fromkeys((*contradictory, *derived_contradictory)))
     recognized_total = int(completed) + int(recognized)
     double_counting = len(double_counted) > 0
     contradiction = len(contradictory) > 0
     critical_requirement_uncertain = bool(
-        critical_requirement_uncertain or not required_known or bool(unknown_records and derive_from_records)
+        critical_requirement_uncertain
+        or not required_known
+        or (
+            derive_from_records
+            and (
+                not credit_state_sufficiently_grounded
+                or not requirement_grounded
+                or bool(unknown_records)
+            )
+        )
     )
     completion_blocked = (
         critical_requirement_uncertain or double_counting or contradiction
@@ -933,6 +1004,8 @@ def check_ects_consistency(
         "pending_recognition": int(pending_recognition),
         "required": int(required) if required_known else None,
         "required_known": required_known,
+        "requirement_grounded": requirement_grounded,
+        "credit_state_sufficiently_grounded": credit_state_sufficiently_grounded,
         "double_counted": tuple(double_counted),
         "double_counting": double_counting,
         "contradictory": tuple(contradictory),
@@ -2081,6 +2154,7 @@ class AcademicSourceAuthorityRule:
                 ),
                 None,
             )
+            supporting_source_ids = tuple(authority.get("supporting_source_ids", ()))
             references = tuple(
                 ref
                 for claim in attribute_claims
@@ -2090,7 +2164,7 @@ class AcademicSourceAuthorityRule:
                 ref
                 for claim in attribute_claims
                 if (ref := _usable_reference(claim.get("id"))) is not None
-                and ref != authoritative_id
+                and ref not in supporting_source_ids
             )
             decision_critical = any(_claim_critical(claim) for claim in attribute_claims)
             verification_need = (
@@ -2135,8 +2209,9 @@ class AcademicSourceAuthorityRule:
                 "authoritative_value": (
                     authoritative_claim.get("value")
                     if authoritative_claim is not None
-                    else None
+                    else authority.get("authoritative_value")
                 ),
+                "supporting_source_ids": supporting_source_ids,
                 "historical_source_ids": historical_ids,
                 "superseded_source_ids": authority["superseded_sources"],
                 "matched_sources": authority["matched_sources"],
@@ -2413,6 +2488,10 @@ def _ects_block_reason(record: Mapping) -> str:
         reasons.append("credit buckets contradict each other")
     if record.get("critical_requirement_uncertain"):
         reasons.append("critical requirement status uncertain")
+    if not record.get("credit_state_sufficiently_grounded", True):
+        reasons.append("grounded credit records missing or incomplete")
+    if not record.get("requirement_grounded", True):
+        reasons.append("grounded degree requirement missing")
     return "; ".join(reasons) if reasons else "completion not determinable"
 
 
@@ -2432,7 +2511,6 @@ class EctsConsistencyRule:
             )
         records = tuple(ects.get("records", ()) or ())
         degree_requirement = ects.get("degree_requirement")
-        derive_from_records = bool(records or "degree_requirement" in ects)
         record = check_ects_consistency(
             completed=int(ects.get("completed", 0)),
             recognized=int(ects.get("recognized", 0)),
@@ -2455,10 +2533,21 @@ class EctsConsistencyRule:
                 if isinstance(degree_requirement, Mapping)
                 else None
             ),
-            derive_from_records=derive_from_records,
+            derive_from_records=True,
+        )
+        verification_fact_state = (
+            "conflicting"
+            if record["double_counting"] or record["contradiction"]
+            else "missing"
+            if (
+                not record["required_known"]
+                or not record["credit_state_sufficiently_grounded"]
+                or record["critical_requirement_uncertain"]
+            )
+            else "confirmed_official"
         )
         verification_need = conditional_verification_trigger(
-            fact_state="missing" if not record["required_known"] else "confirmed_official",
+            fact_state=verification_fact_state,
             decision_critical=True,
             attribute="required_credits",
             scope="degree_completion",
@@ -2476,9 +2565,9 @@ class EctsConsistencyRule:
                 domain_id=self.definition.domain_id,
                 metadata={**record, "verification_need": verification_need},
             )
-            gaps = ()
+            gaps: list[ReasoningGap] = []
             if not record["required_known"]:
-                gaps = (
+                gaps.append(
                     ReasoningGap(
                         code="ECTS_REQUIREMENT_UNKNOWN",
                         message=(
@@ -2489,14 +2578,28 @@ class EctsConsistencyRule:
                         rule_id=self.definition.id,
                         domain_id=self.definition.domain_id,
                         metadata={"verification_need": verification_need},
-                    ),
+                    )
+                )
+            if not record["credit_state_sufficiently_grounded"]:
+                gaps.append(
+                    ReasoningGap(
+                        code="ECTS_CREDIT_STATE_UNKNOWN",
+                        message=(
+                            "Grounded structured credit records are missing or "
+                            "incomplete; reported aggregates cannot confirm completion."
+                        ),
+                        severity=ReasoningSeverity.WARNING,
+                        rule_id=self.definition.id,
+                        domain_id=self.definition.domain_id,
+                        metadata={"verification_need": verification_need},
+                    )
                 )
             return _result(
                 self.definition,
                 context,
                 ReasoningRuleResultStatus.APPLIED,
                 findings=(finding,),
-                gaps=gaps,
+                gaps=tuple(gaps),
                 code="ECTS_COMPLETION_BLOCKED",
                 message="ECTS completion conclusion blocked.",
             )
@@ -2791,7 +2894,11 @@ class AcademicDependencyRule:
             derive_from_academic_state=True,
         )
         blocked_ids = tuple(
-            dict.fromkeys(record["open_prerequisites"] + record["unknown_prerequisites"])
+            dict.fromkeys(
+                record["open_prerequisites"]
+                + record["unknown_prerequisites"]
+                + record["conditional_prerequisites"]
+            )
         )
         if record["dependency_blocked"]:
             finding = ReasoningFinding(

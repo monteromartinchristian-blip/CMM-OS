@@ -10,6 +10,7 @@ supersession.  Caller flags may be input evidence only, never authoritative.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from itertools import permutations
 
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
@@ -247,6 +248,135 @@ def test_canonical_rule_attribute_specific_authority_resolves_current_value():
     assert finding.metadata["resolved"] is True
     assert finding.metadata["superseded_claims"] == ()
     assert finding.metadata["verification_need"]["needed"] is False
+
+
+def _canonical_contradiction_finding(result):
+    return next(
+        finding
+        for finding in result.findings
+        if finding.code in {"CONTRADICTION_STATE", "CONTRADICTION_UNRESOLVED"}
+    )
+
+
+def _semantic_contradiction_result(result):
+    finding = _canonical_contradiction_finding(result)
+    metadata = finding.metadata
+    conflicts = tuple(
+        sorted(
+            (
+                conflict["attribute"],
+                conflict["left_id"],
+                conflict["right_id"],
+                conflict["left_value"],
+                conflict["right_value"],
+            )
+            for conflict in metadata["conflicts"]
+        )
+    )
+    return (
+        metadata["current_value"],
+        metadata["resolved"],
+        metadata["unresolved"],
+        metadata["verification_need"]["needed"],
+        conflicts,
+    )
+
+
+def test_canonical_rule_three_source_resolution_uses_highest_attribute_authority():
+    result = _canonical_result(
+        _claim(
+            "email",
+            attribute="exam_date",
+            value="18",
+            source_class="institutional_email",
+            critical=True,
+        ),
+        _claim(
+            "calendar",
+            attribute="exam_date",
+            value="17",
+            source_class="academic_calendar",
+            critical=True,
+        ),
+        _claim(
+            "call",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+            critical=True,
+        ),
+    )
+    finding = _canonical_contradiction_finding(result)
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["contradiction"] is True
+    assert finding.metadata["current_value"] == "18"
+    assert finding.metadata["resolved"] is True
+    assert finding.metadata["unresolved"] is False
+    assert finding.metadata["verification_need"]["needed"] is False
+    assert set(finding.references) == {"email", "calendar", "call"}
+
+
+def test_canonical_rule_three_source_resolution_is_permutation_invariant():
+    claims = (
+        _claim(
+            "email",
+            attribute="exam_date",
+            value="18",
+            source_class="institutional_email",
+        ),
+        _claim(
+            "calendar",
+            attribute="exam_date",
+            value="17",
+            source_class="academic_calendar",
+        ),
+        _claim(
+            "call",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+        ),
+    )
+    semantic_results = [
+        _semantic_contradiction_result(_canonical_result(*ordered_claims))
+        for ordered_claims in permutations(claims)
+    ]
+    assert len(semantic_results) == 6
+    assert all(semantic == semantic_results[0] for semantic in semantic_results)
+    assert semantic_results[0][0] == "18"
+    assert semantic_results[0][1:4] == (True, False, False)
+
+
+def test_canonical_rule_corroborated_highest_authority_is_not_unresolved():
+    result = _canonical_result(
+        _claim(
+            "call-a",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+        ),
+        _claim(
+            "call-b",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+        ),
+        _claim(
+            "calendar",
+            attribute="exam_date",
+            value="17",
+            source_class="academic_calendar",
+        ),
+    )
+    finding = _canonical_contradiction_finding(result)
+    assert finding.metadata["contradiction"] is True
+    assert finding.metadata["current_value"] == "18"
+    assert finding.metadata["resolved"] is True
+    assert finding.metadata["unresolved"] is False
 
 
 def test_canonical_rule_equal_authority_conflict_emits_verification_need():

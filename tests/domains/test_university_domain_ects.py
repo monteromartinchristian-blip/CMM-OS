@@ -32,7 +32,7 @@ def _record(subject_id, ects, state, *, source="record-1", **extra):
     }
 
 
-def _canonical_result(*, records=(), degree_requirement=None):
+def _canonical_result(*, records=(), degree_requirement=None, **legacy):
     rule = {
         r.definition.id: r
         for r in build_university_rules()
@@ -44,6 +44,7 @@ def _canonical_result(*, records=(), degree_requirement=None):
         primary_domain="domain:university",
         metadata={
             "ects": {
+                **legacy,
                 "records": records,
                 "degree_requirement": degree_requirement,
             }
@@ -152,6 +153,16 @@ def test_canonical_rule_missing_requirement_stays_unknown():
     assert finding.metadata["required_known"] is False
     assert result.gaps
     assert result.gaps[0].metadata["verification_need"]["needed"] is True
+
+
+def test_canonical_rule_legacy_aggregate_cannot_confirm_completion():
+    result = _canonical_result(completed=180, required=180)
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["required_known"] is False
+    assert finding.metadata["credit_state_sufficiently_grounded"] is False
+    assert finding.metadata["verification_need"]["needed"] is True
 
 
 def test_canonical_rule_same_subject_completed_and_recognized_is_not_double_counted():
