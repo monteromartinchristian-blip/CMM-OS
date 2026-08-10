@@ -10,7 +10,46 @@ block a completion conclusion when a critical requirement is uncertain.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import check_ects_consistency
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def _record(subject_id, ects, state, *, source="record-1", **extra):
+    return {
+        "subject_id": subject_id,
+        "ects": ects,
+        "state": state,
+        "grounded": True,
+        "source_reference": source,
+        "temporal": "valid",
+        **extra,
+    }
+
+
+def _canonical_result(*, records=(), degree_requirement=None):
+    rule = {
+        r.definition.id: r
+        for r in build_university_rules()
+    }["university.ects_consistency"]
+    context = ReasoningRuleContext(
+        reasoning_id="ects-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={
+            "ects": {
+                "records": records,
+                "degree_requirement": degree_requirement,
+            }
+        },
+    )
+    return rule.evaluate(context)
 
 
 def test_recognized_credits_satisfy_requirement():
@@ -99,3 +138,83 @@ def test_clean_noncritical_case_is_determinable():
     assert result["satisfied"] is True
     assert result["double_counting"] is False
     assert result["contradiction"] is False
+
+
+def test_canonical_rule_missing_requirement_stays_unknown():
+    result = _canonical_result(
+        records=tuple(_record(f"subject-{i}", 30, "completed") for i in range(6)),
+        degree_requirement=None,
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["required"] is None
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["required_known"] is False
+    assert result.gaps
+    assert result.gaps[0].metadata["verification_need"]["needed"] is True
+
+
+def test_canonical_rule_same_subject_completed_and_recognized_is_not_double_counted():
+    result = _canonical_result(
+        records=(
+            _record("subject-a", 6, "completed", source="record-complete"),
+            _record("subject-a", 6, "recognized", source="record-recognized"),
+        ),
+        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["double_counting"] is True
+    assert "subject-a" in finding.metadata["double_counted"]
+    assert finding.metadata["recognized_total"] == 12
+
+
+def test_canonical_rule_enrolled_credits_do_not_count_as_completed():
+    result = _canonical_result(
+        records=(_record("subject-enrolled", 6, "enrolled"),),
+        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+    )
+    finding = result.findings[0]
+    assert finding.metadata["completed"] == 0
+    assert finding.metadata["enrolled"] == 6
+    assert finding.metadata["satisfied"] is False
+
+
+def test_canonical_rule_pending_recognition_is_only_conditional():
+    result = _canonical_result(
+        records=(
+            _record("subject-complete", 174, "completed"),
+            _record("subject-pending", 6, "pending_recognition"),
+        ),
+        degree_requirement={"required_ects": 180, "grounded": True, "source_reference": "degree-1"},
+    )
+    finding = result.findings[0]
+    assert finding.metadata["recognized_total"] == 174
+    assert finding.metadata["pending_recognition"] == 6
+    assert finding.metadata["satisfied"] is False
+    assert finding.metadata["scenario_if_recognized"] == 180
+
+
+def test_canonical_rule_contradictory_current_credit_states_block_completion():
+    result = _canonical_result(
+        records=(
+            _record("subject-a", 6, "completed", source="pass"),
+            _record("subject-a", 6, "failed", source="fail"),
+        ),
+        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["contradiction"] is True
+    assert "subject-a" in finding.metadata["contradictory"]
+
+
+def test_canonical_rule_grounded_records_can_confirm_completion():
+    result = _canonical_result(
+        records=tuple(_record(f"subject-{i}", 30, "completed") for i in range(6)),
+        degree_requirement={"required_ects": 180, "grounded": True, "source_reference": "degree-1"},
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
+    assert finding.metadata["recognized_total"] == 180

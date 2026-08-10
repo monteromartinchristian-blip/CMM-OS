@@ -12,7 +12,42 @@ temporal validity.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import evaluate_academic_integrity
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def _canonical_result(integrity):
+    rule = {
+        r.definition.id: r
+        for r in build_university_rules()
+    }["university.academic_integrity"]
+    context = ReasoningRuleContext(
+        reasoning_id="integrity-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"integrity": integrity},
+    )
+    return rule.evaluate(context)
+
+
+def _restriction(**overrides):
+    return {
+        "status": "prohibited",
+        "grounded": True,
+        "source_class": "official_regulation",
+        "temporal": "current",
+        "course": "course-x",
+        "assessment": "assignment-a",
+        "prohibited_actions": ("draft_final_answer",),
+        **overrides,
+    }
 
 
 def test_mode_c_permissive_by_default_when_no_restriction():
@@ -96,3 +131,102 @@ def test_unknown_mode_not_permissive():
     result = evaluate_academic_integrity(mode="mode_x")
     assert result["mode_valid"] is False
     assert result["assistance_permitted"] is False
+
+
+def test_canonical_rule_scoped_restriction_denies_only_prohibited_action():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["assistance_permitted"] is False
+    assert finding.metadata["restriction_applies"] is True
+
+
+def test_canonical_rule_same_restriction_allows_explanation():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "explain_concept",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_wrong_course_does_not_apply_restriction():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-y",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True
+    assert result.findings[0].metadata["restriction_applies"] is False
+
+
+def test_canonical_rule_stale_restriction_does_not_prohibit():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(temporal="expired"),
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_superseded_restriction_does_not_prohibit():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(superseded=True),
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_ambiguous_limitation_is_not_a_prohibition():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(
+                prohibited_actions=(),
+                ambiguous=True,
+                text="AI use should be limited",
+            ),
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_caller_boolean_without_restriction_allows():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "caller_restriction": {"ai_forbidden": True},
+        }
+    )
+    assert result.findings[0].metadata["assistance_permitted"] is True

@@ -9,7 +9,14 @@ field.  These tests pin the grounded semantics.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import classify_academic_source_authority
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _grounded(
@@ -35,6 +42,32 @@ def _grounded(
     if scope is not None:
         source["scope"] = scope
     return source
+
+
+def _canonical_rule():
+    return {
+        rule.definition.id: rule
+        for rule in build_university_rules()
+    }["university.academic_source_authority"]
+
+
+def _canonical_result(*claims):
+    context = ReasoningRuleContext(
+        reasoning_id="source-authority-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"academic_claims": claims},
+    )
+    return _canonical_rule().evaluate(context)
+
+
+def _authority_finding(result, attribute):
+    return next(
+        finding
+        for finding in result.findings
+        if finding.metadata.get("attribute") == attribute
+    )
 
 
 def test_official_academic_record_beats_personal_note_for_grade():
@@ -199,6 +232,134 @@ def test_scope_exclusion_removes_candidate():
         scope="current_subject",
     )
     assert result["authoritative_source_id"] == "mine"
+
+
+def test_canonical_rule_specific_notice_beats_general_calendar_for_exact_date():
+    result = _canonical_result(
+        {
+            "id": "calendar",
+            "attribute": "exam_date",
+            "value": "17",
+            "source_class": "academic_calendar",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        },
+        {
+            "id": "notice",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["authoritative_source_id"] == "notice"
+    assert finding.metadata["authoritative_value"] == "18"
+    assert "calendar" in finding.metadata["historical_source_ids"]
+
+
+def test_canonical_rule_newer_personal_note_does_not_beat_older_valid_official():
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "observed_at": "2026-07-01",
+        },
+        {
+            "id": "note",
+            "attribute": "exam_date",
+            "value": "19",
+            "source_type": "official",
+            "source_class": "personal_note",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "observed_at": "2026-07-31",
+        },
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert finding.metadata["authoritative_source_id"] == "official"
+    assert finding.metadata["authoritative_value"] == "18"
+
+
+def test_canonical_rule_caller_official_metadata_without_grounding_is_unknown():
+    result = _canonical_result(
+        {
+            "id": "fabricated",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_type": "official",
+            "source_class": "unknown",
+            "provenance": "caller_claimed",
+            "temporal": "valid",
+        }
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["authoritative_source_id"] is None
+
+
+def test_canonical_rule_equal_current_authority_remains_unresolved():
+    result = _canonical_result(
+        {
+            "id": "call-a",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {
+            "id": "call-b",
+            "attribute": "exam_date",
+            "value": "19",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["authority_conflict"] is True
+
+
+def test_canonical_rule_supersession_selects_new_value_and_preserves_old():
+    result = _canonical_result(
+        {
+            "id": "old-call",
+            "attribute": "exam_date",
+            "value": "17",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {
+            "id": "revised-call",
+            "attribute": "exam_date",
+            "value": "18",
+            "source_class": "specific_official_call",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "supersedes": ("old-call",),
+        },
+    )
+    finding = _authority_finding(result, "exam_date")
+    assert finding.metadata["authoritative_source_id"] == "revised-call"
+    assert finding.metadata["authoritative_value"] == "18"
+    assert finding.metadata["historical_source_ids"] == ("old-call",)
 
 
 def test_unknown_authority_ordering_remains_unknown():

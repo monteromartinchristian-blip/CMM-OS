@@ -10,7 +10,14 @@ satisfied).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import evaluate_academic_dependency
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _dep(
@@ -28,6 +35,32 @@ def _dep(
         "status": status,
         "kind": kind,
     }
+
+
+def _academic_record(subject_id, status, *, ects=0, source="record-1", grounded=True):
+    return {
+        "subject_id": subject_id,
+        "status": status,
+        "ects": ects,
+        "grounded": grounded,
+        "source_reference": source,
+        "temporal": "valid",
+    }
+
+
+def _canonical_result(dependency):
+    rule = {
+        r.definition.id: r
+        for r in build_university_rules()
+    }["university.academic_dependency"]
+    context = ReasoningRuleContext(
+        reasoning_id="dependency-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"dependency": dependency},
+    )
+    return rule.evaluate(context)
 
 
 def test_grounded_passed_prerequisite_satisfies():
@@ -108,3 +141,89 @@ def test_no_dependencies_is_blocked_false():
     result = evaluate_academic_dependency(subject_id="subj-2", dependencies=())
     assert result["dependency_blocked"] is False
     assert result["satisfied_prerequisites"] == ()
+
+
+def test_canonical_rule_caller_fabricated_pass_does_not_establish_prerequisite():
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": (
+                {
+                    "id": "subj-1",
+                    "passed": True,
+                    "grounded_passed": True,
+                },
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert "subj-1" in finding.metadata["unknown_prerequisites"]
+
+
+
+def test_canonical_rule_grounded_subject_state_satisfies_prerequisite():
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": ({"id": "subj-1", "kind": "subject"},),
+            "academic_records": (
+                _academic_record("subj-1", "passed", source="record-pass"),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["satisfied_prerequisites"] == ("subj-1",)
+
+
+def test_canonical_rule_credit_threshold_uses_grounded_completed_records():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {"id": "degree-credits", "kind": "credit_threshold", "required_credits": 180},
+            ),
+            "academic_records": tuple(
+                _academic_record(f"subject-{i}", "completed", ects=29)
+                for i in range(6)
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["credit_thresholds"]["degree-credits"]["completed"] == 174
+
+
+def test_canonical_rule_pending_recognition_is_conditional_not_currently_satisfied():
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {"id": "degree-credits", "kind": "tfg_eligibility", "required_credits": 180},
+            ),
+            "academic_records": (
+                _academic_record("completed", "completed", ects=174),
+                _academic_record("pending", "pending_recognition", ects=6),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    threshold = finding.metadata["credit_thresholds"]["degree-credits"]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert threshold["status"] == "conditional"
+    assert threshold["scenario_if_recognized"] is True
+
+
+def test_canonical_rule_unknown_dependency_remains_unresolved():
+    result = _canonical_result(
+        {
+            "subject_id": "subj-2",
+            "prerequisites": ({"id": "subj-1", "kind": "subject"},),
+            "academic_records": (),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["unknown_prerequisites"] == ("subj-1",)

@@ -9,7 +9,14 @@ supersession.  Caller flags may be input evidence only, never authoritative.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import resolve_academic_conflict
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _claim(
@@ -40,6 +47,21 @@ def _claim(
     if critical:
         claim["critical"] = True
     return claim
+
+
+def _canonical_result(*claims):
+    rules = {
+        rule.definition.id: rule
+        for rule in build_university_rules()
+    }
+    context = ReasoningRuleContext(
+        reasoning_id="contradiction-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"contradiction_statements": claims},
+    )
+    return rules["university.academic_contradiction"].evaluate(context)
 
 
 def test_incompatible_overlapping_claims_are_a_contradiction():
@@ -194,3 +216,86 @@ def test_empty_claims_no_contradiction():
     result = resolve_academic_conflict(claims=())
     assert result["contradiction"] is False
     assert result["resolved"] is True
+
+
+def test_canonical_rule_attribute_specific_authority_resolves_current_value():
+    result = _canonical_result(
+        _claim(
+            "calendar",
+            attribute="exam_date",
+            value="17",
+            source_class="academic_calendar",
+            specificity="general",
+            critical=True,
+        ),
+        _claim(
+            "call",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+            critical=True,
+        ),
+    )
+    finding = next(
+        finding
+        for finding in result.findings
+        if finding.code == "CONTRADICTION_STATE"
+    )
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["current_value"] == "18"
+    assert finding.metadata["resolved"] is True
+    assert finding.metadata["superseded_claims"] == ()
+    assert finding.metadata["verification_need"]["needed"] is False
+
+
+def test_canonical_rule_equal_authority_conflict_emits_verification_need():
+    result = _canonical_result(
+        _claim(
+            "call-a",
+            attribute="exam_date",
+            value="17",
+            source_class="specific_official_call",
+            specificity="specific",
+            critical=True,
+        ),
+        _claim(
+            "call-b",
+            attribute="exam_date",
+            value="18",
+            source_class="specific_official_call",
+            specificity="specific",
+            critical=True,
+        ),
+    )
+    finding = next(
+        finding
+        for finding in result.findings
+        if finding.code == "MATERIAL_CONTRADICTION_UNRESOLVED"
+    )
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert finding.metadata["verification_need"]["needed"] is True
+    assert finding.metadata["verification_need"]["reason"] == "conflicting"
+
+
+def test_canonical_rule_ignores_caller_unresolved_false():
+    left = _claim(
+        "call-a",
+        attribute="exam_date",
+        value="17",
+        source_class="specific_official_call",
+        specificity="specific",
+        critical=True,
+    )
+    right = _claim(
+        "call-b",
+        attribute="exam_date",
+        value="18",
+        source_class="specific_official_call",
+        specificity="specific",
+        critical=True,
+    )
+    left["unresolved"] = False
+    right["unresolved"] = False
+    result = _canonical_result(left, right)
+    assert result.status is ReasoningRuleResultStatus.BLOCKED

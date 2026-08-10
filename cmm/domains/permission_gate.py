@@ -34,6 +34,9 @@ from cmm.domains.permission_adapters import (
     evaluate_domain_workflow_node,
 )
 from cmm.domains.permission_contracts import (
+    CrossDomainDuration,
+    CrossDomainPermissionDecision,
+    CrossDomainPermissionRequest,
     DomainPermissionRequest,
 )
 from cmm.domains.workflow_contracts import DomainWorkflowDefinition
@@ -642,17 +645,38 @@ class DomainPermissionGate:
 
     def evaluate_cross_domain(
         self,
+        request: CrossDomainPermissionRequest | None = None,
         *,
-        request_id: str,
-        source_domain: str,
-        target_domain: str,
-        actor_id: str,
-        session_id: str,
+        request_id: str | None = None,
+        source_domain: str | None = None,
+        target_domain: str | None = None,
+        actor_id: str | None = None,
+        session_id: str | None = None,
         approval_request_id: str | None = None,
         one_time: bool = True,
         dry_run: bool = False,
     ) -> PermissionGateResult:
-        """Evaluate cross-domain access permission."""
+        """Evaluate cross-domain access permission through the shared gate.
+
+        The typed ``CrossDomainPermissionRequest`` path is canonical.  The
+        keyword-only form remains as a compatibility adapter for existing
+        callers that exercise the generic gate with a minimal request.
+        """
+        now = self._clock()
+        if request is not None:
+            decision = self._resolver.resolve_cross_domain(request, now=now)  # type: ignore[attr-defined]
+            return self._evaluate_cross_domain_decision(
+                decision=decision,
+                request=request,
+                approval_request_id=approval_request_id,
+                dry_run=dry_run,
+                now=now,
+            )
+
+        if None in (request_id, source_domain, target_domain, actor_id, session_id):
+            raise TypeError(
+                "request or request_id/source_domain/target_domain/actor_id/session_id is required"
+            )
         perm_request = DomainPermissionRequest(
             request_id,
             PermissionCapability.DOMAIN_CROSS_ACCESS,
@@ -662,7 +686,6 @@ class DomainPermissionGate:
             source_domain=source_domain,
             target_domain=target_domain,
         )
-        now = self._clock()
         resolution = self._resolver.resolve(perm_request, now=now)
         effective = resolution.effective_permissions
 
@@ -681,6 +704,161 @@ class DomainPermissionGate:
                 "target_domain": target_domain,
                 "legacy_one_time_hint_ignored": one_time,
             },
+        )
+
+    def _evaluate_cross_domain_decision(
+        self,
+        *,
+        decision: CrossDomainPermissionDecision,
+        request: CrossDomainPermissionRequest,
+        approval_request_id: str | None,
+        dry_run: bool,
+        now: datetime,
+    ) -> PermissionGateResult:
+        """Compose current cross-domain policy with canonical approval consumption."""
+        action = PermissionCapability.DOMAIN_CROSS_ACCESS.value
+        metadata = {
+            "source_domain": request.source_domain,
+            "target_domain": request.target_domain,
+            "resource_ids": request.resource_ids,
+            "resource_kinds": request.resource_kinds,
+            "requested_operations": request.requested_operations,
+            "requested_workflows": request.requested_workflows,
+            "duration": request.duration.value,
+        }
+        if decision.decision is PermissionOutcome.DENY:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.DENY,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=(*decision.reasons, PermissionGateReason.POLICY_DENIED.value),
+                effective_constraints=dict(decision.constraints),
+                metadata=metadata,
+            )
+        if decision.decision is PermissionOutcome.ALLOW:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.ALLOW,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=decision.reasons,
+                effective_constraints=dict(decision.constraints),
+                metadata=metadata,
+            )
+
+        approval_reqs = tuple(item.to_dict() for item in decision.approval_requirements)
+        if not approval_request_id or self._approval_service is None:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=(*decision.reasons, "approval_required"),
+                effective_constraints=dict(decision.constraints),
+                approval_requirements=approval_reqs,
+                metadata=metadata,
+            )
+        if len(decision.approval_requirements) != 1:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=(*decision.reasons, "exactly_one_approval_requirement_required"),
+                effective_constraints=dict(decision.constraints),
+                approval_requirements=approval_reqs,
+                metadata=metadata,
+            )
+
+        requirement = decision.approval_requirements[0]
+        expected_one_time = request.duration in {
+            CrossDomainDuration.SINGLE_USE,
+            CrossDomainDuration.REQUEST,
+        }
+        expected_reusable = request.duration in {
+            CrossDomainDuration.WORKFLOW_RUN,
+            CrossDomainDuration.SESSION,
+        }
+        expected_resource_id = request.resource_ids[0] if len(request.resource_ids) == 1 else None
+        expected_resource_kind = request.resource_kinds[0] if len(request.resource_kinds) == 1 else None
+        expected_operation_id = request.requested_operations[0] if len(request.requested_operations) == 1 else None
+        expected_workflow_id = request.requested_workflows[0] if len(request.requested_workflows) == 1 else None
+        exact_context = (
+            requirement.requirement_id == f"cross-domain:{request.request_id}"
+            and requirement.action is PermissionCapability.DOMAIN_CROSS_ACCESS
+            and requirement.actor_id == request.actor_id
+            and requirement.session_id == request.session_id
+            and requirement.domain_id == request.source_domain
+            and requirement.source_domain == request.source_domain
+            and requirement.target_domain == request.target_domain
+            and requirement.resource_id == expected_resource_id
+            and requirement.resource_kind == expected_resource_kind
+            and requirement.operation_id == expected_operation_id
+            and requirement.workflow_id == expected_workflow_id
+            and requirement.scope == "cross_domain"
+            and requirement.one_time is expected_one_time
+            and requirement.reusable is expected_reusable
+            and dict(requirement.constraints) == dict(request.constraints)
+        )
+        if not exact_context:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.DENY,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=(*decision.reasons, "approval_requirement_context_mismatch", PermissionGateReason.BINDING_FAILURE.value),
+                effective_constraints=dict(decision.constraints),
+                approval_requirements=approval_reqs,
+                metadata=metadata,
+            )
+
+        evidence = self._approval_service.validate_and_consume(
+            approval_request_id,
+            actor_id=request.actor_id,
+            session_id=request.session_id,
+            action=action,
+            domain_id=request.source_domain,
+            target_domain=request.target_domain,
+            scope=requirement.scope,
+            one_time=requirement.one_time,
+            requirement_id=requirement.requirement_id,
+            expected_requirement=requirement,
+            dry_run=dry_run,
+            now=now,
+        )
+        if evidence.granted:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
+                action=action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                reasons=(*decision.reasons, "approval_consumed"),
+                effective_constraints=dict(decision.constraints),
+                approval_evidence=evidence.to_dict(),
+                metadata=metadata,
+            )
+        return PermissionGateResult(
+            outcome=PermissionGateOutcome.APPROVAL_DENIED,
+            action=action,
+            domain_id=request.source_domain,
+            actor_id=request.actor_id,
+            session_id=request.session_id,
+            reasons=(
+                *decision.reasons,
+                evidence.denial_reason or "approval_invalid",
+                _typed_denial_reason(evidence.denial_reason),
+            ),
+            effective_constraints=dict(decision.constraints),
+            approval_evidence=evidence.to_dict(),
+            approval_requirements=approval_reqs,
+            metadata=metadata,
         )
 
     def _evaluate_resolution(

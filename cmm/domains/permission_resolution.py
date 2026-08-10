@@ -103,7 +103,10 @@ class DomainPermissionResolver:
         )
 
     def resolve_cross_domain(
-        self, request: CrossDomainPermissionRequest, *, now: datetime | None = None
+        self,
+        request: CrossDomainPermissionRequest,
+        *,
+        now: datetime | None = None,
     ) -> CrossDomainPermissionDecision:
         source_policies = self._registry.for_domain(request.source_domain)
         target_policies = self._registry.for_domain(request.target_domain)
@@ -366,7 +369,7 @@ class DomainPermissionResolver:
                 sensitivity=request.sensitivity_level,
                 fingerprint=f"{request.request_id}:{request.source_domain}:{request.target_domain}:{request.actor_id}:{request.session_id}",
                 expires_at=request.expires_at.isoformat() if request.expires_at else None,
-                scope=request.duration.value,
+                scope="cross_domain",
                 one_time=request.duration in {
                     CrossDomainDuration.SINGLE_USE,
                     CrossDomainDuration.REQUEST,
@@ -379,7 +382,10 @@ class DomainPermissionResolver:
                 reason_code="cross_domain_approval_required",
                 risk="high",
             )
-            requirements = tuple({item.requirement_id: item for item in (*requirements, requirement)}.values())
+            # A cross-domain approval is the canonical aggregate binding for
+            # the transfer.  Policy-level approval hints are inputs to this
+            # decision, not additional caller-selectable grants.
+            requirements = (requirement,)
         if requirements:
             return CrossDomainPermissionDecision(
                 request.request_id,

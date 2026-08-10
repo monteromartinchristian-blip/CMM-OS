@@ -282,15 +282,59 @@ def test_exam_attempt_limit_reported_not_acted_on():
     rule = _by_id()["university.exam_attempt"]
     result = rule.evaluate(
         _context(
-            exam_attempt={
-                "attempts": (
-                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-                    {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-                ),
-                "max_attempts": 3,
-            }
+                exam_attempt={
+                    "attempts": (
+                        {
+                            "id": "attempt-1",
+                            "exam_id": "exam-1",
+                            "date": "2026-07-01",
+                            "source_reference": "record-1",
+                            "kind": "ordinary",
+                            "outcome": "failed",
+                            "grounded": True,
+                            "status": "consumed",
+                        },
+                        {
+                            "id": "attempt-2",
+                            "exam_id": "exam-1",
+                            "date": "2026-07-02",
+                            "source_reference": "record-2",
+                            "kind": "ordinary",
+                            "outcome": "failed",
+                            "grounded": True,
+                            "status": "consumed",
+                        },
+                        {
+                            "id": "attempt-3",
+                            "exam_id": "exam-1",
+                            "date": "2026-07-03",
+                            "source_reference": "record-3",
+                            "kind": "ordinary",
+                            "outcome": "failed",
+                            "grounded": True,
+                            "status": "consumed",
+                        },
+                        {
+                            "id": "attempt-4",
+                            "exam_id": "exam-1",
+                            "date": "2026-07-04",
+                            "source_reference": "record-4",
+                            "kind": "ordinary",
+                            "outcome": "failed",
+                            "grounded": True,
+                            "status": "consumed",
+                        },
+                    ),
+                    "regulation": {
+                        "id": "reg-1",
+                        "source_reference": "regulation-1",
+                        "source_class": "regulation",
+                        "temporal": "valid",
+                        "grounded": True,
+                        "max_attempts": 3,
+                    },
+                    "max_attempts": 3,
+                }
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED

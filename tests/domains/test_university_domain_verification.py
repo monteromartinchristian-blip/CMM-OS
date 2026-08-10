@@ -11,7 +11,28 @@ operation/rule counts.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import conditional_verification_trigger
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def _deadline_result(deadline, **extra):
+    rule = {
+        r.definition.id: r
+        for r in build_university_rules()
+    }["university.academic_deadline"]
+    context = ReasoningRuleContext(
+        reasoning_id="verification-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={"deadline": deadline, **extra},
+    )
+    return rule.evaluate(context)
 
 
 def test_no_trigger_when_fact_is_grounded():
@@ -88,3 +109,51 @@ def test_never_authorizes_action():
         decision_critical=True,
     )
     assert result["authorizes_action"] is False
+
+
+def test_deadline_rule_missing_critical_value_emits_shared_verification_need():
+    result = _deadline_result({"critical": True})
+    finding = result.findings[0]
+    need = finding.metadata["verification_need"]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert need["needed"] is True
+    assert need["reason"] == "missing"
+    assert need["attribute"] == "deadline"
+    assert need["source_class"] == "official_only"
+    assert need["read_only"] is True
+    assert need["action_authorized"] is False
+
+
+def test_deadline_rule_missing_critical_fact_emits_shared_verification_need():
+    result = _deadline_result(None, deadline_required=True)
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["verification_need"]["needed"] is True
+
+
+def test_deadline_rule_stale_value_emits_shared_verification_need():
+    result = _deadline_result(
+        {
+            "value": "2026-07-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "expired",
+            "critical": True,
+        }
+    )
+    need = result.findings[0].metadata["verification_need"]
+    assert need["needed"] is True
+    assert need["reason"] == "stale"
+
+
+def test_deadline_rule_confirmed_value_has_no_verification_need():
+    result = _deadline_result(
+        {
+            "value": "2026-09-15",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+        }
+    )
+    need = result.findings[0].metadata["verification_need"]
+    assert need["needed"] is False

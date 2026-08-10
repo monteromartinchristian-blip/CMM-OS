@@ -10,7 +10,14 @@ and the regulation in force governs the limit.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import evaluate_exam_attempt
+
+T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _attempt(
@@ -26,6 +33,57 @@ def _attempt(
         "grounded": grounded,
         "status": status,
     }
+
+
+def _grounded_attempt(
+    *,
+    attempt_id="attempt-1",
+    kind="ordinary",
+    outcome="failed",
+    status="consumed",
+):
+    return {
+        "id": attempt_id,
+        "exam_id": "exam-1",
+        "date": "2026-07-01",
+        "kind": kind,
+        "outcome": outcome,
+        "grounded": True,
+        "status": status,
+        "source_reference": f"record-{attempt_id}",
+    }
+
+
+def _regulation(*, temporal="valid", max_attempts=3):
+    return {
+        "id": "reg-1",
+        "source_reference": "regulation-1",
+        "source_class": "regulation",
+        "temporal": temporal,
+        "grounded": True,
+        "applicable_scope": "subject-1",
+        "max_attempts": max_attempts,
+    }
+
+
+def _canonical_result(*, attempts=(), regulation=None):
+    rule = {
+        r.definition.id: r
+        for r in build_university_rules()
+    }["university.exam_attempt"]
+    context = ReasoningRuleContext(
+        reasoning_id="exam-attempt-production",
+        timestamp=T,
+        active_domains=("domain:university",),
+        primary_domain="domain:university",
+        metadata={
+            "exam_attempt": {
+                "attempts": attempts,
+                "regulation": regulation,
+            }
+        },
+    )
+    return rule.evaluate(context)
 
 
 def test_ordinary_attempt_within_limits():
@@ -123,3 +181,60 @@ def test_inactive_regulation_cannot_evaluate_limits():
     assert result["regulation_inactive"] is True
     assert result["limit_exceeded"] is False
     assert result["within_limits"] is False
+
+
+def test_canonical_rule_missing_regulation_stays_unknown_and_verifies():
+    result = _canonical_result(attempts=(_grounded_attempt(),))
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["regulation_unknown"] is True
+    assert finding.metadata["verification_need"]["needed"] is True
+    assert finding.metadata["verification_need"]["source_class"] == "official_only"
+
+
+def test_canonical_rule_stale_regulation_is_not_current():
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=_regulation(temporal="expired"),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["regulation_stale"] is True
+
+
+def test_canonical_rule_failed_grade_without_consumption_does_not_increment():
+    result = _canonical_result(
+        attempts=(_grounded_attempt(status="not_consumed"),),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.metadata["consumed_attempts"] == 0
+    assert finding.metadata["failed_grade_not_consumed"] is True
+
+
+def test_canonical_rule_complete_ordinary_evidence_increments_count():
+    result = _canonical_result(
+        attempts=(_grounded_attempt(outcome="passed"),),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.metadata["consumed_attempts"] == 1
+    assert finding.metadata["within_limits"] is True
+
+
+def test_canonical_rule_reassessment_remains_separate_from_ordinary():
+    result = _canonical_result(
+        attempts=(
+            _grounded_attempt(attempt_id="ordinary", outcome="failed"),
+            _grounded_attempt(
+                attempt_id="reassessment",
+                kind="reassessment",
+                outcome="failed",
+            ),
+        ),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.metadata["consumed_attempts"] == 1
+    assert finding.metadata["reassessment_count"] == 1
