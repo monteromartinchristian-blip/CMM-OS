@@ -157,3 +157,32 @@ def test_deadline_rule_confirmed_value_has_no_verification_need():
     )
     need = result.findings[0].metadata["verification_need"]
     assert need["needed"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B2: strict boolean semantics on public Verification paths
+#
+# ``decision_critical`` is a strict runtime boolean.  Truthy strings ("false")
+# must NOT be treated as decision-critical.  Only literal True counts;
+# literal False does not; anything else is malformed/unknown.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b2_verification_decision_critical_string_false_not_critical():
+    """decision_critical='false' must not be interpreted as decision-critical."""
+    result = conditional_verification_trigger(
+        fact_state="reported",
+        decision_critical="false",
+    )
+    assert result["verification_triggered"] is False
+    assert result["needed"] is False
+
+
+def test_v11_b2_verification_decision_critical_true_triggers():
+    """decision_critical=True on reported state triggers verification."""
+    result = conditional_verification_trigger(
+        fact_state="reported",
+        decision_critical=True,
+    )
+    assert result["verification_triggered"] is True
+    assert result["reason"] == "decision_critical_insufficiently_grounded"

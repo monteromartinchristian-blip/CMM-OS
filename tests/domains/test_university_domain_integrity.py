@@ -488,3 +488,64 @@ def test_canonical_rule_strict_grounded_true_restriction_still_applies():
     assert finding.metadata["restriction_applies"] is True
     assert finding.metadata["assistance_permitted"] is False
     assert finding.code == "INTEGRITY_RESTRICTION_APPLIED"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B2: strict boolean semantics on public Integrity paths
+#
+# Integrity boolean-bearing metadata (ai_forbidden, ambiguous, superseded) is
+# strict.  Malformed truthy/falsy runtime values (strings, 1, 0) must NOT be a
+# true restriction/scope state.  Mode C stays conservative: no restriction is
+# applied without sufficiently grounded exact boolean evidence.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b2_integrity_caller_ai_forbidden_string_false_ignored():
+    """caller_restriction.ai_forbidden='false' must not be read as a real
+    forbidden state."""
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        caller_restriction={"ai_forbidden": "false"},
+    )
+    assert result["caller_forbidden_ignored"] is False
+
+
+def test_v11_b2_integrity_ambiguous_zero_malformed_not_applied():
+    """A malformed ambiguous flag (0) is not confidently clear; conservative
+    Mode C must not apply a restriction from it."""
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="course-x",
+        current_assessment="assignment-a",
+        requested_action="draft_final_answer",
+        grounded_restriction=_restriction(ambiguous=0),
+    )
+    assert result["assistance_permitted"] is True
+    assert result["restriction_applies"] is False
+
+
+def test_v11_b2_integrity_superseded_zero_malformed_not_applied():
+    """A malformed superseded flag (0) is not confidently non-superseded;
+    conservative Mode C must not apply a restriction from it."""
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="course-x",
+        current_assessment="assignment-a",
+        requested_action="draft_final_answer",
+        grounded_restriction=_restriction(superseded=0),
+    )
+    assert result["assistance_permitted"] is True
+    assert result["restriction_applies"] is False
+
+
+def test_v11_b2_integrity_exact_booleans_still_work_positive():
+    """Real boolean flags retain the existing grounded-restriction semantics."""
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="course-x",
+        current_assessment="assignment-a",
+        requested_action="draft_final_answer",
+        grounded_restriction=_restriction(ambiguous=False),
+    )
+    assert result["assistance_permitted"] is False
+    assert result["restriction_applies"] is True

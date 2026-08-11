@@ -552,3 +552,59 @@ def test_direct_helper_malformed_performance_observation_no_attribute_error():
     result = evaluate_performance_capacity(performance_observation=7)
     assert result["performance_observed"] is False
     assert result["capacity_inferred"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B4: Performance semantic Mapping validation
+#
+# Mapping instance != real academic observation.  {} and arbitrary Mappings
+# ({'foo': 'bar'}) do not constitute observed performance.  A valid observed
+# performance payload must carry an actual observation (ref + outcome).  The
+# bounding fact remains: performance != capacity.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b4_performance_empty_mapping_not_observed():
+    """performance_observation={} must not be treated as an observed
+    performance fact."""
+    result = evaluate_performance_capacity(performance_observation={})
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v11_b4_performance_arbitrary_mapping_not_observed():
+    """An arbitrary Mapping with no observation content must not be treated as
+    observed performance."""
+    result = evaluate_performance_capacity(performance_observation={"foo": "bar"})
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v11_b4_performance_valid_observation_still_observed():
+    """The existing fully-shaped valid observation remains supported and is never
+    confused with capacity."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": "res-1", "outcome": "below_average"}
+    )
+    assert result["performance_observed"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v11_b4_canonical_empty_observation_not_asserted_as_observed():
+    """Canonical performance_observation={} must not assert 'Observed academic
+    performance...' as though an actual observation were supplied."""
+    rule = _by_id()["university.observed_performance_capacity"]
+    result = rule.evaluate(_context(performance_observation={}))
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert any(
+        finding.code == "PERFORMANCE_NOT_CAPACITY"
+        and finding.metadata.get("performance_observed") is False
+        and finding.metadata.get("capacity_inferred") is False
+        for finding in result.findings
+    )
+    assert all(
+        "Observed academic performance is a fact about output" not in finding.message
+        for finding in result.findings
+    )

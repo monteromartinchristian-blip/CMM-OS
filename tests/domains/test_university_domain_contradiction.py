@@ -15,7 +15,10 @@ from itertools import permutations
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
-from cmm.domains.university.rules import resolve_academic_conflict
+from cmm.domains.university.rules import (
+    evaluate_academic_contradiction,
+    resolve_academic_conflict,
+)
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -583,3 +586,115 @@ def test_direct_helper_malformed_claim_member_stays_unresolved():
     result = resolve_academic_conflict(claims=(claim, 7))
     assert result["resolved"] is False
     assert result["unresolved"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B1: exported compatibility adapter boundary normalization
+#
+# evaluate_academic_contradiction must normalize malformed containers/members
+# BEFORE delegation so it shares the base resolver's fail-closed boundary.  A
+# malformed member must not be deleted before delegation.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b1_contradiction_adapter_malformed_container_no_exception():
+    """statements=7 must not raise and must remain unresolved."""
+    result = evaluate_academic_contradiction(statements=7)
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+    assert result["state"] == "unresolved"
+
+
+def test_v11_b1_contradiction_adapter_string_container_unresolved():
+    """statements='abc' must not be treated as a resolved contradiction."""
+    result = evaluate_academic_contradiction(statements="abc")
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+    assert result["state"] == "unresolved"
+
+
+def test_v11_b1_contradiction_adapter_mapping_container_unresolved():
+    """statements={'x': 1} must not resolve as a clean contradiction state."""
+    result = evaluate_academic_contradiction(statements={"x": 1})
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+    assert result["state"] == "unresolved"
+
+
+def test_v11_b1_contradiction_adapter_malformed_member_unresolved():
+    """A valid claim plus a non-Mapping member must not resolve cleanly; the
+    malformed member must be passed into the resolver, not deleted first."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = evaluate_academic_contradiction(statements=(claim, 7))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+    assert result["state"] == "unresolved"
+
+
+def test_v11_b1_contradiction_adapter_fully_valid_statement_resolves():
+    """Fully-valid legacy behavior must remain green."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = evaluate_academic_contradiction(statements=(claim,))
+    assert result["resolved"] is True
+    assert result["unresolved"] is False
+    assert result["state"] == "resolved"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B3: Contradiction semantic Mapping validation
+#
+# An empty/opaque Mapping claim ({}, {"foo": "bar"}) must not prove
+# "no contradiction".  Mapping instance != semantically valid claim evidence.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b3_direct_conflict_opaque_claim_stays_unresolved():
+    """(valid_claim, {}) must not produce a clean contradiction=False +
+    resolved=True conclusion."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = resolve_academic_conflict(claims=(claim, {}))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v11_b3_canonical_contradiction_opaque_statement_unresolved():
+    """contradiction_statements=[valid_claim, {}] must emit an unresolved
+    contradiction state and never a clean resolved conclusion."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {},
+    )
+    assert any(
+        finding.code == "CONTRADICTION_UNRESOLVED"
+        for finding in result.findings
+    )
+    assert not any(
+        finding.code == "CONTRADICTION_EVALUATED" and finding.metadata.get("resolved") is True
+        for finding in result.findings
+    )

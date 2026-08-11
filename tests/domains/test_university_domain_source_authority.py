@@ -14,7 +14,10 @@ from datetime import datetime, timezone
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
-from cmm.domains.university.rules import classify_academic_source_authority
+from cmm.domains.university.rules import (
+    classify_academic_source_authority,
+    resolve_source_authority_by_attribute,
+)
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -830,3 +833,118 @@ def test_direct_helper_malformed_source_member_prevents_confident_resolution():
     assert result["authority_unknown"] is True
 
 # V10 tests
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B1: exported compatibility adapter boundary normalization
+#
+# The exported adapter resolve_source_authority_by_attribute must normalize
+# malformed containers/members BEFORE delegation so it shares the base
+# helper's fail-closed boundary.  It must never filter malformed members away.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b1_source_authority_adapter_malformed_container_fails_closed():
+    """sources=7 must not raise and must not resolve authority."""
+    result = resolve_source_authority_by_attribute(attribute="grade", sources=7)
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v11_b1_source_authority_adapter_malformed_member_not_confidently_resolved():
+    """A malformed member must not be silently filtered; overall authority
+    evidence is incomplete, so the result must not resolve confidently."""
+    valid = _grounded(
+        "rec",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(valid, 7),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v11_b1_source_authority_adapter_fully_valid_legacy_source_resolves():
+    """Fully-valid legacy behavior must remain green."""
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(
+            {
+                "source_id": "rec",
+                "source_type": "official",
+                "supplied_attributes": ("grade",),
+                "value": 8.5,
+            },
+        ),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authority"] == "official"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B3: Source Authority semantic Mapping validation
+#
+# Mapping instance != semantically valid evidence.  An opaque Mapping member
+# ({}, {"foo": "bar"}) has an unknown semantic relationship to any attribute
+# and must fail the whole resolution closed.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b3_source_authority_empty_mapping_member_not_confident():
+    """(valid_grounded_source, {}) must not resolve authority confidently."""
+    valid = _grounded(
+        "rec",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, {}),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v11_b3_source_authority_arbitrary_mapping_member_not_confident():
+    """A Mapping with no semantic identity content ({'foo': 'bar'}) is also
+    opaque supplied evidence and must not resolve confidently."""
+    valid = _grounded(
+        "rec",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, {"foo": "bar"}),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v11_b3_canonical_source_authority_opaque_claim_leaves_evidence_gap():
+    """academic_claims=[valid_claim, {}] must not resolve globally; the opaque
+    claim leaves a malformed/unknown evidence gap and no fully confident
+    resolution."""
+    result = _canonical_result(
+        {
+            "id": "rec",
+            "attribute": "grade",
+            "value": 8.5,
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        },
+        {},
+    )
+    assert any(
+        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
+        for gap in result.gaps
+    )
+    grade_finding = _authority_finding(result, "grade")
+    assert grade_finding.metadata["authority_resolved"] is False
+    assert grade_finding.metadata["authority_unknown"] is True

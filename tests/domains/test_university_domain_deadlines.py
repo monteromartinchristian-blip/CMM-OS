@@ -341,3 +341,39 @@ def test_canonical_rule_malformed_deadline_mapping_not_applicable():
     result = _canonical_result(7)
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert result.findings[0].metadata["state"] == "unknown"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B2: strict boolean semantics on public Deadline paths
+#
+# ``conflicting`` and ``critical`` are runtime boolean-bearing fields.  A
+# truthy string such as "false" must NOT be interpreted as a real boolean
+# state (conflicting=True / critical=True).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b2_deadline_conflicting_string_false_not_conflict():
+    """conflicting='false' must not make a grounded deadline conflicting."""
+    result = classify_deadline_grounding(
+        deadline={**_deadline(), "conflicting": "false"}
+    )
+    assert result["state"] != "conflicting"
+    assert result["confirmed"] is True
+
+
+def test_v11_b2_deadline_critical_string_false_not_critical():
+    """critical='false' must not be treated as decision-critical."""
+    result = classify_deadline_grounding(
+        deadline={**_deadline(), "critical": "false"}
+    )
+    # A confirmed official deadline is not decision-critical from a malformed flag.
+    assert result["confirmed"] is True
+    assert result["state"] != "conflicting"
+
+
+def test_v11_b2_deadline_conflicting_int_one_not_conflict():
+    """conflicting=1 must not be interpreted as a real conflicting state."""
+    result = classify_deadline_grounding(
+        deadline={**_deadline(), "conflicting": 1}
+    )
+    assert result["state"] != "conflicting"

@@ -387,6 +387,58 @@ def _trust_flag_malformed(value: Any) -> bool:
     return value is not None and not isinstance(value, bool)
 
 
+def _boolean_true(value: Any) -> bool:
+    """Return True only for the literal boolean ``True`` (V11-B2).
+
+    Runtime/public boolean-bearing fields (``conflicting``, ``critical``,
+    ``decision_critical``, ``satisfied``, ``ai_forbidden``, ``ambiguous``,
+    ``superseded``) are strict.  A truthy string (``"false"``, ``"true"``),
+    ``1``, ``0``, ``[]`` or ``{}`` is NOT ``True``.  No coercion and no string
+    parsing.
+    """
+    return isinstance(value, bool) and value
+
+
+_MAPPING_IDENTITY_KEYS = frozenset(
+    {
+        "attribute",
+        "supplied_attributes",
+        "id",
+        "source_id",
+        "value",
+        "source_type",
+    }
+)
+
+
+def _mapping_evidence_is_opaque(value: Any) -> bool:
+    """Return whether a Mapping evidence member is semantically opaque (V11-B3).
+
+    A Mapping is opaque evidence when it carries none of the fields the
+    resolvers use to identify what fact it speaks about (``attribute`` /
+    ``supplied_attributes``, ``id`` / ``source_id``, ``value``,
+    ``source_type``).  ``{}`` and ``{"foo": "bar"}`` are opaque: their semantic
+    relationship to any attribute is unknown, so they are NOT valid evidence
+    merely because they are ``Mapping`` instances.
+    """
+    if not isinstance(value, Mapping):
+        return False
+    return not any(key in value for key in _MAPPING_IDENTITY_KEYS)
+
+
+def _semantic_evidence_malformed(items: tuple) -> bool:
+    """Return whether any Mapping member in ``items`` is semantically opaque.
+
+    Mapping-shaped + missing required semantic identity/content = malformed
+    evidence.  A semantically opaque member must fail the resolved fail-closed,
+    never be silently ignored while the remaining members resolve.
+    """
+    return any(
+        isinstance(item, Mapping) and _mapping_evidence_is_opaque(item)
+        for item in items
+    )
+
+
 def _source_scope(source: Mapping) -> str | None:
     scope = source.get("scope")
     return scope if isinstance(scope, str) and scope.strip() else None
@@ -513,7 +565,7 @@ def classify_academic_source_authority(
             }
         )
 
-    if sources_evidence.malformed:
+    if sources_evidence.malformed or _semantic_evidence_malformed(sources):
         return {
             "attribute": attribute,
             "authority_resolved": False,
@@ -724,15 +776,25 @@ def resolve_source_authority_by_attribute(
     structured shape and delegates all semantics to
     :func:`classify_academic_source_authority`.
     """
-    normalized: list[dict] = []
+    normalized: list[Any] = []
     source_class_for_type = {
         SOURCE_AUTHORITY_OFFICIAL: SOURCE_CLASS_OFFICIAL_ACADEMIC_RECORD,
         SOURCE_AUTHORITY_REGULATION: SOURCE_CLASS_REGULATION,
         SOURCE_AUTHORITY_USER_REPORTED: SOURCE_CLASS_USER_RECOLLECTION,
         SOURCE_AUTHORITY_INFERRED: SOURCE_CLASS_INFERRED,
     }
-    for source in sources:
+    # Normalize the container BEFORE iterating, and preserve malformed members
+    # instead of deleting them, so this exported adapter shares the base
+    # helper's fail-closed boundary (V11-B1).  A malformed container or member
+    # is delegated to the base resolver for structured uncertainty, never
+    # silently filtered towards a confident resolution.
+    sources_evidence = _normalize_collection_value(
+        sources,
+        require_mapping_elements=True,
+    )
+    for source in sources_evidence.items:
         if not isinstance(source, Mapping):
+            normalized.append(source)
             continue
         item = dict(source)
         if "source_class" not in item and "source_type" in item:
@@ -776,12 +838,31 @@ def evaluate_academic_contradiction(
     Structured claims delegate to resolve_academic_conflict. The flag-only
     shape remains solely for older callers and is never used by the canonical
     rule.
+
+    The adapter normalizes its container BEFORE iterating and preserves
+    malformed members instead of deleting them, so it shares the base
+    resolver's fail-closed boundary (V11-B1).  A malformed container (``7``,
+    ``"abc"``, ``{"x": 1}``) or a malformed member (``7``) yields an unresolved
+    state, never a clean ``resolved=True``.
     """
+    statements_evidence = _normalize_collection_value(
+        statements,
+        require_mapping_elements=True,
+    )
+    if statements_evidence.container_malformed:
+        return {
+            "state": CONTRADICTION_UNRESOLVED,
+            "material": False,
+            "resolved": False,
+            "unresolved": True,
+        }
+    statements = statements_evidence.items
     if not statements:
         return {
             "state": CONTRADICTION_UNRESOLVED,
             "material": False,
             "resolved": False,
+            "unresolved": True,
         }
     structured = tuple(
         statement
@@ -791,7 +872,9 @@ def evaluate_academic_contradiction(
         and "value" in statement
     )
     if structured:
-        record = resolve_academic_conflict(claims=structured)
+        # Delegate ALL normalized statements (preserving any malformed member)
+        # so the hardened resolver itself classifies the malformed evidence.
+        record = resolve_academic_conflict(claims=tuple(statements))
         state = (
             CONTRADICTION_MATERIAL
             if record["material"] and record["unresolved"]
@@ -803,6 +886,7 @@ def evaluate_academic_contradiction(
             "state": state,
             "material": record["material"],
             "resolved": record["resolved"],
+            "unresolved": record["unresolved"],
         }
     material = any(
         isinstance(statement, Mapping) and statement.get("material")
@@ -822,6 +906,7 @@ def evaluate_academic_contradiction(
         ),
         "material": bool(material),
         "resolved": not unresolved,
+        "unresolved": unresolved,
     }
 
 
@@ -948,7 +1033,7 @@ def resolve_academic_conflict(
         require_mapping_elements=True,
     )
     claims = claims_evidence.items
-    if claims_evidence.malformed:
+    if claims_evidence.malformed or _semantic_evidence_malformed(claims):
         return {
             "contradiction": False,
             "resolved": False,
@@ -1557,7 +1642,8 @@ def _evaluate_workload_constraint(
     elif "actual_value" in constraint:
         actual = constraint.get("actual_value")
     elif not strict and "satisfied" in constraint:
-        return bool(constraint.get("satisfied"))
+        satisfied_value = constraint.get("satisfied")
+        return satisfied_value if isinstance(satisfied_value, bool) else None
     else:
         return None
 
@@ -1946,13 +2032,34 @@ def evaluate_academic_workload(
             elif cap_number < total_ect_number:
                 hard_constraint_ids.add("health_functional_cap_unsatisfied")
 
-    satisfied = all(
-        hc.get("satisfied") for hc in hard_constraints if isinstance(hc, Mapping)
+    # ``satisfied`` is a strict runtime boolean (V11-B2).  Only the literal
+    # ``True`` satisfies a constraint; literal ``False`` does not; any other
+    # value (``"false"``, ``"true"``, ``1``, ``0``) is malformed constraint
+    # evidence that blocks definite feasibility and suppresses the proposal.
+    constraint_satisfactions: list[bool | None] = []
+    constraint_satisfaction_unknown = False
+    for hc in hard_constraints:
+        if not isinstance(hc, Mapping):
+            continue
+        satisfied_value = hc.get("satisfied")
+        if satisfied_value is None:
+            constraint_satisfactions.append(None)
+        elif isinstance(satisfied_value, bool):
+            constraint_satisfactions.append(satisfied_value)
+        else:
+            constraint_satisfactions.append(None)
+            constraint_satisfaction_unknown = True
+    satisfied = all(value is True for value in constraint_satisfactions)
+    feasible = (
+        satisfied
+        and not constraint_satisfaction_unknown
+        and not any(cid.endswith("_unsatisfied") for cid in hard_constraint_ids)
     )
-    feasible = satisfied and not any(
-        cid.endswith("_unsatisfied") for cid in hard_constraint_ids
-    )
-    if health_functional_cap_evidence_unknown or not feasible:
+    if (
+        health_functional_cap_evidence_unknown
+        or constraint_satisfaction_unknown
+        or not feasible
+    ):
         return {
             "feasible": False,
             "stage": "feasibility",
@@ -2435,8 +2542,8 @@ def evaluate_academic_integrity(
     # A caller-provided restriction with no grounding cannot fabricate a
     # prohibition.
     caller_forbidden = False
-    if isinstance(caller_restriction, Mapping) and caller_restriction.get(
-        "ai_forbidden"
+    if isinstance(caller_restriction, Mapping) and _boolean_true(
+        caller_restriction.get("ai_forbidden")
     ):
         caller_forbidden = True
 
@@ -2455,14 +2562,34 @@ def evaluate_academic_integrity(
             "source_reference",
             "source_ref",
         )
+        # Strict runtime booleans (V11-B2).  ``superseded`` and ``ambiguous``
+        # are boolean-bearing: only literal True is a real state; a malformed
+        # truthy/falsy value (``"false"``, ``1``, ``0``) leaves the flag
+        # uncertain and, conservatively, cannot ground a restriction.  An
+        # empty ``superseded_by`` reference list is Not superseding; any other
+        # present supersession evidence blocks application.
+        superseded_raw = grounded_restriction.get("superseded")
+        superseded_true = _boolean_true(superseded_raw)
+        superseded_uncertain = _trust_flag_malformed(superseded_raw)
+        superseded_by_raw = grounded_restriction.get("superseded_by")
+        if superseded_by_raw is None:
+            superseded_by_blocking = False
+        elif isinstance(superseded_by_raw, (list, tuple)):
+            superseded_by_blocking = bool(_normalize_references(superseded_by_raw))
+        else:
+            superseded_by_blocking = superseded_by_raw is not None
+        ambiguous_raw = grounded_restriction.get("ambiguous")
+        ambiguous = _boolean_true(ambiguous_raw)
+        ambiguous_uncertain = _trust_flag_malformed(ambiguous_raw)
         if (
             status == "prohibited"
             and grounded
             and source_reference is not None
             and source_class == "official_regulation"
             and temporal == "current"
-            and not grounded_restriction.get("superseded")
-            and not grounded_restriction.get("superseded_by")
+            and not superseded_true
+            and not superseded_uncertain
+            and not superseded_by_blocking
         ):
             restriction_grounded = True
             restriction_scope = _normalize_references(
@@ -2487,7 +2614,10 @@ def evaluate_academic_integrity(
                     current_assessment is not None
                     and assessment_scope == current_assessment
                 )
-            ambiguous = bool(grounded_restriction.get("ambiguous"))
+            # ``ambiguous`` is a strict runtime boolean (V11-B2).  A malformed
+            # value (e.g. ``0``, ``"false"``) is not confidently clear, so it
+            # makes the restriction's applicability uncertain and (in Mode C)
+            # fails closed: no restriction is applied from it.
             prohibited_actions = _normalize_references(
                 grounded_restriction.get("prohibited_actions")
             )
@@ -2495,11 +2625,14 @@ def evaluate_academic_integrity(
                 grounded_restriction.get("allowed_actions")
             )
             if requested_action is None:
-                restriction_applies = scope_matches and not ambiguous
+                restriction_applies = (
+                    scope_matches and not ambiguous and not ambiguous_uncertain
+                )
             else:
                 restriction_applies = (
                     scope_matches
                     and not ambiguous
+                    and not ambiguous_uncertain
                     and requested_action in prohibited_actions
                     and requested_action not in allowed_actions
                 )
@@ -2519,7 +2652,7 @@ def evaluate_academic_integrity(
                     scope_applicability = "mismatched"
 
     remembered_not_official = bool(
-        remembered_restriction
+        _boolean_true(remembered_restriction)
         or (
             isinstance(grounded_restriction, Mapping)
             and not restriction_grounded
@@ -2576,7 +2709,7 @@ def conditional_verification_trigger(
         reason = "stale"
     elif state == "conflicting":
         reason = "conflicting"
-    elif state == "reported" and decision_critical:
+    elif state == "reported" and _boolean_true(decision_critical):
         reason = "decision_critical_insufficiently_grounded"
     else:
         reason = None
@@ -2639,6 +2772,22 @@ def evaluate_performance_capacity(
             ),
             "performance_evidence_unknown": True,
         }
+    # A valid observed-performance payload must contain an actual observation
+    # (a referenceable record ``ref`` and an ``outcome``).  Mapping shape is not
+    # enough: ``{}`` or an arbitrary Mapping (``{"foo": "bar"}``) is opaque
+    # supplied evidence with no observable content (V11-B4).
+    reference = _usable_reference(performance_observation.get("ref"))
+    outcome = _usable_reference(performance_observation.get("outcome"))
+    if reference is None or outcome is None:
+        return {
+            "performance_observed": False,
+            "capacity_inferred": False,
+            "statement": (
+                "No usable academic performance observation supplied; "
+                "performance evidence is unknown or malformed."
+            ),
+            "performance_evidence_unknown": True,
+        }
     return {
         "performance_observed": True,
         "capacity_inferred": False,
@@ -2646,7 +2795,7 @@ def evaluate_performance_capacity(
             "Observed performance is a fact about output, not a measure of "
             "intellectual capacity; it never implies capacity or incapacity."
         ),
-        "performance_ref": _usable_reference(performance_observation.get("ref")),
+        "performance_ref": reference,
     }
 
 
@@ -2764,8 +2913,8 @@ def classify_deadline_grounding(
         "source_reference",
         "source_ref",
     )
-    conflicting = bool(deadline.get("conflicting"))
-    critical = critical or bool(deadline.get("critical"))
+    conflicting = _boolean_true(deadline.get("conflicting"))
+    critical = _boolean_true(critical) or _boolean_true(deadline.get("critical"))
     retrieval_date = _usable_reference(deadline.get("retrieval_date"))
     effective_date = _usable_reference(deadline.get("effective_date"))
 
@@ -3011,7 +3160,9 @@ class AcademicSourceAuthorityRule:
                 message="No academic claims supplied.",
             )
         claims = claims_evidence.items
-        malformed_evidence = claims_evidence.malformed
+        malformed_evidence = (
+            claims_evidence.malformed or _semantic_evidence_malformed(claims)
+        )
         findings: list[ReasoningFinding] = []
         gaps: list[ReasoningGap] = []
         by_attribute: dict[str, list[Mapping]] = {}
@@ -3248,7 +3399,10 @@ class AcademicContradictionRule:
                 message="No contradiction statements supplied.",
             )
         statements = statements_evidence.items
-        malformed_evidence = statements_evidence.malformed
+        malformed_evidence = (
+            statements_evidence.malformed
+            or _semantic_evidence_malformed(statements)
+        )
         record = resolve_academic_conflict(claims=tuple(statements))
         if malformed_evidence:
             # Fail closed: malformed contradiction evidence (container or member)
@@ -4194,6 +4348,44 @@ class ObservedPerformanceCapacityRule:
                 message="No performance observation supplied.",
             )
         record = evaluate_performance_capacity(performance_observation=performance)
+        if not record["performance_observed"]:
+            # A supplied-but-opaque performance payload is NOT observed academic
+            # performance; it must not assert an observed-performance fact
+            # (V11-B4).
+            finding = ReasoningFinding(
+                code="PERFORMANCE_NOT_CAPACITY",
+                message=(
+                    "No usable academic performance observation was supplied; "
+                    "performance is NOT observed.  Capacity is still never "
+                    "inferred from it."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "performance_observed": False,
+                    "capacity_inferred": False,
+                    "performance_evidence_unknown": True,
+                },
+            )
+            escalation = ReasoningEscalation(
+                code="CAPACITY_INFERENCE_BLOCKED",
+                message=(
+                    "Intellectual capacity inference from performance is blocked."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                escalation=escalation,
+                code="PERFORMANCE_NOT_CAPACITY",
+                message="Performance evidence unknown; capacity not inferred.",
+            )
         references = (
             (record["performance_ref"],)
             if record.get("performance_ref")

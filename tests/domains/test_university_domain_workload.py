@@ -711,3 +711,74 @@ def test_direct_helper_closed_direction_minimize_is_deterministic():
     )
     assert result["ranking"] == ("low", "high")
     assert result["ranking_incomplete"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V11-B2: strict boolean semantics on public Workload paths
+#
+# A hard constraint's ``satisfied`` is a strict runtime boolean.  Truthy
+# strings ("false", "true"), 1, 0 and arbitrary objects must NOT satisfy a
+# constraint.  Only literal True satisfies; literal False does not; anything
+# else is malformed/unknown constraint evidence that must block definite
+# feasibility and suppress the proposal.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v11_b2_workload_satisfied_string_false_not_feasible():
+    """satisfied='false' must never make the workload feasible."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": "false"},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_v11_b2_workload_satisfied_string_true_not_satisfied():
+    """satisfied='true' must not be interpreted as satisfied."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": "true"},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_v11_b2_workload_satisfied_int_one_not_satisfied():
+    """satisfied=1 must not be interpreted as satisfied."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": 1},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_v11_b2_workload_satisfied_int_zero_not_satisfied():
+    """satisfied=0 must not be interpreted as satisfied."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": 0},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_v11_b2_workload_satisfied_true_is_feasible_positive():
+    """satisfied=True is the valid positive legacy behavior."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": True},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is True
+    assert result["proposal"] == "s1"
+
+
+def test_v11_b2_workload_satisfied_false_not_feasible_negative():
+    """satisfied=False is the valid negative behavior."""
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": False},),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
