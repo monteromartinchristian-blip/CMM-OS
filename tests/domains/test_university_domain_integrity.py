@@ -415,3 +415,76 @@ def test_finding_code_does_not_claim_restriction_when_not_applied(integrity):
     assert finding.metadata["restriction_applies"] is False
     assert finding.code != "INTEGRITY_RESTRICTION_APPLIED"
     assert finding.code == "INTEGRITY_MODE_PRESERVED"
+# ── V9-B3.4: strict Integrity restriction grounding.  Truthy != grounded. ─────
+
+
+def test_canonical_rule_ungrounded_restriction_never_applies():
+    """A restriction with ``grounded="false"`` must never become
+    ``restriction_grounded=True`` — it fails closed as not grounded."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(grounded="false"),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is False
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_truthy_grounded_string_does_not_ground():
+    """``grounded="true"`` is not the literal ``True`` and must not ground."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(grounded="true"),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is False
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_grounded_one_does_not_ground():
+    """``grounded=1`` is not the literal ``True`` and must not ground."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(grounded=1),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is False
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+
+
+def test_canonical_rule_strict_grounded_true_restriction_still_applies():
+    """The positive regression: literal ``grounded=True`` still grounds a
+    restriction when all other conditions match, and the restriction is
+    enforced within its scope."""
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "course-x",
+            "assessment": "assignment-a",
+            "requested_action": "draft_final_answer",
+            "grounded_restriction": _restriction(),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.metadata["restriction_grounded"] is True
+    assert finding.metadata["restriction_applies"] is True
+    assert finding.metadata["assistance_permitted"] is False
+    assert finding.code == "INTEGRITY_RESTRICTION_APPLIED"

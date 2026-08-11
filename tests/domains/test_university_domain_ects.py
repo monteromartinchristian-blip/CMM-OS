@@ -507,3 +507,48 @@ def test_canonical_rule_malformed_records_cannot_confirm_completion():
     assert finding.metadata["satisfied"] is False
     assert finding.metadata["records_malformed"] is True
     assert finding.metadata["credit_state_sufficiently_grounded"] is False
+# ── V9-B3.1: strict ECTS grounding.  Truthy != grounded. ─────────────────────
+
+
+def _ungrounded_record(*, grounded="false"):
+    return {
+        "id": "credits-1",
+        "ects": 180,
+        "state": "completed",
+        "grounded": grounded,
+        "source_reference": "rec-1",
+        "temporal": "valid",
+    }
+
+
+def _ungrounded_degree_requirement(*, grounded="false"):
+    return {
+        "required_ects": 180,
+        "grounded": grounded,
+        "source_reference": "req-1",
+        "temporal": "valid",
+    }
+
+
+def test_canonical_rule_truthy_grounded_is_not_grounded():
+    """``grounded`` only counts when it is literally ``True``; truthy values
+    (``"false"``, ``"true"``, ``1``, ``0``) do not grant grounding."""
+    for grounded in ("false", "true", 1, 0):
+        result = _canonical_result(
+            records=(_ungrounded_record(grounded=grounded),),
+            degree_requirement=_ungrounded_degree_requirement(),
+        )
+        finding = result.findings[0]
+        assert finding.code == "ECTS_COMPLETION_BLOCKED", f"grounded={grounded!r}"
+        assert finding.metadata["satisfied"] is False, f"grounded={grounded!r}"
+
+
+def test_canonical_rule_strict_grounded_true_remains_satisfied():
+    """The positive regression: literal ``grounded=True`` still satisfies."""
+    result = _canonical_result(
+        records=(_ungrounded_record(grounded=True),),
+        degree_requirement=_ungrounded_degree_requirement(grounded=True),
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
+    assert finding.metadata["satisfied"] is True

@@ -356,3 +356,56 @@ def test_canonical_rule_empty_attempts_remain_valid_zero_attempts():
     assert finding.metadata["attempts_malformed"] is False
     assert finding.metadata["attempt_evidence_unknown"] is False
     assert finding.metadata["within_limits"] is True
+# ── V9-B3.2: strict ExamAttempt grounding.  Truthy != grounded. ──────────────
+
+
+def _ungrounded_regulation():
+    return {
+        "id": "reg-1",
+        "source_reference": "regulation-1",
+        "source_class": "regulation",
+        "temporal": "valid",
+        "grounded": "false",
+        "max_attempts": 1,
+    }
+
+
+def test_canonical_rule_ungrounded_regulation_yields_no_within_limits():
+    """A regulation with ``grounded="false"`` is not grounding; the attempt
+    limit cannot be evaluated as authoritatively within limits."""
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=_ungrounded_regulation(),
+    )
+    finding = result.findings[0]
+    assert finding.code != "EXAM_ATTEMPT_EVALUATED"
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["regulation_unknown"] is True
+    assert finding.metadata["within_limits"] is False
+
+
+def test_canonical_rule_ungrounded_attempt_evidence_is_unknown():
+    """An attempt with ``grounded="false"`` is malformed trust evidence and must
+    not produce a within-limits strong conclusion from the flag."""
+    attempt = _grounded_attempt()
+    attempt["grounded"] = "false"
+    result = _canonical_result(
+        attempts=(attempt,),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.code != "EXAM_ATTEMPT_EVALUATED"
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["within_limits"] is False
+
+
+def test_canonical_rule_strict_grounded_true_attempt_within_limits():
+    """The positive regression: literal ``grounded=True`` attempt evidence works."""
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_EVALUATED"
+    assert finding.metadata["within_limits"] is True

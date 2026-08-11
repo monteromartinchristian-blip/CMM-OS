@@ -170,3 +170,100 @@ def test_no_direct_health_store_import_in_inspection():
 
     src = inspect.getsource(bootstrap)
     assert "health" not in src.lower()
+
+
+# ── V9-B3.5: strict Health authorization.  Truthy != authorized. ──────────────
+
+
+def _workload_rule():
+    return {
+        r.definition.id: r
+        for r in university.build_university_rules()
+    }["university.academic_workload"]
+
+
+def test_workload_rule_truthy_health_authorization_not_consumed():
+    """``authorized`` only authorizes when it is literally ``True``; truthy
+    values (``"false"``, ``"true"``, ``1``, ``0``) are not valid authorization."""
+    for authorized in ("false", "true", 1, 0):
+        result = _workload_rule().evaluate(
+            _context(
+                workload={
+                    "total_ect": 60,
+                    "health_constraint": {
+                        "authorized": authorized,
+                        "functional_cap_ect": 5,
+                    },
+                    "scenarios": ({"id": "s1", "credit_load": 60},),
+                }
+            )
+        )
+        finding = result.findings[0]
+        assert "health_functional_cap" not in finding.metadata.get(
+            "consumed_factors", ()
+        ), f"authorized={authorized!r}"
+
+
+def test_workload_rule_authorized_true_still_consumed():
+    """The positive regression: literal ``authorized=True`` still consumes the
+    Health functional cap as a constraint."""
+    result = _workload_rule().evaluate(
+        _context(
+            workload={
+                "total_ect": 60,
+                "health_constraint": {
+                    "authorized": True,
+                    "functional_cap_ect": 5,
+                },
+                "scenarios": ({"id": "s1", "credit_load": 60},),
+            }
+        )
+    )
+    finding = result.findings[0]
+    assert "health_functional_cap" in finding.metadata.get("consumed_factors", ())
+    assert finding.metadata["feasible"] is False
+
+
+# ── V9-B4: public Workload helper is numeric fail-closed. ────────────────────
+
+
+def test_workload_helper_malformed_health_cap_never_raises():
+    """An authorized but malformed ``functional_cap_ect`` must not raise a
+    ValueError; it produces structured uncertainty."""
+    record = evaluate_academic_workload(
+        total_ect=30,
+        health_constraint={"authorized": True, "functional_cap_ect": "abc"},
+    )
+    assert record["feasible"] is False
+    assert record["health_functional_cap_evidence_unknown"] is True
+
+
+def test_workload_helper_false_string_health_authorization_not_consumed():
+    """``authorized="false"`` is not authorization; the cap is not consumed."""
+    record = evaluate_academic_workload(
+        total_ect=30,
+        health_constraint={"authorized": "false", "functional_cap_ect": 5},
+    )
+    assert "health_functional_cap" not in record.get("consumed_factors", ())
+    assert record["feasible"] is True
+
+
+def test_workload_helper_malformed_preference_rank_never_raises():
+    """A malformed preference ``rank`` must not raise; it becomes ranking
+    uncertainty."""
+    record = evaluate_academic_workload(
+        total_ect=30,
+        preferences=({"id": "p1", "rank": "abc"},),
+    )
+    assert record["ranking_unresolved"] is True
+    assert record["feasible"] is True
+
+
+def test_workload_helper_valid_numeric_ranks_retain_behavior():
+    """Valid integral preference ranks retain existing behavior."""
+    record = evaluate_academic_workload(
+        total_ect=30,
+        preferences=({"id": "p1", "rank": 1},),
+    )
+    assert record.get("ranking_unresolved") is None
+    assert record["feasible"] is True

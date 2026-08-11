@@ -616,3 +616,51 @@ def test_canonical_rule_malformed_academic_records_cannot_confirm_credit(malform
     assert finding.metadata["academic_records_malformed"] is True
     assert finding.metadata["credit_evidence_unknown"] is True
     assert finding.metadata["satisfied_prerequisites"] == ()
+# ── V9-B3.3: strict Dependency credit grounding.  Truthy != grounded. ────────
+
+
+def test_canonical_rule_ungrounded_credit_record_cannot_satisfy_threshold():
+    """A credit record with ``grounded="false"`` is not grounded credit evidence
+    and cannot satisfy a ``required_credits`` threshold."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("degree-credits", "completed", ects=180, grounded="false"),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.code != "DEPENDENCY_SATISFIED"
+    assert finding.metadata["credit_evidence_unknown"] is True
+    assert finding.metadata["dependency_blocked"] is True
+
+
+def test_canonical_rule_strict_grounded_true_credit_satisfies_threshold():
+    """The positive regression: literal ``grounded=True`` credit evidence works."""
+    result = _canonical_result(
+        {
+            "subject_id": "tfg",
+            "prerequisites": (
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
+            ),
+            "academic_records": (
+                _academic_record("degree-credits", "completed", ects=180, grounded=True),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["dependency_blocked"] is False

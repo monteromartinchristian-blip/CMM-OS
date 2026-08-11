@@ -363,6 +363,30 @@ def _normalize_specificity(value: Any) -> str:
     return SPECIFICITY_UNKNOWN
 
 
+def _grants_trust(value: Any) -> bool:
+    """Strict trust-bearing flag: only the literal ``True`` grants trust.
+
+    Trust-bearing fields (``grounded``, ``authorized``) grant grounding or
+    authorization ONLY when ``value is True``.  Truthy strings (``"false"``),
+    ``1``, ``0``, ``[]``, ``{}`` and arbitrary objects are NOT valid trust.  No
+    implicit coercion and no string parsing is performed.
+    """
+    return value is True
+
+
+def _trust_flag_malformed(value: Any) -> bool:
+    """Return whether a trust-bearing field holds an unsupported type.
+
+    ``grounded``/``authorized`` are boolean-bearing fields.  A value that is not
+    ``None`` and not a ``bool`` (e.g. ``"false"``, ``"true"``, ``1``, ``0``,
+    ``[]``, ``{}``) is a malformed trust flag: it is truthy but grants no trust,
+    and its unsupported presence makes the associated evidence *unknown* rather
+    than cleanly ungrounded.  A genuine ``False``/``None`` remains a clean
+    not-grounded signal.
+    """
+    return value is not None and not isinstance(value, bool)
+
+
 def _source_scope(source: Mapping) -> str | None:
     scope = source.get("scope")
     return scope if isinstance(scope, str) and scope.strip() else None
@@ -1111,7 +1135,7 @@ def check_ects_consistency(
                 "source_ref",
             )
             if (
-                not bool(record.get("grounded"))
+                not _grants_trust(record.get("grounded"))
                 or source_reference is None
                 or _normalize_temporal(record.get("temporal"))
                 not in _CURRENT_TEMPORAL_STATES
@@ -1155,7 +1179,7 @@ def check_ects_consistency(
     if degree_requirement is not None:
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
         required_value = _parse_ects_integer(candidate, minimum=1)
-        requirement_grounded = bool(degree_requirement.get("grounded"))
+        requirement_grounded = _grants_trust(degree_requirement.get("grounded"))
         requirement_reference = _usable_reference(
             degree_requirement.get("source_reference")
             or degree_requirement.get("source_ref")
@@ -1283,7 +1307,7 @@ def evaluate_exam_attempt(
     limit_unknown = max_attempts is not None and parsed_input_limit is None
     max_attempts = parsed_input_limit
     if isinstance(regulation, Mapping):
-        regulation_grounded = bool(regulation.get("grounded"))
+        regulation_grounded = _grants_trust(regulation.get("grounded"))
         regulation_temporal = _normalize_temporal(regulation.get("temporal"))
         regulation_reference = _usable_reference(
             regulation.get("source_reference")
@@ -1334,7 +1358,14 @@ def evaluate_exam_attempt(
             _usable_reference(entry.get(key)) is not None
             for key in ("id", "exam_id", "date", "source_reference")
         ) and entry.get("status") is not None
-        if not entry.get("grounded") or (
+        attempt_trust = entry.get("grounded")
+        if _trust_flag_malformed(attempt_trust):
+            # A malformed trust flag (e.g. ``"false"``, ``1``) grants no
+            # grounding and makes the attempt evidence unknown, never a clean
+            # within-limits zero-consumption conclusion.
+            unknown_attempts += 1
+            continue
+        if not _grants_trust(attempt_trust) or (
             require_complete_evidence and not complete_evidence
         ):
             ungrounded_attempts += 1
@@ -1489,9 +1520,15 @@ def _evaluate_structured_workload(
             continue
         scenario_constraints_present = "hard_constraints" in scenario
         scenario_constraints_value = scenario.get("hard_constraints")
-        scenario_constraints_malformed = (
-            scenario_constraints_present
-            and not isinstance(scenario_constraints_value, (list, tuple))
+        # A nested constraints collection is malformed when the container is not
+        # a sequence OR when any member is not Mapping evidence.  A valid
+        # container with a malformed member is NOT fully valid evidence.
+        scenario_constraints_malformed = scenario_constraints_present and (
+            not isinstance(scenario_constraints_value, (list, tuple))
+            or any(
+                not isinstance(item, Mapping)
+                for item in scenario_constraints_value
+            )
         )
         scenario_constraints = ()
         if scenario_constraints_present and not scenario_constraints_malformed:
@@ -1503,7 +1540,7 @@ def _evaluate_structured_workload(
         constraints = (*global_constraints, *scenario_constraints)
         if (
             isinstance(health_constraint, Mapping)
-            and health_constraint.get("authorized")
+            and _grants_trust(health_constraint.get("authorized"))
             and health_constraint.get("functional_cap_ect") is not None
         ):
             constraints = (
@@ -1675,11 +1712,19 @@ def evaluate_academic_workload(
 
     # Authorized Health functional constraint is a hard constraint on
     # feasibility; only the functional cap is read, never clinical details.
-    if isinstance(health_constraint, Mapping) and health_constraint.get("authorized"):
+    health_functional_cap_evidence_unknown = False
+    if isinstance(health_constraint, Mapping) and _grants_trust(
+        health_constraint.get("authorized")
+    ):
         functional_cap = health_constraint.get("functional_cap_ect")
         if functional_cap is not None:
             consumed_factors.add("health_functional_cap")
-            if int(functional_cap) < int(total_ect):
+            cap_number = _parse_non_negative_number(functional_cap)
+            if cap_number is None:
+                # Malformed cap metadata must fail closed: structured
+                # uncertainty, never a runtime exception.
+                health_functional_cap_evidence_unknown = True
+            elif cap_number < total_ect:
                 hard_constraint_ids.add("health_functional_cap_unsatisfied")
 
     satisfied = all(
@@ -1688,7 +1733,7 @@ def evaluate_academic_workload(
     feasible = satisfied and not any(
         cid.endswith("_unsatisfied") for cid in hard_constraint_ids
     )
-    if not feasible:
+    if health_functional_cap_evidence_unknown or not feasible:
         return {
             "feasible": False,
             "stage": "feasibility",
@@ -1700,6 +1745,9 @@ def evaluate_academic_workload(
             "consumed_factors": tuple(sorted(consumed_factors)),
             "clinical_details_consumed": False,
             "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+            "health_functional_cap_evidence_unknown": (
+                health_functional_cap_evidence_unknown
+            ),
         }
 
     pref_list = tuple(p for p in preferences if isinstance(p, Mapping))
@@ -1719,10 +1767,35 @@ def evaluate_academic_workload(
         }
 
     # Trade-offs are surfaced when two preferences share the same rank and
-    # cannot both be satisfied without conflict.
-    ranks = sorted({int(p.get("rank", 0)) for p in pref_list})
+    # cannot both be satisfied without conflict.  Ranks are parsed safely; a
+    # malformed rank fails closed with structured ranking uncertainty rather
+    # than raising for caller metadata.
+    ranking_unknown = False
+    parsed_ranks: list[int] = []
+    for pref in pref_list:
+        rank_value = pref.get("rank", 0)
+        rank_i = _parse_ects_integer(rank_value)
+        if rank_i is None:
+            ranking_unknown = True
+            break
+        parsed_ranks.append(rank_i)
+    if ranking_unknown:
+        return {
+            "feasible": True,
+            "stage": "preferences",
+            "preferences_applied": True,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": tuple(sorted(consumed_factors)),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": tuple(sorted(hard_constraint_ids)),
+            "ranking_unresolved": True,
+        }
+    ranks = sorted(set(parsed_ranks))
     conflicted_ranks = {
-        rank for rank in ranks if sum(int(p.get("rank", 0)) == rank for p in pref_list) > 1
+        rank for rank in ranks if sum(parsed_rank == rank for parsed_rank in parsed_ranks) > 1
     }
     tradeoffs = tuple(f"pref-rank-{rank}" for rank in sorted(conflicted_ranks))
     if tradeoffs:
@@ -1816,7 +1889,7 @@ def _resolve_dependency_credit_evidence(records: tuple) -> dict:
         validated: list[dict] = []
         has_unknown = False
         for record in group:
-            grounded = bool(record.get("grounded")) and bool(
+            grounded = _grants_trust(record.get("grounded")) and bool(
                 _usable_reference(
                     record.get("source_reference") or record.get("source_ref")
                 )
@@ -1986,7 +2059,7 @@ def evaluate_academic_dependency(
             for evidence_record in evidence_records:
                 if not isinstance(evidence_record, Mapping):
                     continue
-                grounded = bool(evidence_record.get("grounded")) and bool(
+                grounded = _grants_trust(evidence_record.get("grounded")) and bool(
                     _usable_reference(
                         evidence_record.get("source_reference")
                         or evidence_record.get("source_ref")
@@ -2131,7 +2204,7 @@ def evaluate_academic_integrity(
     scope_applicability: str | None = None
     if isinstance(grounded_restriction, Mapping):
         status = grounded_restriction.get("status")
-        grounded = bool(grounded_restriction.get("grounded"))
+        grounded = _grants_trust(grounded_restriction.get("grounded"))
         source_class = str(grounded_restriction.get("source_class", ""))
         temporal = str(grounded_restriction.get("temporal", ""))
         source_reference = _reference_from(
@@ -2584,29 +2657,54 @@ class _CollectionEvidence:
     """Malformed-aware collection normalization.
 
     Preserves the epistemic distinction between an absent collection, a valid
-    (possibly empty) collection, and a malformed scalar/mapping where a sequence
-    was expected.  A malformed value is never silently coerced into an empty
-    collection: ``absent != valid empty != malformed``.
+    (possibly empty) collection, and a malformed collection.  A collection is
+    malformed when its container is not a sequence OR when a required
+    Mapping-evidence element is not a Mapping.  A malformed value (container or
+    element) is never silently coerced into an empty collection or a filtered
+    subset: ``absent != valid empty != malformed``.
     """
 
     items: tuple
     present: bool
-    malformed: bool
+    container_malformed: bool
+    element_malformed: bool
+
+    @property
+    def malformed(self) -> bool:
+        """True when the container OR any Mapping-evidence element is malformed.
+
+        This preserves backward compatibility with existing callers that read
+        ``malformed`` while adding element-aware detection.
+        """
+        return self.container_malformed or self.element_malformed
 
 
-def _normalize_collection(metadata: Mapping, key: str) -> _CollectionEvidence:
+def _normalize_collection(
+    metadata: Mapping,
+    key: str,
+    *,
+    require_mapping_elements: bool = False,
+) -> _CollectionEvidence:
     """Normalize a collection-shaped metadata field without losing state.
 
-    Returns ``(items, present, malformed)``.  Only ``list``/``tuple`` are valid
-    collections; strings, mappings, numbers, booleans and arbitrary objects are
-    malformed and are never coerced into one-element or empty sequences.
+    Returns ``(items, present, malformed)``.  Only ``list``/``tuple`` containers
+    are valid; strings, mappings, numbers, booleans and arbitrary objects are
+    malformed and are never coerced into one-element or empty sequences.  For
+    Mapping-evidence collections (``require_mapping_elements``), a valid
+    container that still holds a non-Mapping element is marked as
+    element-malformed: a valid container is NOT fully valid evidence.
     """
     if key not in metadata:
-        return _CollectionEvidence((), False, False)
+        return _CollectionEvidence((), False, False, False)
     value = metadata[key]
     if isinstance(value, (list, tuple)):
-        return _CollectionEvidence(tuple(value), True, False)
-    return _CollectionEvidence((), True, True)
+        element_malformed = (
+            any(not isinstance(item, Mapping) for item in value)
+            if require_mapping_elements
+            else False
+        )
+        return _CollectionEvidence(tuple(value), True, False, element_malformed)
+    return _CollectionEvidence((), True, True, False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2619,8 +2717,10 @@ class AcademicSourceAuthorityRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        claims = _seq(context.metadata, "academic_claims")
-        if not claims:
+        claims_evidence = _normalize_collection(
+            context.metadata, "academic_claims", require_mapping_elements=True
+        )
+        if not claims_evidence.present:
             return _result(
                 self.definition,
                 context,
@@ -2628,7 +2728,10 @@ class AcademicSourceAuthorityRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No academic claims supplied.",
             )
+        claims = claims_evidence.items
+        malformed_evidence = claims_evidence.malformed
         findings: list[ReasoningFinding] = []
+        gaps: list[ReasoningGap] = []
         by_attribute: dict[str, list[Mapping]] = {}
         for claim in claims:
             if isinstance(claim, Mapping):
@@ -2642,11 +2745,31 @@ class AcademicSourceAuthorityRule:
                     for claim in attribute_claims
                     if _scope_matches(claim, effective_scope)
                 )
-                authority = classify_academic_source_authority(
-                    attribute=attribute,
-                    sources=tuple(_claim_source(claim) for claim in scoped_claims),
-                    scope=effective_scope,
+                authority = dict(
+                    classify_academic_source_authority(
+                        attribute=attribute,
+                        sources=tuple(
+                            _claim_source(claim) for claim in scoped_claims
+                        ),
+                        scope=effective_scope,
+                    )
                 )
+                if malformed_evidence:
+                    # Fail closed: the supplied authority evidence is not fully
+                    # valid (a malformed container or member was present).  Valid
+                    # claims may still be reported diagnostically, but overall
+                    # authority certainty must NOT resolve confidently.
+                    authority.update(
+                        {
+                            "authority_resolved": False,
+                            "authoritative_source_id": None,
+                            "authoritative_value": None,
+                            "fact_value_known": False,
+                            "fact_resolved": False,
+                            "authority_unknown": True,
+                            "reason": "malformed_authority_evidence",
+                        }
+                    )
                 authoritative_id = authority["authoritative_source_id"]
                 authoritative_claim = (
                     next(
@@ -2765,11 +2888,55 @@ class AcademicSourceAuthorityRule:
                         metadata=metadata,
                     )
                 )
+        if malformed_evidence and not findings:
+            # A malformed container with no valid Mapping claims still requires a
+            # structured unknown result, never a silent NOT_APPLICABLE.
+            findings.append(
+                ReasoningFinding(
+                    code="ATTRIBUTE_AUTHORITY",
+                    message=(
+                        "Authority evidence is malformed; no attribute authority "
+                        "can be resolved from incomplete claims."
+                    ),
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                    metadata={
+                        "attribute": None,
+                        "authority_resolved": False,
+                        "fact_value_known": False,
+                        "fact_resolved": False,
+                        "authority_unknown": True,
+                        "authoritative_source_id": None,
+                        "authoritative_value": None,
+                        "verification_need": conditional_verification_trigger(
+                            fact_state="unknown",
+                            decision_critical=False,
+                            attribute=None,
+                        ),
+                    },
+                )
+            )
+        if malformed_evidence:
+            gaps.append(
+                ReasoningGap(
+                    code="SOURCE_AUTHORITY_EVIDENCE_MALFORMED",
+                    message=(
+                        "Malformed source authority evidence prevents a "
+                        "confident authority conclusion."
+                    ),
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                    metadata={"authority_unknown": True},
+                )
+            )
         return _result(
             self.definition,
             context,
             ReasoningRuleResultStatus.APPLIED,
             findings=tuple(findings),
+            gaps=tuple(gaps),
             code="ATTRIBUTE_SOURCE_AUTHORITY_PRESERVED",
             message="Grounded source authority resolved by attribute.",
         )
@@ -2785,8 +2952,12 @@ class AcademicContradictionRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        statements = _seq(context.metadata, "contradiction_statements")
-        if not statements:
+        statements_evidence = _normalize_collection(
+            context.metadata,
+            "contradiction_statements",
+            require_mapping_elements=True,
+        )
+        if not statements_evidence.present:
             return _result(
                 self.definition,
                 context,
@@ -2794,7 +2965,19 @@ class AcademicContradictionRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No contradiction statements supplied.",
             )
+        statements = statements_evidence.items
+        malformed_evidence = statements_evidence.malformed
         record = resolve_academic_conflict(claims=tuple(statements))
+        if malformed_evidence:
+            # Fail closed: malformed contradiction evidence (container or member)
+            # cannot resolve confidently.  It produces structured uncertainty,
+            # never a silently clean ``contradiction=False + resolved=True``.
+            record = {
+                **record,
+                "unresolved": True,
+                "resolved": False,
+                "evidence_malformed": True,
+            }
         references: tuple[str, ...] = ()
         for statement in statements:
             if not isinstance(statement, Mapping):
@@ -3335,10 +3518,14 @@ class AcademicWorkloadRule:
         full_time_ect = _parse_ects_integer(workload.get("full_time_ect", 30))
         numeric_metadata_unknown = total_ect is None or full_time_ect is None
         hard_constraints_evidence = _normalize_collection(
-            workload, "hard_constraints"
+            workload, "hard_constraints", require_mapping_elements=True
         )
-        preferences_evidence = _normalize_collection(workload, "preferences")
-        scenarios_evidence = _normalize_collection(workload, "scenarios")
+        preferences_evidence = _normalize_collection(
+            workload, "preferences", require_mapping_elements=True
+        )
+        scenarios_evidence = _normalize_collection(
+            workload, "scenarios", require_mapping_elements=True
+        )
         record = evaluate_academic_workload(
             total_ect=total_ect if total_ect is not None else 0,
             full_time_ect=full_time_ect if full_time_ect is not None else 30,

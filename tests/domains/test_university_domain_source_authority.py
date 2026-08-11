@@ -743,3 +743,60 @@ def test_canonical_rule_referenced_grounded_source_remains_authoritative():
     assert finding.metadata["fact_resolved"] is True
     assert finding.metadata["authoritative_source_id"] == "official-grade-record"
     assert finding.metadata["authoritative_value"] == "A"
+# ── V9-B2: malformed source authority evidence never resolves confidently ─────
+# ── and never falls through to RULE_NOT_APPLICABLE. ──────────────────────────
+
+
+def test_canonical_rule_malformed_claims_container_not_applicable():
+    """:func:`AcademicSourceAuthorityRule.evaluate` with a malformed
+    ``academic_claims`` container (scalar [7]) must NOT return
+    ``RULE_NOT_APPLICABLE``.  It must produce a structured unknown result."""
+    result = _canonical_result(7)
+    codes = [f.code for f in result.findings]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert "RULE_NOT_APPLICABLE" not in codes
+    assert result.findings[0].metadata["authority_resolved"] is False
+    assert result.findings[0].metadata["fact_resolved"] is False
+
+
+def test_canonical_rule_malformed_claim_member_inside_valid_container():
+    """A valid claims container that holds a non-Mapping member prevents a
+    confident authority resolution, even if other claims are valid."""
+    claim = {
+        "id": "c1",
+        "attribute": "deadline",
+        "value": "2026-09-01",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    result = _canonical_result(claim, 7)
+    for finding in result.findings:
+        if finding.metadata.get("attribute") == "deadline":
+            assert finding.metadata["authority_resolved"] is False
+            assert finding.metadata["fact_resolved"] is False
+            assert finding.metadata["authoritative_value"] is None
+            return
+    # If no finding matched, fail
+    assert False, "Missing finding for 'deadline' attribute"
+
+
+def test_canonical_rule_valid_claims_only_resolves_normally():
+    """The positive regression: all-Mapping claims resolve authority."""
+    finding = _authority_finding(
+        _canonical_result(
+            {
+                "id": "official-record",
+                "attribute": "deadline",
+                "value": "2026-09-01",
+                "source_class": "official_publication",
+                "provenance": "grounded",
+                "temporal": "valid",
+                "specificity": "specific",
+            }
+        ),
+        "deadline",
+    )
+    assert finding.metadata["authority_resolved"] is True
+    assert finding.metadata["fact_resolved"] is True

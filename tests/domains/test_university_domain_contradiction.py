@@ -517,3 +517,45 @@ def test_canonical_rule_unknown_temporal_conflict_remains_unresolved():
     assert verification["needed"] is True
     assert verification["source_class"] == "official_only"
     assert verification["read_only"] is True
+# ── V9-B2: malformed contradiction evidence never resolves confidently ───────
+# ── and never falls through to RULE_NOT_APPLICABLE. ──────────────────────────
+
+
+def test_canonical_rule_malformed_statements_container_not_applicable():
+    """:func:`AcademicContradictionRule.evaluate` with a malformed
+    ``contradiction_statements`` container (scalar [7]) must NOT return
+    ``RULE_NOT_APPLICABLE``.  It must preserve structured uncertainty."""
+    result = _canonical_result(7)
+    codes = [f.code for f in result.findings]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert "RULE_NOT_APPLICABLE" not in codes
+    assert result.findings[0].code == "CONTRADICTION_UNRESOLVED"
+    assert result.findings[0].metadata["unresolved"] is True
+    assert result.findings[0].metadata["resolved"] is False
+
+
+def test_canonical_rule_malformed_contradiction_member_fails_closed():
+    """A valid claim mixed with a malformed member cannot produce a clean
+    ``contradiction=False + resolved=True`` conclusion."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = _canonical_result(claim, 7)
+    finding = _canonical_contradiction_finding(result)
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["resolved"] is False
+    assert finding.metadata["unresolved"] is True
+
+
+def test_canonical_rule_valid_contradiction_evidence_resolves_normally():
+    """The positive regression: all-Mapping contradiction evidence resolves."""
+    result = _canonical_result(
+        _claim("a", attribute="exam_date", value="17"),
+    )
+    finding = _canonical_contradiction_finding(result)
+    assert finding.metadata["resolved"] is True
+    assert finding.metadata["unresolved"] is False

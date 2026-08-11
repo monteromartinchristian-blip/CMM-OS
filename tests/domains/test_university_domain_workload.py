@@ -418,3 +418,117 @@ def test_canonical_rule_empty_hard_constraints_remain_feasible():
     assert finding.code == "WORKLOAD_ASSESSED"
     assert finding.metadata["feasibility_uncertain"] is False
     assert finding.metadata["feasible"] is True
+# ── V9-B1: element-aware collection validation.  A valid list/tuple container ──
+# ── with a malformed member is NOT fully valid evidence. ─────────────────────
+
+
+def test_canonical_rule_hard_constraint_scalar_element_uncertain():
+    """``hard_constraints=[7]`` is malformed evidence inside a valid container:
+    it must evaluate as uncertain, not as if the constraint did not exist."""
+    result = _canonical_result(
+        {
+            "hard_constraints": [7],
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["proposal"] is None
+
+
+def test_canonical_rule_hard_constraint_blank_string_element_uncertain():
+    """An opaque (non-Mapping) member is malformed evidence, not absence."""
+    result = _canonical_result(
+        {
+            "hard_constraints": ["bad"],
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["proposal"] is None
+
+
+def test_canonical_rule_preference_scalar_element_uncertain():
+    """``preferences=[7]`` must not become "no preferences"."""
+    result = _canonical_result(
+        {
+            "preferences": [7],
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["proposal"] is None
+
+
+def test_canonical_rule_scenario_malformed_member_uncertain():
+    """A malformed scenario member inside a valid scenarios container must be
+    preserved as malformed evidence; the scenario set cannot be fully
+    characterized and no strong conclusion is drawn."""
+    result = _canonical_result(
+        {
+            "scenarios": [7, _scenario("s1", credit_load=30)],
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["proposal"] is None
+
+
+def test_canonical_rule_nested_scenario_hard_constraint_scalar_element_uncertain():
+    """``scenario.hard_constraints=[7]`` leaves the scenario unresolved and
+    yields no proposal; it must not become definitely feasible."""
+    result = _canonical_result(
+        {
+            "scenarios": (
+                {
+                    "id": "s1",
+                    "credit_load": 30,
+                    "hard_constraints": [7],
+                },
+            ),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["proposal"] is None
+    assert "s1" in finding.metadata["unresolved_scenarios"]
+
+
+def test_canonical_rule_valid_mapping_constraints_remain_feasible():
+    """Valid Mapping-only constraints retain normal feasibility semantics."""
+    result = _canonical_result(
+        {
+            "hard_constraints": (
+                {
+                    "id": "hc-1",
+                    "kind": "workload_cap",
+                    "field": "credit_load",
+                    "limit": 30,
+                    "grounded": True,
+                },
+            ),
+            "scenarios": (_scenario("s1", credit_load=30),),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_ASSESSED"
+    assert finding.metadata["feasibility_uncertain"] is False
+    assert finding.metadata["feasible"] is True
