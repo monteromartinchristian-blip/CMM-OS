@@ -800,3 +800,33 @@ def test_canonical_rule_valid_claims_only_resolves_normally():
     )
     assert finding.metadata["authority_resolved"] is True
     assert finding.metadata["fact_resolved"] is True
+
+
+# ── V10-B1: helper boundary must be fail-closed independently of canonical ──
+
+
+def test_direct_helper_malformed_sources_container_no_exception():
+    """sources=7 must not raise and must resolve to unknown authority."""
+    result = classify_academic_source_authority(attribute="grade", sources=7)
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_direct_helper_malformed_source_member_prevents_confident_resolution():
+    """A valid grounded source plus a non-Mapping member cannot resolve as if
+    the malformed member never existed."""
+    valid = _grounded(
+        "rec",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, 7),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+# V10 tests

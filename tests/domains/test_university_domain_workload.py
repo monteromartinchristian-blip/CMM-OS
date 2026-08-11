@@ -532,3 +532,182 @@ def test_canonical_rule_valid_mapping_constraints_remain_feasible():
     assert finding.code == "WORKLOAD_ASSESSED"
     assert finding.metadata["feasibility_uncertain"] is False
     assert finding.metadata["feasible"] is True
+
+
+# ── V10-B1/B3/B4: direct helper malformed containers, numeric/bool strict ────
+
+
+def test_direct_helper_malformed_hard_constraints_container_no_exception():
+    """hard_constraints=7 must not raise and must leave feasibility unknown."""
+    result = evaluate_academic_workload(total_ect=30, hard_constraints=7)
+    assert result["feasibility_uncertain"] is True
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_direct_helper_malformed_preferences_container_no_exception():
+    """preferences=7 must not raise and must produce no proposal."""
+    result = evaluate_academic_workload(
+        total_ect=30,
+        preferences=7,
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+
+
+def test_direct_helper_malformed_scenarios_container_no_exception():
+    """scenarios=7 must not raise and must produce no proposal."""
+    result = evaluate_academic_workload(total_ect=30, scenarios=7)
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+
+
+def test_direct_helper_malformed_hard_constraint_member_uncertain():
+    """hard_constraints=(7,) must not become feasible as if no constraint."""
+    result = evaluate_academic_workload(total_ect=30, hard_constraints=(7,))
+    assert result["feasible"] is False
+    assert result["feasibility_uncertain"] is True
+
+
+def test_direct_helper_malformed_preference_member_no_proposal():
+    """preferences=(7,) must not become no preferences / a clean proposal."""
+    result = evaluate_academic_workload(
+        total_ect=30,
+        preferences=(7,),
+        selected_scenario="s1",
+    )
+    assert result["feasible"] is False
+    assert result["proposal"] is None
+    assert result.get("preferences_malformed") is True
+
+
+def test_direct_helper_malformed_scenario_member_no_proposal():
+    """scenarios=(7, valid) must not characterize a clean scenario set."""
+    result = evaluate_academic_workload(
+        total_ect=30,
+        scenarios=(7, _scenario("s1", credit_load=30)),
+        selected_scenario="s1",
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+    assert result.get("scenarios_malformed") is True
+
+
+def test_direct_helper_empty_preference_mapping_is_malformed_evidence():
+    """A Mapping preference without a usable dimension is malformed evidence,
+    not an absence of preferences."""
+    result = evaluate_academic_workload(
+        scenarios=(_scenario("s1", credit_load=30),),
+        preferences=({},),
+        selected_scenario="s1",
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+    assert result.get("preferences_malformed") is True
+
+
+def test_direct_helper_anonymous_scenario_is_malformed_evidence():
+    """A Mapping scenario without a usable id makes the scenario set
+    incomplete; it must not disappear."""
+    result = evaluate_academic_workload(
+        scenarios=({}, _scenario("s1", credit_load=30)),
+        selected_scenario="s1",
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+    assert result.get("scenarios_malformed") is True
+
+
+def test_direct_helper_unknown_preference_direction_is_unresolved():
+    """direction='sideways' must not silently become minimize/ascending."""
+    result = evaluate_academic_workload(
+        scenarios=(
+            _scenario("a", hours=10),
+            _scenario("b", hours=5),
+        ),
+        preferences=({"dimension": "hours", "direction": "sideways"},),
+    )
+    assert result["ranking"] == ()
+    assert result["ranking_incomplete"] is True
+    assert result["proposal"] is None
+
+
+def test_direct_helper_numeric_string_total_ect_no_type_error():
+    """total_ect='abc' with an authorized health cap must not raise TypeError."""
+    result = evaluate_academic_workload(
+        total_ect="abc",
+        health_constraint={"authorized": True, "functional_cap_ect": 20},
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+
+
+def test_canonical_rule_workload_boolean_actual_string_false_does_not_satisfy():
+    """scenario.prereq_met='false' against expected=True must NOT satisfy the
+    hard constraint or produce a proposal."""
+    result = _canonical_result(
+        {
+            "scenarios": (
+                {
+                    "id": "s1",
+                    "prereq_met": "false",
+                },
+            ),
+            "hard_constraints": (
+                {
+                    "id": "prereq",
+                    "kind": "prerequisite",
+                    "field": "prereq_met",
+                    "requirement": True,
+                    "grounded": True,
+                },
+            ),
+            "selected_scenario": "s1",
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["proposal"] is None
+
+
+# ── V10-B4 positive regressions: omitted direction / closed directions ───────
+
+
+def test_direct_helper_omitted_direction_uses_documented_maximize_default():
+    """A valid preference may omit direction; the documented default remains
+    maximize instead of being treated as malformed."""
+    result = evaluate_academic_workload(
+        scenarios=(
+            _scenario("low", hours=5),
+            _scenario("high", hours=10),
+        ),
+        preferences=({"dimension": "hours"},),
+    )
+    assert result["ranking_incomplete"] is False
+    assert result["ranking"] == ("high", "low")
+
+
+def test_direct_helper_closed_direction_maximize_is_deterministic():
+    result = evaluate_academic_workload(
+        scenarios=(
+            _scenario("low", hours=5),
+            _scenario("high", hours=10),
+        ),
+        preferences=({"dimension": "hours", "direction": "maximize"},),
+    )
+    assert result["ranking"] == ("high", "low")
+    assert result["ranking_incomplete"] is False
+
+
+def test_direct_helper_closed_direction_minimize_is_deterministic():
+    result = evaluate_academic_workload(
+        scenarios=(
+            _scenario("low", hours=5),
+            _scenario("high", hours=10),
+        ),
+        preferences=({"dimension": "hours", "direction": "minimize"},),
+    )
+    assert result["ranking"] == ("low", "high")
+    assert result["ranking_incomplete"] is False

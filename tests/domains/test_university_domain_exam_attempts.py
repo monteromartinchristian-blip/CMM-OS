@@ -409,3 +409,86 @@ def test_canonical_rule_strict_grounded_true_attempt_within_limits():
     finding = result.findings[0]
     assert finding.code == "EXAM_ATTEMPT_EVALUATED"
     assert finding.metadata["within_limits"] is True
+
+
+# ── V10-B1/B3: direct helper malformed containers and numeric coercion ───────
+
+
+def test_direct_helper_malformed_attempts_container_no_exception():
+    """attempts=7 must not raise and must produce unknown attempt evidence."""
+    result = evaluate_exam_attempt(attempts=7, max_attempts=3)
+    assert result["attempt_evidence_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_numeric_string_max_attempts_is_unknown():
+    """max_attempts='3' must not be accepted as 3."""
+    result = evaluate_exam_attempt(attempts=(), max_attempts="3")
+    assert result["max_attempts"] is None
+    assert result["limit_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_string_false_is_malformed():
+    """regulation_active='false' must NOT mean the regulation is active."""
+    result = evaluate_exam_attempt(
+        attempts=(),
+        max_attempts=3,
+        regulation_active="false",
+    )
+    assert result["regulation_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_string_true_is_malformed():
+    """regulation_active='true' must NOT mean the regulation is active."""
+    result = evaluate_exam_attempt(
+        attempts=(),
+        max_attempts=3,
+        regulation_active="true",
+    )
+    assert result["regulation_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_one_is_malformed():
+    """regulation_active=1 must NOT mean the regulation is active."""
+    result = evaluate_exam_attempt(
+        attempts=(),
+        max_attempts=3,
+        regulation_active=1,
+    )
+    assert result["regulation_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_zero_is_malformed():
+    """regulation_active=0 must NOT mean the regulation is active."""
+    result = evaluate_exam_attempt(
+        attempts=(),
+        max_attempts=3,
+        regulation_active=0,
+    )
+    assert result["regulation_unknown"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_false_is_inactive():
+    """regulation_active=False means genuinely inactive."""
+    result = evaluate_exam_attempt(
+        attempts=(),
+        max_attempts=3,
+        regulation_active=False,
+    )
+    assert result["regulation_inactive"] is True
+    assert result["within_limits"] is False
+
+
+def test_direct_helper_regulation_active_true_is_active():
+    """regulation_active=True means genuinely active."""
+    result = evaluate_exam_attempt(
+        attempts=(_attempt(),),
+        max_attempts=3,
+        regulation_active=True,
+    )
+    assert result["within_limits"] is True

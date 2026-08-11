@@ -474,6 +474,11 @@ def classify_academic_source_authority(
     superseded source as history.  Equal-authority incompatible claims with no
     valid supersession remain unresolved (never an arbitrary choice).
     """
+    sources_evidence = _normalize_collection_value(
+        sources,
+        require_mapping_elements=True,
+    )
+    sources = sources_evidence.items
     evaluated: list[dict] = []
     for source in sources:
         if not isinstance(source, Mapping):
@@ -507,6 +512,23 @@ def classify_academic_source_authority(
                 "superseded_by": _normalize_references(source.get("superseded_by")),
             }
         )
+
+    if sources_evidence.malformed:
+        return {
+            "attribute": attribute,
+            "authority_resolved": False,
+            "authoritative_source_id": None,
+            "authority_class": None,
+            "authoritative_value": None,
+            "fact_value_known": False,
+            "fact_resolved": False,
+            "supporting_source_ids": (),
+            "matched_sources": tuple(evaluated),
+            "superseded_sources": (),
+            "authority_unknown": True,
+            "conflict": False,
+            "reason": "malformed_source_evidence",
+        }
 
     # Only grounded, currently-valid sources can carry current authority.
     candidates = [
@@ -921,6 +943,24 @@ def resolve_academic_conflict(
     preserved.  A material unresolved conflict blocks only the dependent
     conclusion, not the whole domain.
     """
+    claims_evidence = _normalize_collection_value(
+        claims,
+        require_mapping_elements=True,
+    )
+    claims = claims_evidence.items
+    if claims_evidence.malformed:
+        return {
+            "contradiction": False,
+            "resolved": False,
+            "unresolved": True,
+            "material": False,
+            "blocked": False,
+            "current_value": None,
+            "superseded_claims": (),
+            "conflicts": (),
+            "evidence_malformed": True,
+        }
+
     if not claims:
         return {
             "contradiction": False,
@@ -1049,16 +1089,15 @@ def _first_current(mapping: Mapping) -> Any:
 
 
 def _parse_ects_integer(value: Any, *, minimum: int = 0) -> int | None:
-    """Return a valid ECTS integer without raising for runtime metadata."""
-    if isinstance(value, bool):
+    """Return a valid ECTS integer without raising for runtime metadata.
+
+    JSON-safe integer academic metadata accepts only native int values.
+    Boolean is rejected because bool subclasses int. Numeric strings,
+    floats, Decimal and arbitrary coerced objects are rejected.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
         return None
-    if isinstance(value, float) and not value.is_integer():
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return parsed if parsed >= minimum else None
+    return value if value >= minimum else None
 
 
 def _parse_non_negative_number(value: Any) -> int | float | None:
@@ -1101,6 +1140,22 @@ def check_ects_consistency(
     uncertain.  The helper never reads the clock and never rewrites the
     official record; it only reports.
     """
+    records_evidence = _normalize_collection_value(
+        records,
+        require_mapping_elements=True,
+    )
+    records = records_evidence.items
+    records_malformed = records_malformed or records_evidence.malformed
+    double_counted_evidence = _normalize_collection_value(double_counted)
+    double_counted = double_counted_evidence.items
+    double_counted_malformed = (
+        double_counted_malformed or double_counted_evidence.malformed
+    )
+    contradictory_evidence = _normalize_collection_value(contradictory)
+    contradictory = contradictory_evidence.items
+    contradictory_malformed = (
+        contradictory_malformed or contradictory_evidence.malformed
+    )
     derived_double_counted: list[str] = []
     derived_contradictory: list[str] = []
     unknown_records: list[str] = []
@@ -1176,7 +1231,7 @@ def check_ects_consistency(
 
     requirement_grounded = required is not None
     requirement_temporal = TEMPORAL_UNKNOWN
-    if degree_requirement is not None:
+    if isinstance(degree_requirement, Mapping):
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
         required_value = _parse_ects_integer(candidate, minimum=1)
         requirement_grounded = _grants_trust(degree_requirement.get("grounded"))
@@ -1194,6 +1249,13 @@ def check_ects_consistency(
             and required_value is not None
         )
         required = required_value if requirement_grounded else None
+    elif degree_requirement is not None:
+        # A supplied malformed degree requirement is not RULE_NOT_APPLICABLE:
+        # it is invalid evidence that cannot establish a grounded requirement.
+        required = None
+        requirement_grounded = False
+        records_malformed = True
+        unknown_records.append("degree_requirement")
     elif derive_from_records:
         # Strict callers may still report legacy aggregates for diagnostics,
         # but an absent structured requirement cannot establish a requirement.
@@ -1208,7 +1270,32 @@ def check_ects_consistency(
         requirement_grounded = False
     double_counted = tuple(dict.fromkeys((*double_counted, *derived_double_counted)))
     contradictory = tuple(dict.fromkeys((*contradictory, *derived_contradictory)))
-    recognized_total = int(completed) + int(recognized)
+    completed_number = _parse_ects_integer(completed)
+    recognized_number = _parse_ects_integer(recognized)
+    enrolled_number = _parse_ects_integer(enrolled)
+    planned_number = _parse_ects_integer(planned)
+    pending_recognition_number = _parse_ects_integer(pending_recognition)
+    required_number = _parse_ects_integer(required, minimum=1)
+    numeric_metadata_unknown = any(
+        value is None
+        for value in (
+            completed_number,
+            recognized_number,
+            enrolled_number,
+            planned_number,
+            pending_recognition_number,
+        )
+    ) or (required is not None and required_number is None)
+    if numeric_metadata_unknown:
+        required_known = False
+        required = None
+        critical_requirement_uncertain = True
+    completed = completed_number or 0
+    recognized = recognized_number or 0
+    enrolled = enrolled_number or 0
+    planned = planned_number or 0
+    pending_recognition = pending_recognition_number or 0
+    recognized_total = completed + recognized
     double_counting = len(double_counted) > 0 or double_counted_malformed
     contradiction = len(contradictory) > 0 or contradictory_malformed
     critical_requirement_uncertain = bool(
@@ -1230,7 +1317,7 @@ def check_ects_consistency(
     satisfied = bool(
         required_known
         and not completion_blocked
-        and recognized_total >= int(required)
+        and recognized_total >= required
     )
 
     return {
@@ -1245,6 +1332,7 @@ def check_ects_consistency(
         "requirement_grounded": requirement_grounded,
         "requirement_temporal": requirement_temporal,
         "credit_state_sufficiently_grounded": credit_state_sufficiently_grounded,
+        "numeric_metadata_unknown": numeric_metadata_unknown,
         "double_counted": tuple(double_counted),
         "double_counting": double_counting,
         "contradictory": tuple(contradictory),
@@ -1300,6 +1388,13 @@ def evaluate_exam_attempt(
     failed_grade_not_consumed = False
     unknown_attempts = 0
 
+    attempts_evidence = _normalize_collection_value(
+        attempts,
+        require_mapping_elements=True,
+    )
+    attempts = attempts_evidence.items
+    attempts_malformed = attempts_malformed or attempts_evidence.container_malformed
+
     regulation_unknown = False
     regulation_stale = False
     regulation_current = False
@@ -1341,8 +1436,15 @@ def evaluate_exam_attempt(
         regulation_unknown = True
     elif regulation_active is not None:
         # Compatibility calls may still explicitly model an inactive rule.
-        regulation_current = bool(regulation_active)
-        regulation_unknown = False
+        if regulation_active is True:
+            regulation_current = True
+            regulation_unknown = False
+        elif regulation_active is False:
+            regulation_current = False
+            regulation_unknown = False
+        else:
+            regulation_current = False
+            regulation_unknown = True
     else:
         # Compatibility helper calls from the pre-structured API retain their
         # historical active assumption; canonical production calls use the
@@ -1464,7 +1566,9 @@ def _evaluate_workload_constraint(
         return None
     if kind in {"prerequisite", "deadline", "requirement"}:
         expected = constraint.get("requirement", True)
-        return bool(actual) is bool(expected)
+        if isinstance(actual, bool) and isinstance(expected, bool):
+            return actual is expected
+        return None
     if kind in {"availability", "minimum_hours", "credit_threshold"}:
         requirement = constraint.get("requirement", constraint.get("minimum"))
         actual_number = _parse_non_negative_number(actual)
@@ -1495,6 +1599,7 @@ def _evaluate_workload_constraint(
 def _evaluate_structured_workload(
     *,
     total_ect: int,
+    full_time_ect: int = 30,
     health_constraint: Mapping | None,
     hard_constraints: tuple,
     preferences: tuple,
@@ -1504,7 +1609,39 @@ def _evaluate_structured_workload(
     preferences_malformed: bool = False,
     scenarios_malformed: bool = False,
 ) -> dict:
-    scenario_records = tuple(item for item in scenarios if isinstance(item, Mapping))
+    total_ect_number = _parse_non_negative_number(total_ect)
+    full_time_ect_number = _parse_non_negative_number(full_time_ect)
+    numeric_metadata_unknown = (
+        total_ect_number is None or full_time_ect_number is None
+    )
+    scenario_records = tuple(
+        item
+        for item in scenarios
+        if isinstance(item, Mapping) and _usable_reference(item.get("id")) is not None
+    )
+    anonymous_scenario_present = any(
+        not isinstance(item, Mapping) or _usable_reference(item.get("id")) is None
+        for item in scenarios
+    )
+    scenarios_malformed = scenarios_malformed or anonymous_scenario_present
+    malformed_preferences = []
+    for item in preferences:
+        if not isinstance(item, Mapping) or not _usable_reference(item.get("dimension")):
+            malformed_preferences.append(item)
+    preferences_malformed = preferences_malformed or bool(malformed_preferences)
+    hard_constraints_evidence = _normalize_collection_value(
+        hard_constraints,
+        require_mapping_elements=True,
+    )
+    hard_constraints = hard_constraints_evidence.items
+    hard_constraints_malformed = (
+        hard_constraints_malformed or hard_constraints_evidence.malformed
+    )
+    preferences_evidence = _normalize_collection_value(
+        preferences,
+        require_mapping_elements=True,
+    )
+    preferences = preferences_evidence.items
     consumed_factors: set[str] = set()
     feasible_ids: list[str] = []
     infeasible_ids: list[str] = []
@@ -1578,7 +1715,7 @@ def _evaluate_structured_workload(
     explicit_preferences = tuple(
         pref
         for pref in preferences
-        if isinstance(pref, Mapping) and pref.get("dimension")
+        if isinstance(pref, Mapping) and _usable_reference(pref.get("dimension")) is not None
     )
     ranking: tuple[str, ...] = ()
     ranking_incomplete = False
@@ -1589,9 +1726,19 @@ def _evaluate_structured_workload(
             if _usable_reference(scenario.get("id")) in feasible_ids
         ]
         for preference in reversed(explicit_preferences):
-            dimension = str(preference["dimension"])
-            direction = str(preference.get("direction", "maximize")).lower()
-            reverse = direction in {"maximize", "desc", "descending"}
+            dimension = preference["dimension"]
+            direction_raw = preference.get("direction")
+            if direction_raw is None or direction_raw == "maximize":
+                direction = "maximize"
+            elif direction_raw == "minimize":
+                direction = "minimize"
+            else:
+                ranking_incomplete = True
+                break
+            if direction == "maximize":
+                reverse = True
+            elif direction == "minimize":
+                reverse = False
             values = tuple(
                 _parse_non_negative_number(
                     scenario.get(
@@ -1628,6 +1775,13 @@ def _evaluate_structured_workload(
         and not hard_constraints_malformed
         and not preferences_malformed
         and not scenarios_malformed
+        and not numeric_metadata_unknown
+    )
+    malformed_uncertainty = (
+        hard_constraints_malformed
+        or preferences_malformed
+        or scenarios_malformed
+        or numeric_metadata_unknown
     )
     if unresolved_ids or not all_feasible:
         stage = "feasibility"
@@ -1635,7 +1789,11 @@ def _evaluate_structured_workload(
         stage = "preferences"
     else:
         stage = "preferences"
-    proposal = selected_scenario if selected_scenario in feasible_ids else None
+    proposal = (
+        selected_scenario
+        if selected_scenario in feasible_ids and not malformed_uncertainty
+        else None
+    )
     return {
         "feasible": all_feasible,
         "stage": stage,
@@ -1649,10 +1807,10 @@ def _evaluate_structured_workload(
         "feasible_scenarios": tuple(feasible_ids),
         "infeasible_scenarios": tuple(infeasible_ids),
         "unresolved_scenarios": tuple(unresolved_ids),
-        "feasibility_uncertain": bool(unresolved_ids),
+        "feasibility_uncertain": bool(unresolved_ids) or malformed_uncertainty,
         "ranking": ranking,
         "ranking_incomplete": ranking_incomplete,
-        "numeric_metadata_unknown": False,
+        "numeric_metadata_unknown": numeric_metadata_unknown,
         "proposal": proposal,
         "adopted_decision": False,
         "consumed_factors": tuple(sorted(consumed_factors)),
@@ -1687,6 +1845,33 @@ def evaluate_academic_workload(
     feasibility; clinical details are never consumed by the domain.  A proposal
     is only emitted at the final stage and never adopts a decision.
     """
+    hard_constraints_evidence = _normalize_collection_value(
+        hard_constraints,
+        require_mapping_elements=True,
+    )
+    hard_constraints = hard_constraints_evidence.items
+    hard_constraints_malformed = (
+        hard_constraints_malformed or hard_constraints_evidence.malformed
+    )
+    preferences_evidence = _normalize_collection_value(
+        preferences,
+        require_mapping_elements=True,
+    )
+    preferences = preferences_evidence.items
+    preferences_malformed = preferences_malformed or preferences_evidence.malformed
+    scenarios_evidence = _normalize_collection_value(
+        scenarios,
+        require_mapping_elements=True,
+    )
+    scenarios = scenarios_evidence.items
+    scenarios_malformed = scenarios_malformed or scenarios_evidence.malformed
+
+    total_ect_number = _parse_non_negative_number(total_ect)
+    full_time_ect_number = _parse_non_negative_number(full_time_ect)
+    numeric_metadata_unknown = (
+        total_ect_number is None or full_time_ect_number is None
+    )
+
     if derive_from_facts or scenarios:
         return _evaluate_structured_workload(
             total_ect=total_ect,
@@ -1699,6 +1884,40 @@ def evaluate_academic_workload(
             preferences_malformed=preferences_malformed,
             scenarios_malformed=scenarios_malformed,
         )
+
+    if numeric_metadata_unknown:
+        return {
+            "feasible": False,
+            "stage": "feasibility",
+            "preferences_applied": False,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": (),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": (),
+            "feasibility_uncertain": True,
+            "numeric_metadata_unknown": True,
+        }
+
+    if hard_constraints_malformed or preferences_malformed or scenarios_malformed:
+        return {
+            "feasible": False,
+            "stage": "feasibility",
+            "preferences_applied": False,
+            "tradeoffs": (),
+            "scenarios": (),
+            "proposal": None,
+            "adopted_decision": False,
+            "consumed_factors": (),
+            "clinical_details_consumed": False,
+            "hard_constraint_ids": (),
+            "feasibility_uncertain": True,
+            "hard_constraints_malformed": hard_constraints_malformed,
+            "preferences_malformed": preferences_malformed,
+            "scenarios_malformed": scenarios_malformed,
+        }
 
     consumed_factors = set()
     hard_constraint_ids = set()
@@ -1724,7 +1943,7 @@ def evaluate_academic_workload(
                 # Malformed cap metadata must fail closed: structured
                 # uncertainty, never a runtime exception.
                 health_functional_cap_evidence_unknown = True
-            elif cap_number < total_ect:
+            elif cap_number < total_ect_number:
                 hard_constraint_ids.add("health_functional_cap_unsatisfied")
 
     satisfied = all(
@@ -1976,6 +2195,23 @@ def evaluate_academic_dependency(
     treated as satisfied.  The helper only *reports*; it never changes the
     official record and never auto-enrols.
     """
+    dependencies_evidence = _normalize_collection_value(
+        dependencies,
+        require_mapping_elements=True,
+    )
+    dependencies = dependencies_evidence.items
+    prerequisites_malformed = (
+        prerequisites_malformed or dependencies_evidence.malformed
+    )
+    academic_records_evidence = _normalize_collection_value(
+        academic_records,
+        require_mapping_elements=True,
+    )
+    academic_records = academic_records_evidence.items
+    academic_records_malformed = (
+        academic_records_malformed or academic_records_evidence.malformed
+    )
+
     if derive_from_academic_state:
         records_by_subject: dict[str, list[Mapping]] = {}
         for record in academic_records:
@@ -2013,7 +2249,11 @@ def evaluate_academic_dependency(
             if dep_id is None:
                 anonymous_prerequisite_count += 1
                 continue
-            if dep.get("caller_passed") or dep.get("passed") or dep.get("grounded_passed"):
+            if (
+                dep.get("caller_passed") is True
+                or dep.get("passed") is True
+                or dep.get("grounded_passed") is True
+            ):
                 caller_passed_ignored.append(dep_id)
             kind = str(dep.get("kind", "subject")).lower()
             if kind in {"credit_threshold", "tfg_eligibility", "credit", "tfg"}:
@@ -2119,10 +2359,13 @@ def evaluate_academic_dependency(
         if dep_id is None:
             anonymous_prerequisite_count += 1
             continue
-        if dep.get("grounded_passed"):
+        if dep.get("grounded_passed") is True:
             satisfied.append(dep_id)
             continue
-        if dep.get("caller_passed") and not dep.get("grounded_passed"):
+        if (
+            dep.get("caller_passed") is True
+            and dep.get("grounded_passed") is not True
+        ):
             caller_passed_ignored.append(dep_id)
         status = dep.get("status")
         if status in ("passed", "failed", "pending"):
@@ -2386,11 +2629,15 @@ def evaluate_performance_capacity(
     non-predictive of future ability.  The helper returns a structured record
     that keeps performance and capacity distinct.
     """
-    if performance_observation is None:
+    if not isinstance(performance_observation, Mapping):
         return {
             "performance_observed": False,
             "capacity_inferred": False,
-            "statement": "No performance observation supplied.",
+            "statement": (
+                "No usable performance observation supplied; performance "
+                "evidence is unknown or malformed."
+            ),
+            "performance_evidence_unknown": True,
         }
     return {
         "performance_observed": True,
@@ -2490,12 +2737,12 @@ def classify_deadline_grounding(
     *verification need* (a structured signal for the shared capability layer).
     ``critical`` reflects decision-criticality supplied by the calling context.
     """
-    if deadline is None:
+    if not isinstance(deadline, Mapping):
         return {
             "state": DEADLINE_UNKNOWN,
             "confirmed": False,
             "verification_needed": True,
-            "reason": "missing",
+            "reason": "malformed",
             "auto_scheduled": False,
         }
     usable = _usable_reference(deadline.get("value"))
@@ -2650,6 +2897,41 @@ def _mapping(metadata: Mapping, key: str) -> Mapping | None:
 def _seq(metadata: Mapping, key: str) -> tuple | None:
     value = metadata.get(key)
     return value if isinstance(value, (list, tuple)) else None
+
+
+@dataclass(frozen=True, slots=True)
+class _MappingEvidence:
+    """Preserve absent Mapping vs supplied malformed Mapping payloads."""
+
+    value: Mapping | None
+    present: bool
+    malformed: bool
+
+
+def _normalize_mapping(metadata: Mapping, key: str) -> _MappingEvidence:
+    if key not in metadata:
+        return _MappingEvidence(None, False, False)
+    value = metadata[key]
+    if isinstance(value, Mapping):
+        return _MappingEvidence(value, True, False)
+    return _MappingEvidence(None, True, True)
+
+
+def _normalize_collection_value(
+    value: Any,
+    *,
+    require_mapping_elements: bool = False,
+) -> _CollectionEvidence:
+    if value is None:
+        return _CollectionEvidence((), False, False, False)
+    if isinstance(value, (list, tuple)):
+        element_malformed = (
+            any(not isinstance(item, Mapping) for item in value)
+            if require_mapping_elements
+            else False
+        )
+        return _CollectionEvidence(tuple(value), True, False, element_malformed)
+    return _CollectionEvidence((), True, True, False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -3082,7 +3364,8 @@ class AcademicDeadlineRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        deadline = _mapping(context.metadata, "deadline")
+        deadline_mapping = _normalize_mapping(context.metadata, "deadline")
+        deadline = deadline_mapping.value
         # Effective decision-criticality is resolved once and shared by the
         # grounding classification, the verification trigger, and finding
         # metadata.  A context-level ``deadline_decision_critical`` /
@@ -3092,6 +3375,37 @@ class AcademicDeadlineRule:
             context.metadata.get("deadline_decision_critical")
             or context.metadata.get("deadline_required")
         )
+        if deadline_mapping.malformed:
+            finding = ReasoningFinding(
+                code="DEADLINE_VERIFICATION_NEEDED",
+                message=(
+                    "A deadline payload was supplied but is malformed; the "
+                    "deadline state remains unknown and requires official "
+                    "verification."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                    metadata={
+                        "state": DEADLINE_UNKNOWN,
+                        "confirmed": False,
+                        "verification_needed": True,
+                        "verification_need": conditional_verification_trigger(
+                            fact_state="missing",
+                            decision_critical=True,
+                            attribute="deadline",
+                        ),
+                        "malformed_mapping_evidence": True,
+                    },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="DEADLINE_VERIFICATION_NEEDED",
+                message="Malformed deadline evidence requires official verification.",
+            )
         if deadline is None:
             if context_critical:
                 verification_need = conditional_verification_trigger(
@@ -3223,7 +3537,33 @@ class EctsConsistencyRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        ects = _mapping(context.metadata, "ects")
+        ects_mapping = _normalize_mapping(context.metadata, "ects")
+        ects = ects_mapping.value
+        if ects_mapping.malformed:
+            finding = ReasoningFinding(
+                code="ECTS_COMPLETION_BLOCKED",
+                message=(
+                    "ECTS metadata was supplied but is malformed; completion "
+                    "cannot be concluded and official verification is needed."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "satisfied": False,
+                    "completion_blocked": True,
+                    "critical_requirement_uncertain": True,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="ECTS_COMPLETION_BLOCKED",
+                message="Malformed ECTS evidence blocks completion.",
+            )
         if ects is None:
             return _result(
                 self.definition,
@@ -3385,7 +3725,33 @@ class ExamAttemptRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        attempt = _mapping(context.metadata, "exam_attempt")
+        attempt_mapping = _normalize_mapping(context.metadata, "exam_attempt")
+        attempt = attempt_mapping.value
+        if attempt_mapping.malformed:
+            finding = ReasoningFinding(
+                code="EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED",
+                message=(
+                    "Exam attempt metadata was supplied but is malformed; "
+                    "attempt limits cannot be evaluated."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "within_limits": False,
+                    "limit_unknown": True,
+                    "attempt_evidence_unknown": True,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED",
+                message="Malformed exam attempt evidence requires verification.",
+            )
         if attempt is None:
             return _result(
                 self.definition,
@@ -3505,7 +3871,33 @@ class AcademicWorkloadRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        workload = _mapping(context.metadata, "workload")
+        workload_mapping = _normalize_mapping(context.metadata, "workload")
+        workload = workload_mapping.value
+        if workload_mapping.malformed:
+            finding = ReasoningFinding(
+                code="WORKLOAD_FEASIBILITY_UNCERTAIN",
+                message=(
+                    "Workload metadata was supplied but is malformed; workload "
+                    "feasibility remains unknown and no proposal is emitted."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "feasible": False,
+                    "feasibility_uncertain": True,
+                    "proposal": None,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="WORKLOAD_FEASIBILITY_UNCERTAIN",
+                message="Malformed workload evidence remains unresolved.",
+            )
         if workload is None:
             return _result(
                 self.definition,
@@ -3654,7 +4046,32 @@ class AcademicDependencyRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        dependency = _mapping(context.metadata, "dependency")
+        dependency_mapping = _normalize_mapping(context.metadata, "dependency")
+        dependency = dependency_mapping.value
+        if dependency_mapping.malformed:
+            finding = ReasoningFinding(
+                code="DEPENDENCY_BLOCKED",
+                message=(
+                    "Dependency metadata was supplied but is malformed; "
+                    "prerequisite satisfaction cannot be resolved."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "dependency_blocked": True,
+                    "satisfied_prerequisites": (),
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="DEPENDENCY_BLOCKED",
+                message="Malformed dependency evidence blocks satisfaction.",
+            )
         if dependency is None:
             return _result(
                 self.definition,
@@ -3731,7 +4148,43 @@ class ObservedPerformanceCapacityRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        performance = _mapping(context.metadata, "performance_observation")
+        performance_mapping = _normalize_mapping(
+            context.metadata, "performance_observation"
+        )
+        performance = performance_mapping.value
+        if performance_mapping.malformed:
+            finding = ReasoningFinding(
+                code="PERFORMANCE_NOT_CAPACITY",
+                message=(
+                    "Performance observation metadata was supplied but is "
+                    "malformed; capacity is still never inferred from it."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "performance_observed": False,
+                    "capacity_inferred": False,
+                    "performance_evidence_unknown": True,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            escalation = ReasoningEscalation(
+                code="CAPACITY_INFERENCE_BLOCKED",
+                message="Intellectual capacity inference from performance is blocked.",
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                escalation=escalation,
+                code="PERFORMANCE_NOT_CAPACITY",
+                message="Malformed performance evidence still cannot infer capacity.",
+            )
         if performance is None:
             return _result(
                 self.definition,
@@ -3787,7 +4240,34 @@ class AcademicIntegrityRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        integrity = _mapping(context.metadata, "integrity")
+        integrity_mapping = _normalize_mapping(context.metadata, "integrity")
+        integrity = integrity_mapping.value
+        if integrity_mapping.malformed:
+            finding = ReasoningFinding(
+                code="INTEGRITY_MODE_PRESERVED",
+                message=(
+                    "Integrity metadata was supplied but is malformed; Default "
+                    "Mode C posture is preserved and no restriction is applied."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "mode": INTEGRITY_MODE_C,
+                    "mode_valid": True,
+                    "assistance_permitted": True,
+                    "restriction_applies": False,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="INTEGRITY_MODE_PRESERVED",
+                message="Malformed integrity evidence preserves permissive Mode C.",
+            )
         if integrity is None:
             return _result(
                 self.definition,
@@ -3908,7 +4388,32 @@ class AcademicDecisionPreservationRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        decision_support = _mapping(context.metadata, "decision_support")
+        decision_mapping = _normalize_mapping(context.metadata, "decision_support")
+        decision_support = decision_mapping.value
+        if decision_mapping.malformed:
+            finding = ReasoningFinding(
+                code="DECISION_NOT_ADOPTED",
+                message=(
+                    "Decision-support metadata was supplied but is malformed; "
+                    "no executable recommendation is emitted."
+                ),
+                severity=ReasoningSeverity.INFO,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+                metadata={
+                    "adopted_decision": False,
+                    "requires_user_confirmation": True,
+                    "malformed_mapping_evidence": True,
+                },
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="DECISION_NOT_ADOPTED",
+                message="Malformed decision support still cannot adopt a decision.",
+            )
         if decision_support is None:
             return _result(
                 self.definition,

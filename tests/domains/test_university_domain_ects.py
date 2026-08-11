@@ -552,3 +552,45 @@ def test_canonical_rule_strict_grounded_true_remains_satisfied():
     finding = result.findings[0]
     assert finding.code == "ECTS_REQUIREMENT_SATISFIED"
     assert finding.metadata["satisfied"] is True
+
+
+# ── V10-B1/B3: direct helper malformed containers and numeric coercion ───────
+
+
+def test_direct_helper_malformed_records_container_no_exception():
+    """records=7 must not raise and must keep completion unknown."""
+    result = check_ects_consistency(
+        records=7,
+        derive_from_records=True,
+    )
+    assert result["credit_state_sufficiently_grounded"] is False
+    assert result["completion_blocked"] is True
+    assert result["satisfied"] is False
+
+
+def test_direct_helper_malformed_degree_requirement_no_attribute_error():
+    """degree_requirement=7 must not raise AttributeError."""
+    result = check_ects_consistency(
+        records=(),
+        degree_requirement=7,
+        derive_from_records=True,
+    )
+    assert result["required_known"] is False
+    assert result["satisfied"] is False
+
+
+def test_direct_helper_numeric_string_legacy_aggregate_is_unknown():
+    """completed='abc' must not raise ValueError; malformed numeric metadata
+    must produce structured uncertainty instead of a confident total."""
+    result = check_ects_consistency(completed="abc", required=180)
+    assert result["satisfied"] is False
+    assert result["critical_requirement_uncertain"] is True
+    assert result.get("numeric_metadata_unknown") is True
+
+
+def test_direct_helper_numeric_string_is_never_implicitly_converted():
+    """'30'/'180' must not be accepted as 30/180."""
+    result = check_ects_consistency(completed="30", required="180")
+    assert result["satisfied"] is False
+    assert result["recognized_total"] == 0
+    assert result.get("numeric_metadata_unknown") is True

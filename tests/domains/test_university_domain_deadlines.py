@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import classify_deadline_grounding
@@ -322,3 +323,21 @@ def test_confirmed_referenced_official_critical_deadline_no_verification():
     assert finding.metadata["state"] == "confirmed_official"
     assert finding.metadata["confirmed"] is True
     assert finding.metadata["verification_needed"] is False
+
+
+# ── V10-B1: malformed Mapping-shaped helper arguments must not raise ─────────
+
+
+def test_direct_helper_malformed_deadline_mapping_no_attribute_error():
+    """deadline=7 must not raise AttributeError."""
+    result = classify_deadline_grounding(deadline=7)
+    assert result["state"] == "unknown"
+    assert result["confirmed"] is False
+    assert result["verification_needed"] is True
+
+
+def test_canonical_rule_malformed_deadline_mapping_not_applicable():
+    """deadline=7 canonical payload must not collapse to RULE_NOT_APPLICABLE."""
+    result = _canonical_result(7)
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.findings[0].metadata["state"] == "unknown"

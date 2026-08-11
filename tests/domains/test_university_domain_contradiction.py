@@ -558,4 +558,28 @@ def test_canonical_rule_valid_contradiction_evidence_resolves_normally():
     )
     finding = _canonical_contradiction_finding(result)
     assert finding.metadata["resolved"] is True
-    assert finding.metadata["unresolved"] is False
+
+
+# ── V10-B1: direct helper malformed collection containers/members ────────────
+
+
+def test_direct_helper_malformed_claims_container_no_exception():
+    """claims=7 must not raise and must remain unresolved."""
+    result = resolve_academic_conflict(claims=7)
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_direct_helper_malformed_claim_member_stays_unresolved():
+    """A valid claim plus a non-Mapping member cannot produce a clean
+    contradiction=False + resolved=True conclusion."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = resolve_academic_conflict(claims=(claim, 7))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True

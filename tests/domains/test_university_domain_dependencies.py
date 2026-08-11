@@ -164,6 +164,91 @@ def test_canonical_rule_caller_fabricated_pass_does_not_establish_prerequisite()
     assert "subj-1" in finding.metadata["unknown_prerequisites"]
 
 
+# ── V10-B1/B3: direct helper malformed containers and strict booleans ────────
+
+
+def test_direct_helper_malformed_dependencies_container_no_exception():
+    """dependencies=7 must not raise and must block the dependency."""
+    result = evaluate_academic_dependency(subject_id="target", dependencies=7)
+    assert result["dependency_blocked"] is True
+    assert result["satisfied_prerequisites"] == ()
+
+
+def test_direct_helper_malformed_academic_records_container_no_exception():
+    """academic_records=7 must not raise and must leave credit evidence unknown."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=(),
+        academic_records=7,
+        derive_from_academic_state=True,
+    )
+    assert result["credit_evidence_unknown"] is True
+    assert result["dependency_blocked"] is False
+
+
+def test_direct_helper_grounded_passed_string_false_never_satisfies():
+    """grounded_passed='false' must not satisfy a prerequisite."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "prereq", "grounded_passed": "false"},),
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_direct_helper_grounded_passed_string_true_never_satisfies():
+    """grounded_passed='true' must not satisfy a prerequisite."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "prereq", "grounded_passed": "true"},),
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_direct_helper_grounded_passed_one_never_satisfies():
+    """grounded_passed=1 must not satisfy a prerequisite."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "prereq", "grounded_passed": 1},),
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_direct_helper_grounded_passed_zero_never_satisfies():
+    """grounded_passed=0 must not satisfy a prerequisite."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "prereq", "grounded_passed": 0},),
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_direct_helper_credit_threshold_numeric_string_does_not_satisfy():
+    """ects='6' / required_credits='6' must not satisfy a credit threshold."""
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=(
+            {"id": "threshold", "kind": "credit_threshold", "required_credits": "6"},
+        ),
+        academic_records=(
+            {
+                "subject_id": "subject-1",
+                "status": "completed",
+                "ects": "6",
+                "grounded": True,
+                "source_reference": "rec-1",
+                "temporal": "valid",
+            },
+        ),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
 
 def test_canonical_rule_grounded_subject_state_satisfies_prerequisite():
     result = _canonical_result(

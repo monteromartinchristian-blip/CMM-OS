@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -497,3 +499,56 @@ def test_deterministic_helpers():
     assert evaluate_deadline(deadline="2026-09-15")["deadline_present"] is True
     assert evaluate_deadline(deadline="2026-09-15")["auto_scheduled"] is False
     assert evaluate_deadline(deadline="")["deadline_present"] is False
+
+
+# ── V10-B2: canonical malformed Mapping payloads not RULE_NOT_APPLICABLE ─────
+
+
+def _evaluate_rule(rule_id, metadata):
+    rules = {rule.definition.id: rule for rule in build_university_rules()}
+    return rules[rule_id].evaluate(_context(**metadata))
+
+
+@pytest.mark.parametrize(
+    "rule_id,key",
+    (
+        ("university.academic_deadline", "deadline"),
+        ("university.ects_consistency", "ects"),
+        ("university.exam_attempt", "exam_attempt"),
+        ("university.academic_workload", "workload"),
+        ("university.academic_dependency", "dependency"),
+        ("university.observed_performance_capacity", "performance_observation"),
+        ("university.academic_integrity", "integrity"),
+        ("university.academic_decision_preservation", "decision_support"),
+    ),
+)
+def test_canonical_malformed_mapping_payload_not_not_applicable(rule_id, key):
+    """A supplied malformed Mapping payload is not equivalent to absence."""
+    result = _evaluate_rule(rule_id, {key: 7})
+    assert result.status is not ReasoningRuleResultStatus.NOT_APPLICABLE
+
+
+@pytest.mark.parametrize(
+    "rule_id,key",
+    (
+        ("university.academic_deadline", "deadline"),
+        ("university.ects_consistency", "ects"),
+        ("university.exam_attempt", "exam_attempt"),
+        ("university.academic_workload", "workload"),
+        ("university.academic_dependency", "dependency"),
+        ("university.observed_performance_capacity", "performance_observation"),
+        ("university.academic_integrity", "integrity"),
+        ("university.academic_decision_preservation", "decision_support"),
+    ),
+)
+def test_canonical_absent_mapping_payload_not_applicable(rule_id, key):
+    """A genuinely absent Mapping payload stays RULE_NOT_APPLICABLE."""
+    result = _evaluate_rule(rule_id, {})
+    assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
+
+
+def test_direct_helper_malformed_performance_observation_no_attribute_error():
+    """performance_observation=7 must not raise AttributeError."""
+    result = evaluate_performance_capacity(performance_observation=7)
+    assert result["performance_observed"] is False
+    assert result["capacity_inferred"] is False
