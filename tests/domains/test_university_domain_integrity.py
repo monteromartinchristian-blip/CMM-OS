@@ -549,3 +549,35 @@ def test_v11_b2_integrity_exact_booleans_still_work_positive():
     )
     assert result["assistance_permitted"] is False
     assert result["restriction_applies"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V12-B1: strict boolean composition at the canonical Integrity wrapper
+#
+# The wrapper must NOT pre-coerce remembered_restriction with ``bool(...)``
+# before delegating to the strict helper.  remembered_restriction="false" /
+# "true" / 1 / 0 must never be normalized to True.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("value", ["false", "true", 1, 0])
+def test_v12_b1_integrity_remembered_restriction_malformed_not_true(value):
+    result = _canonical_result({"mode": "mode_c", "remembered_restriction": value})
+    finding = result.findings[0]
+    assert finding.metadata["remembered_not_official"] is False
+
+
+def test_v12_b1_integrity_remembered_restriction_literal_true_remembered():
+    result = _canonical_result(
+        {"mode": "mode_c", "remembered_restriction": True}
+    )
+    finding = result.findings[0]
+    assert finding.metadata["remembered_not_official"] is True
+
+
+def test_v12_b1_integrity_remembered_restriction_literal_false_not_remembered():
+    result = _canonical_result(
+        {"mode": "mode_c", "remembered_restriction": False}
+    )
+    finding = result.findings[0]
+    assert finding.metadata["remembered_not_official"] is False

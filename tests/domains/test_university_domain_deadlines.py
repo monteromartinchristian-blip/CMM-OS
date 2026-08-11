@@ -377,3 +377,65 @@ def test_v11_b2_deadline_conflicting_int_one_not_conflict():
         deadline={**_deadline(), "conflicting": 1}
     )
     assert result["state"] != "conflicting"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V12-B1: strict boolean composition at the canonical Deadline wrapper
+#
+# The wrapper must not re-coerce context/payload booleans with ``bool(...)``.
+# deadline_decision_critical="false" / deadline_required="false" must NOT mean
+# decision-critical; deadline.critical="false" must NOT be critical=True.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v12_b1_deadline_decision_critical_string_false_not_critical():
+    """deadline_decision_critical='false' with no deadline must NOT be
+    decision-critical; without a literal True signal and no deadline the rule
+    stays NOT_APPLICABLE."""
+    result = _canonical_context_result({"deadline_decision_critical": "false"})
+    assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
+    assert result.trace_entries[0].code == "RULE_NOT_APPLICABLE"
+
+
+def test_v12_b1_deadline_required_string_false_not_critical():
+    """deadline_required='false' with no deadline must NOT create a
+    verification trigger via truthiness."""
+    result = _canonical_context_result({"deadline_required": "false"})
+    assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
+    assert result.trace_entries[0].code == "RULE_NOT_APPLICABLE"
+
+
+@pytest.mark.parametrize("value", ["false", "true", 1, 0])
+def test_v12_b1_deadline_required_truthy_never_critical(value):
+    result = _canonical_context_result({"deadline_required": value})
+    assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
+    assert not any(
+        finding.code == "DEADLINE_VERIFICATION_NEEDED"
+        for finding in result.findings
+    )
+
+
+def test_v12_b1_deadline_literal_true_context_critical():
+    """A literal True context signal remains decision-critical (regression)."""
+    result = _canonical_context_result({"deadline_decision_critical": True})
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert any(
+        finding.code == "DEADLINE_VERIFICATION_NEEDED"
+        for finding in result.findings
+    )
+
+
+def test_v12_b1_deadline_payload_critical_string_false_not_critical():
+    """deadline.critical='false' must not be recomposed into critical=True by
+    the wrapper's bool(...)."""
+    result = _canonical_result(
+        _deadline(
+            value="2026-09-01",
+            provenance="grounded",
+            source_reference="d1",
+            temporal="current",
+        )
+        | {"critical": "false"}
+    )
+    finding = result.findings[0]
+    assert finding.metadata["critical"] is not True

@@ -948,3 +948,118 @@ def test_v11_b3_canonical_source_authority_opaque_claim_leaves_evidence_gap():
     grade_finding = _authority_finding(result, "grade")
     assert grade_finding.metadata["authority_resolved"] is False
     assert grade_finding.metadata["authority_unknown"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V12-B2: partial same-attribute Source Authority evidence
+#
+# A source that claims the target attribute but carries neither a usable fact
+# value nor any authority/grounding identity cannot corroborate, contradict, or
+# be ignored.  It must force uncertain authority instead of letting a valid
+# same-attribute source resolve alone.  Fully valid unrelated-attribute
+# evidence must NOT poison the target attribute.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v12_b2_source_partial_supplied_attributes_not_resolved():
+    """(valid grade source, {"source_id":"junk","supplied_attributes":["grade"]})
+    must not resolve grade confidently."""
+    valid = _grounded(
+        "s1",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    partial = {"source_id": "junk", "supplied_attributes": ["grade"]}
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v12_b2_source_partial_bare_attribute_not_resolved():
+    """(valid grade source, {"attribute":"grade"}) must not resolve grade
+    confidently."""
+    valid = _grounded(
+        "s1",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    partial = {"attribute": "grade"}
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v12_b2_source_valid_authority_only_still_resolves():
+    """An authority-establishing source (class/provenance/temporal, no inline
+    value) is usable and must NOT be flagged as incomplete."""
+    older = _grounded(
+        "reg",
+        source_class="regulation",
+        supplied=("requirement",),
+        temporal="valid",
+    )
+    newer = _grounded(
+        "new",
+        source_class="personal_note",
+        supplied=("requirement",),
+        temporal="valid",
+    )
+    result = classify_academic_source_authority(
+        attribute="requirement",
+        sources=(older, newer),
+    )
+    assert result["authoritative_source_id"] == "reg"
+    assert result["authority_resolved"] is True
+
+
+def test_v12_b2_source_valid_unrelated_attribute_does_not_poison():
+    """A fully valid source for a different attribute must NOT make the target
+    attribute resolution uncertain."""
+    grade = _grounded(
+        "s1",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    enrollment = _grounded(
+        "s2",
+        source_class="official_academic_record",
+        supplied=("enrollment_status",),
+    )
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(grade, enrollment),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "s1"
+
+
+def test_v12_b2_canonical_partial_same_attribute_evidence_unresolved():
+    """academic_claims=[valid deadline claim, partial deadline claim without
+    value] must keep authority/fact unresolved and emit an evidence gap."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {"id": "junk", "attribute": "deadline"},
+    )
+    finding = _authority_finding(result, "deadline")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+    assert finding.metadata["authority_unknown"] is True
+    assert any(
+        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
+        for gap in result.gaps
+    )

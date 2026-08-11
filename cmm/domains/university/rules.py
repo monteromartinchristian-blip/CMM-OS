@@ -439,6 +439,66 @@ def _semantic_evidence_malformed(items: tuple) -> bool:
     )
 
 
+def _source_speaks_about(source: Mapping, attribute: str) -> bool:
+    """Return whether ``source`` purports to supply ``attribute``.
+
+    A source speaks about the target attribute when it names it in
+    ``supplied_attributes`` (the resolver-normalized carrier) or via a bare
+    ``attribute`` field.  This is the "same-attribute partial" boundary: only
+    sources that claim the target attribute are subject to V12-B2 minimum
+    semantic validation; fully valid sources for unrelated attributes remain
+    safely irrelevant.
+    """
+    supplied = source.get("supplied_attributes", ())
+    if isinstance(supplied, (list, tuple)) and attribute in supplied:
+        return True
+    return (
+        isinstance(source.get("attribute"), str)
+        and source["attribute"] == attribute
+    )
+
+
+def _source_is_incomplete_for(source: Mapping, attribute: str) -> bool:
+    """Return whether ``source`` claims the target attribute but carries neither
+    a usable fact value nor any authority/grounding identity (V12-B2).
+
+    A same-attribute partial source cannot corroborate, contradict, or be
+    ignored: it makes target resolution uncertain.  ``{"source_id": "junk",
+    "supplied_attributes": ["grade"]}`` and ``{"attribute": "grade"}`` are NOT
+    semantically usable academic evidence merely because they are Mapping
+    instances with an identity-looking key.
+
+    A source that establishes authority without carrying the fact value itself
+    (its ``source_class`` / ``provenance`` / ``temporal`` / ``specificity``) is
+    still usable and must NOT be flagged.
+    """
+    if not _source_speaks_about(source, attribute):
+        return False
+    if not _value_missing(source.get("value")):
+        return False
+    # No usable fact value: the source is usable only if it still carries
+    # minimum authority/grounding identity so it can participate safely.
+    return not any(
+        isinstance(source.get(field), str) and source.get(field).strip()
+        for field in ("source_class", "provenance", "temporal", "specificity")
+    )
+
+
+def _claim_is_incomplete(claim: Mapping) -> bool:
+    """Return whether a contradiction claim names an attribute but carries no
+    usable fact value (V12-B2).
+
+    ``id + attribute`` alone does not prove no contradiction: the resolver
+    cannot know whether a value-less same-attribute claim corroborates,
+    contradicts, or differs, so it must stay unresolved rather than resolve
+    cleanly.
+    """
+    attribute = claim.get("attribute")
+    if not isinstance(attribute, str) or not attribute.strip():
+        return False
+    return _value_missing(_claim_value(claim))
+
+
 def _source_scope(source: Mapping) -> str | None:
     scope = source.get("scope")
     return scope if isinstance(scope, str) and scope.strip() else None
@@ -565,7 +625,25 @@ def classify_academic_source_authority(
             }
         )
 
-    if sources_evidence.malformed or _semantic_evidence_malformed(sources):
+    # V12-B2: a same-attribute partial source (claims the target attribute but
+    # lacks a usable fact value) makes the attribute resolution uncertain.  It
+    # must not let a valid source for the same attribute resolve confidently.
+    incomplete_sources = [
+        source
+        for source in sources
+        if isinstance(source, Mapping)
+        and _source_is_incomplete_for(source, attribute)
+        and (
+            scope is None
+            or (source_scope := _source_scope(source)) is None
+            or source_scope == scope
+        )
+    ]
+    if (
+        sources_evidence.malformed
+        or _semantic_evidence_malformed(sources)
+        or incomplete_sources
+    ):
         return {
             "attribute": attribute,
             "authority_resolved": False,
@@ -579,7 +657,11 @@ def classify_academic_source_authority(
             "superseded_sources": (),
             "authority_unknown": True,
             "conflict": False,
-            "reason": "malformed_source_evidence",
+            "reason": (
+                "incomplete_same_attribute_evidence"
+                if incomplete_sources
+                else "malformed_source_evidence"
+            ),
         }
 
     # Only grounded, currently-valid sources can carry current authority.
@@ -888,14 +970,32 @@ def evaluate_academic_contradiction(
             "resolved": record["resolved"],
             "unresolved": record["unresolved"],
         }
-    material = any(
-        isinstance(statement, Mapping) and statement.get("material")
-        for statement in statements
-    )
-    unresolved = any(
-        isinstance(statement, Mapping) and statement.get("unresolved")
-        for statement in statements
-    )
+    # Legacy flag-only shape: strict runtime booleans (V12-B1).  Only a
+    # literal ``True`` is a real signal; a truthy string (``"false"``,
+    # ``"true"``) or ``1`` / ``0`` is malformed/unknown boolean evidence and
+    # must NOT become ``material=True`` / ``unresolved=True``.  Malformed
+    # flag-only evidence leaves the conflict conservatively unresolved rather
+    # than confidently clean.
+    material_flag: list[bool | None] = []
+    unresolved_flag: list[bool | None] = []
+    for statement in statements:
+        if not isinstance(statement, Mapping):
+            continue
+        if "material" in statement:
+            raw = statement.get("material")
+            material_flag.append(raw if isinstance(raw, bool) else None)
+        if "unresolved" in statement:
+            raw = statement.get("unresolved")
+            unresolved_flag.append(raw if isinstance(raw, bool) else None)
+    material = any(value is True for value in material_flag)
+    unresolved = any(value is True for value in unresolved_flag)
+    # A malformed boolean flag is not trusted, but its presence still means we
+    # cannot confidently conclude there is no contradiction, so it stays
+    # unresolved (never silently clean).
+    if material_flag and not material and any(value is None for value in material_flag):
+        unresolved = True
+    if unresolved_flag and not unresolved and any(value is None for value in unresolved_flag):
+        unresolved = True
     return {
         "state": (
             CONTRADICTION_MATERIAL
@@ -904,7 +1004,7 @@ def evaluate_academic_contradiction(
             if unresolved
             else CONTRADICTION_RESOLVED
         ),
-        "material": bool(material),
+        "material": material,
         "resolved": not unresolved,
         "unresolved": unresolved,
     }
@@ -961,7 +1061,14 @@ def _claim_value(claim: Mapping) -> Any:
 
 
 def _claim_critical(claim: Mapping) -> bool:
-    return bool(_claim_field(claim, "critical"))
+    """Return whether a claim declares decision-criticality (V12-B1).
+
+    ``critical`` is a strict runtime boolean.  Only the literal ``True`` is a
+    real signal; a truthy string (``"false"``, ``"true"``) or ``1`` / ``0`` is
+    malformed/unknown criticality and must NOT create a material/blocking state
+    through Python truthiness.
+    """
+    return _boolean_true(_claim_field(claim, "critical"))
 
 
 def _claim_source(claim: Mapping) -> Mapping:
@@ -1126,6 +1233,17 @@ def resolve_academic_conflict(
             elif scope_conflicts:
                 unresolved = True
 
+    # V12-B2: a value-less claim that names an attribute cannot prove no
+    # contradiction.  The resolver cannot know whether it corroborates,
+    # contradicts, or differs, so incomplete same-attribute evidence stays
+    # unresolved rather than resolving cleanly.
+    incomplete_claim = any(
+        isinstance(claim, Mapping) and _claim_is_incomplete(claim)
+        for claim in claims
+    )
+    if incomplete_claim:
+        unresolved = True
+
     resolved = not unresolved
     blocked = bool(conflicts) and unresolved and material
     conflicts.sort(
@@ -1153,7 +1271,7 @@ def resolve_academic_conflict(
     return {
         "contradiction": bool(conflicts),
         "resolved": resolved,
-        "unresolved": bool(conflicts) and unresolved,
+        "unresolved": unresolved,
         "material": material,
         "blocked": blocked,
         "current_value": (
@@ -3165,6 +3283,7 @@ class AcademicSourceAuthorityRule:
         )
         findings: list[ReasoningFinding] = []
         gaps: list[ReasoningGap] = []
+        attribute_incomplete_seen = False
         by_attribute: dict[str, list[Mapping]] = {}
         for claim in claims:
             if isinstance(claim, Mapping):
@@ -3178,16 +3297,27 @@ class AcademicSourceAuthorityRule:
                     for claim in attribute_claims
                     if _scope_matches(claim, effective_scope)
                 )
+                scoped_sources = tuple(
+                    _claim_source(claim) for claim in scoped_claims
+                )
+                # V12-B2: a same-attribute claim with no usable fact value is
+                # incomplete evidence.  It cannot corroborate or be ignored, so
+                # it preserves the uncertain/unknown authority posture for the
+                # attribute instead of letting a valid claim resolve alone.
+                attribute_incomplete = any(
+                    _source_is_incomplete_for(source, attribute)
+                    for source in scoped_sources
+                )
+                if attribute_incomplete:
+                    attribute_incomplete_seen = True
                 authority = dict(
                     classify_academic_source_authority(
                         attribute=attribute,
-                        sources=tuple(
-                            _claim_source(claim) for claim in scoped_claims
-                        ),
+                        sources=scoped_sources,
                         scope=effective_scope,
                     )
                 )
-                if malformed_evidence:
+                if malformed_evidence or attribute_incomplete:
                     # Fail closed: the supplied authority evidence is not fully
                     # valid (a malformed container or member was present).  Valid
                     # claims may still be reported diagnostically, but overall
@@ -3350,13 +3480,13 @@ class AcademicSourceAuthorityRule:
                     },
                 )
             )
-        if malformed_evidence:
+        if malformed_evidence or attribute_incomplete_seen:
             gaps.append(
                 ReasoningGap(
                     code="SOURCE_AUTHORITY_EVIDENCE_MALFORMED",
                     message=(
-                        "Malformed source authority evidence prevents a "
-                        "confident authority conclusion."
+                        "Malformed or incomplete source authority evidence "
+                        "prevents a confident authority conclusion."
                     ),
                     severity=ReasoningSeverity.WARNING,
                     rule_id=self.definition.id,
@@ -3525,10 +3655,12 @@ class AcademicDeadlineRule:
         # metadata.  A context-level ``deadline_decision_critical`` /
         # ``deadline_required`` signal is NOT optional payload detail: it
         # propagates even when a deadline payload carries no ``critical``.
-        context_critical = bool(
+        # Both are strict runtime booleans (V12-B1): only a literal ``True`` is
+        # decision-critical; ``"false"`` / ``"true"`` / ``1`` / ``0`` are
+        # malformed and never mean ``True``.
+        context_critical = _boolean_true(
             context.metadata.get("deadline_decision_critical")
-            or context.metadata.get("deadline_required")
-        )
+        ) or _boolean_true(context.metadata.get("deadline_required"))
         if deadline_mapping.malformed:
             finding = ReasoningFinding(
                 code="DEADLINE_VERIFICATION_NEEDED",
@@ -3598,7 +3730,7 @@ class AcademicDeadlineRule:
                 code="RULE_NOT_APPLICABLE",
                 message="No deadline metadata supplied.",
             )
-        effective_critical = context_critical or bool(deadline.get("critical"))
+        effective_critical = context_critical or _boolean_true(deadline.get("critical"))
         record = classify_deadline_grounding(
             deadline=deadline, critical=effective_critical
         )
@@ -4472,7 +4604,7 @@ class AcademicIntegrityRule:
             mode=str(integrity.get("mode", INTEGRITY_MODE_C)),
             caller_restriction=integrity.get("caller_restriction"),
             grounded_restriction=integrity.get("grounded_restriction"),
-            remembered_restriction=bool(integrity.get("remembered_restriction")),
+            remembered_restriction=integrity.get("remembered_restriction"),
             current_course=integrity.get("course", integrity.get("current_course")),
             current_assessment=integrity.get(
                 "assessment", integrity.get("current_assessment")
@@ -4557,6 +4689,7 @@ class AcademicIntegrityRule:
                 "current_assessment": resolved["current_assessment"],
                 "requested_action": resolved["requested_action"],
                 "caller_forbidden_ignored": resolved["caller_forbidden_ignored"],
+                "remembered_not_official": resolved["remembered_not_official"],
                 **evidence_metadata,
             },
         )

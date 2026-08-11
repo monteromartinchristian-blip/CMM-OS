@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from itertools import permutations
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -696,5 +698,172 @@ def test_v11_b3_canonical_contradiction_opaque_statement_unresolved():
     )
     assert not any(
         finding.code == "CONTRADICTION_EVALUATED" and finding.metadata.get("resolved") is True
+        for finding in result.findings
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V12-B1: strict boolean semantics at composition boundaries — Contradiction
+#
+# The legacy flag-only path and the claim ``critical`` field must not re-introduce
+# Python truthiness.  material="false" / "true" / 1 / 0 must never become
+# material=True.  critical="false" must never create a material/blocked state.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("value", ["false", "true", 1, 0])
+def test_v12_b1_flag_only_material_string_never_material_true(value):
+    """material='false' / 'true' / 1 / 0 must NOT become material=True."""
+    result = evaluate_academic_contradiction(
+        statements=({"material": value, "unresolved": value},)
+    )
+    assert result["material"] is False
+
+
+def test_v12_b1_flag_only_material_literal_true_is_material():
+    result = evaluate_academic_contradiction(
+        statements=({"material": True, "unresolved": True},)
+    )
+    assert result["material"] is True
+    assert result["state"] == "material"
+
+
+def test_v12_b1_flag_only_material_literal_false_not_material():
+    result = evaluate_academic_contradiction(
+        statements=({"material": False, "unresolved": False},)
+    )
+    assert result["material"] is False
+    assert result["resolved"] is True
+
+
+def test_v12_b1_flag_only_unresolved_string_not_truthy():
+    """unresolved='false' must not be interpreted via truthiness as True."""
+    result = evaluate_academic_contradiction(
+        statements=({"material": "false", "unresolved": "false"},)
+    )
+    # A malformed flag is never trusted as material=True and cannot resolve
+    # confidently clean; the flag-only evidence stays conservatively unresolved.
+    assert result["material"] is False
+    assert result["unresolved"] is True
+    assert result["resolved"] is False
+
+
+def test_v12_b1_claim_critical_string_false_does_not_block():
+    """critical='false' on equal-authority incompatible claims must NOT create
+    material=True / blocked=True solely from truthiness.  The contradiction
+    itself remains unresolved."""
+    left = _claim(
+        "call-a",
+        attribute="deadline",
+        value="17",
+        source_class="specific_official_call",
+        specificity="specific",
+    )
+    right = _claim(
+        "call-b",
+        attribute="deadline",
+        value="18",
+        source_class="specific_official_call",
+        specificity="specific",
+    )
+    left["critical"] = "false"
+    right["critical"] = "false"
+    result = resolve_academic_conflict(claims=(left, right))
+    assert result["contradiction"] is True
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+    assert result["material"] is False
+    assert result["blocked"] is False
+
+
+def test_v12_b1_claim_critical_literal_true_still_material():
+    left = _claim(
+        "call-a",
+        attribute="deadline",
+        value="17",
+        source_class="specific_official_call",
+        specificity="specific",
+        critical=True,
+    )
+    right = _claim(
+        "call-b",
+        attribute="deadline",
+        value="18",
+        source_class="specific_official_call",
+        specificity="specific",
+        critical=True,
+    )
+    result = resolve_academic_conflict(claims=(left, right))
+    assert result["material"] is True
+    assert result["blocked"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V12-B2: partial same-attribute claim is incomplete evidence
+#
+# id + attribute alone does not prove no contradiction.  A value-less claim that
+# names an attribute (e.g. {"id":"junk","attribute":"deadline"}) cannot
+# corroborate, contradict, or differ, so the conflict stays unresolved.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v12_b2_direct_partial_same_attribute_claim_unresolved():
+    valid_claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    partial_claim = {"id": "junk", "attribute": "deadline"}
+    result = resolve_academic_conflict(claims=(valid_claim, partial_claim))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v12_b2_direct_valid_corroboration_stays_resolved():
+    claims = (
+        _claim(
+            "c1",
+            attribute="deadline",
+            value="2026-09-01",
+            source_class="official_publication",
+            provenance="grounded",
+            temporal="valid",
+        ),
+        _claim(
+            "c2",
+            attribute="deadline",
+            value="2026-09-01",
+            source_class="official_publication",
+            provenance="grounded",
+            temporal="valid",
+        ),
+    )
+    result = resolve_academic_conflict(claims=claims)
+    assert result["resolved"] is True
+    assert result["unresolved"] is False
+
+
+def test_v12_b2_canonical_partial_same_attribute_claim_unresolved():
+    """contradiction_statements=[valid deadline claim, partial deadline claim]
+    must emit CONTRADICTION_UNRESOLVED, never a clean resolved conclusion."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {"id": "junk", "attribute": "deadline"},
+    )
+    codes = [finding.code for finding in result.findings]
+    assert "CONTRADICTION_UNRESOLVED" in codes
+    assert not any(
+        finding.code == "CONTRADICTION_STATE"
+        and finding.metadata.get("resolved") is True
         for finding in result.findings
     )
