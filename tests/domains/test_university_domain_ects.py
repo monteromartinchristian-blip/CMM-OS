@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -594,3 +596,98 @@ def test_direct_helper_numeric_string_is_never_implicitly_converted():
     assert result["satisfied"] is False
     assert result["recognized_total"] == 0
     assert result.get("numeric_metadata_unknown") is True
+
+
+# ── V15-B1 / V16: strict singular ECTS identities and references ────────────
+
+
+def _v16_ects_record(identity_field, identity_value, *, source_reference="rec1"):
+    return {
+        identity_field: identity_value,
+        "ects": 6,
+        "state": "completed",
+        "grounded": True,
+        "source_reference": source_reference,
+        "temporal": "valid",
+    }
+
+
+@pytest.mark.parametrize("identity_field", ("subject_id", "credit_id", "id"))
+@pytest.mark.parametrize("malformed_identity", (["s1"], ("s1",)))
+def test_v16_ects_record_identity_collection_cannot_establish_completion(
+    identity_field,
+    malformed_identity,
+):
+    result = check_ects_consistency(
+        records=(_v16_ects_record(identity_field, malformed_identity),),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+        derive_from_records=True,
+    )
+    assert result["recognized_total"] == 0
+    assert result["completion_determinable"] is False
+    assert result["satisfied"] is False
+
+
+@pytest.mark.parametrize("malformed_reference", (["rec1"], ("rec1",)))
+def test_v16_ects_record_source_collection_cannot_ground_credits(
+    malformed_reference,
+):
+    result = check_ects_consistency(
+        records=(
+            _v16_ects_record(
+                "subject_id",
+                "s1",
+                source_reference=malformed_reference,
+            ),
+        ),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+        derive_from_records=True,
+    )
+    assert result["recognized_total"] == 0
+    assert result["completion_determinable"] is False
+    assert result["satisfied"] is False
+
+
+@pytest.mark.parametrize("malformed_reference", (["req1"], ("req1",)))
+def test_v16_ects_requirement_source_collection_is_not_authoritative(
+    malformed_reference,
+):
+    result = check_ects_consistency(
+        records=(_v16_ects_record("subject_id", "s1"),),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": malformed_reference,
+            "temporal": "valid",
+        },
+        derive_from_records=True,
+    )
+    assert result["requirement_grounded"] is False
+    assert result["completion_determinable"] is False
+    assert result["satisfied"] is False
+
+
+def test_v16_canonical_ects_collection_identity_never_satisfies_requirement():
+    result = _canonical_result(
+        records=(_v16_ects_record("subject_id", ["s1"]),),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata["completion_determinable"] is False
+    assert finding.metadata["satisfied"] is False

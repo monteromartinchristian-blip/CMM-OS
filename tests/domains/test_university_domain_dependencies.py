@@ -749,3 +749,73 @@ def test_canonical_rule_strict_grounded_true_credit_satisfies_threshold():
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_SATISFIED"
     assert finding.metadata["dependency_blocked"] is False
+
+
+# ── V15-B1 / V16: strict singular dependency identities and references ──────
+
+
+@pytest.mark.parametrize("malformed_identity", (["pre1"], ("pre1",)))
+def test_v16_dependency_record_identity_collection_cannot_satisfy(
+    malformed_identity,
+):
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "pre1", "kind": "subject"},),
+        academic_records=(
+            _academic_record(malformed_identity, "passed", ects=6),
+        ),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+@pytest.mark.parametrize("malformed_reference", (["rec1"], ("rec1",)))
+def test_v16_dependency_record_source_collection_cannot_satisfy(
+    malformed_reference,
+):
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "pre1", "kind": "subject"},),
+        academic_records=(
+            _academic_record(
+                "pre1",
+                "passed",
+                ects=6,
+                source=malformed_reference,
+            ),
+        ),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+@pytest.mark.parametrize("malformed_identity", (["pre1"], ("pre1",)))
+def test_v16_dependency_definition_collection_id_never_matches(
+    malformed_identity,
+):
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": malformed_identity, "kind": "subject"},),
+        academic_records=(_academic_record("pre1", "passed", ects=6),),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_v16_canonical_dependency_collection_identity_never_satisfies():
+    result = _canonical_result(
+        {
+            "subject_id": "target",
+            "prerequisites": ({"id": "pre1", "kind": "subject"},),
+            "academic_records": (
+                _academic_record(["pre1"], "passed", ects=6),
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["satisfied_prerequisites"] == ()
+    assert finding.metadata["dependency_blocked"] is True

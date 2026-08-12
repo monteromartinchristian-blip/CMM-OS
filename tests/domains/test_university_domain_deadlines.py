@@ -17,7 +17,10 @@ import pytest
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
-from cmm.domains.university.rules import classify_deadline_grounding
+from cmm.domains.university.rules import (
+    classify_deadline_grounding,
+    evaluate_deadline,
+)
 
 T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
@@ -500,3 +503,42 @@ def test_v14_b1_deadline_scalar_value_still_works():
         deadline=_deadline(value="2026-09-01")
     )
     assert result["confirmed"] is True
+
+
+# ── V15-B1 / V16: public deadline adapter and singular metadata ──────────────
+
+
+@pytest.mark.parametrize(
+    "malformed_deadline",
+    (["2026-09-01"], ("2026-09-01",), 7, {}, True, [], (), None),
+)
+def test_v16_public_deadline_adapter_never_coerces_malformed_scalar(
+    malformed_deadline,
+):
+    """The public adapter must not turn collection/non-string input into a date."""
+    result = evaluate_deadline(deadline=malformed_deadline)
+    assert result["deadline_present"] is False
+    assert result["deadline"] is None
+    assert result["state"] == "unknown"
+
+
+def test_v16_public_deadline_adapter_preserves_scalar_date():
+    result = evaluate_deadline(deadline="2026-09-01")
+    assert result["deadline_present"] is True
+    assert result["deadline"] == "2026-09-01"
+
+
+@pytest.mark.parametrize("field", ("retrieval_date", "effective_date"))
+@pytest.mark.parametrize("malformed_value", (["2026-08-01"], ("2026-08-01",)))
+def test_v16_deadline_singular_dates_are_not_unwrapped(field, malformed_value):
+    deadline = _deadline()
+    deadline[field] = malformed_value
+    result = classify_deadline_grounding(deadline=deadline)
+    assert result[field] is None
+
+
+def test_v16_deadline_canonical_wrapper_does_not_recoerce_source_reference():
+    result = _canonical_result(_deadline(source_reference=["d1"]))
+    finding = result.findings[0]
+    assert finding.metadata["confirmed"] is False
+    assert finding.references == ()

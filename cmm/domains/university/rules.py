@@ -160,17 +160,17 @@ def _scalar_reference_from(
     mapping: Mapping,
     *keys: str,
 ) -> str | None:
-    """Extract the first usable **scalar** reference from ``mapping`` (V14-B1).
+    """Validate the first present **scalar** reference field (V14-B1/V15-B1).
 
     Like :func:`_reference_from` but uses :func:`_usable_scalar_string` instead
     of :func:`_usable_reference`, so it NEVER unwraps list/tuple values.
-    Use for singular reference fields (e.g. ``source_reference``).
+    Use for ordered singular aliases (e.g. ``source_reference``, ``source_ref``).
+    A present-but-malformed higher-priority field fails closed instead of being
+    skipped in favor of a lower-priority alias.
     """
     for key in keys:
-        value = mapping.get(key)
-        usable = _usable_scalar_string(value)
-        if usable is not None:
-            return usable
+        if key in mapping:
+            return _usable_scalar_string(mapping.get(key))
     return None
 
 
@@ -864,13 +864,13 @@ def classify_academic_source_authority(
         and not _value_missing(source.get("value"))
         for source in sources
     )
-    # V14-B2: a source with a fact value but unknown relationship to the target
+    # V14-B2 / V15-B2: a source with an unknown relationship to the target
     # attribute (no carrier, ``supplied_attributes=None``, ``attribute=None``)
-    # must NOT be silently excluded while a valid source resolves confidently.
-    relation_unknown_with_value = any(
+    # must NOT be silently excluded while a valid source resolves confidently,
+    # regardless of whether it carries an inline fact value.
+    relation_unknown = any(
         isinstance(source, Mapping)
         and _source_relationship(source, attribute) == "unknown"
-        and not _value_missing(source.get("value"))
         for source in sources
     )
     if (
@@ -880,7 +880,7 @@ def classify_academic_source_authority(
         or malformed_carrier
         or malformed_source_scope
         or unusable_identity
-        or relation_unknown_with_value
+        or relation_unknown
     ):
         return {
             "attribute": attribute,
@@ -901,7 +901,7 @@ def classify_academic_source_authority(
                 else "unusable_source_identity"
                 if unusable_identity
                 else "relation_unknown_source"
-                if relation_unknown_with_value
+                if relation_unknown
                 else "malformed_source_evidence"
             ),
         }
@@ -1676,10 +1676,11 @@ def check_ects_consistency(
             if not isinstance(record, Mapping):
                 unknown_records.append(f"record-{index}")
                 continue
-            identity = _usable_reference(
-                record.get("subject_id")
-                or record.get("credit_id")
-                or record.get("id")
+            identity = _scalar_reference_from(
+                record,
+                "subject_id",
+                "credit_id",
+                "id",
             )
             amount = record.get("ects", record.get("credit_amount", record.get("credits")))
             state = str(record.get("state", record.get("status", "unknown")))
@@ -1687,7 +1688,7 @@ def check_ects_consistency(
             if identity is None:
                 unknown_records.append(record_ref)
                 continue
-            source_reference = _reference_from(
+            source_reference = _scalar_reference_from(
                 record,
                 "source_reference",
                 "source_ref",
@@ -1738,9 +1739,10 @@ def check_ects_consistency(
         candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
         required_value = _parse_ects_integer(candidate, minimum=1)
         requirement_grounded = _grants_trust(degree_requirement.get("grounded"))
-        requirement_reference = _usable_reference(
-            degree_requirement.get("source_reference")
-            or degree_requirement.get("source_ref")
+        requirement_reference = _scalar_reference_from(
+            degree_requirement,
+            "source_reference",
+            "source_ref",
         )
         requirement_temporal = _normalize_temporal(
             degree_requirement.get("temporal")
@@ -1907,10 +1909,11 @@ def evaluate_exam_attempt(
     if isinstance(regulation, Mapping):
         regulation_grounded = _grants_trust(regulation.get("grounded"))
         regulation_temporal = _normalize_temporal(regulation.get("temporal"))
-        regulation_reference = _usable_reference(
-            regulation.get("source_reference")
-            or regulation.get("source_ref")
-            or regulation.get("id")
+        regulation_reference = _scalar_reference_from(
+            regulation,
+            "source_reference",
+            "source_ref",
+            "id",
         )
         regulation_class = _normalize_source_class(regulation.get("source_class"))
         regulation_current = bool(
@@ -1960,7 +1963,7 @@ def evaluate_exam_attempt(
             unknown_attempts += 1
             continue
         complete_evidence = all(
-            _usable_reference(entry.get(key)) is not None
+            _usable_scalar_string(entry.get(key)) is not None
             for key in ("id", "exam_id", "date", "source_reference")
         ) and entry.get("status") is not None
         attempt_trust = entry.get("grounded")
@@ -1970,9 +1973,10 @@ def evaluate_exam_attempt(
             # within-limits zero-consumption conclusion.
             unknown_attempts += 1
             continue
-        if not _grants_trust(attempt_trust) or (
-            require_complete_evidence and not complete_evidence
-        ):
+        if require_complete_evidence and not complete_evidence:
+            unknown_attempts += 1
+            continue
+        if not _grants_trust(attempt_trust):
             ungrounded_attempts += 1
             continue
         kind = entry.get("kind")
@@ -2121,16 +2125,20 @@ def _evaluate_structured_workload(
     scenario_records = tuple(
         item
         for item in scenarios
-        if isinstance(item, Mapping) and _usable_reference(item.get("id")) is not None
+        if isinstance(item, Mapping)
+        and _usable_scalar_string(item.get("id")) is not None
     )
     anonymous_scenario_present = any(
-        not isinstance(item, Mapping) or _usable_reference(item.get("id")) is None
+        not isinstance(item, Mapping)
+        or _usable_scalar_string(item.get("id")) is None
         for item in scenarios
     )
     scenarios_malformed = scenarios_malformed or anonymous_scenario_present
     malformed_preferences = []
     for item in preferences:
-        if not isinstance(item, Mapping) or not _usable_reference(item.get("dimension")):
+        if not isinstance(item, Mapping) or not _usable_scalar_string(
+            item.get("dimension")
+        ):
             malformed_preferences.append(item)
     preferences_malformed = preferences_malformed or bool(malformed_preferences)
     hard_constraints_evidence = _normalize_collection_value(
@@ -2156,7 +2164,7 @@ def _evaluate_structured_workload(
         item for item in hard_constraints if isinstance(item, Mapping)
     )
     for scenario in scenario_records:
-        scenario_id = _usable_reference(scenario.get("id"))
+        scenario_id = _usable_scalar_string(scenario.get("id"))
         if scenario_id is None:
             continue
         scenario_constraints_present = "hard_constraints" in scenario
@@ -2197,7 +2205,7 @@ def _evaluate_structured_workload(
             consumed_factors.add("health_functional_cap")
         states: list[bool | None] = []
         for constraint in constraints:
-            cid = _usable_reference(constraint.get("id"))
+            cid = _usable_scalar_string(constraint.get("id"))
             if cid is not None:
                 hard_constraint_ids.add(cid)
             states.append(
@@ -2219,7 +2227,8 @@ def _evaluate_structured_workload(
     explicit_preferences = tuple(
         pref
         for pref in preferences
-        if isinstance(pref, Mapping) and _usable_reference(pref.get("dimension")) is not None
+        if isinstance(pref, Mapping)
+        and _usable_scalar_string(pref.get("dimension")) is not None
     )
     ranking: tuple[str, ...] = ()
     ranking_incomplete = False
@@ -2227,7 +2236,7 @@ def _evaluate_structured_workload(
         ranked = [
             scenario
             for scenario in scenario_records
-            if _usable_reference(scenario.get("id")) in feasible_ids
+            if _usable_scalar_string(scenario.get("id")) in feasible_ids
         ]
         for preference in reversed(explicit_preferences):
             dimension = preference["dimension"]
@@ -2268,9 +2277,9 @@ def _evaluate_structured_workload(
             )
         if not ranking_incomplete:
             ranking = tuple(
-                _usable_reference(scenario.get("id"))
+                _usable_scalar_string(scenario.get("id"))
                 for scenario in ranked
-                if _usable_reference(scenario.get("id")) is not None
+                if _usable_scalar_string(scenario.get("id")) is not None
             )
 
     all_feasible = (
@@ -2304,9 +2313,9 @@ def _evaluate_structured_workload(
         "preferences_applied": bool(explicit_preferences),
         "tradeoffs": (),
         "scenarios": tuple(
-            _usable_reference(scenario.get("id"))
+            _usable_scalar_string(scenario.get("id"))
             for scenario in scenario_records
-            if _usable_reference(scenario.get("id")) is not None
+            if _usable_scalar_string(scenario.get("id")) is not None
         ),
         "feasible_scenarios": tuple(feasible_ids),
         "infeasible_scenarios": tuple(infeasible_ids),
@@ -2428,7 +2437,7 @@ def evaluate_academic_workload(
     for hard in hard_constraints:
         if not isinstance(hard, Mapping):
             continue
-        cid = _usable_reference(hard.get("id"))
+        cid = _usable_scalar_string(hard.get("id"))
         if cid is None:
             continue
         hard_constraint_ids.add(cid)
@@ -2614,8 +2623,11 @@ def _resolve_dependency_credit_evidence(records: tuple) -> dict:
         if not isinstance(record, Mapping):
             identityless = True
             continue
-        identity = _usable_reference(
-            record.get("subject_id") or record.get("credit_id") or record.get("id")
+        identity = _scalar_reference_from(
+            record,
+            "subject_id",
+            "credit_id",
+            "id",
         )
         if identity is None:
             identityless = True
@@ -2634,8 +2646,10 @@ def _resolve_dependency_credit_evidence(records: tuple) -> dict:
         has_unknown = False
         for record in group:
             grounded = _grants_trust(record.get("grounded")) and bool(
-                _usable_reference(
-                    record.get("source_reference") or record.get("source_ref")
+                _scalar_reference_from(
+                    record,
+                    "source_reference",
+                    "source_ref",
                 )
             )
             current = (
@@ -2742,10 +2756,11 @@ def evaluate_academic_dependency(
         for record in academic_records:
             if not isinstance(record, Mapping):
                 continue
-            record_id = _usable_reference(
-                record.get("subject_id")
-                or record.get("credit_id")
-                or record.get("id")
+            record_id = _scalar_reference_from(
+                record,
+                "subject_id",
+                "credit_id",
+                "id",
             )
             if record_id is not None:
                 records_by_subject.setdefault(record_id, []).append(record)
@@ -2770,7 +2785,7 @@ def evaluate_academic_dependency(
             if not isinstance(dep, Mapping):
                 anonymous_prerequisite_count += 1
                 continue
-            dep_id = _usable_reference(dep.get("id"))
+            dep_id = _usable_scalar_string(dep.get("id"))
             if dep_id is None:
                 anonymous_prerequisite_count += 1
                 continue
@@ -2825,9 +2840,10 @@ def evaluate_academic_dependency(
                 if not isinstance(evidence_record, Mapping):
                     continue
                 grounded = _grants_trust(evidence_record.get("grounded")) and bool(
-                    _usable_reference(
-                        evidence_record.get("source_reference")
-                        or evidence_record.get("source_ref")
+                    _scalar_reference_from(
+                        evidence_record,
+                        "source_reference",
+                        "source_ref",
                     )
                 )
                 current = _normalize_temporal(evidence_record.get("temporal")) in _CURRENT_TEMPORAL_STATES
@@ -2880,7 +2896,7 @@ def evaluate_academic_dependency(
         if not isinstance(dep, Mapping):
             anonymous_prerequisite_count += 1
             continue
-        dep_id = _usable_reference(dep.get("id"))
+        dep_id = _usable_scalar_string(dep.get("id"))
         if dep_id is None:
             anonymous_prerequisite_count += 1
             continue
@@ -2975,7 +2991,7 @@ def evaluate_academic_integrity(
         grounded = _grants_trust(grounded_restriction.get("grounded"))
         source_class = str(grounded_restriction.get("source_class", ""))
         temporal = str(grounded_restriction.get("temporal", ""))
-        source_reference = _reference_from(
+        source_reference = _scalar_reference_from(
             grounded_restriction,
             "source_reference",
             "source_ref",
@@ -3013,18 +3029,22 @@ def evaluate_academic_integrity(
             restriction_scope = _normalize_references(
                 grounded_restriction.get("scope")
             )
-            course_scope = _usable_reference(grounded_restriction.get("course"))
-            assessment_scope = _usable_reference(
+            course_scope = _usable_scalar_string(grounded_restriction.get("course"))
+            assessment_scope = _usable_scalar_string(
                 grounded_restriction.get("assessment")
+            )
+            scope_malformed = any(
+                _scope_state(grounded_restriction.get(field)) == SCOPE_MALFORMED
+                for field in ("course", "assessment")
             )
             # Exact-scope fail-closed invariant: a scoped restriction applies
             # only when its required scope is actually established.  An unknown
             # current scope is NOT a matching scope.  Only a genuinely global
             # restriction (no course/assessment scope) applies without a
             # current scope.
-            scope_matches = True
+            scope_matches = not scope_malformed
             if course_scope is not None:
-                scope_matches = (
+                scope_matches = scope_matches and (
                     current_course is not None and course_scope == current_course
                 )
             if assessment_scope is not None and scope_matches:
@@ -3057,7 +3077,7 @@ def evaluate_academic_integrity(
             # Diagnostic: distinguish an unresolved scope (unknown current
             # scope) from a matched scope and a mismatched scope.  An unresolved
             # scope is never authority to apply a restriction.
-            scope_applicability = "matched"
+            scope_applicability = "unresolved" if scope_malformed else "matched"
             if course_scope is not None:
                 if current_course is None:
                     scope_applicability = "unresolved"
@@ -3222,7 +3242,7 @@ def evaluate_deadline(
     deadline: str | None = None,
 ) -> dict:
     """Compatibility adapter to the canonical deadline grounding classifier."""
-    usable = _usable_reference(deadline)
+    usable = _usable_scalar_string(deadline)
     structured = classify_deadline_grounding(
         deadline={"value": usable} if usable is not None else None
     )
@@ -3333,8 +3353,8 @@ def classify_deadline_grounding(
     )
     conflicting = _boolean_true(deadline.get("conflicting"))
     critical = _boolean_true(critical) or _boolean_true(deadline.get("critical"))
-    retrieval_date = _usable_reference(deadline.get("retrieval_date"))
-    effective_date = _usable_reference(deadline.get("effective_date"))
+    retrieval_date = _usable_scalar_string(deadline.get("retrieval_date"))
+    effective_date = _usable_scalar_string(deadline.get("effective_date"))
 
     # Conflicting evidence always supersedes a naive confirmation.
     if conflicting:
@@ -3653,7 +3673,8 @@ class AcademicSourceAuthorityRule:
                         (
                             claim
                             for claim in scoped_claims
-                            if _usable_reference(claim.get("id")) == authoritative_id
+                            if _usable_scalar_string(claim.get("id"))
+                            == authoritative_id
                         ),
                         None,
                     )
@@ -3666,13 +3687,13 @@ class AcademicSourceAuthorityRule:
                 references = tuple(
                     ref
                     for claim in scoped_claims
-                    if (ref := _usable_reference(claim.get("id"))) is not None
+                    if (ref := _usable_scalar_string(claim.get("id"))) is not None
                 )
                 historical_ids = tuple(
                     sorted(
                         ref
                         for claim in scoped_claims
-                        if (ref := _usable_reference(claim.get("id"))) is not None
+                        if (ref := _usable_scalar_string(claim.get("id"))) is not None
                         and (
                             ref in authority["superseded_sources"]
                             or _normalize_temporal(claim.get("temporal"))
@@ -3866,7 +3887,7 @@ class AcademicContradictionRule:
         for statement in statements:
             if not isinstance(statement, Mapping):
                 continue
-            ref = _usable_reference(statement.get("id"))
+            ref = _usable_scalar_string(statement.get("id"))
             if ref is not None:
                 references = (*references, ref)
         verification_need = conditional_verification_trigger(
@@ -4058,7 +4079,7 @@ class AcademicDeadlineRule:
             attribute="deadline",
             scope=deadline.get("scope"),
         )
-        source_reference = _reference_from(
+        source_reference = _scalar_reference_from(
             deadline, "source_reference", "source_ref"
         )
         references = (source_reference,) if source_reference is not None else ()
@@ -4977,7 +4998,7 @@ class AcademicIntegrityRule:
                 if restriction_evidence is not None
                 else None
             ),
-            "restriction_source_reference": _reference_from(
+            "restriction_source_reference": _scalar_reference_from(
                 restriction_evidence,
                 "source_reference",
                 "source_ref",

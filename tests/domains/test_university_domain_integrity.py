@@ -581,3 +581,77 @@ def test_v12_b1_integrity_remembered_restriction_literal_false_not_remembered():
     )
     finding = result.findings[0]
     assert finding.metadata["remembered_not_official"] is False
+
+
+# ── V15-B1 / V16: strict restriction reference and exact scalar scope ───────
+
+
+@pytest.mark.parametrize("malformed_reference", (["int1"], ("int1",)))
+def test_v16_integrity_reference_collection_cannot_ground_restriction(
+    malformed_reference,
+):
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="C1",
+        current_assessment="A1",
+        requested_action="answer",
+        grounded_restriction=_restriction(
+            source_reference=malformed_reference,
+            course="C1",
+            assessment="A1",
+            prohibited_actions=["answer"],
+        ),
+    )
+    assert result["restriction_grounded"] is False
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+
+
+@pytest.mark.parametrize(
+    ("scope_field", "scalar_scope"),
+    (("course", "C1"), ("assessment", "A1")),
+)
+@pytest.mark.parametrize("collection_type", (list, tuple))
+def test_v16_integrity_scope_collection_never_matches(
+    scope_field,
+    scalar_scope,
+    collection_type,
+):
+    restriction = _restriction(
+        course="C1",
+        assessment="A1",
+        prohibited_actions=["answer"],
+    )
+    restriction[scope_field] = collection_type((scalar_scope,))
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="C1",
+        current_assessment="A1",
+        requested_action="answer",
+        grounded_restriction=restriction,
+    )
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+
+
+def test_v16_integrity_canonical_wrapper_does_not_recoerce_reference():
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "C1",
+            "assessment": "A1",
+            "requested_action": "answer",
+            "grounded_restriction": _restriction(
+                source_reference=["int1"],
+                course="C1",
+                assessment="A1",
+                prohibited_actions=["answer"],
+            ),
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "INTEGRITY_MODE_PRESERVED"
+    assert finding.metadata["restriction_grounded"] is False
+    assert finding.metadata["assistance_permitted"] is True
+    assert finding.metadata["restriction_source_reference"] is None
+    assert finding.references == ()

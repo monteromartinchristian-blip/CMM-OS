@@ -782,3 +782,62 @@ def test_v11_b2_workload_satisfied_false_not_feasible_negative():
     )
     assert result["feasible"] is False
     assert result["proposal"] is None
+
+
+# ── V15-B1 / V16: strict singular workload identifiers ──────────────────────
+
+
+@pytest.mark.parametrize("malformed_identity", (["s1"], ("s1",)))
+def test_v16_workload_scenario_collection_id_is_malformed(malformed_identity):
+    result = evaluate_academic_workload(
+        scenarios=({"id": malformed_identity, "credit_load": 10},),
+        derive_from_facts=True,
+    )
+    assert result["scenarios"] == ()
+    assert result["feasible_scenarios"] == ()
+    assert result["scenarios_malformed"] is True
+    assert result["feasibility_uncertain"] is True
+
+
+@pytest.mark.parametrize("malformed_dimension", (["hours"], ("hours",)))
+def test_v16_workload_preference_dimension_collection_is_malformed(
+    malformed_dimension,
+):
+    result = evaluate_academic_workload(
+        scenarios=({"id": "s1", "hours": 10},),
+        preferences=({"dimension": malformed_dimension},),
+        derive_from_facts=True,
+    )
+    assert result["preferences_malformed"] is True
+    assert result["feasibility_uncertain"] is True
+    assert result["ranking"] == ()
+
+
+@pytest.mark.parametrize("malformed_identity", (["hc1"], ("hc1",)))
+def test_v16_workload_constraint_collection_id_is_not_exposed_as_scalar(
+    malformed_identity,
+):
+    result = evaluate_academic_workload(
+        scenarios=({"id": "s1", "credit_load": 10},),
+        hard_constraints=(
+            {
+                "id": malformed_identity,
+                "kind": "credit_load",
+                "field": "credit_load",
+                "limit": 30,
+                "grounded": True,
+            },
+        ),
+        derive_from_facts=True,
+    )
+    assert "hc1" not in result["hard_constraint_ids"]
+
+
+def test_v16_canonical_workload_collection_scenario_id_stays_uncertain():
+    result = _canonical_result(
+        {"scenarios": ({"id": ["s1"], "credit_load": 10},)}
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["scenarios_malformed"] is True
+    assert finding.metadata["feasibility_uncertain"] is True

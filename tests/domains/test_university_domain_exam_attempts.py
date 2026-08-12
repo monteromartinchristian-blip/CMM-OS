@@ -492,3 +492,47 @@ def test_direct_helper_regulation_active_true_is_active():
         regulation_active=True,
     )
     assert result["within_limits"] is True
+
+
+# ── V15-B1 / V16: strict singular regulation and attempt evidence ───────────
+
+
+@pytest.mark.parametrize("malformed_reference", (["reg1"], ("reg1",)))
+def test_v16_regulation_reference_collection_is_unknown(malformed_reference):
+    regulation = _regulation(max_attempts=1)
+    regulation["source_reference"] = malformed_reference
+    result = evaluate_exam_attempt(
+        attempts=(_grounded_attempt(),),
+        regulation=regulation,
+        require_complete_evidence=True,
+    )
+    assert result["regulation_unknown"] is True
+    assert result["within_limits"] is False
+
+
+@pytest.mark.parametrize("field", ("id", "exam_id", "date", "source_reference"))
+@pytest.mark.parametrize("malformed_value", (["bad"], ("bad",)))
+def test_v16_attempt_singular_collection_is_unknown(field, malformed_value):
+    attempt = _grounded_attempt()
+    attempt[field] = malformed_value
+    result = evaluate_exam_attempt(
+        attempts=(attempt,),
+        regulation=_regulation(max_attempts=1),
+        require_complete_evidence=True,
+    )
+    assert result["attempt_evidence_unknown"] is True
+    assert result["consumed_attempts"] == 0
+    assert result["within_limits"] is False
+
+
+def test_v16_canonical_exam_collection_reference_never_evaluates_cleanly():
+    regulation = _regulation(max_attempts=1)
+    regulation["source_reference"] = ["reg1"]
+    result = _canonical_result(
+        attempts=(_grounded_attempt(),),
+        regulation=regulation,
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["regulation_unknown"] is True
+    assert finding.metadata["within_limits"] is False

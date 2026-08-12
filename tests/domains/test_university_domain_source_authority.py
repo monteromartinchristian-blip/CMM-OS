@@ -1723,3 +1723,101 @@ def test_v14_b2_supplied_attributes_empty_list_is_known_unrelated():
     )
     assert result["authority_resolved"] is True
     assert result["authoritative_source_id"] == "s1"
+
+
+# ── V15-B2 / V16: relation-unknown does not require an inline value ─────────
+
+
+def _v16_relation_unknown_authority_only_source():
+    return {
+        "source_id": "junk",
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+
+
+@pytest.mark.parametrize(
+    "relation_unknown",
+    (_v16_relation_unknown_authority_only_source(), {"source_id": "junk"}),
+    ids=("authority-only", "identity-only"),
+)
+def test_v16_relation_unknown_without_value_forces_base_uncertainty(
+    relation_unknown,
+):
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(_valid_grade_source_with_value(), relation_unknown),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize(
+    "relation_unknown",
+    (_v16_relation_unknown_authority_only_source(), {"source_id": "junk"}),
+    ids=("authority-only", "identity-only"),
+)
+def test_v16_relation_unknown_without_value_forces_adapter_uncertainty(
+    relation_unknown,
+):
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(_valid_grade_source_with_value(), relation_unknown),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize(
+    "unknown_claim",
+    (
+        {
+            "id": "junk",
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        },
+        {"id": "junk"},
+    ),
+    ids=("authority-only", "identity-only"),
+)
+def test_v16_relation_unknown_without_value_forces_canonical_uncertainty(
+    unknown_claim,
+):
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "grade",
+            "value": 8.5,
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        },
+        unknown_claim,
+    )
+    finding = _authority_finding(result, "grade")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+    assert finding.metadata["authority_unknown"] is True
+
+
+def test_v16_source_authority_wrapper_does_not_recoerce_collection_claim_id():
+    result = _canonical_result(
+        {
+            "id": ["junk"],
+            "attribute": "grade",
+            "value": 8.5,
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        }
+    )
+    finding = _authority_finding(result, "grade")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.references == ()

@@ -1092,6 +1092,26 @@ def test_v14_b1_canonical_claim_id_collection_never_resolved(malformed_id):
     assert "CONTRADICTION_UNRESOLVED" in codes
 
 
+def test_v16_contradiction_wrapper_does_not_recoerce_collection_claim_id():
+    result = _canonical_result(
+        {
+            "id": ["junk"],
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        }
+    )
+    finding = next(
+        finding
+        for finding in result.findings
+        if finding.code == "CONTRADICTION_UNRESOLVED"
+    )
+    assert finding.references == ()
+
+
 def test_v14_b1_scalar_claim_id_still_resolves():
     """Positive control: a proper scalar claim id must remain resolved."""
     claim = _claim(
