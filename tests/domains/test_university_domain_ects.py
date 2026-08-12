@@ -764,3 +764,104 @@ def test_v17_canonical_ects_critical_uncertainty_is_strict_boolean(
         else "ECTS_REQUIREMENT_SATISFIED"
     )
     assert finding.code == expected_code
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# V17-B1 / V18 closure: conflict collections validate every scalar member
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("field", ("double_counted", "contradictory"))
+@pytest.mark.parametrize(
+    "malformed_member",
+    (["s1"], ("s1",), {"x": 1}, 7, True, None, ""),
+)
+def test_v17_b1_direct_ects_conflict_member_is_strict(
+    field,
+    malformed_member,
+):
+    result = check_ects_consistency(
+        completed=6,
+        required=6,
+        **{field: (malformed_member,)},
+    )
+    assert result[field] == ()
+    assert result[f"{field}_malformed"] is True
+    assert result["completion_blocked"] is True
+    assert result["satisfied"] is False
+
+
+@pytest.mark.parametrize("field", ("double_counted", "contradictory"))
+def test_v17_b1_canonical_ects_conflict_member_is_strict(field):
+    result = _canonical_result(
+        records=(_v16_ects_record("subject_id", "s1"),),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+        **{field: (["s1"],)},
+    )
+    finding = result.findings[0]
+    assert finding.code == "ECTS_COMPLETION_BLOCKED"
+    assert finding.metadata[field] == ()
+    assert finding.metadata[f"{field}_malformed"] is True
+    assert finding.metadata["satisfied"] is False
+
+
+@pytest.mark.parametrize("field", ("double_counted", "contradictory"))
+def test_v17_b1_flat_ects_conflict_ids_remain_valid(field):
+    result = check_ects_consistency(
+        completed=6,
+        required=6,
+        **{field: ("s1",)},
+    )
+    assert result[field] == ("s1",)
+    assert result[f"{field}_malformed"] is False
+    assert result["completion_blocked"] is True
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+@pytest.mark.parametrize(
+    (
+        "field",
+        "coerced",
+        "expected_completed",
+        "expected_recognized",
+        "expected_satisfied",
+    ),
+    (
+        ("state", "completed", 0, 0, False),
+        ("recognition_status", "recognized", 6, 0, True),
+    ),
+)
+def test_v18_closure_ects_record_enums_are_not_string_coerced(
+    field,
+    coerced,
+    expected_completed,
+    expected_recognized,
+    expected_satisfied,
+):
+    record = _v16_ects_record("subject_id", "s1")
+    record[field] = _V18StringLike(coerced)
+    result = check_ects_consistency(
+        records=(record,),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+        derive_from_records=True,
+    )
+    assert result["completed"] == expected_completed
+    assert result["recognized"] == expected_recognized
+    assert result["satisfied"] is expected_satisfied

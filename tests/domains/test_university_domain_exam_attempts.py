@@ -536,3 +536,35 @@ def test_v16_canonical_exam_collection_reference_never_evaluates_cleanly():
     assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
     assert finding.metadata["regulation_unknown"] is True
     assert finding.metadata["within_limits"] is False
+
+
+@pytest.mark.parametrize("field", ("kind", "status"))
+@pytest.mark.parametrize("malformed_value", ([], {}, [["nested"]]))
+def test_v18_closure_exam_attempt_unhashable_enum_is_exception_safe(
+    field,
+    malformed_value,
+):
+    attempt = _grounded_attempt()
+    attempt[field] = malformed_value
+    result = evaluate_exam_attempt(
+        attempts=(attempt,),
+        regulation=_regulation(max_attempts=1),
+        require_complete_evidence=True,
+    )
+    assert result["attempt_evidence_unknown"] is True
+    assert result["consumed_attempts"] == 0
+    assert result["within_limits"] is False
+
+
+@pytest.mark.parametrize("field", ("kind", "status"))
+def test_v18_closure_canonical_exam_attempt_malformed_enum_is_unknown(field):
+    attempt = _grounded_attempt()
+    attempt[field] = {}
+    result = _canonical_result(
+        attempts=(attempt,),
+        regulation=_regulation(max_attempts=1),
+    )
+    finding = result.findings[0]
+    assert finding.code == "EXAM_ATTEMPT_REGULATION_VERIFICATION_NEEDED"
+    assert finding.metadata["attempt_evidence_unknown"] is True
+    assert finding.metadata["consumed_attempts"] == 0

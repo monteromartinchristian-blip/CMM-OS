@@ -784,3 +784,58 @@ def test_v17_canonical_integrity_malformed_policy_never_applies(
     assert finding.metadata["restriction_applies"] is False
     assert finding.metadata["assistance_permitted"] is True
     assert finding.metadata["restriction_policy_malformed"] is True
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+class _V18ModeString(str):
+    def __new__(cls):
+        return super().__new__(cls, "invalid-mode")
+
+    def __str__(self):
+        return "mode_c"
+
+
+def test_v18_closure_canonical_integrity_mode_is_not_string_coerced():
+    result = _canonical_result({"mode": _V18ModeString()})
+    finding = result.findings[0]
+    assert result.status is ReasoningRuleResultStatus.BLOCKED
+    assert finding.code == "INTEGRITY_MODE_REJECTED"
+
+
+@pytest.mark.parametrize("field", ("source_class", "temporal"))
+def test_v18_closure_integrity_authority_fields_are_not_string_coerced(field):
+    restriction = _restriction(
+        course="C1",
+        assessment="A1",
+        prohibited_actions=["answer"],
+    )
+    expected = "official_regulation" if field == "source_class" else "current"
+    restriction[field] = _V18StringLike(expected)
+    result = evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="C1",
+        current_assessment="A1",
+        requested_action="answer",
+        grounded_restriction=restriction,
+    )
+    assert result["restriction_grounded"] is False
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("scope", "superseded_by", "prohibited_actions", "allowed_actions"),
+)
+def test_v18_closure_integrity_present_none_policy_field_is_malformed(field):
+    result = _v17_integrity_result(**{field: None})
+    assert result["restriction_policy_malformed"] is True
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True

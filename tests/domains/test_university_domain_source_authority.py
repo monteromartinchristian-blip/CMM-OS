@@ -1950,3 +1950,79 @@ def test_v17_valid_reference_cannot_hide_malformed_sibling(relation_field):
         if source["source_id"] == target["source_id"]
     )
     assert evaluated[f"{relation_field}_malformed"] is True
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# V18 closure: no adapter coercion and present-null semantic fields fail closed
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+def test_v18_closure_legacy_source_type_is_not_string_coerced_to_authority():
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(
+            {
+                "source_id": "src1",
+                "source_type": _V18StringLike("official"),
+                "supplied_attributes": ("grade",),
+                "value": "pass",
+            },
+        ),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authoritative_source_id"] is None
+
+
+@pytest.mark.parametrize("malformed_attribute", (["grade"], ("grade",), {}, 7, True, None, ""))
+def test_v18_closure_requested_attribute_identity_is_strict(malformed_attribute):
+    result = classify_academic_source_authority(
+        attribute=malformed_attribute,
+        sources=(_valid_grade_source(),),
+    )
+    assert result["attribute"] is None
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v18_closure_present_none_source_scope_is_not_absent():
+    source = _valid_grade_source()
+    source["scope"] = None
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(source,),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize("relation_field", ("supersedes", "superseded_by"))
+def test_v18_closure_present_none_supersession_is_malformed(relation_field):
+    source = _valid_grade_source()
+    source[relation_field] = None
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(source,),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+    assert result["matched_sources"][0][f"{relation_field}_malformed"] is True
+
+
+def test_v18_closure_empty_supersession_collection_remains_valid():
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(_valid_grade_source(),),
+    )
+    assert result["authority_resolved"] is True
+    assert result["matched_sources"][0]["supersedes_malformed"] is False

@@ -841,3 +841,155 @@ def test_v16_canonical_workload_collection_scenario_id_stays_uncertain():
     assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
     assert finding.metadata["scenarios_malformed"] is True
     assert finding.metadata["feasibility_uncertain"] is True
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# V17-B2 / V18 closure: legacy identities and mapping semantics are strict
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize(
+    "malformed_id",
+    (["p1"], ("p1",), {"x": 1}, 7, True, None, _ABSENT, ""),
+)
+def test_v17_b2_legacy_preference_ids_are_strict(malformed_id):
+    first = {"rank": 1}
+    if malformed_id is not _ABSENT:
+        first["id"] = malformed_id
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": True},),
+        preferences=(first, {"id": "p2", "rank": 2}),
+    )
+    assert result.get("preferences_malformed") is True
+    assert result["feasibility_uncertain"] is True
+    assert result["scenarios"] == ()
+    assert result["proposal"] is None
+
+
+def test_v17_b2_legacy_scalar_preference_ids_remain_valid():
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": True},),
+        preferences=(
+            {"id": "p1", "rank": 1},
+            {"id": "p2", "rank": 2},
+        ),
+    )
+    assert result["scenarios"] == ("scenario-p1", "scenario-p2")
+    assert result.get("preferences_malformed", False) is False
+
+
+@pytest.mark.parametrize(
+    "malformed_selection",
+    (["s1"], ("s1",), {"x": 1}, 7, True, ""),
+)
+def test_v17_b2_direct_malformed_selected_scenario_never_becomes_proposal(
+    malformed_selection,
+):
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": True},),
+        preferences=({"id": "p1", "rank": 1},),
+        selected_scenario=malformed_selection,
+    )
+    assert result["proposal"] is None
+    assert result.get("selected_scenario_malformed") is True
+    assert result["feasibility_uncertain"] is True
+
+
+@pytest.mark.parametrize(
+    "malformed_selection",
+    (["s1"], ("s1",), {"x": 1}, 7, True, None, ""),
+)
+def test_v17_b2_canonical_malformed_selected_scenario_stays_uncertain(
+    malformed_selection,
+):
+    result = _canonical_result(
+        {
+            "scenarios": ({"id": "s1", "hours": 5},),
+            "selected_scenario": malformed_selection,
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["proposal"] is None
+    assert finding.metadata["selected_scenario_malformed"] is True
+
+
+def test_v17_b2_scalar_selected_scenario_remains_a_proposal():
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": "hc", "satisfied": True},),
+        preferences=({"id": "p1", "rank": 1},),
+        selected_scenario="s1",
+    )
+    assert result["proposal"] == "s1"
+    assert result.get("selected_scenario_malformed", False) is False
+
+
+@pytest.mark.parametrize("malformed_id", (["hc"], ("hc",), {}, 7, True, None, ""))
+def test_v18_closure_legacy_constraint_identity_is_strict(malformed_id):
+    result = evaluate_academic_workload(
+        hard_constraints=({"id": malformed_id, "satisfied": True},),
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["feasible"] is False
+    assert result.get("hard_constraints_malformed") is True
+
+
+def test_v18_closure_empty_workload_mapping_is_uncertain_not_infeasible():
+    result = _canonical_result({})
+    finding = result.findings[0]
+    assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
+    assert finding.metadata["feasibility_uncertain"] is True
+    assert finding.metadata["feasible"] is False
+    assert finding.metadata["semantically_empty_mapping_evidence"] is True
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+def test_v18_closure_workload_constraint_kind_is_not_string_coerced():
+    result = evaluate_academic_workload(
+        scenarios=({"id": "s1", "hours": 5},),
+        hard_constraints=(
+            {
+                "id": "hc",
+                "kind": _V18StringLike("minimum_hours"),
+                "field": "hours",
+                "requirement": 1,
+                "grounded": True,
+            },
+        ),
+        selected_scenario="s1",
+        derive_from_facts=True,
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+    assert result.get("hard_constraints_malformed") is True
+
+
+def test_v18_closure_present_malformed_constraint_field_does_not_fall_back():
+    result = evaluate_academic_workload(
+        scenarios=({"id": "s1", "hours": 5},),
+        hard_constraints=(
+            {
+                "id": "hc",
+                "kind": "minimum_hours",
+                "field": None,
+                "scenario_field": "hours",
+                "requirement": 1,
+                "grounded": True,
+            },
+        ),
+        selected_scenario="s1",
+        derive_from_facts=True,
+    )
+    assert result["feasibility_uncertain"] is True
+    assert result["proposal"] is None
+    assert result.get("hard_constraints_malformed") is True

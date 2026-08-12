@@ -542,3 +542,25 @@ def test_v16_deadline_canonical_wrapper_does_not_recoerce_source_reference():
     finding = result.findings[0]
     assert finding.metadata["confirmed"] is False
     assert finding.references == ()
+
+
+@pytest.mark.parametrize("malformed_provenance", ([], {}, [["grounded"]]))
+def test_v18_closure_deadline_unhashable_provenance_is_exception_safe(
+    malformed_provenance,
+):
+    deadline = _deadline()
+    deadline["provenance"] = malformed_provenance
+    result = classify_deadline_grounding(deadline=deadline)
+    assert result["confirmed"] is False
+    assert result["state"] == "unknown"
+    assert result["verification_needed"] is True
+
+
+def test_v18_closure_canonical_deadline_unhashable_provenance_is_unknown():
+    deadline = _deadline()
+    deadline["provenance"] = {}
+    result = _canonical_result(deadline)
+    finding = result.findings[0]
+    assert finding.code == "DEADLINE_VERIFICATION_NEEDED"
+    assert finding.metadata["confirmed"] is False
+    assert finding.metadata["state"] == "unknown"

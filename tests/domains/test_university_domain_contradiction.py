@@ -1112,6 +1112,45 @@ def test_v16_contradiction_wrapper_does_not_recoerce_collection_claim_id():
     assert finding.references == ()
 
 
+def test_v18_closure_present_none_claim_scope_is_not_absent():
+    claim = _valid_deadline_claim()
+    claim["scope"] = None
+    result = resolve_academic_conflict(claims=(claim,))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+@pytest.mark.parametrize("malformed_id", (["c1"], ("c1",), {}, 7, True, None, ""))
+def test_v18_closure_nonstring_claim_id_with_numeric_value_stays_unresolved(
+    malformed_id,
+):
+    result = resolve_academic_conflict(
+        claims=(
+            {
+                "id": malformed_id,
+                "attribute": "grade",
+                "value": 7,
+                "source_class": "official_academic_record",
+                "provenance": "grounded",
+                "temporal": "valid",
+                "specificity": "specific",
+            },
+        )
+    )
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v18_closure_malformed_claim_ids_are_not_exposed_as_conflict_ids():
+    left = _claim("left", attribute="grade", value=7)
+    right = _claim("right", attribute="grade", value=8)
+    left["id"] = ["left"]
+    result = resolve_academic_conflict(claims=(left, right))
+    assert result["conflicts"]
+    assert result["conflicts"][0]["left_id"] is None
+    assert result["resolved"] is False
+
+
 def test_v14_b1_scalar_claim_id_still_resolves():
     """Positive control: a proper scalar claim id must remain resolved."""
     claim = _claim(

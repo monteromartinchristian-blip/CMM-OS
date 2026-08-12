@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
 from cmm.domains.university.rules import conditional_verification_trigger
@@ -186,3 +188,28 @@ def test_v11_b2_verification_decision_critical_true_triggers():
     )
     assert result["verification_triggered"] is True
     assert result["reason"] == "decision_critical_insufficiently_grounded"
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+def test_v18_closure_verification_fact_state_is_not_string_coerced():
+    result = conditional_verification_trigger(
+        fact_state=_V18StringLike("confirmed_official"),
+    )
+    assert result["fact_state"] == "unknown"
+    assert result["verification_triggered"] is True
+    assert result["needed"] is True
+
+
+@pytest.mark.parametrize("field", ("attribute", "scope"))
+def test_v18_closure_verification_semantic_identity_is_strict(field):
+    kwargs = {"fact_state": "missing", field: ["course:A"]}
+    result = conditional_verification_trigger(**kwargs)
+    assert result[field] is None
+    assert result["verification_triggered"] is True

@@ -819,3 +819,100 @@ def test_v16_canonical_dependency_collection_identity_never_satisfies():
     assert finding.code == "DEPENDENCY_BLOCKED"
     assert finding.metadata["satisfied_prerequisites"] == ()
     assert finding.metadata["dependency_blocked"] is True
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# V17-B3 / V18 closure: dependency target identity is mandatory and strict
+# ════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "malformed_subject_id",
+    ("", "   ", ["s1"], ("s1",), {"x": 1}, 7, True, None),
+)
+def test_v17_b3_direct_dependency_target_identity_is_strict(
+    malformed_subject_id,
+):
+    result = evaluate_academic_dependency(
+        subject_id=malformed_subject_id,
+        dependencies=(),
+    )
+    assert result["subject_id"] is None
+    assert result["target_identity_malformed"] is True
+    assert result["dependency_blocked"] is True
+    assert result["satisfied_prerequisites"] == ()
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize(
+    "malformed_subject_id",
+    (_ABSENT, "", "   ", ["s1"], ("s1",), {"x": 1}, 7, True, None),
+)
+def test_v17_b3_canonical_dependency_target_identity_is_strict(
+    malformed_subject_id,
+):
+    dependency = {"prerequisites": ()}
+    if malformed_subject_id is not _ABSENT:
+        dependency["subject_id"] = malformed_subject_id
+    result = _canonical_result(dependency)
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["subject_id"] is None
+    assert finding.metadata["target_identity_malformed"] is True
+    assert finding.metadata["dependency_blocked"] is True
+
+
+def test_v17_b3_empty_dependency_mapping_cannot_mean_satisfied():
+    result = _canonical_result({})
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_BLOCKED"
+    assert finding.metadata["subject_id"] is None
+    assert finding.metadata["dependency_blocked"] is True
+
+
+def test_v17_b3_valid_subject_without_prerequisites_remains_satisfied():
+    result = _canonical_result({"subject_id": "s1", "prerequisites": ()})
+    finding = result.findings[0]
+    assert finding.code == "DEPENDENCY_SATISFIED"
+    assert finding.metadata["subject_id"] == "s1"
+    assert finding.metadata["dependency_blocked"] is False
+
+
+class _V18StringLike:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
+def test_v18_closure_dependency_record_status_is_not_string_coerced():
+    record = _academic_record("pre1", "passed")
+    record["status"] = _V18StringLike("passed")
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=({"id": "pre1", "kind": "subject"},),
+        academic_records=(record,),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
+
+
+def test_v18_closure_dependency_kind_is_not_string_coerced():
+    result = evaluate_academic_dependency(
+        subject_id="target",
+        dependencies=(
+            {
+                "id": "threshold",
+                "kind": _V18StringLike("credit_threshold"),
+                "required_credits": 6,
+            },
+        ),
+        academic_records=(_academic_record("credit1", "completed", ects=6),),
+        derive_from_academic_state=True,
+    )
+    assert result["satisfied_prerequisites"] == ()
+    assert result["dependency_blocked"] is True
