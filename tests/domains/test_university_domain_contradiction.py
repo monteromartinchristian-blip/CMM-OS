@@ -867,3 +867,163 @@ def test_v12_b2_canonical_partial_same_attribute_claim_unresolved():
         and finding.metadata.get("resolved") is True
         for finding in result.findings
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V13-B1: contradiction claim validation
+#
+# A usable contradiction claim must carry at least a usable semantic attribute
+# and a usable/present fact value.  Missing / blank / non-string attribute is
+# relationship-unknown and must force an unresolved state (never the synthetic
+# "unknown" bucket treated as safely unrelated).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _valid_deadline_claim():
+    return _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [
+        {"id": "junk", "value": "2026-09-02"},
+        {"id": "junk", "attribute": "", "value": "2026-09-02"},
+        {"id": "junk", "attribute": 7, "value": "2026-09-02"},
+        {"id": "junk"},
+    ],
+)
+def test_v13_b1_missing_or_invalid_attribute_claim_unresolved(partial):
+    """A claim whose attribute is missing/blank/non-string is relationship-
+    unknown and cannot resolve cleanly next to valid evidence."""
+    result = resolve_academic_conflict(claims=(_valid_deadline_claim(), partial))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v13_b1_valid_unrelated_claim_stays_safe():
+    """A fully valid unrelated claim must not make target resolution uncertain."""
+    deadline = _valid_deadline_claim()
+    unrelated = _claim("enr", attribute="enrollment_status", value="active")
+    result = resolve_academic_conflict(claims=(deadline, unrelated))
+    assert result["resolved"] is True
+    assert result["unresolved"] is False
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [
+        {"id": "junk", "value": "2026-09-02"},
+        {"id": "junk", "attribute": "", "value": "2026-09-02"},
+        {"id": "junk", "attribute": 7, "value": "2026-09-02"},
+        {"id": "junk"},
+    ],
+)
+def test_v13_b1_canonical_missing_or_invalid_attribute_unresolved(partial):
+    """Canonical contradiction_statements with relationship-unknown claims must
+    emit CONTRADICTION_UNRESOLVED with resolved=False / unresolved=True."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        partial,
+    )
+    codes = [finding.code for finding in result.findings]
+    assert "CONTRADICTION_UNRESOLVED" in codes
+    assert not any(
+        finding.code == "CONTRADICTION_STATE"
+        and finding.metadata.get("resolved") is True
+        for finding in result.findings
+    )
+    unresolved_finding = next(
+        finding for finding in result.findings if finding.code == "CONTRADICTION_UNRESOLVED"
+    )
+    assert unresolved_finding.metadata["resolved"] is False
+    assert unresolved_finding.metadata["unresolved"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V13-B2: malformed claim/requested scope must never become global
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("bad_scope", [7, "", [], ["course:A"], {}])
+def test_v13_b2_malformed_claim_scope_unresolved(bad_scope):
+    """A claim with a malformed scope is relationship-unknown and stays
+    unresolved; it never acts as unscoped/global evidence."""
+    claim = _claim(
+        "solo",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    claim["scope"] = bad_scope
+    result = resolve_academic_conflict(claims=(claim,))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v13_b2_mixed_valid_and_malformed_scope_never_broadens_reach():
+    """course:A claim + malformed-scope claim: the malformed member must NOT act
+    as global and must NOT create cross-scope contradiction reach into course:A."""
+    claim_a = _claim("a", attribute="deadline", value="17", scope="course:A")
+    claim_b = _claim("b", attribute="deadline", value="18")
+    claim_b["scope"] = 7
+    result = resolve_academic_conflict(claims=(claim_a, claim_b))
+    assert result["unresolved"] is True
+    assert result["resolved"] is False
+    # B must never reach into A's scoped resolution as a global competitor: A
+    # resolves independently to 17 and B is not present in any conflict pair.
+    assert result["current_value"] == "17"
+    assert not any(
+        conflict["left_id"] == "b" or conflict["right_id"] == "b"
+        for conflict in result["conflicts"]
+    )
+
+
+@pytest.mark.parametrize("bad_scope", [7, ""])
+def test_v13_b2_requested_scope_fails_closed(bad_scope):
+    """A malformed requested scope in resolve_academic_conflict must not resolve
+    cleanly; it fails closed rather than acting as global."""
+    result = resolve_academic_conflict(
+        claims=(_valid_deadline_claim(),),
+        scope=bad_scope,
+    )
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+def test_v13_b2_canonical_contradiction_malformed_scope_unresolved():
+    """Canonical contradiction statements carrying scope=7 must not produce a
+    clean resolved=True nor silently normalize the scope to None."""
+    result = _canonical_result(
+        {
+            "id": "c1",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "scope": 7,
+        }
+    )
+    codes = [finding.code for finding in result.findings]
+    assert "CONTRADICTION_UNRESOLVED" in codes
+    unresolved_finding = next(
+        finding for finding in result.findings if finding.code == "CONTRADICTION_UNRESOLVED"
+    )
+    assert unresolved_finding.metadata["resolved"] is False
+    assert unresolved_finding.metadata["unresolved"] is True

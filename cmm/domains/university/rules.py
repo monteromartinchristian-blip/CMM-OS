@@ -78,6 +78,30 @@ CONTRADICTION_RESOLVED = "resolved"
 CONTRADICTION_UNRESOLVED = "unresolved"
 CONTRADICTION_MATERIAL = "material"
 
+# ── Closed scope states (V13-B2) ──────────────────────────────────────────────
+# Scope must preserve three distinct epistemic states.  ``None`` may NEVER mean
+# both "absent" and "malformed": a malformed scope must fail closed, never
+# collapse to the unscoped/global ``None`` semantics.
+
+SCOPE_ABSENT = "absent"
+SCOPE_VALID = "valid"
+SCOPE_MALFORMED = "malformed"
+
+
+def _scope_state(value: Any) -> str:
+    """Classify a raw scope value into ABSENT / VALID / MALFORMED.
+
+    Only a non-empty string is a valid scope.  ``None`` (absent) preserves the
+    existing unscoped/global semantics.  A present-but-blank string, a
+    non-string scalar (``7``), or a collection is a malformed scope: it must
+    fail closed rather than silently become global/unscoped.
+    """
+    if value is None:
+        return SCOPE_ABSENT
+    if isinstance(value, str) and value.strip():
+        return SCOPE_VALID
+    return SCOPE_MALFORMED
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Pure deterministic university helpers
@@ -458,9 +482,57 @@ def _source_speaks_about(source: Mapping, attribute: str) -> bool:
     )
 
 
+def _usable_attribute_string(value: Any) -> bool:
+    """Return whether ``value`` is a usable attribute identifier string."""
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _attribute_carrier_malformed(mapping: Mapping) -> bool:
+    """Return whether a source/claim attribute carrier is malformed (V13-B1).
+
+    A usable attribute carrier is a sequence of usable attribute strings.  A
+    present-but-non-sequence carrier (bare scalar ``"grade"``, ``7``, ``{}``) or
+    a sequence holding a non-usable member (``[7]``, ``[""]``, ``["grade", 7]``)
+    is a malformed attribute carrier: the evidence's relationship to any
+    attribute is unknown and it must NOT become silently treated as having "no
+    relevant supplied attribute".
+    """
+    supplied = mapping.get("supplied_attributes", None)
+    if supplied is not None:
+        if not isinstance(supplied, (list, tuple)):
+            return True
+        if any(not _usable_attribute_string(item) for item in supplied):
+            return True
+    attribute = mapping.get("attribute", None)
+    return bool(
+        attribute is not None and not _usable_attribute_string(attribute)
+    )
+
+
+def _source_has_recognized_authority(source: Mapping) -> bool:
+    """Return whether a source carries coherent recognized authority identity.
+
+    A value-less same-attribute source is a usable *authority-only* source only
+    when its authority-style metadata normalizes to recognized values.  Raw
+    arbitrary non-empty strings (``provenance="garbage"``) or a single recognized
+    field without the rest of the resolved authority identity are NOT semantic
+    completeness.  ``provenance="garbage"`` could never establish authority.
+    """
+    source_class = _normalize_source_class(source.get("source_class"))
+    provenance = _normalize_provenance(source.get("provenance"))
+    temporal = _normalize_temporal(source.get("temporal"))
+    specificity = _normalize_specificity(source.get("specificity"))
+    return bool(
+        source_class != SOURCE_CLASS_UNKNOWN
+        and provenance in _GROUNDED_PROVENANCES
+        and temporal in _CURRENT_TEMPORAL_STATES
+        and specificity != SPECIFICITY_UNKNOWN
+    )
+
+
 def _source_is_incomplete_for(source: Mapping, attribute: str) -> bool:
     """Return whether ``source`` claims the target attribute but carries neither
-    a usable fact value nor any authority/grounding identity (V12-B2).
+    a usable fact value nor coherent recognized authority identity (V12-B2, V13-B1).
 
     A same-attribute partial source cannot corroborate, contradict, or be
     ignored: it makes target resolution uncertain.  ``{"source_id": "junk",
@@ -468,40 +540,52 @@ def _source_is_incomplete_for(source: Mapping, attribute: str) -> bool:
     semantically usable academic evidence merely because they are Mapping
     instances with an identity-looking key.
 
-    A source that establishes authority without carrying the fact value itself
-    (its ``source_class`` / ``provenance`` / ``temporal`` / ``specificity``) is
-    still usable and must NOT be flagged.
+    A value-less same-attribute source is STILL usable when it carries the
+    coherent recognized authority identity the resolver requires (V13-B1): raw
+    arbitrary strings such as ``provenance="garbage"``, or a single recognized
+    metadata field, are NOT sufficient to convert incomplete evidence into a
+    valid authority-only source.  Fully valid authority-only positive fixtures
+    (the existing ``_grounded`` shape) continue to resolve.
     """
     if not _source_speaks_about(source, attribute):
         return False
     if not _value_missing(source.get("value")):
         return False
-    # No usable fact value: the source is usable only if it still carries
-    # minimum authority/grounding identity so it can participate safely.
-    return not any(
-        isinstance(source.get(field), str) and source.get(field).strip()
-        for field in ("source_class", "provenance", "temporal", "specificity")
-    )
+    # No usable fact value: the source is usable only when it carries coherent
+    # recognized authority/grounding identity.  One arbitrary metadata string is
+    # not semantic completeness.
+    return not _source_has_recognized_authority(source)
 
 
 def _claim_is_incomplete(claim: Mapping) -> bool:
-    """Return whether a contradiction claim names an attribute but carries no
-    usable fact value (V12-B2).
+    """Return whether a contradiction claim is semantically incomplete (V13-B1).
 
-    ``id + attribute`` alone does not prove no contradiction: the resolver
-    cannot know whether a value-less same-attribute claim corroborates,
-    contradicts, or differs, so it must stay unresolved rather than resolve
-    cleanly.
+    A usable contradiction claim must carry at least a usable semantic attribute
+    and a usable/present fact value.  A missing, blank, or non-string
+    ``attribute`` makes the claim's relationship to any known attribute unknown:
+    it must NOT be resolved as if the synthetic ``"unknown"`` bucket were safely
+    unrelated.  A value-less claim that names a usable attribute also cannot
+    corroborate, contradict, or differ, so it stays unresolved (V12-B2).
     """
     attribute = claim.get("attribute")
-    if not isinstance(attribute, str) or not attribute.strip():
-        return False
+    if not _usable_attribute_string(attribute):
+        # Missing / blank / non-string attribute == relationship unknown.
+        return True
     return _value_missing(_claim_value(claim))
 
 
 def _source_scope(source: Mapping) -> str | None:
     scope = source.get("scope")
     return scope if isinstance(scope, str) and scope.strip() else None
+
+
+def _source_scope_malformed(source: Mapping) -> bool:
+    """Return whether a source carries a malformed (present-but-invalid) scope.
+
+    ``scope=7``, ``scope=""`` and collection scopes are malformed and must fail
+    closed, never collapse to the unscoped/global ``None`` semantics.
+    """
+    return _scope_state(source.get("scope")) == SCOPE_MALFORMED
 
 
 def _source_rank(source: Mapping, attribute: str) -> int:
@@ -586,6 +670,26 @@ def classify_academic_source_authority(
     superseded source as history.  Equal-authority incompatible claims with no
     valid supersession remain unresolved (never an arbitrary choice).
     """
+    # V13-B2: a malformed public requested scope is never trusted.  The typed
+    # boundary is ``str | None``, so a runtime non-string (\`7\`) or blank (\`""\`)
+    # requested scope must fail closed rather than act as unscoped/global.
+    if _scope_state(scope) == SCOPE_MALFORMED:
+        return {
+            "attribute": attribute,
+            "authority_resolved": False,
+            "authoritative_source_id": None,
+            "authority_class": None,
+            "authoritative_value": None,
+            "fact_value_known": False,
+            "fact_resolved": False,
+            "supporting_source_ids": (),
+            "matched_sources": (),
+            "superseded_sources": (),
+            "authority_unknown": True,
+            "conflict": False,
+            "reason": "malformed_requested_scope",
+        }
+
     sources_evidence = _normalize_collection_value(
         sources,
         require_mapping_elements=True,
@@ -625,9 +729,10 @@ def classify_academic_source_authority(
             }
         )
 
-    # V12-B2: a same-attribute partial source (claims the target attribute but
-    # lacks a usable fact value) makes the attribute resolution uncertain.  It
-    # must not let a valid source for the same attribute resolve confidently.
+    # V12-B2 / V13-B1: a same-attribute partial source (claims the target
+    # attribute but lacks a usable fact value AND coherent recognized authority
+    # identity) makes the attribute resolution uncertain.  It must not let a
+    # valid source for the same attribute resolve confidently.
     incomplete_sources = [
         source
         for source in sources
@@ -639,10 +744,25 @@ def classify_academic_source_authority(
             or source_scope == scope
         )
     ]
+    # V13-B1: a malformed attribute carrier (e.g. ``supplied_attributes="grade"``,
+    # ``[7]``) is relationship-unknown and must not become "no relevant supplied
+    # attribute" while a valid source resolves confidently.
+    malformed_carrier = any(
+        isinstance(source, Mapping) and _attribute_carrier_malformed(source)
+        for source in sources
+    )
+    # V13-B2: a malformed source scope (``scope=7``, ``scope=""``) is scoped
+    # evidence whose scope is unknown.  It must fail closed, never act as global.
+    malformed_source_scope = any(
+        isinstance(source, Mapping) and _source_scope_malformed(source)
+        for source in sources
+    )
     if (
         sources_evidence.malformed
         or _semantic_evidence_malformed(sources)
         or incomplete_sources
+        or malformed_carrier
+        or malformed_source_scope
     ):
         return {
             "attribute": attribute,
@@ -1019,13 +1139,28 @@ def _claim_scope(claim: Mapping) -> str | None:
     return scope if isinstance(scope, str) and scope.strip() else None
 
 
+def _claim_scope_malformed(claim: Mapping) -> bool:
+    """Return whether a claim carries a malformed (present-but-invalid) scope.
+
+    Scope must preserve three states: absent / valid / malformed.  ``scope=7``,
+    ``scope=""`` and collection scopes are malformed and must fail closed, never
+    collapse to the unscoped/global semantics.
+    """
+    return _scope_state(_claim_field(claim, "scope")) == SCOPE_MALFORMED
+
+
 def _scope_matches(claim: Mapping, effective_scope: str | None) -> bool:
     """Return whether a claim applies to an effective resolution scope.
 
     Unscoped evidence retains the existing global applicability semantics and
     may participate in any scoped resolution.  Scoped claims only participate
-    in their own scope; no new scope hierarchy is inferred.
+    in their own scope.  A MALFORMED scope is relationship-unknown: it never
+    matches any scope (including unscoped), so it cannot create cross-scope
+    reach nor act as global evidence.
     """
+    scope_state = _scope_state(_claim_field(claim, "scope"))
+    if scope_state == SCOPE_MALFORMED:
+        return False
     claim_scope = _claim_scope(claim)
     return (
         effective_scope is None
@@ -1038,14 +1173,21 @@ def _effective_scopes(
     claims: tuple[Mapping, ...],
     requested_scope: str | None = None,
 ) -> tuple[str | None, ...]:
-    """Return deterministic resolution scopes without collapsing scoped facts."""
+    """Return deterministic resolution scopes without collapsing scoped facts.
+
+    Malformed scopes are never collected as a scope and never default the
+    resolution to the unscoped ``None`` simply because a malformed scope
+    "looked" global.  A requested valid scope is honored; a malformed requested
+    scope is not trusted (caller validates before calling).
+    """
     if requested_scope is not None:
         return (requested_scope,)
     scoped = sorted(
         {
             scope
             for claim in claims
-            if (scope := _claim_scope(claim)) is not None
+            if _claim_scope_malformed(claim) is False
+            and (scope := _claim_scope(claim)) is not None
         }
     )
     return tuple(scoped) if scoped else (None,)
@@ -1079,7 +1221,7 @@ def _claim_source(claim: Mapping) -> Mapping:
         "provenance": claim.get("provenance"),
         "temporal": claim.get("temporal"),
         "specificity": claim.get("specificity"),
-        "scope": _claim_scope(claim),
+        "scope": _claim_field(claim, "scope"),
         "supplied_attributes": (_claim_attribute(claim),),
         "value": _claim_value(claim),
         "supersedes": claim.get("supersedes"),
@@ -1135,6 +1277,22 @@ def resolve_academic_conflict(
     preserved.  A material unresolved conflict blocks only the dependent
     conclusion, not the whole domain.
     """
+    # V13-B2: a malformed public requested scope is never trusted.  The typed
+    # boundary is ``str | None``, so a runtime non-string (``7``) or blank
+    # (``""``) requested scope must fail closed rather than act as global.
+    if _scope_state(scope) == SCOPE_MALFORMED:
+        return {
+            "contradiction": False,
+            "resolved": False,
+            "unresolved": True,
+            "material": False,
+            "blocked": False,
+            "current_value": None,
+            "superseded_claims": (),
+            "conflicts": (),
+            "evidence_malformed": True,
+        }
+
     claims_evidence = _normalize_collection_value(
         claims,
         require_mapping_elements=True,
@@ -1233,15 +1391,23 @@ def resolve_academic_conflict(
             elif scope_conflicts:
                 unresolved = True
 
-    # V12-B2: a value-less claim that names an attribute cannot prove no
-    # contradiction.  The resolver cannot know whether it corroborates,
-    # contradicts, or differs, so incomplete same-attribute evidence stays
+    # V12-B2 / V13-B1: a value-less or attribute-less claim cannot prove no
+    # contradiction.  A missing / blank / non-string attribute is
+    # relationship-unknown; a value-less claim that names an attribute cannot
+    # corroborate, contradict, or differ.  Either way the conflict stays
     # unresolved rather than resolving cleanly.
     incomplete_claim = any(
         isinstance(claim, Mapping) and _claim_is_incomplete(claim)
         for claim in claims
     )
-    if incomplete_claim:
+    # V13-B2: a malformed claim scope is relationship-unknown.  The pair loop
+    # already excludes it from any scoped reach (never global), and its presence
+    # keeps the conflict conservatively unresolved.
+    malformed_scope_claim = any(
+        isinstance(claim, Mapping) and _claim_scope_malformed(claim)
+        for claim in claims
+    )
+    if incomplete_claim or malformed_scope_claim:
         unresolved = True
 
     resolved = not unresolved
@@ -3281,6 +3447,19 @@ class AcademicSourceAuthorityRule:
         malformed_evidence = (
             claims_evidence.malformed or _semantic_evidence_malformed(claims)
         )
+        # V13-B1/B2: a claim whose relationship to a known attribute is unknown
+        # (missing / blank / non-string attribute) or whose scope is malformed is
+        # relation-unknown evidence.  It must fail closed: it must not let other
+        # attributes resolve confidently nor collapse a malformed scope to global.
+        relation_unknown_evidence = any(
+            isinstance(claim, Mapping)
+            and (
+                not _usable_attribute_string(claim.get("attribute"))
+                or _claim_scope_malformed(claim)
+            )
+            for claim in claims
+        )
+        flagged_evidence = malformed_evidence or relation_unknown_evidence
         findings: list[ReasoningFinding] = []
         gaps: list[ReasoningGap] = []
         attribute_incomplete_seen = False
@@ -3317,11 +3496,12 @@ class AcademicSourceAuthorityRule:
                         scope=effective_scope,
                     )
                 )
-                if malformed_evidence or attribute_incomplete:
+                if flagged_evidence or attribute_incomplete:
                     # Fail closed: the supplied authority evidence is not fully
-                    # valid (a malformed container or member was present).  Valid
-                    # claims may still be reported diagnostically, but overall
-                    # authority certainty must NOT resolve confidently.
+                    # valid (a malformed container or member, a relation-unknown
+                    # claim, or a malformed scope was present).  Valid claims may
+                    # still be reported diagnostically, but overall authority
+                    # certainty must NOT resolve confidently.
                     authority.update(
                         {
                             "authority_resolved": False,
@@ -3480,7 +3660,11 @@ class AcademicSourceAuthorityRule:
                     },
                 )
             )
-        if malformed_evidence or attribute_incomplete_seen:
+        if (
+            malformed_evidence
+            or relation_unknown_evidence
+            or attribute_incomplete_seen
+        ):
             gaps.append(
                 ReasoningGap(
                     code="SOURCE_AUTHORITY_EVIDENCE_MALFORMED",

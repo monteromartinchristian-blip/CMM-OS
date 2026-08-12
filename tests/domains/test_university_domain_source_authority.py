@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.university import build_university_rules
@@ -1059,6 +1061,299 @@ def test_v12_b2_canonical_partial_same_attribute_evidence_unresolved():
     assert finding.metadata["authority_resolved"] is False
     assert finding.metadata["fact_resolved"] is False
     assert finding.metadata["authority_unknown"] is True
+    assert any(
+        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
+        for gap in result.gaps
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V13-B1: semantic evidence validation
+#
+# A single arbitrary authority metadata string must NOT convert incomplete
+# evidence into a valid authority-only source.  Malformed supplied_attributes
+# must NOT become "no relevant supplied attribute".  An identity-looking key is
+# NOT semantic completeness.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _valid_grade_source():
+    return _grounded(
+        "s1",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+
+
+def test_v13_b1_partial_arbitrary_provenance_does_not_resolve():
+    """(valid grade source, partial with provenance='garbage') must NOT resolve.
+
+    A single arbitrary non-empty metadata string is not semantic completeness."""
+    valid = _valid_grade_source()
+    partial = {
+        "source_id": "junk",
+        "supplied_attributes": ["grade"],
+        "provenance": "garbage",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b1_partial_source_class_only_does_not_resolve():
+    """A value-less same-attribute source with only a recognized source_class
+    does not carry the coherent authority-only identity."""
+    valid = _valid_grade_source()
+    partial = {
+        "source_id": "junk",
+        "supplied_attributes": ["grade"],
+        "source_class": "official_academic_record",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b1_partial_temporal_only_does_not_resolve():
+    valid = _valid_grade_source()
+    partial = {
+        "source_id": "junk",
+        "supplied_attributes": ["grade"],
+        "temporal": "valid",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b1_partial_specificity_only_does_not_resolve():
+    valid = _valid_grade_source()
+    partial = {
+        "source_id": "junk",
+        "supplied_attributes": ["grade"],
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, partial),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b1_coherent_authority_only_source_remains_supported():
+    """A value-less source carrying the full coherent recognized authority
+    identity (source_class + provenance + temporal + specificity) stays usable
+    and must NOT be flagged incomplete."""
+    older = _grounded(
+        "reg",
+        source_class="regulation",
+        supplied=("requirement",),
+        provenance="grounded",
+        temporal="valid",
+        specificity="general",
+    )
+    newer = _grounded(
+        "new",
+        source_class="personal_note",
+        supplied=("requirement",),
+        temporal="valid",
+    )
+    result = classify_academic_source_authority(
+        attribute="requirement",
+        sources=(older, newer),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "reg"
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        ({"source_id": "junk", "supplied_attributes": "grade"}),
+        ({"source_id": "junk", "supplied_attributes": 7}),
+        ({"source_id": "junk", "supplied_attributes": {}}),
+        ({"source_id": "junk", "supplied_attributes": [7]}),
+        ({"source_id": "junk", "supplied_attributes": [""]}),
+        ({"source_id": "junk", "supplied_attributes": ["grade", 7]}),
+    ],
+)
+def test_v13_b1_malformed_supplied_attributes_fails_closed(malformed):
+    """A malformed attribute carrier must NOT become 'no relevant supplied
+    attribute'.  It is relationship-unknown and fails the resolution closed."""
+    valid = _valid_grade_source()
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, malformed),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b1_canonicical_partial_arbitrary_provenance_unresolved():
+    """academic_claims=[valid deadline claim, junk provenance='garbage' claim]
+    must not resolve deadline confidently and must emit an evidence gap."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {
+            "id": "junk",
+            "attribute": "deadline",
+            "provenance": "garbage",
+        },
+    )
+    finding = _authority_finding(result, "deadline")
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+    assert finding.metadata["authority_unknown"] is True
+    assert any(
+        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
+        for gap in result.gaps
+    )
+
+
+def test_v13_b1_canonical_relation_unknown_claim_never_buckets_relevant():
+    """academic_claims=[valid deadline claim, {'id':'junk','value':...}] groups
+    the junk claim under no known attribute; deadline must NOT resolve
+    confidently because the relationship of the junk claim is unknown."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        },
+        {"id": "junk", "value": "2026-09-02"},
+    )
+    finding = _authority_finding(result, "deadline")
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+    assert finding.metadata["authority_unknown"] is True
+    assert any(
+        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
+        for gap in result.gaps
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V13-B2: malformed scope must never become global
+#
+# scope absent == unscoped (existing), scope valid string == scoped (existing),
+# scope present-but-malformed == fail closed (never None/unscoped/global).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("bad_scope", [7, "", [], ["course:A"], {}, 0.0])
+def test_v13_b2_malformed_source_scope_never_global(bad_scope):
+    """A same-attribute source with a malformed scope must fail closed; it must
+    not resolve under the unscoped/global None semantics."""
+    valid = _valid_grade_source()
+    scoped = _grounded(
+        "bad",
+        source_class="official_academic_record",
+        supplied=("grade",),
+    )
+    scoped["scope"] = bad_scope
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, scoped),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b2_absent_scope_retains_unscoped_semantics():
+    """scope key absent != malformed: unscoped resolution is preserved."""
+    valid = _valid_grade_source()
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid,),
+    )
+    assert result["authority_resolved"] is True
+
+
+def test_v13_b2_valid_string_scope_retains_scoped_semantics():
+    """scope='course:A' == scoped resolution: relevant in-scope, excluded
+    out-of-scope, exactly like the existing resolver semantics."""
+    mine = _grounded(
+        "mine",
+        source_class="official_academic_record",
+        supplied=("deadline",),
+        scope="course:A",
+    )
+    other = _grounded(
+        "other",
+        source_class="subject_guide",
+        supplied=("deadline",),
+        scope="course:B",
+    )
+    result = classify_academic_source_authority(
+        attribute="deadline",
+        sources=(mine, other),
+        scope="course:A",
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "mine"
+
+
+@pytest.mark.parametrize("bad_scope", [7, ""])
+def test_v13_b2_requested_scope_fails_closed(bad_scope):
+    """A malformed public requested scope must fail closed, not act as global."""
+    valid = _valid_grade_source()
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid,),
+        scope=bad_scope,
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v13_b2_canonical_source_authority_malformed_scope_never_global():
+    """A canonical claim carrying scope=7 must not emit scope=None /
+    authority_resolved=True; malformed scope evidence fails closed with a gap."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+            "scope": 7,
+        }
+    )
+    finding = _authority_finding(result, "deadline")
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+    assert finding.metadata["authority_unknown"] is True
+    assert finding.metadata["scope"] != "course:A"
     assert any(
         gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
         for gap in result.gaps
