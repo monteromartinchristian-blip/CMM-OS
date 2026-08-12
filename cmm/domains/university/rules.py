@@ -127,6 +127,22 @@ def _usable_reference(value: Any) -> str | None:
     return None
 
 
+def _usable_scalar_string(value: Any) -> str | None:
+    """Return a usable scalar string identity, or ``None``.
+
+    Unlike :func:`_usable_reference`, this helper NEVER unwraps
+    ``list``/``tuple`` values.  It is the correct validator for fields that
+    contractually represent a **single** scalar identity (e.g. ``source_id``,
+    ``id``, ``ref``, ``outcome``, singular ``value``, ``source_reference``).
+    A collection-shaped value is malformed for a singular field and must not
+    be coerced into a scalar (V14-B1).
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if stripped else None
+    return None
+
+
 def _reference_from(
     mapping: Mapping,
     *keys: str,
@@ -135,6 +151,24 @@ def _reference_from(
     for key in keys:
         value = mapping.get(key)
         usable = _usable_reference(value)
+        if usable is not None:
+            return usable
+    return None
+
+
+def _scalar_reference_from(
+    mapping: Mapping,
+    *keys: str,
+) -> str | None:
+    """Extract the first usable **scalar** reference from ``mapping`` (V14-B1).
+
+    Like :func:`_reference_from` but uses :func:`_usable_scalar_string` instead
+    of :func:`_usable_reference`, so it NEVER unwraps list/tuple values.
+    Use for singular reference fields (e.g. ``source_reference``).
+    """
+    for key in keys:
+        value = mapping.get(key)
+        usable = _usable_scalar_string(value)
         if usable is not None:
             return usable
     return None
@@ -482,13 +516,65 @@ def _source_speaks_about(source: Mapping, attribute: str) -> bool:
     )
 
 
+def _source_relationship(source: Mapping, attribute: str) -> str:
+    """Classify a source's relationship to the target attribute (V14-B2).
+
+    Returns ``'relevant'``, ``'irrelevant'``, or ``'unknown'``.
+
+    - **relevant**: source explicitly supplies the target attribute via
+      ``supplied_attributes`` (valid list/tuple containing attribute) or
+      via a valid ``attribute`` string matching the target.
+    - **irrelevant**: source has a known, valid attribute carrier that does
+      NOT contain the target attribute.  An explicit empty carrier
+      (``supplied_attributes=[]``) is "known to supply nothing" and is
+      safely irrelevant.
+    - **unknown**: no ``supplied_attributes`` key AND no ``attribute`` key,
+      or ``supplied_attributes=None`` (present-but-null, malformed), or
+      ``attribute=None`` (present-but-null, malformed), or other malformed
+      carrier states.  A source with an unknown relationship must NOT be
+      silently excluded while a valid source resolves confidently.
+    """
+    has_supplied = "supplied_attributes" in source
+    has_attribute = "attribute" in source
+
+    if has_supplied:
+        supplied = source["supplied_attributes"]
+        # present-but-None is a malformed carrier → unknown
+        if supplied is None:
+            return "unknown"
+        if not isinstance(supplied, (list, tuple)):
+            return "unknown"
+        # Validate all elements are usable attribute strings.
+        if any(not _usable_attribute_string(item) for item in supplied):
+            return "unknown"
+        if attribute in supplied:
+            return "relevant"
+        # A valid non-empty or empty carrier that does not contain the
+        # target attribute is safely irrelevant.
+        return "irrelevant"
+
+    if has_attribute:
+        attr_value = source["attribute"]
+        # present-but-None is malformed → unknown
+        if attr_value is None:
+            return "unknown"
+        if not _usable_attribute_string(attr_value):
+            return "unknown"
+        if attr_value == attribute:
+            return "relevant"
+        return "irrelevant"
+
+    # No attribute carrier at all → relationship unknown.
+    return "unknown"
+
+
 def _usable_attribute_string(value: Any) -> bool:
     """Return whether ``value`` is a usable attribute identifier string."""
     return isinstance(value, str) and bool(value.strip())
 
 
 def _attribute_carrier_malformed(mapping: Mapping) -> bool:
-    """Return whether a source/claim attribute carrier is malformed (V13-B1).
+    """Return whether a source/claim attribute carrier is malformed (V13-B1, V14-B2).
 
     A usable attribute carrier is a sequence of usable attribute strings.  A
     present-but-non-sequence carrier (bare scalar ``"grade"``, ``7``, ``{}``) or
@@ -496,17 +582,26 @@ def _attribute_carrier_malformed(mapping: Mapping) -> bool:
     is a malformed attribute carrier: the evidence's relationship to any
     attribute is unknown and it must NOT become silently treated as having "no
     relevant supplied attribute".
+
+    ``supplied_attributes=None`` (key present, value null) is a malformed
+    carrier, distinct from the key being absent (V14-B2).  Similarly,
+    ``attribute=None`` is malformed, not absent.
     """
-    supplied = mapping.get("supplied_attributes", None)
-    if supplied is not None:
+    if "supplied_attributes" in mapping:
+        supplied = mapping["supplied_attributes"]
+        if supplied is None:
+            return True
         if not isinstance(supplied, (list, tuple)):
             return True
         if any(not _usable_attribute_string(item) for item in supplied):
             return True
-    attribute = mapping.get("attribute", None)
-    return bool(
-        attribute is not None and not _usable_attribute_string(attribute)
-    )
+    if "attribute" in mapping:
+        attribute = mapping["attribute"]
+        if attribute is None:
+            return True
+        if not _usable_attribute_string(attribute):
+            return True
+    return False
 
 
 def _source_has_recognized_authority(source: Mapping) -> bool:
@@ -714,7 +809,7 @@ def classify_academic_source_authority(
         rank = _source_rank(source, attribute)
         evaluated.append(
             {
-                "source_id": _usable_reference(source.get("source_id")),
+                "source_id": _usable_scalar_string(source.get("source_id")),
                 "source_class": source_class,
                 "provenance": provenance,
                 "temporal": temporal,
@@ -757,12 +852,35 @@ def classify_academic_source_authority(
         isinstance(source, Mapping) and _source_scope_malformed(source)
         for source in sources
     )
+    # V14-B1: a same-attribute source with a fact value but an unusable
+    # source_id (absent, blank, None, collection, non-string) cannot simply be
+    # filtered out of the candidate pool while a valid sibling resolves
+    # confidently.  The conflicting fact cannot disappear merely because its
+    # identity is unusable.
+    unusable_identity = any(
+        isinstance(source, Mapping)
+        and _source_speaks_about(source, attribute)
+        and _usable_scalar_string(source.get("source_id")) is None
+        and not _value_missing(source.get("value"))
+        for source in sources
+    )
+    # V14-B2: a source with a fact value but unknown relationship to the target
+    # attribute (no carrier, ``supplied_attributes=None``, ``attribute=None``)
+    # must NOT be silently excluded while a valid source resolves confidently.
+    relation_unknown_with_value = any(
+        isinstance(source, Mapping)
+        and _source_relationship(source, attribute) == "unknown"
+        and not _value_missing(source.get("value"))
+        for source in sources
+    )
     if (
         sources_evidence.malformed
         or _semantic_evidence_malformed(sources)
         or incomplete_sources
         or malformed_carrier
         or malformed_source_scope
+        or unusable_identity
+        or relation_unknown_with_value
     ):
         return {
             "attribute": attribute,
@@ -780,6 +898,10 @@ def classify_academic_source_authority(
             "reason": (
                 "incomplete_same_attribute_evidence"
                 if incomplete_sources
+                else "unusable_source_identity"
+                if unusable_identity
+                else "relation_unknown_source"
+                if relation_unknown_with_value
                 else "malformed_source_evidence"
             ),
         }
@@ -904,7 +1026,7 @@ def classify_academic_source_authority(
                 sorted(
                     source_id
                     for source_id in (
-                        _usable_reference(candidate["source_id"])
+                        _usable_scalar_string(candidate["source_id"])
                         for candidate in top
                     )
                     if source_id is not None
@@ -953,8 +1075,8 @@ def classify_academic_source_authority(
         "fact_value_known": fact_value_known,
         "fact_resolved": fact_value_known,
         "supporting_source_ids": (
-            (_usable_reference(winner["source_id"]),)
-            if _usable_reference(winner["source_id"]) is not None
+            (_usable_scalar_string(winner["source_id"]),)
+            if _usable_scalar_string(winner["source_id"]) is not None
             else ()
         ),
         "matched_sources": tuple(evaluated),
@@ -1216,7 +1338,7 @@ def _claim_critical(claim: Mapping) -> bool:
 def _claim_source(claim: Mapping) -> Mapping:
     """Build a source descriptor for authority resolution from a claim."""
     return {
-        "source_id": _usable_reference(claim.get("id")),
+        "source_id": _usable_scalar_string(claim.get("id")),
         "source_class": claim.get("source_class"),
         "provenance": claim.get("provenance"),
         "temporal": claim.get("temporal"),
@@ -1255,7 +1377,7 @@ def _claim_sort_key(claim: Mapping) -> tuple[str, ...]:
     return (
         _claim_attribute(claim),
         _claim_scope(claim) or "",
-        _usable_reference(claim.get("id")) or "",
+        _usable_scalar_string(claim.get("id")) or "",
         repr(_claim_value(claim)),
         _normalize_source_class(claim.get("source_class")),
         _normalize_specificity(claim.get("specificity")),
@@ -1407,7 +1529,19 @@ def resolve_academic_conflict(
         isinstance(claim, Mapping) and _claim_scope_malformed(claim)
         for claim in claims
     )
-    if incomplete_claim or malformed_scope_claim:
+    # V14-B1: a claim with a fact value but an unusable id (absent, blank,
+    # None, collection, non-string) cannot simply disappear from the conflict
+    # resolution.  If the claim carries any evidence (attribute + value), its
+    # unusable identity must force the conflict conservatively unresolved.
+    unusable_id_claim = any(
+        isinstance(claim, Mapping)
+        and _usable_scalar_string(claim.get("id")) is None
+        and _claim_value(claim) is not None
+        and isinstance(_claim_value(claim), str)
+        and str(_claim_value(claim)).strip()
+        for claim in claims
+    )
+    if incomplete_claim or malformed_scope_claim or unusable_id_claim:
         unresolved = True
 
     resolved = not unresolved
@@ -3060,8 +3194,8 @@ def evaluate_performance_capacity(
     # (a referenceable record ``ref`` and an ``outcome``).  Mapping shape is not
     # enough: ``{}`` or an arbitrary Mapping (``{"foo": "bar"}``) is opaque
     # supplied evidence with no observable content (V11-B4).
-    reference = _usable_reference(performance_observation.get("ref"))
-    outcome = _usable_reference(performance_observation.get("outcome"))
+    reference = _usable_scalar_string(performance_observation.get("ref"))
+    outcome = _usable_scalar_string(performance_observation.get("outcome"))
     if reference is None or outcome is None:
         return {
             "performance_observed": False,
@@ -3178,7 +3312,7 @@ def classify_deadline_grounding(
             "reason": "malformed",
             "auto_scheduled": False,
         }
-    usable = _usable_reference(deadline.get("value"))
+    usable = _usable_scalar_string(deadline.get("value"))
     if usable is None:
         return {
             "state": DEADLINE_UNKNOWN,
@@ -3192,7 +3326,7 @@ def classify_deadline_grounding(
     provenance_raw = deadline.get("provenance", "none")
     provenance = _normalize_provenance(provenance_raw)
     temporal = _normalize_temporal(deadline.get("temporal"))
-    source_reference = _reference_from(
+    source_reference = _scalar_reference_from(
         deadline,
         "source_reference",
         "source_ref",

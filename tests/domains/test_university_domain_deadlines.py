@@ -439,3 +439,64 @@ def test_v12_b1_deadline_payload_critical_string_false_not_critical():
     )
     finding = result.findings[0]
     assert finding.metadata["critical"] is not True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: singular deadline fields must never be unwrapped from a collection
+#
+# source_reference and value are singular scalar fields.  source_reference=["d1"]
+# must NOT be unwrapped to "d1" to confirm an official deadline.
+# value=["2026-09-01"] must NOT be treated as a valid singular deadline value.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("malformed_ref", [["d1"], ("d1",), 7])
+def test_v14_b1_deadline_source_reference_collection_not_confirmed(malformed_ref):
+    """A collection-shaped source_reference must NOT confirm an official
+    deadline."""
+    result = classify_deadline_grounding(
+        deadline={
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "source_reference": malformed_ref,
+        }
+    )
+    assert result["state"] != "confirmed_official"
+    assert result["confirmed"] is False
+
+
+@pytest.mark.parametrize("malformed_value", [["2026-09-01"], ("2026-09-01",)])
+def test_v14_b1_deadline_value_collection_not_accepted(malformed_value):
+    """A collection-shaped deadline value must NOT be treated as a valid
+    singular deadline value."""
+    result = classify_deadline_grounding(
+        deadline={
+            "value": malformed_value,
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "source_reference": "d1",
+        }
+    )
+    assert result["state"] != "confirmed_official"
+    assert result["confirmed"] is False
+
+
+def test_v14_b1_deadline_scalar_source_reference_still_works():
+    """Positive control: a proper scalar source_reference must remain
+    confirmed."""
+    result = classify_deadline_grounding(
+        deadline=_deadline(source_reference="d1")
+    )
+    assert result["state"] == "confirmed_official"
+    assert result["confirmed"] is True
+
+
+def test_v14_b1_deadline_scalar_value_still_works():
+    """Positive control: a proper scalar deadline value must remain usable."""
+    result = classify_deadline_grounding(
+        deadline=_deadline(value="2026-09-01")
+    )
+    assert result["confirmed"] is True

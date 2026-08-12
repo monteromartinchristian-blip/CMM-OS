@@ -608,3 +608,60 @@ def test_v11_b4_canonical_empty_observation_not_asserted_as_observed():
         "Observed academic performance is a fact about output" not in finding.message
         for finding in result.findings
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: singular performance fields must never be unwrapped from a collection
+#
+# ref and outcome are singular scalar observation fields.  ref=["r1"] must NOT
+# be unwrapped to "r1" to mean "observed performance".
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v14_b1_performance_ref_collection_not_observed():
+    """ref=["r1"] + valid outcome must NOT mean observed performance."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": ["r1"], "outcome": "below_average"}
+    )
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v14_b1_performance_outcome_collection_not_observed():
+    """valid ref + outcome=["below_average"] must NOT mean observed performance."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": "r1", "outcome": ["below_average"]}
+    )
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v14_b1_performance_both_collection_not_observed():
+    """ref=["r1"] + outcome=["below_average"] must NOT mean observed performance."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": ["r1"], "outcome": ["below_average"]}
+    )
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v14_b1_performance_tuple_not_observed():
+    """ref=("r1",) + outcome=("below_average",) must NOT mean observed performance."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": ("r1",), "outcome": ("below_average",)}
+    )
+    assert result["performance_observed"] is False
+    assert result["performance_evidence_unknown"] is True
+    assert result["capacity_inferred"] is False
+
+
+def test_v14_b1_performance_scalar_still_observed():
+    """Positive control: scalar ref + outcome must remain observed."""
+    result = evaluate_performance_capacity(
+        performance_observation={"ref": "r1", "outcome": "below_average"}
+    )
+    assert result["performance_observed"] is True
+    assert result["capacity_inferred"] is False

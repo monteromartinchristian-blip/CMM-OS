@@ -1358,3 +1358,368 @@ def test_v13_b2_canonical_source_authority_malformed_scope_never_global():
         gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
         for gap in result.gaps
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: singular scalar source_id must never be unwrapped from a collection
+#
+# _usable_reference() recursively unwraps list/tuple values.  That is valid for
+# genuinely plural references but NOT valid for fields that contractually
+# represent a single scalar identity.  source_id=["junk"] must NOT become
+# authoritative_source_id="junk".
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_source_id_collection_or_nonstring_never_authoritative(malformed_id):
+    """A collection-shaped or non-string source_id must NOT be unwrapped
+    into a scalar authority identity."""
+    source = {
+        "source_id": malformed_id,
+        "supplied_attributes": ["grade"],
+        "value": 8.5,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(source,),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_adapter_source_id_collection_never_authoritative(malformed_id):
+    """The adapter must share base semantics for collection-shaped source_id."""
+    source = {
+        "source_id": malformed_id,
+        "supplied_attributes": ["grade"],
+        "value": 8.5,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(source,),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_canonical_source_id_collection_never_authoritative(malformed_id):
+    """Canonical AcademicSourceAuthorityRule with collection-shaped claim id
+    must not resolve confidently."""
+    result = _canonical_result(
+        {
+            "id": malformed_id,
+            "attribute": "grade",
+            "value": 8.5,
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        }
+    )
+    finding = _authority_finding(result, "grade")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+
+
+def test_v14_b1_scalar_source_id_still_works():
+    """Positive control: a proper scalar source_id must remain supported."""
+    source = {
+        "source_id": "s1",
+        "supplied_attributes": ["grade"],
+        "value": 8.5,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(source,),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "s1"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: unusable identity must NOT disappear from epistemic resolution
+#
+# A conflicting source whose source_id is unusable (absent, blank, None, [], 7)
+# cannot simply be excluded while a valid sibling wins confidently.  The
+# conflicting fact cannot disappear merely because its identity is unusable.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _valid_grade_source_with_value():
+    return {
+        "source_id": "s1",
+        "supplied_attributes": ["grade"],
+        "value": 8.5,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+
+
+@pytest.mark.parametrize(
+    "conflicting_id",
+    [
+        pytest.param("ABSENT", id="absent"),
+        pytest.param("", id="blank"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(None, id="none"),
+        pytest.param([], id="empty_list"),
+        pytest.param(7, id="integer"),
+    ],
+)
+def test_v14_b1_conflicting_source_unusable_id_forces_uncertainty(conflicting_id):
+    """A conflicting source with an unusable source_id must not disappear
+    while a valid sibling resolves confidently."""
+    valid = _valid_grade_source_with_value()
+    conflicting = {
+        "supplied_attributes": ["grade"],
+        "value": 9.0,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    if conflicting_id != "ABSENT":
+        conflicting["source_id"] = conflicting_id
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, conflicting),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+@pytest.mark.parametrize(
+    "conflicting_id",
+    [
+        pytest.param("ABSENT", id="absent"),
+        pytest.param("", id="blank"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_v14_b1_canonical_conflicting_source_unusable_id_unresolved(conflicting_id):
+    """Canonical Source Authority: an unreferenced conflicting source must NOT
+    let the referenced sibling resolve confidently."""
+    valid_claim = {
+        "id": "official",
+        "attribute": "grade",
+        "value": 8.5,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    conflicting_claim = {
+        "attribute": "grade",
+        "value": 9.0,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    if conflicting_id != "ABSENT":
+        conflicting_claim["id"] = conflicting_id
+    result = _canonical_result(valid_claim, conflicting_claim)
+    finding = _authority_finding(result, "grade")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+
+
+def test_v14_b1_valid_usable_source_id_still_resolves():
+    """Positive: valid usable source_id remains green."""
+    valid = _valid_grade_source_with_value()
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid,),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "s1"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B2: relation-unknown source must NOT become safely irrelevant
+#
+# A source that has a fact value but no attribute carrier (no supplied_attributes
+# and no attribute field) has an UNKNOWN relationship to the target attribute.
+# It must NOT be silently excluded while a valid source resolves confidently.
+#
+# supplied_attributes=None (present-but-None) is malformed, NOT absent.
+# attribute=None is malformed, NOT absent.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_v14_b2_source_with_value_no_carrier_is_not_safely_irrelevant():
+    """A source with a fact value but no attribute carrier (no supplied_attributes
+    / attribute) has an unknown relationship.  It must NOT let a valid source
+    for the target attribute resolve confidently."""
+    valid = _valid_grade_source_with_value()
+    relation_unknown = {
+        "source_id": "junk",
+        "value": 9.0,
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, relation_unknown),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v14_b2_source_with_authority_no_carrier_is_not_safely_irrelevant():
+    """A source with coherent authority metadata but no attribute carrier has
+    an unknown relationship — it is NOT valid unrelated evidence."""
+    valid = _valid_grade_source_with_value()
+    relation_unknown = {
+        "source_id": "junk",
+        "value": 9.0,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, relation_unknown),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v14_b2_supplied_attributes_none_is_not_absent():
+    """supplied_attributes=None (present but null) is a malformed carrier,
+    distinct from the field being absent.  It must fail closed."""
+    valid = _valid_grade_source_with_value()
+    malformed = {
+        "source_id": "junk",
+        "supplied_attributes": None,
+        "value": 9.0,
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, malformed),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v14_b2_attribute_none_is_not_absent():
+    """attribute=None (present but null) is a malformed carrier, distinct from
+    the field being absent.  It must NOT be treated as safely irrelevant."""
+    valid = _valid_grade_source_with_value()
+    malformed = {
+        "source_id": "junk",
+        "attribute": None,
+        "value": 9.0,
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, malformed),
+    )
+    assert result["authority_resolved"] is False
+    assert result["fact_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v14_b2_valid_unrelated_source_remains_safely_irrelevant():
+    """Positive: a source that explicitly supplies a different attribute via
+    valid supplied_attributes remains safely irrelevant."""
+    grade = _valid_grade_source_with_value()
+    enrollment = {
+        "source_id": "enrollment-source",
+        "supplied_attributes": ["enrollment_status"],
+        "value": "active",
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(grade, enrollment),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "s1"
+
+
+def test_v14_b2_adapter_source_no_carrier_forces_uncertainty():
+    """The adapter must not filter relation-unknown evidence away."""
+    valid = {
+        "source_id": "s1",
+        "source_type": "official",
+        "supplied_attributes": ("grade",),
+        "value": 8.5,
+    }
+    relation_unknown = {
+        "source_id": "junk",
+        "value": 9.0,
+    }
+    result = resolve_source_authority_by_attribute(
+        attribute="grade",
+        sources=(valid, relation_unknown),
+    )
+    assert result["authority_resolved"] is False
+    assert result["authority_unknown"] is True
+
+
+def test_v14_b2_canonical_source_no_carrier_not_safely_irrelevant():
+    """Canonical Source Authority: a claim with value but no attribute carrier
+    has an unknown relationship and must not let valid claims resolve."""
+    result = _canonical_result(
+        {
+            "id": "official",
+            "attribute": "grade",
+            "value": 8.5,
+            "source_class": "official_academic_record",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "general",
+        },
+        {
+            "id": "junk",
+            "value": 9.0,
+        },
+    )
+    finding = _authority_finding(result, "grade")
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["fact_resolved"] is False
+
+
+def test_v14_b2_supplied_attributes_empty_list_is_known_unrelated():
+    """Positive: supplied_attributes=[] is an explicit empty carrier set.
+    The source is known to supply nothing and remains safely irrelevant."""
+    valid = _valid_grade_source_with_value()
+    empty_carrier = {
+        "source_id": "unrelated",
+        "supplied_attributes": [],
+        "value": 9.0,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(valid, empty_carrier),
+    )
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "s1"

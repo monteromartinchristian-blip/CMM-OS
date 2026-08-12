@@ -1027,3 +1027,163 @@ def test_v13_b2_canonical_contradiction_malformed_scope_unresolved():
     )
     assert unresolved_finding.metadata["resolved"] is False
     assert unresolved_finding.metadata["unresolved"] is True
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: singular scalar claim id must never be unwrapped from a collection
+#
+# _usable_reference() in _claim_source() recursively unwraps list/tuple values.
+# That is wrong for id, which contractually represents a single scalar identity.
+# id=["junk"] must NOT become source_id="junk" in the authority resolution.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_claim_id_collection_or_nonstring_never_resolved(malformed_id):
+    """A collection-shaped or non-string claim id must NOT produce
+    resolved=True / current_value=..."""
+    claim = {
+        "id": malformed_id,
+        "attribute": "deadline",
+        "value": "2026-09-01",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    result = resolve_academic_conflict(claims=(claim,))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_adapter_claim_id_collection_never_resolved(malformed_id):
+    """The adapter must share base fail-closed semantics for malformed ids."""
+    claim = {
+        "id": malformed_id,
+        "attribute": "deadline",
+        "value": "2026-09-01",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    result = evaluate_academic_contradiction(statements=(claim,))
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+@pytest.mark.parametrize("malformed_id", [["junk"], ("junk",), 7, True])
+def test_v14_b1_canonical_claim_id_collection_never_resolved(malformed_id):
+    """Canonical contradiction with collection-shaped claim id must emit
+    CONTRADICTION_UNRESOLVED."""
+    result = _canonical_result(
+        {
+            "id": malformed_id,
+            "attribute": "deadline",
+            "value": "2026-09-01",
+            "source_class": "official_publication",
+            "provenance": "grounded",
+            "temporal": "valid",
+            "specificity": "specific",
+        }
+    )
+    codes = [finding.code for finding in result.findings]
+    assert "CONTRADICTION_UNRESOLVED" in codes
+
+
+def test_v14_b1_scalar_claim_id_still_resolves():
+    """Positive control: a proper scalar claim id must remain resolved."""
+    claim = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    result = resolve_academic_conflict(claims=(claim,))
+    assert result["resolved"] is True
+    assert result["unresolved"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V14-B1: unusable identity must NOT disappear from contradiction resolution
+#
+# A conflicting claim whose id is unusable (absent, blank, None, [], 7) cannot
+# simply be excluded while a referenced sibling resolves confidently.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "conflicting_id",
+    [
+        pytest.param("ABSENT", id="absent"),
+        pytest.param("", id="blank"),
+        pytest.param("   ", id="whitespace"),
+        pytest.param(None, id="none"),
+        pytest.param([], id="empty_list"),
+        pytest.param(7, id="integer"),
+    ],
+)
+def test_v14_b1_conflicting_claim_unusable_id_forces_unresolved(conflicting_id):
+    """A conflicting claim with unusable id must not disappear while a
+    referenced sibling resolves the contradiction confidently."""
+    valid = _claim(
+        "official",
+        attribute="deadline",
+        value="2026-09-01",
+        source_class="official_publication",
+        specificity="specific",
+    )
+    conflicting = {
+        "attribute": "deadline",
+        "value": "2026-09-02",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    if conflicting_id != "ABSENT":
+        conflicting["id"] = conflicting_id
+    result = resolve_academic_conflict(claims=(valid, conflicting))
+    assert result["contradiction"] is True
+    assert result["resolved"] is False
+    assert result["unresolved"] is True
+
+
+@pytest.mark.parametrize(
+    "conflicting_id",
+    [
+        pytest.param("ABSENT", id="absent"),
+        pytest.param("", id="blank"),
+        pytest.param(None, id="none"),
+    ],
+)
+def test_v14_b1_canonical_conflicting_claim_unusable_id_unresolved(conflicting_id):
+    """Canonical contradiction: an unreferenced conflicting claim must NOT let
+    the referenced sibling resolve the contradiction."""
+    valid_claim = {
+        "id": "official",
+        "attribute": "deadline",
+        "value": "2026-09-01",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    conflicting_claim = {
+        "attribute": "deadline",
+        "value": "2026-09-02",
+        "source_class": "official_publication",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "specific",
+    }
+    if conflicting_id != "ABSENT":
+        conflicting_claim["id"] = conflicting_id
+    result = _canonical_result(valid_claim, conflicting_claim)
+    codes = [finding.code for finding in result.findings]
+    assert "CONTRADICTION_UNRESOLVED" in codes or any(
+        finding.metadata.get("unresolved") is True
+        for finding in result.findings
+    )
