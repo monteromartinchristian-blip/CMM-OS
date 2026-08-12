@@ -174,25 +174,39 @@ def _scalar_reference_from(
     return None
 
 
-def _normalize_references(values: Any) -> tuple[str, ...]:
-    """Normalize a collection of reference IDs into a deterministic,
-    order-preserving, de-duplicated tuple of usable references.
+@dataclass(frozen=True, slots=True)
+class _ReferenceCollectionEvidence:
+    """Normalized reference members plus their structural validity state."""
 
-    Blank/placeholder IDs are dropped and never count as evidence.  This never
-    fabricates a placeholder (e.g. ``"unknown"``) for a missing identifier.
+    items: tuple[str, ...]
+    malformed: bool
+
+
+def _normalize_references(values: Any) -> _ReferenceCollectionEvidence:
+    """Normalize reference IDs without recursively coercing collection members.
+
+    A scalar string remains a supported singleton for compatibility.  For an
+    explicit collection, however, every member must itself be a usable scalar
+    string.  Nested collections and other non-string members are malformed
+    evidence, not reference IDs that may silently influence a decision.
     """
+    if values is None:
+        return _ReferenceCollectionEvidence(items=(), malformed=False)
     if isinstance(values, str):
         values = (values,)
     if not isinstance(values, (list, tuple)):
-        return ()
+        return _ReferenceCollectionEvidence(items=(), malformed=True)
     seen: list[str] = []
     seen_set: set[str] = set()
+    malformed = False
     for value in values:
-        usable = _usable_reference(value)
-        if usable is not None and usable not in seen_set:
+        usable = _usable_scalar_string(value)
+        if usable is None:
+            malformed = True
+        elif usable not in seen_set:
             seen_set.add(usable)
             seen.append(usable)
-    return tuple(seen)
+    return _ReferenceCollectionEvidence(items=tuple(seen), malformed=malformed)
 
 
 # ── Closed source classes (spec §6) ───────────────────────────────────────────
@@ -807,6 +821,10 @@ def classify_academic_source_authority(
         grounded = provenance in _GROUNDED_PROVENANCES
         current = temporal in _CURRENT_TEMPORAL_STATES
         rank = _source_rank(source, attribute)
+        supersedes_evidence = _normalize_references(source.get("supersedes"))
+        superseded_by_evidence = _normalize_references(
+            source.get("superseded_by")
+        )
         evaluated.append(
             {
                 "source_id": _usable_scalar_string(source.get("source_id")),
@@ -819,8 +837,18 @@ def classify_academic_source_authority(
                 "current": current,
                 "rank": rank,
                 "value": source.get("value"),
-                "supersedes": _normalize_references(source.get("supersedes")),
-                "superseded_by": _normalize_references(source.get("superseded_by")),
+                "supersedes": (
+                    ()
+                    if supersedes_evidence.malformed
+                    else supersedes_evidence.items
+                ),
+                "supersedes_malformed": supersedes_evidence.malformed,
+                "superseded_by": (
+                    ()
+                    if superseded_by_evidence.malformed
+                    else superseded_by_evidence.items
+                ),
+                "superseded_by_malformed": superseded_by_evidence.malformed,
             }
         )
 
@@ -1804,7 +1832,7 @@ def check_ects_consistency(
     double_counting = len(double_counted) > 0 or double_counted_malformed
     contradiction = len(contradictory) > 0 or contradictory_malformed
     critical_requirement_uncertain = bool(
-        critical_requirement_uncertain
+        _boolean_true(critical_requirement_uncertain)
         or not required_known
         or (
             derive_from_records
@@ -2986,6 +3014,7 @@ def evaluate_academic_integrity(
     restriction_applies = False
     restriction_scope: tuple[str, ...] = ()
     scope_applicability: str | None = None
+    restriction_policy_malformed = False
     if isinstance(grounded_restriction, Mapping):
         status = grounded_restriction.get("status")
         grounded = _grants_trust(grounded_restriction.get("grounded"))
@@ -3005,13 +3034,28 @@ def evaluate_academic_integrity(
         superseded_raw = grounded_restriction.get("superseded")
         superseded_true = _boolean_true(superseded_raw)
         superseded_uncertain = _trust_flag_malformed(superseded_raw)
-        superseded_by_raw = grounded_restriction.get("superseded_by")
-        if superseded_by_raw is None:
-            superseded_by_blocking = False
-        elif isinstance(superseded_by_raw, (list, tuple)):
-            superseded_by_blocking = bool(_normalize_references(superseded_by_raw))
-        else:
-            superseded_by_blocking = superseded_by_raw is not None
+        superseded_by_evidence = _normalize_references(
+            grounded_restriction.get("superseded_by")
+        )
+        scope_evidence = _normalize_references(grounded_restriction.get("scope"))
+        prohibited_actions_evidence = _normalize_references(
+            grounded_restriction.get("prohibited_actions")
+        )
+        allowed_actions_evidence = _normalize_references(
+            grounded_restriction.get("allowed_actions")
+        )
+        restriction_policy_malformed = any(
+            evidence.malformed
+            for evidence in (
+                superseded_by_evidence,
+                scope_evidence,
+                prohibited_actions_evidence,
+                allowed_actions_evidence,
+            )
+        )
+        superseded_by_blocking = bool(superseded_by_evidence.items) or (
+            superseded_by_evidence.malformed
+        )
         ambiguous_raw = grounded_restriction.get("ambiguous")
         ambiguous = _boolean_true(ambiguous_raw)
         ambiguous_uncertain = _trust_flag_malformed(ambiguous_raw)
@@ -3026,9 +3070,7 @@ def evaluate_academic_integrity(
             and not superseded_by_blocking
         ):
             restriction_grounded = True
-            restriction_scope = _normalize_references(
-                grounded_restriction.get("scope")
-            )
+            restriction_scope = scope_evidence.items
             course_scope = _usable_scalar_string(grounded_restriction.get("course"))
             assessment_scope = _usable_scalar_string(
                 grounded_restriction.get("assessment")
@@ -3042,7 +3084,7 @@ def evaluate_academic_integrity(
             # current scope is NOT a matching scope.  Only a genuinely global
             # restriction (no course/assessment scope) applies without a
             # current scope.
-            scope_matches = not scope_malformed
+            scope_matches = not scope_malformed and not restriction_policy_malformed
             if course_scope is not None:
                 scope_matches = scope_matches and (
                     current_course is not None and course_scope == current_course
@@ -3056,12 +3098,8 @@ def evaluate_academic_integrity(
             # value (e.g. ``0``, ``"false"``) is not confidently clear, so it
             # makes the restriction's applicability uncertain and (in Mode C)
             # fails closed: no restriction is applied from it.
-            prohibited_actions = _normalize_references(
-                grounded_restriction.get("prohibited_actions")
-            )
-            allowed_actions = _normalize_references(
-                grounded_restriction.get("allowed_actions")
-            )
+            prohibited_actions = prohibited_actions_evidence.items
+            allowed_actions = allowed_actions_evidence.items
             if requested_action is None:
                 restriction_applies = (
                     scope_matches and not ambiguous and not ambiguous_uncertain
@@ -3077,7 +3115,11 @@ def evaluate_academic_integrity(
             # Diagnostic: distinguish an unresolved scope (unknown current
             # scope) from a matched scope and a mismatched scope.  An unresolved
             # scope is never authority to apply a restriction.
-            scope_applicability = "unresolved" if scope_malformed else "matched"
+            scope_applicability = (
+                "unresolved"
+                if scope_malformed or scope_evidence.malformed
+                else "matched"
+            )
             if course_scope is not None:
                 if current_course is None:
                     scope_applicability = "unresolved"
@@ -3114,6 +3156,7 @@ def evaluate_academic_integrity(
         "caller_forbidden_ignored": caller_forbidden and assistance_permitted,
         "remembered_not_official": remembered_not_official,
         "scope_applicability": scope_applicability,
+        "restriction_policy_malformed": restriction_policy_malformed,
         "reason": (
             "Assistance permitted by default under Mode C; no applicable "
             "grounded restriction."
@@ -4217,7 +4260,7 @@ class EctsConsistencyRule:
             ),
             double_counted=double_counted_evidence.items,
             contradictory=contradictory_evidence.items,
-            critical_requirement_uncertain=bool(
+            critical_requirement_uncertain=_boolean_true(
                 ects.get("critical_requirement_uncertain")
             ),
             records=records,
@@ -5029,6 +5072,9 @@ class AcademicIntegrityRule:
                 "requested_action": resolved["requested_action"],
                 "caller_forbidden_ignored": resolved["caller_forbidden_ignored"],
                 "remembered_not_official": resolved["remembered_not_official"],
+                "restriction_policy_malformed": resolved[
+                    "restriction_policy_malformed"
+                ],
                 **evidence_metadata,
             },
         )

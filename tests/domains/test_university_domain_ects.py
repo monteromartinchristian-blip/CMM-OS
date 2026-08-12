@@ -691,3 +691,76 @@ def test_v16_canonical_ects_collection_identity_never_satisfies_requirement():
     assert finding.code == "ECTS_COMPLETION_BLOCKED"
     assert finding.metadata["completion_determinable"] is False
     assert finding.metadata["satisfied"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V16-B2 / V17: critical_requirement_uncertain is literal-True only
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    ("critical_value", "expected_uncertain"),
+    (
+        (True, True),
+        (False, False),
+        ("false", False),
+        ("true", False),
+        (1, False),
+        (0, False),
+        ([], False),
+        ({}, False),
+        (None, False),
+    ),
+)
+def test_v17_direct_ects_critical_uncertainty_is_strict_boolean(
+    critical_value,
+    expected_uncertain,
+):
+    result = check_ects_consistency(
+        completed=6,
+        required=6,
+        critical_requirement_uncertain=critical_value,
+    )
+    assert result["critical_requirement_uncertain"] is expected_uncertain
+    assert result["completion_blocked"] is expected_uncertain
+    assert result["satisfied"] is not expected_uncertain
+
+
+@pytest.mark.parametrize(
+    ("critical_value", "expected_uncertain"),
+    (
+        (True, True),
+        (False, False),
+        ("false", False),
+        ("true", False),
+        (1, False),
+        (0, False),
+        ([], False),
+        ({}, False),
+        (None, False),
+    ),
+)
+def test_v17_canonical_ects_critical_uncertainty_is_strict_boolean(
+    critical_value,
+    expected_uncertain,
+):
+    result = _canonical_result(
+        records=(_v16_ects_record("subject_id", "s1"),),
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "req1",
+            "temporal": "valid",
+        },
+        critical_requirement_uncertain=critical_value,
+    )
+    finding = result.findings[0]
+    assert finding.metadata["critical_requirement_uncertain"] is expected_uncertain
+    assert finding.metadata["completion_blocked"] is expected_uncertain
+    assert finding.metadata["satisfied"] is not expected_uncertain
+    expected_code = (
+        "ECTS_COMPLETION_BLOCKED"
+        if expected_uncertain
+        else "ECTS_REQUIREMENT_SATISFIED"
+    )
+    assert finding.code == expected_code

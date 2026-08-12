@@ -1821,3 +1821,132 @@ def test_v16_source_authority_wrapper_does_not_recoerce_collection_claim_id():
     finding = _authority_finding(result, "grade")
     assert finding.metadata["authority_resolved"] is False
     assert finding.references == ()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V16-B1 / V17: flat plural containers require strict scalar members
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _v17_grade_source(source_id, value):
+    return {
+        "source_id": source_id,
+        "supplied_attributes": ["grade"],
+        "value": value,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+
+
+def _v17_grade_claim(source_id, value):
+    return {
+        "id": source_id,
+        "attribute": "grade",
+        "value": value,
+        "source_class": "official_academic_record",
+        "provenance": "grounded",
+        "temporal": "valid",
+        "specificity": "general",
+    }
+
+
+@pytest.mark.parametrize("relation_field", ("supersedes", "superseded_by"))
+@pytest.mark.parametrize(
+    "malformed_member",
+    (["old"], ("old",), "", 7, True, None, {}, [], ()),
+)
+def test_v17_malformed_supersession_member_preserves_unresolved_conflict(
+    relation_field,
+    malformed_member,
+):
+    old = _v17_grade_source("old", 8.5)
+    new = _v17_grade_source("new", 9.0)
+    target = new if relation_field == "supersedes" else old
+    target[relation_field] = [malformed_member]
+
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(old, new),
+    )
+
+    assert result["authority_resolved"] is False
+    assert result["conflict"] is True
+    assert result["superseded_sources"] == ()
+    evaluated = next(
+        source
+        for source in result["matched_sources"]
+        if source["source_id"] == target["source_id"]
+    )
+    assert evaluated[f"{relation_field}_malformed"] is True
+
+
+@pytest.mark.parametrize("relation_field", ("supersedes", "superseded_by"))
+@pytest.mark.parametrize("nested_type", (list, tuple))
+def test_v17_canonical_malformed_supersession_cannot_resolve(
+    relation_field,
+    nested_type,
+):
+    old = _v17_grade_claim("old", 8.5)
+    new = _v17_grade_claim("new", 9.0)
+    target = new if relation_field == "supersedes" else old
+    target[relation_field] = [nested_type(("old" if target is new else "new",))]
+
+    finding = _authority_finding(_canonical_result(old, new), "grade")
+
+    assert finding.metadata["authority_resolved"] is False
+    assert finding.metadata["authority_conflict"] is True
+    assert finding.metadata["superseded_source_ids"] == ()
+    evaluated = next(
+        source
+        for source in finding.metadata["matched_sources"]
+        if source["source_id"] == ("new" if target is new else "old")
+    )
+    assert evaluated[f"{relation_field}_malformed"] is True
+
+
+@pytest.mark.parametrize("container_type", (list, tuple))
+def test_v17_flat_supersedes_container_remains_valid(container_type):
+    old = _v17_grade_source("old", 8.5)
+    new = _v17_grade_source("new", 9.0)
+    new["supersedes"] = container_type(("old",))
+
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(old, new),
+    )
+
+    assert result["authority_resolved"] is True
+    assert result["authoritative_source_id"] == "new"
+    assert result["superseded_sources"] == ("old",)
+    evaluated_new = next(
+        source
+        for source in result["matched_sources"]
+        if source["source_id"] == "new"
+    )
+    assert evaluated_new["supersedes_malformed"] is False
+
+
+@pytest.mark.parametrize("relation_field", ("supersedes", "superseded_by"))
+def test_v17_valid_reference_cannot_hide_malformed_sibling(relation_field):
+    old = _v17_grade_source("old", 8.5)
+    new = _v17_grade_source("new", 9.0)
+    target = new if relation_field == "supersedes" else old
+    valid_reference = "old" if target is new else "new"
+    target[relation_field] = [valid_reference, ["malformed-sibling"]]
+
+    result = classify_academic_source_authority(
+        attribute="grade",
+        sources=(old, new),
+    )
+
+    assert result["authority_resolved"] is False
+    assert result["conflict"] is True
+    assert result["superseded_sources"] == ()
+    evaluated = next(
+        source
+        for source in result["matched_sources"]
+        if source["source_id"] == target["source_id"]
+    )
+    assert evaluated[f"{relation_field}_malformed"] is True

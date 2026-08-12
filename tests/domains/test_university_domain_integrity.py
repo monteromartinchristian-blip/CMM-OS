@@ -655,3 +655,132 @@ def test_v16_integrity_canonical_wrapper_does_not_recoerce_reference():
     assert finding.metadata["assistance_permitted"] is True
     assert finding.metadata["restriction_source_reference"] is None
     assert finding.references == ()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V16-B1 / V17: Integrity plural policy members are strict scalars
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _v17_integrity_result(**restriction_overrides):
+    restriction = _restriction(
+        course="C1",
+        assessment="A1",
+        prohibited_actions=["answer"],
+    )
+    restriction.update(restriction_overrides)
+    return evaluate_academic_integrity(
+        mode="mode_c",
+        current_course="C1",
+        current_assessment="A1",
+        requested_action="answer",
+        grounded_restriction=restriction,
+    )
+
+
+@pytest.mark.parametrize(
+    "malformed_member",
+    (["answer"], ("answer",), "", 7, True, None, {}, [], ()),
+)
+def test_v17_malformed_prohibited_action_cannot_apply(malformed_member):
+    result = _v17_integrity_result(prohibited_actions=[malformed_member])
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+    assert result["restriction_policy_malformed"] is True
+
+
+@pytest.mark.parametrize(
+    "malformed_member",
+    (["answer"], ("answer",), "", 7, True, None, {}, [], ()),
+)
+def test_v17_malformed_allowed_action_is_not_silently_absent(malformed_member):
+    result = _v17_integrity_result(allowed_actions=[malformed_member])
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+    assert result["restriction_policy_malformed"] is True
+
+
+@pytest.mark.parametrize("field", ("scope", "superseded_by"))
+@pytest.mark.parametrize("nested_type", (list, tuple))
+def test_v17_malformed_integrity_relation_member_is_conservative(
+    field,
+    nested_type,
+):
+    result = _v17_integrity_result(**{field: [nested_type(("policy-ref",))]})
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+    assert result["restriction_policy_malformed"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "flat_value", "restriction_applies"),
+    (
+        ("prohibited_actions", ["answer"], True),
+        ("prohibited_actions", ("answer",), True),
+        ("allowed_actions", ["answer"], False),
+        ("allowed_actions", ("answer",), False),
+        ("scope", ["C1"], True),
+        ("scope", ("C1",), True),
+        ("superseded_by", ["new-rule"], False),
+        ("superseded_by", ("new-rule",), False),
+    ),
+)
+def test_v17_flat_integrity_policy_collections_remain_valid(
+    field,
+    flat_value,
+    restriction_applies,
+):
+    result = _v17_integrity_result(**{field: flat_value})
+    assert result["restriction_applies"] is restriction_applies
+    assert result["assistance_permitted"] is not restriction_applies
+    assert result["restriction_policy_malformed"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "mixed_value"),
+    (
+        ("prohibited_actions", ["answer", ["other"]]),
+        ("allowed_actions", ["answer", ["other"]]),
+        ("scope", ["C1", ["other"]]),
+        ("superseded_by", ["new-rule", ["other"]]),
+    ),
+)
+def test_v17_valid_policy_member_cannot_hide_malformed_sibling(
+    field,
+    mixed_value,
+):
+    result = _v17_integrity_result(**{field: mixed_value})
+    assert result["restriction_applies"] is False
+    assert result["assistance_permitted"] is True
+    assert result["restriction_policy_malformed"] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("prohibited_actions", "allowed_actions", "scope", "superseded_by"),
+)
+@pytest.mark.parametrize("nested_type", (list, tuple))
+def test_v17_canonical_integrity_malformed_policy_never_applies(
+    field,
+    nested_type,
+):
+    restriction = _restriction(
+        course="C1",
+        assessment="A1",
+        prohibited_actions=["answer"],
+    )
+    restriction[field] = [nested_type(("answer",))]
+    result = _canonical_result(
+        {
+            "mode": "mode_c",
+            "course": "C1",
+            "assessment": "A1",
+            "requested_action": "answer",
+            "grounded_restriction": restriction,
+        }
+    )
+    finding = result.findings[0]
+    assert finding.code == "INTEGRITY_MODE_PRESERVED"
+    assert finding.metadata["restriction_applies"] is False
+    assert finding.metadata["assistance_permitted"] is True
+    assert finding.metadata["restriction_policy_malformed"] is True
