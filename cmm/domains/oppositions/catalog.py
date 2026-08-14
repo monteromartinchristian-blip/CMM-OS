@@ -65,7 +65,9 @@ CANONICAL_OPPOSITION_RULE_IDS: tuple[str, ...] = (
 # ``DomainOperationDefinition`` contract (operation_contracts.py) requires the
 # operation prefix to equal that slug, so the canonical registered form uses the
 # plural domain convention ``oppositions.`` exactly like the other ID families.
-# This is spec §7's sanctioned "mechanically different canonical form".
+# (Historical design revision 6b352d9 originally described this as a spec §7
+# exception; the final reconciliation established the DomainOperationDefinition
+# prefix contract as the actual justification.)
 
 CANONICAL_OPPOSITION_OPERATION_IDS: tuple[str, ...] = (
     "oppositions.compare_bodies",

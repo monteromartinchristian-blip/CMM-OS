@@ -92,7 +92,6 @@ def test_health_cap_can_narrow_capacity():
     assert record["capacity_hours"] == 6
 
 
-
 def test_health_cannot_widen_opposition_permissions():
     policy = oppositions.build_oppositions_permission_policy()
     from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
@@ -100,3 +99,26 @@ def test_health_cannot_widen_opposition_permissions():
     assert PermissionCapability.MEMORY_WRITE in policy.prohibited_capabilities
     assert PermissionCapability.SENSITIVE_INFERENCE in policy.prohibited_capabilities
     assert policy.allow_inbound_cross_domain_access is True
+
+
+def test_wider_health_cap_does_not_change_binding_source():
+    """A non-binding (wider) Health cap must not claim provenance: the binding
+    constraint is still the user capacity."""
+    record = evaluate_study_feasibility(
+        remaining_hours=5,
+        available_hours=8,
+        health_constraint={"authorized": True, "functional_cap_hours": 20},
+    )
+    assert record["capacity_hours"] == 8
+    assert record["capacity_source"] == "user"
+
+
+def test_equal_health_cap_keeps_primary_source():
+    """Equal caps use a deterministic convention: primary (user) source wins."""
+    record = evaluate_study_feasibility(
+        remaining_hours=5,
+        available_hours=8,
+        health_constraint={"authorized": True, "functional_cap_hours": 8},
+    )
+    assert record["capacity_hours"] == 8
+    assert record["capacity_source"] == "user"

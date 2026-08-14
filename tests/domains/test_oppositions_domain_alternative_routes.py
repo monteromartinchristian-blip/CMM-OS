@@ -148,3 +148,29 @@ def test_conflicting_duplicate_route_order_invariance():
     assert forward["recommendation"] != "alt1"
     assert forward["conflicting_route_ids"] == ("alt1",)
     assert forward["alternatives_considered"] == reverse["alternatives_considered"]
+
+
+def test_conflicting_alternative_sets_resolved_false():
+    a = {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.9,
+         "effort_hours": 200, "call_state": "current"}
+    b = {"id": "alt1", "eligibility": "ineligible", "syllabus_overlap": 0.1,
+         "effort_hours": 200, "call_state": "current"}
+    result = compare_alternative_routes(primary=_route("primary"), alternatives=(a, b))
+    assert result["resolved"] is False
+    assert result["conflicting_route_ids"] == ("alt1",)
+
+
+def test_conflicting_alternative_suppresses_recommendation():
+    a = {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.9,
+         "effort_hours": 200, "call_state": "current"}
+    b = {"id": "alt1", "eligibility": "ineligible", "syllabus_overlap": 0.1,
+         "effort_hours": 200, "call_state": "current"}
+    alt2 = _route("alt2", overlap=0.5)
+    result = compare_alternative_routes(
+        primary=_route("primary"), alternatives=(a, b, alt2)
+    )
+    # any decision-relevant conflicting route suppresses a definitive
+    # recommendation and makes the comparison unresolved.
+    assert result["recommendation"] is None
+    assert result["resolved"] is False
+    assert result["target_unchanged"] is True

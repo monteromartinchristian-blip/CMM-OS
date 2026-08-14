@@ -129,7 +129,7 @@ hard gate: positive remaining work with a zero-day target window is never
 called feasible. Health and University participate only through minimal
 authorized projections where `authorized is True` (literal boolean only —
 `"true"`/`"false"`/`1`/`0` do not authorize); such supporting-domain caps may
-ever widen a known primary-domain capacity — the most-restrictive constraint
+never widen a known primary-domain capacity — the most-restrictive constraint
 wins. No plan is silently adopted.
 
 ### MockExamInterpretationRule
@@ -295,7 +295,7 @@ phase-10.23 verification ladder.
 
 ## DP-023 status
 
-`Implemented, pending Independent Audit V2` — versioned strategy and constraints,
+`Implemented, pending Independent Audit V3` — versioned strategy and constraints,
 official-source verification, milestones and sequencing, trade-off analysis, and
 realistic study planning are implemented; external official-source connectors are
 deferred. Independent re-audit acceptance is a later workflow and is not claimed

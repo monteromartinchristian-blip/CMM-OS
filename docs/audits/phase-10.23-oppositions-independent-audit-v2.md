@@ -790,3 +790,145 @@ V2-M1 .. V2-M2 while touching the same areas
 ```
 
 No architectural redesign or shared-infrastructure refactor is required.
+
+---
+
+# Remediation V2
+
+Remediation commit: `fix(domains): close phase 10.23 audit v2 findings`
+
+The root-cause class addressed here is **record-level normalization**: raw
+evidence was mutated/counted before per-identity normalization, invalid flags
+were recorded but ignored by the final resolution gate, and internal normalized
+objects leaked directly into public results. Each fix normalizes per identity
+first, derives aggregate semantics only from normalized state, emits JSON-safe
+helper results, and propagates uncertainty/conflict through `Rule.evaluate`.
+
+## V2-I1 — invalid/missing target date fails open
+
+- Root cause: `target_date_invalid` was computed but omitted from the `resolved`
+  gate, so malformed/missing target dates coexisted with `feasible=True`.
+- RED tests: `test_target_date_malformed_string_fails_closed`,
+  `test_target_date_missing_with_positive_work_unresolved`,
+  `test_target_date_bool_fails_closed`.
+- Fix: `target_date_unknown = (required_work > 0) and (target missing or
+  invalid)` now fails closed as `unresolved`; hard constraints (capacity
+  exceeded, zero target) still take precedence; zero remaining work never
+  requires a deadline.
+- GREEN evidence: `tests/domains/test_oppositions_domain_study_feasibility.py`.
+- Closure-matrix coverage: study-feasibility primitive matrix, JSON gate,
+  helper→Rule parity (`unresolved`/`target_date_invalid` in finding metadata).
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-I2 — syllabus duplicate dimensions double-count/order-vary
+
+- Root cause: dimension counters (`depth_total`, `depth_count`,
+  `review_due_count`) were incremented per raw record; conflict cleanup removed
+  only set membership, not counters.
+- RED tests: `test_exact_duplicate_topic_depth_not_double_counted`,
+  `test_conflicting_duplicate_topic_depth_order_invariant`,
+  `test_duplicate_topic_dimensions_do_not_inflate`.
+- Fix: new `_normalize_topic_identity` deduplicates exact duplicates, merges
+  compatible partial evidence, and marks studied/depth conflicts before any
+  dimension counter is updated.
+- GREEN evidence: `tests/domains/test_oppositions_domain_syllabus_coverage.py`.
+- Closure-matrix coverage: full syllabus permutation invariance over all
+  decision-relevant fields.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-I3 — chronology mixed-timezone crash + non-JSON output
+
+- Root cause: `_parse_chronology_date` returned naive/aware `datetime` objects
+  that were sorted directly and leaked into the public `timeline`.
+- RED tests: `test_mixed_naive_aware_chronology_never_raises`,
+  `test_mock_helper_result_json_serializable`.
+- Fix: chronology is normalized to a JSON-safe UTC epoch-seconds float; naive
+  values are treated as UTC, aware values are normalized to UTC.
+- GREEN evidence: `tests/domains/test_oppositions_domain_mock_exam.py`.
+- Closure-matrix coverage: JSON gate over all touched helpers, mixed `Z`/offset
+  regression.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-I4 — conflicting mock identity first-wins / hidden by Rule
+
+- Root cause: conflicting identity still emitted `unique[0]` as a first-wins
+  timeline observation; `MockExamInterpretationRule` metadata omitted conflict.
+- RED tests: `test_conflicting_mock_public_result_permutation_invariant`,
+  `test_mock_rule_preserves_conflict` (closure).
+- Fix: conflicting identities emit a deterministic `state: "conflicting"`
+  timeline entry with no authoritative score/date; `conflicting_identity_ids`
+  added to helper and Rule metadata; timeline iteration sorted by identity for
+  permutation invariance; Rule severity becomes WARNING on conflict.
+- GREEN evidence: `tests/domains/test_oppositions_domain_mock_exam.py`,
+  `tests/domains/test_oppositions_domain_audit_v2_closure.py`.
+- Closure-matrix coverage: full mock permutation invariance including `timeline`.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-I5 — alternative conflict marked resolved / hidden by Rule
+
+- Root cause: `resolved = not malformed_route_member` ignored conflicting route
+  IDs; recommendation was still emitted from remaining alternatives;
+  `AlternativeRouteRule` metadata omitted `conflicting_route_ids`.
+- RED tests: `test_conflicting_alternative_sets_resolved_false`,
+  `test_conflicting_alternative_suppresses_recommendation`.
+- Fix: `has_conflict` suppresses `best_eligible` (recommendation becomes `None`)
+  and forces `resolved=False`; Rule propagates `resolved`,
+  `conflicting_route_ids`, `conditional_requirements`, `stale_route_ids` and
+  uses WARNING severity.
+- GREEN evidence: `tests/domains/test_oppositions_domain_alternative_routes.py`,
+  `tests/domains/test_oppositions_domain_audit_v2_closure.py`.
+- Closure-matrix coverage: full alternative permutation invariance.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-I6 — malformed University workload silently ignored
+
+- Root cause: a supplied malformed authorized `workload_hours` was parsed to
+  `None` and then silently dropped.
+- RED tests: `test_malformed_authorized_workload_fails_closed`,
+  `test_valid_availability_malformed_workload_unresolved`,
+  `test_malformed_availability_valid_workload_unresolved`.
+- Fix: a present-but-unparseable authorized `workload_hours` sets
+  `capacity_unknown` (fail closed) instead of disappearing.
+- GREEN evidence: `tests/domains/test_oppositions_domain_university_projection.py`.
+- Closure-matrix coverage: cross-domain most-restrictive and fail-closed gates.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-M1 — capacity_source provenance incorrect for wider Health cap
+
+- Root cause: `cap_source = "health"` was set even when the Health cap was wider
+  (non-binding).
+- RED tests: `test_wider_health_cap_does_not_change_binding_source`,
+  `test_equal_health_cap_keeps_primary_source`.
+- Fix: `cap_source` becomes `"health"` only when the Health cap is actually
+  binding (`capacity is None` or `health_cap < capacity`); ties keep the primary
+  source.
+- GREEN evidence: `tests/domains/test_oppositions_domain_health_projection.py`.
+- Closure-matrix coverage: cross-domain most-restrictive composition.
+- Status: **FIXED IN REMEDIATION V2**
+
+## V2-M2 — stale documentation/comment statements
+
+- Root cause: reference said supporting caps "may ever widen"; catalog comment
+  cited a spec §7 exception.
+- Fix: reference now says "may never widen"; catalog comment now attributes the
+  plural namespace to the shared `DomainOperationDefinition` prefix contract,
+  with the historical §7 wording noted as a prior revision.
+- GREEN evidence: `tests/domains/test_oppositions_domain_catalog_reconciliation.py`.
+- Closure-matrix coverage: N/A (documentation only).
+- Status: **FIXED IN REMEDIATION V2**
+
+## Verification summary (dirty tree)
+
+```text
+Opposition suite: 271 passed
+Domains suite: 4797 passed
+Global suite: 10308 passed
+Ruff: PASS
+Ruff py310: PASS
+compileall: PASS
+fresh import: PASS
+git diff --check: PASS
+Self-probe: ALL_PASS=true
+```
+
+Phase 10.23 status remains: `Implemented, pending Independent Audit V3`.

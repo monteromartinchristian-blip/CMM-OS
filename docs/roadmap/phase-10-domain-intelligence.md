@@ -2773,7 +2773,7 @@ Permissions
 
 Statement
 
-Implemented, pending Independent Audit V2.
+Implemented, pending Independent Audit V3.
 
 Objective
 

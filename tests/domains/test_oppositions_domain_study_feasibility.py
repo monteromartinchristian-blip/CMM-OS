@@ -100,3 +100,46 @@ def test_target_date_constraints_affect_feasibility():
     )
     assert feasible["feasible"] is True
     assert zero_day["feasible"] is False
+
+
+def test_target_date_malformed_string_fails_closed():
+    record = evaluate_study_feasibility(
+        remaining_hours=10, available_hours=30, target_days="soon"
+    )
+    assert record["target_date_invalid"] is True
+    assert record["feasible"] is False
+    assert record["unresolved"] is True
+
+
+def test_target_date_missing_with_positive_work_unresolved():
+    record = evaluate_study_feasibility(
+        remaining_hours=10, available_hours=30, target_days=None
+    )
+    assert record["feasible"] is False
+    assert record["unresolved"] is True
+
+
+def test_target_date_bool_fails_closed():
+    record = evaluate_study_feasibility(
+        remaining_hours=10, available_hours=30, target_days=True
+    )
+    assert record["target_date_invalid"] is True
+    assert record["feasible"] is False
+    assert record["unresolved"] is True
+
+
+def test_zero_day_target_with_positive_work_is_infeasible():
+    record = evaluate_study_feasibility(
+        remaining_hours=20, available_hours=30, target_days=0
+    )
+    assert record["feasibility"] == "infeasible"
+    assert record["feasible"] is False
+    assert "target_date_infeasible" in record["unmet_hard_constraints"]
+
+
+def test_no_remaining_work_does_not_require_deadline():
+    record = evaluate_study_feasibility(
+        remaining_hours=0, available_hours=30, target_days=None
+    )
+    assert record["feasible"] is True
+    assert record["unresolved"] is False

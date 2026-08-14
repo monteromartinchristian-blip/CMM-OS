@@ -63,6 +63,46 @@ def test_malformed_projection_remains_unresolved():
     assert record["university_authorized"] is False
 
 
+def test_malformed_authorized_workload_fails_closed():
+    record = evaluate_study_feasibility(
+        remaining_hours=8,
+        available_hours=10,
+        university_projection={"authorized": True, "workload_hours": "many"},
+    )
+    assert record["university_authorized"] is True
+    assert record["capacity_unknown"] is True
+    assert record["feasible"] is False
+    assert record["unresolved"] is True
+
+
+def test_valid_availability_malformed_workload_unresolved():
+    record = evaluate_study_feasibility(
+        remaining_hours=8,
+        available_hours=10,
+        university_projection={
+            "authorized": True,
+            "available_hours": 6,
+            "workload_hours": "many",
+        },
+    )
+    assert record["capacity_unknown"] is True
+    assert record["unresolved"] is True
+
+
+def test_malformed_availability_valid_workload_unresolved():
+    record = evaluate_study_feasibility(
+        remaining_hours=8,
+        available_hours=10,
+        university_projection={
+            "authorized": True,
+            "available_hours": "many",
+            "workload_hours": 2,
+        },
+    )
+    assert record["capacity_unknown"] is True
+    assert record["unresolved"] is True
+
+
 def test_most_restrictive_policy_wins():
     # Health cap 15, University availability 10 -> most restrictive wins
     record = evaluate_study_feasibility(

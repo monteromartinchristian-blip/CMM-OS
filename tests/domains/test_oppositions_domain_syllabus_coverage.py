@@ -186,3 +186,71 @@ def test_conflicting_duplicate_topic_blocks_completeness():
         b["conflicting_count"],
         b["complete"],
     )
+
+
+def test_exact_duplicate_topic_depth_not_double_counted():
+    record = evaluate_syllabus_coverage(
+        topics=(
+            {"id": "t1", "studied": "yes", "depth": 3},
+            {"id": "t1", "studied": "yes", "depth": 3},
+        ),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    assert record["studied_count"] == 1
+    assert record["study_depth_total"] == 3
+    assert record["study_depth_records"] == 1
+
+
+def test_conflicting_duplicate_topic_depth_order_invariant():
+    a = evaluate_syllabus_coverage(
+        topics=(
+            {"id": "t1", "studied": "yes", "depth": 3},
+            {"id": "t1", "studied": "no", "depth": 1},
+        ),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    b = evaluate_syllabus_coverage(
+        topics=(
+            {"id": "t1", "studied": "no", "depth": 1},
+            {"id": "t1", "studied": "yes", "depth": 3},
+        ),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    assert a["conflicting_count"] == 1
+    assert a["complete"] is False
+    # conflicting depth must not preserve one record as authoritative and must
+    # be identical across permutations.
+    assert a["study_depth_total"] == b["study_depth_total"]
+    assert a["study_depth_records"] == b["study_depth_records"]
+
+
+def test_duplicate_topic_dimensions_do_not_inflate():
+    record = evaluate_syllabus_coverage(
+        topics=(
+            {
+                "id": "t1",
+                "studied": "yes",
+                "depth": 3,
+                "review_due": True,
+                "mock_mapped": True,
+                "revision": "pending",
+            },
+            {
+                "id": "t1",
+                "studied": "yes",
+                "depth": 3,
+                "review_due": True,
+                "mock_mapped": True,
+                "revision": "pending",
+            },
+        ),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    assert record["study_depth_total"] == 3
+    assert record["study_depth_records"] == 1
+    assert record["review_due_count"] == 1
+    assert record["mock_linked_count"] == 1

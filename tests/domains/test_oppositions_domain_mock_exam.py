@@ -179,3 +179,66 @@ def test_conflicting_duplicate_mock_order_invariance():
         reverse["trend_slope"],
         reverse["conflicting_identity_count"],
     )
+
+
+import json
+
+
+def test_mixed_naive_aware_chronology_never_raises():
+    record = evaluate_mock_performance(
+        mocks=(
+            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
+             "format": "test", "date": "2026-01-01"},
+            {"id": "m2", "score": 6, "total": 10, "scoring": "standard",
+             "format": "test", "date": "2026-02-01T00:00:00+00:00"},
+        )
+    )
+    assert record["trend_state"] == "trend"
+    assert record["trend_inferred"] is True
+
+
+def test_z_and_explicit_offset_chronology_never_raises():
+    record = evaluate_mock_performance(
+        mocks=(
+            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
+             "format": "test", "date": "2026-01-01T12:00:00Z"},
+            {"id": "m2", "score": 6, "total": 10, "scoring": "standard",
+             "format": "test", "date": "2026-01-02T12:00:00+02:00"},
+        )
+    )
+    assert record["trend_state"] == "trend"
+    assert record["trend_inferred"] is True
+
+
+def test_mock_helper_result_json_serializable():
+    record = evaluate_mock_performance(
+        mocks=(
+            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
+             "format": "test", "date": "2026-01-01"},
+        )
+    )
+    json.dumps(record)
+
+
+def test_conflicting_mock_public_result_permutation_invariant():
+    a1 = {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
+          "scoring": "standard", "format": "test"}
+    a2 = {"id": "m1", "date": "2026-03-01", "score": 8, "total": 10,
+          "scoring": "standard", "format": "test"}
+    b = {"id": "m2", "date": "2026-02-01", "score": 10, "total": 10,
+         "scoring": "standard", "format": "test"}
+    forward = evaluate_mock_performance(mocks=(a1, a2, b))
+    reverse = evaluate_mock_performance(mocks=(a2, a1, b))
+    # conflicting identity must not expose a first-wins representative
+    assert forward["conflicting_identity_count"] == 1
+    assert forward["conflicting_identity_ids"] == ("m1",)
+    assert forward["timeline"] == reverse["timeline"]
+    for key in (
+        "observation_count",
+        "conflicting_identity_count",
+        "conflicting_identity_ids",
+        "trend_inferred",
+        "trend_state",
+        "chronology_unknown",
+    ):
+        assert forward[key] == reverse[key], key
