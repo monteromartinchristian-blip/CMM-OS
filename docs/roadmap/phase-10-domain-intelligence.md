@@ -2865,16 +2865,16 @@ It allows to compare bodies and routes without treating an alternative as abando
 
 Operaciones
 
-* opposition.create_study_plan;
-* opposition.divide_syllabus;
-* opposition.track_progress;
-* opposition.review_mock_exam;
-* opposition.compare_bodies;
-* opposition.review_call;
-* opposition.generate_weekly_review;
-* opposition.identify_risks;
-* opposition.generate_revision_plan;
-* opposition.update_progress.
+* oppositions.create_study_plan;
+* oppositions.divide_syllabus;
+* oppositions.track_progress;
+* oppositions.review_mock_exam;
+* oppositions.compare_bodies;
+* oppositions.review_call;
+* oppositions.generate_weekly_review;
+* oppositions.identify_risks;
+* oppositions.generate_revision_plan;
+* oppositions.update_progress.
 
 Workflows
 

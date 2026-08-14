@@ -3,13 +3,38 @@
 **Date:** 2026-08-13
 **Phase:** 10.23 — Opposition Domain
 **Canonical domain ID:** `domain:oppositions`
-**Canonical operation prefix:** `opposition.`
+**Canonical operation prefix (registered):** `oppositions.`
 **Target branch:** `feature/phase-10-domain-intelligence`
 **Preflight baseline inspected:** `d49f35e`
 **Status:** APPROVED DESIGN — FROZEN FOR IMPLEMENTATION AFTER REPOSITORY INTEGRATION CHECK
 
 > This document is the contractual design for Phase 10.23.
 > Do not implement from this file until its repository integration is confirmed and the dedicated implementation prompt/plan is issued.
+
+---
+
+## 0. Design Revision — 2026-08-14 (documentation reconciliation)
+
+The original frozen design used the singular operation namespace `opposition.*`.
+
+Repository inspection during implementation established that the shared
+`DomainOperationDefinition` contract in `cmm/domains/operation_contracts.py`
+requires the identifier prefix to equal the slug of `domain_id`:
+
+```text
+slug = domain_id.removeprefix("domain:")
+operation_id.split(".", 1)[0] == slug  else DomainOperationContractError
+```
+
+Because the canonical domain ID is `domain:oppositions`, the valid registered
+namespace is `oppositions.*`.
+
+Therefore all canonical Phase 10.23 operation IDs are revised from
+`opposition.*` to `oppositions.*`. This is a documentation reconciliation with
+the pre-existing shared contract, not a change to the Domain Intelligence
+architecture or to Phase 10.23 behavior. The revision applies to the operation
+namespace only; event/other namespaces in this document are governed by their
+own contracts and are not mechanically altered.
 
 ---
 
@@ -1097,23 +1122,23 @@ Unknown high-impact dimensions remain visible.
 Exactly these ten operations:
 
 ```text
-opposition.create_study_plan
-opposition.divide_syllabus
-opposition.track_progress
-opposition.review_mock_exam
-opposition.compare_bodies
-opposition.review_call
-opposition.generate_weekly_review
-opposition.identify_risks
-opposition.generate_revision_plan
-opposition.update_progress
+oppositions.create_study_plan
+oppositions.divide_syllabus
+oppositions.track_progress
+oppositions.review_mock_exam
+oppositions.compare_bodies
+oppositions.review_call
+oppositions.generate_weekly_review
+oppositions.identify_risks
+oppositions.generate_revision_plan
+oppositions.update_progress
 ```
 
 All definitions must use the current shared `DomainOperationDefinition` / schema / registry contracts.
 
 ### Operation boundaries
 
-#### `opposition.create_study_plan`
+#### `oppositions.create_study_plan`
 
 Produces a structured study-plan proposal.
 
@@ -1125,7 +1150,7 @@ Never:
 - changes target automatically;
 - persists adoption by itself.
 
-#### `opposition.divide_syllabus`
+#### `oppositions.divide_syllabus`
 
 Structures the current known syllabus into blocks/topics/study units.
 
@@ -1133,19 +1158,19 @@ If syllabus identity/version is decision-critical and unresolved, output remains
 
 Does not invent missing official syllabus content.
 
-#### `opposition.track_progress`
+#### `oppositions.track_progress`
 
 Analyses current internal progress evidence.
 
 Does not directly write memory/state.
 
-#### `opposition.review_mock_exam`
+#### `oppositions.review_mock_exam`
 
 Runs `MockExamInterpretationRule` semantics and produces structured findings/recommendations.
 
 No capacity/intelligence inference.
 
-#### `opposition.compare_bodies`
+#### `oppositions.compare_bodies`
 
 Compares routes/bodies.
 
@@ -1153,7 +1178,7 @@ Produces trade-offs and proposals only.
 
 Does not change the current target.
 
-#### `opposition.review_call`
+#### `oppositions.review_call`
 
 Analyses official-call evidence, authority, applicability, deadlines, requirements and gaps.
 
@@ -1161,7 +1186,7 @@ External verification request is read-only and `OFFICIAL_ONLY` under effective p
 
 Does not register or submit.
 
-#### `opposition.generate_weekly_review`
+#### `oppositions.generate_weekly_review`
 
 Synthesizes:
 
@@ -1177,7 +1202,7 @@ Synthesizes:
 
 Does not auto-adopt a new plan.
 
-#### `opposition.identify_risks`
+#### `oppositions.identify_risks`
 
 Produces structured risks such as:
 
@@ -1193,13 +1218,13 @@ Produces structured risks such as:
 
 Risk does not become certainty.
 
-#### `opposition.generate_revision_plan`
+#### `oppositions.generate_revision_plan`
 
 Produces a revision proposal grounded in syllabus coverage and available time.
 
 Time since study alone cannot prove forgetting.
 
-#### `opposition.update_progress`
+#### `oppositions.update_progress`
 
 Produces a structured internal progress-update proposal.
 
@@ -1482,7 +1507,7 @@ Planning may propose dates/sessions.
 
 Actual shared calendar/schedule mutation requires exact scoped approval under the effective shared permission gate.
 
-No `opposition.create_calendar_event` engine is introduced.
+No `oppositions.create_calendar_event` engine is introduced.
 
 ### Tasks
 
@@ -2636,7 +2661,7 @@ The implementation worker must not preemptively close the milestone.
 This file freezes the following hard decisions:
 
 1. Canonical ID is `domain:oppositions`.
-2. Canonical operation prefix is `opposition.`.
+2. Canonical operation prefix (registered) is `oppositions.`.
 3. Shared 14-module specialized-domain boundary.
 4. Exactly 14 entities.
 5. Exactly 11 resources.

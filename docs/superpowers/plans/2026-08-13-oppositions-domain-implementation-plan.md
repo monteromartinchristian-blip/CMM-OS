@@ -3,7 +3,7 @@
 **Date:** 2026-08-13
 **Phase:** 10.23 — Opposition Domain
 **Canonical domain ID:** `domain:oppositions`
-**Canonical operation prefix:** `opposition.`
+**Canonical operation prefix (registered):** `oppositions.`
 **Frozen design:** `docs/superpowers/specs/2026-08-13-oppositions-domain-design.md`
 **Status:** Implemented, pending audit (goal)
 
@@ -63,15 +63,17 @@ workflows  = 7
 - Resource IDs (`oppositions.<kind>`): official_call, syllabus, regulation,
   study_plan, mock_exam, score_record, calendar_event, note, user_message,
   external_official_source, memory_entry.
-- **Prefix convention (documented divergence):** The frozen spec's canonical
-  operation-prefix notation is `opposition.` (singular) while the canonical
-  domain ID is `domain:oppositions` (plural). The shared
-  `cmm/domains/operation_contracts.py` `DomainOperationDefinition` requires the
-  operation prefix to equal the domain slug (`oppositions`), so the canonical
-  **registered** IDs use the plural domain convention `oppositions.` for every
-  ID family (rules, operations, workflows, resources) — matching spec §7's
-  "mechanically different canonical form" allowance and the repository's
-  single-slug domain convention. The frozen semantic concepts/names are
+- **Namespace reconciliation (discovered during implementation):** The frozen
+  design recorded the canonical operation prefix as `opposition.` (singular).
+  Repository inspection during implementation established that the shared
+  `cmm/domains/operation_contracts.py` `DomainOperationDefinition` contract
+  requires the operation-identifier prefix to equal the slug of `domain_id`
+  (`domain:oppositions` → `oppositions`). The frozen notation was a
+  design-document error; the valid registered namespace is consequently
+  `oppositions.`. This is a documentation reconciliation with the pre-existing
+  shared contract (not a Domain Intelligence architecture or behavior change),
+  and the plural canonical prefix is used for every ID family (rules,
+  operations, workflows, resources). The frozen semantic concepts/names are
   preserved exactly (6 rules, 10 operations, 7 workflow concepts).
 - Rules: `oppositions.official_call_priority`, `oppositions.temporal_validity`,
   `oppositions.syllabus_coverage`, `oppositions.study_feasibility`,
