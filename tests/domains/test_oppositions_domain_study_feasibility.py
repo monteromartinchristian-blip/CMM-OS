@@ -70,3 +70,33 @@ def test_target_date_valid():
     )
     assert record["target_date_invalid"] is False
     assert record["scenarios"][0]["adopted"] is False
+
+
+def test_zero_day_target_with_remaining_work_not_feasible():
+    """Positive remaining work cannot fit into a zero-day target window: the
+    plan must not be called feasible."""
+    record = evaluate_study_feasibility(
+        remaining_hours=20,
+        available_hours=30,
+        target_days=0,
+    )
+    assert record["feasibility"] != "feasible"
+    assert record["feasible"] is False
+
+
+def test_target_date_constraints_affect_feasibility():
+    """The deadline dimension must actually gate feasibility: identical work and
+    capacity that is feasible with a real target is infeasible with a
+    zero-day (impossible) target."""
+    feasible = evaluate_study_feasibility(
+        remaining_hours=20,
+        available_hours=30,
+        target_days=30,
+    )
+    zero_day = evaluate_study_feasibility(
+        remaining_hours=20,
+        available_hours=30,
+        target_days=0,
+    )
+    assert feasible["feasible"] is True
+    assert zero_day["feasible"] is False

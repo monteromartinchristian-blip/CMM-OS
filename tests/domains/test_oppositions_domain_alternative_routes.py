@@ -104,4 +104,47 @@ def test_order_invariance():
         primary=_route("primary"),
         alternatives=(_route("a2", overlap=0.8), _route("a1")),
     )
-    assert a["alternatives_considered"] == b["alternatives_considered"]
+    # normalized semantic meaning, not just the considered-id set
+    key = (
+        "recommendation",
+        "alternatives_considered",
+        "conflicting_route_ids",
+        "conditional_requirements",
+        "stale_route_ids",
+        "resolved",
+    )
+    assert tuple(a[k] for k in key) == tuple(b[k] for k in key)
+    assert a["trade_offs"] == b["trade_offs"]
+
+
+def test_conflicting_duplicate_route_order_invariance():
+    """Conflicting duplicate route identities must be unresolved/blocked and
+    must not make the recommendation depend on input order."""
+    a = {
+        "id": "alt1",
+        "eligibility": "eligible",
+        "syllabus_overlap": 0.9,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
+    b = {
+        "id": "alt1",
+        "eligibility": "ineligible",
+        "syllabus_overlap": 0.1,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
+    alt2 = _route("alt2", overlap=0.5)
+    forward = compare_alternative_routes(
+        primary=_route("primary"), alternatives=(a, b, alt2)
+    )
+    reverse = compare_alternative_routes(
+        primary=_route("primary"), alternatives=(b, a, alt2)
+    )
+    # the recommendation must not change solely because the first duplicate
+    # changed.
+    assert forward["recommendation"] == reverse["recommendation"]
+    # the conflicting duplicate route can never be automatically recommended.
+    assert forward["recommendation"] != "alt1"
+    assert forward["conflicting_route_ids"] == ("alt1",)
+    assert forward["alternatives_considered"] == reverse["alternatives_considered"]

@@ -90,7 +90,22 @@ def test_order_invariance():
     b = evaluate_mock_performance(
         mocks=(_mock("m1", 20, 50), _mock("m2", 30, 50))
     )
-    assert a["trend_inferred"] == b["trend_inferred"]
+    # normalized semantic meaning, not just a weak boolean
+    assert (
+        a["trend_inferred"],
+        a["trend_slope"],
+        a["observation_count"],
+        a["comparable_count"],
+        a["duplicates_ignored"],
+        a["conflicting_identity_count"],
+    ) == (
+        b["trend_inferred"],
+        b["trend_slope"],
+        b["observation_count"],
+        b["comparable_count"],
+        b["duplicates_ignored"],
+        b["conflicting_identity_count"],
+    )
 
 
 def test_speed_separate_from_knowledge():
@@ -114,3 +129,53 @@ def test_no_intelligence_or_capacity_inference():
     assert record["intelligence_inferred"] is False
     assert record["capacity_inferred"] is False
     assert record["pass_guaranteed"] is False
+
+
+def test_different_denominators_prevent_raw_score_trend():
+    """Same format/scoring but different scoring bases must not be combined: a
+    raw-score rise of 40 -> 50 hides a normalized fall 80% -> 50%."""
+    record = evaluate_mock_performance(
+        mocks=(
+            _mock("m1", 40, 50, date="2026-01-01"),
+            _mock("m2", 50, 100, date="2026-02-01"),
+        )
+    )
+    assert record["trend_inferred"] is False
+
+
+def test_malformed_chronology_blocks_trend():
+    """Non-parseable chronology must not be treated as temporal ordering."""
+    record = evaluate_mock_performance(
+        mocks=(
+            _mock("m1", 20, 50, date="zzz"),
+            _mock("m2", 30, 50, date="2026-02-01"),
+        )
+    )
+    assert record["chronology_unknown"] is True
+    assert record["trend_inferred"] is False
+
+
+def test_conflicting_duplicate_mock_order_invariance():
+    """Conflicting duplicate mock identities must produce the same normalized
+    semantics regardless of input order and must not drive a trend."""
+    a1 = {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
+          "scoring": "standard", "format": "test"}
+    a2 = {"id": "m1", "date": "2026-03-01", "score": 5, "total": 10,
+          "scoring": "standard", "format": "test"}
+    b = {"id": "m2", "date": "2026-02-01", "score": 10, "total": 10,
+         "scoring": "standard", "format": "test"}
+    forward = evaluate_mock_performance(mocks=(a1, a2, b))
+    reverse = evaluate_mock_performance(mocks=(a2, a1, b))
+    # the conflicting duplicate m1 is unresolved, and no trend is inferred from
+    # whichever duplicate happened to appear first.
+    assert forward["trend_inferred"] is False
+    assert forward["conflicting_identity_count"] == 1
+    assert (
+        forward["trend_inferred"],
+        forward["trend_slope"],
+        forward["conflicting_identity_count"],
+    ) == (
+        reverse["trend_inferred"],
+        reverse["trend_slope"],
+        reverse["conflicting_identity_count"],
+    )

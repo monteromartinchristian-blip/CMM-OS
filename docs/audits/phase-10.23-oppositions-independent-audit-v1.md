@@ -739,3 +739,157 @@ Recommended next state:
 ```text
 Phase 10.23 — Implemented, remediation required after Independent Audit V1
 ```
+
+---
+
+# Remediation V1
+
+Strict remediation pass for the seven Important findings in the original audit
+above.  The original findings, evidence, and verdict are preserved unchanged.
+
+Date: 2026-08-14
+
+Method: for each finding, a RED regression test was written first and observed
+failing for the expected semantic reason; a minimal production fix made it GREEN;
+nearby regressions were re-run.
+
+Verification after remediation:
+
+- Opposition suite: `235 passed`
+- Hardened targeted regression group: `89 passed`
+- Relevant precedent/security regression group: `484 passed`
+- Domain suite: `4761 passed`
+- Ruff: PASS
+- Ruff `--target-version py310`: PASS
+- `compileall`: PASS
+- Fresh import: PASS
+- `git diff --check`: PASS
+
+## I1 — Health functional cap can widen available study capacity
+
+Status: FIXED IN REMEDIATION V1
+
+- Test added: `test_health_cap_cannot_widen_known_availability` and
+  `test_health_cap_can_narrow_capacity` in
+  `tests/domains/test_oppositions_domain_health_projection.py`.
+- Root cause: an authorized Health `functional_cap_hours` **replaced** the known
+  primary-domain capacity instead of narrowing it.
+- Fix: `evaluate_study_feasibility` now applies `capacity = min(capacity, cap)`
+  when both are known, and only adopts the Health cap when no primary-domain
+  capacity is known. A supporting-domain cap can never widen a known capacity.
+- Verification: RED observed (widen case produced capacity `15`); GREEN after
+  fix (capacity `10`, plan infeasible); boundary case capacity `6` passes.
+
+## I2 — Target-date feasibility is not actually enforced
+
+Status: FIXED IN REMEDIATION V1
+
+- Tests added: `test_zero_day_target_with_remaining_work_not_feasible` and
+  `test_target_date_constraints_affect_feasibility` in
+  `tests/domains/test_oppositions_domain_study_feasibility.py`.
+- Root cause: `target_days` was parsed but feasibility was decided only by
+  `required_work > capacity`; a zero-day target with positive work was feasible.
+- Fix: under the interpretation already supported by current contracts —
+  `available_hours` is total available capacity through the study horizon, and
+  `target_days` is the deadline dimension — a positive workload with a zero-day
+  target window now yields `infeasible` with a `target_date_infeasible` hard
+  constraint. Target-date feasibility is a real stage in the canonical pipeline.
+- Verification: RED observed (a zero-day target was `feasible`); GREEN after
+  fix; target-date constraints now demonstrably gate feasibility.
+
+## I3 — Conflicting duplicate syllabus topics can be collapsed into false completeness
+
+Status: FIXED IN REMEDIATION V1
+
+- Test added: `test_conflicting_duplicate_topic_blocks_completeness` in
+  `tests/domains/test_oppositions_domain_syllabus_coverage.py` (both `yes,no`
+  and `no,yes` permutations normalize identically).
+- Root cause: `studied`/`pending` were sets; `pending = pending - studied`
+  silently discarded a topic present as both studied and pending.
+- Fix: topics are now aggregated per identity; an identity with incompatible
+  studied states becomes a conflict (`conflicting_count`, `conflicting_topics`),
+  is excluded from denominators, and blocks `complete=True`. Existing weak
+  `test_order_invariance` was strengthened to compare normalized semantic meaning.
+- Verification: RED observed (complete was `True` for the conflict); GREEN after
+  fix (complete `False`, `conflicting_count == 1`).
+
+## I4 — Temporal rule does not preserve the advertised `superseded` and `conflicting` states
+
+Status: FIXED IN REMEDIATION V1
+
+- Tests added: `test_conflicting_temporal_state_preserved` and
+  `test_superseded_temporal_state_preserved` in
+  `tests/domains/test_oppositions_domain_temporal_validity.py`.
+- Root cause: closed temporal values lacked `conflicting`/`superseded`;
+  `_normalize_temporal` mapped them to `unknown`.
+- Fix: added `TEMPORAL_CONFLICTING` and `TEMPORAL_SUPERSEDED` closed states; they
+  normalize and classify distinctly. `superseded` is never made current, and
+  decision-critical `conflicting`/`superseded` facts preserve a verification need.
+- Verification: RED observed (both mapped to `unknown`); GREEN after fix
+  (`conflicting` → `conflicting`, `superseded` → `superseded`).
+
+## I5 — Mock trend comparability is insufficient: denominator and chronology are not validated
+
+Status: FIXED IN REMEDIATION V1
+
+- Tests added: `test_different_denominators_prevent_raw_score_trend` and
+  `test_malformed_chronology_blocks_trend` in
+  `tests/domains/test_oppositions_domain_mock_exam.py`.
+- Root cause: comparability grouped by `(scoring, format)` only, and dates were
+  treated as orderable by lexical string.
+- Fix: comparability now includes the scoring base/denominator
+  `(scoring, format, total)`, and chronology is parsed with stdlib ISO handling
+  (`datetime.fromisoformat`); unparseable dates block trend inference.
+- Verification: RED observed (raw-score trend inferred from different
+  denominators; `"zzz"` treated as chronology); GREEN after fix (no trend in
+  both cases).
+
+## I6 — Conflicting duplicate mock IDs are first-wins and input-order dependent
+
+Status: FIXED IN REMEDIATION V1
+
+- Test added: `test_conflicting_duplicate_mock_order_invariance` in
+  `tests/domains/test_oppositions_domain_mock_exam.py`.
+- Root cause: duplicate identity records were discarded first-wins without a
+  compatibility check.
+- Fix: observations are aggregated by mock identity first; incompatible duplicate
+  observations become conflicting evidence (`conflicting_identity_count`) that
+  never participates in trend inference. `test_order_invariance` was strengthened
+  to compare normalized semantic meaning.
+- Verification: RED observed (trend inferred and order-dependent); GREEN after
+  fix (no trend; identical normalized result across permutations).
+
+## I7 — Conflicting duplicate alternative-route IDs are first-wins and input-order dependent
+
+Status: FIXED IN REMEDIATION V1
+
+- Test added: `test_conflicting_duplicate_route_order_invariance` in
+  `tests/domains/test_oppositions_domain_alternative_routes.py`.
+- Root cause: duplicate route ids were skipped first-wins; the recommendation
+  depended on which duplicate appeared first.
+- Fix: routes are grouped by route id; incompatible duplicate observations become
+  conflicting/unresolved routes (`conflicting_route_ids`) that can never be
+  automatically recommended. `test_order_invariance` was strengthened to compare
+  recommendations and trade-offs.
+- Verification: RED observed (recommendation `alt1` vs `alt2` depending on
+  order); GREEN after fix (conflict blocked, recommendation order-invariant).
+
+## Adversarial self-audit (post-remediation probes)
+
+```text
+I1 Health cap cannot widen capacity                 PASS
+I2 target-date feasibility actually gates           PASS
+I3 syllabus duplicate conflict preserved            PASS
+I4 conflicting/superseded temporal states preserved PASS
+I5 mock denominator/chronology safe                 PASS
+I6 duplicate mock order-invariant                   PASS
+I7 duplicate alternative order-invariant            PASS
+```
+
+Phase 10.23 state after Remediation V1:
+
+```text
+Implemented, pending Independent Audit V2
+```
+
+Independent re-audit (V2) is a later workflow and is **not** claimed here.

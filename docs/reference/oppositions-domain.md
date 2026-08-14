@@ -116,26 +116,33 @@ retention risk, mock-linked, pending, unknown). Duplicate topic identities are
 not double-counted; identityless topics cannot establish complete coverage; a
 valid empty collection is distinct from absent/malformed; forgetting is never
 proven by elapsed time alone; an aggregate percentage never overrides
-contradictory topic-level evidence.
+contradictory topic-level evidence. A duplicate topic identity with incompatible
+studied states (e.g. `studied=yes` and `studied=no`) is preserved as a conflict
+and blocks completeness; the domain never silently picks one state.
 
 ### StudyFeasibilityRule
 
 Runs the staged pipeline: validate evidence → hard constraints → available
 capacity → target-date feasibility → valid scenarios → trade-offs → proposal.
-Hard constraints always precede preferences. Health and University participate
-only through **minimal authorized projections** where `authorized is True`
-(literal boolean only — `"true"`/`"false"`/`1`/`0` do not authorize). No Health
-store or University store is read; no clinical or unrelated academic detail is
-consumed/emitted; no plan is silently adopted.
+Hard constraints always precede preferences. Target-date feasibility is a real
+hard gate: positive remaining work with a zero-day target window is never
+called feasible. Health and University participate only through minimal
+authorized projections where `authorized is True` (literal boolean only —
+`"true"`/`"false"`/`1`/`0` do not authorize); such supporting-domain caps may
+ever widen a known primary-domain capacity — the most-restrictive constraint
+wins. No plan is silently adopted.
 
 ### MockExamInterpretationRule
 
 Keeps one observation ≠ trend. A trend requires enough comparable (same/compatible
-format and scoring), temporally ordered evidence. Incomparable mocks are never
-naively combined; unknown chronology blocks a temporal trend; duplicate identities
-are not double-counted; input order does not change the semantics. Speed,
-knowledge, and format/process errors stay separate where evidence permits. No
-intelligence, capacity, or pass guarantee is inferred.
+format and scoring **and scoring base/denominator**), temporally ordered evidence.
+Incomparable mocks are never naively combined; dates must be parseable chronology
+(arbitrary strings like `"zzz"` are not temporal ordering); unknown/malformed
+chronology blocks a temporal trend; duplicate identities are not double-counted,
+and incompatible duplicate identities become conflicting evidence that cannot
+drive a trend; input order does not change the semantics. Speed, knowledge, and
+format/process errors stay separate where evidence permits. No intelligence,
+capacity, or pass guarantee is inferred.
 
 ### AlternativeRouteRule
 
@@ -143,7 +150,9 @@ Compares primary vs alternatives with trade-offs and uncertainty, but
 `alternative considered ≠ alternative selected ≠ primary target abandoned`. A
 better computed scenario is still a proposal; hard constraints beat preferences;
 the active target changes only through explicit higher-layer user decision
-semantics and strategy versioning.
+semantics and strategy versioning. Conflicting duplicate alternative-route ids
+are unresolved/blocked and can never be the basis for an automatic
+recommendation; input order does not change the normalized semantics.
 
 ## Versioned strategy (DP-023)
 
@@ -286,7 +295,8 @@ phase-10.23 verification ladder.
 
 ## DP-023 status
 
-`Implemented, pending audit` — versioned strategy and constraints, official-source
-verification, milestones and sequencing, trade-off analysis, and realistic study
-planning are implemented; external official-source connectors are deferred.
-Independent audit acceptance is a later workflow and is not claimed here.
+`Implemented, pending Independent Audit V2` — versioned strategy and constraints,
+official-source verification, milestones and sequencing, trade-off analysis, and
+realistic study planning are implemented; external official-source connectors are
+deferred. Independent re-audit acceptance is a later workflow and is not claimed
+here.

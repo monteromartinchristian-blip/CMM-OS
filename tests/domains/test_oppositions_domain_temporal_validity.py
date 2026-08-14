@@ -138,3 +138,26 @@ def test_strict_boolean_objective():
     # "true" is not literal True -> not active -> no monitoring
     requirement = opposition_call_monitoring(objective_active="true", call_state="stale")
     assert requirement["monitoring_needed"] is False
+
+
+def test_conflicting_temporal_state_preserved():
+    """A grounded, decision-critical conflicting temporal state must not collapse
+    to unknown."""
+    record = classify_opposition_temporal(
+        fact=_grounded_fact(temporal="conflicting")
+    )
+    assert record["state"] == "conflicting"
+    assert record["current"] is False
+    assert record["confirmed"] is False
+    assert record["verification_needed"] is True
+
+
+def test_superseded_temporal_state_preserved():
+    """A grounded superseded temporal state must be preserved as superseded, not
+    collapsed to unknown, and never made current."""
+    record = classify_opposition_temporal(
+        fact=_grounded_fact(temporal="superseded")
+    )
+    assert record["state"] == "superseded"
+    assert record["current"] is False
+    assert record["confirmed"] is False

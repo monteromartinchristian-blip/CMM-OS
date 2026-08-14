@@ -65,6 +65,34 @@ def test_malformed_authorized_cap_fails_closed():
     assert record["capacity_unknown"] is True
 
 
+def test_health_cap_cannot_widen_known_availability():
+    """A supporting-domain Health cap must never widen a known primary-domain
+    capacity (most-restrictive constraint wins)."""
+    record = evaluate_study_feasibility(
+        remaining_hours=12,
+        available_hours=10,
+        health_constraint={
+            "authorized": True,
+            "functional_cap_hours": 15,
+        },
+    )
+    # known availability (10) is more restrictive than the looser Health cap
+    # (15); the effective capacity must stay at 10 and the plan infeasible.
+    assert record["capacity_hours"] == 10
+    assert record["infeasible"] is True
+
+
+def test_health_cap_can_narrow_capacity():
+    """An authorized Health cap below known availability narrows capacity."""
+    record = evaluate_study_feasibility(
+        remaining_hours=5,
+        available_hours=10,
+        health_constraint={"authorized": True, "functional_cap_hours": 6},
+    )
+    assert record["capacity_hours"] == 6
+
+
+
 def test_health_cannot_widen_opposition_permissions():
     policy = oppositions.build_oppositions_permission_policy()
     from cmm.agent_runtime.domain_permission_contracts import PermissionCapability

@@ -41,6 +41,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -230,6 +231,8 @@ TEMPORAL_EXPIRED = "expired"
 TEMPORAL_FUTURE = "future"
 TEMPORAL_UNKNOWN = "unknown"
 TEMPORAL_TIMELESS = "timeless"
+TEMPORAL_CONFLICTING = "conflicting"
+TEMPORAL_SUPERSEDED = "superseded"
 
 _CURRENT_TEMPORAL_STATES: frozenset[str] = frozenset({TEMPORAL_VALID, TEMPORAL_TIMELESS})
 
@@ -258,6 +261,8 @@ def _normalize_temporal(value: Any) -> str:
         TEMPORAL_FUTURE,
         TEMPORAL_UNKNOWN,
         TEMPORAL_TIMELESS,
+        TEMPORAL_CONFLICTING,
+        TEMPORAL_SUPERSEDED,
     ):
         return value
     return TEMPORAL_UNKNOWN
@@ -1128,6 +1133,10 @@ def classify_opposition_temporal(
         state = "stale"
     elif temporal == TEMPORAL_FUTURE:
         state = "future"
+    elif temporal == TEMPORAL_CONFLICTING:
+        state = "conflicting"
+    elif temporal == TEMPORAL_SUPERSEDED:
+        state = "superseded"
     elif temporal == TEMPORAL_UNKNOWN:
         state = "unknown"
     elif temporal in _CURRENT_TEMPORAL_STATES:
@@ -1143,7 +1152,13 @@ def classify_opposition_temporal(
     verification_needed = bool(
         critical
         and (
-            state in ("missing", "stale", "conflicting", "unknown")
+            state in (
+                "missing",
+                "stale",
+                "conflicting",
+                "superseded",
+                "unknown",
+            )
             or state == "malformed"
             or (state == "undergrounded" and not confirmed)
         )
@@ -1248,11 +1263,14 @@ def evaluate_syllabus_coverage(
     studied_have_identity = False
     mock_linked: set[str] = set()
     pending: set[str] = set()
+    conflicting: set[str] = set()
     unknown_topics: list[str] = []
     depth_total = 0
     depth_count = 0
     review_due_count = 0
     studied_records = 0
+    # per-identity normalized studied state for conflict detection
+    state_by_identity: dict[str, str] = {}
 
     for topic in topic_list:
         if not isinstance(topic, Mapping):
@@ -1271,14 +1289,23 @@ def evaluate_syllabus_coverage(
                 unknown_topics.append("identityless")
             continue
         if studied_state == "yes":
-            studied.add(identity)
-            studied_have_identity = True
-            studied_records += 1
-            if depth_value is not None:
-                depth_total += depth_value
-                depth_count += 1
+            if state_by_identity.get(identity) == "no":
+                # incompatible same-topic evidence: not studied, not pending
+                conflicting.add(identity)
+            elif identity not in conflicting:
+                state_by_identity[identity] = "yes"
+                studied.add(identity)
+                studied_have_identity = True
+                studied_records += 1
+                if depth_value is not None:
+                    depth_total += depth_value
+                    depth_count += 1
         elif studied_state == "no":
-            pending.add(identity)
+            if state_by_identity.get(identity) == "yes":
+                conflicting.add(identity)
+            elif identity not in conflicting:
+                state_by_identity[identity] = "no"
+                pending.add(identity)
         else:
             # unknown topic state
             unknown_topics.append(identity)
@@ -1288,6 +1315,13 @@ def evaluate_syllabus_coverage(
             review_due_count += 1
         if revision_state == "pending":
             pending.add(identity)
+
+    # conflicting identities are neither studied nor pending; they never
+    # inflate denominators and always block completeness.
+    for identity in conflicting:
+        studied.discard(identity)
+        pending.discard(identity)
+    studied_have_identity = bool(studied)
 
     known_identities = studied | pending
     pending = pending - studied
@@ -1302,12 +1336,14 @@ def evaluate_syllabus_coverage(
         coverage_percent = round(studied_count / known_count, 4)
 
     # Complete coverage requires identity-grounded studied topics, a current
-    # syllabus version, and no pending/unknown topics.
+    # syllabus version, and no pending/unknown/conflicting topics.
+    conflicting_count = len(conflicting)
     complete = bool(
         studied_have_identity
         and not malformed
         and pending_count == 0
         and unknown_topic_count == 0
+        and conflicting_count == 0
         and studied_count > 0
         and version_usable is not None
         and version_is_current
@@ -1336,6 +1372,9 @@ def evaluate_syllabus_coverage(
         "pending_count": pending_count,
         "unknown_count": unknown_topics.count("identityless")
         + sum(1 for value in unknown_topics if value != "identityless"),
+        "conflicting_count": conflicting_count,
+        "conflicting_topics": tuple(sorted(conflicting)),
+        "conflict_blocks_complete": conflicting_count > 0,
         "study_depth_total": depth_total,
         "study_depth_records": depth_count,
         "mock_linked_count": len(mock_linked),
@@ -1361,6 +1400,7 @@ def evaluate_syllabus_coverage(
             "revision_review_due": review_due_count,
             "mock_linked": len(mock_linked),
             "unknown": unknown_topic_count,
+            "conflicting": conflicting_count,
         },
     }
 
@@ -1456,7 +1496,12 @@ def evaluate_study_feasibility(
             health_authorized = True
             health_cap = _parse_non_negative_number(health.get("functional_cap_hours"))
             if health_cap is not None:
-                capacity = health_cap
+                # a minimal restrictive functional projection may only narrow a
+                # known primary-domain capacity, never widen it.
+                if capacity is None:
+                    capacity = health_cap
+                else:
+                    capacity = min(capacity, health_cap)
                 cap_source = "health"
             else:
                 # malformed authorized cap remains unknown, never permissive
@@ -1511,6 +1556,19 @@ def evaluate_study_feasibility(
                 "feasible": False,
                 "class": "unmet_hard_constraint",
                 "reason": "capacity_exceeded",
+                "adopted": False,
+            }
+        )
+    elif required_work > 0 and target == 0:
+        # A zero-day target window cannot hold positive remaining work: the
+        # deadline dimension is a real feasibility gate.
+        feasibility = "infeasible"
+        unmet_hard_constraints.append("target_date_infeasible")
+        scenarios.append(
+            {
+                "feasible": False,
+                "class": "unmet_hard_constraint",
+                "reason": "target_date_infeasible",
                 "adopted": False,
             }
         )
@@ -1573,6 +1631,18 @@ def _normalize_score(value: Any) -> int | float | None:
     return _parse_non_negative_number(value)
 
 
+def _parse_chronology_date(value: str | None):
+    """Parse a chronological date/time into an orderable value, or ``None`` when
+    unparseable.  Uses only stdlib ISO handling (``Z`` normalized for
+    timezone-aware strings); arbitrary non-date strings are not chronological."""
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_scoring(value: Any) -> str:
     if value == MOCK_SCORING_PENALTY or value == MOCK_SCORING_STANDARD:
         return value
@@ -1601,38 +1671,30 @@ def evaluate_mock_performance(
     records = mocks_evidence.items
     malformed = mocks_evidence.malformed or _semantic_evidence_malformed(records)
 
-    timeline: list[dict] = []
-    seen: set[str] = set()
-    duplicates = 0
     unknown_chronology = False
     has_knowledge = False
     has_speed = False
     has_process_error = False
 
-    # Group records that are actually comparable for a trend by
-    # (scoring, format).  A trend is only valid within one comparable group
-    # with temporally ordered records; incomparable mocks are never combined.
-    comparable_groups: dict[tuple[str, str], list[dict]] = {}
+    # Aggregate raw observations by mock identity first, so incompatible
+    # duplicates are detected independently of input order.
+    raw_by_identity: dict[str, list[dict]] = {}
 
     for index, record in enumerate(records):
         if not isinstance(record, Mapping):
             malformed = True
             continue
         identity = _usable_scalar_string(record.get("id", record.get("mock_id")))
-        if identity is not None:
-            if identity in seen:
-                duplicates += 1
-                continue
-            seen.add(identity)
-        else:
+        if identity is None:
             identity = f"mock-{index}"
         score = _normalize_score(record.get("score", record.get("correct")))
         total = _parse_non_negative_number(record.get("total"))
         scoring = _normalize_scoring(record.get("scoring"))
-        date = _usable_scalar_string(record.get("date"))
         mock_format = _usable_scalar_string(
             record.get("format", record.get("exam_format")) or "unknown"
         )
+        date = _usable_scalar_string(record.get("date"))
+        parsed_date = _parse_chronology_date(date)
         speed_score = _normalize_score(record.get("speed_score", record.get("speed")))
         process_errors = _parse_non_negative_int(record.get("process_errors"))
         knowledge_errors = _parse_non_negative_int(record.get("knowledge_errors"))
@@ -1642,47 +1704,67 @@ def evaluate_mock_performance(
         has_process_error = has_process_error or (
             process_errors is not None and process_errors > 0
         )
-        if date is None:
+        if date is None or parsed_date is None:
             unknown_chronology = True
-
-        percent = None
-        if (
-            score is not None
-            and total is not None
-            and total > 0
-            and scoring != MOCK_SCORING_MISSING
-        ):
-            percent = round(score / total, 4)
-        timeline.append(
+        raw_by_identity.setdefault(identity, []).append(
             {
-                "id": identity,
+                "identity": identity,
                 "score": score,
                 "total": total,
-                "percent": percent,
                 "scoring": scoring,
                 "date": date,
+                "parsed_date": parsed_date,
                 "format": mock_format,
                 "speed_score": speed_score,
                 "process_errors": process_errors,
                 "knowledge_errors": knowledge_errors,
             }
         )
-        key = (scoring, mock_format)
+
+    # Resolve each identity into a single observation point.  Identical
+    # duplicates deduplicate; incompatible duplicate observations become
+    # conflicting evidence that never participates in a trend.
+    conflicting_identity: set[str] = set()
+    timeline: list[dict] = []
+    duplicates = 0
+    for identity, reps in raw_by_identity.items():
+        duplicates += len(reps) - 1
+        unique: list[dict] = []
+        for rep in reps:
+            if rep not in unique:
+                unique.append(rep)
+        if len(unique) > 1:
+            conflicting_identity.add(identity)
+        observation = dict(unique[0])
+        percent = None
         if (
-            score is not None
-            and total is not None
-            and total > 0
-            and scoring != MOCK_SCORING_MISSING
-            # temporal ordering requires a usable date
-            and date is not None
+            observation["score"] is not None
+            and observation["total"] is not None
+            and observation["total"] > 0
+            and observation["scoring"] != MOCK_SCORING_MISSING
         ):
-            comparable_groups.setdefault(key, []).append(
-                {
-                    "id": identity,
-                    "date": date,
-                    "score": score,
-                }
-            )
+            percent = round(observation["score"] / observation["total"], 4)
+        observation["percent"] = percent
+        timeline.append(observation)
+
+    # Group comparable, non-conflicting observations for a trend by
+    # (scoring, format, total).  A trend is only valid within one comparable
+    # group with temporally ordered records; incomparable mocks and conflicting
+    # identities are never combined.
+    comparable_groups: dict[tuple[str, str, Any], list[dict]] = {}
+    for entry in timeline:
+        if entry["identity"] in conflicting_identity:
+            continue
+        key = (entry["scoring"], entry["format"], entry["total"])
+        if (
+            entry["score"] is not None
+            and entry["total"] is not None
+            and entry["total"] > 0
+            and entry["scoring"] != MOCK_SCORING_MISSING
+            # temporal ordering requires an actually parseable chronology
+            and entry["parsed_date"] is not None
+        ):
+            comparable_groups.setdefault(key, []).append(entry)
 
     comparable_count = sum(len(group) for group in comparable_groups.values())
 
@@ -1694,7 +1776,7 @@ def evaluate_mock_performance(
         if len(group) >= 2 and len(group) > len(best_group):
             best_group = group
     if best_group:
-        ordered = sorted(best_group, key=lambda entry: str(entry["date"]))
+        ordered = sorted(best_group, key=lambda entry: entry["parsed_date"])
         trend_state = "trend"
         trend_inferred = True
         trend_slope = ordered[-1]["score"] - ordered[0]["score"]
@@ -1703,6 +1785,7 @@ def evaluate_mock_performance(
         "observation_count": len(timeline),
         "duplicates_ignored": duplicates,
         "malformed": malformed,
+        "conflicting_identity_count": len(conflicting_identity),
         "has_scores": has_knowledge,
         "speed_dimension_present": has_speed,
         "process_error_dimension_present": has_process_error,
@@ -1793,10 +1876,15 @@ def compare_alternative_routes(
 
     evaluated_routes: list[dict] = []
     route_ids: set[str] = set()
+    conflicting_route_ids: set[str] = set()
     malformed_route_member = alternatives_evidence.malformed
     conditional_requirements: list[str] = []
     stale_route_ids: set[str] = set()
 
+    # Group evidence by route id first so incompatible duplicates are detected
+    # independently of input order; a conflicting route can never be the sole
+    # basis for a recommendation.
+    route_records: dict[str, list[dict]] = {}
     for item in route_items:
         if not isinstance(item, Mapping):
             malformed_route_member = True
@@ -1807,9 +1895,25 @@ def compare_alternative_routes(
             continue
         if route_id == primary_id:
             continue
-        if route_id in route_ids:
-            continue
+        route_records.setdefault(route_id, []).append(item)
         route_ids.add(route_id)
+
+    for route_id in sorted(route_records):
+        reps = route_records[route_id]
+        canonical: dict[tuple, dict] = {}
+        for item in reps:
+            overlap = _parse_non_negative_number(item.get("syllabus_overlap"))
+            effort = _parse_non_negative_number(item.get("effort_hours"))
+            eligibility_known = _usable_scalar_string(
+                item.get("eligibility", item.get("eligibility_state"))
+            )
+            call_state = _usable_scalar_string(item.get("call_state"))
+            canonical[(eligibility_known, overlap, effort, call_state)] = item
+        if len(canonical) > 1:
+            # incompatible duplicate observations for one route id -> conflict
+            conflicting_route_ids.add(route_id)
+            continue
+        item = next(iter(canonical.values()))
         overlap = _parse_non_negative_number(item.get("syllabus_overlap"))
         effort = _parse_non_negative_number(item.get("effort_hours"))
         eligibility_known = _usable_scalar_string(
@@ -1876,6 +1980,7 @@ def compare_alternative_routes(
         "primary_abandoned": False,
         "target_changed": False,
         "alternatives_considered": tuple(sorted(route_ids)),
+        "conflicting_route_ids": tuple(sorted(conflicting_route_ids)),
         "conditional_requirements": tuple(sorted(conditional_requirements)),
         "stale_route_ids": tuple(sorted(stale_route_ids)),
         "trade_offs": tuple(trade_offs),

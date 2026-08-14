@@ -144,4 +144,45 @@ def test_order_invariance():
     b = evaluate_syllabus_coverage(
         topics=(_topic("t1"), _topic("t2")), syllabus_version="v2", syllabus_current=True
     )
-    assert (a["studied_count"], a["complete"]) == (b["studied_count"], b["complete"])
+    # normalized semantic meaning, not just a count + boolean
+    key = (
+        "studied_count",
+        "pending_count",
+        "unknown_count",
+        "conflicting_count",
+        "complete",
+        "coverage_percent",
+        "mock_linked_count",
+    )
+    assert tuple(a[k] for k in key) == tuple(b[k] for k in key)
+
+
+def test_conflicting_duplicate_topic_blocks_completeness():
+    """Same topic id with compatible-denying studied states (yes + no) must be
+    preserved as a conflict, block completeness, and not silently pick one."""
+    a = evaluate_syllabus_coverage(
+        topics=(_topic("t1", studied="yes"), _topic("t1", studied="no")),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    b = evaluate_syllabus_coverage(
+        topics=(_topic("t1", studied="no"), _topic("t1", studied="yes")),
+        syllabus_version="v2",
+        syllabus_current=True,
+    )
+    for record in (a, b):
+        assert record["complete"] is False
+        assert record["conflicting_count"] == 1
+        assert "t1" in record["conflicting_topics"]
+    # both permutations normalize to the same semantic result
+    assert (
+        a["studied_count"],
+        a["pending_count"],
+        a["conflicting_count"],
+        a["complete"],
+    ) == (
+        b["studied_count"],
+        b["pending_count"],
+        b["conflicting_count"],
+        b["complete"],
+    )
