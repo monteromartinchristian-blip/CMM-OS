@@ -2771,6 +2771,10 @@ Permissions
 
 10.23 - Opposition Domain
 
+Statement
+
+Implemented, pending audit.
+
 Objective
 
 Specialize CMM OS to manage opposition exams, syllabi, calls, progress, mock exams, workload, risks, and alternative paths.
