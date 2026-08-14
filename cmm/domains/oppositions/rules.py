@@ -1468,6 +1468,13 @@ def _parse_non_negative_number(value: Any) -> int | float | None:
     return value
 
 
+# Canonical capacity-provenance source ordering, reflecting the staged pipeline
+# precedence (primary user availability, then Health cap, then University
+# availability/workload).  Only sources that materially constrained the final
+# capacity appear; the order is fixed so provenance is deterministic.
+_PROVENANCE_SOURCE_ORDER: tuple[str, ...] = ("user", "health", "university")
+
+
 def evaluate_study_feasibility(
     *,
     remaining_hours: Any = None,
@@ -1536,7 +1543,13 @@ def evaluate_study_feasibility(
     )
     capacity = available
     capacity_unknown = available is None and (available_hours is not None)
-    cap_source = "user" if available is not None else None
+    cap_source = None
+    # Sources that materially determined the final capacity.  A source is
+    # material when it was the binding narrowing constraint or the sole
+    # provider; a wider/equal constraint never becomes material.
+    capacity_sources: set[str] = set()
+    if available is not None:
+        capacity_sources.add("user")
 
     health_evidence, health_present, health_malformed = _normalize_mapping(
         {"h": health_constraint}, "h"
@@ -1553,6 +1566,7 @@ def evaluate_study_feasibility(
                 if capacity is None or health_cap < capacity:
                     capacity = health_cap
                     cap_source = "health"
+                    capacity_sources = {"health"}
                 # else: the Health cap is wider or equal; the primary (user)
                 # constraint remains the binding source.
             else:
@@ -1578,17 +1592,29 @@ def evaluate_study_feasibility(
                 capacity_unknown = True
             elif uni_available is not None and capacity is not None:
                 capacity = min(capacity, uni_available)
+                if capacity == uni_available:
+                    # University availability bound the capacity.
+                    capacity_sources.add("university")
             elif uni_available is not None:
                 capacity = uni_available
+                capacity_sources.add("university")
             if uni.get("workload_hours") is not None and uni_workload is None:
                 # a supplied malformed authorized workload must fail closed,
                 # never be silently dropped before feasibility.
                 capacity_unknown = True
             elif capacity is not None and uni_workload is not None:
                 capacity = max(0, capacity - uni_workload)
+                if uni_workload > 0:
+                    # University workload materially reduced the capacity.
+                    capacity_sources.add("university")
         else:
             if uni.get("authorized") is not None:
                 capacity_unknown = True
+
+    if len(capacity_sources) == 1:
+        cap_source = next(iter(capacity_sources))
+    elif len(capacity_sources) > 1:
+        cap_source = "composed"
 
     # ── target-date feasibility / hard constraints / scenarios ─────────────
     evidence_unknown = (work_unknown or remaining_hours is None) and provided_any
@@ -1667,6 +1693,9 @@ def evaluate_study_feasibility(
         "capacity_unknown": capacity_unknown,
         "capacity_hours": capacity,
         "capacity_source": cap_source,
+        "capacity_sources": tuple(
+            source for source in _PROVENANCE_SOURCE_ORDER if source in capacity_sources
+        ),
         "hard_constraints_met": not infeasible,
         "unmet_hard_constraints": tuple(unmet_hard_constraints),
         "hard_before_preferences": True,
@@ -1874,15 +1903,40 @@ def evaluate_mock_performance(
     trend_state = "no_trend"
     trend_inferred = False
     trend_slope = None
+    chronology_ambiguous = False
     best_group: list[dict] = []
     for group in comparable_groups.values():
         if len(group) >= 2 and len(group) > len(best_group):
             best_group = group
     if best_group:
-        ordered = sorted(best_group, key=lambda entry: entry["parsed_date"])
-        trend_state = "trend"
-        trend_inferred = True
-        trend_slope = ordered[-1]["score"] - ordered[0]["score"]
+        # A directional temporal trend requires at least two DISTINCT normalized
+        # temporal instants.  Equal timestamps normalize to the same instant so
+        # they carry no before/after ordering to project a slope from.
+        by_instant: dict[tuple, list[dict]] = {}
+        for entry in best_group:
+            by_instant.setdefault(entry["parsed_date"], []).append(entry)
+        distinct_instants = len(by_instant)
+        # A timestamp holding multiple materially different observations is
+        # temporally ambiguous for a directional trend: input identity must not
+        # pick the start/end score.  Exact duplicates at one instant corroborate
+        # but never prove temporal progression by themselves.
+        ambiguous_instant = any(
+            len({obs["score"] for obs in group}) > 1
+            for group in by_instant.values()
+        )
+        if distinct_instants >= 2 and not ambiguous_instant:
+            # sorted by instant, then a deterministic identity tie-break so a
+            # timestamp group full of identical scores never depends on input
+            # ordering for the endpoint selection.
+            ordered = sorted(
+                best_group,
+                key=lambda entry: (entry["parsed_date"], entry["identity"]),
+            )
+            trend_state = "trend"
+            trend_inferred = True
+            trend_slope = ordered[-1]["score"] - ordered[0]["score"]
+        elif ambiguous_instant:
+            chronology_ambiguous = True
 
     return {
         "observation_count": len(timeline),
@@ -1913,6 +1967,7 @@ def evaluate_mock_performance(
         ),
         "comparable_count": comparable_count,
         "chronology_unknown": unknown_chronology,
+        "chronology_ambiguous": chronology_ambiguous,
         "trend_state": trend_state,
         "trend_inferred": trend_inferred,
         "trend_slope": trend_slope,
@@ -1931,6 +1986,57 @@ def evaluate_mock_performance(
 # Rule 6 — AlternativeRouteRule (+ versioned strategy preservation)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ── Closed eligibility categories ─────────────────────────────────────────────
+# Only the literal canonical strings ``eligible``/``ineligible`` are decisive.
+# Any missing/unknown/conditional/arbitrary value fails closed as unresolved so
+# it can never silently become a known-ineligible route.
+
+ELIGIBILITY_ELIGIBLE = "eligible"
+ELIGIBILITY_INELIGIBLE = "ineligible"
+ELIGIBILITY_UNKNOWN = "unknown"
+ELIGIBILITY_CONDITIONAL = "conditional"
+ELIGIBILITY_MISSING = "missing"
+ELIGIBILITY_MALFORMED = "malformed"
+
+# Eligibility categories that cannot establish a decisive route requirement;
+# a decision-relevant route in any of these states keeps the comparison
+# unresolved/conditional.
+_ELIGIBILITY_UNRESOLVED = frozenset(
+    {
+        ELIGIBILITY_UNKNOWN,
+        ELIGIBILITY_CONDITIONAL,
+        ELIGIBILITY_MISSING,
+        ELIGIBILITY_MALFORMED,
+    }
+)
+
+
+def _classify_eligibility(value: Any) -> str:
+    """Classify a raw eligibility value into a closed, conservative category.
+
+    ``_usable_scalar_string`` strips whitespace but stays case-sensitive:
+    ``" eligible "`` normalizes to ``eligible`` while ``"ELIGIBLE"`` does not
+    match the canonical lowercase vocabulary.  Non-string values
+    (bool/int/mapping/collection) are malformed for a closed category; ``None``
+    and blank strings are missing, never decisive.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if text == "":
+            return ELIGIBILITY_MISSING
+        if text == ELIGIBILITY_ELIGIBLE:
+            return ELIGIBILITY_ELIGIBLE
+        if text == ELIGIBILITY_INELIGIBLE:
+            return ELIGIBILITY_INELIGIBLE
+        if text in (ELIGIBILITY_UNKNOWN, ELIGIBILITY_CONDITIONAL):
+            return text
+        return ELIGIBILITY_MALFORMED
+    # ``None`` and blank values are missing; bool/int/mapping/collection values
+    # are malformed for a singular closed eligibility category.
+    if _value_missing(value):
+        return ELIGIBILITY_MISSING
+    return ELIGIBILITY_MALFORMED
+
 
 def compare_alternative_routes(
     *,
@@ -1947,7 +2053,9 @@ def compare_alternative_routes(
     ``alternative considered != alternative selected != primary target abandoned``.
     A better computed scenario is still only a proposal; hard constraints beat
     preferences; input order does not change semantics; malformed route identity
-    never merges routes.
+    never merges routes.  A decision-relevant route whose eligibility is
+    missing/unknown/conditional/malformed keeps the comparison unresolved: it
+    is never silently dropped so the remaining known subset can be ranked.
     """
     primary_evidence, primary_present, primary_malformed = _normalize_mapping(
         {"p": primary}, "p"
@@ -2024,11 +2132,11 @@ def compare_alternative_routes(
         for item in reps:
             overlap = _parse_non_negative_number(item.get("syllabus_overlap"))
             effort = _parse_non_negative_number(item.get("effort_hours"))
-            eligibility_known = _usable_scalar_string(
+            eligibility = _classify_eligibility(
                 item.get("eligibility", item.get("eligibility_state"))
             )
             call_state = _usable_scalar_string(item.get("call_state"))
-            canonical[(eligibility_known, overlap, effort, call_state)] = item
+            canonical[(eligibility, overlap, effort, call_state)] = item
         if len(canonical) > 1:
             # incompatible duplicate observations for one route id -> conflict
             conflicting_route_ids.add(route_id)
@@ -2036,11 +2144,14 @@ def compare_alternative_routes(
         item = next(iter(canonical.values()))
         overlap = _parse_non_negative_number(item.get("syllabus_overlap"))
         effort = _parse_non_negative_number(item.get("effort_hours"))
-        eligibility_known = _usable_scalar_string(
+        eligibility = _classify_eligibility(
             item.get("eligibility", item.get("eligibility_state"))
         )
         call_state = _usable_scalar_string(item.get("call_state"))
-        if eligibility_known is None:
+        if eligibility in _ELIGIBILITY_UNRESOLVED:
+            # missing/unknown/conditional/malformed eligibility keeps the route
+            # decision-relevant but unresolved; it is never silently treated as
+            # a known-ineligible route.
             conditional_requirements.append(route_id)
         else:
             evaluated_routes.append(
@@ -2048,7 +2159,7 @@ def compare_alternative_routes(
                     "route_id": route_id,
                     "syllabus_overlap": overlap,
                     "effort_hours": effort,
-                    "eligibility": eligibility_known,
+                    "eligibility": eligibility,
                     "call_state": call_state or "unknown",
                     "ranking": 0,
                 }
@@ -2058,7 +2169,7 @@ def compare_alternative_routes(
 
     trade_offs: list[dict] = []
     # Prefer best-fit by syllabus overlap (a preference) only after hard
-    # constraints are met; eligibility_known != "eligible" is a hard blocker.
+    # constraints are met; eligibility != "eligible" is a hard blocker.
     eligible_routes = [
         route
         for route in evaluated_routes
@@ -2072,10 +2183,12 @@ def compare_alternative_routes(
                 route["syllabus_overlap"] if route["syllabus_overlap"] is not None else -1
             ),
         )
-    # A conflicting alternative identity makes the comparison unresolved: no
-    # definitive recommendation may be emitted from the remaining alternatives.
+    # A conflicting alternative identity OR an unresolved conditional route
+    # requirement makes the comparison unresolved: no definitive
+    # recommendation may be emitted from the remaining known subset.
     has_conflict = bool(conflicting_route_ids)
-    if has_conflict:
+    has_conditional = bool(conditional_requirements)
+    if has_conflict or has_conditional:
         best_eligible = None
     for route in sorted(evaluated_routes, key=lambda r: r["route_id"]):
         eligible = route["eligibility"] == "eligible"
@@ -2094,7 +2207,11 @@ def compare_alternative_routes(
             }
         )
 
-    resolved = not malformed_route_member and not has_conflict
+    resolved = (
+        not malformed_route_member
+        and not has_conflict
+        and not has_conditional
+    )
 
     return {
         "resolved": resolved,
@@ -2470,8 +2587,14 @@ class SyllabusCoverageRule:
             message=(
                 "Syllabus coverage is complete."
                 if record["complete"]
-                else "Syllabus coverage is not complete (pending/unknown topics "
-                "or unresolved syllabus version)."
+                else (
+                    "Syllabus coverage is incomplete due to topic conflict "
+                    f"({record['conflicting_count']} conflicting topic(s)); "
+                    "conflicting coverage cannot claim completeness."
+                    if record["conflicting_count"] > 0
+                    else "Syllabus coverage is not complete (pending/unknown "
+                    "topics or unresolved syllabus version)."
+                )
             ),
             severity=(
                 ReasoningSeverity.INFO
@@ -2482,6 +2605,9 @@ class SyllabusCoverageRule:
             domain_id=self.definition.domain_id,
             metadata={
                 "complete": record["complete"],
+                "conflicting_count": record["conflicting_count"],
+                "conflicting_topics": record["conflicting_topics"],
+                "conflict_blocks_complete": record["conflict_blocks_complete"],
                 "studied_count": record["studied_count"],
                 "pending_count": record["pending_count"],
                 "unknown_count": record["unknown_count"],
@@ -2552,6 +2678,7 @@ class StudyFeasibilityRule:
                 "unmet_hard_constraints": record["unmet_hard_constraints"],
                 "capacity_hours": record["capacity_hours"],
                 "capacity_source": record["capacity_source"],
+                "capacity_sources": record["capacity_sources"],
                 "proposal_only": True,
                 "adopted_plan": False,
                 "clinical_details_consumed": False,
@@ -2603,9 +2730,11 @@ class MockExamInterpretationRule:
                 "observation_count": record["observation_count"],
                 "trend_state": record["trend_state"],
                 "trend_inferred": record["trend_inferred"],
+                "trend_slope": record["trend_slope"],
                 "conflicting_identity_count": record["conflicting_identity_count"],
                 "conflicting_identity_ids": record["conflicting_identity_ids"],
                 "chronology_unknown": record["chronology_unknown"],
+                "chronology_ambiguous": record["chronology_ambiguous"],
                 "one_mock_is_trend": False,
                 "capacity_inferred": False,
                 "pass_guaranteed": False,

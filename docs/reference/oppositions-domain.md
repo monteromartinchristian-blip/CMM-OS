@@ -295,8 +295,7 @@ phase-10.23 verification ladder.
 
 ## DP-023 status
 
-`Implemented, pending Independent Audit V3` — versioned strategy and constraints,
+`Implemented, pending final independent closure audit` — versioned strategy and constraints,
 official-source verification, milestones and sequencing, trade-off analysis, and
 realistic study planning are implemented; external official-source connectors are
-deferred. Independent re-audit acceptance is a later workflow and is not claimed
-here.
+deferred. The failure of the final independent closure audit is not claimed here.

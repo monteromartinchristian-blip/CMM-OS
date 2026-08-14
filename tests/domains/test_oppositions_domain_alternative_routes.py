@@ -40,6 +40,11 @@ def test_missing_official_requirements_leave_comparison_conditional():
         primary=_route("primary"), alternatives=(alt,)
     )
     assert "alt1" in result["conditional_requirements"]
+    # a decision-relevant route with missing eligibility keeps the comparison
+    # unresolved; no definitive recommendation may be emitted from the known
+    # subset only.
+    assert result["resolved"] is False
+    assert result["recommendation"] is None
 
 
 def test_route_with_stale_call_remains_stale():

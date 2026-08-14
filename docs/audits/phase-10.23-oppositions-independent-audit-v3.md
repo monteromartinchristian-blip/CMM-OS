@@ -776,3 +776,243 @@ V3-M1
 ```
 
 followed by one final independent closure audit.
+
+---
+
+# Remediation V3
+
+Implemented as commit `fix(domains): close phase 10.23 audit v3 findings`.
+
+Root causes and fixes follow.  Every finding started from a TDD RED regression
+against the committed `839a305` state, then a focused production fix, then a
+GREEN re-run of the exact RED, then nearby suites.
+
+## V3-I1 — Syllabus conflict survives the canonical `SyllabusCoverageRule`
+
+**Root cause**
+
+`SyllabusCoverageRule.evaluate(...)` returned finding metadata without the
+structured conflict fields the helper already exposes
+(`conflicting_count`, `conflicting_topics`, `conflict_blocks_complete`) and
+emitted one generic incomplete message for every incomplete state, collapsing
+`conflict / pending / unknown / version unresolved` into a single reason.
+
+**RED tests**
+
+```text
+test_syllabus_rule_preserves_conflict_metadata
+test_syllabus_conflict_message_distinct_from_normal_pending
+test_syllabus_ordinary_pending_does_not_falsely_report_conflict
+```
+
+Against committed `839a305` these failed (the Rule finding had no
+`conflicting_*` fields and no `conflict` message marker).
+
+**Production fix**
+
+`SyllabusCoverageRule` now propagates
+`conflicting_count`, `conflicting_topics`, `conflict_blocks_complete`,
+`complete` and `dimensions` into finding metadata, and selects a conflict-
+specific WARNING message when `conflicting_count > 0` so a real contradiction
+is never flattened into ordinary pending/unknown coverage.
+
+**GREEN**
+
+All three RED tests pass against the fixed production; `test_syllabus_coverage_rule_preserves_conflict` (V2 closure) was strengthened to assert the explicit conflict fields, not merely `complete=False`/WARNING.
+
+**Adversarial gate**
+
+```text
+SYLLABUS_RULE_GATE: PASS
+```
+
+**status = FIXED IN REMEDIATION V3**
+
+## V3-I2 — Strict temporal ordering required for a directional trend
+
+**Root cause**
+
+After chronology normalization, trend inference sorted comparable
+observations and computed `last - first` slope without requiring at least two
+**distinct** normalized temporal instants.  Equal timestamps could therefore
+manufacture a directional trend from deterministic record ordering instead of
+temporal progression.
+
+**RED tests**
+
+```text
+test_same_instant_offset_equivalent_mocks_do_not_create_trend
+test_same_date_only_mocks_do_not_create_trend
+test_three_mocks_with_duplicate_timestamp_deterministic_no_trend
+test_equal_time_exact_duplicates_do_not_imply_temporal_progression
+test_same_time_mock_permutations_preserve_semantic_result
+test_mock_rule_propagates_chronology_ambiguous
+```
+
+**Production fix**
+
+`evaluate_mock_performance` now groups comparable observations by normalized
+timestamp instant and only infers a trend when there are at least two distinct
+instants and no timestamp holds materially different scores.  A timestamp
+group with multiple materially different observations is temporally ambiguous
+for direction (exposed as `chronology_ambiguous`, propagated through
+`MockExamInterpretationRule` metadata); a start/end endpoint is never chosen
+by identity/input ordering.  The strictly ordered normal case still infers a
+trend, so the fix narrows only the ambiguous/equal-time surface.
+
+**GREEN**
+
+All RED tests pass.  `test_multiple_comparable_mocks_can_establish_trend`
+(distinct dates, slope) and the full V2 closure mock suite remain green.
+
+**Adversarial gate**
+
+```text
+STRICT_TEMPORAL_ORDER_GATE: PASS
+PERMUTATION_GATE: PASS
+```
+
+**status = FIXED IN REMEDIATION V3**
+
+## V3-I3 — Conditional/unknown route requirements keep comparison unresolved
+
+**Root cause**
+
+`compare_alternative_routes` recorded missing-eligibility routes in
+`conditional_requirements` but computed `resolved` from only malformed/conflict
+state, so a comparison could return `conditional_requirements=("alt1",)`
+together with `resolved=True`.  Additionally any non-empty eligibility string
+was treated as a known (in)eligible state, so `"unknown"`, `"conditional"` and
+arbitrary text silently behaved as a documented ineligible route.
+
+**RED tests**
+
+```text
+test_missing_eligibility_keeps_comparison_unresolved
+test_explicit_unknown_eligibility_keeps_comparison_unresolved
+test_explicit_conditional_eligibility_keeps_comparison_unresolved
+test_arbitrary_eligibility_string_fails_closed
+test_mixed_eligible_plus_conditional_suppresses_recommendation
+test_canonical_alternative_rule_preserves_conditional_state
+test_eligible_and_ineligible_still_normal
+```
+
+**Production fix**
+
+A closed eligibility classifier (`_classify_eligibility`) conservatively maps
+raw values into `eligible / ineligible / unknown / conditional / missing /
+malformed`, keeping the canonical `eligible`/`ineligible` strings.  Only
+`eligible`/`ineligible` are decisive; any
+unknown/conditional/missing/malformed route is added to
+`conditional_requirements` and is never silently ranked as a known-ineligible
+route.  `resolved` is now `False` whenever a decision-relevant route's
+eligibility is unresolved, so a `conditional_requirements` non-empty state
+forces `resolved=False`, suppresses the recommendation, and the canonical
+`AlternativeRouteRule` emits a conditional/unresolved WARNING.
+
+**GREEN**
+
+All RED tests pass.  `test_missing_official_requirements_leave_comparison_conditional` (alternative routes) was strengthened to assert
+`resolved=False` and `recommendation=None`.  Normal eligible/ineligible
+behavior and the V2 closure suite remain green.
+
+**Adversarial gate**
+
+```text
+ELIGIBILITY_CLOSED_SET_GATE: PASS
+```
+
+**status = FIXED IN REMEDIATION V3**
+
+## V3-M1 — Truthful University/composite capacity provenance
+
+**Root cause**
+
+`capacity_source` was updated when Health (or the user) bound capacity but not
+when University availability/workload further constrained it, so composed
+constraints could report an incomplete/lying single source (e.g. `"user"` or
+`"health"`).
+
+**RED tests**
+
+```text
+test_user_only_provenance_tracks_user
+test_university_availability_bound_provenance_tracks_university
+test_university_workload_reduction_provenance_tracks_university
+test_health_plus_university_composed_provenance_truthful
+test_capacity_provenance_is_json_safe
+test_study_feasibility_rule_preserves_capacity_provenance
+```
+
+**Production fix**
+
+`evaluate_study_feasibility` now tracks the sources that materially determined
+the final capacity and exposes a deterministic `capacity_sources` tuple
+(`user`/`health`/`university`, in the staged pipeline order) alongside the
+legacy `capacity_source` scalar, which becomes `composed` when multiple sources
+bind.  `StudyFeasibilityRule` preserves the full provenance.  The numeric
+result is unchanged; existing user-only / wider/equal-Health provenance
+assertions (e.g. `capacity_source == "user"`) are preserved.  The one V2
+cross-domain composition test that previously asserted a single
+`capacity_source == "user"` for a workload-reduced composite was corrected to
+assert the truthful composed provenance.
+
+**GREEN**
+
+All RED tests pass; the V2 closure suite remains green after the provenance
+correction.
+
+**Adversarial gate**
+
+```text
+PROVENANCE_GATE: PASS
+JSON_GATE: PASS
+```
+
+**status = FIXED IN REMEDIATION V3**
+
+## Permanent V3 closure regressions
+
+```text
+tests/domains/test_oppositions_domain_audit_v3_closure.py
+```
+
+A narrow permanent suite covering the four V3 edge contracts (V3-I1, V3-I2,
+V3-I3, V3-M1) plus the JSON/permutation/no-exception gates.
+
+## Verification after remediation
+
+```text
+pytest V2+V3 closure: green
+pytest Opposition suite: 294 passed
+pytest Domains suite: 4820 passed
+Ruff / Ruff py310: green
+compileall: green
+fresh import: green
+diff --check: green
+```
+
+Adversarial gate:
+
+```text
+V3-I1 PASS
+V3-I2 PASS
+V3-I3 PASS
+V3-M1 PASS
+SYLLABUS_RULE_GATE PASS
+STRICT_TEMPORAL_ORDER_GATE PASS
+ELIGIBILITY_CLOSED_SET_GATE PASS
+PROVENANCE_GATE PASS
+PERMUTATION_GATE PASS
+JSON_GATE PASS
+NO_EXCEPTION_GATE PASS
+ALL_PASS=true
+```
+
+Current state:
+
+```text
+Phase 10.23 — Implemented, pending final independent closure audit
+```
+
+The final independent closure audit remains external.

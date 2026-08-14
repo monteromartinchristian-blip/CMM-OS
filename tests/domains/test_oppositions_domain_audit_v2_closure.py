@@ -263,6 +263,9 @@ def test_syllabus_coverage_rule_preserves_conflict():
     assert result.status is ReasoningRuleResultStatus.APPLIED
     finding = result.findings[0]
     assert finding.metadata["complete"] is False
+    assert finding.metadata["conflicting_count"] == 1
+    assert finding.metadata["conflicting_topics"] == ("t1",)
+    assert finding.metadata["conflict_blocks_complete"] is True
     assert finding.severity is ReasoningSeverity.WARNING
 
 
@@ -318,7 +321,11 @@ def test_cross_domain_most_restrictive_composition():
                                "workload_hours": 2},
     )
     assert record["capacity_hours"] == 6
-    assert record["capacity_source"] == "user"
+    # V3-M1: provenance must be truthful.  The user 8 is the binding base and
+    # the University workload (2) materially reduced it to 6; Health (20) never
+    # bound.  A single-source "user" label would hide the University reduction.
+    assert record["capacity_source"] == "composed"
+    assert record["capacity_sources"] == ("user", "university")
 
 
 def test_cross_domain_unauthorized_does_not_transfer():
