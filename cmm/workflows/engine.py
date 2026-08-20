@@ -128,15 +128,17 @@ class WorkflowEngine:
         state: dict[str, Any] = dict(self._definition.metadata or {})
         if isinstance(run.inputs, Mapping):
             state.update(dict(run.inputs))
-        # Track per-field observed values across dependency outputs so we can
-        # detect conflict for the specific fields declared by the condition
+        # Track per-field observed values across declared dependency outputs so
+        # we can detect conflict for the specific fields declared by the condition
         # (not every incidental output field such as ``operation_id``) instead
-        # of silently masking disagreement via last-wins.
+        # of silently masking disagreement via last-wins.  Unrelated completed
+        # nodes outside node.dependencies must not satisfy or conflict with the gate.
         observed: dict[str, list[Any]] = {}
-        for node_id, node_output in outputs.items():
-            if isinstance(node_output, Mapping):
-                state.setdefault(node_id, node_output)
-                for field, value in node_output.items():
+        for dep_id in (node.dependencies or ()):
+            dep_output = outputs.get(dep_id)
+            if isinstance(dep_output, Mapping):
+                state.setdefault(dep_id, dep_output)
+                for field, value in dep_output.items():
                     if field in condition:
                         if field in observed:
                             observed[field].append(value)

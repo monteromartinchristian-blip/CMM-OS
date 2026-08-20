@@ -6,13 +6,14 @@
 
 ## Status
 
-Phase 10.24 — Implemented, pending independent audit V3.
+Phase 10.24 — Implemented, pending independent audit V4.
 
 This is the implementation-side status. Independent audit V1 findings were
-remediated (V1-I1..V1-I9, V1-M1). Independent audit V2 identified five
-Important findings (V2-I1..V2-I5); these have been remediated and permanently
-encoded in `tests/domains/test_reflection_domain_audit_v2_closure.py`. Audit V3
-closure remains a separate lifecycle event and is not claimed here.
+remediated (V1-I1..V1-I9, V1-M1). Independent audit V2 findings were
+remediated (V2-I1..V2-I5). Independent audit V3 identified five findings
+(V3-I1..V3-I4, V3-M1); these have been remediated and permanently encoded in
+`tests/domains/test_reflection_domain_audit_v3_closure.py`. Audit V4 closure
+remains a separate lifecycle event and is not claimed here.
 
 ## Overview
 

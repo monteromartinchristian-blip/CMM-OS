@@ -90,16 +90,95 @@ def test_no_permission_widening_from_primitive_matrix():
         assert record["persistence_state"] != "confirmed"
     assert permission_authorization_allows(True) is True
     assert authorizes_confirmation(True) is True
+    from cmm.domains.memory_contracts import (
+        DomainMemoryApprovalRequestSnapshot,
+        DomainMemoryCapability,
+        DomainMemoryPermissionDecisionSnapshot,
+        DomainMemoryReference,
+        DomainMemoryReferenceInventory,
+        DomainMemoryReferenceKind,
+        DomainMemorySensitivityLevel,
+        DomainMemoryTraceSnapshot,
+        DomainMemoryViewSnapshot,
+    )
+    from cmm.domains.reflection.memory import (
+        build_reflection_memory_binding,
+        build_reflection_memory_proposal,
+        build_reflection_memory_view,
+        build_reflection_memory_view_request,
+    )
+
+    def _make_adv_chain(prop_id="prop-adv-1", approved=True):
+        ref = DomainMemoryReference(
+            reference_id=f"ref:{prop_id}",
+            kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+            canonical_id=f"item:{prop_id}",
+            domain_id="domain:reflection",
+            applicable_domains=("domain:reflection",),
+            evidence_ids=("ev:1",),
+            resource_ids=("res:1",),
+        )
+        permission = DomainMemoryPermissionDecisionSnapshot(
+            decision_id=f"perm:{prop_id}",
+            allowed=True,
+            capabilities=(DomainMemoryCapability.PROPOSE,),
+            source_domain_id="domain:reflection",
+            target_domain_id="domain:reflection",
+            sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+        )
+        view_request = build_reflection_memory_view_request(
+            request_id=f"req:{prop_id}",
+            trace_id=f"trace:{prop_id}",
+            requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+            candidates=(ref,),
+            permission_decision_ids=(f"perm:{prop_id}",),
+        )
+        proposal = build_reflection_memory_proposal(
+            proposal_id=prop_id,
+            affected_reference_ids=(f"ref:{prop_id}",),
+        )
+        temp_inv = DomainMemoryReferenceInventory(
+            references=(ref,),
+            traces=(DomainMemoryTraceSnapshot(trace_id=f"trace:{prop_id}", primary_domain="domain:reflection"),),
+            permission_decisions=(permission,),
+        )
+        view = build_reflection_memory_view(request=view_request, inventory=temp_inv)
+        binding = build_reflection_memory_binding(
+            proposal=proposal,
+            view=view,
+            trace_id=f"trace:{prop_id}",
+            permission_decision_ids=(f"perm:{prop_id}",),
+            approval_request_ids=(f"appr-req:{prop_id}",),
+            approval_decision_ids=(f"appr-dec:{prop_id}",),
+        )
+        inv = DomainMemoryReferenceInventory(
+            references=(ref,),
+            proposals=(proposal,),
+            permission_decisions=(permission,),
+            approval_requests=(DomainMemoryApprovalRequestSnapshot(request_id=f"appr-req:{prop_id}", proposal_id=prop_id),),
+            approval_decisions=(DomainMemoryApprovalDecisionSnapshot(decision_id=f"appr-dec:{prop_id}", request_id=f"appr-req:{prop_id}", approved=approved),),
+            traces=(DomainMemoryTraceSnapshot(trace_id=f"trace:{prop_id}", primary_domain="domain:reflection"),),
+            views=(DomainMemoryViewSnapshot(view_id=view.view_id, request_id=view.request_id, primary_domain=view.primary_domain, trace_id=view.trace_id, view_digest=view.content_digest),),
+        )
+        return binding, inv
+
     # raw True alone is NOT a complete shared confirmation contract (V1-I4);
     # only a shared confirmation reference + grounded provenance confirms.
     assert classify_persistence(
         {"pattern": "probe", "sources": ("s1",)}, confirmation=True
     )["confirmed"] is False
+    # Standalone snapshot alone does not confirm
     assert classify_persistence(
         {"pattern": "probe", "sources": ("msg:1",)},
         confirmation=DomainMemoryApprovalDecisionSnapshot(
             decision_id="d-abc", request_id="r-abc", approved=True
         ),
+    )["confirmed"] is False
+    adv_binding, adv_inv = _make_adv_chain("prop-adv-1", approved=True)
+    assert classify_persistence(
+        {"proposal_id": "prop-adv-1", "pattern": "probe", "sources": ("msg:1",)},
+        confirmation_binding=adv_binding,
+        confirmation_inventory=adv_inv,
     )["confirmed"] is True
 
 
@@ -206,11 +285,85 @@ def test_persistence_gate():
         {"pattern": "probe-persistent", "sources": ("m1",)},
         confirmation=True,
     )["confirmed"] is False
+    # Standalone snapshot alone does not confirm
     assert classify_persistence(
         {"pattern": "probe-persistent", "sources": ("msg:1",)},
         confirmation=DomainMemoryApprovalDecisionSnapshot(
             decision_id="d-abc", request_id="r-abc", approved=True
         ),
+    )["confirmed"] is False
+    from cmm.domains.memory_contracts import (
+        DomainMemoryApprovalRequestSnapshot,
+        DomainMemoryCapability,
+        DomainMemoryPermissionDecisionSnapshot,
+        DomainMemoryReference,
+        DomainMemoryReferenceInventory,
+        DomainMemoryReferenceKind,
+        DomainMemorySensitivityLevel,
+        DomainMemoryTraceSnapshot,
+        DomainMemoryViewSnapshot,
+    )
+    from cmm.domains.reflection.memory import (
+        build_reflection_memory_binding,
+        build_reflection_memory_proposal,
+        build_reflection_memory_view,
+        build_reflection_memory_view_request,
+    )
+    ref = DomainMemoryReference(
+        reference_id="ref:prop-adv-gate",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="item:prop-adv-gate",
+        domain_id="domain:reflection",
+        applicable_domains=("domain:reflection",),
+        evidence_ids=("ev:1",),
+        resource_ids=("res:1",),
+    )
+    permission = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:prop-adv-gate",
+        allowed=True,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id="domain:reflection",
+        target_domain_id="domain:reflection",
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    view_request = build_reflection_memory_view_request(
+        request_id="req:prop-adv-gate",
+        trace_id="trace:prop-adv-gate",
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(ref,),
+        permission_decision_ids=("perm:prop-adv-gate",),
+    )
+    proposal = build_reflection_memory_proposal(
+        proposal_id="prop-adv-gate",
+        affected_reference_ids=("ref:prop-adv-gate",),
+    )
+    temp_inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        traces=(DomainMemoryTraceSnapshot(trace_id="trace:prop-adv-gate", primary_domain="domain:reflection"),),
+        permission_decisions=(permission,),
+    )
+    view = build_reflection_memory_view(request=view_request, inventory=temp_inv)
+    binding = build_reflection_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id="trace:prop-adv-gate",
+        permission_decision_ids=("perm:prop-adv-gate",),
+        approval_request_ids=("appr-req:prop-adv-gate",),
+        approval_decision_ids=("appr-dec:prop-adv-gate",),
+    )
+    inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        proposals=(proposal,),
+        permission_decisions=(permission,),
+        approval_requests=(DomainMemoryApprovalRequestSnapshot(request_id="appr-req:prop-adv-gate", proposal_id="prop-adv-gate"),),
+        approval_decisions=(DomainMemoryApprovalDecisionSnapshot(decision_id="appr-dec:prop-adv-gate", request_id="appr-req:prop-adv-gate", approved=True),),
+        traces=(DomainMemoryTraceSnapshot(trace_id="trace:prop-adv-gate", primary_domain="domain:reflection"),),
+        views=(DomainMemoryViewSnapshot(view_id=view.view_id, request_id=view.request_id, primary_domain=view.primary_domain, trace_id=view.trace_id, view_digest=view.content_digest),),
+    )
+    assert classify_persistence(
+        {"proposal_id": "prop-adv-gate", "pattern": "probe-persistent", "sources": ("msg:1",)},
+        confirmation_binding=binding,
+        confirmation_inventory=inv,
     )["confirmed"] is True
     assert classify_persistence(
         {"pattern": "probe-persistent", "sources": ("m1",)}, confirmation=1

@@ -214,3 +214,87 @@ def test_validate_gate_passes_when_dependencies_agree():
         z_output={"safe": True},
     )
     assert result.run.status is WorkflowRunStatus.COMPLETED
+
+
+# ── Phase 10.24 Audit V3-I1: dependency-scoped VALIDATE ───────────────────────
+
+
+def _make_unrelated_node_definition(*, validate_condition, metadata=None):
+    return WorkflowDefinition(
+        "validate.gate.v3", "1.0.0", "ValidateGateV3",
+        nodes=(
+            WorkflowNode("unrelated", "execute_operation", "Unrelated",
+                         operation_id="op.unrelated", operation_version="1.0.0"),
+            WorkflowNode("producer", "execute_operation", "Producer",
+                         operation_id="op.producer", operation_version="1.0.0"),
+            WorkflowNode("validate", "validate", "Validate",
+                         dependencies=("producer",),
+                         wait_condition=validate_condition),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("validate",)),
+        ),
+        metadata=metadata or {},
+    )
+
+
+def _run_with_unrelated(validate_condition, *, unrelated_output, producer_output, metadata=None):
+    def adapter(node, run):
+        if node.node_id == "unrelated":
+            return NodeExecution.complete(unrelated_output)
+        if node.node_id == "producer":
+            return NodeExecution.complete(producer_output)
+        return NodeExecution.complete({"ok": True})
+
+    engine = WorkflowEngine(
+        _make_unrelated_node_definition(
+            validate_condition=validate_condition,
+            metadata=metadata,
+        ),
+        id_factory=lambda: "run-v3",
+        clock=lambda: datetime.now(timezone.utc),
+        node_adapter=adapter,
+    )
+    return engine.start({})
+
+
+def test_validate_gate_unrelated_node_cannot_satisfy_missing_dependency():
+    """Unrelated completed node output must NOT satisfy a condition for an independent gate."""
+    result = _run_with_unrelated(
+        {"safe": True},
+        unrelated_output={"safe": True},
+        producer_output={"other": "value"},
+    )
+    assert result.run.status is not WorkflowRunStatus.COMPLETED
+    assert result.run.error_code == "validate.condition_unknown"
+
+
+def test_validate_gate_unrelated_node_cannot_manufacture_conflict():
+    """Unrelated completed node output must NOT conflict with declared dependency."""
+    result = _run_with_unrelated(
+        {"safe": True},
+        unrelated_output={"safe": False},
+        producer_output={"safe": True},
+    )
+    assert result.run.status is WorkflowRunStatus.COMPLETED
+
+
+def test_validate_gate_declared_dependency_overrides_conflicting_metadata():
+    """Declared dependency output overrides conflicting metadata default."""
+    result = _run_with_unrelated(
+        {"safe": True},
+        unrelated_output={"other": 1},
+        producer_output={"safe": True},
+        metadata={"safe": False},
+    )
+    assert result.run.status is WorkflowRunStatus.COMPLETED
+
+
+def test_validate_gate_preserves_static_metadata_condition():
+    """Workflow metadata condition is preserved when declared dependency does not override."""
+    result = _run_with_unrelated(
+        {"static_flag": True},
+        unrelated_output={"other": 1},
+        producer_output={"producer_data": "abc"},
+        metadata={"static_flag": True},
+    )
+    assert result.run.status is WorkflowRunStatus.COMPLETED
+

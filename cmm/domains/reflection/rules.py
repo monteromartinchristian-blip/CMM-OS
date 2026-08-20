@@ -340,6 +340,23 @@ DIAGNOSTIC_TERMS: tuple[str, ...] = (
 # language.  This is NOT a clinical classifier; it is a closed vocabulary whose
 # presence forces the statement into a prohibited/unsafe representation rather
 # than a clean non-diagnostic hypothesis.
+_TENTATIVE_HYPOTHESIS_MARKERS: tuple[str, ...] = (
+    "may ",
+    "might ",
+    "could ",
+    "possibly",
+    "one possibility",
+    "no basis to conclude",
+    "podría",
+    "podria",
+    "puede que",
+    "quizá",
+    "quiza",
+    "tal vez",
+    "una posibilidad",
+    "no hay base para concluir",
+)
+
 _DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
     "disorder",
     "diagnosis",
@@ -356,9 +373,15 @@ _DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
     "schizophren",
     "psychotic",
     "depressive",
+    "depression",
     "delusional",
     "personality",
     "attachment",
+    "disordered",
+    "anxiety",
+    "emotionally dependent",
+    "emotional dependence",
+    "toxic",
     # Spanish diagnostic / fixed-classification stems (spec §15, §29).
     "trastorno",
     "trastornos",
@@ -369,60 +392,111 @@ _DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
     "sociopata",
     "sociópata",
     "esquizofrenia",
-    "psicópata",
+    "esquizofren",
     "psicotico",
     "psicótica",
+    "psicótico",
     "manipulador",
     "manipuladora",
     "manipuladores",
+    "depresión",
+    "depresion",
+    "depresivo",
+    "depresiva",
+    "ansiedad",
+    "dependencia emocional",
+    "dependiente",
+    "apego",
+    "evitativo",
+    "evitativa",
+    "tóxic",
+    "toxic",
 )
 
-_IDENTITY_CLASSIFICATION_PREFIXES: tuple[str, ...] = (
+_DIRECT_CLASSIFICATION_PATTERNS: tuple[str, ...] = (
     "you are a",
     "you are an",
     "you are the",
     "you are definitely",
+    "you are emotionally",
+    "you are ",
     "you have a",
     "you have an",
     "you definitely have",
     "you certainly have",
-    # Spanish identity-classification prefixes.
+    "you have ",
+    "you suffer from",
+    "your attachment is",
+    "your attachment style is",
+    "your attachment pattern is",
+    "is a toxic person",
+    "is toxic by nature",
+    "their real motive is",
+    "his real motive is",
+    "her real motive is",
+    "the real motive is",
+    "presentas un cuadro",
+    # Spanish identity-classification prefixes and direct patterns.
     "eres un",
     "eres una",
     "eres el",
     "eres la",
+    "eres ",
     "tienes un",
     "tienes una",
     "tienes el",
     "tienes la",
     "tienes trastorno",
-    "es un",
-    "es una",
+    "tienes ",
+    "padeces ",
+    "sufres de ",
+    "sufre de ",
+    "es un ",
+    "es una ",
+    "es una persona tóxica",
+    "es una persona toxica",
+    "es una persona ",
     "soy un",
     "soy una",
+    "soy ",
+    "tu apego es ",
+    "su apego es ",
+    "su personalidad es ",
+    "su motivo real es ",
 )
 
 
 def _diagnostic_signal(statement: Any) -> bool:
     """Deterministically detect diagnostic/identity-classification language.
 
-    A statement is flagged when it contains a known diagnostic token stem or a
-    fixed-identity classification prefix followed by a diagnostic stem.  This is
-    a narrow closed-vocabulary safety boundary, not a clinical classifier; its
-    purpose is to force prohibited wording out of the safe non-diagnostic
-    hypothesis representation (spec §15, §29, §41 NoForcedConclusion).
+    Evaluates:
+    1. Tentative framing check: if tentative language (e.g. 'podría', 'may',
+       'una posibilidad') is used without explicit assertive diagnostic claim,
+       it is preserved as a safe tentative hypothesis.
+    2. Diagnostic token stems (English and Spanish).
+    3. Direct personality/attachment/condition/motive assertive classifications
+       (e.g., 'Padeces...', 'Eres...', 'Tu apego es...', 'You suffer from...',
+       'Your attachment is...').
     """
     text = _usable_scalar_string(statement)
     if text is None:
         return False
     lowered = " " + text.lower() + " "
-    for stem in _DIAGNOSTIC_TOKEN_STEMS:
-        if stem in lowered:
-            return True
-    for prefix in _IDENTITY_CLASSIFICATION_PREFIXES:
-        if prefix in lowered:
-            return True
-    return False
+
+    is_tentative = any(tent in lowered for tent in _TENTATIVE_HYPOTHESIS_MARKERS)
+    has_direct_pattern = any(pat in lowered for pat in _DIRECT_CLASSIFICATION_PATTERNS)
+    has_diagnostic_stem = any(stem in lowered for stem in _DIAGNOSTIC_TOKEN_STEMS)
+
+    if is_tentative:
+        # Tentative framing shields from classification unless it directly asserts a diagnosis/disorder
+        return bool(
+            "trastorno" in lowered
+            or "disorder" in lowered
+            or "diagnos" in lowered
+            or "esquizofren" in lowered
+        )
+
+    return has_direct_pattern or has_diagnostic_stem
 
 
 # Structural certainty/forced-conclusion markers (spec §13, §41).  These are
@@ -435,13 +509,18 @@ _CERTAINTY_MARKERS: tuple[str, ...] = (
     "definitively",
     "obviously",
     "certainly",
+    "certainty",
     "undeniably",
     "unquestionably",
     "without a doubt",
+    "beyond doubt",
     "no doubt",
-    "proves ",
-    "prove ",
-    "proven ",
+    "there is no doubt",
+    "there can be no doubt",
+    "proves",
+    "prove",
+    "proven",
+    "proves beyond doubt",
     "the real cause is",
     "the real reason is",
     "the real cause",
@@ -455,9 +534,31 @@ _CERTAINTY_MARKERS: tuple[str, ...] = (
     "esto demuestra",
     "demuestra que",
     "sin duda",
+    "sin ninguna duda",
+    "sin lugar a dudas",
+    "no hay duda",
+    "no hay ninguna duda",
+    "no cabe duda",
+    "indudablemente",
+    "necesariamente",
+    "certeza",
+    "certeza absoluta",
+    "tengo la certeza",
+    "tengo la seguridad",
+    "completamente seguro",
+    "seguro de que",
     "obviamente",
     "definitivamente",
     "es un hecho que",
+    "la causa real es",
+    "la única causa",
+    "la unica causa",
+    "la única explicación",
+    "la unica explicacion",
+    "es evidente que",
+    "está claro que",
+    "esta claro que",
+    "es indudable que",
     "the fact is",
     "it is a fact that",
     "i am broken",
@@ -466,6 +567,16 @@ _CERTAINTY_MARKERS: tuple[str, ...] = (
     "is a narcissist",
     "soy una persona narcisista",
     "es una persona narcisista",
+)
+
+CONCLUSION_FIELDS: tuple[str, ...] = (
+    "conclusion",
+    "conclusion_text",
+    "final_conclusion",
+    "summary_conclusion",
+    "asserted_conclusion",
+    "recommendation",
+    "decision",
 )
 
 
@@ -477,8 +588,10 @@ def _certainty_signal(text: str) -> str | None:
     any larger free-text phrase list.
     """
     lowered = " " + (text or "").lower() + " "
+    import re
+    cleaned = re.sub(r"[^\w\s]", " ", lowered)
     for marker in _CERTAINTY_MARKERS:
-        if marker in lowered:
+        if marker in lowered or marker in cleaned:
             return marker
     return None
 
@@ -579,6 +692,22 @@ def evaluate_hypotheses(
         if identity is None:
             identity = _usable_scalar_string(entry.get("id")) or "unknown"
         key = (identity, statement)
+        explicit_diag = (
+            _boolean_true(entry.get("diagnostic"))
+            or _boolean_true(entry.get("restricted_inference"))
+        )
+        kind = _usable_scalar_string(entry.get("classification_kind"))
+        if kind in {
+            "diagnosis",
+            "mental_health_diagnosis",
+            "personality_classification",
+            "attachment_classification",
+            "stable_identity_classification",
+            "fixed_motive_classification",
+            "moral_character_classification",
+        }:
+            explicit_diag = True
+
         if key in merged:
             previous = merged[key]
             previous["supporting_ids"] = sorted(
@@ -588,6 +717,9 @@ def evaluate_hypotheses(
             previous["counterevidence_ids"] = sorted(
                 set(previous["counterevidence_ids"])
                 | set(_usable_string_items(entry.get("counterevidence_ids")))
+            )
+            previous["explicit_diagnostic"] = (
+                bool(previous.get("explicit_diagnostic", False)) or explicit_diag
             )
             continue
         for (existing_identity, existing_statement) in merged:
@@ -605,6 +737,7 @@ def evaluate_hypotheses(
             "uncertainty": _finite_number(entry.get("uncertainty")),
             "scope": _usable_scalar_string(entry.get("scope")),
             "temporal": _usable_scalar_string(entry.get("temporal")),
+            "explicit_diagnostic": explicit_diag,
         }
 
     ordered_keys = sorted(merged)
@@ -677,7 +810,10 @@ def evaluate_hypotheses(
 
     hypotheses_out = []
     for record in records:
-        diagnostic = _diagnostic_signal(record["statement"])
+        diagnostic = (
+            bool(record.get("explicit_diagnostic", False))
+            or _diagnostic_signal(record["statement"])
+        )
         hypotheses_out.append(
             {
                 "identity": record["identity"],
@@ -752,12 +888,13 @@ def no_forced_conclusion_policy(result: Any) -> dict:
 
     A result that is unresolved (or missing a conclusion) may complete
     successfully only as long as no unsupported-certainty / forced-conclusion
-    language is present.  Detection is structural: a closed certainty lexicon
-    (including multilingual variants) plus the legacy phrase list, so
-    multilingual/free-text wording cannot bypass the safety state.  When the
-    result is unresolved and unsupported certainty appears, it is flagged as a
-    forced conclusion and the offending markers are listed; it must not be
-    presented as a clean resolved conclusion.
+    language or structural certainty/adoption is present.
+
+    Enforcement is scoped to actual system conclusion / decision surfaces
+    (e.g., 'conclusion', 'final_conclusion', 'summary_conclusion',
+    'asserted_conclusion', 'recommendation', 'decision').  Quoted evidence,
+    observations, source text, user messages, and journal entries are NOT
+    system conclusions and do not trigger a forced conclusion.
     """
     if not isinstance(result, Mapping):
         return {
@@ -770,20 +907,68 @@ def no_forced_conclusion_policy(result: Any) -> dict:
     unresolved = _boolean_true(result.get("unresolved"))
     if result.get("unresolved") is None and "conclusion" not in result:
         unresolved = True
-    texts = _collect_text(result)
-    lowered = " ".join(texts).lower()
-    matched: list[str] = []
-    seen: set[str] = set()
+
+    # 1. Structural certainty / adoption check on unresolved results
+    forced_structural = False
+    structural_markers: list[str] = []
+    if unresolved:
+        status = result.get("conclusion_status")
+        if isinstance(status, str) and status.lower() in {"final", "resolved", "certain", "fact"}:
+            forced_structural = True
+            structural_markers.append(f"status:{status}")
+        cert_state = result.get("certainty_state")
+        if isinstance(cert_state, str) and cert_state.lower() in {"certain", "definitive", "absolute"}:
+            forced_structural = True
+            structural_markers.append(f"state:{cert_state}")
+        cert_level = result.get("certainty_level")
+        if isinstance(cert_level, str) and cert_level.lower() in {"certain", "definitive", "absolute"}:
+            forced_structural = True
+            structural_markers.append(f"level:{cert_level}")
+        if result.get("fact") is True:
+            forced_structural = True
+            structural_markers.append("fact:True")
+        if result.get("winner_selected") is True:
+            forced_structural = True
+            structural_markers.append("winner_selected:True")
+        if result.get("conclusion_adopted") is True:
+            forced_structural = True
+            structural_markers.append("conclusion_adopted:True")
+        if result.get("decision_adopted") is True:
+            forced_structural = True
+            structural_markers.append("decision_adopted:True")
+
+    # 2. Extract texts ONLY from system conclusion / recommendation / decision fields
+    conclusion_texts: list[str] = []
+    for field in CONCLUSION_FIELDS:
+        val = result.get(field)
+        if isinstance(val, str):
+            conclusion_texts.append(val)
+        elif isinstance(val, (list, tuple)):
+            for item in val:
+                if isinstance(item, str):
+                    conclusion_texts.append(item)
+                elif isinstance(item, Mapping):
+                    for sub_field in ("statement", "text", "summary", "decision", "conclusion"):
+                        sub_val = item.get(sub_field)
+                        if isinstance(sub_val, str):
+                            conclusion_texts.append(sub_val)
+
+    matched: list[str] = list(structural_markers)
+    seen: set[str] = set(structural_markers)
+
     for phrase in FORCED_CONCLUSION_PHRASES:
-        if phrase in lowered and phrase not in seen:
-            seen.add(phrase)
-            matched.append(phrase)
-    for text in texts:
+        for text in conclusion_texts:
+            if phrase in text.lower() and phrase not in seen:
+                seen.add(phrase)
+                matched.append(phrase)
+
+    for text in conclusion_texts:
         marker = _certainty_signal(text)
         if marker is not None and marker not in seen:
             seen.add(marker)
             matched.append(marker)
-    forced = bool(unresolved) and bool(matched)
+
+    forced = bool(unresolved) and (bool(matched) or forced_structural)
     return normalize_json_value(
         {
             "forced_conclusion": forced,
@@ -1837,56 +2022,7 @@ def _is_independent_source(source: str) -> bool:
     return not any(lowered.startswith(prefix) for prefix in _NON_INDEPENDENT_SOURCE_PREFIXES)
 
 
-def _resolve_shared_confirmation(confirmation: Any) -> tuple[str, bool, bool]:
-    """Resolve a shared confirmation/approval reference to a canonical state.
 
-    Returns ``(state, approved, malformed)`` where ``state`` is one of
-    ``confirmed``/``rejected``/``candidate``/``pending_confirmation``.
-
-    A complete shared confirmation must be an authoritative shared approval
-    reference, i.e. an instance of ``DomainMemoryApprovalDecisionSnapshot``
-    (or an equivalent duck-typed object that exposes ``approved`` together
-    with a ``decision_id`` / ``request_id`` reference and is bound to the
-    canonical ``DomainMemoryApprovalDecisionSnapshot`` contract — checked by
-    type identity, not by duck-shape reconstruction).  Only the literal
-    boolean ``True`` of the ``approved`` field authorizes.
-
-    Anything that is not an authoritative shared approval reference — a raw
-    boolean, an arbitrary ``dict``/``Mapping`` shaped like one, a string, a
-    number, a list, or any object that does not actually pass through the
-    shared approval contract — is malformed: it fails closed and never
-    authorizes persistence.  Raw ``True`` alone is never sufficient.
-    """
-    # Local import to avoid a hard circular dependency at module import time.
-    from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
-
-    if confirmation is None:
-        return PERSISTENCE_CANDIDATE, False, False
-
-    # A raw boolean is never a complete shared confirmation reference.
-    if isinstance(confirmation, bool):
-        return PERSISTENCE_REJECTED if confirmation is False else PERSISTENCE_CANDIDATE, False, False
-
-    authoritative = isinstance(confirmation, DomainMemoryApprovalDecisionSnapshot)
-    if not authoritative:
-        # Plain Mappings and arbitrary duck-typed objects cannot be promoted
-        # to an authoritative shared approval reference; their validity was
-        # never established by the canonical contract.  Fail closed.
-        return PERSISTENCE_CANDIDATE, False, True
-
-    # Authoritative snapshot: read its validated fields directly.  The
-    # snapshot's __post_init__ already enforced _validate_id() on both
-    # decision_id and request_id and asserted ``approved`` is a bool.
-    approved_value = getattr(confirmation, "approved", None)
-    if not isinstance(approved_value, bool):
-        # Defensive: should never happen for a real snapshot, but if it did
-        # the field would be malformed and must fail closed.
-        return PERSISTENCE_CANDIDATE, False, True
-
-    if approved_value is True:
-        return PERSISTENCE_CONFIRMED, True, False
-    # approved_value is the literal False: explicit rejection.
-    return PERSISTENCE_REJECTED, False, False
 
 
 def evaluate_persistence_basis(record: Any) -> dict:
@@ -1947,24 +2083,91 @@ def classify_persistence(
     record: Any,
     *,
     confirmation: Any = None,
+    confirmation_binding: Any = None,
+    confirmation_inventory: Any = None,
 ) -> dict:
     """Classify the persistence state of a candidate pattern.
 
-    A candidate pattern becomes confirmed persistent only when a complete shared
-    confirmation reference (an approval/decision snapshot carrying a traceable
-    reference identifier and a literal ``True`` ``approved`` field) authorizes
-    it **and** the underlying evidence basis is independently grounded (not
-    model/memory-summary-only, not single-conversation inference).  A raw
-    boolean ``True`` alone is NOT a complete confirmation contract.  Repetition,
-    model inference, memory summaries, and single-conversation repetition are
-    explicit reasons that do NOT confirm persistence; malformed/nonliteral/
-    unknown authorization fails closed.  Output is JSON-safe.
+    A candidate pattern becomes confirmed persistent only when an authoritative
+    shared approval chain validates through the shared memory integration
+    validator (``validate_reflection_memory_binding`` over a valid
+    ``DomainMemoryProposalBinding`` and ``DomainMemoryReferenceInventory``)
+    bound to the exact Reflection proposal **and** the underlying evidence
+    basis is independently grounded.
+
+    A standalone snapshot, raw boolean, or arbitrary Mapping is never sufficient
+    authorization on its own and fails closed.  Repetition, model inference,
+    memory summaries, and single-conversation repetition are explicit reasons
+    that do NOT confirm persistence.  Output is JSON-safe.
     """
     basis = evaluate_persistence_basis(record)
     malformed = basis["malformed"]
-    confirmation_state, confirmation_approved, confirmation_malformed = (
-        _resolve_shared_confirmation(confirmation)
-    )
+
+    proposal_id = None
+    if isinstance(record, Mapping):
+        proposal_id = (
+            _usable_scalar_string(record.get("proposal_id"))
+            or _usable_scalar_string(record.get("pattern_id"))
+            or _usable_scalar_string(record.get("id"))
+        )
+
+    confirmation_state = PERSISTENCE_CANDIDATE
+    confirmation_approved = False
+    confirmation_malformed = False
+
+    # Authoritative path: DomainMemoryProposalBinding + DomainMemoryReferenceInventory
+    if confirmation_binding is not None or confirmation_inventory is not None:
+        from cmm.domains.memory_contracts import (
+            DomainMemoryProposalBinding,
+            DomainMemoryReferenceInventory,
+        )
+        from cmm.domains.reflection.definition import REFLECTION_DOMAIN_ID
+        from cmm.domains.reflection.memory import validate_reflection_memory_binding
+
+        if (
+            not isinstance(confirmation_binding, DomainMemoryProposalBinding)
+            or not isinstance(confirmation_inventory, DomainMemoryReferenceInventory)
+            or proposal_id is None
+            or str(confirmation_binding.domain_id) != REFLECTION_DOMAIN_ID
+            or proposal_id not in confirmation_binding.memory_proposal_ids
+            or bool(confirmation_binding.agent_knowledge_proposal_ids)
+        ):
+            confirmation_malformed = True
+        else:
+            validation_res = validate_reflection_memory_binding(
+                binding=confirmation_binding,
+                inventory=confirmation_inventory,
+            )
+            if validation_res.is_valid is True:
+                confirmation_state = PERSISTENCE_CONFIRMED
+                confirmation_approved = True
+            else:
+                confirmation_malformed = True
+                for dec in confirmation_inventory.approval_decisions:
+                    if (
+                        dec.decision_id in confirmation_binding.approval_decision_ids
+                        and dec.approved is False
+                    ):
+                        confirmation_state = PERSISTENCE_REJECTED
+                        confirmation_malformed = False
+                        break
+    elif confirmation is not None:
+        # Standalone confirmation snapshot or legacy values: reference only,
+        # never sufficient alone to authorize confirmed persistence.
+        from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
+
+        if isinstance(confirmation, bool):
+            if confirmation is False:
+                confirmation_state = PERSISTENCE_REJECTED
+            else:
+                confirmation_malformed = False
+        elif isinstance(confirmation, DomainMemoryApprovalDecisionSnapshot):
+            if confirmation.approved is False:
+                confirmation_state = PERSISTENCE_REJECTED
+            else:
+                confirmation_malformed = True
+        else:
+            confirmation_malformed = True
 
     excluded: list[str] = []
     if basis["model_inference_count"] > 0:
@@ -1977,8 +2180,6 @@ def classify_persistence(
         excluded.append("no_independent_grounded_sources")
 
     if confirmation_approved:
-        # Shared confirmation authorized; persistence still requires a grounded
-        # enough basis (model/memory-summary-only provenance is not enough).
         if basis["basis_sufficient"] and not malformed:
             state = PERSISTENCE_CONFIRMED
             confirmed = True

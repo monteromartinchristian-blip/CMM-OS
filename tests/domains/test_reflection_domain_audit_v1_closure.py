@@ -16,6 +16,7 @@ import itertools
 import json
 from datetime import datetime, timezone
 
+from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.domains.reflection.operations import (
     build_personal_timeline_result,
     extract_beliefs_result,
@@ -39,7 +40,6 @@ from cmm.domains.reflection.rules import (
     map_interests,
     no_forced_conclusion_policy,
 )
-from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.workflows.contracts import WorkflowDefinition, WorkflowNode
 from cmm.workflows.engine import NodeExecution, WorkflowEngine
 from cmm.workflows.enums import WorkflowRunStatus
@@ -253,16 +253,116 @@ def test_raw_true_alone_is_not_complete_confirmation():
     assert record["authorization_accepted"] is False
 
 
-def _authoritative_approval(approved: bool = True) -> DomainMemoryApprovalDecisionSnapshot:
-    return DomainMemoryApprovalDecisionSnapshot(
-        decision_id="d-abc", request_id="r-abc", approved=approved
+from cmm.domains.memory_contracts import (
+    DomainMemoryApprovalRequestSnapshot,
+    DomainMemoryCapability,
+    DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryReference,
+    DomainMemoryReferenceInventory,
+    DomainMemoryReferenceKind,
+    DomainMemorySensitivityLevel,
+    DomainMemoryTraceSnapshot,
+    DomainMemoryViewSnapshot,
+)
+from cmm.domains.reflection.memory import (
+    build_reflection_memory_binding,
+    build_reflection_memory_proposal,
+    build_reflection_memory_view,
+    build_reflection_memory_view_request,
+)
+
+
+def _valid_confirmation_chain(
+    proposal_id: str = "prop-1",
+    *,
+    approved: bool = True,
+):
+    ref = DomainMemoryReference(
+        reference_id=f"ref:{proposal_id}",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id=f"item:{proposal_id}",
+        domain_id="domain:reflection",
+        applicable_domains=("domain:reflection",),
+        evidence_ids=("ev:1",),
+        resource_ids=("res:1",),
     )
+    permission = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=f"perm:{proposal_id}",
+        allowed=True,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id="domain:reflection",
+        target_domain_id="domain:reflection",
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    view_request = build_reflection_memory_view_request(
+        request_id=f"req:{proposal_id}",
+        trace_id=f"trace:{proposal_id}",
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(ref,),
+        permission_decision_ids=(f"perm:{proposal_id}",),
+    )
+    proposal = build_reflection_memory_proposal(
+        proposal_id=proposal_id,
+        affected_reference_ids=(f"ref:{proposal_id}",),
+    )
+    temp_inventory = DomainMemoryReferenceInventory(
+        references=(ref,),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
+        permission_decisions=(permission,),
+    )
+    view = build_reflection_memory_view(request=view_request, inventory=temp_inventory)
+    binding = build_reflection_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=f"trace:{proposal_id}",
+        permission_decision_ids=(f"perm:{proposal_id}",),
+        approval_request_ids=(f"appr-req:{proposal_id}",),
+        approval_decision_ids=(f"appr-dec:{proposal_id}",),
+    )
+    inventory = DomainMemoryReferenceInventory(
+        references=(ref,),
+        proposals=(proposal,),
+        permission_decisions=(permission,),
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=f"appr-req:{proposal_id}", proposal_id=proposal_id
+            ),
+        ),
+        approval_decisions=(
+            DomainMemoryApprovalDecisionSnapshot(
+                decision_id=f"appr-dec:{proposal_id}",
+                request_id=f"appr-req:{proposal_id}",
+                approved=approved,
+            ),
+        ),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=view.view_id,
+                request_id=view.request_id,
+                primary_domain=view.primary_domain,
+                trace_id=view.trace_id,
+                view_digest=view.content_digest,
+            ),
+        ),
+    )
+    return binding, inventory
 
 
 def test_shared_confirmation_reference_plus_grounded_provenance_confirms():
+    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v1-1", approved=True)
     record = classify_persistence(
-        {"pattern": "fixed identity", "sources": ("msg:1", "msg:2")},
-        confirmation=_authoritative_approval(approved=True),
+        {"proposal_id": "prop-v1-1", "pattern": "fixed identity", "sources": ("msg:1", "msg:2")},
+        confirmation_binding=binding,
+        confirmation_inventory=inventory,
     )
     assert record["confirmed"] is True
     assert record["persistence_state"] == "confirmed"
@@ -279,10 +379,12 @@ def test_nonliteral_confirmation_denied():
 
 
 def test_model_or_memory_summary_provenance_not_independently_grounded():
+    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v1-2", approved=True)
     for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
         record = classify_persistence(
-            {"pattern": "x", "sources": sources},
-            confirmation=_authoritative_approval(approved=True),
+            {"proposal_id": "prop-v1-2", "pattern": "x", "sources": sources},
+            confirmation_binding=binding,
+            confirmation_inventory=inventory,
         )
         assert record["confirmed"] is False
         assert record["basis_sufficient"] is False
@@ -549,7 +651,7 @@ def test_reflection_grounded_chronology_only_blocks():
 def test_reflection_validate_unresolved_completion_blocks():
     run = _run_reflection_workflow_blocking(
         "reflection.personal_question_exploration",
-        "reason",
+        "questions",
         {"unresolved_completion_allowed": False},
     )
     assert run.status is not WorkflowRunStatus.COMPLETED

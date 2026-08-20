@@ -2907,7 +2907,7 @@ Permissions
 
 Status
 
-Phase 10.24 — Implemented, pending independent audit V3.
+Phase 10.24 — Implemented, pending independent audit V4.
 
 Objective
 

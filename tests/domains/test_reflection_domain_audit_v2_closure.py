@@ -134,6 +134,110 @@ def test_validate_gate_passes_when_dependencies_agree():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+from cmm.domains.memory_contracts import (
+    DomainMemoryApprovalRequestSnapshot,
+    DomainMemoryCapability,
+    DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryReference,
+    DomainMemoryReferenceInventory,
+    DomainMemoryReferenceKind,
+    DomainMemorySensitivityLevel,
+    DomainMemoryTraceSnapshot,
+    DomainMemoryViewSnapshot,
+)
+from cmm.domains.reflection.memory import (
+    build_reflection_memory_binding,
+    build_reflection_memory_proposal,
+    build_reflection_memory_view,
+    build_reflection_memory_view_request,
+)
+
+
+def _valid_confirmation_chain(
+    proposal_id: str = "prop-v2-closure",
+    *,
+    approved: bool = True,
+):
+    ref = DomainMemoryReference(
+        reference_id=f"ref:{proposal_id}",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id=f"item:{proposal_id}",
+        domain_id="domain:reflection",
+        applicable_domains=("domain:reflection",),
+        evidence_ids=("ev:1",),
+        resource_ids=("res:1",),
+    )
+    permission = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=f"perm:{proposal_id}",
+        allowed=True,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id="domain:reflection",
+        target_domain_id="domain:reflection",
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    view_request = build_reflection_memory_view_request(
+        request_id=f"req:{proposal_id}",
+        trace_id=f"trace:{proposal_id}",
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(ref,),
+        permission_decision_ids=(f"perm:{proposal_id}",),
+    )
+    proposal = build_reflection_memory_proposal(
+        proposal_id=proposal_id,
+        affected_reference_ids=(f"ref:{proposal_id}",),
+    )
+    temp_inventory = DomainMemoryReferenceInventory(
+        references=(ref,),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
+        permission_decisions=(permission,),
+    )
+    view = build_reflection_memory_view(request=view_request, inventory=temp_inventory)
+    binding = build_reflection_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=f"trace:{proposal_id}",
+        permission_decision_ids=(f"perm:{proposal_id}",),
+        approval_request_ids=(f"appr-req:{proposal_id}",),
+        approval_decision_ids=(f"appr-dec:{proposal_id}",),
+    )
+    inventory = DomainMemoryReferenceInventory(
+        references=(ref,),
+        proposals=(proposal,),
+        permission_decisions=(permission,),
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=f"appr-req:{proposal_id}", proposal_id=proposal_id
+            ),
+        ),
+        approval_decisions=(
+            DomainMemoryApprovalDecisionSnapshot(
+                decision_id=f"appr-dec:{proposal_id}",
+                request_id=f"appr-req:{proposal_id}",
+                approved=approved,
+            ),
+        ),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=view.view_id,
+                request_id=view.request_id,
+                primary_domain=view.primary_domain,
+                trace_id=view.trace_id,
+                view_digest=view.content_digest,
+            ),
+        ),
+    )
+    return binding, inventory
+
+
 def _authoritative_approval(approved: bool = True) -> DomainMemoryApprovalDecisionSnapshot:
     return DomainMemoryApprovalDecisionSnapshot(
         decision_id="d-v2-closure", request_id="r-v2-closure", approved=approved
@@ -165,9 +269,11 @@ def test_raw_true_is_not_a_shared_confirmation():
 
 
 def test_authoritative_shared_confirmation_authorizes_when_grounded():
+    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v2-closure", approved=True)
     record = classify_persistence(
-        {"pattern": "x", "sources": ("msg:1", "msg:2")},
-        confirmation=_authoritative_approval(approved=True),
+        {"proposal_id": "prop-v2-closure", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        confirmation_binding=binding,
+        confirmation_inventory=inventory,
     )
     assert record["confirmed"] is True
     assert record["authorization_accepted"] is True
@@ -175,9 +281,11 @@ def test_authoritative_shared_confirmation_authorizes_when_grounded():
 
 
 def test_authoritative_rejection_does_not_confirm():
+    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v2-closure", approved=False)
     record = classify_persistence(
-        {"pattern": "x", "sources": ("msg:1", "msg:2")},
-        confirmation=_authoritative_approval(approved=False),
+        {"proposal_id": "prop-v2-closure", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        confirmation_binding=binding,
+        confirmation_inventory=inventory,
     )
     assert record["confirmed"] is False
     assert record["authorization_accepted"] is False
