@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from cmm.cognitive.enums import ReasoningRuleResultStatus
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.domains.reflection.operations import (
     generate_hypotheses_result,
     structure_reflection_result,
@@ -240,7 +241,9 @@ def test_only_valid_confirmation_authorizes_persistence_proposal():
     # approved field) authorizes; a raw boolean True is NOT a complete contract.
     record = classify_persistence(
         {"pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
-        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
+        confirmation=DomainMemoryApprovalDecisionSnapshot(
+            decision_id="d-abc", request_id="r-abc", approved=True
+        ),
     )
     assert record["authorization_accepted"] is True
     assert record["confirmed"] is True

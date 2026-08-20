@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.domains.reflection.rules import (
     authorizes_confirmation,
     classify_persistence,
@@ -76,7 +77,9 @@ def test_valid_confirmation_authorizes_proposal():
     # not (V1-I4).
     record = classify_persistence(
         _pattern("avoids intimacy", sources=("msg:1", "msg:2")),
-        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
+        confirmation=DomainMemoryApprovalDecisionSnapshot(
+            decision_id="d-abc", request_id="r-abc", approved=True
+        ),
     )
     assert record["authorization_accepted"] is True
     assert record["eligible_for_confirmation"] is True
@@ -97,7 +100,9 @@ def test_model_or_memory_summary_provenance_not_grounded():
     for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
         record = classify_persistence(
             _pattern("avoids intimacy", sources=sources),
-            confirmation={"decision_id": "d1", "approved": True},
+            confirmation=DomainMemoryApprovalDecisionSnapshot(
+                decision_id="d-abc", request_id="r-abc", approved=True
+            ),
         )
         assert record["confirmed"] is False
         assert record["persistence_state"] != "confirmed"

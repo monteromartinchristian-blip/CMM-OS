@@ -6,11 +6,13 @@
 
 ## Status
 
-Phase 10.24 — Implemented, pending independent audit V2.
+Phase 10.24 — Implemented, pending independent audit V3.
 
-This is the implementation-side status. Independent audit V1 identified
-findings (V1-I1..V1-I9, V1-M1) that have been remediated; audit closure remains
-a separate lifecycle event and is not claimed here.
+This is the implementation-side status. Independent audit V1 findings were
+remediated (V1-I1..V1-I9, V1-M1). Independent audit V2 identified five
+Important findings (V2-I1..V2-I5); these have been remediated and permanently
+encoded in `tests/domains/test_reflection_domain_audit_v2_closure.py`. Audit V3
+closure remains a separate lifecycle event and is not claimed here.
 
 ## Overview
 
@@ -219,7 +221,7 @@ Phase 10.25 Concerns does not exist yet; Reflection has no dependency on
 
 ## Implementation status
 
-Phase 10.24 — Implemented, pending independent audit V2.
+Phase 10.24 — Implemented, pending independent audit V3.
 
 Do not mark Complete or audited until an independent audit closes the phase.
 

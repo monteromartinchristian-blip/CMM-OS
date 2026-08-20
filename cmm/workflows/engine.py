@@ -90,6 +90,20 @@ class WorkflowEngine:
             raise WorkflowExecutionError(f"node {node_id} adapter must return explicit NodeExecution")
         raise WorkflowExecutionError(f"node {node_id} adapter returned invalid result")
 
+    @staticmethod
+    def _values_match(expected: Any, actual: Any) -> bool:
+        """Strict per-field value match.
+
+        For booleans only the literal ``True``/``False`` matches; ``1``,
+        ``0``, ``"true"``, ``"false"``, ``None`` and arbitrary objects never
+        match a boolean expectation.  For non-boolean expectations ordinary
+        equality applies so existing contracts (string ids, numeric bounds,
+        structured values) are preserved.
+        """
+        if isinstance(expected, bool):
+            return type(actual) is bool and actual is expected
+        return actual == expected
+
     def _evaluate_validate_node(self, node: Any, outputs: Mapping[str, Any], run: WorkflowRun) -> NodeExecution:
         """Evaluate a ``VALIDATE`` node's ``wait_condition`` fail-closed.
 
@@ -98,9 +112,14 @@ class WorkflowEngine:
         workflow ``metadata``, the run ``inputs``, and every accumulated node
         output (both flat fields and ``node_id``-keyed).  Semantics:
 
-        * every condition field present and equal -> ``complete``;
+        * every condition field present and strictly equal -> ``complete``;
         * any condition field absent -> ``failure`` (fail closed / unknown);
         * any condition field present but unequal -> ``failure`` (fail closed);
+        * boolean expectations are matched by literal boolean identity, never
+          by Python truthiness or numeric widening (``1 != True``);
+        * when the same field is observed across multiple dependency outputs
+          with conflicting values -> ``failure`` (fail closed), so the gate
+          never silently passes by first/last match;
         * a missing/empty/malformed condition -> ``failure`` (fail closed).
         """
         condition = node.wait_condition
@@ -109,18 +128,36 @@ class WorkflowEngine:
         state: dict[str, Any] = dict(self._definition.metadata or {})
         if isinstance(run.inputs, Mapping):
             state.update(dict(run.inputs))
+        # Track per-field observed values across dependency outputs so we can
+        # detect conflict for the specific fields declared by the condition
+        # (not every incidental output field such as ``operation_id``) instead
+        # of silently masking disagreement via last-wins.
+        observed: dict[str, list[Any]] = {}
         for node_id, node_output in outputs.items():
             if isinstance(node_output, Mapping):
                 state.setdefault(node_id, node_output)
-                # Runtime node outputs are authoritative and override static
-                # metadata defaults (which must not mask an actual runtime value
-                # that violates a declared safety condition).
                 for field, value in node_output.items():
-                    state[field] = value
+                    if field in condition:
+                        if field in observed:
+                            observed[field].append(value)
+                        else:
+                            observed[field] = [value]
+        # Conflict-aware merge: any condition field seen in multiple outputs
+        # with disagreeing values must fail closed (no first/last-match).
+        for field, values in observed.items():
+            if len(values) > 1:
+                first = values[0]
+                if any(not self._values_match(first, v) for v in values[1:]):
+                    return NodeExecution.failure("validate.condition_conflict")
+        # Runtime node outputs are authoritative and override static
+        # metadata defaults (which must not mask an actual runtime value
+        # that violates a declared safety condition).
+        for field, values in observed.items():
+            state[field] = values[-1]
         for field, expected in condition.items():
             if field not in state:
                 return NodeExecution.failure("validate.condition_unknown")
-            if state[field] != expected:
+            if not self._values_match(expected, state[field]):
                 return NodeExecution.failure("validate.condition_false")
         return NodeExecution.complete({"validated": True})
 

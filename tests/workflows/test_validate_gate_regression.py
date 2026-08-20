@@ -129,3 +129,88 @@ def test_non_validate_nodes_still_use_adapter():
     result = engine.start({})
     assert result.run.status is WorkflowRunStatus.COMPLETED
     assert result.node_results["a"].output == {"echo": "a"}
+
+
+# ── Phase 10.24 Audit V2-I1: literal-boolean + conflict-aware ───────────────
+
+
+def _make_two_producer_definition(*, validate_condition):
+    return WorkflowDefinition(
+        "validate.gate.v2", "1.0.0", "ValidateGateV2",
+        nodes=(
+            WorkflowNode("producer_a", "execute_operation", "ProducerA",
+                         operation_id="op.a", operation_version="1.0.0"),
+            WorkflowNode("producer_z", "execute_operation", "ProducerZ",
+                         operation_id="op.z", operation_version="1.0.0"),
+            WorkflowNode("validate", "validate", "Validate",
+                         dependencies=("producer_a", "producer_z"),
+                         wait_condition=validate_condition),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("validate",)),
+        ),
+        metadata={},
+    )
+
+
+def _run_two_producers(validate_condition, *, a_output, z_output):
+    def adapter(node, run):
+        if node.node_id == "producer_a":
+            return NodeExecution.complete(a_output)
+        if node.node_id == "producer_z":
+            return NodeExecution.complete(z_output)
+        return NodeExecution.complete({"ok": True})
+
+    engine = WorkflowEngine(
+        _make_two_producer_definition(validate_condition=validate_condition),
+        id_factory=lambda: "run-v2",
+        clock=lambda: datetime.now(timezone.utc),
+        node_adapter=adapter,
+    )
+    return engine.start({})
+
+
+def test_validate_gate_rejects_numeric_one_for_expected_true():
+    """Numeric ``1`` must not satisfy a boolean ``True`` expectation."""
+    result = _run({"flag": True}, producer_output={"flag": 1})
+    assert result.run.status is not WorkflowRunStatus.COMPLETED
+    assert result.run.error_code == "validate.condition_false"
+
+
+def test_validate_gate_rejects_string_true_for_expected_true():
+    """String ``"true"`` must not satisfy a boolean ``True`` expectation."""
+    result = _run({"flag": True}, producer_output={"flag": "true"})
+    assert result.run.status is not WorkflowRunStatus.COMPLETED
+    assert result.run.error_code == "validate.condition_false"
+
+
+def test_validate_gate_rejects_numeric_zero_for_expected_false():
+    """Numeric ``0`` must not satisfy a boolean ``False`` expectation."""
+    result = _run({"flag": False}, producer_output={"flag": 0})
+    assert result.run.status is not WorkflowRunStatus.COMPLETED
+    assert result.run.error_code == "validate.condition_false"
+
+
+def test_validate_gate_accepts_literal_true_for_expected_true():
+    """Literal ``True`` is the only thing that satisfies a boolean ``True``."""
+    result = _run({"flag": True}, producer_output={"flag": True})
+    assert result.run.status is WorkflowRunStatus.COMPLETED
+
+
+def test_validate_gate_fails_closed_on_conflicting_dependency_values():
+    """Two dependencies disagreeing on the same field must fail closed."""
+    result = _run_two_producers(
+        {"safe": True},
+        a_output={"safe": False},
+        z_output={"safe": True},
+    )
+    assert result.run.status is not WorkflowRunStatus.COMPLETED
+    assert result.run.error_code == "validate.condition_conflict"
+
+
+def test_validate_gate_passes_when_dependencies_agree():
+    """Two dependencies agreeing on the same field must pass the gate."""
+    result = _run_two_producers(
+        {"safe": True},
+        a_output={"safe": True},
+        z_output={"safe": True},
+    )
+    assert result.run.status is WorkflowRunStatus.COMPLETED

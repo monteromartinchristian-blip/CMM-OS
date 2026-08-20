@@ -39,6 +39,7 @@ from cmm.domains.reflection.rules import (
     map_interests,
     no_forced_conclusion_policy,
 )
+from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.workflows.contracts import WorkflowDefinition, WorkflowNode
 from cmm.workflows.engine import NodeExecution, WorkflowEngine
 from cmm.workflows.enums import WorkflowRunStatus
@@ -252,10 +253,16 @@ def test_raw_true_alone_is_not_complete_confirmation():
     assert record["authorization_accepted"] is False
 
 
+def _authoritative_approval(approved: bool = True) -> DomainMemoryApprovalDecisionSnapshot:
+    return DomainMemoryApprovalDecisionSnapshot(
+        decision_id="d-abc", request_id="r-abc", approved=approved
+    )
+
+
 def test_shared_confirmation_reference_plus_grounded_provenance_confirms():
     record = classify_persistence(
         {"pattern": "fixed identity", "sources": ("msg:1", "msg:2")},
-        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
+        confirmation=_authoritative_approval(approved=True),
     )
     assert record["confirmed"] is True
     assert record["persistence_state"] == "confirmed"
@@ -275,7 +282,7 @@ def test_model_or_memory_summary_provenance_not_independently_grounded():
     for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
         record = classify_persistence(
             {"pattern": "x", "sources": sources},
-            confirmation={"decision_id": "d1", "approved": True},
+            confirmation=_authoritative_approval(approved=True),
         )
         assert record["confirmed"] is False
         assert record["basis_sufficient"] is False

@@ -15,6 +15,7 @@ import itertools
 import json
 from datetime import datetime, timezone
 
+from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
 from cmm.domains.reflection.permissions import permission_authorization_allows
 from cmm.domains.reflection.rules import (
     authorizes_confirmation,
@@ -96,7 +97,9 @@ def test_no_permission_widening_from_primitive_matrix():
     )["confirmed"] is False
     assert classify_persistence(
         {"pattern": "probe", "sources": ("msg:1",)},
-        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
+        confirmation=DomainMemoryApprovalDecisionSnapshot(
+            decision_id="d-abc", request_id="r-abc", approved=True
+        ),
     )["confirmed"] is True
 
 
@@ -205,7 +208,9 @@ def test_persistence_gate():
     )["confirmed"] is False
     assert classify_persistence(
         {"pattern": "probe-persistent", "sources": ("msg:1",)},
-        confirmation={"decision_id": "d1", "approved": True},
+        confirmation=DomainMemoryApprovalDecisionSnapshot(
+            decision_id="d-abc", request_id="r-abc", approved=True
+        ),
     )["confirmed"] is True
     assert classify_persistence(
         {"pattern": "probe-persistent", "sources": ("m1",)}, confirmation=1

@@ -244,6 +244,22 @@ FORCED_CONCLUSION_PHRASES: tuple[str, ...] = (
     "clearly proves",
     "certainly means",
     "must be because",
+    # Spanish forced-conclusion phrases (spec §13, §41).
+    "es evidente que",
+    "está claro que",
+    "esta claro que",
+    "es claro que",
+    "es obvio que",
+    "es indudable que",
+    "sin lugar a dudas",
+    "esto demuestra que",
+    "demuestra que",
+    "se demuestra que",
+    "queda demostrado que",
+    "la causa real es",
+    "el motivo real es",
+    "la única explicación es",
+    "la unica explicacion es",
 )
 
 
@@ -343,6 +359,22 @@ _DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
     "delusional",
     "personality",
     "attachment",
+    # Spanish diagnostic / fixed-classification stems (spec §15, §29).
+    "trastorno",
+    "trastornos",
+    "narcisista",
+    "narcisismo",
+    "psicopata",
+    "psicópata",
+    "sociopata",
+    "sociópata",
+    "esquizofrenia",
+    "psicópata",
+    "psicotico",
+    "psicótica",
+    "manipulador",
+    "manipuladora",
+    "manipuladores",
 )
 
 _IDENTITY_CLASSIFICATION_PREFIXES: tuple[str, ...] = (
@@ -354,6 +386,20 @@ _IDENTITY_CLASSIFICATION_PREFIXES: tuple[str, ...] = (
     "you have an",
     "you definitely have",
     "you certainly have",
+    # Spanish identity-classification prefixes.
+    "eres un",
+    "eres una",
+    "eres el",
+    "eres la",
+    "tienes un",
+    "tienes una",
+    "tienes el",
+    "tienes la",
+    "tienes trastorno",
+    "es un",
+    "es una",
+    "soy un",
+    "soy una",
 )
 
 
@@ -1681,8 +1727,14 @@ def map_interests(
                 "recency": time_span_out,
                 "context": tuple(contexts) if contexts else None,
                 "counterevidence": tuple(counter_sources),
+                # Uncertainty is driven by independent grounded sources, not by
+                # raw mention_count: a single grounded source with many mentions
+                # is still uncertain because repetition within one source is
+                # not independent corroboration.
                 "uncertainty": (
-                    mention_count <= 1 or grounded_count == 0 or bool(counter_sources)
+                    grounded_count == 0
+                    or independent_grounded <= 1
+                    or bool(counter_sources)
                     or malformed
                 ),
                 "persistent_confirmed": False,
@@ -1791,13 +1843,23 @@ def _resolve_shared_confirmation(confirmation: Any) -> tuple[str, bool, bool]:
     Returns ``(state, approved, malformed)`` where ``state`` is one of
     ``confirmed``/``rejected``/``candidate``/``pending_confirmation``.
 
-    A complete shared confirmation must be a reference (a ``Mapping`` or an
-    object exposing ``approved``) carrying a traceable reference identifier and
-    an ``approved`` field.  Only the literal boolean ``True`` of that field
-    authorizes; ``False`` rejects; a raw ``True``/string/number/collection with
-    no reference is NOT a complete confirmation (it neither authorizes nor is
-    malformed-by-type — it is simply insufficient).
+    A complete shared confirmation must be an authoritative shared approval
+    reference, i.e. an instance of ``DomainMemoryApprovalDecisionSnapshot``
+    (or an equivalent duck-typed object that exposes ``approved`` together
+    with a ``decision_id`` / ``request_id`` reference and is bound to the
+    canonical ``DomainMemoryApprovalDecisionSnapshot`` contract — checked by
+    type identity, not by duck-shape reconstruction).  Only the literal
+    boolean ``True`` of the ``approved`` field authorizes.
+
+    Anything that is not an authoritative shared approval reference — a raw
+    boolean, an arbitrary ``dict``/``Mapping`` shaped like one, a string, a
+    number, a list, or any object that does not actually pass through the
+    shared approval contract — is malformed: it fails closed and never
+    authorizes persistence.  Raw ``True`` alone is never sufficient.
     """
+    # Local import to avoid a hard circular dependency at module import time.
+    from cmm.domains.memory_contracts import DomainMemoryApprovalDecisionSnapshot
+
     if confirmation is None:
         return PERSISTENCE_CANDIDATE, False, False
 
@@ -1805,34 +1867,26 @@ def _resolve_shared_confirmation(confirmation: Any) -> tuple[str, bool, bool]:
     if isinstance(confirmation, bool):
         return PERSISTENCE_REJECTED if confirmation is False else PERSISTENCE_CANDIDATE, False, False
 
-    approved_value = None
-    reference_id = None
-    if isinstance(confirmation, Mapping):
-        approved_value = confirmation.get("approved")
-        reference_id = _usable_reference(
-            confirmation.get("decision_id")
-            or confirmation.get("request_id")
-            or confirmation.get("approval_decision_id")
-        )
-    else:
-        # Duck-typed shared snapshot (e.g. DomainMemoryApprovalDecisionSnapshot).
-        approved_value = getattr(confirmation, "approved", None)
-        reference_id = _usable_reference(
-            getattr(confirmation, "decision_id", None)
-            or getattr(confirmation, "request_id", None)
-        )
+    authoritative = isinstance(confirmation, DomainMemoryApprovalDecisionSnapshot)
+    if not authoritative:
+        # Plain Mappings and arbitrary duck-typed objects cannot be promoted
+        # to an authoritative shared approval reference; their validity was
+        # never established by the canonical contract.  Fail closed.
+        return PERSISTENCE_CANDIDATE, False, True
 
-    if reference_id is None:
-        # A reference without a traceable identifier is malformed: fail closed.
+    # Authoritative snapshot: read its validated fields directly.  The
+    # snapshot's __post_init__ already enforced _validate_id() on both
+    # decision_id and request_id and asserted ``approved`` is a bool.
+    approved_value = getattr(confirmation, "approved", None)
+    if not isinstance(approved_value, bool):
+        # Defensive: should never happen for a real snapshot, but if it did
+        # the field would be malformed and must fail closed.
         return PERSISTENCE_CANDIDATE, False, True
 
     if approved_value is True:
         return PERSISTENCE_CONFIRMED, True, False
-    if approved_value is False:
-        return PERSISTENCE_REJECTED, False, False
-    # approved field is absent or a non-boolean value: unknown/conflicting →
-    # not confirmed, malformed.
-    return PERSISTENCE_CANDIDATE, False, True
+    # approved_value is the literal False: explicit rejection.
+    return PERSISTENCE_REJECTED, False, False
 
 
 def evaluate_persistence_basis(record: Any) -> dict:
