@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, and Phase 10.23 — Opposition Domain are complete and audited; the remaining work proceeds from 10.24 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, and Phase 10.24 — Reflection Domain are complete and audited; the remaining work proceeds from 10.25 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -2907,7 +2907,7 @@ Permissions
 
 Status
 
-Phase 10.24 — Implemented, pending independent audit V6.
+Phase 10.24 — Complete — independently audited.
 
 Objective
 

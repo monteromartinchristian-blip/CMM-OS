@@ -6,7 +6,7 @@
 
 ## Status
 
-Phase 10.24 — Implemented, pending independent audit V6.
+Phase 10.24 — Complete — independently audited.
 
 This is the implementation-side status. Independent audit V1 findings were
 remediated (V1-I1..V1-I9, V1-M1). Independent audit V2 findings were
@@ -15,8 +15,7 @@ remediated (V2-I1..V2-I5). Independent audit V3 findings were remediated
 (V4-I1, V4-I2, V4-M1). Independent audit V5 identified two findings
 (V5-I1, V5-I2); these have been remediated with normalized compositional
 classifiers and permanently encoded in
-`tests/domains/test_reflection_domain_audit_v5_closure.py`. Audit V6 closure
-remains a separate lifecycle event and is not claimed here.
+`tests/domains/test_reflection_domain_audit_v5_closure.py`. Independent Audit V6 closed Phase 10.24 with Critical=0, Important=0, Minor=0; `DP-024` remains `VERIFIED_EXISTING` and `AT-DP-024` is `PASS`.
 
 ## Overview
 
@@ -171,8 +170,7 @@ core of each operation:
   memory mutation, only a valid confirmation authorizes persistence, malformed/
   nonliteral authorization fails closed.
 
-Implementation-side evidence is recorded here as candidate ATP-024 evidence;
-independent audit closure is a separate lifecycle event.
+Independent Audit V6 verifies this acceptance surface: `DP-024` is `VERIFIED_EXISTING` and `AT-DP-024` is `PASS`.
 
 ## Permissions
 
@@ -225,9 +223,9 @@ Phase 10.25 Concerns does not exist yet; Reflection has no dependency on
 
 ## Implementation status
 
-Phase 10.24 — Implemented, pending independent audit V3.
+Phase 10.24 — Complete — independently audited.
 
-Do not mark Complete or audited until an independent audit closes the phase.
+Independent Audit V6 closed the phase with `DP-024 — VERIFIED_EXISTING` and `AT-DP-024 — PASS`.
 
 ## Audit V1 remediation note
 
