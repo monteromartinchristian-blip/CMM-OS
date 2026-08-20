@@ -1264,7 +1264,7 @@ Confirm no premature closure claim.
 **Interfaces:**
 - Produces clean committed implementation candidate for independent audit.
 
-- [ ] **Step 1: Focused Reflection suite**
+- [x] **Step 1: Focused Reflection suite**
 
 Run:
 
@@ -1272,7 +1272,7 @@ Run:
 .venv/bin/python -m pytest -q tests/domains/test_reflection_domain_*.py
 ```
 
-- [ ] **Step 2: Relevant precursor/security/cross-domain tests**
+- [x] **Step 2: Relevant precursor/security/cross-domain tests**
 
 Discover and run the actual current hardened tests for:
 
@@ -1289,13 +1289,13 @@ memory
 trace
 ```
 
-- [ ] **Step 3: Full domain suite**
+- [x] **Step 3: Full domain suite**
 
 ```bash
 .venv/bin/python -m pytest -q tests/domains
 ```
 
-- [ ] **Step 4: Global suite**
+- [x] **Step 4: Global suite**
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -1306,7 +1306,7 @@ If VS Code reports an environment-generated interruption such as `^C`,
 neither PASS nor FAIL; rerun or split. Real test failures printed before an
 interruption remain real failures.
 
-- [ ] **Step 5: Static checks**
+- [x] **Step 5: Static checks**
 
 ```bash
 .venv/bin/ruff check \
@@ -1327,11 +1327,11 @@ PY
 git diff --check
 ```
 
-- [ ] **Step 6: Production package boundary check**
+- [x] **Step 6: Production package boundary check**
 
 Assert exactly 14 `.py` production modules under `cmm/domains/reflection/`.
 
-- [ ] **Step 7: Diff audit**
+- [x] **Step 7: Diff audit**
 
 Run:
 
@@ -1357,7 +1357,7 @@ diagnostic wording
 premature Complete/audited status
 ```
 
-- [ ] **Step 8: Stage intended scope**
+- [x] **Step 8: Stage intended scope**
 
 ```bash
 git add \
@@ -1377,7 +1377,7 @@ git diff --cached --stat
 git diff --cached
 ```
 
-- [ ] **Step 9: Commit once**
+- [x] **Step 9: Commit once**
 
 ```bash
 git commit -m "feat(domains): implement phase 10.24 reflection domain"
@@ -1389,7 +1389,7 @@ No push.
 
 No merge.
 
-- [ ] **Step 10: Mandatory clean-state verification**
+- [x] **Step 10: Mandatory clean-state verification**
 
 On the committed clean state, rerun:
 
@@ -1408,7 +1408,7 @@ git diff --check HEAD^ HEAD
 git status --short --branch
 ```
 
-- [ ] **Step 11: Final state**
+- [x] **Step 11: Final state**
 
 Report only:
 
