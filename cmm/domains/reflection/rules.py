@@ -413,19 +413,103 @@ _DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
     "toxic",
 )
 
-_DIRECT_CLASSIFICATION_PATTERNS: tuple[str, ...] = (
+_DIAGNOSTIC_DISCLAIMER_PATTERNS: tuple[str, ...] = (
+    "no hay base para diagnosticar",
+    "no hay base para emitir un diagnóstico",
+    "no hay base para emitir un diagnostico",
+    "no hay base para un diagnóstico",
+    "no hay base para un diagnostico",
+    "no hay bases para diagnosticar",
+    "no hay base para diagnostico",
+    "no hay base para diagnóstico",
+    "no puedo diagnosticar",
+    "no podemos diagnosticar",
+    "no se puede diagnosticar",
+    "no es posible diagnosticar",
+    "sin pretender diagnosticar",
+    "sin diagnosticar",
+    "no es un diagnóstico",
+    "no es un diagnostico",
+    "no constituye un diagnóstico",
+    "no constituye un diagnostico",
+    "no implica un diagnóstico",
+    "no implica un diagnostico",
+    "no pretendo diagnosticar",
+    "no busco diagnosticar",
+    "solo describo",
+    "sólo describo",
+    "this is not a diagnosis",
+    "not a diagnosis",
+    "not a formal diagnosis",
+    "not a clinical diagnosis",
+    "there is no basis to diagnose",
+    "no basis to diagnose",
+    "cannot diagnose",
+    "cannot be diagnosed",
+    "not diagnosing",
+    "without diagnosing",
+    "does not imply a diagnosis",
+    "no diagnostic claim",
+)
+
+_RESTRICTED_DIAGNOSTIC_CONDITIONS: tuple[str, ...] = (
+    "trastorno",
+    "disorder",
+    "bipolar",
+    "esquizofren",
+    "schizophren",
+    "depresión mayor",
+    "depresion mayor",
+    "major depression",
+    "clinical depression",
+    "depresivo",
+    "depresiva",
+    "narcisista",
+    "personalidad narcisista",
+    "narcisista por naturaleza",
+    "narcisismo",
+    "narcissist",
+    "narcissism",
+    "psicópat",
+    "psicopat",
+    "psychopath",
+    "sociópat",
+    "sociopat",
+    "sociopath",
+    "borderline",
+    "psicótic",
+    "psicotico",
+    "psychotic",
+    "dependencia emocional",
+    "emotionally dependent",
+    "emotional dependency",
+    "persona tóxica",
+    "persona toxica",
+    "toxic person",
+    "toxic by nature",
+    "tóxica por naturaleza",
+    "toxica por naturaleza",
+    "motivo real es manipular",
+    "real motive is to manipulate",
+    "real motive is manipulation",
+    "apego evitativo",
+    "apego ansioso",
+    "apego desorganizado",
+    "avoidant attachment",
+    "anxious attachment",
+    "disorganized attachment",
+)
+
+_DIRECT_IDENTITY_PATTERNS: tuple[str, ...] = (
     "you are a",
     "you are an",
     "you are the",
     "you are definitely",
     "you are emotionally",
-    "you are ",
-    "you have a",
-    "you have an",
-    "you definitely have",
-    "you certainly have",
-    "you have ",
     "you suffer from",
+    "he suffers from",
+    "she suffers from",
+    "they suffer from",
     "your attachment is",
     "your attachment style is",
     "your attachment pattern is",
@@ -436,137 +520,282 @@ _DIRECT_CLASSIFICATION_PATTERNS: tuple[str, ...] = (
     "her real motive is",
     "the real motive is",
     "presentas un cuadro",
-    # Spanish identity-classification prefixes and direct patterns.
     "eres un",
     "eres una",
     "eres el",
     "eres la",
-    "eres ",
-    "tienes un",
-    "tienes una",
-    "tienes el",
-    "tienes la",
     "tienes trastorno",
-    "tienes ",
+    "tienes depresión",
+    "tienes depresion",
     "padeces ",
+    "padece ",
     "sufres de ",
     "sufre de ",
-    "es un ",
-    "es una ",
     "es una persona tóxica",
     "es una persona toxica",
-    "es una persona ",
-    "soy un",
-    "soy una",
-    "soy ",
     "tu apego es ",
     "su apego es ",
     "su personalidad es ",
     "su motivo real es ",
 )
 
+_TENTATIVE_ATTRIBUTIONS: tuple[str, ...] = (
+    "podría ser",
+    "podria ser",
+    "podría tener",
+    "podria tener",
+    "puede que sea",
+    "puede ser",
+    "puede que tenga",
+    "podría padecer",
+    "podria padecer",
+    "could be",
+    "might be",
+    "may be",
+    "could have",
+    "might have",
+    "may have",
+    "could suffer from",
+    "might suffer from",
+    "may suffer from",
+)
+
+_DIRECT_CLASSIFICATION_PATTERNS: tuple[str, ...] = (
+    _DIRECT_IDENTITY_PATTERNS + _TENTATIVE_ATTRIBUTIONS
+)
+
 
 def _diagnostic_signal(statement: Any) -> bool:
     """Deterministically detect diagnostic/identity-classification language.
 
-    Evaluates:
-    1. Tentative framing check: if tentative language (e.g. 'podría', 'may',
-       'una posibilidad') is used without explicit assertive diagnostic claim,
-       it is preserved as a safe tentative hypothesis.
-    2. Diagnostic token stems (English and Spanish).
-    3. Direct personality/attachment/condition/motive assertive classifications
-       (e.g., 'Padeces...', 'Eres...', 'Tu apego es...', 'You suffer from...',
-       'Your attachment is...').
+    Polarity-aware evaluation:
+    1. Statements with explicit diagnostic disclaimers (e.g. 'no hay base para
+       diagnosticar', 'this is not a diagnosis') that describe contextual
+       feelings/sadness/anxiety without assertive or tentative clinical condition
+       labels are SAFE (non-diagnostic).
+    2. Direct or tentative clinical/personality/attachment classifications (e.g.,
+       'Podría ser bipolar', 'Could have depression', 'Padeces...', 'Eres...',
+       'Your attachment is...') are RESTRICTED.
+    3. Situational/contextual symptom hypotheses (e.g., 'podría estar sintiendo ansiedad
+       en esta situación', 'temporary sadness after the loss') remain SAFE.
+    4. Mixed statements ('no puedo diagnosticar, pero eres bipolar') remain RESTRICTED
+       because the affirmative diagnostic clause is preserved.
     """
     text = _usable_scalar_string(statement)
     if text is None:
         return False
-    lowered = " " + text.lower() + " "
 
-    is_tentative = any(tent in lowered for tent in _TENTATIVE_HYPOTHESIS_MARKERS)
-    has_direct_pattern = any(pat in lowered for pat in _DIRECT_CLASSIFICATION_PATTERNS)
-    has_diagnostic_stem = any(stem in lowered for stem in _DIAGNOSTIC_TOKEN_STEMS)
+    import re
 
-    if is_tentative:
-        # Tentative framing shields from classification unless it directly asserts a diagnosis/disorder
-        return bool(
-            "trastorno" in lowered
-            or "disorder" in lowered
-            or "diagnos" in lowered
-            or "esquizofren" in lowered
+    clauses = re.split(
+        r"[;\n\.]|\b(?:pero|aunque|sin embargo|no obstante|but|however|although|though|while)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    for clause in clauses:
+        clause_str = " " + clause.strip().lower() + " "
+        cleaned = re.sub(r"[^\w\s]", " ", clause_str)
+
+        is_disclaimer_clause = False
+        for disc in _DIAGNOSTIC_DISCLAIMER_PATTERNS:
+            if disc in clause_str or disc in cleaned:
+                is_disclaimer_clause = True
+                break
+
+        matched_condition = None
+        for cond in _RESTRICTED_DIAGNOSTIC_CONDITIONS:
+            if cond in clause_str or cond in cleaned:
+                matched_condition = cond
+                break
+
+        has_direct_identity = any(
+            attr in clause_str or attr in cleaned for attr in _DIRECT_IDENTITY_PATTERNS
+        )
+        has_tentative = any(
+            tent in clause_str or tent in cleaned for tent in _TENTATIVE_ATTRIBUTIONS
         )
 
-    return has_direct_pattern or has_diagnostic_stem
+        if is_disclaimer_clause:
+            if (
+                not has_direct_identity
+                and not has_tentative
+                and matched_condition
+                in (
+                    None,
+                    "depresión mayor",
+                    "depresion mayor",
+                    "trastorno",
+                    "disorder",
+                )
+            ):
+                continue
+            if not has_direct_identity and not has_tentative:
+                continue
+
+        if matched_condition is not None:
+            return True
+
+        if has_direct_identity:
+            return True
+
+        if has_tentative and (
+            "depresión" in clause_str
+            or "depresion" in clause_str
+            or "depression" in clause_str
+        ):
+            return True
+
+    return False
 
 
 # Structural certainty/forced-conclusion markers (spec §13, §41).  These are
 # closed lexical signals of unsupported certainty / forced causal conclusions,
 # including multilingual variants, that must never let an unresolved reflection
-# be represented as resolved.  This is not a phrase blacklist to grow
-# indefinitely; it is a narrow deterministic boundary.
-_CERTAINTY_MARKERS: tuple[str, ...] = (
-    "definitely",
-    "definitively",
-    "obviously",
-    "certainly",
-    "certainty",
-    "undeniably",
-    "unquestionably",
-    "without a doubt",
-    "beyond doubt",
-    "no doubt",
-    "there is no doubt",
-    "there can be no doubt",
-    "proves",
-    "prove",
-    "proven",
-    "proves beyond doubt",
-    "the real cause is",
-    "the real reason is",
-    "the real cause",
-    "the real reason",
-    "the answer is clearly",
-    "clearly the",
-    "must be because",
-    "the only explanation",
-    "this demonstrates",
-    "it demonstrates",
-    "esto demuestra",
-    "demuestra que",
-    "sin duda",
-    "sin ninguna duda",
-    "sin lugar a dudas",
+# be represented as resolved.
+
+_AFFIRMATIVE_CERTAINTY_IDIOMS: tuple[str, ...] = (
     "no hay duda",
     "no hay ninguna duda",
     "no cabe duda",
+    "no cabe la menor duda",
+    "no deja lugar a dudas",
+    "sin duda",
+    "sin ninguna duda",
+    "sin lugar a dudas",
+    "sin lugar a duda",
+    "there is no doubt",
+    "there can be no doubt",
+    "beyond doubt",
+    "beyond any doubt",
+    "without a doubt",
+    "without doubt",
     "indudablemente",
-    "necesariamente",
-    "certeza",
-    "certeza absoluta",
+    "indubitablemente",
+    "es indudable que",
+    "es indudable",
+    "unquestionably",
+    "undeniably",
+)
+
+_DIRECT_AFFIRMATIVE_CERTAINTY: tuple[str, ...] = (
     "tengo la certeza",
-    "tengo la seguridad",
+    "tengo certeza",
+    "tenemos la certeza",
+    "tenemos certeza",
+    "certeza absoluta",
+    "certeza",
+    "estoy seguro de que",
+    "estoy seguro que",
+    "estoy seguro",
     "completamente seguro",
     "seguro de que",
-    "obviamente",
+    "seguro que",
+    "definitely",
+    "definitively",
     "definitivamente",
+    "obviously",
+    "obviamente",
+    "certainly",
+    "ciertamente",
+    "certainty",
     "es un hecho que",
+    "it is a fact that",
+    "the fact is",
     "la causa real es",
+    "the real cause is",
+    "la causa real",
+    "the real cause",
+    "el motivo real es",
+    "the real motive is",
+    "el motivo real",
     "la única causa",
     "la unica causa",
+    "the only cause",
     "la única explicación",
     "la unica explicacion",
+    "the only explanation",
     "es evidente que",
+    "it is evident that",
     "está claro que",
     "esta claro que",
-    "es indudable que",
-    "the fact is",
-    "it is a fact that",
-    "i am broken",
-    "is broken",
-    "are broken",
+    "es claro que",
+    "the answer is clearly",
+    "clearly the",
+    "clearly",
+    "esto demuestra que",
+    "esto demuestra",
+    "demuestra que",
+    "se demuestra que",
+    "queda demostrado que",
+    "this demonstrates that",
+    "this demonstrates",
+    "it demonstrates that",
+    "it demonstrates",
+    "therefore this proves",
+    "proves beyond doubt",
+    "clearly proves",
+    "certainly means",
+    "proves that",
+    "this proves",
+    "proves",
+    "proven",
+    "necesariamente",
+    "must be because",
     "is a narcissist",
     "soy una persona narcisista",
     "es una persona narcisista",
+)
+
+_NEGATED_CERTAINTY_PATTERNS: tuple[str, ...] = (
+    "no tengo certeza",
+    "no tenemos certeza",
+    "no hay certeza",
+    "no hay ninguna certeza",
+    "sin certeza",
+    "sin tener certeza",
+    "no estoy seguro",
+    "no está seguro",
+    "no esta seguro",
+    "no estamos seguros",
+    "no puedo estar seguro",
+    "no se puede estar seguro",
+    "no podemos estar seguros",
+    "no es seguro que",
+    "no puedo asegurar",
+    "no podemos asegurar",
+    "no se puede asegurar",
+    "no es un hecho que",
+    "no es evidente que",
+    "no está claro que",
+    "no esta claro que",
+    "no puedo concluir",
+    "no podemos concluir",
+    "no es posible concluir",
+    "no demuestra que",
+    "no prueba que",
+    "no significa necesariamente",
+    "not certain",
+    "no certainty",
+    "not with certainty",
+    "without certainty",
+    "cannot be certain",
+    "cannot be sure",
+    "not sure",
+    "not definitely",
+    "not obviously",
+    "not proven",
+    "not a fact",
+    "cannot conclude",
+    "is not the only explanation",
+    "there is no certainty",
+    "there is no clear answer",
+    "does not prove",
+    "does not demonstrate",
+)
+
+_CERTAINTY_MARKERS: tuple[str, ...] = (
+    _AFFIRMATIVE_CERTAINTY_IDIOMS + _DIRECT_AFFIRMATIVE_CERTAINTY
 )
 
 CONCLUSION_FIELDS: tuple[str, ...] = (
@@ -581,18 +810,49 @@ CONCLUSION_FIELDS: tuple[str, ...] = (
 
 
 def _certainty_signal(text: str) -> str | None:
-    """Return the first matched certainty marker in a text, or ``None``.
+    """Return the first matched affirmative certainty marker in a text, or ``None``.
 
-    Deterministic closed-lexicon detection of unsupported-certainty /
-    forced-conclusion language (including multilingual variants), independent of
-    any larger free-text phrase list.
+    Polarity-sensitive deterministic detection of unsupported certainty:
+    - Affirmative idioms (e.g. 'no hay duda', 'sin duda', 'there is no doubt') are flagged.
+    - Explicitly negated certainty (e.g. 'no tengo certeza', 'no estoy seguro',
+      'I am not certain', 'cannot be certain') is recognized as uncertainty and NOT flagged.
+    - Mixed clauses (e.g. 'no estoy seguro, pero sin duda fue por celos') flag the affirmative certainty.
     """
-    lowered = " " + (text or "").lower() + " "
+    if not text or not isinstance(text, str):
+        return None
+
     import re
-    cleaned = re.sub(r"[^\w\s]", " ", lowered)
-    for marker in _CERTAINTY_MARKERS:
-        if marker in lowered or marker in cleaned:
-            return marker
+
+    clauses = re.split(
+        r"[;\n\.]|\b(?:pero|aunque|sin embargo|no obstante|but|however|although|though|while)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    for clause in clauses:
+        clause_str = " " + clause.strip().lower() + " "
+        cleaned_clause = re.sub(r"[^\w\s]", " ", clause_str)
+
+        # 1. Check affirmative certainty idioms first
+        for idiom in _AFFIRMATIVE_CERTAINTY_IDIOMS:
+            if idiom in clause_str or idiom in cleaned_clause:
+                return idiom
+
+        # 2. Check if this clause explicitly negates certainty
+        has_negation = False
+        for neg in _NEGATED_CERTAINTY_PATTERNS:
+            if neg in clause_str or neg in cleaned_clause:
+                has_negation = True
+                break
+
+        if has_negation:
+            continue
+
+        # 3. Check direct affirmative certainty markers
+        for marker in _DIRECT_AFFIRMATIVE_CERTAINTY:
+            if marker in clause_str or marker in cleaned_clause:
+                return marker
+
     return None
 
 
@@ -955,12 +1215,6 @@ def no_forced_conclusion_policy(result: Any) -> dict:
 
     matched: list[str] = list(structural_markers)
     seen: set[str] = set(structural_markers)
-
-    for phrase in FORCED_CONCLUSION_PHRASES:
-        for text in conclusion_texts:
-            if phrase in text.lower() and phrase not in seen:
-                seen.add(phrase)
-                matched.append(phrase)
 
     for text in conclusion_texts:
         marker = _certainty_signal(text)

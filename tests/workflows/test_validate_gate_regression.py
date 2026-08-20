@@ -297,4 +297,3 @@ def test_validate_gate_preserves_static_metadata_condition():
         metadata={"static_flag": True},
     )
     assert result.run.status is WorkflowRunStatus.COMPLETED
-

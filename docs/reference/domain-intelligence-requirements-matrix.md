@@ -139,7 +139,7 @@ These requirements define Phase 10.16 scope without designing its implementation
 | `DP-021` | Relationships: observed behaviour, psychological function, origin only as hypothesis, and recurrence across relationships. | `SRC-P12:P12-C02` | 10.21 | shared domain infrastructure; sensitive inference permissions | `REQUIRES_PHASE_INSPECTION` | `AT-DP-021` |
 | `DP-022` | University: cross-workstream prioritization, workload, deadlines, academic risk, source separation, and institutional documents. Covers `REQ-DP22-001` (prioritization/workload/dependencies), `REQ-DP22-002` (deadlines, source authority, integrity), and `REQ-DP22-003` (concrete workflows) as sub-requirements of one canonical unit. | `SRC-P14:P14-C02` | 10.22 | shared domain infrastructure | `VERIFIED_EXISTING` | `AT-DP-022` |
 | `DP-023` | Oppositions: versioned strategy, official-source verification, milestones, constraints, trade-offs, and study planning. | `SRC-P08:P08-C01` | 10.23 | shared domain infrastructure; `cmm/domains/oppositions/` — complete and independently audited; external sources deferred | `VERIFIED_EXISTING` | `AT-DP-023` |
-| `DP-024` | Reflection: open-ended analysis, prudent hypotheses, interest mapping grounded in sources, and confirmed persistence. | `SRC-P11:P11-C01` | 10.24 | shared domain infrastructure; `cmm/domains/reflection/` — implemented, pending independent audit V4 | `VERIFIED_EXISTING` | `AT-DP-024` |
+| `DP-024` | Reflection: open-ended analysis, prudent hypotheses, interest mapping grounded in sources, and confirmed persistence. | `SRC-P11:P11-C01` | 10.24 | shared domain infrastructure; `cmm/domains/reflection/` — implemented, pending independent audit V5 | `VERIFIED_EXISTING` | `AT-DP-024` |
 | `DP-025` | Concerns: separate fact from scenario, evaluate control and evidence, avoid reassurance loops, and escalate real immediate risk. | `SRC-R10:R10-C25` | 10.25 | shared domain infrastructure | `REQUIRES_PHASE_INSPECTION` | `AT-DP-025` |
 | `DP-026` | Languages: consented onboarding, evidenced level, lesson workflow, practice, error patterns, progression, and reviews. | `SRC-P05:P05-C03` | 10.26 | shared domain infrastructure | `REQUIRES_PHASE_INSPECTION` | `AT-DP-026` |
 | `DP-027` | Parenthood: temporal legal verification, medical/legal/financial separation, decision status, scenario uncertainty, and approved external actions. | `SRC-P10:P10-C01` | 10.27 | shared domain infrastructure; providers deferred | `REQUIRES_PHASE_INSPECTION` | `AT-DP-027` |
@@ -383,7 +383,7 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.21 — Relationships
 10.22 — University
 10.23 — Oppositions
-10.24 — Reflection (implemented, pending independent audit V4)
+10.24 — Reflection (implemented, pending independent audit V5)
 10.25 — Concerns
 10.26 — Languages
 10.27 — Parenthood
