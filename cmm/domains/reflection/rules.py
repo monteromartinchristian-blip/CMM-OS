@@ -36,6 +36,7 @@ Epistemic-safety core (frozen spec §6–§17, §24–§29):
 from __future__ import annotations
 
 import math
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -176,6 +177,44 @@ def _finite_number(value: Any) -> float | None:
     return number
 
 
+def _json_safe_scalar(value: Any) -> Any:
+    """Collapse a non-JSON-safe scalar to ``None`` (fail closed, never raise).
+
+    ``float("nan")`` and ``float("inf")`` are not representable by
+    ``json.dumps(..., allow_nan=False)``; they collapse to ``None`` rather than
+    leaking into a public structure.  ``bool`` is intentionally kept distinct
+    from numeric values.  Everything JSON-safe passes through unchanged.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def normalize_json_value(value: Any) -> Any:
+    """Recursively normalize a value to a strict-JSON-safe representation.
+
+    Non-finite floats (NaN/infinity) collapse to ``None``; mappings, lists and
+    tuples are recursed deterministically; strings, ints, finite floats and
+    booleans pass through.  This is the shared normalization boundary for every
+    public Reflection helper/operation result so that
+    ``json.dumps(..., allow_nan=False)`` always succeeds without an accidental
+    ``TypeError``.
+    """
+    if isinstance(value, float):
+        return _json_safe_scalar(value)
+    if isinstance(value, Mapping):
+        return {
+            (str(key) if not isinstance(key, str) else key): normalize_json_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return tuple(normalize_json_value(item) for item in value)
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    # Anything not JSON-safe at the helper boundary collapses fail-closed.
+    return None
+
+
 # ── Closed evidence states ───────────────────────────────────────────────────
 
 EVIDENCE_ABSENT = "absent"
@@ -280,6 +319,124 @@ DIAGNOSTIC_TERMS: tuple[str, ...] = (
 )
 
 
+# Narrow deterministic safety boundary (spec §15, §29): these token stems mark
+# a statement as diagnostic/identity-classifying or fixed-essence assertive
+# language.  This is NOT a clinical classifier; it is a closed vocabulary whose
+# presence forces the statement into a prohibited/unsafe representation rather
+# than a clean non-diagnostic hypothesis.
+_DIAGNOSTIC_TOKEN_STEMS: tuple[str, ...] = (
+    "disorder",
+    "diagnosis",
+    "diagnose",
+    "diagnostic",
+    "bipolar",
+    "narcissist",
+    "narcissistic",
+    "psychopath",
+    "psychopathy",
+    "sociopath",
+    "sociopathy",
+    "borderline",
+    "schizophren",
+    "psychotic",
+    "depressive",
+    "delusional",
+    "personality",
+    "attachment",
+)
+
+_IDENTITY_CLASSIFICATION_PREFIXES: tuple[str, ...] = (
+    "you are a",
+    "you are an",
+    "you are the",
+    "you are definitely",
+    "you have a",
+    "you have an",
+    "you definitely have",
+    "you certainly have",
+)
+
+
+def _diagnostic_signal(statement: Any) -> bool:
+    """Deterministically detect diagnostic/identity-classification language.
+
+    A statement is flagged when it contains a known diagnostic token stem or a
+    fixed-identity classification prefix followed by a diagnostic stem.  This is
+    a narrow closed-vocabulary safety boundary, not a clinical classifier; its
+    purpose is to force prohibited wording out of the safe non-diagnostic
+    hypothesis representation (spec §15, §29, §41 NoForcedConclusion).
+    """
+    text = _usable_scalar_string(statement)
+    if text is None:
+        return False
+    lowered = " " + text.lower() + " "
+    for stem in _DIAGNOSTIC_TOKEN_STEMS:
+        if stem in lowered:
+            return True
+    for prefix in _IDENTITY_CLASSIFICATION_PREFIXES:
+        if prefix in lowered:
+            return True
+    return False
+
+
+# Structural certainty/forced-conclusion markers (spec §13, §41).  These are
+# closed lexical signals of unsupported certainty / forced causal conclusions,
+# including multilingual variants, that must never let an unresolved reflection
+# be represented as resolved.  This is not a phrase blacklist to grow
+# indefinitely; it is a narrow deterministic boundary.
+_CERTAINTY_MARKERS: tuple[str, ...] = (
+    "definitely",
+    "definitively",
+    "obviously",
+    "certainly",
+    "undeniably",
+    "unquestionably",
+    "without a doubt",
+    "no doubt",
+    "proves ",
+    "prove ",
+    "proven ",
+    "the real cause is",
+    "the real reason is",
+    "the real cause",
+    "the real reason",
+    "the answer is clearly",
+    "clearly the",
+    "must be because",
+    "the only explanation",
+    "this demonstrates",
+    "it demonstrates",
+    "esto demuestra",
+    "demuestra que",
+    "sin duda",
+    "obviamente",
+    "definitivamente",
+    "es un hecho que",
+    "the fact is",
+    "it is a fact that",
+    "i am broken",
+    "is broken",
+    "are broken",
+    "is a narcissist",
+    "soy una persona narcisista",
+    "es una persona narcisista",
+)
+
+
+def _certainty_signal(text: str) -> str | None:
+    """Return the first matched certainty marker in a text, or ``None``.
+
+    Deterministic closed-lexicon detection of unsupported-certainty /
+    forced-conclusion language (including multilingual variants), independent of
+    any larger free-text phrase list.
+    """
+    lowered = " " + (text or "").lower() + " "
+    for marker in _CERTAINTY_MARKERS:
+        if marker in lowered:
+            return marker
+    return None
+
+
 def classify_statement_level(value: Any) -> dict:
     """Classify a statement into the canonical epistemic pipeline level.
 
@@ -353,9 +510,11 @@ def evaluate_hypotheses(
             "hypotheses": (),
             "supported_ids": (),
             "conflicting_ids": (),
+            "collision_ids": (),
             "unresolved": True,
             "winner_selected": False,
             "forced_conclusion": False,
+            "no_diagnosis": True,
             "insufficient_basis_to_rank": True,
             "evidence_state": EVIDENCE_MALFORMED,
         }
@@ -430,45 +589,49 @@ def evaluate_hypotheses(
             conflicting_ids.add(source_id)
 
     conflicting_ids = {source_id for source_id in conflicting_ids}
+    # Same identity with incompatible statements is a semantic collision and
+    # must fail closed to unresolved/conflicting, never a clean ranking.
+    collision_ids = set(collisions)
 
     supported = {source_id for record in records for source_id in record["supporting_ids"]}
-    unresolved = bool(conflicting_ids) or any(
-        not record["supporting_ids"] for record in records
+    unresolved = (
+        bool(conflicting_ids)
+        or bool(collision_ids)
+        or any(not record["supporting_ids"] for record in records)
     )
     insufficient_to_rank = any(not record["supporting_ids"] for record in records)
 
     # Relative strength: strictly more grounded support than every other
-    # hypothesis with no conflicts on its own evidence.
+    # hypothesis with no conflicts on its own evidence and no collided identity.
     strengths: dict[str, int | None] = {
         record["identity"]: (
             len(record["supporting_ids"]) if record["supporting_ids"] else None
         )
         for record in records
+        if record["identity"] not in collision_ids
     }
     max_strength = max((v for v in strengths.values() if v is not None), default=None)
     relative_strength: dict[str, str | None] = {}
-    for identity, strength in strengths.items():
+    for record in records:
+        identity = record["identity"]
+        if identity in collision_ids:
+            relative_strength[identity] = None
+            continue
+        strength = strengths.get(identity)
         if (
             strength is not None
             and max_strength is not None
             and strength == max_strength
             and sum(1 for v in strengths.values() if v == max_strength) == 1
-            and not any(
-                source_id in conflicting_ids for source_id in (strength and [])
-            )
+            and not any(source_id in conflicting_ids for source_id in record["supporting_ids"])
         ):
-            # Only when the leading hypothesis has no conflicted evidence can
-            # we mark it relatively stronger.
-            record = next(r for r in records if r["identity"] == identity)
-            if not any(source_id in conflicting_ids for source_id in record["supporting_ids"]):
-                relative_strength[identity] = "stronger"
-            else:
-                relative_strength[identity] = None
+            relative_strength[identity] = "stronger"
         else:
             relative_strength[identity] = None
 
     hypotheses_out = []
     for record in records:
+        diagnostic = _diagnostic_signal(record["statement"])
         hypotheses_out.append(
             {
                 "identity": record["identity"],
@@ -480,26 +643,37 @@ def evaluate_hypotheses(
                 "temporal": record["temporal"],
                 "status": LEVEL_HYPOTHESIS,
                 "fact": False,
-                "relative_strength": relative_strength[record["identity"]],
+                "diagnostic": diagnostic,
+                "restricted_inference": diagnostic,
+                "relative_strength": (
+                    None if diagnostic else relative_strength[record["identity"]]
+                ),
             }
         )
 
-    return {
-        "hypotheses": tuple(hypotheses_out),
-        "supported_ids": tuple(sorted(supported)),
-        "conflicting_ids": tuple(sorted(conflicting_ids)),
-        "unresolved": unresolved,
-        "winner_selected": False,
-        "forced_conclusion": False,
-        "insufficient_basis_to_rank": insufficient_to_rank,
-        "evidence_state": (
-            EVIDENCE_CONFLICTING
-            if conflicting_ids
-            else EVIDENCE_GROUNDED
-            if supported
-            else EVIDENCE_UNKNOWN
-        ),
-    }
+    any_diagnostic = any(h["diagnostic"] for h in hypotheses_out)
+    return normalize_json_value(
+        {
+            "hypotheses": tuple(hypotheses_out),
+            "supported_ids": tuple(sorted(supported)),
+            "conflicting_ids": tuple(sorted(conflicting_ids)),
+            "collision_ids": tuple(sorted(collision_ids)),
+            "unresolved": unresolved,
+            "winner_selected": False,
+            "forced_conclusion": False,
+            "no_diagnosis": not any_diagnostic,
+            "insufficient_basis_to_rank": insufficient_to_rank,
+            "evidence_state": (
+                EVIDENCE_MALFORMED
+                if malformed
+                else EVIDENCE_CONFLICTING
+                if conflicting_ids or collision_ids
+                else EVIDENCE_GROUNDED
+                if supported
+                else EVIDENCE_UNKNOWN
+            ),
+        }
+    )
 
 
 def _collect_text(mapping: Mapping) -> list[str]:
@@ -531,9 +705,13 @@ def no_forced_conclusion_policy(result: Any) -> dict:
     """Determine whether a structured result forces a conclusion.
 
     A result that is unresolved (or missing a conclusion) may complete
-    successfully as long as no forbidden certainty phrasing is present.
-    When the result is unresolved and forbidden phrasing appears, the result
-    is flagged as a forced conclusion with the offending phrases listed.
+    successfully only as long as no unsupported-certainty / forced-conclusion
+    language is present.  Detection is structural: a closed certainty lexicon
+    (including multilingual variants) plus the legacy phrase list, so
+    multilingual/free-text wording cannot bypass the safety state.  When the
+    result is unresolved and unsupported certainty appears, it is flagged as a
+    forced conclusion and the offending markers are listed; it must not be
+    presented as a clean resolved conclusion.
     """
     if not isinstance(result, Mapping):
         return {
@@ -548,17 +726,27 @@ def no_forced_conclusion_policy(result: Any) -> dict:
         unresolved = True
     texts = _collect_text(result)
     lowered = " ".join(texts).lower()
-    matched = tuple(
-        phrase for phrase in FORCED_CONCLUSION_PHRASES if phrase in lowered
-    )
+    matched: list[str] = []
+    seen: set[str] = set()
+    for phrase in FORCED_CONCLUSION_PHRASES:
+        if phrase in lowered and phrase not in seen:
+            seen.add(phrase)
+            matched.append(phrase)
+    for text in texts:
+        marker = _certainty_signal(text)
+        if marker is not None and marker not in seen:
+            seen.add(marker)
+            matched.append(marker)
     forced = bool(unresolved) and bool(matched)
-    return {
-        "forced_conclusion": forced,
-        "valid_unresolved_completion": bool(unresolved) and not forced,
-        "unsupported_certainty": matched,
-        "unresolved": bool(unresolved),
-        "evaluated": True,
-    }
+    return normalize_json_value(
+        {
+            "forced_conclusion": forced,
+            "valid_unresolved_completion": bool(unresolved) and not forced,
+            "unsupported_certainty": tuple(matched),
+            "unresolved": bool(unresolved),
+            "evaluated": True,
+        }
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -604,6 +792,7 @@ def evaluate_ambivalence(
             "duplicates_ignored": (),
             "context_distinctions": (),
             "temporal_distinctions": (),
+            "collision_ids": (),
             "conflict_state": CONFLICT_UNRESOLVED,
             "evidence_state": EVIDENCE_MALFORMED,
         }
@@ -645,6 +834,7 @@ def evaluate_ambivalence(
     context_distinctions: list[str] = []
     temporal_distinctions: list[str] = []
     ambivalent_ids: set[str] = set()
+    collision_ids: set[str] = set()
     by_context_time: dict[tuple, list[dict]] = {}
     for record in records_out:
         bucket = (record["context"], record["temporal"])
@@ -653,14 +843,20 @@ def evaluate_ambivalence(
     for bucket, members in by_context_time.items():
         for index, left in enumerate(members):
             for right in members[index + 1 :]:
-                same_kind = left["kind"] == right["kind"]
-                same_bucket = left["context"] == right["context"] and (
-                    left["temporal"] == right["temporal"]
-                )
-                if not same_bucket:
+                if not (
+                    left["context"] == right["context"]
+                    and left["temporal"] == right["temporal"]
+                ):
                     continue
+                # Same identity with incompatible statements/polarities in the
+                # same context/time is a semantic collision: it must fail closed
+                # to unresolved/conflicting or explicit ambivalence, never a
+                # clean non-ambivalent grounded state.
                 if left["identity"] == right["identity"]:
+                    if left["statement"] != right["statement"]:
+                        collision_ids.add(left["identity"])
                     continue
+                same_kind = left["kind"] == right["kind"]
                 opposing = False
                 if same_kind and left["kind"] in _AMBIVALENT_KINDS:
                     left_polarity = left["polarity"]
@@ -726,7 +922,12 @@ def evaluate_ambivalence(
             }
         )
 
-    if ambivalent_ids:
+    if collision_ids:
+        # Same identity with incompatible statements in the same context/time
+        # fail closed to unresolved/conflicting (never clean grounded).
+        conflict_state = CONFLICT_CONFLICTING
+        ambivalence_present = False
+    elif ambivalent_ids:
         conflict_state = CONFLICT_AMBIVALENT
         ambivalence_present = True
     elif temporal_distinctions and context_distinctions or temporal_distinctions:
@@ -742,23 +943,26 @@ def evaluate_ambivalence(
         conflict_state = CONFLICT_NONE
         ambivalence_present = False
 
-    return {
-        "ambivalence_present": ambivalence_present,
-        "forced_resolution": False,
-        "winner_selected": False,
-        "positions": tuple(positions_out),
-        "duplicates_ignored": tuple(duplicates),
-        "context_distinctions": tuple(context_distinctions),
-        "temporal_distinctions": tuple(temporal_distinctions),
-        "conflict_state": conflict_state,
-        "evidence_state": (
-            EVIDENCE_CONFLICTING
-            if ambivalence_present
-            else EVIDENCE_GROUNDED
-            if records_out
-            else EVIDENCE_ABSENT
-        ),
-    }
+    return normalize_json_value(
+        {
+            "ambivalence_present": ambivalence_present,
+            "forced_resolution": False,
+            "winner_selected": False,
+            "positions": tuple(positions_out),
+            "duplicates_ignored": tuple(duplicates),
+            "context_distinctions": tuple(context_distinctions),
+            "temporal_distinctions": tuple(temporal_distinctions),
+            "collision_ids": tuple(sorted(collision_ids)),
+            "conflict_state": conflict_state,
+            "evidence_state": (
+                EVIDENCE_CONFLICTING
+                if collision_ids or ambivalence_present
+                else EVIDENCE_GROUNDED
+                if records_out
+                else EVIDENCE_ABSENT
+            ),
+        }
+    )
 
 
 def _normalize_evidence_kind(value: Any) -> str:
@@ -766,6 +970,19 @@ def _normalize_evidence_kind(value: Any) -> str:
     if kind is not None and kind in _EVIDENCE_KINDS:
         return kind
     return "unknown"
+
+
+def _normalize_source_kind(value: Any) -> str:
+    """Normalize a source-kind label deterministically (lowercase/strip).
+
+    An absent/blank/unknown kind is treated as ``unknown`` and never grounded.
+    Case variants such as ``MEMORY_SUMMARY`` collapse to their canonical
+    ``memory_summary`` form so the allowlist/denylist govern authoritatively.
+    """
+    kind = _usable_scalar_string(value)
+    if kind is None:
+        return "unknown"
+    return kind.lower()
 
 
 def classify_belief_evidence(
@@ -845,7 +1062,7 @@ def classify_belief_evidence(
             "statement": statement,
             "kind": kind,
             "source": source,
-            "value": value,
+            "value": _json_safe_scalar(value),
         }
         if kind == "belief":
             if labeled_fact:
@@ -890,53 +1107,60 @@ def classify_belief_evidence(
 
     if malformed:
         conflict_state = CONFLICT_UNRESOLVED
-    elif len(projections["evidence"]) > 1:
+    elif projections["counterevidence"] and projections["evidence"]:
+        # Counterevidence against supporting evidence is always conflicting:
+        # it must not be skipped merely because multiple compatible evidence
+        # records exist.
+        conflict_state = CONFLICT_CONFLICTING
+    elif len(projections["evidence"]) > 1 and (
         # conflicting evidence on the same source/attribute stays conflicting
-        if any(
+        any(
             left.get("value") is not None
             and right.get("value") is not None
             and left.get("value") != right.get("value")
             for index, left in enumerate(projections["evidence"])
             for right in projections["evidence"][index + 1 :]
-        ) or any(
+        )
+        or any(
             left.get("statement") != right.get("statement")
             for index, left in enumerate(projections["evidence"])
             for right in projections["evidence"][index + 1 :]
-        ):
-            conflict_state = CONFLICT_CONFLICTING
-    elif projections["counterevidence"] and projections["evidence"]:
+        )
+    ):
         conflict_state = CONFLICT_CONFLICTING
 
-    return {
-        "beliefs": tuple(projections["beliefs"]),
-        "evidence": tuple(projections["evidence"]),
-        "counterevidence": tuple(projections["counterevidence"]),
-        "experiences": tuple(projections["experiences"]),
-        "interpretations": tuple(projections["interpretations"]),
-        "memories": tuple(projections["memories"]),
-        "observations": tuple(projections["observations"]),
-        "hypotheses": tuple(projections["hypotheses"]),
-        "facts": tuple(projections["facts"]),
-        "beliefs_as_facts": tuple(projections["beliefs_as_facts"]),
-        "promotions_blocked": tuple(sorted(set(promotions_blocked))),
-        "promotion_applied": False,
-        "type_promotion": bool(promotions_blocked),
-        "malformed_records": tuple(malformed_records),
-        "duplicates_ignored": tuple(duplicates_ignored),
-        "unresolved": bool(malformed) or conflict_state == CONFLICT_UNRESOLVED
-        or conflict_state == CONFLICT_CONFLICTING,
-        "conflict_state": conflict_state,
-        "evidence_state": (
-            EVIDENCE_MALFORMED
-            if malformed
-            else EVIDENCE_CONFLICTING
-            if conflict_state == CONFLICT_CONFLICTING
-            or conflict_state == CONFLICT_UNRESOLVED
-            else EVIDENCE_GROUNDED
-            if any(projections.values())
-            else EVIDENCE_ABSENT
-        ),
-    }
+    return normalize_json_value(
+        {
+            "beliefs": tuple(projections["beliefs"]),
+            "evidence": tuple(projections["evidence"]),
+            "counterevidence": tuple(projections["counterevidence"]),
+            "experiences": tuple(projections["experiences"]),
+            "interpretations": tuple(projections["interpretations"]),
+            "memories": tuple(projections["memories"]),
+            "observations": tuple(projections["observations"]),
+            "hypotheses": tuple(projections["hypotheses"]),
+            "facts": tuple(projections["facts"]),
+            "beliefs_as_facts": tuple(projections["beliefs_as_facts"]),
+            "promotions_blocked": tuple(sorted(set(promotions_blocked))),
+            "promotion_applied": False,
+            "type_promotion": bool(promotions_blocked),
+            "malformed_records": tuple(malformed_records),
+            "duplicates_ignored": tuple(duplicates_ignored),
+            "unresolved": bool(malformed) or conflict_state == CONFLICT_UNRESOLVED
+            or conflict_state == CONFLICT_CONFLICTING,
+            "conflict_state": conflict_state,
+            "evidence_state": (
+                EVIDENCE_MALFORMED
+                if malformed
+                else EVIDENCE_CONFLICTING
+                if conflict_state == CONFLICT_CONFLICTING
+                or conflict_state == CONFLICT_UNRESOLVED
+                else EVIDENCE_GROUNDED
+                if any(projections.values())
+                else EVIDENCE_ABSENT
+            ),
+        }
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1193,10 +1417,19 @@ def compare_reflection_versions(
     ordered = sorted(
         normalized, key=lambda item: (item["observed_scalar"], item["version_id"])
     )
+    # Detect any equal-time subgroup: records sharing the same normalized scalar
+    # are temporally ambiguous and must not manufacture direction.
+    scalar_counts = Counter(item["observed_scalar"] for item in ordered)
+    has_equal_time_subgroup = any(count > 1 for count in scalar_counts.values())
+
     changes: list[dict] = []
+    # Only emit a directional change between distinct scalar groups; never
+    # between two records at the same instant (equal-time subgroup is ambiguous).
     for index in range(1, len(ordered)):
         left = ordered[index - 1]
         right = ordered[index]
+        if left["observed_scalar"] == right["observed_scalar"]:
+            continue
         left_tokens = frozenset(
             token for token in left["content"].lower().split() if token
         )
@@ -1253,13 +1486,17 @@ def compare_reflection_versions(
                 "version_id": item["version_id"],
                 "identity": item["identity"],
                 "observed_at": item["observed_at"],
-                "state": "ordered",
+                "state": (
+                    "simultaneous"
+                    if scalar_counts[item["observed_scalar"]] > 1
+                    else "ordered"
+                ),
             }
             for item in ordered
         ),
         "changes": tuple(changes),
         "input_order_not_chronology": True,
-        "equal_timestamps_no_evolution": False,
+        "equal_timestamps_no_evolution": has_equal_time_subgroup,
         "malformed_datetime_ignored_for_direction": False,
         "newest_is_current_truth": newest_is_current_truth,
     }
@@ -1277,6 +1514,7 @@ _NON_INDEPENDENT_SOURCE_KINDS: frozenset[str] = frozenset(
         "model_inference",
         "inferred",
         "memory",
+        "memory_entry",
         "summary",
         "system",
         "llm",
@@ -1336,7 +1574,27 @@ def map_interests(
         source = _usable_scalar_string(entry.get("source")) or _usable_scalar_string(
             entry.get("source_id")
         )
-        source_kind = _usable_scalar_string(entry.get("source_kind")) or "user_statement"
+        explicit_flag = _boolean_true(entry.get("explicit"))
+        activity_flag = _boolean_true(entry.get("activity"))
+        mention_flag = _boolean_true(entry.get("mention"))
+        raw_source_kind = entry.get("source_kind")
+        provided_source_kind = _usable_scalar_string(raw_source_kind)
+        if provided_source_kind is None:
+            # No explicit kind: infer a grounded user-anchored kind from the
+            # record's own evidence flags (spec §16 grounded instances).
+            if explicit_flag:
+                source_kind = "user_statement"
+            elif activity_flag:
+                source_kind = "activity"
+            elif mention_flag:
+                source_kind = "discussion"
+            else:
+                source_kind = "unknown"
+        else:
+            # An explicitly supplied kind is normalized and governed strictly
+            # by the allowlist/denylist (case-insensitively); unknown or
+            # unsupported kinds fail closed to ungrounded.
+            source_kind = _normalize_source_kind(provided_source_kind)
         recording = _usable_scalar_string(entry.get("recording")) or _usable_scalar_string(
             entry.get("statement")
         )
@@ -1377,7 +1635,8 @@ def map_interests(
             context = record["context"]
             if context and context not in contexts:
                 contexts.append(context)
-            if record["source_kind"] in _NON_INDEPENDENT_SOURCE_KINDS:
+            source_kind = record["source_kind"]
+            if source_kind in _NON_INDEPENDENT_SOURCE_KINDS:
                 model_sources += 1
                 model_source_total += 1
                 continue
@@ -1385,7 +1644,11 @@ def map_interests(
                 if record["source"] and record["source"] not in counter_sources:
                     counter_sources.append(record["source"])
                 continue
-            if record["source"]:
+            # Grounding requires a source that is actually present AND whose
+            # normalized source kind is explicitly allowed by the grounded
+            # allowlist; anything else (unknown, unsupported, synthetic) fails
+            # closed to non-independent/non-grounded.
+            if record["source"] and source_kind in _GROUNDED_SOURCE_KINDS:
                 grounded_sources.add(record["source"])
             # time span: earliest..latest observed_at when both are usable
             observed = record["observed_at"]
@@ -1449,15 +1712,26 @@ def map_interests(
             if candidate["interest"] in strong_candidates:
                 candidate["relative_strength"] = "stronger"
 
-    return {
-        "interest_candidates": tuple(candidates),
-        "duplicates_ignored": tuple(duplicates),
-        "malformed_records": tuple(malformed_records),
-        "model_inference_not_source": True,
-        "persistent_confirmed": False,
-        "contradictions": tuple(contradictions),
-        "evidence_state": EVIDENCE_GROUNDED if candidates else EVIDENCE_ABSENT,
-    }
+    # Top-level evidence state reflects actual grounded evidence, never the
+    # mere presence of candidates (a model/memory-only candidate is ungrounded).
+    any_grounded = any(c["grounded_evidence_count"] > 0 for c in candidates)
+    return normalize_json_value(
+        {
+            "interest_candidates": tuple(candidates),
+            "duplicates_ignored": tuple(duplicates),
+            "malformed_records": tuple(malformed_records),
+            "model_inference_not_source": True,
+            "persistent_confirmed": False,
+            "contradictions": tuple(contradictions),
+            "evidence_state": (
+                EVIDENCE_MALFORMED
+                if malformed
+                else EVIDENCE_GROUNDED
+                if any_grounded
+                else EVIDENCE_ABSENT
+            ),
+        }
+    )
 
 
 def format_timestamp(epoch: float) -> str:
@@ -1485,6 +1759,82 @@ def authorizes_confirmation(value: Any) -> bool:
     return value is True
 
 
+# Non-independent provenance prefixes for persistence: model inference and
+# memory/model summaries are provenance only, never independent corroboration
+# (§17, §18, §38).  A source identifier under these namespaces cannot ground a
+# confirmed persistent pattern by itself.
+_NON_INDEPENDENT_SOURCE_PREFIXES: tuple[str, ...] = (
+    "model:",
+    "memory:",
+    "summary:",
+    "llm:",
+    "inference:",
+    "inferred:",
+)
+
+
+def _is_independent_source(source: str) -> bool:
+    """Return whether a source identifier is independent grounded provenance.
+
+    Model/model-summary/memory/inference-namespaced sources are provenance only
+    and never independent corroboration.
+    """
+    lowered = (source or "").strip().lower()
+    if not lowered:
+        return False
+    return not any(lowered.startswith(prefix) for prefix in _NON_INDEPENDENT_SOURCE_PREFIXES)
+
+
+def _resolve_shared_confirmation(confirmation: Any) -> tuple[str, bool, bool]:
+    """Resolve a shared confirmation/approval reference to a canonical state.
+
+    Returns ``(state, approved, malformed)`` where ``state`` is one of
+    ``confirmed``/``rejected``/``candidate``/``pending_confirmation``.
+
+    A complete shared confirmation must be a reference (a ``Mapping`` or an
+    object exposing ``approved``) carrying a traceable reference identifier and
+    an ``approved`` field.  Only the literal boolean ``True`` of that field
+    authorizes; ``False`` rejects; a raw ``True``/string/number/collection with
+    no reference is NOT a complete confirmation (it neither authorizes nor is
+    malformed-by-type — it is simply insufficient).
+    """
+    if confirmation is None:
+        return PERSISTENCE_CANDIDATE, False, False
+
+    # A raw boolean is never a complete shared confirmation reference.
+    if isinstance(confirmation, bool):
+        return PERSISTENCE_REJECTED if confirmation is False else PERSISTENCE_CANDIDATE, False, False
+
+    approved_value = None
+    reference_id = None
+    if isinstance(confirmation, Mapping):
+        approved_value = confirmation.get("approved")
+        reference_id = _usable_reference(
+            confirmation.get("decision_id")
+            or confirmation.get("request_id")
+            or confirmation.get("approval_decision_id")
+        )
+    else:
+        # Duck-typed shared snapshot (e.g. DomainMemoryApprovalDecisionSnapshot).
+        approved_value = getattr(confirmation, "approved", None)
+        reference_id = _usable_reference(
+            getattr(confirmation, "decision_id", None)
+            or getattr(confirmation, "request_id", None)
+        )
+
+    if reference_id is None:
+        # A reference without a traceable identifier is malformed: fail closed.
+        return PERSISTENCE_CANDIDATE, False, True
+
+    if approved_value is True:
+        return PERSISTENCE_CONFIRMED, True, False
+    if approved_value is False:
+        return PERSISTENCE_REJECTED, False, False
+    # approved field is absent or a non-boolean value: unknown/conflicting →
+    # not confirmed, malformed.
+    return PERSISTENCE_CANDIDATE, False, True
+
+
 def evaluate_persistence_basis(record: Any) -> dict:
     """Evaluate the evidence basis of a candidate persistent pattern.
 
@@ -1496,6 +1846,7 @@ def evaluate_persistence_basis(record: Any) -> dict:
     if not isinstance(record, Mapping):
         return {
             "pattern": None,
+            "sources": (),
             "independent_grounded_sources": 0,
             "duplicate_summaries_ignored": 0,
             "model_inference_count": 0,
@@ -1517,12 +1868,15 @@ def evaluate_persistence_basis(record: Any) -> dict:
     )
     single_conversation = _boolean_true(record.get("single_conversation"))
 
-    unique_sources = len({source for source in sources} )
+    # Model/memory/model-inference/llm/summary provenance is never independent
+    # grounded corroboration; only non-model, non-summary user-anchored sources
+    # count toward the independent basis.
+    independent_sources = {source for source in sources if _is_independent_source(source)}
     summary_overlap = len(set(sources) & set(duplicate_summaries))
-    independent_grounded = max(0, unique_sources - summary_overlap)
+    independent_grounded = max(0, len(independent_sources) - summary_overlap)
     model_inference_count = 1 if model_inferred else 0
     basis_sufficient = independent_grounded >= 1 and not single_conversation and not model_inferred
-    return {
+    return normalize_json_value({
         "pattern": pattern,
         "sources": sources,
         "independent_grounded_sources": independent_grounded,
@@ -1532,7 +1886,7 @@ def evaluate_persistence_basis(record: Any) -> dict:
         "single_conversation": single_conversation,
         "basis_sufficient": basis_sufficient,
         "malformed": False,
-    }
+    })
 
 
 def classify_persistence(
@@ -1542,16 +1896,21 @@ def classify_persistence(
 ) -> dict:
     """Classify the persistence state of a candidate pattern.
 
-    A candidate pattern is persistent only when a valid shared confirmation
-    authorizes it: the literal boolean ``True``.  Repetition, model inference,
-    memory summaries, and single-conversation repetition are explicit reasons
-    that do NOT confirm persistence.  Malformed/nonliteral authorization fails
-    closed (never widens persistence).  Output is JSON-safe.
+    A candidate pattern becomes confirmed persistent only when a complete shared
+    confirmation reference (an approval/decision snapshot carrying a traceable
+    reference identifier and a literal ``True`` ``approved`` field) authorizes
+    it **and** the underlying evidence basis is independently grounded (not
+    model/memory-summary-only, not single-conversation inference).  A raw
+    boolean ``True`` alone is NOT a complete confirmation contract.  Repetition,
+    model inference, memory summaries, and single-conversation repetition are
+    explicit reasons that do NOT confirm persistence; malformed/nonliteral/
+    unknown authorization fails closed.  Output is JSON-safe.
     """
     basis = evaluate_persistence_basis(record)
     malformed = basis["malformed"]
-    authorization_accepted = authorizes_confirmation(confirmation)
-    authorization_malformed = confirmation is not None and not isinstance(confirmation, bool)
+    confirmation_state, confirmation_approved, confirmation_malformed = (
+        _resolve_shared_confirmation(confirmation)
+    )
 
     excluded: list[str] = []
     if basis["model_inference_count"] > 0:
@@ -1563,32 +1922,37 @@ def classify_persistence(
     if basis["independent_grounded_sources"] == 0 and basis["sources"]:
         excluded.append("no_independent_grounded_sources")
 
-    if authorization_accepted:
-        if basis["basis_sufficient"]:
+    if confirmation_approved:
+        # Shared confirmation authorized; persistence still requires a grounded
+        # enough basis (model/memory-summary-only provenance is not enough).
+        if basis["basis_sufficient"] and not malformed:
             state = PERSISTENCE_CONFIRMED
             confirmed = True
         else:
             state = PERSISTENCE_PENDING_CONFIRMATION
             confirmed = False
-    elif confirmation is False:
+    elif confirmation_state == PERSISTENCE_REJECTED:
         state = PERSISTENCE_REJECTED
         confirmed = False
     else:
         state = PERSISTENCE_CANDIDATE
         confirmed = False
 
-    return {
+    authorization_accepted = confirmation_approved
+    authorization_malformed = confirmation_malformed or malformed
+
+    return normalize_json_value({
         "persistence_state": state,
         "confirmed": confirmed,
         "eligible_for_confirmation": authorization_accepted and not malformed,
         "authorization_accepted": authorization_accepted,
-        "authorization_malformed": authorization_malformed or malformed,
+        "authorization_malformed": authorization_malformed,
         "excluded_reasons": tuple(excluded),
         "basis_sufficient": basis["basis_sufficient"],
         "pattern": basis["pattern"],
         "repetition_count": basis["repetition_count"],
         "malformed": malformed,
-    }
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

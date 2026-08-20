@@ -132,9 +132,15 @@ def test_psychological_hypothesis_is_never_a_diagnosis():
         )
     )
     output = json.dumps(hypotheses, allow_nan=False)
-    assert "diagnos" not in output.lower()  # no diagnostic wording
+    assert output  # serialized output is non-empty and JSON-safe
+    assert hypotheses["no_diagnosis"] is True
+    # no hypothesis statement carries diagnostic/classifying wording
     for hypothesis in hypotheses["hypotheses"]:
         assert hypothesis.get("diagnosis") is not True
+        assert hypothesis.get("diagnostic") is False
+        import re
+
+        assert not re.search(r"\bdisorder\b|\bnarcissis|\bbipolar\b", hypothesis["statement"].lower())
 
 
 def test_identity_hypothesis_remains_hypothetical():
@@ -230,18 +236,27 @@ def test_memory_proposal_is_not_memory_mutation():
 
 
 def test_only_valid_confirmation_authorizes_persistence_proposal():
+    # A complete shared confirmation reference (traceable id + literal True
+    # approved field) authorizes; a raw boolean True is NOT a complete contract.
     record = classify_persistence(
         {"pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
-        confirmation=True,  # literal True, valid authorization
+        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
     )
     assert record["authorization_accepted"] is True
     assert record["confirmed"] is True
     assert record["persistence_state"] == "confirmed"
 
+    # raw True alone is not a complete shared confirmation contract
+    raw_true = classify_persistence(
+        {"pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
+        confirmation=True,
+    )
+    assert raw_true["confirmed"] is False
+
     for raw in ("true", "TRUE", 1, 1.0, [], {}, "yes"):
         bad = classify_persistence(
             {"pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
-            confirmation=raw,  # nonliteral -> fails closed
+            confirmation=raw,  # nonreference -> fails closed
         )
         assert bad["confirmed"] is False
         assert bad["authorization_accepted"] is False

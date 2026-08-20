@@ -72,14 +72,35 @@ def test_duplicate_memory_summaries_give_no_corroboration():
 
 
 def test_valid_confirmation_authorizes_proposal():
+    # A complete shared confirmation reference authorizes; raw True alone does
+    # not (V1-I4).
     record = classify_persistence(
         _pattern("avoids intimacy", sources=("msg:1", "msg:2")),
-        confirmation=True,
+        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
     )
     assert record["authorization_accepted"] is True
     assert record["eligible_for_confirmation"] is True
     assert record["confirmed"] is True
     assert record["persistence_state"] == "confirmed"
+
+
+def test_raw_true_is_not_a_complete_confirmation():
+    record = classify_persistence(
+        _pattern("avoids intimacy", sources=("msg:1", "msg:2")),
+        confirmation=True,
+    )
+    assert record["confirmed"] is False
+    assert record["authorization_accepted"] is False
+
+
+def test_model_or_memory_summary_provenance_not_grounded():
+    for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
+        record = classify_persistence(
+            _pattern("avoids intimacy", sources=sources),
+            confirmation={"decision_id": "d1", "approved": True},
+        )
+        assert record["confirmed"] is False
+        assert record["persistence_state"] != "confirmed"
 
 
 def test_rejection_means_not_persisted():

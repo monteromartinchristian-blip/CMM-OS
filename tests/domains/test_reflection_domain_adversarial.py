@@ -89,7 +89,15 @@ def test_no_permission_widening_from_primitive_matrix():
         assert record["persistence_state"] != "confirmed"
     assert permission_authorization_allows(True) is True
     assert authorizes_confirmation(True) is True
-    assert classify_persistence({"pattern": "probe", "sources": ("s1",)}, confirmation=True)["confirmed"] is True
+    # raw True alone is NOT a complete shared confirmation contract (V1-I4);
+    # only a shared confirmation reference + grounded provenance confirms.
+    assert classify_persistence(
+        {"pattern": "probe", "sources": ("s1",)}, confirmation=True
+    )["confirmed"] is False
+    assert classify_persistence(
+        {"pattern": "probe", "sources": ("msg:1",)},
+        confirmation={"decision_id": "d1", "request_id": "r1", "approved": True},
+    )["confirmed"] is True
 
 
 def test_open_ended_gate():
@@ -189,9 +197,19 @@ def test_persistence_gate():
     )
     assert record["confirmed"] is False
     assert record["persistence_state"] == "candidate"
-    # valid confirmation authorizes; nonliteral does not
-    assert classify_persistence({"pattern": "probe-persistent", "sources": ("m1",)}, confirmation=True)["confirmed"] is True
-    assert classify_persistence({"pattern": "probe-persistent", "sources": ("m1",)}, confirmation=1)["confirmed"] is False
+    # raw True is not a complete shared confirmation; a shared reference +
+    # grounded provenance confirms; nonliteral authorization does not
+    assert classify_persistence(
+        {"pattern": "probe-persistent", "sources": ("m1",)},
+        confirmation=True,
+    )["confirmed"] is False
+    assert classify_persistence(
+        {"pattern": "probe-persistent", "sources": ("msg:1",)},
+        confirmation={"decision_id": "d1", "approved": True},
+    )["confirmed"] is True
+    assert classify_persistence(
+        {"pattern": "probe-persistent", "sources": ("m1",)}, confirmation=1
+    )["confirmed"] is False
 
 
 def test_identity_safety_gate():

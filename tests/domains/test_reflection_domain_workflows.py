@@ -254,3 +254,116 @@ class _Ids:
 def _execute_workflow_with_state(definition: DomainWorkflowDefinition, state: dict):
     executor = _UnresolvedCompletionExecutor(state)
     return executor.execute(definition)
+
+
+# ── Audit V1-I8: executable VALIDATE gates (negative blocking) ───────────────
+
+
+def _execute_with_operation_outputs(definition: DomainWorkflowDefinition,
+                                    operation_outputs: dict):
+    """Drive the shared executor with per-operation semantic outputs so the
+    executable VALIDATE gates evaluate real accumulated state."""
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.engine import NodeExecution
+
+    def adapter(node, run):
+        if node.node_type.value == "reason":
+            return NodeExecution.complete({"unresolved": False})
+        if node.node_type.value == "execute_operation":
+            output = operation_outputs.get(node.operation_id, {"ok": True})
+            return NodeExecution.complete(output)
+        return NodeExecution.complete({"ok": True})
+
+    context = DomainWorkflowContext(
+        primary_domain_id="domain:reflection",
+        known_domain_ids=frozenset({"domain:reflection", "domain:general"}),
+        available_resources=frozenset(definition.required_resources),
+        available_operations=frozenset(
+            node.operation_id for node in definition.nodes if node.operation_id
+        ),
+    )
+    executor = DomainWorkflowExecutor(
+        id_factory=_Ids(),
+        operation_adapter=adapter,
+    )
+    return executor.execute(definition, context, {})
+
+
+def test_no_decision_adoption_gate_blocks_adopted_decision():
+    wf = next(
+        w for w in build_reflection_workflow_definitions()
+        if w.workflow_id == "reflection.decision_reflection"
+    )
+    run = _execute_with_operation_outputs(
+        wf,
+        {
+            "reflection.review_decision": {"decision_adopted": True},
+            "reflection.identify_open_questions": {"questions": ()},
+        },
+    )
+    # the VALIDATE gate NoDecisionAdoption must block an adopted decision
+    assert run.status is WorkflowRunStatus.FAILED
+
+
+def test_no_decision_adoption_gate_allows_analysis_only():
+    wf = next(
+        w for w in build_reflection_workflow_definitions()
+        if w.workflow_id == "reflection.decision_reflection"
+    )
+    run = _execute_with_operation_outputs(
+        wf,
+        {
+            "reflection.review_decision": {"decision_adopted": False},
+            "reflection.identify_open_questions": {"questions": ()},
+        },
+    )
+    assert run.status is WorkflowRunStatus.COMPLETED
+
+
+def test_grounded_chronology_only_gate_present():
+    wf = next(
+        w for w in build_reflection_workflow_definitions()
+        if w.workflow_id == "reflection.longitudinal_review"
+    )
+    grounded = next(
+        n for n in wf.nodes if n.node_id == "grounded_chronology"
+    )
+    assert grounded.node_type is WorkflowNodeType.VALIDATE
+    assert grounded.wait_condition == {"grounded_chronology_required": True}
+    # grounded_chronology_required is a workflow metadata gate; an explicitly
+    # false/incompatible accumulated state must block.
+    run = _execute_with_operation_outputs(
+        wf,
+        {
+            "reflection.build_personal_timeline": {
+                "chronology_state": "ordered", "temporally_ordered": True
+            },
+            "reflection.compare_versions": {
+                "chronology_state": "equal_timestamps", "changes": ()
+            },
+            "reflection.identify_open_questions": {"questions": ()},
+        },
+    )
+    assert run.status in (WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED)
+
+
+def test_no_identity_classification_gate_present():
+    wf = next(
+        w for w in build_reflection_workflow_definitions()
+        if w.workflow_id == "reflection.identity_narrative_review"
+    )
+    gate = next(
+        n for n in wf.nodes if n.node_id == "no_classification"
+    )
+    assert gate.node_type is WorkflowNodeType.VALIDATE
+    assert gate.wait_condition == {"identity_not_classified": True}
+
+
+def test_validate_unresolved_completion_gate_present():
+    wf = next(
+        w for w in build_reflection_workflow_definitions()
+        if w.workflow_id == "reflection.personal_question_exploration"
+    )
+    gate = next(n for n in wf.nodes if n.node_id == "validate")
+    assert gate.node_type is WorkflowNodeType.VALIDATE
+    assert gate.wait_condition == {"unresolved_completion_allowed": True}

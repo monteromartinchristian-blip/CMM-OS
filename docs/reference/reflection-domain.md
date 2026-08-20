@@ -6,10 +6,11 @@
 
 ## Status
 
-Phase 10.24 — Implemented, pending independent audit.
+Phase 10.24 — Implemented, pending independent audit V2.
 
-This is the implementation-side status. Independent audit closure is a separate
-lifecycle event and is not claimed here.
+This is the implementation-side status. Independent audit V1 identified
+findings (V1-I1..V1-I9, V1-M1) that have been remediated; audit closure remains
+a separate lifecycle event and is not claimed here.
 
 ## Overview
 
@@ -42,9 +43,10 @@ The phase-10.24 safety posture:
 - **Interest mapping is source-grounded.** One mention is a candidate only;
   duplicates never inflate evidence; model summaries are never independent
   corroboration; interest is never identity or commitment.
-- **Persistence is confirmation-gated.** Only the literal boolean `True`
-  authorizes a confirmation field; repetition/model inference/memory summaries
-  never establish confirmed persistence.
+- **Persistence is confirmation-gated.** A complete shared confirmation reference
+  (traceable id plus a literal-`True` `approved` field) plus independent grounded
+  provenance authorizes confirmed persistence; repetition/model inference/memory
+  summaries never establish it, and a raw bare `True` is not a complete confirmation.
 - **Proposal is never mutation.** `prepare_notion_entry` prepares content only
   (`PREPARATION != EXTERNAL COMMUNICATION`); `review_decision` analyzes only
   (`PROPOSAL != MUTATION`); no decision is ever adopted autonomously.
@@ -217,6 +219,43 @@ Phase 10.25 Concerns does not exist yet; Reflection has no dependency on
 
 ## Implementation status
 
-Phase 10.24 — Implemented, pending independent audit.
+Phase 10.24 — Implemented, pending independent audit V2.
 
 Do not mark Complete or audited until an independent audit closes the phase.
+
+## Audit V1 remediation note
+
+Independent audit V1 raised ten findings (V1-I1..V1-I9, V1-M1), now remediated:
+
+- **V1 duplicate/conflict hardening** — same-identity incompatible hypotheses and
+  ambivalence records fail closed to unresolved/conflicting with no clean
+  ranking; counterevidence is never bypassed by supporting-evidence count.
+- **Temporal normalization** — equal-time subgroups stay temporally ambiguous
+  (no directional change inside a tied instant); the personal timeline orders by
+  normalized UTC instant, never raw ISO text.
+- **Source-grounded interest hardening** — the grounded source-kind allowlist
+  governs grounding; synthetic/model/memory-summary/unknown kinds and `memory_entry`
+  fail closed to non-independent provenance; the top-level evidence state reflects
+  actual grounded evidence only.
+- **Shared-confirmation persistence** — a candidate pattern becomes confirmed only
+  via a complete shared confirmation reference (traceable id + literal-`True`
+  `approved`) plus independent grounded provenance; a raw `True` is no longer a
+  complete confirmation; model/memory-summary-only provenance is never independent.
+- **Strict presentation states** — persistence/decision booleans use literal-state
+  normalization (never Python truthiness); `present_state` no longer maps a bare
+  boolean to `confirmed`; interest-candidate fields and labels cannot contradict.
+- **Diagnosis/certainty boundaries** — a narrow deterministic closed-vocabulary
+  boundary flags diagnostic/identity-classifying wording as prohibited/unsafe
+  (`no_diagnosis=False`, never presented verbatim); unsupported-certainty and
+  forced-conclusion language (incl. multilingual) is detected structurally so
+  unresolved reflection cannot be presented as resolved.
+- **Shared executable workflow validation** — the shared runtime now evaluates a
+  `VALIDATE` node's `wait_condition` fail-closed (true completes, false/unknown/
+  missing/malformed fails), making safety gates executable rather than metadata.
+- **Strict JSON / malformed-input hardening** — all public helpers/operations emit
+  strict JSON (`json.dumps(..., allow_nan=False)`), collapse non-finite floats
+  fail-closed, distinguish absent/valid-empty/malformed/grounded, and raise no
+  accidental `TypeError` on malformed inputs.
+
+The permanent regression suite is
+`tests/domains/test_reflection_domain_audit_v1_closure.py`.

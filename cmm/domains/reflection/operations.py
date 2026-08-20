@@ -22,6 +22,7 @@ Safety posture (spec §20, §23, §42):
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.domains.enums import DomainOperationType
@@ -41,6 +42,7 @@ from cmm.domains.reflection.rules import (
     compare_reflection_versions,
     evaluate_hypotheses,
     evaluate_open_questions,
+    normalize_json_value,
 )
 
 REFLECTION_OPERATION_IDS: tuple[str, ...] = CANONICAL_REFLECTION_OPERATION_IDS
@@ -351,19 +353,21 @@ def structure_reflection_result(*, material=()) -> dict:
                 "source": record.get("source"),
             }
         )
-    return {
-        "observations": tuple(sections["observations"]),
-        "beliefs": tuple(sections["beliefs"]),
-        "values": tuple(sections["values"]),
-        "emotions": tuple(sections["emotions"]),
-        "needs": tuple(sections["needs"]),
-        "conflicts": tuple(sections["conflicts"]),
-        "hypotheses": tuple(sections["hypotheses"]),
-        "uncertainties": tuple(sections["uncertainties"]),
-        "open_questions": tuple(sections["open_questions"]),
-        "persisted": False,
-        "evidence_state": EVIDENCE_MALFORMED if malformed else EVIDENCE_GROUNDED,
-    }
+    return normalize_json_value(
+        {
+            "observations": tuple(sections["observations"]),
+            "beliefs": tuple(sections["beliefs"]),
+            "values": tuple(sections["values"]),
+            "emotions": tuple(sections["emotions"]),
+            "needs": tuple(sections["needs"]),
+            "conflicts": tuple(sections["conflicts"]),
+            "hypotheses": tuple(sections["hypotheses"]),
+            "uncertainties": tuple(sections["uncertainties"]),
+            "open_questions": tuple(sections["open_questions"]),
+            "persisted": False,
+            "evidence_state": EVIDENCE_MALFORMED if malformed else EVIDENCE_GROUNDED,
+        }
+    )
 
 
 def extract_beliefs_result(*, statements=()) -> dict:
@@ -371,36 +375,46 @@ def extract_beliefs_result(*, statements=()) -> dict:
 
 contradicted state.  No inferred belief becomes a user fact.  Output is
 JSON-safe.
+
+Absent (``None``) is distinct from valid-empty (an empty collection) and
+malformed (a non-iterable scalar such as a string, boolean or number): only
+mappings are usable belief records, and malformed input fails closed to an
+unresolved/malformed state rather than raising ``TypeError`` or silently
+collapsing to a clean resolved empty result.
     """
-    normalized_statements = []
-    for entry in statements:
+    normalized_statements, raw_malformed = _normalize_collection(
+        statements, require_mapping_elements=True
+    )
+    malformed = raw_malformed
+    absent = statements is None
+    records = []
+    for entry in normalized_statements:
         if isinstance(entry, Mapping):
             record = dict(entry)
             record.setdefault("kind", "belief")
-            normalized_statements.append(record)
-    classified = classify_belief_evidence(records=normalized_statements)
-    return {
-        "beliefs": tuple(classified["beliefs"]),
-        "facts": (),
-        "beliefs_as_facts": (),
-        "promotions_blocked": classified["promotions_blocked"],
-        "type_promotion": classified["type_promotion"],
-        "unresolved": classified["unresolved"],
-    }
-    """Extract candidate beliefs preserving explicit/inferred/uncertain/
-
-contradicted state.  No inferred belief becomes a user fact.  Output is
-JSON-safe.
-    """
-    classified = classify_belief_evidence(records=statements)
-    return {
-        "beliefs": tuple(classified["beliefs"]),
-        "facts": (),
-        "beliefs_as_facts": (),
-        "promotions_blocked": classified["promotions_blocked"],
-        "type_promotion": classified["type_promotion"],
-        "unresolved": classified["unresolved"],
-    }
+            records.append(record)
+        else:
+            malformed = True
+    classified = classify_belief_evidence(records=records)
+    if malformed:
+        evidence_state = EVIDENCE_MALFORMED
+    elif absent:
+        evidence_state = "absent"
+    elif not records:
+        evidence_state = "valid_empty"
+    else:
+        evidence_state = classified["evidence_state"]
+    return normalize_json_value(
+        {
+            "beliefs": tuple(classified["beliefs"]),
+            "facts": (),
+            "beliefs_as_facts": (),
+            "promotions_blocked": classified["promotions_blocked"],
+            "type_promotion": classified["type_promotion"],
+            "unresolved": bool(malformed) or classified["unresolved"],
+            "evidence_state": evidence_state,
+        }
+    )
 
 
 def compare_versions_result(*, versions=()) -> dict:
@@ -409,13 +423,15 @@ def compare_versions_result(*, versions=()) -> dict:
 never chronology.  Output is JSON-safe.
     """
     record = compare_reflection_versions(versions=versions)
-    return {
-        "chronology_state": record["chronology_state"],
-        "changes": record["changes"],
-        "input_order_not_chronology": record["input_order_not_chronology"],
-        "temporally_ordered": record["temporally_ordered"],
-        "equal_timestamps_no_evolution": record["equal_timestamps_no_evolution"],
-    }
+    return normalize_json_value(
+        {
+            "chronology_state": record["chronology_state"],
+            "changes": record["changes"],
+            "input_order_not_chronology": record["input_order_not_chronology"],
+            "temporally_ordered": record["temporally_ordered"],
+            "equal_timestamps_no_evolution": record["equal_timestamps_no_evolution"],
+        }
+    )
 
 
 def identify_open_questions_result(*, questions=()) -> dict:
@@ -423,7 +439,7 @@ def identify_open_questions_result(*, questions=()) -> dict:
 
 invented answer.  Output is JSON-safe.
     """
-    return evaluate_open_questions(questions=questions)
+    return normalize_json_value(evaluate_open_questions(questions=questions))
 
 
 def generate_hypotheses_result(*, hypotheses=()) -> dict:
@@ -432,14 +448,16 @@ def generate_hypotheses_result(*, hypotheses=()) -> dict:
 conclusion.  Output is JSON-safe.
     """
     record = evaluate_hypotheses(hypotheses=hypotheses)
-    return {
-        "hypotheses": record["hypotheses"],
-        "winner_selected": record["winner_selected"],
-        "forced_conclusion": record["forced_conclusion"],
-        "no_diagnosis": True,
-        "unresolved": record["unresolved"],
-        "insufficient_basis_to_rank": record["insufficient_basis_to_rank"],
-    }
+    return normalize_json_value(
+        {
+            "hypotheses": record["hypotheses"],
+            "winner_selected": record["winner_selected"],
+            "forced_conclusion": record["forced_conclusion"],
+            "no_diagnosis": record.get("no_diagnosis", True),
+            "unresolved": record["unresolved"],
+            "insufficient_basis_to_rank": record["insufficient_basis_to_rank"],
+        }
+    )
 
 
 def build_personal_timeline_result(*, events=()) -> dict:
@@ -464,6 +482,7 @@ shared timeline mutation.  Events with unusable dates are reported in
                 "event_id": event.get("event_id") or "unknown",
                 "observed_at": observed,
                 "content": event.get("content", ""),
+                "_scalar": scalar,
             }
         )
     if malformed or unusable_dates:
@@ -480,46 +499,91 @@ shared timeline mutation.  Events with unusable dates are reported in
         chronology_state = CHRONOLOGY_EQUAL
         temporally_ordered = False
     else:
-        timeline.sort(key=lambda item: item.get("observed_at") or "")
+        # Grounded chronology exists: order by the normalized UTC epoch scalar
+        # (never the raw ISO text), with a deterministic tie-break on event_id
+        # for equal instants.  Equal instants are preserved in stable order but
+        # are not given a directional claim inside the tied subgroup.
+        timeline.sort(
+            key=lambda item: (
+                item["_scalar"],
+                item.get("event_id") or "unknown",
+            )
+        )
         chronology_state = CHRONOLOGY_ORDERED
         temporally_ordered = True
-    return {
-        "events": tuple(timeline),
-        "chronology_state": chronology_state,
-        "temporally_ordered": temporally_ordered,
-        "unusable_dates": tuple(unusable_dates),
-        "invented_dates": (),
-        "timeline_mutated": False,
-        "input_order_not_chronology": True,
-    }
+    # Drop the internal sort scalar before exposing the projection.
+    for item in timeline:
+        item.pop("_scalar", None)
+    return normalize_json_value(
+        {
+            "events": tuple(timeline),
+            "chronology_state": chronology_state,
+            "temporally_ordered": temporally_ordered,
+            "unusable_dates": tuple(unusable_dates),
+            "invented_dates": (),
+            "timeline_mutated": False,
+            "input_order_not_chronology": True,
+        }
+    )
+
+
+def _display_text(value: Any) -> str:
+    """Coerce a value to a safe display string without raising (fail closed).
+
+    ``None`` becomes ``""``; non-strings are stringified defensively so a
+    malformed/non-iterable input can never raise ``TypeError`` from a later
+    ``"\n".join(...)``.  The result is always a plain string and therefore
+    JSON-safe.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return ""
 
 
 def prepare_notion_entry_result(*, title, sections=(), raw_notes="") -> dict:
     """Prepare Notion entry *content* only; never performs an external write.
 
     PREPARATION != EXTERNAL COMMUNICATION: no connector is called, no page is
-    created/updated, and no write is claimed.  Output is JSON-safe.
+    created/updated, and no write is claimed.  Inputs are coerced fail-closed
+    (never raise on a non-string/non-iterable value).  Output is JSON-safe.
     """
-    lines = [f"# {title}"]
-    for section in sections:
-        lines.append(f"## {section}")
+    if isinstance(sections, str):
+        section_items = (sections,)
+    elif isinstance(sections, (list, tuple)):
+        section_items = sections
+    else:
+        section_items = ()
+    lines = [f"# {_display_text(title)}"]
+    for section in section_items:
+        lines.append(f"## {_display_text(section)}")
     lines.append("")
-    lines.append(raw_notes)
-    return {
-        "prepared_content": "\n".join(lines),
-        "external_write_performed": False,
-        "notion_connector_called": False,
-        "saved_claim": False,
-        "note_id": None,
-        "title": title,
-    }
+    lines.append(_display_text(raw_notes))
+    return normalize_json_value(
+        {
+            "prepared_content": "\n".join(lines),
+            "external_write_performed": False,
+            "notion_connector_called": False,
+            "saved_claim": False,
+            "note_id": None,
+            "title": _display_text(title),
+        }
+    )
 
 
 def generate_summary_result(*, source, certainty_override=None) -> dict:
     """Summarize a structured reflection without increasing certainty.
 
     Uncertainty, ambivalence, open questions, hypothesis status and decision
-    status are preserved.  Output is JSON-safe.
+    status are preserved.  ``certainty_override`` is accepted for backward
+    compatibility but can never produce ``certainty_increased=True``: the
+    summary invariant (spec §20.8, §42) forbids certainty amplification, so the
+    override is rejected (fail-closed to the original certainty) rather than
+    translated into a raised-certainty state.  Output is JSON-safe.
     """
     if isinstance(source, Mapping):
         unresolved = bool(source.get("unresolved", False)) or bool(source.get("open_questions"))
@@ -533,9 +597,10 @@ def generate_summary_result(*, source, certainty_override=None) -> dict:
         hypotheses = ()
         open_questions = ()
         hypothesis_count = 0
+    # A summary must never increase certainty: any override is fail-closed to
+    # the original certainty, never an amplification.
     certainty_increased = False
-    if certainty_override is not None:
-        certainty_increased = True  # explicit override may raise wording level
+    certainty_override_rejected = certainty_override is not None
     text = []
     if unresolved:
         text.append("This reflection remains unresolved.")
@@ -543,15 +608,18 @@ def generate_summary_result(*, source, certainty_override=None) -> dict:
         text.append("Conflicting feelings are preserved without forcing a single answer.")
     if hypothesis_count > 0:
         text.append(f"{hypothesis_count} hypothesis/hypotheses remain candidates.")
-    return {
-        "summary": " ".join(text) if text else "No summary content provided.",
-        "certainty_increased": certainty_increased,
-        "unresolved": unresolved,
-        "ambivalence_present": ambivalence_present,
-        "hypothesis_count": hypothesis_count,
-        "open_questions": tuple(open_questions) if isinstance(open_questions, (list, tuple)) else (open_questions,),
-        "decision_status": "not adopted" if unresolved else "reviewed",
-    }
+    return normalize_json_value(
+        {
+            "summary": " ".join(text) if text else "No summary content provided.",
+            "certainty_increased": certainty_increased,
+            "certainty_override_rejected": certainty_override_rejected,
+            "unresolved": unresolved,
+            "ambivalence_present": ambivalence_present,
+            "hypothesis_count": hypothesis_count,
+            "open_questions": tuple(open_questions) if isinstance(open_questions, (list, tuple)) else (open_questions,),
+            "decision_status": "not adopted" if unresolved else "reviewed",
+        }
+    )
 
 
 def review_decision_result(*, decision_candidate=None, values=(), tensions=(),
@@ -569,14 +637,16 @@ def review_decision_result(*, decision_candidate=None, values=(), tensions=(),
         "uncertainties": (),
         "adopted_decision": False,
     }
-    return {
-        "analysis": review,
-        "decision_adopted": False,
-        "proposal_only": True,
-        "recommendation": "review complete; no decision adopted without explicit user confirmation.",
-        "adopted_decision": False,
-        "decision_candidate_reviewed": True,
-    }
+    return normalize_json_value(
+        {
+            "analysis": review,
+            "decision_adopted": False,
+            "proposal_only": True,
+            "recommendation": "review complete; no decision adopted without explicit user confirmation.",
+            "adopted_decision": False,
+            "decision_candidate_reviewed": True,
+        }
+    )
 
 
 __all__ = [

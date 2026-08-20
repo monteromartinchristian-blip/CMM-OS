@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from cmm.domains.reflection.profile import build_reflection_profile
+from cmm.domains.reflection.rules import _diagnostic_signal
 
 PRESENTATION_STATE_OBSERVED = "observed"
 PRESENTATION_STATE_USER_STATED = "user-stated"
@@ -49,20 +50,25 @@ def present_state(value) -> str:
     """Map a raw state marker to a closed presentation state.
 
     Malformed or unknown values collapse to ``unknown``; they never widen
-    certainty.
+    certainty.  Only the canonical string markers map to their closed states;
+    a bare boolean or any other non-string never maps to ``confirmed`` (it is
+    not a presentation state marker, and must not widen certainty).
     """
     if isinstance(value, str):
         normalized = value.strip().lower()
         if normalized in _STATE_MAP:
             return _STATE_MAP[normalized]
         return PRESENTATION_STATE_UNKNOWN
-    if isinstance(value, bool):
-        return (
-            PRESENTATION_STATE_CONFIRMED
-            if value
-            else PRESENTATION_STATE_UNKNOWN
-        )
     return PRESENTATION_STATE_UNKNOWN
+
+
+def _literal_true(value) -> bool:
+    """Strict literal-boolean guard for decision/security-relevant fields.
+
+    Only the literal ``True`` counts; ``"true"``, ``"false"``, ``1``, ``0``,
+    ``-1``, ``None``, mappings, and collections never count as truthy.
+    """
+    return value is True
 
 
 def build_reflection_presentation_policy():
@@ -106,14 +112,29 @@ def present_reflection_result(result: Mapping) -> dict:
     for hypothesis in hypotheses:
         if not isinstance(hypothesis, Mapping):
             continue
+        statement = hypothesis.get("statement", "")
+        diagnostic = bool(hypothesis.get("diagnostic", False)) or bool(
+            hypothesis.get("restricted_inference", False)
+        ) or _diagnostic_signal(statement)
+        # A diagnostic/identity-classifying statement must never be presented
+        # verbatim as a safe non-diagnostic hypothesis; it is represented
+        # structurally as prohibited and its wording is withheld.
+        presented_statement = (
+            "[restricted: diagnostic/classifying claim withheld]"
+            if diagnostic
+            else statement
+        )
         presented_hypotheses.append(
             {
                 "identity": hypothesis.get("identity", "unknown"),
-                "statement": hypothesis.get("statement", ""),
+                "statement": presented_statement,
                 "presentation_state": PRESENTATION_STATE_HYPOTHETICAL,
                 "fact": False,
-                "diagnosis": False,
-                "relative_strength": hypothesis.get("relative_strength"),
+                "diagnosis": diagnostic,
+                "restricted_inference": diagnostic,
+                "relative_strength": (
+                    None if diagnostic else hypothesis.get("relative_strength")
+                ),
                 "uncertainty": hypothesis.get("uncertainty"),
             }
         )
@@ -127,29 +148,33 @@ def present_reflection_result(result: Mapping) -> dict:
     for candidate in interest_candidates:
         if not isinstance(candidate, Mapping):
             continue
+        candidate_confirmed = _literal_true(candidate.get("persistent_confirmed"))
         presented_interests.append(
             {
                 "interest": candidate.get("interest", ""),
                 "sources": tuple(candidate.get("sources", ()) or ()),
                 "grounded_evidence_count": candidate.get("grounded_evidence_count", 0),
-                "persistent_confirmed": bool(candidate.get("persistent_confirmed", False)),
+                "persistent_confirmed": candidate_confirmed,
                 "presentation_state": (
                     PRESENTATION_STATE_CONFIRMED
-                    if candidate.get("persistent_confirmed") is True
+                    if candidate_confirmed
                     else PRESENTATION_STATE_PENDING_CONFIRMATION
                 ),
             }
         )
 
-    persistent_confirmed = bool(result.get("persistent_confirmed", False))
+    persistent_confirmed = _literal_true(result.get("persistent_confirmed"))
+    eligible_for_confirmation = _literal_true(result.get("eligible_for_confirmation"))
     persistence_state = (
         PRESENTATION_STATE_CONFIRMED
         if persistent_confirmed
         else PRESENTATION_STATE_PENDING_CONFIRMATION
-        if bool(result.get("eligible_for_confirmation", False)) or bool(interest_candidates or result.get("pattern"))
+        if eligible_for_confirmation
+        or bool(interest_candidates)
+        or result.get("pattern") is not None
         else PRESENTATION_STATE_UNKNOWN
     )
-    decision_adopted = bool(result.get("decision_adopted", False))
+    decision_adopted = _literal_true(result.get("decision_adopted"))
     decision_state = "adopted" if decision_adopted else "not-adopted"
 
     chronology = result.get("chronology_state")

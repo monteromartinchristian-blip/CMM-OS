@@ -14,7 +14,7 @@ from .contracts import (
     WorkflowNodeResult,
     WorkflowRun,
 )
-from .enums import WorkflowNodeStatus, WorkflowRunStatus
+from .enums import WorkflowNodeStatus, WorkflowNodeType, WorkflowRunStatus
 from .errors import WorkflowExecutionError, WorkflowStateError
 from .graph import ready_node_ids, validate_workflow_graph
 
@@ -90,6 +90,40 @@ class WorkflowEngine:
             raise WorkflowExecutionError(f"node {node_id} adapter must return explicit NodeExecution")
         raise WorkflowExecutionError(f"node {node_id} adapter returned invalid result")
 
+    def _evaluate_validate_node(self, node: Any, outputs: Mapping[str, Any], run: WorkflowRun) -> NodeExecution:
+        """Evaluate a ``VALIDATE`` node's ``wait_condition`` fail-closed.
+
+        The condition is a ``Mapping[str, Any]`` of ``field -> expected``.  It is
+        evaluated against a deterministic merged validation state built from the
+        workflow ``metadata``, the run ``inputs``, and every accumulated node
+        output (both flat fields and ``node_id``-keyed).  Semantics:
+
+        * every condition field present and equal -> ``complete``;
+        * any condition field absent -> ``failure`` (fail closed / unknown);
+        * any condition field present but unequal -> ``failure`` (fail closed);
+        * a missing/empty/malformed condition -> ``failure`` (fail closed).
+        """
+        condition = node.wait_condition
+        if not isinstance(condition, Mapping) or not condition:
+            return NodeExecution.failure("validate.condition_missing")
+        state: dict[str, Any] = dict(self._definition.metadata or {})
+        if isinstance(run.inputs, Mapping):
+            state.update(dict(run.inputs))
+        for node_id, node_output in outputs.items():
+            if isinstance(node_output, Mapping):
+                state.setdefault(node_id, node_output)
+                # Runtime node outputs are authoritative and override static
+                # metadata defaults (which must not mask an actual runtime value
+                # that violates a declared safety condition).
+                for field, value in node_output.items():
+                    state[field] = value
+        for field, expected in condition.items():
+            if field not in state:
+                return NodeExecution.failure("validate.condition_unknown")
+            if state[field] != expected:
+                return NodeExecution.failure("validate.condition_false")
+        return NodeExecution.complete({"validated": True})
+
     def rehydrate(self, result: WorkflowExecutionResult) -> None:
         """Restore the accumulated in-memory execution state for a resumed run."""
         if result.run.workflow_id != self._definition.workflow_id or result.run.workflow_version != self._definition.version:
@@ -116,7 +150,18 @@ class WorkflowEngine:
                 limit = max(1, int((retry_policy or {}).get(node_id, 1)))
                 while True:
                     self._attempts[node_id] = self._attempts.get(node_id, 0) + 1
-                    outcome = self._coerce(self._node_adapter(node, run), node_id)
+                    if (
+                        node.node_type is WorkflowNodeType.VALIDATE
+                        and node.wait_condition is not None
+                    ):
+                        # Executable VALIDATE gate: a VALIDATE node that declares
+                        # a wait_condition is evaluated fail-closed against the
+                        # accumulated workflow state.  A VALIDATE node without a
+                        # declared condition is not a gate and remains
+                        # adapter-driven (existing domain-pack contract).
+                        outcome = self._evaluate_validate_node(node, outputs, run)
+                    else:
+                        outcome = self._coerce(self._node_adapter(node, run), node_id)
                     if outcome.status is WorkflowNodeStatus.SKIPPED and node.required:
                         outcome = NodeExecution.failure(outcome.reason_code or "node.not_applicable")
                     if outcome.status is WorkflowNodeStatus.FAILED and outcome.retryable and self._attempts[node_id] < limit:
