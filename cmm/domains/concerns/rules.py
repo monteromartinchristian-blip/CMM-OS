@@ -957,6 +957,479 @@ def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict
     )
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Task 5 helpers — recurrence, agency, directness, immediate escalation
+# ═════════════════════════════════════════════════════════════════════════════
+
+RECURRENCE_FIRST_TIME = "first_time"
+RECURRENCE_NEW_TOPIC = "same_topic_new_question"
+RECURRENCE_SAME_QUESTION_NEW_EVIDENCE = "same_question_new_evidence"
+RECURRENCE_SAME_QUESTION_SAME_EVIDENCE = "same_question_same_evidence"
+RECURRENCE_IMPACT_CHANGED = "impact_changed"
+
+# Grounded dimensions required before a repetitive impossible-certainty
+# pattern may be structurally recognized (frozen design §26).  ALL of them
+# must be present across turns; missing evidence is never invented.
+_PATTERN_DIMENSIONS: frozenset[str] = frozenset(
+    {
+        "same_question",
+        "evidence_state_unchanged",
+        "impossible_certainty_pursuit",
+        "relief_followed_by_checking",
+        "multiple_turns",
+    }
+)
+
+_MIN_TURNS_FOR_PATTERN = 3
+
+# Closed immediate-risk signal vocabulary.  This is a routing boundary, not a
+# clinical classifier (frozen design §29): Concerns never creates its own
+# clinical or emergency protocol.
+_IMMEDIATE_RISK_SIGNALS: tuple[str, ...] = (
+    "immediate physical danger",
+    "physical danger now",
+    "active abuse",
+    "active violence",
+    "violence happening now",
+    "imminent self-harm",
+    "self-harm risk now",
+    "imminent harm",
+    "severe acute medical warning sign",
+    "crushing chest pain at rest right now",
+    "immediately destructive external action",
+)
+
+
+def review_recurring_concern_state(*, current=None, previous=()) -> dict:
+    """Compare the current concern with previous grounded iterations.
+
+    Recurrence comparison uses actual state — question, grounded evidence set
+    and impact — never merely topic labels (frozen design §70).  Returning to
+    the same concern is not pathology; ``pathology_inferred`` is always False.
+    """
+    current_ok = isinstance(current, Mapping)
+    previous_raw = previous if isinstance(previous, (list, tuple)) else ()
+    malformed = (current is not None and not current_ok) or not isinstance(
+        previous, (list, tuple)
+    )
+    if not current_ok:
+        return normalize_json_value(
+            {
+                "recurrence": RECURRENCE_FIRST_TIME,
+                "meaningfully_different": False,
+                "evidence_changed": False,
+                "interpretation_changed": False,
+                "impact_changed": False,
+                "reassurance_allowed": True,
+                "pathology_inferred": False,
+                "diagnosis": None,
+                "malformed_input": True,
+            }
+        )
+
+    topic = _semantic_text(
+        current.get("topic") or current.get("situation") or current.get("concern")
+    )
+    question = _semantic_text(current.get("question"))
+    current_evidence = {
+        ref
+        for ref in (
+            _usable_reference(item)
+            for item in (
+                current.get("evidence_references")
+                if isinstance(current.get("evidence_references"), (list, tuple))
+                else ()
+            )
+        )
+        if ref is not None
+    }
+
+    comparable_previous = []
+    prior_topics: set[str] = set()
+    prior_questions: dict[str, set[str]] = {}
+    prior_evidence: dict[str, set[str]] = {}
+    prior_impacts: dict[str, str | None] = {}
+    for entry in previous_raw:
+        if not isinstance(entry, Mapping):
+            malformed = True
+            continue
+        entry_topic = _semantic_text(
+            entry.get("topic") or entry.get("situation") or entry.get("concern")
+        )
+        entry_question = _semantic_text(entry.get("question"))
+        entry_refs = {
+            ref
+            for ref in (
+                _usable_reference(item)
+                for item in (
+                    entry.get("evidence_references")
+                    if isinstance(entry.get("evidence_references"), (list, tuple))
+                    else ()
+                )
+            )
+            if ref is not None
+        }
+        impact = _semantic_text(entry.get("impact_level"))
+        comparable_previous.append(entry)
+        if entry_topic:
+            prior_topics.add(entry_topic)
+            if entry_question:
+                prior_questions.setdefault(entry_topic, set()).add(entry_question)
+            prior_evidence.setdefault(entry_topic, set()).update(entry_refs)
+            if impact:
+                prior_impacts[entry_topic] = impact
+
+    same_topic = topic is not None and topic in prior_topics
+    same_question = (
+        same_topic
+        and question is not None
+        and question in prior_questions.get(topic, set())
+    )
+    prior_refs_for_topic = prior_evidence.get(topic or "", set()) if topic else set()
+
+    if not previous_raw or not same_topic:
+        recurrence = RECURRENCE_FIRST_TIME
+    elif not same_question:
+        recurrence = RECURRENCE_NEW_TOPIC
+    elif current_evidence != prior_refs_for_topic:
+        recurrence = RECURRENCE_SAME_QUESTION_NEW_EVIDENCE
+    else:
+        recurrence = RECURRENCE_SAME_QUESTION_SAME_EVIDENCE
+
+    current_impact = _semantic_text(current.get("impact_level"))
+    impact_changed = bool(
+        same_topic
+        and current_impact
+        and prior_impacts.get(topic) is not None
+        and current_impact != prior_impacts[topic]
+    )
+
+    meaningfully_different = recurrence in (
+        RECURRENCE_NEW_TOPIC,
+        RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
+    ) or impact_changed
+
+    return normalize_json_value(
+        {
+            "recurrence": recurrence,
+            "same_topic": same_topic,
+            "same_question": same_question,
+            "meaningfully_different": meaningfully_different,
+            "evidence_changed": recurrence
+            == RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
+            "interpretation_changed": _boolean_true(
+                current.get("interpretation_changed")
+            ),
+            "impact_changed": impact_changed,
+            # Reassurance remains allowed unless independent grounded evidence
+            # changes the assessment; repetition alone never blocks it.
+            "reassurance_allowed": True,
+            "new_risk_invented_from_repetition": False,
+            "pathology_inferred": False,
+            "diagnosis": None,
+            "psychiatric_label": False,
+            "malformed_input": malformed,
+        }
+    )
+
+
+def evaluate_repetitive_certainty_pattern(*, turns=()) -> dict:
+    """Structurally recognize a repetitive impossible-certainty pattern only
+    when ALL grounded dimensions coexist across multiple turns.
+
+    Even when recognized: no psychiatric label, reassurance remains allowed,
+    unchanged evidence and unresolved uncertainty stay visible (frozen §26).
+    """
+    raw, malformed_structure = _normalize_collection(
+        turns, require_mapping_elements=True
+    )
+    present: set[str] = set()
+    turn_count = len(raw)
+    for turn in raw:
+        if not isinstance(turn, Mapping):
+            continue
+        if _boolean_true(turn.get("same_question")):
+            present.add("same_question")
+        if _usable_scalar_string(turn.get("evidence_state")) == "unchanged":
+            present.add("evidence_state_unchanged")
+        if _boolean_true(turn.get("pursuing_certainty")) or _boolean_true(
+            turn.get("impossible_certainty")
+        ) or turn.get("same_question") is True:
+            # A repeated identical question about an unresolvable matter IS the
+            # pursuit of impossible certainty when evidence is unchanged; the
+            # explicit markers make it unambiguous for callers.
+            present.add("impossible_certainty_pursuit")
+        if _boolean_true(turn.get("relief_followed_by_checking")):
+            present.add("relief_followed_by_checking")
+    if turn_count >= _MIN_TURNS_FOR_PATTERN:
+        present.add("multiple_turns")
+
+    required_present = _PATTERN_DIMENSIONS <= present
+    pattern_detected = (
+        required_present
+        and not malformed_structure
+        and turn_count >= _MIN_TURNS_FOR_PATTERN
+    )
+    missing = tuple(sorted(_PATTERN_DIMENSIONS - present))
+    return normalize_json_value(
+        {
+            "pattern_detected": pattern_detected,
+            "dimensions_present": tuple(sorted(present)),
+            "missing_dimensions": missing,
+            "turn_count": turn_count,
+            "required_dimensions_met": required_present,
+            # Non-negotiable outcomes even under a detected pattern.
+            "reassurance_allowed": True,
+            "unchanged_evidence_visible": True,
+            "unresolved_uncertainty_visible": True,
+            "pathology_inferred": False,
+            "diagnosis": None,
+            "psychiatric_label": False,
+            "punitive_or_withholding": False,
+            "malformed_input": malformed_structure,
+        }
+    )
+
+
+def evaluate_action_state(
+    *,
+    options=(),
+    urgency=None,
+    user_request=None,
+    grounded_options=False,
+    specialized_recommendation=False,
+    specialized_domain_result=None,
+) -> dict:
+    """Resolve the canonical action state without pressure or adoption.
+
+    No action is a valid outcome.  option != recommendation != adopted action
+    != authorized execution; the system never adopts a personal decision and
+    never executes an external action from a Concerns operation.
+    """
+    options_raw, options_malformed = _normalize_collection(options)
+    usable_options = tuple(
+        usable
+        for usable in (_usable_scalar_string(item) for item in options_raw)
+        if usable is not None
+    )
+    request_norm = _semantic_text(user_request)
+    urgency_norm = _semantic_text(urgency)
+
+    wants_no_advice = any(
+        marker in (request_norm or "")
+        for marker in ("just need to talk", "no advice", "solo necesito hablar", "wait")
+        if marker
+    )
+    wants_decision_made = bool(
+        request_norm
+        and ("decide for me" in request_norm or "decide por mi" in request_norm)
+    )
+    asks_action = bool(
+        request_norm
+        and any(
+            marker in request_norm
+            for marker in ("what can i do", "que puedo hacer", "next step", "siguiente paso")
+            if marker
+        )
+    )
+    urgent = urgency_norm in {"now", "today", "urgent", "soon", "immediately"}
+
+    specialized_domain_id = None
+    specialized_flags: tuple[str, ...] = ()
+    specialized_authorized = False
+    if isinstance(specialized_domain_result, Mapping):
+        specialized_domain_id = _usable_scalar_string(
+            specialized_domain_result.get("domain_id")
+        )
+        specialized_authorized = _grants_authorization(
+            specialized_domain_result.get("authorized")
+        )
+        flags, flags_malformed = _normalize_collection(
+            specialized_domain_result.get("red_flags")
+        )
+        if not flags_malformed:
+            specialized_flags = tuple(
+                flag
+                for flag in (_usable_scalar_string(flag) for flag in flags)
+                if flag is not None
+            )
+
+    if wants_decision_made:
+        state = USER_DECISION_REQUIRED
+    elif specialized_authorized and specialized_flags and urgent:
+        state = DOMAIN_ESCALATION_NEEDED
+    elif urgent and specialized_recommendation and usable_options:
+        state = ACTION_RECOMMENDED
+    elif asks_action and usable_options:
+        state = ACTION_USEFUL
+    elif usable_options:
+        state = ACTION_OPTIONAL
+    elif asks_action and not options_malformed:
+        # A request for action with no usable options stays proportional.
+        state = ACTION_OPTIONAL
+    else:
+        state = ACTION_NO_ACTION_NEEDED
+    del urgent, wants_no_advice
+
+    recommendation_made = state in (ACTION_RECOMMENDED,)
+    return normalize_json_value(
+        {
+            "state": state,
+            "options": usable_options,
+            "options_are_candidates": True,
+            "recommendation_made": recommendation_made,
+            "specialized_recommendation": specialized_recommendation,
+            "decision_adopted": False,
+            "external_action_executed": False,
+            "user_decision_required_for_adoption": True,
+            "action_forced": state == ACTION_NO_ACTION_NEEDED and False,
+            "specialized_domain_id": specialized_domain_id,
+            "grounded_options": _grants_authorization(grounded_options),
+            "malformed_input": options_malformed,
+        }
+    )
+
+
+def evaluate_grounded_directness(
+    *,
+    assessment=None,
+    evidence=(),
+    uncertainty=(),
+) -> dict:
+    """Decide whether a grounded opinion may be stated, and how directly.
+
+    The system may disagree when evidence is weak for the user's reading,
+    acknowledge real concern when evidence is strong, and must preserve
+    uncertainty when balanced.  Empathy never requires agreement, but
+    directness is never harshness.
+    """
+    assessment_norm = _semantic_text(assessment)
+    records, malformed = _normalize_collection(evidence, require_mapping_elements=True)
+    supporting_refs = {
+        item["grounding"]
+        for item in records
+        if isinstance(item, Mapping) and item.get("supports") and _usable_reference(item.get("identity")) is not None
+    }
+    countering_refs = {
+        item["grounding"]
+        for item in records
+        if isinstance(item, Mapping) and item.get("against") and _usable_reference(item.get("identity")) is not None
+    }
+    del supporting_refs, countering_refs
+
+    grounded_support = [
+        item
+        for item in records
+        if isinstance(item, Mapping)
+        and _usable_reference(item.get("grounding")) is not None
+        and _usable_scalar_string(item.get("supports")) is not None
+    ]
+    grounded_counter = [
+        item
+        for item in records
+        if isinstance(item, Mapping)
+        and _usable_reference(item.get("grounding")) is not None
+        and _usable_scalar_string(item.get("against")) is not None
+    ]
+    has_basis = bool(grounded_support or grounded_counter)
+    balanced = bool(grounded_support) and bool(grounded_counter)
+
+    uncertainty_record = evaluate_uncertainty(records=uncertainty)
+
+    grounded_opinion_stated = has_basis
+    disagreement_explicit = (
+        has_basis
+        and assessment_norm == "user_interpretation_unlikely"
+        and len(grounded_counter) >= len(grounded_support)
+    )
+    real_concern_acknowledged = (
+        has_basis
+        and assessment_norm == "concern_material"
+        and len(grounded_support) >= len(grounded_counter)
+    )
+    uncertainty_preserved = balanced or bool(
+        uncertainty_record["uncertainties"]
+    ) or assessment_norm == "balanced"
+
+    basis = "insufficient" if not has_basis else ("balanced" if balanced else "grounded")
+
+    return normalize_json_value(
+        {
+            "grounded_opinion_stated": grounded_opinion_stated,
+            "basis": basis,
+            "disagreement_explicit": disagreement_explicit,
+            "real_concern_acknowledged": real_concern_acknowledged,
+            "uncertainty_preserved": uncertainty_preserved,
+            "forced_conclusion": False,
+            "forced_neutrality": False,
+            "harsh": False,
+            "experience_dismissed": False,
+            "unsupported_certainty_added": False,
+            "malformed_input": malformed,
+        }
+    )
+
+
+def evaluate_immediate_risk_escalation(
+    *,
+    risk_state=None,
+    specialized_domain_result=None,
+) -> dict:
+    """Route credible immediate risk through existing shared/specialized
+    contracts; ordinary distress is never silently escalated (frozen §29).
+
+    Concerns creates no own emergency protocol; escalation provenance is the
+    authorized specialized result, never emotional intensity.
+    """
+    state = risk_state if isinstance(risk_state, Mapping) else {}
+    described = _semantic_text(state.get("described_signal"))
+
+    credible_signal = bool(
+        described
+        and any(marker in described for marker in _IMMEDIATE_RISK_SIGNALS if marker)
+    )
+
+    specialized_domain_id = None
+    specialized_flags: tuple[str, ...] = ()
+    specialized_authorized = False
+    if isinstance(specialized_domain_result, Mapping):
+        specialized_domain_id = _usable_scalar_string(
+            specialized_domain_result.get("domain_id")
+        )
+        specialized_authorized = _grants_authorization(
+            specialized_domain_result.get("authorized")
+        )
+        flags, flags_malformed = _normalize_collection(
+            specialized_domain_result.get("red_flags")
+        )
+        if not flags_malformed:
+            specialized_flags = tuple(
+                flag
+                for flag in (_usable_scalar_string(flag) for flag in flags)
+                if flag is not None
+            )
+
+    escalate_via_specialized = (
+        credible_signal and specialized_authorized and bool(specialized_flags)
+    )
+    escalate = escalate_via_specialized
+    return normalize_json_value(
+        {
+            "escalate": escalate,
+            "credible_signal": credible_signal,
+            "routed_to_domain": specialized_domain_id if escalate else None,
+            "escalation_source": (
+                "specialized_domain_result" if escalate else None
+            ),
+            "own_protocol_created": False,
+            "emotion_triggered_escalation": False,
+            "ordinary_distress_not_escalated": not escalate,
+            "malformed_input": risk_state is not None
+            and not isinstance(risk_state, Mapping),
+        }
+    )
+
+
 def _match_support_need(text: str | None) -> str | None:
     """Match a free-text request/signal against the closed request vocabulary.
 
@@ -1953,13 +2426,51 @@ class NoFalseReassuranceRule:
 class RepetitionWithoutPathologizingRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 5
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        recurrence = _mapping(context.metadata, "recurrence")
+        if recurrence is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No recurrence inputs supplied.",
+            )
+        record = review_recurring_concern_state(
+            current=recurrence.get("current"),
+            previous=recurrence.get("previous", ()),
+        )
+        pattern = evaluate_repetitive_certainty_pattern(
+            turns=recurrence.get("turns", ())
+        )
+        finding = ReasoningFinding(
+            code="RECURRENCE_REVIEWED_WITHOUT_PATHOLOGY",
+            message=(
+                "Returning to the same concern is not pathology; reassurance "
+                "remains allowed and unchanged evidence/uncertainty stay visible."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "recurrence": record["recurrence"],
+                "evidence_changed": record["evidence_changed"],
+                "meaningfully_different": record["meaningfully_different"],
+                "reassurance_allowed": record["reassurance_allowed"],
+                "pathology_inferred": (
+                    record["pathology_inferred"] or pattern["pathology_inferred"]
+                ),
+                "pattern_detected": pattern["pattern_detected"],
+                "psychiatric_label": pattern["psychiatric_label"],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK5",
-            message="Implemented with the recurrence helpers (Task 5).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="RECURRENCE_EVALUATED",
+            message="Recurrence reviewed without pathologizing.",
         )
 
 
@@ -1967,13 +2478,47 @@ class RepetitionWithoutPathologizingRule:
 class AgencyWithoutPressureRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 5
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        action = _mapping(context.metadata, "action")
+        if action is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No action-state inputs supplied.",
+            )
+        record = evaluate_action_state(
+            options=action.get("options", ()),
+            urgency=action.get("urgency"),
+            user_request=action.get("user_request"),
+            grounded_options=bool(action.get("grounded_options")),
+            specialized_recommendation=bool(action.get("specialized_recommendation")),
+            specialized_domain_result=action.get("specialized_domain_result"),
+        )
+        finding = ReasoningFinding(
+            code="ACTION_STATE_RESOLVED_WITHOUT_PRESSURE",
+            message=(
+                "Action state resolved; option != recommendation != adopted "
+                "decision != authorized execution."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "state": record["state"],
+                "record": record,
+                "action_forced": False,
+                "external_action_executed": False,
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK5",
-            message="Implemented with the action-state helper (Task 5).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="AGENCY_PRESERVED",
+            message="Agency preserved without forced action.",
         )
 
 
@@ -1981,13 +2526,46 @@ class AgencyWithoutPressureRule:
 class DirectnessWithoutHarshnessRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 5
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        directness = _mapping(context.metadata, "directness")
+        if directness is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No directness inputs supplied.",
+            )
+        record = evaluate_grounded_directness(
+            assessment=directness.get("assessment"),
+            evidence=directness.get("evidence", ()),
+            uncertainty=directness.get("uncertainty", ()),
+        )
+        finding = ReasoningFinding(
+            code="GROUNDED_DIRECTNESS_ASSESSED",
+            message=(
+                "A grounded opinion may be stated with an explicit basis; "
+                "empathy does not require agreement and directness is never "
+                "harshness."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "record": record,
+                "harsh": record["harsh"],
+                "disagreement_explicit": record["disagreement_explicit"],
+                "grounded_opinion_stated": record["grounded_opinion_stated"],
+                "uncertainty_preserved": record["uncertainty_preserved"],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK5",
-            message="Implemented with the directness helper (Task 5).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="DIRECTNESS_EVALUATED",
+            message="Grounded directness evaluated.",
         )
 
 
@@ -1995,13 +2573,55 @@ class DirectnessWithoutHarshnessRule:
 class ImmediateRiskEscalationRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 5
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        escalation = _mapping(context.metadata, "escalation")
+        if escalation is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No escalation inputs supplied.",
+            )
+        record = evaluate_immediate_risk_escalation(
+            risk_state=escalation.get("risk_state"),
+            specialized_domain_result=escalation.get("specialized_domain_result"),
+        )
+        finding = ReasoningFinding(
+            code=(
+                "IMMEDIATE_RISK_ESCALATED"
+                if record["escalate"]
+                else "NO_IMMEDIATE_ESCALATION"
+            ),
+            message=(
+                "Credible immediate risk routed through the authorized "
+                "specialized contract; no own protocol was created."
+                if record["escalate"]
+                else "Ordinary distress or unverified claims are not escalated."
+            ),
+            severity=(
+                ReasoningSeverity.WARNING
+                if record["escalate"]
+                else ReasoningSeverity.INFO
+            ),
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "escalate": record["escalate"],
+                "routed_to_domain": record["routed_to_domain"],
+                "own_protocol_created": record["own_protocol_created"],
+                "emotion_triggered_escalation": record[
+                    "emotion_triggered_escalation"
+                ],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK5",
-            message="Implemented with the escalation helper (Task 5).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="IMMEDIATE_RISK_EVALUATED",
+            message="Immediate-risk boundary evaluated.",
         )
 
 
