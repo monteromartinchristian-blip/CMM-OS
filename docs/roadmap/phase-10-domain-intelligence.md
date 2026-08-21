@@ -3007,107 +3007,604 @@ Permissions
 
 ⸻
 
-10.25 - Concerns Domain
+**10.25** - **Concerns Domain**
+
+Status
+
+Design frozen. Implementation pending.
+
+Canonical specification:
+
+`docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
 
 Objective
 
-Specify CMM OS to discuss concerns, fears, scenarios, real signs, uncertainty and potential actions without feeding catastrophic conclusions.
+Specialize CMM OS for conversations in which the user brings a problem,
+worry, fear, uncertainty, "rayada", ambiguous situation, repeated concern,
+difficult decision, need for reassurance, or need simply to talk something
+through.
 
-Entidades
+Concerns is not primarily a risk-analysis domain.
 
-* concern;
-* fear;
-* risk;
-* scenario;
-* trigger;
-* belief;
-* evidence;
-* uncertainty;
-* coping_action;
-* unresolved_question.
+Its central flow is:
+```text
+Understand the concern
+↓
+Understand why it matters to the user
+↓
+Resolve or cautiously infer the current support need
+↓
+Think through the situation with the user
+↓
+Separate reality, interpretation, fear, hypothesis, scenario and uncertainty
+when useful
+↓
+Reassure when evidence supports reassurance
+OR
+acknowledge a real concern when evidence supports it
+OR
+preserve uncertainty when it cannot be resolved
+↓
+Explore options or a next step only when useful or wanted
+↓
+Continue talking when no action is needed
+```
 
-Resources
+Core invariants
 
-* user_message;
-* conversation;
-* note;
-* journal_entry;
-* event;
-* goal;
-* memory_entry;
-* domain_result.
+```text
+concern support != risk analysis only
+being helpful != forcing action
+being reassuring != inventing certainty
+being validating != confirming every interpretation
+being analytical != becoming emotionally cold
+being cautious != becoming alarmist
+repetition != pathology
+uncertainty != danger
+emotion != evidence
+```
 
-Rules
+Architecture
 
-ConcernFactScenarioRule
+Implement exactly one specialized Domain Pack:
 
-Distingue:
+```text
+cmm/domains/concerns/
+```
 
-* hecho;
-* possibility;
-* escenario;
-* miedo;
-* prediction.
+using the shared hardened Phase 10 package boundary:
 
-CatastrophicCertaintyRule
+```text
+__init__.py
+bootstrap.py
+catalog.py
+definition.py
+integration.py
+memory.py
+operations.py
+permissions.py
+presentation.py
+profile.py
+resources.py
+rules.py
+trace.py
+workflows.py
+```
 
-Avoid treating the worse stage as a probable result.
+Concerns must not introduce a parallel planner, agent runtime, memory store,
+knowledge store, workflow engine, permission engine, temporal engine, or
+conversation engine.
 
-ControllableUncontrollableRule
+It reuses shared Phase 8, Phase 9 and Phase 10 infrastructure.
 
-Separa:
+Semantic behavior and communication style remain separate.
 
-* aspectos controlables;
-* parcialmente controlables;
-* uncontrollable.
+Concerns determines what should be understood, which distinctions matter,
+whether reassurance is justified, whether material concern exists, whether
+uncertainty remains open, whether another domain should participate, and
+whether action is useful.
 
-EvidenceBalanceRule
+It does not define a fixed assistant personality. Surface warmth, register,
+verbosity, rhythm and channel behavior remain shared presentation concerns
+and later Phase 11 Communication Profiles.
 
-Searches for evidence for and against.
+Support Need
 
-ImmediateRiskRule
+The central conversational concept is:
 
-It detects when a concern represents a real current risk.
+```text
+support_need
+```
 
-ReassuranceLoopRule
+Canonical values:
 
-Avoid generating repeated confirmation cycles without new information.
+```text
+UNDERSTANDING
+EXPLORATION
+PERSPECTIVE
+REALITY_CHECK
+REASSURANCE
+INFORMATION
+PROBLEM_SOLVING
+DECISION_SUPPORT
+EMOTIONAL_PROCESSING
+NEXT_STEP
+MIXED
+UNCLEAR
+```
 
-Operaciones
+A support need is a current conversational hypothesis, not a diagnosis,
+personality trait or durable identity.
 
-* concerns.structure_concern;
-* concerns.separate_fact_scenario;
-* concerns.compare_risks;
-* concerns.identify_controllable_actions;
-* concerns.detect_open_questions;
-* concerns.generate_monitoring_plan;
-* concerns.review_evolution;
-* concerns.prepare_professional_discussion.
+Explicit current user intent has precedence over inference or historical
+preference.
 
-Workflows
+Entities — exactly 17
 
-Concern Analysis
+```text
+concern
+situation
+trigger
+emotion
+fear
+need
+support_need
+fact
+interpretation
+hypothesis
+scenario
+evidence
+uncertainty
+risk
+desired_outcome
+option
+action
+```
 
-Risk and Scenario Review
+Resources — exactly 10
 
-Recurring Concern Review
+```text
+user_message
+conversation
+note
+journal_entry
+memory_entry
+event
+goal
+decision
+domain_result
+external_source
+```
 
+Rules — exactly 14
+
+```text
+UnderstandBeforeInterveneRule
+EmotionalValidationRule
+ExperienceRealitySeparationRule
+SupportNeedCalibrationRule
+ContextualQuestionRule
+UncertaintyPreservationRule
+EvidenceCalibratedReassuranceRule
+ProportionalRiskRule
+NoCatastrophicEscalationRule
+NoFalseReassuranceRule
+RepetitionWithoutPathologizingRule
+AgencyWithoutPressureRule
+DirectnessWithoutHarshnessRule
+ImmediateRiskEscalationRule
+```
+
+Key semantics
+
+`UnderstandBeforeInterveneRule`
+
+Do not automatically jump from concern to advice, coping instructions,
+monitoring, or an action plan. Respond directly when sufficient context
+already exists.
+
+`EmotionalValidationRule`
+
+Preserve the legitimacy of the user's lived emotional experience without
+promoting an interpretation of external reality to fact.
+
+```text
+valid emotional experience != verified external interpretation
+```
+
+`ExperienceRealitySeparationRule`
+
+When useful, distinguish:
+
+```text
+what happened
+what the user experienced
+what the user interpreted
+what the user fears
+what is hypothesized
+what may happen
+what remains unknown
+```
+
+Required distinctions include:
+
+```text
+fact != interpretation
+interpretation != fear
+fear != prediction
+prediction != fact
+possibility != probability
+emotional certainty != evidential certainty
+```
+
+`SupportNeedCalibrationRule`
+
+Resolve or cautiously infer what type of support is currently useful.
+The inferred need remains revisable throughout the conversation.
+
+`ContextualQuestionRule`
+
+Questions are tools, not rituals. Ask only when the answer would materially
+change interpretation, reassurance, risk, routing, decision, or next step.
+
+`UncertaintyPreservationRule`
+
+Preserve genuine uncertainty rather than inventing certainty either to
+comfort or to warn. Uncertainty may coexist with reassurance.
+
+`EvidenceCalibratedReassuranceRule`
+
+Reassurance is explicitly allowed when evidence supports it.
+
+Canonical outcomes:
+
+```text
+REASSURANCE_SUPPORTED
+REASSURANCE_PARTIAL
+UNCERTAIN
+CONCERN_SUPPORTED
+INSUFFICIENT_BASIS
+```
+
+Reassurance must remain evidence-calibrated and must not become false
+certainty.
+
+`ProportionalRiskRule`
+
+Risk analysis remains available but is not the center of every concern
+conversation. Emotional intensity does not determine objective risk.
+
+`NoCatastrophicEscalationRule`
+
+Do not silently promote:
+
+```text
+possibility → probability
+ambiguity → warning sign
+change → deterioration
+silence → rejection
+symptom → serious disease
+setback → failure
+uncertainty → danger
+```
+
+without adequate evidence.
+
+`NoFalseReassuranceRule`
+
+Do not erase real warning signals merely to comfort the user.
+
+`RepetitionWithoutPathologizingRule`
+
+Returning to the same concern is not automatically a harmful reassurance
+loop.
+
+```text
+same topic != same question
+same question != pathological repetition
+repetition != compulsion
+continued distress != irrationality
+need for further understanding != reassurance seeking
+```
+
+The system may revisit the concern and reassure again.
+
+A possible repetitive certainty-seeking pattern requires multiple grounded
+signals across turns and must never become an automatic psychiatric
+interpretation or conversational punishment.
+
+`AgencyWithoutPressureRule`
+
+Canonical action states:
+
+```text
+NO_ACTION_NEEDED
+ACTION_OPTIONAL
+ACTION_USEFUL
+ACTION_RECOMMENDED
+DOMAIN_ESCALATION_NEEDED
+USER_DECISION_REQUIRED
+```
+
+The user may legitimately wait, observe, think, continue talking, act later,
+or take no action.
+
+`DirectnessWithoutHarshnessRule`
+
+The system may give a grounded opinion and may respectfully disagree.
+
+Empathy does not require agreement.
+
+`ImmediateRiskEscalationRule`
+
+Credible immediate risk is routed through existing shared or specialized
+contracts. Ordinary worry, sadness, fear or uncertainty must not silently
+become a crisis workflow.
+
+Profile
+
+Default specialized cognitive profile:
+
+```text
+ConcernSupportProfile
+```
+
+Its reasoning configuration prioritizes:
+
+```text
+high contextual sensitivity
+high epistemic discipline
+high tolerance for uncertainty
+high emotional-context awareness
+moderate-to-high interpretive openness
+low default action pressure
+low default alarm
+evidence-calibrated reassurance
+willingness to state a grounded opinion
+targeted questioning
+cross-domain awareness
+```
+
+The profile does not encode a fixed communication persona.
+
+Operations — exactly 13
+
+```text
+concerns.understand_concern
+concerns.infer_support_need
+concerns.map_lived_experience
+concerns.separate_reality_interpretation
+concerns.explore_hypotheses
+concerns.calibrate_uncertainty
+concerns.evaluate_reassurance
+concerns.evaluate_risk
+concerns.identify_open_questions
+concerns.explore_options
+concerns.prepare_next_step
+concerns.review_recurring_concern
+concerns.prepare_professional_discussion
+```
+
+Operations are analytical or preparatory.
+
+They do not directly send messages, contact professionals, modify calendars,
+publish, write semantic memory, execute personal decisions, or start
+continuous monitoring.
+
+Workflows — exactly 8
+
+```text
+Open Concern Conversation
+Talk It Through
+Reality Check
+Reassurance Review
+Practical Problem Solving
 Decision Under Uncertainty
+Recurring Concern Review
+Professional Discussion Preparation
+```
 
-Monitoring Plan
+A valid workflow may end with:
+
+```text
+better understood
+reassured
+partially reassured
+still uncertain
+material concern acknowledged
+decision deferred
+no action necessary
+continue talking
+```
+
+No workflow is required to produce a conclusion, action plan, risk matrix,
+or monitoring plan.
+
+First-response behavior
+
+The first response should normally:
+
+1. identify the core issue;
+2. recognize why it matters where useful;
+3. give substantive perspective immediately when enough context exists;
+4. ask a question only if materially necessary;
+5. avoid dumping a framework, checklist or generic coping protocol.
+
+Reassurance behavior
+
+The system may provide reassurance repeatedly while it remains grounded.
+
+Repeated discussion must not automatically trigger refusal,
+pathologization, or a claim that reassurance itself is harmful.
+
+No forced positivity
+
+Alternative explanations may be explored when plausible, but must not erase
+genuine negative evidence.
+
+```text
+less negative explanation exists
+!=
+less negative explanation is true
+```
+
+No forced cognitive correction
+
+The domain must not assume:
+
+```text
+distress = distorted thought
+```
+
+Cross-domain composition
+
+Concerns owns:
+
+```text
+concern support
+support need
+fear and uncertainty framing
+reassurance calibration
+problem exploration
+action pressure
+recurring-concern review
+```
+
+Specialized domains remain responsible for their own factual and risk
+semantics.
+
+Required initial compositions include:
+
+```text
+General + Concerns
+Relationships + Concerns
+Health + Concerns
+Reflection + Concerns
+University + Concerns
+Oppositions + Concerns
+Life Plan + Concerns
+Project + Concerns
+```
+
+No direct private-store access between domains.
+
+Memory
+
+Concern state is sensitive.
+
+The domain may produce memory proposals through shared contracts but must
+not silently persist fear, support need, inferred emotional patterns,
+recurring-concern patterns, psychological interpretations, risk
+interpretations, or third-party motives.
+
+```text
+conversation state != semantic memory
+```
 
 Permissions
 
-* co-ordination with Health at risk
-* Coordination with Reflection
-* without diagnoses,
-* without false peace and quiet,
-* without alarm,
-* controlled memory for transitional concerns.
+Concerns is a high-sensitivity personal domain.
+
+Required intentions include:
+
+```text
+cross-domain access only through authorized projections
+no diagnosis
+no third-party diagnosis
+no automatic personal decisions
+no automatic external communication
+no automatic semantic-memory persistence
+no autonomous monitoring by default
+no hidden risk escalation
+no unrestricted external research
+```
+
+Unknown or malformed authorization fails closed.
+
+Safety
+
+Safety behavior must remain proportional.
+
+Do not automatically convert:
+
+```text
+sadness → suicide workflow
+health worry → emergency
+relationship conflict → abuse classification
+repeated worry → psychiatric interpretation
+```
+
+When credible immediate risk exists, use the relevant shared policy or
+specialized domain.
+
+Trace
+
+The domain trace must expose why Concerns was selected, which supporting
+domains participated, what support need was explicit or inferred, which
+resources and evidence were used, what uncertainty remained, whether
+reassurance or material concern was supported, why questions were asked,
+why action was or was not proposed, what memory proposal was created, and
+what permissions constrained the result.
+
+DP-025
+
+CMM OS must support a user through a problem, worry, fear or uncertainty by:
+
+- understanding the situation and its lived significance;
+- resolving or cautiously inferring the current support need;
+- preserving emotional experience without promoting interpretation to fact;
+- distinguishing reality, interpretation, hypothesis, fear, scenario and
+  uncertainty when relevant;
+- providing evidence-calibrated reassurance when justified;
+- acknowledging material concern when justified;
+- avoiding catastrophic escalation and false reassurance;
+- revisiting recurring concerns without automatically pathologizing repetition;
+- asking only materially useful questions;
+- supporting action and decisions without forcing them;
+- coordinating with specialized domains for factual and risk semantics;
+- preserving provenance, permissions, uncertainty and memory boundaries.
+
+Canonical acceptance identifiers:
+
+```text
+DP-025
+AT-DP-025
+```
+
+The exhaustive behavioral, adversarial, rollback, permission, memory,
+cross-domain, deterministic and E2E requirements are defined in:
+
+`docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
+
+Completion criteria
+
+Phase 10.25 is complete when:
+
+- one canonical `domain:concerns` Domain Pack exists;
+- the hardened shared package boundary is preserved;
+- exactly 17 entities, 10 resources, 14 rules, 13 operations and
+  8 workflows are canonical;
+- `ConcernSupportProfile` uses shared profile infrastructure;
+- reassurance is allowed when supported;
+- false reassurance and catastrophic escalation are prevented;
+- emotional validation does not inflate facts;
+- recurrence is not automatically pathologized;
+- questions are materially useful;
+- grounded direct opinions are possible;
+- action remains proportional and under user control;
+- sensitive inference is not silently persisted;
+- cross-domain composition works;
+- permissions fail closed;
+- bootstrap is atomic;
+- rollback is complete;
+- fresh import is side-effect free;
+- focused, domain and global suites are green;
+- `AT-DP-025` passes;
+- independent audit leaves no unresolved blocking finding.
 
 ⸻
 
-10.26 - Languages Domain
+**10.26** - **Languages Domain**
 
 Objective
 
