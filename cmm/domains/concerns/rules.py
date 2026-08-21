@@ -419,6 +419,543 @@ def _semantic_text(value: Any) -> str | None:
 # Task 3 helpers — understanding, lived experience, support need, questions
 # ═════════════════════════════════════════════════════════════════════════════
 
+# Closed catastrophic-promotion taxonomy (frozen design §24).
+PROMOTION_POSSIBILITY_TO_PROBABILITY = "possibility_to_probability"
+PROMOTION_AMBIGUITY_TO_WARNING_SIGN = "ambiguity_to_warning_sign"
+PROMOTION_CHANGE_TO_DETERIORATION = "change_to_deterioration"
+PROMOTION_SILENCE_TO_REJECTION = "silence_to_rejection"
+PROMOTION_SYMPTOM_TO_SERIOUS_DISEASE = "symptom_to_serious_disease"
+PROMOTION_SETBACK_TO_FAILURE = "setback_to_failure"
+PROMOTION_UNCERTAINTY_TO_DANGER = "uncertainty_to_danger"
+
+_CATASTROPHIC_PROMOTIONS: tuple[tuple[str, str, str], ...] = (
+    ("possibility", "probability", PROMOTION_POSSIBILITY_TO_PROBABILITY),
+    ("ambiguity", "warning_sign", PROMOTION_AMBIGUITY_TO_WARNING_SIGN),
+    ("change", "deterioration", PROMOTION_CHANGE_TO_DETERIORATION),
+    ("silence", "rejection", PROMOTION_SILENCE_TO_REJECTION),
+    ("symptom", "serious_disease", PROMOTION_SYMPTOM_TO_SERIOUS_DISEASE),
+    ("setback", "failure", PROMOTION_SETBACK_TO_FAILURE),
+    ("uncertainty", "danger", PROMOTION_UNCERTAINTY_TO_DANGER),
+)
+
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Task 4 helpers — epistemics, uncertainty, reassurance, proportional risk
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def classify_concern_statement(value) -> dict:
+    """Classify a statement into a canonical Concerns epistemic level.
+
+    A caller-supplied ``level`` is honored only when it is one of the known
+    levels.  A caller ``fact=True``/``confirmed=True`` label never promotes
+    the level and never substitutes for grounding: a fact requires at least
+    one usable evidence reference (frozen design §13.8, §67).  Experience
+    stays valid lived experience without becoming an external fact; fear is
+    never a prediction; scenario never claims probability.
+    """
+    if not isinstance(value, Mapping):
+        return normalize_json_value(
+            {
+                "statement": None,
+                "level": LEVEL_UNKNOWN,
+                "grounded": False,
+                "external_fact": False,
+                "prediction": False,
+                "probability_claim": False,
+                "is_fear": False,
+                "promotion_blocked": False,
+                "malformed": True,
+            }
+        )
+    statement = _usable_scalar_string(value.get("statement"))
+    labeled_fact = _boolean_true(value.get("fact")) or _boolean_true(
+        value.get("confirmed")
+    )
+    level = value.get("level")
+    normalized_level = level if level in KNOWN_LEVELS else None
+
+    raw_references = value.get("evidence_references")
+    if isinstance(raw_references, (list, tuple)):
+        collected = [
+            usable
+            for usable in (_usable_reference(item) for item in raw_references)
+            if usable is not None
+        ]
+    else:
+        single = _usable_reference(raw_references)
+        collected = [single] if single is not None else []
+    references = tuple(dict.fromkeys(collected))
+    grounded = bool(references)
+
+    promotion_blocked = False
+    if normalized_level is None:
+        # Positional fallback: explicit markers choose the closest safe level.
+        if _boolean_true(value.get("experience")):
+            normalized_level = LEVEL_EXPERIENCE
+        elif _boolean_true(value.get("interpretation")):
+            normalized_level = LEVEL_INTERPRETATION
+        elif _boolean_true(value.get("fear")):
+            normalized_level = LEVEL_FEAR
+        elif _boolean_true(value.get("hypothesis")):
+            normalized_level = LEVEL_HYPOTHESIS
+        elif _boolean_true(value.get("scenario")):
+            normalized_level = LEVEL_SCENARIO
+        elif _boolean_true(value.get("uncertainty")):
+            normalized_level = LEVEL_UNCERTAINTY
+        else:
+            normalized_level = LEVEL_UNKNOWN
+        if labeled_fact and normalized_level != LEVEL_FACT:
+            promotion_blocked = True
+    elif normalized_level != LEVEL_FACT and labeled_fact:
+        # A caller fact label on a non-fact level never promotes it.
+        promotion_blocked = True
+
+    if normalized_level == LEVEL_FACT and not grounded:
+        # A bare fact label with no grounded reference stays ungrounded.
+        promotion_blocked = True
+
+    return normalize_json_value(
+        {
+            "statement": statement,
+            "level": normalized_level,
+            "grounded": grounded,
+            "evidence_references": references,
+            "external_fact": normalized_level == LEVEL_FACT and grounded,
+            "prediction": False,
+            "probability_claim": False,
+            "is_fear": normalized_level == LEVEL_FEAR,
+            "promotion_blocked": promotion_blocked,
+            "labeled_fact": labeled_fact,
+            "malformed": False,
+        }
+    )
+
+
+def evaluate_uncertainty(*, records=()) -> dict:
+    """Preserve what remains unknown without inventing resolution.
+
+    Conflicting proposed resolutions stay conflict; malformed records fail
+    closed and never resolve anything; empty input is valid-empty, not failure.
+    """
+    raw, malformed = _normalize_collection(records, require_mapping_elements=True)
+    uncertainties: list[dict] = []
+    resolutions: dict[str, set[str]] = {}
+    malformed_records: list[str] = []
+    valid_empty = records is not None and len(raw) == 0 and not malformed
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            malformed_records.append(str(type(entry).__name__))
+            continue
+        identity = _usable_scalar_string(entry.get("identity"))
+        unknown = _usable_scalar_string(entry.get("unknown")) or _usable_scalar_string(
+            entry.get("ambiguous")
+        )
+        resolution = _usable_scalar_string(entry.get("resolution"))
+        if identity is None and unknown is None:
+            malformed_records.append("empty-record")
+            continue
+        record_identity = identity or unknown or "unidentified"
+        uncertainties.append({"identity": record_identity, "unknown": unknown})
+        if resolution is not None:
+            # Conflict key is the unknown TOPIC (not the record identity):
+            # two records proposing different answers for the same open
+            # question remain conflicting.
+            conflict_key = (unknown or record_identity).casefold()
+            resolutions.setdefault(conflict_key, set()).add(resolution)
+
+    conflict_present = any(len(options) > 1 for options in resolutions.values())
+    return normalize_json_value(
+        {
+            "uncertainties": tuple(uncertainties),
+            "uncertainty_preserved": True,
+            "resolved_by_invention": False,
+            "conflict_present": conflict_present,
+            "conflicting_identities": tuple(
+                sorted(key for key, options in resolutions.items() if len(options) > 1)
+            ),
+            "valid_empty": valid_empty and not malformed,
+            "malformed_records": tuple(malformed_records),
+            "malformed": malformed or bool(malformed_records),
+            "persisted": False,
+        }
+    )
+
+
+def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int]:
+    """Normalize evidence/counterevidence entries into usable records.
+
+    Returns ``(usable, malformed_count)``.  Duplicates (same identity AND same
+    grounding) collapse deterministically so they can never inflate support.
+    """
+    raw, malformed_structure = _normalize_collection(
+        value, require_mapping_elements=True
+    )
+    malformed_count = 1 if malformed_structure else 0
+    merged: dict[tuple[str | None, str | None], dict] = {}
+    duplicates = 0
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            malformed_count += 1
+            continue
+        identity = _usable_scalar_string(entry.get("identity"))
+        supports = _usable_scalar_string(entry.get("supports"))
+        against = _usable_scalar_string(entry.get("against"))
+        grounding = _usable_reference(entry.get("grounding"))
+        if supports is None and against is None:
+            # An entry that asserts nothing cannot count as evidence.
+            malformed_count += 1
+            continue
+        key = (identity, grounding)
+        if key in merged:
+            previous = merged[key]
+            if (
+                previous["supports"] == supports
+                and previous["against"] == against
+            ):
+                duplicates += 1
+                continue
+            # Same key but different claim: keep both as distinct records.
+            merged[(identity, f"{grounding}::{len(merged)}")] = {
+                "identity": identity,
+                "supports": supports,
+                "against": against,
+                "grounding": grounding,
+            }
+            continue
+        merged[key] = {
+            "identity": identity,
+            "supports": supports,
+            "against": against,
+            "grounding": grounding,
+        }
+    ordered = sorted(merged.values(), key=lambda item: str(item["identity"]))
+    return tuple(ordered), duplicates, malformed_count
+
+
+def evaluate_reassurance(
+    *,
+    evidence=(),
+    counterevidence=(),
+    uncertainty=(),
+    material_concerns=(),
+    specialized_domain_result=None,
+) -> dict:
+    """Evaluate whether the available basis supports reassurance.
+
+    Canonical outcomes (frozen design §22):
+
+        REASSURANCE_SUPPORTED / REASSURANCE_PARTIAL / UNCERTAIN /
+        CONCERN_SUPPORTED / INSUFFICIENT_BASIS
+
+    Reassurance may coexist with uncertainty.  Absolute certainty is never
+    manufactured.  Duplicates do not inflate; malformed evidence never
+    increases reassurance or concern certainty.  No numerical probability is
+    assigned unless supplied by an authorized specialized source — and even
+    then it is preserved with provenance rather than produced by Concerns.
+    """
+    supporting, duplicate_evidence, evidence_malformed = _normalize_evidence_entries(
+        evidence
+    )
+    countering, duplicate_counter, counter_malformed = _normalize_evidence_entries(
+        counterevidence
+    )
+
+    concerns_raw, concerns_malformed = _normalize_collection(material_concerns)
+    acknowledged_concerns: list[str] = []
+    for concern in concerns_raw:
+        usable = _usable_scalar_string(concern)
+        if usable is not None:
+            acknowledged_concerns.append(usable)
+    material_concern = bool(acknowledged_concerns)
+
+    uncertainty_record = evaluate_uncertainty(records=uncertainty)
+    remaining_uncertainty = tuple(
+        item["identity"] for item in uncertainty_record["uncertainties"]
+    )
+
+    # Direction is decided by the CLAIM each record names, not by its bucket:
+    # a record naming the feared meaning in ``supports`` backs the concern; a
+    # record naming it in ``against`` backs reassurance.  Records naming other
+    # claims keep their bucket direction.  Grounded records only.
+    pro_concern = [
+        item
+        for item in (*supporting, *countering)
+        if item["grounding"] and item["supports"] is not None
+    ]
+    pro_reassurance = [
+        item
+        for item in (*supporting, *countering)
+        if item["grounding"]
+        and item["against"] is not None
+        and item["supports"] is None
+    ]
+
+    malformed_total = evidence_malformed + counter_malformed + concerns_malformed
+
+    specialized_probability = None
+    specialized_authorized = False
+    if isinstance(specialized_domain_result, Mapping):
+        authorized_marker = specialized_domain_result.get("authorized")
+        specialized_authorized = _grants_authorization(authorized_marker)
+        if specialized_authorized:
+            probability = specialized_domain_result.get("probability")
+            numeric = _finite_number(probability)
+            specialized_probability = numeric if 0.0 <= numeric <= 1.0 else None
+
+    both_sides = bool(pro_reassurance) and bool(pro_concern)
+
+    # A real concern backed by >=2 distinct grounded records is acknowledged;
+    # reassurance must not erase it.  Balanced grounded signals cap reassurance
+    # at partial.  Clear dominance against the feared reading supports it.
+    if material_concern and len(pro_concern) >= 2 and not pro_reassurance or material_concern and len(pro_concern) >= 2 and not both_sides:
+        assessment = CONCERN_SUPPORTED
+    elif len(pro_reassurance) >= 2 and len(pro_reassurance) > len(pro_concern):
+        assessment = REASSURANCE_SUPPORTED
+    elif both_sides and material_concern:
+        assessment = REASSURANCE_PARTIAL
+    elif both_sides:
+        assessment = UNCERTAIN
+    elif material_concern and (pro_reassurance or pro_concern):
+        assessment = REASSURANCE_PARTIAL
+    elif pro_concern:
+        assessment = CONCERN_SUPPORTED if len(pro_concern) >= 2 else UNCERTAIN
+    elif pro_reassurance:
+        assessment = REASSURANCE_PARTIAL if len(pro_reassurance) == 1 else REASSURANCE_SUPPORTED
+    else:
+        assessment = INSUFFICIENT_BASIS
+
+    absolute_certainty = False
+    return normalize_json_value(
+        {
+            "assessment": assessment,
+            "supporting": tuple(pro_reassurance),
+            "counterevidence": tuple(pro_concern),
+            "remaining_uncertainty": remaining_uncertainty,
+            "acknowledged_concerns": tuple(acknowledged_concerns),
+            "material_concern": material_concern,
+            "concern_erased": material_concern
+            and assessment in (REASSURANCE_SUPPORTED,),
+            "absolute_certainty": absolute_certainty,
+            "duplicate_count": duplicate_evidence + duplicate_counter,
+            "malformed_count": malformed_total,
+            "invented_assessment": False,
+            "numeric_probability_assigned": False,
+            "probability": None,
+            "specialized_probability": specialized_probability,
+            "specialized_authorized": specialized_authorized,
+            "reassurance_coexists_with_uncertainty": assessment
+            in (REASSURANCE_SUPPORTED, REASSURANCE_PARTIAL)
+            and bool(remaining_uncertainty),
+            "persisted": False,
+        }
+    )
+
+
+_RISK_NONE = "none"
+_RISK_LOW = "low"
+_RISK_MEDIUM = "medium"
+_RISK_HIGH = "high"
+_RISK_UNRESOLVED = "unresolved"
+
+_SEVERITY_ALIASES: dict[str, str] = {
+    "none": _RISK_NONE,
+    "minimal": _RISK_LOW,
+    "minor": _RISK_LOW,
+    "low": _RISK_LOW,
+    "moderate": _RISK_MEDIUM,
+    "medium": _RISK_MEDIUM,
+    "high": _RISK_HIGH,
+    "severe": _RISK_HIGH,
+}
+
+_IMMEDIATE_MARKERS: frozenset[str] = frozenset(
+    {"now", "immediately", "today", "in progress", "happening now"}
+)
+
+
+def evaluate_proportional_risk(
+    *,
+    evidence=(),
+    severity=None,
+    immediacy=None,
+    specialized_domain_result=None,
+) -> dict:
+    """Calibrate risk proportionally; emotional intensity alone never elevates it.
+
+    Specialized risk semantics arriving from Health or another authorized
+    specialized domain are preserved with provenance and are never downgraded
+    because wording is calm (frozen design §23, §63).  Malformed inputs fail
+    closed to unresolved rather than triggering high-risk state.
+    """
+    severity_norm = _semantic_text(severity)
+    severity_malformed = severity is not None and (
+        severity_norm is None or severity_norm not in _SEVERITY_ALIASES
+    ) and not isinstance(severity, str)
+    if isinstance(severity, str) and severity_norm not in _SEVERITY_ALIASES:
+        # Unknown free-text severity carries no weight.
+        severity_malformed = True
+
+    immediacy_norm = _semantic_text(immediacy)
+    immediate_claim = immediacy_norm in _IMMEDIATE_MARKERS if immediacy_norm else False
+
+    specialized_red_flags: tuple[str, ...] = ()
+    specialized_authorized = False
+    specialized_domain_id = None
+    if isinstance(specialized_domain_result, Mapping):
+        specialized_domain_id = _usable_scalar_string(
+            specialized_domain_result.get("domain_id")
+        )
+        specialized_authorized = _grants_authorization(
+            specialized_domain_result.get("authorized")
+        )
+        flags, flags_malformed = _normalize_collection(
+            specialized_domain_result.get("red_flags")
+        )
+        if flags_malformed:
+            specialized_authorized = False
+        else:
+            usable_flags = tuple(
+                flag
+                for flag in (_usable_scalar_string(flag) for flag in flags)
+                if flag is not None
+            )
+            if usable_flags:
+                specialized_red_flags = usable_flags
+
+    emotion_drove_risk = False
+    if severity_malformed:
+        base_risk = _RISK_UNRESOLVED
+        emotion_drove_risk = False
+    else:
+        mapped_severity = _SEVERITY_ALIASES.get(severity_norm)
+        if mapped_severity == _RISK_HIGH:
+            # High subjective severity alone does NOT produce high objective
+            # risk: emotional certainty != evidential certainty.
+            emotion_drove_risk = True
+            base_risk = _RISK_UNRESOLVED
+        elif mapped_severity in (_RISK_MEDIUM,):
+            base_risk = _RISK_MEDIUM
+        elif mapped_severity == _RISK_LOW:
+            base_risk = _RISK_LOW
+        else:
+            base_risk = _RISK_NONE
+
+    if specialized_authorized and specialized_red_flags or immediate_claim and base_risk in (_RISK_MEDIUM,):
+        risk_level = _RISK_HIGH
+    elif immediate_claim and base_risk == _RISK_NONE:
+        # Immediacy without grounded basis still cannot manufacture risk.
+        risk_level = _RISK_UNRESOLVED
+    else:
+        risk_level = base_risk if base_risk != _RISK_NONE else _RISK_NONE
+
+    invented_risk = (
+        risk_level == _RISK_HIGH and not specialized_authorized and not immediate_claim
+    )
+    return normalize_json_value(
+        {
+            "risk_level": risk_level,
+            "emotion_drove_risk": emotion_drove_risk,
+            "downgraded": False,
+            "specialized_ownership_preserved": specialized_authorized,
+            "specialized_domain_id": specialized_domain_id,
+            "specialized_red_flags": specialized_red_flags,
+            "immediate": immediate_claim and risk_level == _RISK_HIGH,
+            "escalation_recommended": risk_level == _RISK_HIGH
+            and specialized_authorized,
+            "invented_risk": invented_risk,
+            "malformed_input_ignored": severity_malformed,
+            "persisted": False,
+        }
+    )
+
+
+def detect_catastrophic_escalation(*, source_state, proposed_state) -> dict:
+    """Detect an unsupported catastrophic promotion between semantic kinds.
+
+    Blocked promotions (frozen design §24): possibility→probability,
+    ambiguity→warning sign, change→deterioration, silence→rejection,
+    symptom→serious disease, setback→failure, uncertainty→danger.  Malformed
+    states are evaluated=False and authorize no transition either way.
+    """
+    source_kind = (
+        _semantic_text(source_state.get("kind"))
+        if isinstance(source_state, Mapping)
+        else None
+    )
+    proposed_kind = (
+        _semantic_text(proposed_state.get("kind"))
+        if isinstance(proposed_state, Mapping)
+        else None
+    )
+    evaluated = source_kind is not None and proposed_kind is not None
+    blocked = False
+    promotion = None
+    if evaluated:
+        for source, proposed, marker in _CATASTROPHIC_PROMOTIONS:
+            if source_kind == source and proposed_kind == proposed:
+                blocked = True
+                promotion = marker
+                break
+    return normalize_json_value(
+        {
+            "evaluated": evaluated,
+            "blocked": blocked,
+            "promotion": promotion,
+            "source_kind": source_kind,
+            "proposed_kind": proposed_kind,
+            "adequate_evidence": False,
+        }
+    )
+
+
+def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict:
+    """Detect reassurance that minimizes real evidence merely to comfort.
+
+    Forbidden when material warning signals exist or when the reassuring
+    statement claims absolute certainty (frozen design §25).
+    """
+    state = reassurance_state if isinstance(reassurance_state, Mapping) else {}
+    assessment = _usable_scalar_string(state.get("assessment"))
+    concerns_raw, concerns_malformed = _normalize_collection(material_concerns)
+    concerns = tuple(
+        usable
+        for usable in (_usable_scalar_string(item) for item in concerns_raw)
+        if usable is not None
+    )
+    has_material_concern = bool(concerns) or concerns_malformed
+    absolute_certainty = _boolean_true(state.get("absolute_certainty"))
+
+    false_reassurance = False
+    reason = None
+    corrected = assessment
+    if has_material_concern and assessment in (
+        REASSURANCE_SUPPORTED,
+        REASSURANCE_PARTIAL,
+    ):
+        false_reassurance = True
+        reason = "material_concern_minimized"
+        corrected = CONCERN_SUPPORTED
+    elif absolute_certainty:
+        false_reassurance = True
+        reason = "absolute_certainty"
+        corrected = UNCERTAIN if not has_material_concern else CONCERN_SUPPORTED
+
+    presented_as_supported = (
+        assessment == REASSURANCE_SUPPORTED and not false_reassurance
+    )
+    return normalize_json_value(
+        {
+            "false_reassurance": false_reassurance,
+            "reason": reason,
+            "corrected_assessment": corrected,
+            "presented_as_supported": presented_as_supported,
+            "material_concerns": concerns,
+            "absolute_certainty": absolute_certainty,
+        }
+    )
+
 
 def _match_support_need(text: str | None) -> str | None:
     """Match a free-text request/signal against the closed request vocabulary.
@@ -1007,13 +1544,43 @@ class EmotionalValidationRule:
 class ExperienceRealitySeparationRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        statements = _seq(context.metadata, "statements")
+        if not statements:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No concern statements supplied.",
+            )
+        classified = tuple(
+            classify_concern_statement(statement) for statement in statements
+        )
+        promotions = sum(1 for record in classified if record["promotion_blocked"])
+        finding = ReasoningFinding(
+            code="EXPERIENCE_REALITY_SEPARATED",
+            message=(
+                "Facts, experiences, interpretations, fears, hypotheses, "
+                "scenarios and uncertainty are kept distinct; caller labels "
+                "never bypass grounding."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "levels": tuple(record["level"] for record in classified),
+                "promotions_blocked": promotions,
+                "records": classified,
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the epistemics helpers (Task 4).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="EPISTEMIC_LEVELS_ASSIGNED",
+            message="Epistemic separation applied without promotion.",
         )
 
 
@@ -1115,13 +1682,40 @@ class ContextualQuestionRule:
 class UncertaintyPreservationRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        records = _seq(context.metadata, "uncertainty_records")
+        if records is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No uncertainty records supplied.",
+            )
+        record = evaluate_uncertainty(records=records)
+        finding = ReasoningFinding(
+            code="UNCERTAINTY_PRESERVED",
+            message=(
+                "Unresolved uncertainty is preserved; no invented certainty "
+                "for comfort and no invented risk for caution."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "conflict_present": record["conflict_present"],
+                "resolved_by_invention": record["resolved_by_invention"],
+                "uncertainties": record["uncertainties"],
+                "malformed": record["malformed"],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the uncertainty helper (Task 4).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="UNCERTAINTY_RECORDED",
+            message="Uncertainty preserved without forced resolution.",
         )
 
 
@@ -1129,27 +1723,110 @@ class UncertaintyPreservationRule:
 class EvidenceCalibratedReassuranceRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        inputs = _mapping(context.metadata, "reassurance_inputs")
+        if inputs is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No reassurance inputs supplied.",
+            )
+        record = evaluate_reassurance(
+            evidence=inputs.get("evidence", ()),
+            counterevidence=inputs.get("counterevidence", ()),
+            uncertainty=inputs.get("uncertainty", ()),
+            material_concerns=inputs.get("material_concerns", ()),
+            specialized_domain_result=inputs.get("specialized_domain_result"),
+        )
+        false_check = detect_false_reassurance(
+            reassurance_state={"assessment": record["assessment"]},
+            material_concerns=(
+                record["acknowledged_concerns"] if record["concern_erased"] else ()
+            ),
+        )
+        finding = ReasoningFinding(
+            code="REASSURANCE_CALIBRATED",
+            message=(
+                f"Reassurance assessment {record['assessment']} is "
+                "evidence-calibrated; absolute certainty was not manufactured."
+            ),
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "assessment": record["assessment"],
+                "absolute_certainty": record["absolute_certainty"],
+                "coexists_with_uncertainty": record[
+                    "reassurance_coexists_with_uncertainty"
+                ],
+                "false_reassurance": false_check["false_reassurance"],
+                "duplicate_count": record["duplicate_count"],
+                "malformed_count": record["malformed_count"],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the reassurance helper (Task 4).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="REASSURANCE_EVALUATED",
+            message="Reassurance calibrated against evidence.",
         )
+
 
 
 @dataclass(frozen=True, slots=True)
 class ProportionalRiskRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        inputs = _mapping(context.metadata, "risk_inputs")
+        if inputs is None:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No risk inputs supplied.",
+            )
+        record = evaluate_proportional_risk(
+            evidence=inputs.get("evidence", ()),
+            severity=inputs.get("severity"),
+            immediacy=inputs.get("immediacy"),
+            specialized_domain_result=inputs.get("specialized_domain_result"),
+        )
+        finding = ReasoningFinding(
+            code="RISK_PROPORTIONAL",
+            message=(
+                "Risk is proportional to grounded evidence; emotional "
+                "intensity alone did not elevate it and specialized red flags "
+                "were preserved."
+            ),
+            severity=(
+                ReasoningSeverity.WARNING
+                if record["risk_level"] == _RISK_HIGH
+                else ReasoningSeverity.INFO
+            ),
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "risk_level": record["risk_level"],
+                "emotion_drove_risk": record["emotion_drove_risk"],
+                "downgraded": record["downgraded"],
+                "specialized_ownership_preserved": record[
+                    "specialized_ownership_preserved"
+                ],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the proportional-risk helper (Task 4).",
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="RISK_CALIBRATED",
+            message="Proportional risk evaluated.",
         )
 
 
@@ -1157,13 +1834,60 @@ class ProportionalRiskRule:
 class NoCatastrophicEscalationRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        transitions = _seq(context.metadata, "transitions")
+        if not transitions:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No semantic transitions supplied.",
+            )
+        results = tuple(
+            detect_catastrophic_escalation(
+                source_state=(
+                    transition.get("source_state")
+                    if isinstance(transition, Mapping)
+                    else None
+                ),
+                proposed_state=(
+                    transition.get("proposed_state")
+                    if isinstance(transition, Mapping)
+                    else None
+                ),
+            )
+            for transition in transitions
+        )
+        blocked = tuple(result["promotion"] for result in results if result["blocked"])
+        any_blocked = bool(blocked)
+        finding = ReasoningFinding(
+            code=(
+                "CATASTROPHIC_ESCALATION_BLOCKED"
+                if any_blocked
+                else "NO_CATASTROPHIC_PROMOTION"
+            ),
+            message=(
+                "Unsupported catastrophic promotion detected and blocked."
+                if any_blocked
+                else "No unsupported catastrophic promotion found."
+            ),
+            severity=ReasoningSeverity.WARNING if any_blocked else ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={"blocked_promotions": blocked, "results": results},
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the escalation detector (Task 4).",
+            (
+                ReasoningRuleResultStatus.BLOCKED
+                if any_blocked
+                else ReasoningRuleResultStatus.APPLIED
+            ),
+            findings=(finding,),
+            code="CATASTROPHIC_ESCALATION_EVALUATED",
+            message="Catastrophic escalation gate evaluated.",
         )
 
 
@@ -1171,13 +1895,57 @@ class NoCatastrophicEscalationRule:
 class NoFalseReassuranceRule:
     definition: DomainReasoningRuleDefinition
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:  # pragma: no cover - implemented in Task 4
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        state = _mapping(context.metadata, "reassurance_state")
+        concerns = _seq(context.metadata, "material_concerns") or ()
+        if state is None and not concerns:
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
+                code="RULE_NOT_APPLICABLE",
+                message="No reassurance-state or material concerns supplied.",
+            )
+        record = detect_false_reassurance(
+            reassurance_state=state or {},
+            material_concerns=concerns,
+        )
+        finding = ReasoningFinding(
+            code=(
+                "FALSE_REASSURANCE_BLOCKED"
+                if record["false_reassurance"]
+                else "REASSURANCE_HONEST"
+            ),
+            message=(
+                "Reassurance minimized a material concern or claimed absolute "
+                "certainty; corrected."
+                if record["false_reassurance"]
+                else "Reassurance is honest; real warning signals were not erased."
+            ),
+            severity=(
+                ReasoningSeverity.WARNING
+                if record["false_reassurance"]
+                else ReasoningSeverity.INFO
+            ),
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata={
+                "false_reassurance": record["false_reassurance"],
+                "corrected_assessment": record["corrected_assessment"],
+                "reason": record["reason"],
+            },
+        )
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.NOT_APPLICABLE,
-            code="RULE_DEFERRED_TO_TASK4",
-            message="Implemented with the false-reassurance detector (Task 4).",
+            (
+                ReasoningRuleResultStatus.BLOCKED
+                if record["false_reassurance"]
+                else ReasoningRuleResultStatus.APPLIED
+            ),
+            findings=(finding,),
+            code="FALSE_REASSURANCE_EVALUATED",
+            message="False-reassurance gate evaluated.",
         )
 
 
