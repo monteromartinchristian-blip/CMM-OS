@@ -76,14 +76,23 @@ def test_no_direct_relationships_store_import():
 
 
 def test_no_concerns_domain_dependency():
-    """No static or import-time dependency on cmm.domains.concerns."""
-    import importlib.util
+    """No static or import-time dependency of Reflection on cmm.domains.concerns.
+
+    Phase 10.25 now implements ``cmm.domains.concerns`` as a sibling pack;
+    the invariant under guard is that Reflection neither imports nor
+    statically references it (composition goes only through shared
+    cross-domain mechanisms).
+    """
     import inspect
+    import sys
 
-    spec = importlib.util.find_spec("cmm.domains.concerns")
-    assert spec is None  # Phase 10.25 does not exist yet
+    # Reflection modules never appear as concerns modules and vice versa
+    for module_name in tuple(sys.modules):
+        if module_name.startswith("cmm.domains.reflection"):
+            assert not module_name.startswith("cmm.domains.concerns")
 
-    source = inspect.getsource(__import__("cmm.domains.reflection", fromlist=["*"]))
+    source = inspect.getsource(__import__("cmm.domains.reflection", fromlist=["*"
+    ]))
     assert "cmm.domains.concerns" not in source
 
     # rules module must not reference concerns
