@@ -96,7 +96,10 @@ _EXPLICIT_REQUEST_SIGNALS: tuple[tuple[frozenset[str], str], ...] = (
                 "necesito desahogarme",
                 "i don't want advice",
                 "no quiero consejos",
+                "no advice",
                 "sin consejos",
+                "just listening",
+                "solo escuchar",
                 "need to get this out",
                 "necesito sacar esto",
                 "listen to me",
@@ -1016,13 +1019,17 @@ def review_recurring_concern_state(*, current=None, previous=()) -> dict:
         return normalize_json_value(
             {
                 "recurrence": RECURRENCE_FIRST_TIME,
+                "same_topic": False,
+                "same_question": False,
                 "meaningfully_different": False,
                 "evidence_changed": False,
                 "interpretation_changed": False,
                 "impact_changed": False,
                 "reassurance_allowed": True,
+                "new_risk_invented_from_repetition": False,
                 "pathology_inferred": False,
                 "diagnosis": None,
+                "psychiatric_label": False,
                 "malformed_input": True,
             }
         )
