@@ -3011,11 +3011,15 @@ Permissions
 
 Status
 
-Design frozen. Implementation pending.
+Implemented. Pending independent audit.
 
 Canonical specification:
 
 `docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
+
+Implementation reference:
+
+`docs/reference/concerns-domain.md` (`cmm/domains/concerns/`)
 
 Objective
 
@@ -3601,6 +3605,31 @@ Phase 10.25 is complete when:
 - focused, domain and global suites are green;
 - `AT-DP-025` passes;
 - independent audit leaves no unresolved blocking finding.
+
+Implementation status (2026-08-21)
+
+- One canonical `cmm/domains/concerns/` Domain Pack exists with exactly the
+  hardened 14-module boundary.
+- Exactly 17 entities, 10 resources, 14 rules, 13 operations and 8 workflows
+  are canonical (`catalog.py` single source of truth).
+- `ConcernSupportProfile` is bound through the shared profile infrastructure.
+- Reassurance is evidence-calibrated; false reassurance and catastrophic
+  escalation gates are executable and green.
+- Emotional validation never inflates facts; recurrence review never
+  pathologizes (`pathology_inferred=False` always); pattern recognition
+  requires all five grounded dimensions.
+- Questions are material-only; grounded disagreement is possible; action
+  remains proportional, proposal-only and user-controlled.
+- Sensitive content kinds cannot be silently persisted under any
+  authorization chain; permissions fail closed on literal-boolean semantics.
+- Bootstrap is atomic validation-first with complete snapshot/restore
+  rollback at every registration boundary; fresh import registers nothing.
+- Focused Concerns suite: 297 tests green; all-domain and global suites run
+  in Task 14 verification.
+- `AT-DP-025`: executable acceptance matrix (25-step scenario + 22 named
+  gates) recorded as implementation-side candidate evidence — `PASS` at
+  implementation level.
+- Independent audit: pending. The phase is not independently audited.
 
 ⸻
 
