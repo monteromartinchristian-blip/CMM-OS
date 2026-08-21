@@ -665,21 +665,46 @@ class DoNotInferIntentRule:
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
         )
-        escalation = ReasoningEscalation(
-            code="INTENT_BLOCKED",
-            message="Unsupported intention attribution is blocked; it must not be presented as fact.",
-            severity=ReasoningSeverity.WARNING,
-            rule_id=self.definition.id,
-            domain_id=self.definition.domain_id,
+
+        # A tentative interpretation with no claimed grounding may remain a
+        # hypothesis.  But once the caller explicitly claims direct evidence
+        # or a sourced statement, the corresponding reference is mandatory:
+        # missing provenance is an invalid grounding claim, not uncertainty.
+        grounding_claim_invalid = (
+            (has_direct_evidence and direct_reference is None)
+            or (is_sourced_statement and source_reference is None)
         )
+        if grounding_claim_invalid:
+            escalation = ReasoningEscalation(
+                code="INTENT_BLOCKED",
+                message=(
+                    "Claimed grounding is incomplete; unsupported intention "
+                    "attribution must not be presented as evidenced fact."
+                ),
+                severity=ReasoningSeverity.WARNING,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            )
+            return _result(
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                findings=(finding,),
+                escalation=escalation,
+                code="INTENT_BLOCKED",
+                message="Claimed intent grounding is incomplete; blocked.",
+            )
+
         return _result(
             self.definition,
             context,
-            ReasoningRuleResultStatus.BLOCKED,
+            ReasoningRuleResultStatus.APPLIED,
             findings=(finding,),
-            escalation=escalation,
-            code="INTENT_BLOCKED",
-            message="Intention cannot be established; blocked.",
+            code="INTENT_HYPOTHESIS_RETAINED",
+            message=(
+                "Intention is not established as fact; "
+                "it may remain a qualified hypothesis."
+            ),
         )
 
 

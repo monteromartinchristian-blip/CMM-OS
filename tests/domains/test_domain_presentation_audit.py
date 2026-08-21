@@ -234,7 +234,7 @@ def test_inherited_uncertainty_and_provenance_require_visible_qualified_refs():
     assert "REQUIRED_REFERENCE_HIDDEN" in result.codes
 
 
-def test_disclaimers_warning_position_and_detail_level_are_structural():
+def test_human_readable_omits_empty_disclaimer_scaffold_but_keeps_other_structure():
     policy = DomainPresentationPolicy(
         require_disclaimers=True,
         warning_position="after_content",
@@ -247,10 +247,12 @@ def test_disclaimers_warning_position_and_detail_level_are_structural():
             DomainPresentationItemRef("finding-1", "FINDING", 1),
         ),
     )
-
     plan, result = _validate(request)
 
-    assert "disclaimers" in {section.section_id for section in plan.sections}
+    assert "disclaimers" not in {
+        section.section_id
+        for section in plan.sections
+    }
     assert plan.sections[-1].section_id == "warnings"
     assert plan.detail_level == "detailed"
     assert result.valid is True

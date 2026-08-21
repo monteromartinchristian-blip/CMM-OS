@@ -27,7 +27,6 @@ HEALTH_PROHIBITED_CAPABILITIES: tuple[PermissionCapability, ...] = (
     PermissionCapability.SCHEDULE_MODIFY,
     PermissionCapability.TASK_CREATE,
     PermissionCapability.COMMUNICATION_EXTERNAL,
-    PermissionCapability.SENSITIVE_INFERENCE,
     PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
     PermissionCapability.EXPORT,
     PermissionCapability.IRREVERSIBLE_CHANGE,
@@ -52,6 +51,7 @@ def build_health_permission_policy() -> DomainPermissionPolicy:
         allowed_capabilities=(
             PermissionCapability.RESOURCE_READ,
             PermissionCapability.MEMORY_READ,
+            PermissionCapability.SENSITIVE_INFERENCE,
             PermissionCapability.OPERATION_EXECUTE,
         ),
         prohibited_capabilities=HEALTH_PROHIBITED_CAPABILITIES,
@@ -73,7 +73,7 @@ def build_health_permission_policy() -> DomainPermissionPolicy:
         allow_schedule_modification=False,
         allow_goal_update=False,
         allow_export=False,
-        allow_sensitive_inference=False,
+        allow_sensitive_inference=True,
         allow_cross_domain_access=False,
         approval_requirements=("medical.action", "communication.external", "export"),
         autonomy_limits=DomainAutonomyLimits(

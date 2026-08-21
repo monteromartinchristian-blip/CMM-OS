@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from cmm.domains.presentation_contracts import (
+    DomainOutputIntentType,
     DomainPresentationItemRef,
     DomainPresentationItemType,
     DomainPresentationPlan,
@@ -124,13 +125,19 @@ class DefaultDomainPresentationPreservationValidator:
         )
         if plan.qualified_hypothesis_refs != expected_hypotheses:
             _append(codes, "HYPOTHESIS_UNQUALIFIED")
-        if request.policy.require_disclaimers is True:
+        structural_disclaimers_required = (
+            request.policy.require_disclaimers is True
+            and resolved_output_intent(request).output_type
+            is not DomainOutputIntentType.HUMAN_READABLE
+        )
+        if structural_disclaimers_required:
             has_section = any(
                 section.section_id == "disclaimers" and section.visible
                 for section in plan.sections
             )
             has_component = any(
-                component.component_id == "disclaimers" for component in plan.components
+                component.component_id == "disclaimers"
+                for component in plan.components
             )
             if not has_section and not has_component:
                 _append(codes, "DISCLAIMERS_MISSING")

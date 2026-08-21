@@ -90,7 +90,6 @@ def build_relationships_profile() -> DomainProfileDefinition:
             "third_party_diagnosis",
             "intent_as_fact",
             "psychological_cause",
-            "sensitive_inference",
             "sensitive_inference_persist",
         ),
         maximum_questions=10,

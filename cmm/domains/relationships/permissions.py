@@ -34,7 +34,6 @@ RELATIONSHIPS_PROHIBITED_CAPABILITIES: tuple[PermissionCapability, ...] = (
     PermissionCapability.TASK_CREATE,
     PermissionCapability.GOAL_UPDATE,
     PermissionCapability.COMMUNICATION_EXTERNAL,
-    PermissionCapability.SENSITIVE_INFERENCE,
     PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
     PermissionCapability.EXPORT,
     PermissionCapability.PUBLICATION,
@@ -62,6 +61,7 @@ def build_relationships_permission_policy() -> DomainPermissionPolicy:
         allowed_capabilities=(
             PermissionCapability.RESOURCE_READ,
             PermissionCapability.MEMORY_READ,
+            PermissionCapability.SENSITIVE_INFERENCE,
             PermissionCapability.OPERATION_EXECUTE,
             PermissionCapability.WORKFLOW_EXECUTE,
         ),
@@ -83,7 +83,7 @@ def build_relationships_permission_policy() -> DomainPermissionPolicy:
         allow_schedule_modification=False,
         allow_goal_update=False,
         allow_export=False,
-        allow_sensitive_inference=False,
+        allow_sensitive_inference=True,
         allow_cross_domain_access=False,
         approval_requirements=(
             "communication.external",

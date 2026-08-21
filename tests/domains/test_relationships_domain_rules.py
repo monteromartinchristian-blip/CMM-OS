@@ -106,8 +106,8 @@ def test_separate_facts_interpretations_keeps_possible_function_as_hypothesis():
     )
 
 
-def test_do_not_infer_intent_blocks_without_direct_evidence():
-    """Intent cannot be established without direct evidence; the rule blocks."""
+def test_do_not_infer_intent_keeps_unsupported_claim_as_hypothesis():
+    """Intent without claimed grounding remains non-established, not blocked."""
     rules = _by_id(build_relationships_rules())
     rule = rules["relationships.do_not_infer_intent"]
     result = rule.evaluate(
@@ -115,18 +115,26 @@ def test_do_not_infer_intent_blocks_without_direct_evidence():
             intent_claim={"intent": "left me", "direct_evidence": False},
         )
     )
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert result.escalation is not None
-    assert result.escalation.code == "INTENT_BLOCKED"
-    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.escalation is None
+    assert any(
+        finding.code == "INTENT_NOT_ESTABLISHED"
+        for finding in result.findings
+    )
 
 
-def test_do_not_infer_intent_blocks_without_source():
-    """Intent with no direct evidence and no sourced statement blocks."""
+def test_do_not_infer_intent_allows_bare_tentative_hypothesis():
+    """A bare intent interpretation is allowed only as a non-factual hypothesis."""
     rules = _by_id(build_relationships_rules())
     rule = rules["relationships.do_not_infer_intent"]
     result = rule.evaluate(_context(intent_claim={"intent": "ignored me"}))
-    assert result.status is ReasoningRuleResultStatus.BLOCKED
+
+    assert result.status is ReasoningRuleResultStatus.APPLIED
+    assert result.escalation is None
+    assert any(
+        finding.code == "INTENT_NOT_ESTABLISHED"
+        for finding in result.findings
+    )
 
 
 def test_do_not_infer_intent_allows_direct_evidence():

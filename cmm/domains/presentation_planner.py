@@ -12,6 +12,7 @@ from cmm.domains.errors import (
 )
 from cmm.domains.presentation_contracts import (
     DomainOutputIntent,
+    DomainOutputIntentType,
     DomainPresentationComponentDescriptor,
     DomainPresentationConflict,
     DomainPresentationConflictCode,
@@ -143,6 +144,11 @@ class DefaultDomainPresentationPlanner:
             )
         output_intent = resolved_output_intent(request)
         self._validate_output_intent(request, output_intent)
+        structural_disclaimers_required = (
+            request.policy.require_disclaimers is True
+            and output_intent.output_type
+            is not DomainOutputIntentType.HUMAN_READABLE
+        )
         composition = _PresentationCompositionView.from_request(request)
         required_sections = effective_required_sections(request.policy, request.presentation)
         suppressed = set(effective_suppressed_sections(request.policy, request.presentation))
@@ -165,7 +171,7 @@ class DefaultDomainPresentationPlanner:
             composition.optional_sections,
             tuple(_SECTION_BY_ITEM_TYPE[item.item_type] for item in request.items),
         )
-        if request.policy.require_disclaimers is True:
+        if structural_disclaimers_required:
             section_order = _ordered_union(section_order, ("disclaimers",))
         section_order = _apply_warning_position(
             section_order, request.policy.warning_position
@@ -179,7 +185,10 @@ class DefaultDomainPresentationPlanner:
                 section_items = sorted(section_items, key=lambda item: (item.source_order, item.ref_id))
             is_required = (
                 section_id in required_sections
-                or (section_id == "disclaimers" and request.policy.require_disclaimers is True)
+                or (
+                    section_id == "disclaimers"
+                    and structural_disclaimers_required
+                )
             )
             if not section_items and not is_required:
                 continue

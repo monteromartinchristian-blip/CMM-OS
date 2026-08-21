@@ -42,12 +42,15 @@ def test_prohibited_actions_cover_the_safety_model():
     assert required <= set(RELATIONSHIPS_PROHIBITED_ACTIONS)
 
 
-def test_prohibited_inferences_no_intent_as_fact():
+def test_prohibited_inferences_preserve_authority_and_persistence_boundary():
     profile = relationships.build_relationships_profile()
+
     assert "intent_as_fact" in profile.prohibited_inferences
     assert "third_party_diagnosis" in profile.prohibited_inferences
     assert "psychological_cause" in profile.prohibited_inferences
-    assert "sensitive_inference" in profile.prohibited_inferences
+
+    assert "sensitive_inference" not in profile.prohibited_inferences
+    assert "sensitive_inference_persist" in profile.prohibited_inferences
 
 
 def test_memory_is_proposal_only():

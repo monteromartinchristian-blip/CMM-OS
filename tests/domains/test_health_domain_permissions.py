@@ -30,19 +30,28 @@ def test_policy_identity():
     assert policy.enabled is True
 
 
-def test_allowed_surface_is_read_only():
+def test_allowed_surface_includes_qualified_sensitive_analysis():
     policy = build_health_permission_policy()
     assert policy.allowed_capabilities == (
         PermissionCapability.RESOURCE_READ,
         PermissionCapability.MEMORY_READ,
+        PermissionCapability.SENSITIVE_INFERENCE,
         PermissionCapability.OPERATION_EXECUTE,
     )
     assert policy.allow_memory_write is False
 
 
-def test_medical_and_sensitive_capabilities_denied():
+def test_medical_effects_and_sensitive_persistence_denied():
     policy = build_health_permission_policy()
-    for capability in _SENSITIVE_MEDICAL:
+
+    assert (
+        PermissionCapability.SENSITIVE_INFERENCE
+        not in policy.prohibited_capabilities
+    )
+
+    for capability in _SENSITIVE_MEDICAL - {
+        PermissionCapability.SENSITIVE_INFERENCE
+    }:
         assert capability in policy.prohibited_capabilities
         assert capability not in policy.allowed_capabilities
 
