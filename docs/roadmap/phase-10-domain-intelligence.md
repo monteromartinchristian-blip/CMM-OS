@@ -3242,6 +3242,21 @@ Personal names belong only to presentation and user data.
 
 ---
 
+## Functional Requirement Sources
+
+Phase 10.27 uses two canonical prompt specifications as functional requirement sources:
+
+- `docs/roadmap/requirements/parenthood/camino-a-la-paternidad.md` for `parenthood.journey`;
+- `docs/roadmap/requirements/parenthood/paternidad.md` for `parenthood.child:<child_id>`.
+
+Their role is to refine expected domain behavior, rules, operations, workflows, questions, presentation expectations and acceptance criteria.
+
+They are not independent Domain Packs and they are not executable policy.
+
+Prompt requirements must remain subordinate to Kernel contracts, Cognitive Layer epistemic rules, Agent Runtime policy, validation, permissions, privacy, approval requirements, cross-domain restrictions and memory policy.
+
+Material behavior derived from these sources should be traceable to a domain rule, operation, workflow or acceptance test.
+
 ## Functional Structure
 
 ```text
