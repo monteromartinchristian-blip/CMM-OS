@@ -1353,11 +1353,11 @@ Hechos e interpretaciones
 ↓
 Concerns Domain
 ↓
-Beliefs and fear
+Support need, concern support, reassurance and uncertainty
 ↓
 Reflection Domain
 ↓
-Preguntas abiertas
+Broader meaning and open questions
 ↓
 Integrated outcome
 
@@ -1531,7 +1531,7 @@ OppositionProfile
 
 ReflectionProfile
 
-ConcernProfile
+ConcernSupportProfile
 
 LanguageProfile
 
@@ -5806,6 +5806,23 @@ Relationships:
 * emotional continuity;
 * tone.
 
+Concerns:
+
+* understanding before intervention;
+* support-need calibration;
+* emotional validation without fact inflation;
+* reality, interpretation, fear and scenario separation;
+* evidence-calibrated reassurance;
+* preservation of uncertainty;
+* proportional risk;
+* absence of catastrophic escalation;
+* absence of false reassurance;
+* recurring concerns without automatic pathologization;
+* materially useful questions;
+* grounded directness without forced agreement;
+* proportional action without pressure;
+* cross-domain factual and risk handoff.
+
 University:
 
 * planning;
@@ -5898,6 +5915,7 @@ Examples:
 
 * Health prioritizes factual fidelity, prudence, temporality, and safety.
 * Relationships prioritizes ambiguity handling, contextual continuity, and non-attribution of intent.
+* Concerns prioritizes contextual understanding, support-need calibration, epistemic separation, evidence-calibrated reassurance, proportional risk, useful questioning, non-pathologizing recurrence, and user agency.
 * University prioritizes dates, constraints, feasibility, and plan quality.
 * Project prioritizes correctness, architecture, validation, and tool calling.
 
@@ -5947,6 +5965,7 @@ Relationship Knowledge Package
 University Knowledge Package
 Opposition Knowledge Package
 Reflection Knowledge Package
+Concerns Knowledge Package
 Life Plan Knowledge Package
 Project Knowledge Package
 ```
@@ -6012,6 +6031,7 @@ Initial orientation:
 Health             -> SENSITIVE
 Relationships      -> SENSITIVE
 Reflection         -> SENSITIVE
+Concerns           -> SENSITIVE
 Paternidad / Parenthood   -> SENSITIVE
 University         -> REMOTE_ALLOWED
 Oppositions        -> REMOTE_ALLOWED
