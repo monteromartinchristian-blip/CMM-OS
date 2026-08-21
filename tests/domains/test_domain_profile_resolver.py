@@ -160,7 +160,7 @@ def test_resolve_rejects_supporting_profiles_order_mismatch():
             request=_request(supporting_domains=(DomainId("relationship"),)),
             global_profile=_global(),
             primary_profile=_primary(),
-            supporting_profiles=(_supporting(domain_id=DomainId("nil")),),
+            supporting_profiles=(_supporting(domain_id=DomainId("parenthood")),),
         )
 
 

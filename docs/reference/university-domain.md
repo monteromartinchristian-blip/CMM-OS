@@ -340,7 +340,7 @@ from cmm.domains.university import (
 ## Non-Objectives
 
 This phase does not implement Health, Relationships, Opposition, Reflection,
-Concerns, Languages, Nil, Sport, or Life Plan domains. It does not access real
+Concerns, Languages, Paternidad, Sport, or Life Plan domains. It does not access real
 university systems, send communications, submit procedures, modify the official
 record, create calendar/task events autonomously, adopt academic decisions,
 infer intellectual capacity, or execute arbitrary tools.

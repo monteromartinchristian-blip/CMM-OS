@@ -31,7 +31,7 @@ trazabilidad del preflight, no como lista de bloqueos vigente.
 | Reflexiones | `domain:reflection` | 10.24 | Alta sensibilidad, sin decisiones automáticas |
 | Intereses | `domain:reflection` | 10.24 | Lectura de Notion/historial; escritura confirmada |
 | Idiomas | `domain:languages` | 10.26 | Seguimiento de progreso con consentimiento |
-| Paternidad (Nil) | `domain:nil` | 10.27 | Legal, médico y financiero de alto riesgo |
+| Paternidad | `domain:parenthood` | 10.27 | Camino a la Paternidad y crianza por hijo; alta sensibilidad |
 | Deporte | `domain:sport` | 10.28 | Importación restringida de condicionantes de salud |
 | Futuro | `domain:life-plan` | 10.29 | Coordinación multidominio explícita |
 | Formación | `domain:general` + overlay instructivo | 10.19 / 10.16 | No justifica un dominio nuevo ahora |
@@ -123,7 +123,7 @@ La propia 10.14 dejó las autorizaciones cross-domain para 10.15. Por tanto, los
 - `university.priority_and_workload_review`;
 - `reflection.interest_map_review`;
 - `languages.progress_checkpoint`;
-- `nil.legal_financial_verification`;
+- `parenthood.journey.readiness_review`;
 - `sport.return_to_training_with_health_constraints`;
 - `life_plan.cross_domain_impact_review`.
 
@@ -206,7 +206,7 @@ Ejemplo: Sport puede recibir de Health únicamente `health_constraint` vigente y
 
 ### P-06 — Búsqueda externa con clase de fuente
 
-Los prompts de Oposiciones y Nil requieren verificación actualizada, pero no cualquier web.
+Los prompts de Oposiciones y las operaciones de Camino a la Paternidad que dependan de información cambiante requieren verificación actualizada y fuentes adecuadas.
 
 La política debe soportar:
 
@@ -229,7 +229,7 @@ Y registrar qué clase se exigió y cuál se usó.
 - perfil de ejecución;
 - redacción/tokenización previa;
 - consentimiento cuando proceda;
-- prohibición por defecto en Salud, Relaciones, Reflexión y Nil.
+- prohibición por defecto en Salud, Relaciones, Reflexión y Paternidad.
 
 Un permiso para usar un proveedor remoto no equivale a permiso para enviarle cualquier contexto.
 
@@ -283,7 +283,7 @@ El sistema puede analizar, comparar y preparar; no puede cerrar esas decisiones 
 | Reflection | lectura controlada; escritura confirmada | no por defecto | denegado | Relationships/Concerns con scope | limitada y visible | ninguna decisión automática |
 | Concerns | lectura controlada; escritura temporal confirmada | solo si resuelve riesgo real | denegado | Health/Reflection con scope | limitada | sin acciones externas automáticas |
 | Languages | progreso con opt-in; corrección permitida | opcional | según política baja sensibilidad | no por defecto | no | calendario con aprobación |
-| Nil | lectura; escritura confirmada reforzada | oficial/primaria obligatoria | denegado por defecto | Life Plan/Health/University/finance con scope | limitada | sin pago, contrato ni contacto; aprobación total |
+| Paternidad | lectura; escritura confirmada reforzada | fuentes adecuadas según la operación | denegado por defecto para contexto sensible | Life Plan/Health/University con scope | limitada | acciones externas, pagos, consentimientos y decisiones de alto impacto siempre supervisados |
 | Sport | lectura; progreso con confirmación | condicional | según política | Health constraints únicamente | no clínica | calendario con aprobación; no tratamiento |
 | Life Plan | lectura multi-domain autorizada; escritura reforzada | condicional | denegado para contexto sensible por defecto | explícito y granular | limitada | decisiones y compromisos siempre confirmados |
 | Project | lectura repo; escritura según autonomía | documentación técnica | perfil aislado | no datos personales por defecto | no personal | cambios reversibles; commit/publicación con aprobación |
@@ -323,7 +323,7 @@ Se extrae a secrets/profile store. El prompt o pack conserva únicamente referen
 3. **Sport → Health:** se concede solo `health_constraint`; pedir informe completo queda denegado.
 4. **Life Plan multi-domain:** crea `CrossDomainPermissionRequest`; no importa datos sensibles antes de aprobación.
 5. **Relationships inference:** puede producir hipótesis etiquetada; persistirla o exportarla exige aprobación.
-6. **Nil official search:** búsqueda oficial permitida; contacto con agencia, contrato o pago denegado.
+6. **Paternidad supervised external action:** la investigación y planificación están permitidas; cualquier compromiso, comunicación, contratación, pago, consentimiento o actuación externa requiere la autorización correspondiente.
 7. **Oppositions source class:** una cifra cambiante no puede validarse con `GENERAL_WEB` cuando la política exige `OFFICIAL_ONLY`.
 8. **University calendar:** plan generado sin aprobación; modificación de calendario espera aprobación.
 9. **Languages memory opt-in:** sin grant no persiste evaluación/progreso; con grant acotado sí.
@@ -333,7 +333,7 @@ Se extrae a secrets/profile store. El prompt o pack conserva únicamente referen
 13. **Approval expiry:** un grant expirado vuelve a denegar.
 14. **Deny wins:** supporting domain no amplía permiso del primario.
 15. **Proposal is not mutation:** `propose_memory_update` no satisface ni consume permiso de `apply_memory_update`.
-16. **No implicit persistence:** una decisión inferida en Nil o Life Plan no se guarda.
+16. **No implicit persistence:** una decisión inferida en Paternidad o Life Plan no se guarda.
 17. **No third-party diagnosis:** Relationships bloquea inferencia diagnóstica sobre otra persona.
 18. **Reverification:** una mutación externa sin lectura posterior queda incompleta/fallida según política.
 

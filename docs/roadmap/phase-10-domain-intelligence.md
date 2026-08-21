@@ -185,7 +185,7 @@ domain:oppositions
 domain:reflection
 domain:concerns
 domain:languages
-domain:nil
+domain:parenthood
 domain:sport
 domain:life-plan
 domain:project
@@ -582,7 +582,7 @@ domain:oppositions
 domain:reflection
 domain:concerns
 domain:languages
-domain:nil
+domain:parenthood
 domain:sport
 domain:life-plan
 domain:project
@@ -1535,7 +1535,7 @@ ConcernProfile
 
 LanguageProfile
 
-NilProfile
+ParenthoodProfile
 
 SportProfile
 
@@ -3208,123 +3208,531 @@ Permissions
 
 ⸻
 
-10.27 - Nil Domain
+10.27 - Paternidad Domain
 
-Objective
+## Objective
 
-Specify CMM OS to organize the paternity project, its decisions, dependencies, scenarios, documentation and long term planning.
+Specialize CMM OS to support parenthood as one coherent domain covering both:
 
-The domain name will be configurable and will not have to link architecture to a particular personal name.
+1. the path to becoming a parent; and
+2. the long-term exercise of parenting for each child.
 
-Entidades
+The domain must preserve a single architectural identity while exposing different functional spaces according to the stage of the parenting project.
 
-* parenthood_goal;
-* child_project;
-* country;
-* legal_route;
-* medical_route;
-* clinic;
-* agency;
-* donor;
-* financial_scenario;
-* legal_requirement;
-* timeline;
-* decision;
-* ethical_constraint;
-* school;
-* residence_plan.
+## Canonical Identity
 
-Resources
+```text
+domain:parenthood
+```
 
-* life_plan;
-* legal_document;
-* medical_report;
-* financial_plan;
-* agency_information;
-* country_information;
-* decision;
-* note;
-* user_message;
-* external_source;
-* memory_entry.
+Public display name:
 
-Rules
+```text
+Paternidad
+```
 
-ParenthoodDecisionExplicitRule
+The architecture must not encode:
 
-It prevents registration of decisions that are not expressed by the user.
+- a particular child's personal name;
+- a particular route to parenthood;
+- legacy personal project names;
+- legacy abbreviations associated with a specific route.
 
-LegalTemporalValidityRule
+Personal names belong only to presentation and user data.
 
-It requires monitoring of existing legislation.
+---
 
-MedicalLegalSeparationRule
+## Functional Structure
 
-Distinguish medical, legal, economic and administrative requirements.
+```text
+Paternidad
+├── Camino a la Paternidad
+│   └── parenthood.journey
+│
+└── Hijos
+    ├── parenthood.child:<child_id>
+    ├── parenthood.child:<child_id>
+    └── parenthood.child:<child_id>
+```
 
-EthicalConstraintRule
+The public interface may display each child workspace using that child's configured name.
 
-It retains ethical criteria as restrictions.
+Example:
 
-CountryComparisonRule
+```text
+Paternidad
+├── Camino a la Paternidad
+├── <nombre del hijo 1>
+├── <nombre del hijo 2>
+└── <nombre del hijo N>
+```
 
-Compare countries using common criteria.
+Internally:
 
-CostUncertaintyRule
+```text
+domain:parenthood
 
-Preserves ranges, contingencies, and unconfirmed costs.
+workspace:parenthood-journey-001
 
-LongTermDependencyRule
+child:001
+display_name:<configured child name>
 
-Relates:
+child:002
+display_name:<configured child name>
+```
 
-* ingresos;
-* vivienda;
-* edad;
-* training
-* estabilidad;
-* legislation
-* Medical times.
+A child's name is presentation data and must never become a Domain Pack identifier.
 
-Operaciones
+---
 
-* nil.build_parenthood_timeline;
-* nil.compare_countries;
-* nil.compare_routes;
-* nil.review_legal_requirements;
-* nil.review_financial_scenarios;
-* nil.prepare_questions;
-* nil.track_decisions;
-* nil.update_project_plan;
-* nil.generate_documentation_checklist;
-* nil.review_risks.
+# Functional Area — Camino a la Paternidad
 
-Workflows
+## Objective
 
-Parenthood Project Review
+Support the planning and supervised management of the process of becoming a parent.
 
-Country Comparison
+This functional area covers the period before the exercise of day-to-day parenting begins and may remain available afterwards as historical context.
 
-Agency Review
+## Scope
 
-Legal Route Review
+It may organize:
 
-Financial Readiness Review
+- parenthood goals;
+- family-building and reproductive pathways;
+- jurisdictions;
+- medical pathways;
+- medical providers;
+- relevant participants;
+- medical preparation;
+- legal requirements;
+- administrative requirements;
+- documentation;
+- financial scenarios;
+- ethical constraints;
+- timelines;
+- travel and logistics;
+- decisions;
+- risks;
+- transition to birth and parenthood.
 
-Medical Preparation
+The public product name is always **Camino a la Paternidad**.
 
-Annual Plan Update
+The architecture must use generic parenthood terminology and must not expose legacy route-specific abbreviations as product or domain identifiers.
 
-Permissions
+## Entities
 
-* sensibilidad alta;
-* Mandatory web verification for changing information
-* priority official sources;
-* without final legal decisions
-* without payment;
-* without contact with agencies;
-* without the persistence of decisions inferred.
-* human approval for any outside action.
+- `parenthood_goal`;
+- `parenthood_pathway`;
+- `jurisdiction`;
+- `medical_pathway`;
+- `medical_provider`;
+- `participant`;
+- `legal_requirement`;
+- `administrative_requirement`;
+- `documentation_requirement`;
+- `financial_scenario`;
+- `ethical_constraint`;
+- `timeline`;
+- `decision`;
+- `risk`;
+- `birth_transition`.
+
+## Resources
+
+- `life_plan`;
+- `legal_document`;
+- `medical_report`;
+- `financial_plan`;
+- `provider_information`;
+- `jurisdiction_information`;
+- `decision`;
+- `note`;
+- `user_message`;
+- `external_source`;
+- `memory_entry`.
+
+## Rules
+
+### ParenthoodDecisionExplicitRule
+
+Prevents registration of decisions that have not been explicitly adopted by the user.
+
+### LegalTemporalValidityRule
+
+Requires current verification when legal or administrative information may have changed.
+
+### MedicalLegalSeparationRule
+
+Keeps medical, legal, economic and administrative requirements distinguishable.
+
+### EthicalConstraintRule
+
+Preserves the user's ethical criteria as explicit constraints.
+
+### CostUncertaintyRule
+
+Preserves ranges, contingencies and unconfirmed costs.
+
+### JourneyDependencyRule
+
+Relates timing, finances, housing, personal circumstances, medical requirements, legal requirements and other dependencies without converting them into automatic decisions.
+
+### JourneyToChildBoundaryRule
+
+Prevents pre-parenthood operational material from being copied wholesale into a child's parenting workspace.
+
+Only information relevant to the child's ongoing care, identity, health, documentation or family context may be proposed for transfer.
+
+## Operations
+
+- `parenthood.journey.build_timeline`;
+- `parenthood.journey.compare_pathways`;
+- `parenthood.journey.review_requirements`;
+- `parenthood.journey.review_financial_scenarios`;
+- `parenthood.journey.prepare_questions`;
+- `parenthood.journey.track_decisions`;
+- `parenthood.journey.update_plan`;
+- `parenthood.journey.generate_documentation_checklist`;
+- `parenthood.journey.review_risks`.
+
+## Workflows
+
+- Path to Parenthood Review;
+- Pathway Comparison;
+- Provider Review;
+- Requirements Review;
+- Financial Readiness Review;
+- Medical Preparation Review;
+- Documentation Review;
+- Annual Journey Plan Update.
+
+---
+
+# Functional Area — Child Parenting Workspaces
+
+## Objective
+
+Support the exercise of parenthood and the long-term upbringing of each child through an independent child workspace inside the shared Paternidad domain.
+
+Each child must have a stable internal identifier.
+
+The visible workspace name may use the child's configured personal name.
+
+## Child Workspace Contract
+
+Conceptual model:
+
+```python
+ChildParentingWorkspace(
+    id="child:001",
+    domain_id="domain:parenthood",
+    display_name="<configured child name>",
+    status="active",
+    developmental_stage=None,
+    created_at="...",
+    metadata={},
+)
+```
+
+The internal identity must remain stable even if the public display name changes.
+
+## Entities
+
+- `child`;
+- `developmental_stage`;
+- `care_need`;
+- `routine`;
+- `milestone`;
+- `education_plan`;
+- `school`;
+- `activity`;
+- `health_context`;
+- `wellbeing_signal`;
+- `family_context`;
+- `support_network`;
+- `parental_decision`;
+- `value`;
+- `boundary`;
+- `schedule`;
+- `residence_plan`;
+- `long_term_plan`.
+
+## Resources
+
+- `parenting_note`;
+- `education_document`;
+- `child_development_resource`;
+- `health_summary`;
+- `schedule`;
+- `parental_decision`;
+- `school_information`;
+- `activity_information`;
+- `user_message`;
+- `external_source`;
+- `memory_entry`.
+
+## Rules
+
+### ChildInterestAndWellbeingRule
+
+Requires recommendations and plans to consider the child's safety, wellbeing, development and individual needs.
+
+### DevelopmentalContextRule
+
+Requires reasoning to account for the child's developmental stage.
+
+### AgeAppropriateGuidanceRule
+
+Rejects recommendations incompatible with age, maturity or current capabilities.
+
+### ParentChildBoundaryRule
+
+Distinguishes the parent's goals, preferences and concerns from the child's own needs, preferences and developing autonomy.
+
+### HealthBoundaryRule
+
+Allows relevant health context without duplicating the Health domain or making autonomous clinical decisions.
+
+### EducationBoundaryRule
+
+Allows educational planning while delegating specialized assessment to the appropriate domain when necessary.
+
+### MinorPrivacyRule
+
+Applies restrictive handling to information concerning minors.
+
+### LongTermContinuityRule
+
+Relates present parenting decisions to long-term objectives while allowing plans to evolve.
+
+### ParentalUncertaintyRule
+
+Preserves uncertainty and alternatives where no single objectively correct parenting choice exists.
+
+### SiblingIdentityIsolationRule
+
+Prevents histories, health information, needs, preferences or decisions from being silently merged between different children.
+
+## Operations
+
+- `parenthood.child.review_needs`;
+- `parenthood.child.review_developmental_stage`;
+- `parenthood.child.plan_routines`;
+- `parenthood.child.prepare_parental_decision`;
+- `parenthood.child.review_education_plan`;
+- `parenthood.child.review_family_context`;
+- `parenthood.child.track_milestones`;
+- `parenthood.child.prepare_questions`;
+- `parenthood.child.track_decisions`;
+- `parenthood.child.update_parenting_plan`;
+- `parenthood.child.review_risks_and_needs`.
+
+## Workflows
+
+- Child Needs Review;
+- Developmental Stage Review;
+- Education Planning Review;
+- Routine Review;
+- Parental Decision Review;
+- Family Context Review;
+- Milestone Review;
+- Annual Parenting Plan Review.
+
+---
+
+# Transition — Camino a la Paternidad → Child Workspace
+
+The transition must be explicit and traceable.
+
+```text
+Camino a la Paternidad
+        ↓
+Birth / parenthood transition
+        ↓
+Create child workspace
+        ↓
+Select relevant transferable context
+        ↓
+Privacy / memory review
+        ↓
+Transfer authorized context
+        ↓
+Continue through the child's parenting workspace
+```
+
+The system must not automatically copy the complete journey history into the child's workspace.
+
+Transfer candidates may include:
+
+- identity and civil documentation relevant to the child;
+- relevant birth information;
+- relevant medical history;
+- relevant genetic or family-history information when authorized;
+- dates and milestones;
+- relevant family context;
+- decisions that continue to affect parenting.
+
+The system must preserve provenance for transferred information.
+
+---
+
+# Multiple Children
+
+The domain must support any number of child workspaces without creating new Domain Packs.
+
+```text
+Paternidad
+├── Camino a la Paternidad
+├── <Child workspace 1>
+├── <Child workspace 2>
+└── <Child workspace N>
+```
+
+Each child workspace has:
+
+- independent identity;
+- independent timeline;
+- independent development state;
+- independent health context;
+- independent education context;
+- independent decisions;
+- independent memories and provenance;
+- controlled shared-family context.
+
+Shared family information may be referenced across workspaces, but child-specific information must remain isolated unless an explicit cross-child relationship is semantically required.
+
+---
+
+# Cross-Domain Integration
+
+The Paternidad domain may coordinate with:
+
+- `domain:health`;
+- `domain:university` or future education-related capabilities when appropriate;
+- `domain:life-plan`;
+- `domain:general`;
+- calendar and scheduling services;
+- financial context through scoped resources;
+- external information services when current verification is required.
+
+Cross-domain access must follow the restrictive intersection of permissions.
+
+The Paternidad domain must not duplicate another domain's specialized reasoning engine.
+
+---
+
+# Privacy
+
+Initial orientation:
+
+```text
+Paternidad -> SENSITIVE
+```
+
+Information concerning minors receives restrictive defaults.
+
+The effective policy must consider:
+
+- global privacy policy;
+- user policy;
+- session policy;
+- resource policy;
+- child workspace;
+- functional area;
+- Knowledge Package policy;
+- domain policy;
+- workflow policy;
+- operation policy.
+
+Remote processing of sensitive child information must be denied by default unless explicitly authorized by the effective policy.
+
+---
+
+# Permissions
+
+- high sensitivity;
+- restrictive defaults for information concerning minors;
+- changing legal, administrative or medical information requires appropriate current verification;
+- no autonomous high-impact parental decisions;
+- no autonomous external communication concerning a child;
+- no autonomous enrolment;
+- no autonomous contracting;
+- no autonomous payment;
+- no autonomous consent;
+- no autonomous legal commitment;
+- cross-domain access must be scoped and justified;
+- health information is imported only when relevant and authorized;
+- no persistence of inferred parental decisions;
+- no automatic transfer from journey records to child workspaces;
+- explicit human approval for external actions.
+
+---
+
+# Profile
+
+```text
+ParenthoodProfile
+```
+
+The profile may adapt its reasoning according to the active functional scope:
+
+```text
+parenthood.journey
+parenthood.child:<child_id>
+```
+
+This does not create separate reasoning engines or separate Domain Packs.
+
+---
+
+# Completion Criteria
+
+The minimum Paternidad domain is complete when:
+
+- `domain:parenthood` is registered;
+- `ParenthoodProfile` is available;
+- the public display name is `Paternidad`;
+- `Camino a la Paternidad` exists as a functional area;
+- child parenting workspaces exist as generic instances;
+- child names remain presentation data;
+- multiple children are supported;
+- child identities remain isolated;
+- journey-to-child transfer is explicit and selective;
+- privacy rules for minors are enforced;
+- parenthood operations use `parenthood.*`;
+- no legacy personal project identifier remains in current architecture;
+- no legacy route-specific abbreviation is exposed as a public product identifier;
+- domain resolution tests pass;
+- permission tests pass;
+- multi-child isolation tests pass;
+- journey-to-child transition tests pass;
+- the global suite remains green.
+
+---
+
+# Public Naming
+
+The public naming model is:
+
+```text
+Paternidad
+├── Camino a la Paternidad
+└── <nombre de cada hijo>
+```
+
+Architecture:
+
+```text
+domain:parenthood
+├── parenthood.journey
+└── parenthood.child:<child_id>
+```
+
+This separation is mandatory.
+
+Public names are human-facing presentation.
+
+Canonical identifiers are stable system contracts.
 
 ⸻
 
@@ -5092,7 +5500,7 @@ Initial orientation:
 Health             -> SENSITIVE
 Relationships      -> SENSITIVE
 Reflection         -> SENSITIVE
-Nil / Parenthood   -> SENSITIVE
+Paternidad / Parenthood   -> SENSITIVE
 University         -> REMOTE_ALLOWED
 Oppositions        -> REMOTE_ALLOWED
 Languages          -> REMOTE_ALLOWED
@@ -5387,7 +5795,7 @@ Block 24 - Secondary Domains
 * Reflection;
 * Concerns;
 * Languages;
-* Nil;
+* Paternidad;
 * Sport;
 * minimum functional versions
 * tests.
@@ -5721,7 +6129,7 @@ Minimum scenarios:
 83. Minimum reflection Domain
 84. Minimum Domain concerns
 85. Minimum Domain languages
-86. Nil Domain minimum
+86. Paternidad Domain minimum
 87. Minimum Sport Domain
 88. agent with a domain,
 89. agente multi-domain;
@@ -5789,7 +6197,7 @@ The phase should include:
 * Reflection Domain;
 * Concerns Domain;
 * Languages Domain;
-* Nil Domain;
+* Paternidad Domain;
 * Sport Domain;
 * Life Plan Domain;
 * Project Domain;
@@ -5895,7 +6303,7 @@ Closure criteria
 * Minimum reflection Domain
 * Minimum Domain concerns
 * Minimum Domain languages
-* Nil Domain minimum
+* Paternidad Domain minimum
 * Minimum Sport Domain
 * Domain SDK;
 * scaffold;
