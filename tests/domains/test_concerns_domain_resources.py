@@ -65,8 +65,6 @@ def test_high_sensitivity_sources():
 
 def test_domain_result_is_cross_domain_projection_boundary():
     resources = build_concerns_resource_definitions()
-    projection = {r.id for r in resources}["x"] if False else None
-    del projection
     by_id = {r.id: r for r in resources}
     boundary = by_id["concerns.domain_result"]
     assert boundary.metadata.get("cross_domain_projection") is True

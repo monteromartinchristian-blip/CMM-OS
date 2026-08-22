@@ -12,7 +12,6 @@ prior output, and a trace assembled from ACTUAL prior IDs/results.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,7 +31,6 @@ from cmm.domains.concerns.operations import (
 )
 from cmm.domains.concerns.permissions import persistence_confirmation_accepted
 from cmm.domains.concerns.presentation import present_concerns_result
-from cmm.domains.concerns.rules import classify_concern_statement
 from cmm.domains.concerns.trace import (
     assemble_concerns_trace,
     build_concerns_trace_reference,

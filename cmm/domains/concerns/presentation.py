@@ -177,9 +177,7 @@ def present_concerns_result(result) -> dict:
     all_facts = list(result.get("facts") or tuple(stmt_facts))
     if isinstance(key_facts, (list, tuple)):
         for kf in key_facts:
-            if isinstance(kf, str) and kf.strip() and kf not in all_facts:
-                all_facts.append(kf)
-            elif isinstance(kf, Mapping) and kf not in all_facts:
+            if isinstance(kf, str) and kf.strip() and kf not in all_facts or isinstance(kf, Mapping) and kf not in all_facts:
                 all_facts.append(kf)
     prepared_content = result.get("prepared_content")
     if not all_facts and isinstance(prepared_content, str) and "## Key facts" in prepared_content:

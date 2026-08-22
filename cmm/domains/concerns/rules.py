@@ -29,11 +29,11 @@ All public outputs are strict JSON-safe; caller inputs are never mutated.
 
 from __future__ import annotations
 
+import math
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 from typing import Any
-import unicodedata
 
 from cmm.cognitive.enums import (
     ReasoningRiskLevel,
@@ -847,9 +847,6 @@ def evaluate_reassurance(
         if item["source_quality"] not in _WEAK_SOURCE_QUALITIES
         and item["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
     ]
-    pro_concern_strong = [
-        item for item in pro_concern_all if _is_current_and_grounded(item)
-    ]
     # Weak/stale opposing records stay visible in output supporting pool,
     # but only strong/current records can upgrade reassurance to full support.
     pro_reassurance_strong = [
@@ -863,12 +860,7 @@ def evaluate_reassurance(
     specialized_reassuring = False
     specialized_concern = False
     specialized_red_flags: tuple[str, ...] = ()
-    specialized_domain_id = None
-
     if isinstance(specialized_domain_result, Mapping):
-        specialized_domain_id = _usable_scalar_string(
-            specialized_domain_result.get("domain_id")
-        )
         specialized_authorized = _grants_authorization(
             specialized_domain_result.get("authorized")
         )
@@ -1109,15 +1101,12 @@ def evaluate_proportional_risk(
     risk_evidence_material = len(grounded_risk_records) >= 1
 
     emotion_drove_risk = False
-    if severity_malformed:
-        base_risk = _RISK_UNRESOLVED
-    else:
+    if not severity_malformed:
         mapped_severity = _SEVERITY_ALIASES.get(severity_norm)
         if mapped_severity in (_RISK_HIGH, _RISK_MEDIUM):
             # Subjective severity alone does NOT produce objective risk:
             # emotional certainty != evidential certainty (frozen §23, §29).
             emotion_drove_risk = True
-        base_risk = _RISK_NONE
 
     # Objective risk ladder (grounding first):
     # - authorized specialized red flags → high (never downgraded by calm wording);
@@ -1318,11 +1307,7 @@ def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict
         false_reassurance = True
         reason = "absolute_certainty"
         corrected = CONCERN_SUPPORTED if has_material_concern else UNCERTAIN
-    elif has_material_concern and assessment == REASSURANCE_SUPPORTED:
-        false_reassurance = True
-        reason = "material_concern_minimized"
-        corrected = CONCERN_SUPPORTED
-    elif has_material_concern and assessment == REASSURANCE_PARTIAL and concern_erased:
+    elif has_material_concern and assessment == REASSURANCE_SUPPORTED or has_material_concern and assessment == REASSURANCE_PARTIAL and concern_erased:
         false_reassurance = True
         reason = "material_concern_minimized"
         corrected = CONCERN_SUPPORTED

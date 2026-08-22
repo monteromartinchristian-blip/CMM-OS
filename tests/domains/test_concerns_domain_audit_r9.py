@@ -9,28 +9,23 @@ Covers:
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-import pytest
-
 from cmm.agent_runtime.operation_schema import validate_operation_schema
 from cmm.domains.concerns.operations import (
     build_concerns_operation_definitions,
-    understand_concern_result,
-    infer_support_need_result,
-    map_lived_experience_result,
-    separate_reality_interpretation_result,
-    explore_hypotheses_result,
     calibrate_uncertainty_result,
     evaluate_reassurance_result,
     evaluate_risk_result,
-    identify_open_questions_result,
+    explore_hypotheses_result,
     explore_options_result,
+    identify_open_questions_result,
+    infer_support_need_result,
+    map_lived_experience_result,
     prepare_next_step_result,
-    review_recurring_concern_result,
     prepare_professional_discussion_result,
+    review_recurring_concern_result,
+    separate_reality_interpretation_result,
+    understand_concern_result,
 )
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # C1 (FB-001) — Operation input contract parity
@@ -279,7 +274,11 @@ def test_professional_discussion_validated_input_preserves_semantics():
 
 def test_missing_target_cannot_fully_reassure():
     """Missing target_claim prevents REASSURANCE_SUPPORTED even with multiple grounded opposing records."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED, REASSURANCE_PARTIAL
+    from cmm.domains.concerns.rules import (
+        REASSURANCE_PARTIAL,
+        REASSURANCE_SUPPORTED,
+        evaluate_reassurance,
+    )
 
     ev = (
         {
@@ -305,7 +304,7 @@ def test_missing_target_cannot_fully_reassure():
 
 def test_missing_source_quality_cannot_fully_reassure():
     """Missing source_quality (None) fails closed and cannot produce REASSURANCE_SUPPORTED."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+    from cmm.domains.concerns.rules import REASSURANCE_SUPPORTED, evaluate_reassurance
 
     ev = (
         {
@@ -329,7 +328,7 @@ def test_missing_source_quality_cannot_fully_reassure():
 
 def test_unknown_source_quality_cannot_fully_reassure():
     """Unknown source_quality ('banana') fails closed and cannot produce REASSURANCE_SUPPORTED."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+    from cmm.domains.concerns.rules import REASSURANCE_SUPPORTED, evaluate_reassurance
 
     ev = (
         {
@@ -353,7 +352,7 @@ def test_unknown_source_quality_cannot_fully_reassure():
 
 def test_missing_temporal_relevance_cannot_fully_reassure():
     """Missing temporal_relevance (None) fails closed and cannot produce REASSURANCE_SUPPORTED."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+    from cmm.domains.concerns.rules import REASSURANCE_SUPPORTED, evaluate_reassurance
 
     ev = (
         {
@@ -377,7 +376,7 @@ def test_missing_temporal_relevance_cannot_fully_reassure():
 
 def test_unknown_temporal_relevance_cannot_fully_reassure():
     """Unknown temporal_relevance ('nonsense') fails closed and cannot produce REASSURANCE_SUPPORTED."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+    from cmm.domains.concerns.rules import REASSURANCE_SUPPORTED, evaluate_reassurance
 
     ev = (
         {
@@ -401,7 +400,7 @@ def test_unknown_temporal_relevance_cannot_fully_reassure():
 
 def test_explicit_grounded_current_evidence_can_fully_reassure():
     """Explicit recognized strong quality ('grounded') and temporal relevance ('current') can produce REASSURANCE_SUPPORTED."""
-    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+    from cmm.domains.concerns.rules import REASSURANCE_SUPPORTED, evaluate_reassurance
 
     ev = (
         {
@@ -449,7 +448,10 @@ def test_caveats_preserve_unrelated_ordinary_scenarios():
 
 def test_understand_concern_preserves_actual_concern_in_presentation():
     """understand_concern situation/core_issue is preserved in actual_concern (FI-001 Defect B)."""
-    from cmm.domains.concerns.presentation import present_concerns_result, PRESENTATION_STATE_UNKNOWN
+    from cmm.domains.concerns.presentation import (
+        PRESENTATION_STATE_UNKNOWN,
+        present_concerns_result,
+    )
 
     res = understand_concern_result(
         material={

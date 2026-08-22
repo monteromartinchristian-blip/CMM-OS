@@ -4,29 +4,22 @@ Covers:
 - F1 / RB-001 / RI-003 / RI-004: Reassurance runtime and evidence dimensions
 """
 
-import math
 import pytest
 
+from cmm.cognitive.enums import ReasoningRuleResultStatus
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.concerns.rules import (
     BASE_PLAUSIBILITY_HIGH,
     BASE_PLAUSIBILITY_LOW,
-    BASE_PLAUSIBILITY_MODERATE,
     BASE_PLAUSIBILITY_UNKNOWN,
     CONCERN_SUPPORTED,
-    INSUFFICIENT_BASIS,
     REASSURANCE_PARTIAL,
     REASSURANCE_SUPPORTED,
     STANCE_OPPOSES_TARGET,
-    STANCE_SUPPORTS_TARGET,
     UNCERTAIN,
     detect_false_reassurance,
     evaluate_reassurance,
-    NoFalseReassuranceRule,
 )
-from cmm.cognitive.enums import ReasoningRuleResultStatus
-from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
-from cmm.domains.rule_contracts import DomainReasoningRuleDefinition
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # F1.1 — Authorized specialized result must never crash
@@ -303,6 +296,7 @@ def test_f1_6_absolute_certainty_is_false_reassurance():
 def test_f1_6_no_false_reassurance_rule_integration():
     """NoFalseReassuranceRule allows partial reassurance with acknowledged concerns."""
     from datetime import datetime, timezone
+
     from cmm.domains.concerns.rules import build_concerns_rules
 
     rules = build_concerns_rules()
@@ -381,10 +375,8 @@ def test_f2_2_catastrophic_escalation_all_seven_transitions():
     """All seven canonical catastrophic escalation transitions are detected by producer output."""
     from cmm.domains.concerns.operations import separate_reality_interpretation_result
     from cmm.domains.concerns.rules import (
-        _CATASTROPHIC_PROMOTIONS,
         detect_catastrophic_escalation,
     )
-    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
 
     transitions = [
         ("possibility", "probability"),
@@ -448,6 +440,7 @@ def test_f2_2_safely_blocked_fact_label_promotion_passes_catastrophic_gate():
 def test_f3_caveat_stacking_enforced_by_rule_and_presentation():
     """Remote technical negative caveats are filtered by rule and do not stack in output."""
     from datetime import datetime, timezone
+
     from cmm.domains.concerns.presentation import present_concerns_result
     from cmm.domains.concerns.rules import build_concerns_rules
 
@@ -571,20 +564,26 @@ def test_f4_objective_risk_grounding_matrix():
 def test_f5_connected_dp025_standard_resolver_and_workflow():
     """AT-DP-025 uses standard resolver scoring, real workflow execution, exact REASSURANCE_PARTIAL, and preserved concern."""
     from datetime import datetime, timezone
-    from cmm.domains.concerns.definition import build_concerns_domain_definition, CONCERNS_DOMAIN_ID
-    from cmm.domains.general.definition import build_general_domain_definition
-    from cmm.domains.relationships.definition import build_relationships_domain_definition
-    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+
+    from cmm.domains.concerns.definition import (
+        CONCERNS_DOMAIN_ID,
+        build_concerns_domain_definition,
+    )
     from cmm.domains.concerns.operations import (
         build_concerns_operation_definitions,
-        understand_concern_result,
+        evaluate_reassurance_result,
+        identify_open_questions_result,
         infer_support_need_result,
         map_lived_experience_result,
-        identify_open_questions_result,
-        evaluate_reassurance_result,
+        understand_concern_result,
     )
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+    from cmm.domains.general.definition import build_general_domain_definition
     from cmm.domains.identifiers import DomainId
     from cmm.domains.registry import DomainRegistry
+    from cmm.domains.relationships.definition import (
+        build_relationships_domain_definition,
+    )
     from cmm.domains.resolution_builder import DomainResolutionContextBuilder
     from cmm.domains.resolution_contracts import (
         DomainResolutionKnowledgeItem,
@@ -592,8 +591,8 @@ def test_f5_connected_dp025_standard_resolver_and_workflow():
         DomainResolutionSignal,
     )
     from cmm.domains.resolver import DefaultDomainResolver
-    from cmm.domains.workflow_execution import DomainWorkflowExecutor
     from cmm.domains.workflow_contracts import DomainWorkflowContext
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
     from cmm.workflows.engine import NodeExecution
     from cmm.workflows.enums import WorkflowRunStatus
 
@@ -770,9 +769,9 @@ def test_f6_presentation_preserves_flat_risk_and_epistemic_state():
     """Flat risk helper output is preserved in presentation; CONCERN_SUPPORTED is not known_fact without facts."""
     from cmm.domains.concerns.operations import evaluate_risk_result
     from cmm.domains.concerns.presentation import (
-        present_concerns_result,
-        PRESENTATION_STATE_KNOWN_FACT,
         PRESENTATION_STATE_INTERPRETATION,
+        PRESENTATION_STATE_KNOWN_FACT,
+        present_concerns_result,
     )
 
     # 1. Flat risk helper output preserved
@@ -804,19 +803,19 @@ def test_f6_presentation_preserves_flat_risk_and_epistemic_state():
 def test_f6_presentation_parity_across_all_13_operations():
     """All 13 canonical operations in Concerns Domain project cleanly through presentation without losing semantics."""
     from cmm.domains.concerns.operations import (
-        understand_concern_result,
-        infer_support_need_result,
-        map_lived_experience_result,
-        separate_reality_interpretation_result,
-        explore_hypotheses_result,
         calibrate_uncertainty_result,
         evaluate_reassurance_result,
         evaluate_risk_result,
-        identify_open_questions_result,
+        explore_hypotheses_result,
         explore_options_result,
+        identify_open_questions_result,
+        infer_support_need_result,
+        map_lived_experience_result,
         prepare_next_step_result,
-        review_recurring_concern_result,
         prepare_professional_discussion_result,
+        review_recurring_concern_result,
+        separate_reality_interpretation_result,
+        understand_concern_result,
     )
     from cmm.domains.concerns.presentation import present_concerns_result
 
