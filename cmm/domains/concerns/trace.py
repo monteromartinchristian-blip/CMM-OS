@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from cmm.domains.concerns.definition import CONCERNS_DOMAIN_ID
+from cmm.domains.identifiers import DomainId
 from cmm.domains.trace_assembler import DomainTraceAssembler
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
@@ -72,6 +73,34 @@ def build_concerns_trace_contribution(
     )
 
 
+def build_supporting_trace_contribution(
+    *,
+    domain_result_id: str,
+    domain_id: str,
+    references: tuple[DomainTraceReference, ...] = (),
+) -> DomainTraceContribution:
+    """Build a SUPPORTING ``DomainTraceContribution`` for a participating
+    supporting domain (I-008 remediation).
+
+    The supporting domain owns its contribution references (shared
+    DOMAIN_RESULT ownership rule); the caller must provide real supporting
+    domain result ids produced by the prior execution.
+    """
+    all_references = [
+        DomainTraceReference(
+            ref_id=domain_result_id,
+            kind=DomainTraceReferenceKind.DOMAIN_RESULT,
+            domain_id=domain_id,
+        ),
+        *references,
+    ]
+    return DomainTraceContribution(
+        domain_id=domain_id,
+        role=DomainTraceRole.SUPPORTING,
+        references=tuple(all_references),
+    )
+
+
 def assemble_concerns_trace(
     *,
     request_id: str,
@@ -82,26 +111,48 @@ def assemble_concerns_trace(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
     references: tuple[DomainTraceReference, ...] = (),
+    supporting_domains: tuple[DomainId | str, ...] = (),
+    contributions: tuple[DomainTraceContribution, ...] = (),
+    cross_domain_results: tuple = (),
     goal_id: str | None = None,
 ) -> DomainTrace:
-    """Assemble a final reference-only ``DomainTrace`` for Concerns Domain."""
+    """Assemble a final reference-only ``DomainTrace`` for Concerns Domain.
+
+    ``supporting_domains`` names the real supporting domains that
+    participated; matching SUPPORTING contributions (including their
+    domain-result references and cross-domain result pairings) are carried
+    through the shared ``DomainTraceAssemblyRequest`` contract (I-008).
+    Cross-domain results are global ``CROSS_DOMAIN_RESULT`` references and
+    must never be stuffed into Contributions-owned references.
+    """
     now = started_at or datetime.now(timezone.utc)
     end = completed_at or now
-    contribution = build_concerns_trace_contribution(
-        domain_result_id=domain_result_id,
-        references=references,
-        domain_id=CONCERNS_DOMAIN_ID,
-    )
+    if contributions:
+        primary = build_concerns_trace_contribution(
+            domain_result_id=domain_result_id,
+            references=references,
+            domain_id=CONCERNS_DOMAIN_ID,
+        )
+        all_contributions = (primary, *contributions)
+    else:
+        all_contributions = (
+            build_concerns_trace_contribution(
+                domain_result_id=domain_result_id,
+                references=references,
+                domain_id=CONCERNS_DOMAIN_ID,
+            ),
+        )
     refs = DomainTraceReferences(
         resolution_context_id=resolution_context_id,
         resolution_result_id=resolution_result_id,
         composition_id=composition_id,
+        cross_domain_results=tuple(cross_domain_results),
     )
     request = DomainTraceAssemblyRequest(
         request_id=request_id,
         primary_domain=CONCERNS_DOMAIN_ID,
-        supporting_domains=(),
-        contributions=(contribution,),
+        supporting_domains=tuple(supporting_domains),
+        contributions=all_contributions,
         references=refs,
         started_at=now,
         completed_at=end,
@@ -110,6 +161,16 @@ def assemble_concerns_trace(
             DomainResultTraceReference(
                 result_id=domain_result_id,
                 domain_id=CONCERNS_DOMAIN_ID,
+            ),
+            *(
+                DomainResultTraceReference(
+                    result_id=ref.ref_id,
+                    domain_id=str(item.domain_id),
+                )
+                for item in (contributions or ())
+                if item.role is DomainTraceRole.SUPPORTING
+                for ref in item.references
+                if ref.kind is DomainTraceReferenceKind.DOMAIN_RESULT
             ),
         ),
         status=DomainTraceStatus.COMPLETED,
@@ -132,5 +193,6 @@ __all__ = [
     "assemble_concerns_trace",
     "build_concerns_trace_contribution",
     "build_concerns_trace_reference",
+    "build_supporting_trace_contribution",
     "validate_concerns_trace",
 ]

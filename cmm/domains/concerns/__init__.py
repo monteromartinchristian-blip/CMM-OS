@@ -126,6 +126,7 @@ from cmm.domains.concerns.trace import (
     assemble_concerns_trace,
     build_concerns_trace_contribution,
     build_concerns_trace_reference,
+    build_supporting_trace_contribution,
     validate_concerns_trace,
 )
 from cmm.domains.concerns.workflows import (
@@ -187,6 +188,7 @@ __all__ = [
     "build_concerns_trace_reference",
     "build_concerns_workflow_definitions",
     "build_standard_concerns_domain_bootstrap",
+    "build_supporting_trace_contribution",
     "calibrate_uncertainty_result",
     "classify_concern_statement",
     "detect_catastrophic_escalation",
