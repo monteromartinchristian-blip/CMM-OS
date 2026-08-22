@@ -104,6 +104,7 @@ def _project_records(value: Any, *, state: str, **extra: Any) -> tuple[dict, ...
                 item.get("statement")
                 or item.get("content")
                 or item.get("text")
+                or item.get("claim")
             )
             entry = {
                 key: item.get(key)
@@ -133,6 +134,7 @@ def present_concerns_result(result) -> dict:
             "section_order": _SECTION_ORDER,
             "unresolved": True,
             "facts": (),
+            "experiences": (),
             "interpretations": (),
             "hypotheses": (),
             "fears": (),
@@ -170,8 +172,30 @@ def present_concerns_result(result) -> dict:
                 elif lvl in ("fear", "worry"):
                     stmt_fears.append(item)
 
+    # Key facts from professional discussion
+    key_facts = result.get("key_facts") or ()
+    all_facts = list(result.get("facts") or tuple(stmt_facts))
+    if isinstance(key_facts, (list, tuple)):
+        for kf in key_facts:
+            if isinstance(kf, str) and kf.strip() and kf not in all_facts:
+                all_facts.append(kf)
+            elif isinstance(kf, Mapping) and kf not in all_facts:
+                all_facts.append(kf)
+    prepared_content = result.get("prepared_content")
+    if not all_facts and isinstance(prepared_content, str) and "## Key facts" in prepared_content:
+        lines = prepared_content.splitlines()
+        in_key_facts = False
+        for line in lines:
+            if line.startswith("## Key facts"):
+                in_key_facts = True
+                continue
+            elif line.startswith("## "):
+                in_key_facts = False
+            elif in_key_facts and line.startswith("- ") and line[2:].strip() and line[2:].strip() != "Not stated.":
+                all_facts.append(line[2:].strip())
+
     facts = _project_records(
-        result.get("facts") or tuple(stmt_facts),
+        tuple(all_facts),
         state=PRESENTATION_STATE_KNOWN_FACT,
     )
     experiences = _project_records(
@@ -202,53 +226,117 @@ def present_concerns_result(result) -> dict:
         state=PRESENTATION_STATE_SCENARIO,
         probability_claim=False,
     )
+
+    # Caveats: remove ONLY scenarios/caveats that match suppressed/remote caveats (FI-001)
     caveats_input = result.get("caveats")
     if caveats_input:
         from cmm.domains.concerns.rules import evaluate_caveat_policy
 
         caveat_eval = evaluate_caveat_policy(caveats=caveats_input)
-        retained_texts = {
-            c["caveat"] for c in caveat_eval["retained"] if "caveat" in c
+        retained_texts: set[str] = {
+            c["caveat"]
+            for c in caveat_eval.get("retained", ())
+            if isinstance(c, Mapping) and "caveat" in c and isinstance(c["caveat"], str)
         }
+        suppressed_texts: set[str] = set()
+        if isinstance(caveats_input, (list, tuple)):
+            for c in caveats_input:
+                if isinstance(c, Mapping):
+                    text = (
+                        c.get("caveat")
+                        or c.get("warning")
+                        or c.get("statement")
+                        or c.get("text")
+                    )
+                    if isinstance(text, str) and text.strip() and text.strip() not in retained_texts:
+                        suppressed_texts.add(text.strip())
+                elif isinstance(c, str) and c.strip() and c.strip() not in retained_texts:
+                    suppressed_texts.add(c.strip())
         scenarios = tuple(
             s
             for s in scenarios
-            if s.get("statement") in retained_texts or s.get("caveat") in retained_texts
+            if s.get("statement") not in suppressed_texts and s.get("caveat") not in suppressed_texts
         )
 
+    # Uncertainty and calibrations preservation (FI-001)
     uncertainty_raw = result.get("uncertainty")
+    calibrations_raw = result.get("calibrations")
     if isinstance(uncertainty_raw, (str, list, tuple)):
         uncertainty = _string_items(uncertainty_raw)
     elif isinstance(result.get("remaining_uncertainty"), (list, tuple)):
-        # Canonical reassurance helper shape: remaining_uncertainty (I-007).
         uncertainty = _string_items(result.get("remaining_uncertainty"))
+    elif isinstance(calibrations_raw, (list, tuple)) and calibrations_raw:
+        cal_items: list[str] = []
+        for c in calibrations_raw:
+            if isinstance(c, Mapping):
+                claim = c.get("claim") or c.get("statement") or c.get("identity")
+                status = c.get("status")
+                if claim and status:
+                    cal_items.append(f"{claim}: {status}")
+                elif claim:
+                    cal_items.append(str(claim))
+            elif isinstance(c, str) and c.strip():
+                cal_items.append(c.strip())
+        if result.get("conflict_present"):
+            cal_items.append("conflict_present: true")
+        uncertainty = tuple(cal_items)
     else:
         uncertainty = ()
 
-    # Verbatim semantic fields — never altered by presentation.
-    # The canonical flat helper shape carries assessment at top level with
-    # remaining_uncertainty (I-007); legacy nested shapes are also honoured.
+    # Calibrations structured projection
+    if isinstance(calibrations_raw, (list, tuple)):
+        calibrations = tuple(
+            dict(c) if isinstance(c, Mapping) else {"claim": str(c)}
+            for c in calibrations_raw
+        )
+    else:
+        calibrations = ()
+
+    # Open questions & why_it_matters preservation (FI-001)
+    questions_raw = (
+        result.get("open_questions")
+        or result.get("questions")
+        or result.get("specific_questions")
+        or ()
+    )
+    if isinstance(questions_raw, (list, tuple)):
+        open_questions = tuple(
+            {
+                "question": q.get("question") if isinstance(q, Mapping) else str(q),
+                "materiality": q.get("materiality", "material") if isinstance(q, Mapping) else "material",
+                "why_it_matters": tuple(q.get("why_it_matters", ())) if isinstance(q, Mapping) and isinstance(q.get("why_it_matters"), (list, tuple)) else (),
+            }
+            if isinstance(q, Mapping)
+            else {"question": str(q), "materiality": "material", "why_it_matters": ()}
+            for q in questions_raw
+            if (isinstance(q, Mapping) and q.get("question")) or (isinstance(q, str) and q.strip())
+        )
+    else:
+        open_questions = ()
+
+    # Verbatim semantic fields — do not manufacture defaults if not evaluated (FI-001)
     reassurance_assessment = None
     if isinstance(result.get("reassurance"), Mapping):
         reassurance_assessment = result["reassurance"].get("assessment")
-    if reassurance_assessment is None:
+    if reassurance_assessment is None and "assessment" in result:
         reassurance_assessment = result.get("assessment")
-    if reassurance_assessment is None:
+    if reassurance_assessment is None and "reassurance_assessment" in result:
         reassurance_assessment = result.get("reassurance_assessment")
+
     material_concerns_raw = result.get("material_concerns")
     if material_concerns_raw is None:
         material_concerns_raw = result.get("acknowledged_concerns")
     material_concerns = _string_items(material_concerns_raw)
-    # A canonical reassurance result is never an absolute certainty: absolute
-    # certainty is structurally forbidden (frozen §22).
+
     absolute_certainty_claimed = (
         _literal_true(result.get("absolute_certainty"))
         or _literal_true(result.get("certainty_amplified"))
     )
+
     risk_value = result.get("risk")
     if isinstance(risk_value, Mapping):
         risk = dict(risk_value)
-    elif result.get("risk_level") is not None:
+    elif "risk_level" in result and result.get("risk_level") is not None:
         risk = {
             "risk_level": result.get("risk_level"),
             "emotion_drove_risk": result.get("emotion_drove_risk", False),
@@ -258,7 +346,8 @@ def present_concerns_result(result) -> dict:
             "escalation_recommended": result.get("escalation_recommended", False),
         }
     else:
-        risk = {"risk_level": "none"}
+        # Not evaluated — do NOT manufacture a 'none' conclusion if risk was never evaluated
+        risk = {"risk_level": None}
 
     action_state = result.get("action_state") or "NO_ACTION_NEEDED"
     memory_value = result.get("memory_state")
@@ -278,7 +367,39 @@ def present_concerns_result(result) -> dict:
     )
     epistemic_distinctions = _string_items(result.get("epistemic_distinctions"))
     lived_impact = _string_items(result.get("lived_impact"))
-    actual_concern = _string_items(result.get("actual_concern"))
+
+    # Actual concern preservation from understand_concern, professional discussion, or similar operations (FI-001)
+    actual_concern_raw = result.get("actual_concern")
+    if actual_concern_raw is not None:
+        actual_concern = _string_items(actual_concern_raw)
+    else:
+        candidates: list[str] = []
+        for key in (
+            "core_issue",
+            "situation",
+            "trigger",
+            "what_matters",
+            "concern_summary",
+            "topic",
+            "concern",
+        ):
+            val = result.get(key)
+            if isinstance(val, str) and val.strip() and val.strip() not in candidates:
+                candidates.append(val.strip())
+            elif isinstance(val, (list, tuple)):
+                for item in val:
+                    if isinstance(item, str) and item.strip() and item.strip() not in candidates:
+                        candidates.append(item.strip())
+        prepared_content = result.get("prepared_content")
+        if not candidates and isinstance(prepared_content, str) and "—" in prepared_content:
+            first_line = prepared_content.splitlines()[0]
+            summary = first_line.split("—", 1)[-1].strip()
+            if summary:
+                candidates.append(summary)
+        actual_concern = tuple(candidates)
+
+    # Recurrence state preservation
+    recurrence = result.get("recurrence")
 
     if unresolved or absolute_certainty_claimed:
         presentation_state = PRESENTATION_STATE_UNCERTAIN
@@ -290,7 +411,7 @@ def present_concerns_result(result) -> dict:
         presentation_state = PRESENTATION_STATE_HYPOTHETICAL
     elif bool(fears):
         presentation_state = PRESENTATION_STATE_FEAR
-    elif bool(experiences):
+    elif bool(experiences) or bool(actual_concern):
         presentation_state = PRESENTATION_STATE_USER_EXPERIENCE
     elif bool(scenarios):
         presentation_state = PRESENTATION_STATE_SCENARIO
@@ -310,11 +431,15 @@ def present_concerns_result(result) -> dict:
         "fears": fears,
         "scenarios": scenarios,
         "uncertainty": uncertainty,
+        "calibrations": calibrations,
+        "open_questions": open_questions,
+        "questions": open_questions,
+        "recurrence": recurrence,
         "reassurance_material_concern": {
-            "reassurance_assessment": reassurance_assessment or "INSUFFICIENT_BASIS",
+            "reassurance_assessment": reassurance_assessment,
             "material_concerns": material_concerns,
         },
-        "reassurance_assessment": reassurance_assessment or "INSUFFICIENT_BASIS",
+        "reassurance_assessment": reassurance_assessment,
         "material_concerns": material_concerns,
         "proportional_action": {"action_state": action_state, "risk": risk},
         "desired_outcome": (
