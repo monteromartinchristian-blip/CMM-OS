@@ -107,48 +107,89 @@ _NUM_OR_NULL = {"type": ["number", "null"]}
 
 _INPUT_SCHEMAS: dict[str, dict] = {
     "concerns.understand_concern": _schema(
-        ("material",), {"material": {"type": "object"}}
+        ("material",),
+        {"material": {"type": ["object", "null"]}},
     ),
     "concerns.infer_support_need": _schema(
-        ("inputs",), {"inputs": {"type": "object"}}
+        (),
+        {
+            "explicit_request": _STR_OR_NULL,
+            "current_signal": _STR_OR_NULL,
+            "session_context": {"type": ["object", "null"]},
+            "historical_preference": _STR_OR_NULL,
+            "inputs": {"type": ["object", "null"]},
+        },
     ),
     "concerns.map_lived_experience": _schema(
-        ("material",), {"material": {"type": "object"}}
+        ("material",),
+        {"material": {"type": ["object", "null"]}},
     ),
     "concerns.separate_reality_interpretation": _schema(
         ("statements",),
         {
             "statements": _RECORDS,
             "transitions": _RECORDS,
+            "caveats": _RECORDS,
         },
     ),
-    "concerns.explore_hypotheses": _schema(("hypotheses",), {"hypotheses": _RECORDS}),
-    "concerns.calibrate_uncertainty": _schema(("records",), {"records": _RECORDS}),
+    "concerns.explore_hypotheses": _schema(
+        ("hypotheses",),
+        {
+            "hypotheses": _RECORDS,
+            "caveats": _RECORDS,
+        },
+    ),
+    "concerns.calibrate_uncertainty": _schema(
+        ("records",),
+        {"records": _RECORDS},
+    ),
     "concerns.evaluate_reassurance": _schema(
         ("evidence",),
         {
+            "target_claim": _STR_OR_NULL,
             "evidence": _RECORDS,
             "counterevidence": _RECORDS,
             "uncertainty": _RECORDS,
+            "material_concerns": _ID_ARRAY,
+            "base_plausibility": _STR_OR_NULL,
+            "specialized_domain_result": {"type": ["object", "null"]},
         },
     ),
     "concerns.evaluate_risk": _schema(
         ("severity",),
         {
-            "severity": {"type": ["string", "null"]},
+            "severity": _STR_OR_NULL,
             "evidence": _RECORDS,
+            "immediacy": _STR_OR_NULL,
+            "specialized_domain_result": {"type": ["object", "null"]},
         },
     ),
     "concerns.identify_open_questions": _schema(
-        ("questions",), {"questions": _RECORDS}
+        ("questions",),
+        {"questions": _RECORDS},
     ),
-    "concerns.explore_options": _schema(("options",), {"options": _RECORDS}),
+    "concerns.explore_options": _schema(
+        ("options",),
+        {"options": _RECORDS},
+    ),
     "concerns.prepare_next_step": _schema(
-        ("options",), {"options": _RECORDS, "user_request": {"type": ["string", "null"]}}
+        ("options",),
+        {
+            "desired_outcome": _STR_OR_NULL,
+            "options": {"type": "array", "items": {"type": ["string", "object"]}},
+            "user_request": _STR_OR_NULL,
+            "grounded_options": _BOOL,
+            "specialized_recommendation": _STR_OR_NULL,
+            "specialized_domain_result": {"type": ["object", "null"]},
+        },
     ),
     "concerns.review_recurring_concern": _schema(
         ("current",),
-        {"current": {"type": "object"}, "previous": _RECORDS, "turns": _RECORDS},
+        {
+            "current": {"type": ["object", "null"]},
+            "previous": _RECORDS,
+            "turns": _RECORDS,
+        },
     ),
     "concerns.prepare_professional_discussion": _schema(
         ("concern_summary",),
@@ -156,7 +197,10 @@ _INPUT_SCHEMAS: dict[str, dict] = {
             "concern_summary": {"type": "string"},
             "key_facts": _ID_ARRAY,
             "open_questions": _ID_ARRAY,
+            "uncertainties": _ID_ARRAY,
+            "current_impact": _STR_OR_NULL,
             "documents_to_bring": _ID_ARRAY,
+            "decisions_required": _ID_ARRAY,
         },
     ),
 }
@@ -573,15 +617,20 @@ def understand_concern_result(*, material=None) -> dict:
 
 def infer_support_need_result(**kwargs) -> dict:
     """Delegate to the canonical support-need inference with strict precedence."""
+    inputs = kwargs.get("inputs")
+    if isinstance(inputs, Mapping):
+        source = {**inputs, **kwargs}
+    else:
+        source = kwargs
     allowed = {
-        key: kwargs[key]
+        key: source[key]
         for key in (
             "explicit_request",
             "current_signal",
             "session_context",
             "historical_preference",
         )
-        if key in kwargs
+        if key in source
     }
     return normalize_json_value(infer_support_need(**allowed))
 
@@ -592,7 +641,7 @@ def map_lived_experience_result(*, material=None) -> dict:
 
 
 def separate_reality_interpretation_result(
-    *, statements=(), transitions=()
+    *, statements=(), transitions=(), caveats=()
 ) -> dict:
     """Classify statements into epistemic levels without promotion and detect catastrophic escalations."""
     records = []
@@ -676,7 +725,7 @@ def _is_interpretation_labeled_fact(record: dict) -> bool:
     return bool(record.get("promotion_blocked")) and record.get("level") == "fact"
 
 
-def explore_hypotheses_result(*, hypotheses=()) -> dict:
+def explore_hypotheses_result(*, hypotheses=(), caveats=()) -> dict:
     """Preserve multiple hypotheses; no arbitrary winner, no diagnosis.
 
     Reuses the shared domain-generic hypothesis evaluator
