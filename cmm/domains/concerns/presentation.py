@@ -182,17 +182,32 @@ def present_concerns_result(result) -> dict:
     uncertainty_raw = result.get("uncertainty")
     if isinstance(uncertainty_raw, (str, list, tuple)):
         uncertainty = _string_items(uncertainty_raw)
+    elif isinstance(result.get("remaining_uncertainty"), (list, tuple)):
+        # Canonical reassurance helper shape: remaining_uncertainty (I-007).
+        uncertainty = _string_items(result.get("remaining_uncertainty"))
     else:
         uncertainty = ()
 
     # Verbatim semantic fields — never altered by presentation.
-    reassurance_assessment = (
-        result.get("reassurance_assessment")
-        or result.get("reassurance", {}).get("assessment")
-        if isinstance(result.get("reassurance"), Mapping)
-        else result.get("reassurance_assessment")
+    # The canonical flat helper shape carries assessment at top level with
+    # remaining_uncertainty (I-007); legacy nested shapes are also honoured.
+    reassurance_assessment = None
+    if isinstance(result.get("reassurance"), Mapping):
+        reassurance_assessment = result["reassurance"].get("assessment")
+    if reassurance_assessment is None:
+        reassurance_assessment = result.get("assessment")
+    if reassurance_assessment is None:
+        reassurance_assessment = result.get("reassurance_assessment")
+    material_concerns_raw = result.get("material_concerns")
+    if material_concerns_raw is None:
+        material_concerns_raw = result.get("acknowledged_concerns")
+    material_concerns = _string_items(material_concerns_raw)
+    # A canonical reassurance result is never an absolute certainty: absolute
+    # certainty is structurally forbidden (frozen §22).
+    absolute_certainty_claimed = (
+        _literal_true(result.get("absolute_certainty"))
+        or _literal_true(result.get("certainty_amplified"))
     )
-    material_concerns = _string_items(result.get("material_concerns"))
     risk_value = result.get("risk")
     risk = dict(risk_value) if isinstance(risk_value, Mapping) else {"risk_level": "none"}
     action_state = result.get("action_state") or "NO_ACTION_NEEDED"
@@ -258,11 +273,13 @@ def present_concerns_result(result) -> dict:
         "memory_state": memory_state,
         "permissions": permissions,
         "support_need": support_need,
-        "unresolved": unresolved,
-        "certainty_amplified": False,
+        "unresolved": unresolved or absolute_certainty_claimed,
+        "certainty_amplified": absolute_certainty_claimed,
         "conclusion_presented": not unresolved,
         "presentation_state": (
-            PRESENTATION_STATE_UNCERTAIN if unresolved else PRESENTATION_STATE_KNOWN_FACT
+            PRESENTATION_STATE_UNCERTAIN
+            if unresolved or absolute_certainty_claimed
+            else PRESENTATION_STATE_KNOWN_FACT
         ),
     }
 
