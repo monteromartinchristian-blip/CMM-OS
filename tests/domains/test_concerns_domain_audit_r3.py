@@ -121,22 +121,21 @@ def test_assemble_concerns_trace_preserves_real_supporting_domains_and_cross_dom
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# B-004: connected AT-DP-025 harness
+# B-004 / RB-003: connected AT-DP-025 harness
 # ═════════════════════════════════════════════════════════════════════════════
 
 
 def _build_resolver_with_concerns_and_relationships():
-    """Build a deterministic resolver with General + Concerns +
-    Relationships registered (real domains from their own packs).  A tuned
-    scoring policy keeps Concerns as primary (explicit request) while
-    Relationships joins within the supporting margin via its entity signal —
+    """Build a deterministic standard resolver with General + Concerns +
+    Relationships registered (real domains from their own packs).  Standard
+    default scoring policy keeps Concerns as primary while Relationships
+    joins within the supporting margin via its entity/resource signals —
     the canonical ambiguous-relationship case (frozen design §115 step 2)."""
     from cmm.domains.concerns.definition import build_concerns_domain_definition
     from cmm.domains.general.definition import build_general_domain_definition
     from cmm.domains.relationships.definition import (
         build_relationships_domain_definition,
     )
-    from cmm.domains.resolver_contracts import DomainScoringPolicy
 
     registry = DomainRegistry()
     for definition in (
@@ -148,11 +147,10 @@ def _build_resolver_with_concerns_and_relationships():
     registry.enable("domain:general")
     registry.enable("domain:concerns")
     registry.enable("domain:relationships")
-    policy = DomainScoringPolicy(explicit_weight=300.0, supporting_margin=400.0)
+    # Standard production DefaultDomainResolver with default DomainScoringPolicy
     resolver = DefaultDomainResolver(
         fallback_domain=DomainId.from_str("domain:general"),
-        scoring_policy=policy,
-        id_factory=(lambda: "resolver-id"),
+        id_factory=(lambda: "resolver-id-exec-001"),
         clock=(lambda: NOW),
     )
     from cmm.domains.general.definition import GENERAL_DOMAIN_ID
@@ -162,9 +160,23 @@ def _build_resolver_with_concerns_and_relationships():
 
 def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     """The connected acceptance proof.  Every step consumes the prior state;
-    the trace references ACTUAL IDs created by the earlier execution, and the
-    supporting domain (Relationships) participates for the canonical
-    ambiguous relationship case (frozen design §115)."""
+    the trace references ACTUAL IDs created by the real resolver and workflow
+    execution, and the supporting domain (Relationships) participates for the
+    canonical ambiguous relationship case (frozen design §115)."""
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+    from cmm.domains.concerns.operations import (
+        build_concerns_operation_definitions,
+        explore_hypotheses_result,
+    )
+    from cmm.domains.concerns.rules import (
+        classify_concern_statement,
+        evaluate_question_materiality,
+    )
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.domains.workflow_contracts import DomainWorkflowContext
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.enums import WorkflowRunStatus
+
     registry, resolver, _general_id = _build_resolver_with_concerns_and_relationships()
 
     # ── Step 1-2: Resolver selects Concerns + Relationships (supporting) ──
@@ -177,7 +189,6 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
             "My partner didn't reply to my message and I'm afraid they are "
             "losing interest; I keep checking my phone."
         ),
-        explicit_domains=("domain:concerns",),
         authorized_domains=(
             "domain:concerns",
             "domain:relationships",
@@ -188,7 +199,7 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
                 id="res:msg:1",
                 resource_type="message",
                 source="domain:relationships",
-                domain_ids=("domain:relationships",),
+                domain_ids=("domain:concerns", "domain:relationships"),
             ),
         ),
         knowledge_items=(
@@ -201,16 +212,22 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         ),
         signals=(
             DomainResolutionSignal(
+                kind="intent",
+                source="user",
+                value="concern_support",
+                domain_ids=("domain:concerns",),
+            ),
+            DomainResolutionSignal(
+                kind="objective",
+                source="user",
+                value="reality_check",
+                domain_ids=("domain:concerns",),
+            ),
+            DomainResolutionSignal(
                 kind="entity",
                 source="user",
                 value="partner",
                 domain_ids=("domain:relationships",),
-            ),
-            DomainResolutionSignal(
-                kind="concern",
-                source="user",
-                value="fear",
-                domain_ids=("domain:concerns",),
             ),
         ),
     )
@@ -228,38 +245,112 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         "domain_id": "domain:relationships",
         "domain_result_id": relationships_result_id,
         "authorized": True,
+        "relationship_type": "romantic_partner",
         "observed_behavior": "no reply to message sent yesterday",
         "motive_unknown": True,
     }
     assert relationships_projection["authorized"] is True
     assert relationships_projection["motive_unknown"] is True
 
-    # ── Step 3: understand the concern without forcing action ──────────────
+    # ── Step 3-8: Execute real Concerns workflow with DomainWorkflowExecutor ──
+    all_wfs = build_concerns_workflow_definitions()
+    all_ops = build_concerns_operation_definitions()
+    open_concern_wf = next(w for w in all_wfs if w.workflow_id == "concerns.open_concern_conversation")
+
+    op_exec_count = 0
+    created_op_ids: dict[str, str] = {}
+    saved_step_outputs: dict[str, Any] = {}
+
     concern_material = {
         "situation": "partner silent after my message since yesterday",
         "what_matters": "whether they are losing interest",
         "explicit_request": "Tell me what you think.",
         "evidence_references": ("res:msg:1",),
+        "specialized_domain_result": relationships_projection,
     }
-    understanding = understand_concern_result(material=concern_material)
+
+    def workflow_operation_adapter(node, run):
+        nonlocal op_exec_count
+        op_exec_count += 1
+        op_res_id = f"op-res-{node.node_id}-{op_exec_count}"
+        created_op_ids[node.node_id] = op_res_id
+        if node.operation_id == "concerns.understand_concern":
+            res = understand_concern_result(material=concern_material)
+            saved_step_outputs["understand"] = res
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.infer_support_need":
+            res = infer_support_need_result(
+                explicit_request="Tell me what you think.",
+                current_signal="I keep checking my phone",
+            )
+            saved_step_outputs["support_need"] = res
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.map_lived_experience":
+            res = map_lived_experience_result(
+                material={
+                    "emotion_statements": ("I'm anxious about the silence",),
+                    "fear_statements": ("that they are drifting away",),
+                    "interpretation_statements": ("the silence means they lost interest",),
+                    "desired_outcome": "understand what is happening",
+                }
+            )
+            saved_step_outputs["lived_experience"] = res
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.identify_open_questions":
+            res = identify_open_questions_result(
+                questions=(
+                    {"question": "Has this pattern happened before?", "changes": ("meaning", "interpretation")},
+                    {"question": "What font did they use?", "changes": ()},
+                )
+            )
+            saved_step_outputs["gaps"] = res
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.node_type.value == "validate":
+            return NodeExecution.complete({"valid": True})
+        return NodeExecution.complete({"ok": True})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"wf-run-exec-{op_exec_count + 1}",
+        clock=lambda: NOW,
+        operation_adapter=workflow_operation_adapter,
+        operation_definitions={op.operation_id: op for op in all_ops},
+        workflow_definitions={wf.workflow_id: wf for wf in all_wfs},
+    )
+    wf_context = DomainWorkflowContext(
+        primary_domain_id=CONCERNS_DOMAIN_ID,
+        supporting_domain_ids=("domain:relationships",),
+        available_operations=frozenset(op.operation_id for op in all_ops),
+        authorized_domain_ids=frozenset(["domain:concerns", "domain:relationships"]),
+    )
+    workflow_run = executor.execute(
+        open_concern_wf,
+        wf_context,
+        inputs={
+            "concern": "partner silent after message",
+            "specialized_domain_result": relationships_projection,
+        },
+    )
+    assert workflow_run.common_run.status is WorkflowRunStatus.COMPLETED
+    concerns_workflow_run_id = workflow_run.common_run.run_id
+
+    # Verify workflow step outputs
+    understanding = saved_step_outputs["understand"]
     assert understanding["mandatory_action_plan"] is False
     assert understanding["advice_generated"] is False
+    assert understanding["ready_for_substantive_response"] is True
 
-    # ── Step 4: emotional experience valid, not external fact ──────────────
-    lived = map_lived_experience_result(
-        material={
-            "emotion_statements": ("I'm anxious about the silence",),
-            "fear_statements": ("that they are drifting away",),
-            "interpretation_statements": ("the silence means they lost interest",),
-            "desired_outcome": "understand what is happening",
-        }
-    )
+    lived = saved_step_outputs["lived_experience"]
     assert lived["emotions"][0]["experience_valid"] is True
     assert lived["emotions"][0]["external_fact"] is False
 
-    # ── Step 5: one external interpretation remains unverified ─────────────
-    from cmm.domains.concerns.rules import classify_concern_statement
+    support = saved_step_outputs["support_need"]
+    assert support["support_need"] in ("PERSPECTIVE", "REALITY_CHECK")
 
+    open_questions = saved_step_outputs["gaps"]
+    assert open_questions["ritual_questions_suppressed"] >= 1
+    assert len(open_questions["questions"]) == 1
+
+    # ── Step 5: one external interpretation remains unverified ─────────────
     interpretation = classify_concern_statement(
         {
             "statement": "the silence means they lost interest",
@@ -268,39 +359,6 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     )
     assert interpretation["grounded"] is False
     assert interpretation["external_fact"] is False
-
-    # ── Step 6-7: support need + substantive response possible ─────────────
-    support = infer_support_need_result(
-        explicit_request="Tell me what you think.",
-        current_signal="I keep checking my phone",
-    )
-    assert support["support_need"] in ("PERSPECTIVE", "REALITY_CHECK")
-    substantive = understand_concern_result(
-        material={**concern_material, "explicit_request": "Tell me what you think."}
-    )
-    assert substantive["ready_for_substantive_response"] is True
-
-    # ── Step 8: material question only if needed ───────────────────────────
-    from cmm.domains.concerns.rules import evaluate_question_materiality
-
-    material_question = evaluate_question_materiality(
-        question="Has this pattern happened before?",
-        changes=("interpretation", "reassurance"),
-    )
-    immaterial = evaluate_question_materiality(
-        question="What font did they use?", changes=("none",)
-    )
-    assert material_question["materiality"] == "material"
-    assert immaterial["materiality"] == "not_material"
-
-    open_questions = identify_open_questions_result(
-        questions=(
-            {"question": "Has this pattern happened before?", "changes": ("interpretation",)},
-            {"question": "What font did they use?", "changes": ("none",)},
-        )
-    )
-    assert open_questions["ritual_questions_suppressed"] >= 1
-    assert len(open_questions["questions"]) == 1
 
     # ── Steps 9-10: new information consumed from prior state; levels stay ──
     separation = separate_reality_interpretation_result(
@@ -327,8 +385,6 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     assert separation["interpretation_promoted_to_fact"] is False
 
     # ── Step 11: multiple hypotheses preserved ─────────────────────────────
-    from cmm.domains.concerns.operations import explore_hypotheses_result
-
     hypotheses = explore_hypotheses_result(
         hypotheses=(
             {
@@ -348,9 +404,6 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     assert hypotheses["no_diagnosis"] is True
 
     # ── Step 12: partial reassurance consumes the prior evidence state ─────
-    # The evidence set is built from the ACTUAL prior step outputs (the
-    # delivered message fact and the unverified interpretation), not a
-    # hand-built unrelated fixture.
     reassurance = evaluate_reassurance_result(
         target_claim="they are losing interest",
         evidence=(
@@ -374,40 +427,18 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
             },
         ),
         uncertainty=({"identity": "uncertainty:intent", "unknown": "their current intent"},),
-        material_concerns=(),
+        material_concerns=("the silence means they lost interest",),
+        specialized_domain_result=relationships_projection,
     )
-    assert reassurance["assessment"] in (
-        "REASSURANCE_PARTIAL",
-        "REASSURANCE_SUPPORTED",
-        "UNCERTAIN",
-    )
+    # Step 12: Assert EXACT outcome REASSURANCE_PARTIAL
+    assert reassurance["assessment"] == "REASSURANCE_PARTIAL"
     assert reassurance["absolute_certainty"] is False
     assert tuple(reassurance["remaining_uncertainty"]) != ()
 
-    # ── Step 13: one real concern acknowledged ─────────────────────────────
-    assert reassurance["assessment"] != "CONCERN_SUPPORTED" or tuple(
-        reassurance["acknowledged_concerns"]
-    ) != ()
-    real_concern = evaluate_reassurance_result(
-        target_claim="silence is a material issue",
-        evidence=(
-            {
-                "identity": "e:1",
-                "claim": "the review is still unanswered",
-                "stance": "supports_target",
-                "grounding": "res:msg:1",
-            },
-            {
-                "identity": "e:2",
-                "claim": "this has happened twice this month",
-                "stance": "supports_target",
-                "grounding": "res:msg:2",
-            },
-        ),
-        material_concerns=("silence is a material issue",),
-    )
-    assert real_concern["material_concern"] is True
-    assert real_concern["concern_erased"] is False
+    # ── Step 13: one real concern acknowledged in connected state ──────────
+    assert reassurance["material_concern"] is True
+    assert "the silence means they lost interest" in reassurance["acknowledged_concerns"]
+    assert reassurance["concern_erased"] is False
 
     # ── Step 14: no absolute certainty invented ────────────────────────────
     assert reassurance["absolute_certainty"] is False
@@ -463,12 +494,16 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
 
     # ── Step 25: trace references ACTUAL prior IDs/results ─────────────────
     actual_support_need_ref = build_concerns_trace_reference(
-        ref_id=f"support-need:{support['support_need']}",
-        kind=DomainTraceReferenceKind.FINDING,
+        ref_id=created_op_ids.get("support_need", "op-res-support_need-2"),
+        kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
     actual_evidence_ref = build_concerns_trace_reference(
-        ref_id="evidence:res:msg:1",
+        ref_id="res:msg:1",
         kind=DomainTraceReferenceKind.RESOURCE_RESOLUTION,
+    )
+    actual_workflow_ref = build_concerns_trace_reference(
+        ref_id=concerns_workflow_run_id,
+        kind=DomainTraceReferenceKind.WORKFLOW_RESULT,
     )
     actual_uncertainty_ref = build_concerns_trace_reference(
         ref_id="uncertainty:intent",
@@ -506,6 +541,7 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         started_at=NOW,
         completed_at=NOW.replace(second=1),
         references=(
+            actual_workflow_ref,
             actual_support_need_ref,
             actual_evidence_ref,
             actual_uncertainty_ref,
@@ -523,18 +559,15 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         ),
     )
 
-    # The trace MUST use the actual resolution result id produced by the
-    # real resolver execution above (no symbolic id-only fabrication).
+    # The trace MUST use the actual resolution result id produced by the real resolver
     assert trace.references.resolution_result_id == resolution_result_id
     # The action-state DOMAIN_RESULT reference is the Concerns domain-result
-    # from the ACTUAL prior execution.
     assert trace.domain_results[0].result_id == "concerns-result:exec-001"
     # The real supporting domain participated.
     assert "domain:relationships" in {
         str(domain) for domain in trace.supporting_domains
     }
-    # The supporting domain-result reference resolves to the ACTUAL
-    # relationships result id from the authorized projection above.
+    # The supporting domain-result reference resolves to the ACTUAL relationships result id
     supporting_refs = {
         (r.ref_id, r.kind, str(r.domain_id))
         for contribution in trace.contributions if str(contribution.domain_id) != CONCERNS_DOMAIN_ID

@@ -561,3 +561,201 @@ def test_f4_objective_risk_grounding_matrix():
     )
     assert spec_res["risk_level"] == "high"
     assert spec_res["specialized_ownership_preserved"] is True
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F5 — Make AT-DP-025 genuinely end-to-end (RB-003)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_f5_connected_dp025_standard_resolver_and_workflow():
+    """AT-DP-025 uses standard resolver scoring, real workflow execution, exact REASSURANCE_PARTIAL, and preserved concern."""
+    from datetime import datetime, timezone
+    from cmm.domains.concerns.definition import build_concerns_domain_definition, CONCERNS_DOMAIN_ID
+    from cmm.domains.general.definition import build_general_domain_definition
+    from cmm.domains.relationships.definition import build_relationships_domain_definition
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+    from cmm.domains.concerns.operations import (
+        build_concerns_operation_definitions,
+        understand_concern_result,
+        infer_support_need_result,
+        map_lived_experience_result,
+        identify_open_questions_result,
+        evaluate_reassurance_result,
+    )
+    from cmm.domains.identifiers import DomainId
+    from cmm.domains.registry import DomainRegistry
+    from cmm.domains.resolution_builder import DomainResolutionContextBuilder
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionKnowledgeItem,
+        DomainResolutionResource,
+        DomainResolutionSignal,
+    )
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.domains.workflow_contracts import DomainWorkflowContext
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    now = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
+
+    # 1. Standard resolver with default scoring policy
+    registry = DomainRegistry()
+    registry.register(build_general_domain_definition())
+    registry.register(build_concerns_domain_definition())
+    registry.register(build_relationships_domain_definition())
+    registry.enable("domain:general")
+    registry.enable("domain:concerns")
+    registry.enable("domain:relationships")
+
+    resolver = DefaultDomainResolver(
+        fallback_domain=DomainId.from_str("domain:general"),
+        id_factory=lambda: "res-001",
+        clock=lambda: now,
+    )
+    assert resolver.scoring_policy.supporting_margin == 15.0
+
+    builder = DomainResolutionContextBuilder(
+        id_factory=lambda: "ctx-1", clock=lambda: now
+    )
+    context = builder.build(
+        registry_snapshot=registry.snapshot(),
+        user_input="My partner didn't reply to my message and I'm afraid they are losing interest",
+        authorized_domains=("domain:concerns", "domain:relationships", "domain:general"),
+        resources=(
+            DomainResolutionResource(
+                id="res:msg:1",
+                resource_type="message",
+                source="domain:relationships",
+                domain_ids=("domain:concerns", "domain:relationships"),
+            ),
+        ),
+        knowledge_items=(
+            DomainResolutionKnowledgeItem(
+                id="kn:msg:1",
+                knowledge_type="observed_behavior",
+                source="domain:relationships",
+                domain_ids=("domain:relationships",),
+            ),
+        ),
+        signals=(
+            DomainResolutionSignal(
+                kind="intent",
+                source="user",
+                value="concern_support",
+                domain_ids=("domain:concerns",),
+            ),
+            DomainResolutionSignal(
+                kind="objective",
+                source="user",
+                value="reality_check",
+                domain_ids=("domain:concerns",),
+            ),
+            DomainResolutionSignal(
+                kind="entity",
+                source="user",
+                value="partner",
+                domain_ids=("domain:relationships",),
+            ),
+        ),
+    )
+    resolution = resolver.resolve(context)
+    assert resolution.status.value == "resolved"
+    assert str(resolution.primary_domain) == CONCERNS_DOMAIN_ID
+    assert "domain:relationships" in {str(d) for d in resolution.supporting_domains}
+
+    # 2. Real supporting projection consumed by Concerns workflow
+    relationships_projection = {
+        "domain_id": "domain:relationships",
+        "domain_result_id": "rel-res-001",
+        "authorized": True,
+        "relationship_type": "romantic_partner",
+        "observed_behavior": "no reply to message sent yesterday",
+        "motive_unknown": True,
+    }
+
+    # 3. Real workflow execution
+    all_wfs = build_concerns_workflow_definitions()
+    all_ops = build_concerns_operation_definitions()
+    open_concern_wf = next(w for w in all_wfs if w.workflow_id == "concerns.open_concern_conversation")
+
+    def adapter(node, run):
+        if node.operation_id == "concerns.understand_concern":
+            res = understand_concern_result(
+                material={
+                    "situation": "partner silent after message",
+                    "what_matters": "whether they are losing interest",
+                    "explicit_request": "What do you think?",
+                    "specialized_domain_result": relationships_projection,
+                }
+            )
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.infer_support_need":
+            res = infer_support_need_result(explicit_request="What do you think?")
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.map_lived_experience":
+            res = map_lived_experience_result(
+                material={
+                    "emotion_statements": ("anxious",),
+                    "interpretation_statements": ("they lost interest",),
+                }
+            )
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.operation_id == "concerns.identify_open_questions":
+            res = identify_open_questions_result(questions=())
+            return NodeExecution.complete(res, operation_result=res)
+        elif node.node_type.value == "validate":
+            return NodeExecution.complete({"valid": True})
+        return NodeExecution.complete({"ok": True})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: "wf-run-1",
+        clock=lambda: now,
+        operation_adapter=adapter,
+        operation_definitions={op.operation_id: op for op in all_ops},
+        workflow_definitions={wf.workflow_id: wf for wf in all_wfs},
+    )
+    wf_context = DomainWorkflowContext(
+        primary_domain_id=CONCERNS_DOMAIN_ID,
+        supporting_domain_ids=("domain:relationships",),
+        available_operations=frozenset(op.operation_id for op in all_ops),
+        authorized_domain_ids=frozenset(["domain:concerns", "domain:relationships"]),
+    )
+    wf_run = executor.execute(
+        open_concern_wf,
+        wf_context,
+        inputs={"concern": "silence", "specialized_domain_result": relationships_projection},
+    )
+    assert wf_run.common_run.status is WorkflowRunStatus.COMPLETED
+
+    # 4. Exact reassurance and preserved concern
+    reassurance = evaluate_reassurance_result(
+        target_claim="they are losing interest",
+        evidence=(
+            {
+                "identity": "e1",
+                "claim": "message was delivered",
+                "stance": "opposes_target",
+                "grounding": "res:msg:1",
+                "source_quality": "grounded",
+                "temporal_relevance": "current",
+            },
+        ),
+        counterevidence=(
+            {
+                "identity": "e2",
+                "claim": "silence means they lost interest",
+                "stance": "supports_target",
+                "grounding": "res:msg:1",
+                "source_quality": "unverified_hearsay",
+                "temporal_relevance": "current",
+            },
+        ),
+        uncertainty=({"identity": "u1", "unknown": "intent"},),
+        material_concerns=("silence means they lost interest",),
+        specialized_domain_result=relationships_projection,
+    )
+    assert reassurance["assessment"] == "REASSURANCE_PARTIAL"
+    assert reassurance["material_concern"] is True
+    assert "silence means they lost interest" in reassurance["acknowledged_concerns"]
+    assert reassurance["concern_erased"] is False
