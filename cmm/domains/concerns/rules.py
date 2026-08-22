@@ -277,6 +277,42 @@ CANONICAL_REASSURANCE_STATES: tuple[str, ...] = (
     INSUFFICIENT_BASIS,
 )
 
+# ── Target-relative evidence stance (frozen design §13.12, §22) ─────────────
+#
+# Evidence direction is relative to the TARGET CLAIM being assessed (the
+# feared interpretation / actual concern), never to the lexical key a record
+# happens to use.  Each record must declare its stance explicitly; unknown or
+# malformed stances fail closed and cannot strengthen either direction.
+
+STANCE_SUPPORTS_TARGET = "supports_target"
+STANCE_OPPOSES_TARGET = "opposes_target"
+STANCE_NEUTRAL = "neutral"
+
+_KNOWN_STANCES: frozenset[str] = frozenset(
+    {STANCE_SUPPORTS_TARGET, STANCE_OPPOSES_TARGET, STANCE_NEUTRAL}
+)
+
+# Explicitly weak source qualities: such records can never upgrade an
+# assessment to full support (frozen design §22 "source quality").
+_WEAK_SOURCE_QUALITIES: frozenset[str] = frozenset(
+    {
+        "unverified_hearsay",
+        "speculation",
+        "rumor",
+        "guess",
+        "unverified",
+        "secondhand_anecdote",
+        "weak",
+    }
+)
+
+# Explicitly stale temporal relevance: evidence about a past state cannot
+# upgrade reassurance about the current situation (frozen design §22
+# "temporal relevance").
+_STALE_TEMPORAL_RELEVANCE: frozenset[str] = frozenset(
+    {"stale", "outdated", "expired", "old", "historical_only"}
+)
+
 # ── Action states (frozen design §27) ───────────────────────────────────────
 
 ACTION_NO_ACTION_NEEDED = "NO_ACTION_NEEDED"
@@ -586,63 +622,90 @@ def evaluate_uncertainty(*, records=()) -> dict:
     )
 
 
-def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int]:
-    """Normalize evidence/counterevidence entries into usable records.
+def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int, int]:
+    """Normalize evidence/counterevidence entries into target-relative records.
 
-    Returns ``(usable, malformed_count)``.  Duplicates (same identity AND same
-    grounding) collapse deterministically so they can never inflate support.
+    Returns ``(usable, duplicate_count, malformed_count)``.
+
+    Each usable record carries the frozen evidence dimensions explicitly:
+
+        claim            — the substantive proposition the record asserts
+        stance           — supports_target / opposes_target / neutral
+        grounding        — provenance/source reference (required to count)
+        source_quality   — grounded / weak quality marker (optional)
+        temporal_relevance — current / stale marker (optional)
+
+    Deduplication uses grounded provenance + substantive claim + stance —
+    never the caller-controlled record ID alone — so one provenance repeated
+    under different IDs cannot gain weight.  Records without an explicit
+    known stance fail closed: they assert no target-relative direction and
+    can never strengthen either reassurance or concern.
     """
     raw, malformed_structure = _normalize_collection(
         value, require_mapping_elements=True
     )
     malformed_count = 1 if malformed_structure else 0
-    merged: dict[tuple[str | None, str | None], dict] = {}
+    merged: dict[tuple[str, str, str], dict] = {}
     duplicates = 0
     for entry in raw:
         if not isinstance(entry, Mapping):
             malformed_count += 1
             continue
         identity = _usable_scalar_string(entry.get("identity"))
-        supports = _usable_scalar_string(entry.get("supports"))
-        against = _usable_scalar_string(entry.get("against"))
         grounding = _usable_reference(entry.get("grounding"))
-        if supports is None and against is None:
-            # An entry that asserts nothing cannot count as evidence.
+
+        # Target-relative stance is explicit; legacy verb keys never decide
+        # direction.  Unknown/missing stance fails closed.
+        raw_stance = _usable_scalar_string(entry.get("stance"))
+        stance = raw_stance if raw_stance in _KNOWN_STANCES else None
+
+        # Substantive claim: explicit ``claim`` first; a bare string entry's
+        # text may serve as its claim.
+        claim = _usable_scalar_string(entry.get("claim"))
+        if claim is None and isinstance(entry, str):
+            claim = _usable_scalar_string(entry)
+
+        if grounding is None or stance is None or claim is None:
+            # A record that lacks provenance, an explicit stance, or a
+            # substantive claim cannot count as target-relative evidence.
             malformed_count += 1
             continue
-        key = (identity, grounding)
+
+        source_quality = _usable_scalar_string(entry.get("source_quality"))
+        temporal = _usable_scalar_string(entry.get("temporal_relevance"))
+
+        # Deduplicate on provenance + claim + stance (NOT record ID).
+        key = (grounding, claim, stance)
         if key in merged:
-            previous = merged[key]
-            if (
-                previous["supports"] == supports
-                and previous["against"] == against
-            ):
-                duplicates += 1
-                continue
-            # Same key but different claim: keep both as distinct records.
-            merged[(identity, f"{grounding}::{len(merged)}")] = {
-                "identity": identity,
-                "supports": supports,
-                "against": against,
-                "grounding": grounding,
-            }
+            duplicates += 1
             continue
         merged[key] = {
             "identity": identity,
-            "supports": supports,
-            "against": against,
+            "claim": claim,
+            "stance": stance,
             "grounding": grounding,
+            "source_quality": source_quality,
+            "temporal_relevance": temporal,
         }
-    ordered = sorted(merged.values(), key=lambda item: str(item["identity"]))
+    ordered = sorted(
+        merged.values(),
+        key=lambda item: (
+            str(item["grounding"]),
+            str(item["claim"]),
+            str(item["stance"]),
+        ),
+    )
     return tuple(ordered), duplicates, malformed_count
 
 
 def evaluate_reassurance(
     *,
+    target_claim=None,
     evidence=(),
     counterevidence=(),
     uncertainty=(),
     material_concerns=(),
+    base_plausibility=None,
     specialized_domain_result=None,
 ) -> dict:
     """Evaluate whether the available basis supports reassurance.
@@ -652,9 +715,22 @@ def evaluate_reassurance(
         REASSURANCE_SUPPORTED / REASSURANCE_PARTIAL / UNCERTAIN /
         CONCERN_SUPPORTED / INSUFFICIENT_BASIS
 
+    Direction is TARGET-RELATIVE: every record declares an explicit stance
+    (``supports_target`` / ``opposes_target`` / ``neutral``) toward the
+    ``target_claim`` being assessed.  The lexical key a record arrives under
+    (``supports``/``against``) never decides direction.  Unknown/malformed
+    stances fail closed and cannot strengthen either direction.
+
+    Frozen dimensions represented structurally:
+
+        target claim, stance relative to target, grounding/provenance,
+        source quality, temporal relevance, material negative signal,
+        remaining uncertainty, base plausibility.
+
     Reassurance may coexist with uncertainty.  Absolute certainty is never
-    manufactured.  Duplicates do not inflate; malformed evidence never
-    increases reassurance or concern certainty.  No numerical probability is
+    manufactured.  Duplicates (same provenance + claim + stance under any
+    caller-controlled IDs) do not inflate.  Weak-quality or stale records can
+    never upgrade an assessment to full support.  No numerical probability is
     assigned unless supplied by an authorized specialized source — and even
     then it is preserved with provenance rather than produced by Concerns.
     """
@@ -678,21 +754,32 @@ def evaluate_reassurance(
         item["identity"] for item in uncertainty_record["uncertainties"]
     )
 
-    # Direction is decided by the CLAIM each record names, not by its bucket:
-    # a record naming the feared meaning in ``supports`` backs the concern; a
-    # record naming it in ``against`` backs reassurance.  Records naming other
-    # claims keep their bucket direction.  Grounded records only.
+    # Merge both buckets into one target-relative pool: bucket placement is
+    # not direction; each record's explicit stance is.
+    pool = (*supporting, *countering)
+
+    def _is_current_and_grounded(record: dict) -> bool:
+        return (
+            record["source_quality"] not in _WEAK_SOURCE_QUALITIES
+            and record["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
+        )
+
     pro_concern = [
         item
-        for item in (*supporting, *countering)
-        if item["grounding"] and item["supports"] is not None
+        for item in pool
+        if item["stance"] == STANCE_SUPPORTS_TARGET
+        and _is_current_and_grounded(item)
     ]
-    pro_reassurance = [
+    pro_reassurance_all = [
         item
-        for item in (*supporting, *countering)
-        if item["grounding"]
-        and item["against"] is not None
-        and item["supports"] is None
+        for item in pool
+        if item["stance"] == STANCE_OPPOSES_TARGET
+        and _is_current_and_grounded(item)
+    ]
+    # Weak/stale opposing records stay visible but cannot upgrade reassurance
+    # to full support.
+    pro_reassurance_strong = [
+        item for item in pro_reassurance_all if _is_current_and_grounded(item)
     ]
 
     malformed_total = evidence_malformed + counter_malformed + concerns_malformed
@@ -707,33 +794,45 @@ def evaluate_reassurance(
             numeric = _finite_number(probability)
             specialized_probability = numeric if 0.0 <= numeric <= 1.0 else None
 
-    both_sides = bool(pro_reassurance) and bool(pro_concern)
+    both_sides = bool(pro_reassurance_all) and bool(pro_concern)
 
-    # A real concern backed by >=2 distinct grounded records is acknowledged;
-    # reassurance must not erase it.  Balanced grounded signals cap reassurance
-    # at partial.  Clear dominance against the feared reading supports it.
-    if material_concern and len(pro_concern) >= 2 and not pro_reassurance or material_concern and len(pro_concern) >= 2 and not both_sides:
+    # Decision ladder (frozen design §22, §25):
+    # - a material concern backed by >=2 distinct grounded target-supporting
+    #   records is acknowledged (reassurance would minimize real evidence);
+    # - a clear majority of grounded target-supporting records is a real
+    #   concern basis;
+    # - genuine target-supporting evidence caps reassurance below SUPPORTED
+    #   (never minimized; §25);
+    # - full reassurance requires >=2 strong, current, well-sourced records
+    #   opposing the target with no genuine supporting record;
+    # - weak/stale opposing records stay visible but cap at partial.
+    if (material_concern or len(pro_concern) >= len(pro_reassurance_strong)) and len(pro_concern) >= 2:
         assessment = CONCERN_SUPPORTED
-    elif len(pro_reassurance) >= 2 and len(pro_reassurance) > len(pro_concern):
-        assessment = REASSURANCE_SUPPORTED
     elif both_sides and material_concern:
         assessment = REASSURANCE_PARTIAL
     elif both_sides:
         assessment = UNCERTAIN
-    elif material_concern and (pro_reassurance or pro_concern):
+    elif material_concern and (pro_reassurance_all or pro_concern):
         assessment = REASSURANCE_PARTIAL
     elif pro_concern:
-        assessment = CONCERN_SUPPORTED if len(pro_concern) >= 2 else UNCERTAIN
-    elif pro_reassurance:
-        assessment = REASSURANCE_PARTIAL if len(pro_reassurance) == 1 else REASSURANCE_SUPPORTED
+        # A single grounded target-supporting record is a real counter-signal
+        # but not a confirmed concern basis.
+        assessment = UNCERTAIN
+    elif len(pro_reassurance_strong) >= 2:
+        assessment = REASSURANCE_SUPPORTED
+    elif pro_reassurance_all:
+        assessment = REASSURANCE_PARTIAL
     else:
         assessment = INSUFFICIENT_BASIS
 
     absolute_certainty = False
+    base_plausibility_value = _usable_scalar_string(base_plausibility)
     return normalize_json_value(
         {
             "assessment": assessment,
-            "supporting": tuple(pro_reassurance),
+            "target_claim": _usable_scalar_string(target_claim),
+            "base_plausibility": base_plausibility_value,
+            "supporting": tuple(pro_reassurance_all),
             "counterevidence": tuple(pro_concern),
             "remaining_uncertainty": remaining_uncertainty,
             "acknowledged_concerns": tuple(acknowledged_concerns),

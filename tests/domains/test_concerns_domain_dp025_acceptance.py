@@ -167,8 +167,9 @@ class _Scenario:
     # Step 12: partial reassurance because the evidence supports it.
     def step_12_partial_reassurance(self):
         reassurance = evaluate_reassurance_result(
-            evidence=({"identity": "e1", "against": "worst reading", "grounding": "s1"},),
-            counterevidence=({"identity": "c1", "supports": "worst reading", "grounding": "t"},),
+            target_claim="worst reading",
+            evidence=({"identity": "e1", "claim": "worst reading", "stance": "opposes_target", "grounding": "s1"},),
+            counterevidence=({"identity": "c1", "claim": "worst reading", "stance": "supports_target", "grounding": "t"},),
             material_concerns=("the salary review itself remains unanswered",),
         )
         assert reassurance["assessment"] == "REASSURANCE_PARTIAL"
@@ -439,9 +440,10 @@ def test_question_materiality_gate():
 
 def test_reassurance_allowed_gate():
     record = evaluate_reassurance(
+        target_claim="fear",
         evidence=(
-            {"identity": "e1", "against": "fear", "grounding": "a"},
-            {"identity": "e2", "against": "fear", "grounding": "b"},
+            {"identity": "e1", "claim": "fear", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "e2", "claim": "fear", "stance": "opposes_target", "grounding": "b"},
         )
     )
     assert record["assessment"] in ("REASSURANCE_SUPPORTED", "REASSURANCE_PARTIAL")
@@ -477,9 +479,10 @@ def test_real_concern_acknowledgement_gate():
         ),
     )
     reassurance = evaluate_reassurance(
+        target_claim="decline",
         evidence=(
-            {"identity": "s1", "supports": "decline", "grounding": "a"},
-            {"identity": "s2", "supports": "decline", "grounding": "b"},
+            {"identity": "s1", "claim": "decline", "stance": "supports_target", "grounding": "a"},
+            {"identity": "s2", "claim": "decline", "stance": "supports_target", "grounding": "b"},
         ),
         material_concerns=("decline documented",),
     )
@@ -626,16 +629,17 @@ def test_input_order_invariance_gate():
 
 def test_duplicate_evidence_gate_named():
     base = (
-        {"identity": "c1", "against": "f", "grounding": "x"},
-        {"identity": "c2", "against": "f", "grounding": "y"},
-        {"identity": "c3", "against": "f", "grounding": "z"},
+        {"identity": "c1", "claim": "f", "stance": "opposes_target", "grounding": "x"},
+        {"identity": "c2", "claim": "f", "stance": "opposes_target", "grounding": "y"},
+        {"identity": "c3", "claim": "f", "stance": "opposes_target", "grounding": "z"},
     )
-    single = evaluate_reassurance(evidence=base)["assessment"]
+    single = evaluate_reassurance(target_claim="f", evidence=base)["assessment"]
     duplicated = evaluate_reassurance(
+        target_claim="f",
         evidence=(
             *base,
             dict(base[0]),
-            {"identity": "c1-copy", "against": "f", "grounding": "x"},
+            {"identity": "c1-copy", "claim": "f", "stance": "opposes_target", "grounding": "x"},
         )
     )["assessment"]
     assert duplicated == single

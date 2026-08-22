@@ -48,7 +48,10 @@ _KEYWORDS = frozenset(
 def _types(raw: Any) -> tuple[str, ...]:
     if isinstance(raw, str):
         return (raw,)
-    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+    # Frozen contracts store JSON arrays as tuples (see ``_freeze_mapping``),
+    # so a tuple of strings is the canonical in-memory form of a JSON array
+    # type union and must validate identically to a list.
+    if isinstance(raw, (list, tuple)) and all(isinstance(item, str) for item in raw):
         return tuple(raw)
     return ()
 

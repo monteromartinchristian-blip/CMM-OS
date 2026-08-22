@@ -112,12 +112,15 @@ def test_malformed_evidence_does_not_increase_certainty():
 
 
 def test_conflict_stays_conflict():
+    """Balanced target-relative evidence stays UNCERTAIN, never resolved in
+    either direction."""
     record = evaluate_reassurance(
+        target_claim="feared reading",
         evidence=(
-            {"identity": "e1", "supports": "benign", "grounding": "s1"},
+            {"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "s1"},
         ),
         counterevidence=(
-            {"identity": "c1", "against": "benign", "grounding": "s2"},
+            {"identity": "c1", "claim": "feared reading", "stance": "supports_target", "grounding": "s2"},
         ),
     )
     assert record["assessment"] in ("UNCERTAIN",)

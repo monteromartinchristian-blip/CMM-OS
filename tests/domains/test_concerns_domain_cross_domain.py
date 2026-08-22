@@ -141,10 +141,11 @@ def test_health_reassuring_result_can_support_reassurance():
     from cmm.domains.concerns.rules import evaluate_reassurance
 
     record = evaluate_reassurance(
-        evidence=({"identity": "e1", "supports": "benign", "grounding": "s1"},),
+        target_claim="benign",
+        evidence=({"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "s1"},),
         counterevidence=(
-            {"identity": "c1", "against": "benign", "grounding": "a"},
-            {"identity": "c2", "against": "benign", "grounding": "b"},
+            {"identity": "c1", "claim": "benign", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c2", "claim": "benign", "stance": "opposes_target", "grounding": "b"},
         ),
         specialized_domain_result={
             "domain_id": "domain:health",

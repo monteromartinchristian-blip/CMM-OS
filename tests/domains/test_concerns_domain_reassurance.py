@@ -127,43 +127,48 @@ def test_empty_records_are_valid_empty_not_failure():
 
 
 def test_clear_counterevidence_supports_reassurance():
-    """Two distinct grounded records against the feared reading and none for
+    """Two distinct strong records against the feared reading and none for
     it support reassurance."""
     record = evaluate_reassurance(
+        target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "supports": "feared_meaning", "grounding": "msg:1"},
+            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:1"},
         ),
         counterevidence=(
-            {"identity": "c1", "against": "feared_meaning", "grounding": "msg:2"},
-            {"identity": "c2", "against": "feared_meaning", "grounding": "msg:3"},
-            {"identity": "c3", "against": "feared_meaning", "grounding": "msg:4"},
+            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:2"},
+            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:3"},
+            {"identity": "c3", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:4"},
         ),
     )
     assert record["assessment"] == REASSURANCE_SUPPORTED
-    # Reassurance coexists with visible uncertainty.
+    assert record["target_claim"] == "feared_meaning"
+    # Reassurance coexists with visible uncertainty; absolute certainty is
+    # never manufactured.
     assert record["absolute_certainty"] is False
 
 
 def test_reassurance_can_coexist_with_uncertainty():
     record = evaluate_reassurance(
+        target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "supports": "feared_meaning", "grounding": "s1"},
+            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s2"},
         ),
         counterevidence=(
-            {"identity": "c1", "against": "feared_meaning", "grounding": "s2"},
+            {"identity": "e1", "claim": "feared_meaning", "stance": "supports_target", "grounding": "s1"},
         ),
         uncertainty=({"identity": "u1", "unknown": "their current intent"},),
     )
-    assert record["assessment"] in (REASSURANCE_SUPPORTED, UNCERTAIN)
+    assert record["assessment"] in (REASSURANCE_SUPPORTED, REASSURANCE_PARTIAL, UNCERTAIN)
     assert record["remaining_uncertainty"] == ("u1",)
     json.dumps(record, allow_nan=False)
 
 
 def test_material_concern_blocks_reassurance_but_acknowledges():
     record = evaluate_reassurance(
+        target_claim="deterioration",
         evidence=(
-            {"identity": "e1", "supports": "deterioration", "grounding": "s1"},
-            {"identity": "e2", "supports": "deterioration", "grounding": "s2"},
+            {"identity": "e1", "claim": "deterioration", "stance": "supports_target", "grounding": "s1"},
+            {"identity": "e2", "claim": "deterioration", "stance": "supports_target", "grounding": "s2"},
         ),
         material_concerns=("real performance decline documented twice",),
     )
@@ -178,10 +183,15 @@ def test_no_usable_evidence_is_insufficient_basis():
 
 
 def test_partial_reassessment_with_mixed_signals():
+    """Reassurance caps at partial when a material concern coexists with
+    opposing evidence (spec §25: never minimize a real negative signal)."""
     record = evaluate_reassurance(
-        evidence=({"identity": "e1", "supports": "benign reading", "grounding": "s1"},),
+        target_claim="feared reading",
+        evidence=(
+            {"identity": "e1", "claim": "benign reading", "stance": "opposes_target", "grounding": "s1"},
+        ),
         counterevidence=(
-            {"identity": "c1", "against": "benign reading", "grounding": "s2"},
+            {"identity": "c1", "claim": "feared reading", "stance": "supports_target", "grounding": "s2"},
         ),
         material_concerns=("one concrete unresolved issue remains",),
     )
@@ -201,23 +211,26 @@ def test_all_five_canonical_states_exist_and_are_used():
     for kwargs in (
         {},  # insufficient
         {
-            "evidence": ({"identity": "e1", "supports": "x", "grounding": "s1"},),
+            "target_claim": "x",
+            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
             "counterevidence": (
-                {"identity": "c1", "against": "x", "grounding": "a"},
-                {"identity": "c2", "against": "x", "grounding": "b"},
+                {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
+                {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
             ),
         },  # supported
         {
+            "target_claim": "x",
             "evidence": (
-                {"identity": "e1", "supports": "x", "grounding": "s1"},
-                {"identity": "e2", "supports": "x", "grounding": "s2"},
+                {"identity": "e1", "claim": "x", "stance": "supports_target", "grounding": "s1"},
+                {"identity": "e2", "claim": "x", "stance": "supports_target", "grounding": "s2"},
             ),
         },  # concern supported
         {
-            "evidence": ({"identity": "e1", "supports": "x", "grounding": "s1"},),
+            "target_claim": "x",
+            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
             "material_concerns": ("one real issue",),
             "counterevidence": (
-                {"identity": "c1", "against": "x", "grounding": "t"},
+                {"identity": "c1", "claim": "x", "stance": "supports_target", "grounding": "t"},
             ),
         },  # partial
         {
@@ -231,23 +244,25 @@ def test_all_five_canonical_states_exist_and_are_used():
 
 def test_duplicate_evidence_does_not_inflate_reassurance():
     single = evaluate_reassurance(
+        target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "against": "feared_meaning", "grounding": "s1"},
+            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
         ),
         counterevidence=(
-            {"identity": "c1", "against": "feared_meaning", "grounding": "a"},
-            {"identity": "c2", "against": "feared_meaning", "grounding": "b"},
+            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "b"},
         ),
     )
     duplicated = evaluate_reassurance(
+        target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "against": "feared_meaning", "grounding": "s1"},
-            {"identity": "e1", "against": "feared_meaning", "grounding": "s1"},
-            {"identity": "e1-dup", "against": "feared_meaning", "grounding": "s1"},
+            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
+            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
+            {"identity": "e1-dup", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
         ),
         counterevidence=(
-            {"identity": "c1", "against": "feared_meaning", "grounding": "a"},
-            {"identity": "c2", "against": "feared_meaning", "grounding": "b"},
+            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "b"},
         ),
     )
     assert duplicated["assessment"] == single["assessment"]

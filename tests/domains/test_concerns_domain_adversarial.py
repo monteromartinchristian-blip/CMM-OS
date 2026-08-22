@@ -142,13 +142,13 @@ def test_no_authorization_widening_from_mappings():
 
 def test_permutation_gate_equivalent_sets_identical_semantics():
     evidence_set = (
-        {"identity": "e1", "supports": "benign", "grounding": "g1"},
-        {"identity": "e2", "against": "benign", "grounding": "g2"},
-        {"identity": "e3", "against": "benign", "grounding": "g3"},
+        {"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "g1"},
+        {"identity": "e2", "claim": "benign", "stance": "opposes_target", "grounding": "g2"},
+        {"identity": "e3", "claim": "benign", "stance": "opposes_target", "grounding": "g3"},
     )
     canonical = {
         (
-            evaluate_reassurance(evidence=order)["assessment"],
+            evaluate_reassurance(target_claim="benign", evidence=order)["assessment"],
             evaluate_proportional_risk(severity="low")["risk_level"],
         )
         for order in itertools.permutations(evidence_set)
@@ -179,15 +179,16 @@ def test_permutation_gate_equivalent_sets_identical_semantics():
 
 def test_duplicate_evidence_gate():
     base = (
-        {"identity": "c1", "against": "feared reading", "grounding": "a"},
-        {"identity": "c2", "against": "feared reading", "grounding": "b"},
+        {"identity": "c1", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
+        {"identity": "c2", "claim": "feared reading", "stance": "opposes_target", "grounding": "b"},
     )
-    single_assessment = evaluate_reassurance(evidence=base)["assessment"]
+    single_assessment = evaluate_reassurance(target_claim="feared reading", evidence=base)["assessment"]
     duplicated = evaluate_reassurance(
+        target_claim="feared reading",
         evidence=(
             *base,
-            {"identity": "c1-dup", "against": "feared reading", "grounding": "a"},
-            {"identity": "c1-dup", "against": "feared reading", "grounding": "a"},
+            {"identity": "c1-dup", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c1-dup", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
         )
     )["assessment"]
     assert duplicated == single_assessment
@@ -195,18 +196,20 @@ def test_duplicate_evidence_gate():
 
 def test_malformed_evidence_gate_never_increases_anything():
     clean = evaluate_reassurance(
+        target_claim="x",
         counterevidence=(
-            {"identity": "c1", "against": "x", "grounding": "a"},
-            {"identity": "c2", "against": "x", "grounding": "b"},
-            {"identity": "c3", "against": "x", "grounding": "c"},
+            {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
+            {"identity": "c3", "claim": "x", "stance": "opposes_target", "grounding": "c"},
         )
     )
     dirty = evaluate_reassurance(
+        target_claim="x",
         evidence=(float("nan"), {"no_claim": True}, 7, [1, 2], "junk"),
         counterevidence=(
-            {"identity": "c1", "against": "x", "grounding": "a"},
-            {"identity": "c2", "against": "x", "grounding": "b"},
-            {"identity": "c3", "against": "x", "grounding": "c"},
+            {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
+            {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
+            {"identity": "c3", "claim": "x", "stance": "opposes_target", "grounding": "c"},
         ),
     )
     assert dirty["malformed_count"] >= 4
@@ -265,10 +268,11 @@ def test_gate_summary_all_named_adversarial_gates_pass():
         and permission_authorization_allows(True) is True,
         "DUPLICATE_EVIDENCE_GATE": _probe(
             lambda: evaluate_reassurance(
+                target_claim="f",
                 evidence=(
-                    {"identity": "d", "against": "f", "grounding": "g"},
-                    {"identity": "d", "against": "f", "grounding": "g"},
-                    {"identity": "d2", "against": "f", "grounding": "g2"},
+                    {"identity": "d", "claim": "f", "stance": "opposes_target", "grounding": "g"},
+                    {"identity": "d", "claim": "f", "stance": "opposes_target", "grounding": "g"},
+                    {"identity": "d2", "claim": "f", "stance": "opposes_target", "grounding": "g2"},
                 )
             )
         ),
@@ -283,11 +287,11 @@ def test_gate_summary_all_named_adversarial_gates_pass():
         ),
         "PERMUTATION_GATE": len(
             {
-                evaluate_reassurance(evidence=order)["assessment"]
+                evaluate_reassurance(target_claim="b", evidence=order)["assessment"]
                 for order in itertools.permutations(
                     (
-                        {"identity": "p1", "supports": "b", "grounding": "1"},
-                        {"identity": "p2", "against": "b", "grounding": "2"},
+                        {"identity": "p1", "claim": "b", "stance": "opposes_target", "grounding": "1"},
+                        {"identity": "p2", "claim": "b", "stance": "opposes_target", "grounding": "2"},
                     )
                 )
             }
