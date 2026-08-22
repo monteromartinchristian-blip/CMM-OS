@@ -31,7 +31,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import math
 from typing import Any
+import unicodedata
 
 from cmm.cognitive.enums import (
     ReasoningRiskLevel,
@@ -313,6 +315,35 @@ _STALE_TEMPORAL_RELEVANCE: frozenset[str] = frozenset(
     {"stale", "outdated", "expired", "old", "historical_only"}
 )
 
+# ── Base plausibility contract (frozen design §22) ──────────────────────────
+
+BASE_PLAUSIBILITY_LOW = "low"
+BASE_PLAUSIBILITY_MODERATE = "moderate"
+BASE_PLAUSIBILITY_HIGH = "high"
+BASE_PLAUSIBILITY_UNKNOWN = "unknown"
+
+_BASE_PLAUSIBILITY_ALLOWED: frozenset[str] = frozenset(
+    {
+        BASE_PLAUSIBILITY_LOW,
+        BASE_PLAUSIBILITY_MODERATE,
+        BASE_PLAUSIBILITY_HIGH,
+        BASE_PLAUSIBILITY_UNKNOWN,
+    }
+)
+
+_BASE_PLAUSIBILITY_ALIASES: dict[str, str] = {
+    "low": BASE_PLAUSIBILITY_LOW,
+    "implausible": BASE_PLAUSIBILITY_LOW,
+    "unlikely": BASE_PLAUSIBILITY_LOW,
+    "moderate": BASE_PLAUSIBILITY_MODERATE,
+    "medium": BASE_PLAUSIBILITY_MODERATE,
+    "plausible": BASE_PLAUSIBILITY_MODERATE,
+    "high": BASE_PLAUSIBILITY_HIGH,
+    "likely": BASE_PLAUSIBILITY_HIGH,
+    "unknown": BASE_PLAUSIBILITY_UNKNOWN,
+    "unspecified": BASE_PLAUSIBILITY_UNKNOWN,
+}
+
 # ── Action states (frozen design §27) ───────────────────────────────────────
 
 ACTION_NO_ACTION_NEEDED = "NO_ACTION_NEEDED"
@@ -397,9 +428,6 @@ def _normalize_collection(
             malformed = False
         return items, malformed
     return [], True
-
-
-import math
 
 
 def _finite_number(value: Any) -> float | None:
@@ -622,6 +650,11 @@ def evaluate_uncertainty(*, records=()) -> dict:
     )
 
 
+def _canonical_claim_key(claim: str) -> str:
+    norm = unicodedata.normalize("NFKC", claim).strip().lower()
+    return " ".join(norm.split())
+
+
 def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int, int]:
     """Normalize evidence/counterevidence entries into target-relative records.
 
@@ -674,8 +707,9 @@ def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int, int]
         source_quality = _usable_scalar_string(entry.get("source_quality"))
         temporal = _usable_scalar_string(entry.get("temporal_relevance"))
 
-        # Deduplicate on provenance + claim + stance (NOT record ID).
-        key = (grounding, claim, stance)
+        # Deduplicate on provenance + normalized substantive claim + stance (NOT record ID).
+        canonical_claim = _canonical_claim_key(claim)
+        key = (grounding, canonical_claim, stance)
         if key in merged:
             duplicates += 1
             continue
@@ -691,7 +725,7 @@ def _normalize_evidence_entries(value: Any) -> tuple[tuple[dict, ...], int, int]
         merged.values(),
         key=lambda item: (
             str(item["grounding"]),
-            str(item["claim"]),
+            str(_canonical_claim_key(item["claim"])),
             str(item["stance"]),
         ),
     )
@@ -764,20 +798,21 @@ def evaluate_reassurance(
             and record["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
         )
 
-    pro_concern = [
+    pro_concern_all = [
         item
         for item in pool
         if item["stance"] == STANCE_SUPPORTS_TARGET
-        and _is_current_and_grounded(item)
     ]
     pro_reassurance_all = [
         item
         for item in pool
         if item["stance"] == STANCE_OPPOSES_TARGET
-        and _is_current_and_grounded(item)
     ]
-    # Weak/stale opposing records stay visible but cannot upgrade reassurance
-    # to full support.
+    pro_concern_strong = [
+        item for item in pro_concern_all if _is_current_and_grounded(item)
+    ]
+    # Weak/stale opposing records stay visible in output supporting pool,
+    # but only strong/current records can upgrade reassurance to full support.
     pro_reassurance_strong = [
         item for item in pro_reassurance_all if _is_current_and_grounded(item)
     ]
@@ -786,15 +821,74 @@ def evaluate_reassurance(
 
     specialized_probability = None
     specialized_authorized = False
+    specialized_reassuring = False
+    specialized_concern = False
+    specialized_red_flags: tuple[str, ...] = ()
+    specialized_domain_id = None
+
     if isinstance(specialized_domain_result, Mapping):
-        authorized_marker = specialized_domain_result.get("authorized")
-        specialized_authorized = _grants_authorization(authorized_marker)
+        specialized_domain_id = _usable_scalar_string(
+            specialized_domain_result.get("domain_id")
+        )
+        specialized_authorized = _grants_authorization(
+            specialized_domain_result.get("authorized")
+        )
         if specialized_authorized:
             probability = specialized_domain_result.get("probability")
             numeric = _finite_number(probability)
-            specialized_probability = numeric if 0.0 <= numeric <= 1.0 else None
+            specialized_probability = (
+                numeric if numeric is not None and 0.0 <= numeric <= 1.0 else None
+            )
+            flags, flags_malformed = _normalize_collection(
+                specialized_domain_result.get("red_flags")
+            )
+            if not flags_malformed:
+                specialized_red_flags = tuple(
+                    flag
+                    for flag in (_usable_scalar_string(f) for f in flags)
+                    if flag is not None
+                )
+            spec_risk = _usable_scalar_string(
+                specialized_domain_result.get("risk_level")
+                or specialized_domain_result.get("risk")
+            )
+            spec_assessment = _usable_scalar_string(
+                specialized_domain_result.get("assessment")
+            )
+            spec_concern_flag = _boolean_true(
+                specialized_domain_result.get("material_concern")
+                or specialized_domain_result.get("has_concern")
+            )
+            if (
+                specialized_red_flags
+                or spec_risk in (_RISK_HIGH, _RISK_MEDIUM)
+                or spec_concern_flag
+                or spec_assessment in (CONCERN_SUPPORTED, "material_concern", "risk")
+            ):
+                specialized_concern = True
 
-    both_sides = bool(pro_reassurance_all) and bool(pro_concern)
+            spec_reassuring_flag = _boolean_true(
+                specialized_domain_result.get("reassuring")
+                or specialized_domain_result.get("is_reassuring")
+                or specialized_domain_result.get("reassurance_supported")
+            )
+            if spec_reassuring_flag or spec_assessment in (
+                REASSURANCE_SUPPORTED,
+                "reassuring",
+            ):
+                specialized_reassuring = True
+
+    # Base plausibility evaluation
+    raw_bp = _usable_scalar_string(base_plausibility)
+    canonical_bp = (
+        _BASE_PLAUSIBILITY_ALIASES.get(raw_bp.lower()) if raw_bp else None
+    )
+    base_plausibility_value = raw_bp if canonical_bp is not None else None
+    evaluated_bp = canonical_bp or BASE_PLAUSIBILITY_UNKNOWN
+
+    both_sides = bool(pro_reassurance_all) and (
+        bool(pro_concern_all) or specialized_concern
+    )
 
     # Decision ladder (frozen design §22, §25):
     # - a material concern backed by >=2 distinct grounded target-supporting
@@ -804,36 +898,63 @@ def evaluate_reassurance(
     # - genuine target-supporting evidence caps reassurance below SUPPORTED
     #   (never minimized; §25);
     # - full reassurance requires >=2 strong, current, well-sourced records
-    #   opposing the target with no genuine supporting record;
-    # - weak/stale opposing records stay visible but cap at partial.
-    if (material_concern or len(pro_concern) >= len(pro_reassurance_strong)) and len(pro_concern) >= 2:
+    #   opposing the target with no genuine supporting record, and low/moderate
+    #   base plausibility;
+    # - weak/stale opposing records stay visible in supporting but cap at partial;
+    # - high base plausibility of feared target caps reassurance ceiling at partial.
+    if (
+        material_concern
+        or specialized_concern
+        or len(pro_concern_strong) >= len(pro_reassurance_strong)
+    ) and len(pro_concern_strong) >= 2:
         assessment = CONCERN_SUPPORTED
-    elif both_sides and material_concern:
+    elif specialized_concern and not pro_reassurance_all:
+        assessment = CONCERN_SUPPORTED
+    elif both_sides and (material_concern or specialized_concern):
         assessment = REASSURANCE_PARTIAL
     elif both_sides:
         assessment = UNCERTAIN
-    elif material_concern and (pro_reassurance_all or pro_concern):
+    elif (material_concern or specialized_concern) and (
+        pro_reassurance_all or pro_concern_all or specialized_reassuring
+    ):
         assessment = REASSURANCE_PARTIAL
-    elif pro_concern:
+    elif pro_concern_strong:
         # A single grounded target-supporting record is a real counter-signal
         # but not a confirmed concern basis.
         assessment = UNCERTAIN
-    elif len(pro_reassurance_strong) >= 2:
-        assessment = REASSURANCE_SUPPORTED
-    elif pro_reassurance_all:
-        assessment = REASSURANCE_PARTIAL
+    elif (
+        len(pro_reassurance_strong) >= 2
+        and not specialized_concern
+        and not material_concern
+    ):
+        if evaluated_bp == BASE_PLAUSIBILITY_HIGH:
+            assessment = REASSURANCE_PARTIAL
+        else:
+            assessment = REASSURANCE_SUPPORTED
+    elif (
+        pro_reassurance_all or specialized_reassuring
+    ) and not specialized_concern and not material_concern:
+        if evaluated_bp == BASE_PLAUSIBILITY_HIGH and not pro_reassurance_strong:
+            assessment = UNCERTAIN
+        elif (
+            specialized_reassuring
+            and not pro_reassurance_all
+            and evaluated_bp != BASE_PLAUSIBILITY_HIGH
+        ):
+            assessment = REASSURANCE_PARTIAL
+        else:
+            assessment = REASSURANCE_PARTIAL
     else:
         assessment = INSUFFICIENT_BASIS
 
     absolute_certainty = False
-    base_plausibility_value = _usable_scalar_string(base_plausibility)
     return normalize_json_value(
         {
             "assessment": assessment,
             "target_claim": _usable_scalar_string(target_claim),
             "base_plausibility": base_plausibility_value,
             "supporting": tuple(pro_reassurance_all),
-            "counterevidence": tuple(pro_concern),
+            "counterevidence": tuple(pro_concern_all),
             "remaining_uncertainty": remaining_uncertainty,
             "acknowledged_concerns": tuple(acknowledged_concerns),
             "material_concern": material_concern,
@@ -1147,8 +1268,8 @@ def evaluate_caveat_policy(*, caveats=()) -> dict:
 def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict:
     """Detect reassurance that minimizes real evidence merely to comfort.
 
-    Forbidden when material warning signals exist or when the reassuring
-    statement claims absolute certainty (frozen design §25).
+    Forbidden when material warning signals exist and are minimized/erased,
+    or when the reassuring statement claims absolute certainty (frozen design §25).
     """
     state = reassurance_state if isinstance(reassurance_state, Mapping) else {}
     assessment = _usable_scalar_string(state.get("assessment"))
@@ -1160,21 +1281,23 @@ def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict
     )
     has_material_concern = bool(concerns) or concerns_malformed
     absolute_certainty = _boolean_true(state.get("absolute_certainty"))
+    concern_erased = _boolean_true(state.get("concern_erased"))
 
     false_reassurance = False
     reason = None
     corrected = assessment
-    if has_material_concern and assessment in (
-        REASSURANCE_SUPPORTED,
-        REASSURANCE_PARTIAL,
-    ):
+    if absolute_certainty:
+        false_reassurance = True
+        reason = "absolute_certainty"
+        corrected = CONCERN_SUPPORTED if has_material_concern else UNCERTAIN
+    elif has_material_concern and assessment == REASSURANCE_SUPPORTED:
         false_reassurance = True
         reason = "material_concern_minimized"
         corrected = CONCERN_SUPPORTED
-    elif absolute_certainty:
+    elif has_material_concern and assessment == REASSURANCE_PARTIAL and concern_erased:
         false_reassurance = True
-        reason = "absolute_certainty"
-        corrected = UNCERTAIN if not has_material_concern else CONCERN_SUPPORTED
+        reason = "material_concern_minimized"
+        corrected = CONCERN_SUPPORTED
 
     presented_as_supported = (
         assessment == REASSURANCE_SUPPORTED and not false_reassurance
