@@ -499,3 +499,65 @@ def test_f3_caveat_stacking_enforced_by_rule_and_presentation():
     scenario_texts = [s["statement"] for s in presented["scenarios"]]
     assert "the building might collapse unexpectedly" not in scenario_texts
     assert "there is a severe storm warning in effect today" in scenario_texts
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F4 — Finish objective risk grounding (RI-002)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_f4_objective_risk_grounding_matrix():
+    """Subjective severity never creates objective risk without evidence; risk scales with grounded evidence."""
+    from cmm.domains.concerns.rules import evaluate_proportional_risk
+
+    # 1. Subjective severity x no evidence => no evidence-derived objective risk
+    low_res = evaluate_proportional_risk(severity="low", evidence=())
+    assert low_res["risk_level"] in ("none", "unresolved")
+    assert low_res["grounded_risk_evidence"] is False
+
+    med_res = evaluate_proportional_risk(severity="medium", evidence=())
+    assert med_res["risk_level"] in ("none", "unresolved")
+    assert med_res["grounded_risk_evidence"] is False
+
+    high_res = evaluate_proportional_risk(severity="high", evidence=())
+    assert high_res["risk_level"] in ("none", "unresolved")
+    assert high_res["grounded_risk_evidence"] is False
+
+    # 2. Grounded 1-record risk evidence => calibrated low risk
+    rec1 = {
+        "identity": "r1",
+        "claim": "user missed critical medication dose",
+        "stance": "supports_target",
+        "grounding": "med_log:1",
+        "source_quality": "grounded",
+        "temporal_relevance": "current",
+    }
+    g1_res = evaluate_proportional_risk(severity="low", evidence=(rec1,))
+    assert g1_res["risk_level"] == "low"
+    assert g1_res["grounded_risk_evidence"] is True
+
+    # 3. Grounded 2-record risk evidence => calibrated higher risk (medium)
+    rec2 = {
+        "identity": "r2",
+        "claim": "user experiencing dizziness",
+        "stance": "supports_target",
+        "grounding": "vital:2",
+        "source_quality": "grounded",
+        "temporal_relevance": "current",
+    }
+    g2_res = evaluate_proportional_risk(severity="low", evidence=(rec1, rec2))
+    assert g2_res["risk_level"] == "medium"
+    assert g2_res["grounded_risk_evidence"] is True
+
+    # 4. Authorized specialized red flag => preserve specialized high-risk semantics
+    spec_res = evaluate_proportional_risk(
+        severity="low",
+        evidence=(),
+        specialized_domain_result={
+            "authorized": True,
+            "domain_id": "domain:health",
+            "red_flags": ["anaphylaxis"],
+        },
+    )
+    assert spec_res["risk_level"] == "high"
+    assert spec_res["specialized_ownership_preserved"] is True

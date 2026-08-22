@@ -1072,30 +1072,19 @@ def evaluate_proportional_risk(
     emotion_drove_risk = False
     if severity_malformed:
         base_risk = _RISK_UNRESOLVED
-        emotion_drove_risk = False
     else:
         mapped_severity = _SEVERITY_ALIASES.get(severity_norm)
-        if mapped_severity == _RISK_HIGH:
-            # High subjective severity alone does NOT produce high objective
-            # risk: emotional certainty != evidential certainty.
+        if mapped_severity in (_RISK_HIGH, _RISK_MEDIUM):
+            # Subjective severity alone does NOT produce objective risk:
+            # emotional certainty != evidential certainty (frozen §23, §29).
             emotion_drove_risk = True
-            base_risk = _RISK_UNRESOLVED
-        elif mapped_severity in (_RISK_MEDIUM,):
-            # Medium subjective severity alone does NOT create a medium
-            # objective risk state without evidence (I-006).
-            emotion_drove_risk = True
-            base_risk = _RISK_UNRESOLVED
-        elif mapped_severity == _RISK_LOW:
-            base_risk = _RISK_LOW
-        else:
-            base_risk = _RISK_NONE
+        base_risk = _RISK_NONE
 
     # Objective risk ladder (grounding first):
-    # - authorized specialized red flags → high (never downgraded by calm
-    #   wording);
+    # - authorized specialized red flags → high (never downgraded by calm wording);
     # - grounded material risk evidence → calibrated non-none risk;
     # - immediacy alone without grounding stays unresolved;
-    # - subjective severity never creates objective risk.
+    # - subjective severity never creates objective risk at ANY level (frozen §23).
     if specialized_authorized and specialized_red_flags:
         risk_level = _RISK_HIGH
         emotion_drove_risk = False
@@ -1103,13 +1092,13 @@ def evaluate_proportional_risk(
         risk_level = _RISK_HIGH
     elif risk_evidence_material:
         risk_level = _RISK_MEDIUM if len(grounded_risk_records) >= 2 else _RISK_LOW
-    elif immediate_claim and base_risk not in (_RISK_NONE, _RISK_UNRESOLVED):
-        risk_level = base_risk
     elif immediate_claim and risk_malformed == 0 and not risk_evidence_material:
         # Immediacy without grounded basis still cannot manufacture risk.
         risk_level = _RISK_UNRESOLVED
+    elif severity_malformed:
+        risk_level = _RISK_UNRESOLVED
     else:
-        risk_level = base_risk if base_risk not in (_RISK_NONE,) else _RISK_NONE
+        risk_level = _RISK_NONE
 
     invented_risk = (
         risk_level == _RISK_HIGH and not specialized_authorized and not risk_evidence_material
