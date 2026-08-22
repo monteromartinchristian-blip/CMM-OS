@@ -13,7 +13,6 @@ import json
 
 from cmm.domains.concerns.rules import (
     ACTION_NO_ACTION_NEEDED,
-    ACTION_OPTIONAL,
     ACTION_RECOMMENDED,
     ACTION_USEFUL,
     DOMAIN_ESCALATION_NEEDED,
@@ -103,13 +102,14 @@ def test_single_repeat_never_triggers_pattern():
 
 
 def test_multi_turn_impossible_certainty_requires_all_grounds():
-    """All five grounded dimensions are required; missing relief/checking
-    evidence cannot be invented."""
+    """All five grounded dimensions are required; missing any one (including
+    certainty pursuit) cannot be invented.  ``same_question`` alone never
+    implies impossible-certainty pursuit (I-002)."""
     full_turns = (
-        {"turn": 1, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 2, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 3, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 4, "same_question": True, "relief_followed_by_checking": True},
+        {"turn": 1, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
+        {"turn": 2, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
+        {"turn": 3, "same_question": True, "evidence_state": "unchanged", "impossible_certainty": True},
+        {"turn": 4, "same_question": True, "relief_followed_by_checking": True, "pursuing_certainty": True},
     )
     complete = evaluate_repetitive_certainty_pattern(turns=full_turns)
     assert complete["pattern_detected"] is True
@@ -122,7 +122,7 @@ def test_multi_turn_impossible_certainty_requires_all_grounds():
 
     missing_relief = evaluate_repetitive_certainty_pattern(
         turns=tuple(turn for turn in full_turns if "relief_followed_by_checking" not in turn)
-        + ({"turn": 9, "same_question": True}, {"turn": 10, "same_question": True})
+        + ({"turn": 9, "same_question": True, "pursuing_certainty": True}, {"turn": 10, "same_question": True, "pursuing_certainty": True})
     )
     assert missing_relief["pattern_detected"] is False
 
@@ -167,7 +167,8 @@ def test_user_wants_to_wait_preserves_agency():
         options=("talk to manager",), urgency=None,
         user_request="I want to wait and observe a bit.",
     )
-    assert record["state"] in (ACTION_NO_ACTION_NEEDED, ACTION_OPTIONAL)
+    # Explicit wait is respected (I-003): NO_ACTION_NEEDED exactly.
+    assert record["state"] == ACTION_NO_ACTION_NEEDED
     assert record["user_decision_required_for_adoption"] is True
 
 

@@ -1258,12 +1258,13 @@ def evaluate_repetitive_certainty_pattern(*, turns=()) -> dict:
             present.add("same_question")
         if _usable_scalar_string(turn.get("evidence_state")) == "unchanged":
             present.add("evidence_state_unchanged")
+        # Impossible-certainty pursuit is an INDEPENDENT grounded dimension
+        # (frozen design §26).  ``same_question`` alone never implies it — a
+        # repeated identical question about an unresolvable matter is not
+        # certainty pursuit unless an explicit marker exists (I-002).
         if _boolean_true(turn.get("pursuing_certainty")) or _boolean_true(
             turn.get("impossible_certainty")
-        ) or turn.get("same_question") is True:
-            # A repeated identical question about an unresolvable matter IS the
-            # pursuit of impossible certainty when evidence is unchanged; the
-            # explicit markers make it unambiguous for callers.
+        ):
             present.add("impossible_certainty_pursuit")
         if _boolean_true(turn.get("relief_followed_by_checking")):
             present.add("relief_followed_by_checking")
@@ -1360,8 +1361,39 @@ def evaluate_action_state(
                 if flag is not None
             )
 
+    # Explicit wait / no-advice / just-talk intent is respected (I-003):
+    # before any candidate-option logic, an explicit no-action intent with no
+    # grounded immediate specialized escalation yields NO_ACTION_NEEDED.
+    # Options may exist internally but the action result must not invite
+    # action against the user's current explicit intent.
+    grounded_immediate_escalation = (
+        specialized_authorized and bool(specialized_flags) and urgent
+    )
+    if wants_no_advice and not grounded_immediate_escalation:
+        return normalize_json_value(
+            {
+                "state": ACTION_NO_ACTION_NEEDED,
+                "options": usable_options,
+                "options_are_candidates": True,
+                "recommendation_made": False,
+                "specialized_recommendation": specialized_recommendation,
+                "decision_adopted": False,
+                "external_action_executed": False,
+                "user_decision_required_for_adoption": True,
+                "action_forced": False,
+                "specialized_domain_id": specialized_domain_id,
+                "grounded_options": _grants_authorization(grounded_options),
+                "malformed_input": options_malformed,
+            }
+        )
+
     if wants_decision_made:
         state = USER_DECISION_REQUIRED
+    elif grounded_immediate_escalation:
+        # Only grounded immediate/domain escalation can override explicit
+        # no-advice/wait, and only to DOMAIN_ESCALATION_NEEDED (never to a
+        # personal adopted decision).
+        state = DOMAIN_ESCALATION_NEEDED
     elif specialized_authorized and specialized_flags and urgent:
         state = DOMAIN_ESCALATION_NEEDED
     elif urgent and specialized_recommendation and usable_options:
@@ -1375,7 +1407,6 @@ def evaluate_action_state(
         state = ACTION_OPTIONAL
     else:
         state = ACTION_NO_ACTION_NEEDED
-    del urgent, wants_no_advice
 
     recommendation_made = state in (ACTION_RECOMMENDED,)
     return normalize_json_value(
@@ -1603,11 +1634,13 @@ def infer_support_need(
         explicit current request > clear current signal >
         recent session context > historical preference > UNCLEAR
 
-    Historical preference never overrides an explicit current request.  The
-    result is a revisable conversational hypothesis, never a diagnosis,
+    Resolution is tiered: once a usable higher-precedence tier is found,
+    lower tiers may NOT add components.  ``MIXED`` is allowed only when the
+    HIGHEST-precedence source itself clearly expresses multiple concurrent
+    needs.  Historical preference never overrides an explicit current request.
+    The result is a revisable conversational hypothesis, never a diagnosis,
     personality trait, or durable identity.
     """
-    components: list[str] = []
 
     def _classify(value: Any) -> str | None:
         if isinstance(value, Mapping):
@@ -1648,22 +1681,101 @@ def infer_support_need(
             return (marker,)
         return ()
 
-    explicit_components = _classify_all(explicit_request)
-    explicit = explicit_components[0] if explicit_components else None
-    components.extend(explicit_components)
+    def _without_mixed(needs: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(need for need in needs if need != SUPPORT_MIXED)
 
-    signal_components = _classify_all(current_signal)
-    signal = signal_components[0] if signal_components else None
-    components.extend(signal_components)
+    # ── Tier 1: explicit current request ──────────────────────────────────
+    explicit_components = _without_mixed(_classify_all(explicit_request))
+    if explicit_components:
+        unique: list[str] = []
+        for component in explicit_components:
+            if component not in unique:
+                unique.append(component)
+        support_need = (
+            SUPPORT_MIXED if len(unique) > 1 else unique[0]
+        )
+        basis = "explicit_current_request"
+        return normalize_json_value(
+            {
+                "support_need": support_need,
+                "basis": basis,
+                "components": tuple(unique),
+                "explicit": True,
+                "inferred": False,
+                "invented_classification": False,
+                "problem_solving_allowed": support_need in (
+                    SUPPORT_PROBLEM_SOLVING,
+                    SUPPORT_NEXT_STEP,
+                    SUPPORT_DECISION_SUPPORT,
+                    SUPPORT_MIXED,
+                ),
+                "diagnosis": False,
+                "personality_trait": False,
+                "durable_identity": False,
+                "revisable": True,
+            }
+        )
 
+    # ── Tier 2: clear current conversational signal ───────────────────────
+    signal_components = _without_mixed(_classify_all(current_signal))
+    if signal_components:
+        unique: list[str] = []
+        for component in signal_components:
+            if component not in unique:
+                unique.append(component)
+        support_need = (
+            SUPPORT_MIXED if len(unique) > 1 else unique[0]
+        )
+        return normalize_json_value(
+            {
+                "support_need": support_need,
+                "basis": "clear_current_signal",
+                "components": tuple(unique),
+                "explicit": False,
+                "inferred": True,
+                "invented_classification": False,
+                "problem_solving_allowed": support_need in (
+                    SUPPORT_PROBLEM_SOLVING,
+                    SUPPORT_NEXT_STEP,
+                    SUPPORT_DECISION_SUPPORT,
+                    SUPPORT_MIXED,
+                ),
+                "diagnosis": False,
+                "personality_trait": False,
+                "durable_identity": False,
+                "revisable": True,
+            }
+        )
+
+    # ── Tier 3: recent session context ────────────────────────────────────
     context_need: str | None = None
     if isinstance(session_context, Mapping):
         for key in _SESSION_CONTEXT_KEYS:
             context_need = _classify(session_context.get(key))
             if context_need is not None and context_need != SUPPORT_MIXED:
-                components.append(context_need)
                 break
+    if context_need is not None:
+        return normalize_json_value(
+            {
+                "support_need": context_need,
+                "basis": "recent_session_context",
+                "components": (context_need,),
+                "explicit": False,
+                "inferred": True,
+                "invented_classification": False,
+                "problem_solving_allowed": context_need in (
+                    SUPPORT_PROBLEM_SOLVING,
+                    SUPPORT_NEXT_STEP,
+                    SUPPORT_DECISION_SUPPORT,
+                ),
+                "diagnosis": False,
+                "personality_trait": False,
+                "durable_identity": False,
+                "revisable": True,
+            }
+        )
 
+    # ── Tier 4: historical preference ─────────────────────────────────────
     historical: str | None = None
     if isinstance(historical_preference, Mapping):
         for key in _HISTORICAL_KEYS:
@@ -1671,48 +1783,37 @@ def infer_support_need(
     else:
         historical = _usable_scalar_string(historical_preference)
 
-    unique_components: list[str] = []
-    for component in components:
-        if component not in unique_components:
-            unique_components.append(component)
+    if historical in CANONICAL_SUPPORT_NEEDS and historical != SUPPORT_MIXED:
+        return normalize_json_value(
+            {
+                "support_need": historical,
+                "basis": "historical_preference",
+                "components": (historical,),
+                "explicit": False,
+                "inferred": True,
+                "invented_classification": False,
+                "problem_solving_allowed": historical in (
+                    SUPPORT_PROBLEM_SOLVING,
+                    SUPPORT_NEXT_STEP,
+                    SUPPORT_DECISION_SUPPORT,
+                ),
+                "diagnosis": False,
+                "personality_trait": False,
+                "durable_identity": False,
+                "revisable": True,
+            }
+        )
 
-    if len(unique_components) > 1:
-        support_need = SUPPORT_MIXED
-        basis = "explicit_current_request"
-        if signal is not None and explicit is None:
-            basis = "clear_current_signal"
-    elif len(unique_components) == 1:
-        support_need = unique_components[0]
-        if explicit is not None:
-            basis = "explicit_current_request"
-        elif signal is not None:
-            basis = "clear_current_signal"
-        elif context_need is not None:
-            basis = "recent_session_context"
-        else:  # pragma: no cover - defensive
-            basis = "default_heuristic"
-    elif historical in CANONICAL_SUPPORT_NEEDS and historical != SUPPORT_MIXED:
-        support_need = historical
-        basis = "historical_preference"
-    else:
-        support_need = SUPPORT_UNCLEAR
-        basis = "no_usable_signal"
-
-    problem_solving_allowed = support_need in (
-        SUPPORT_PROBLEM_SOLVING,
-        SUPPORT_NEXT_STEP,
-        SUPPORT_DECISION_SUPPORT,
-        SUPPORT_MIXED,
-    )
+    # ── Tier 5: UNCLEAR / default ─────────────────────────────────────────
     return normalize_json_value(
         {
-            "support_need": support_need,
-            "basis": basis,
-            "components": tuple(unique_components),
-            "explicit": explicit is not None,
-            "inferred": explicit is None and support_need != SUPPORT_UNCLEAR,
+            "support_need": SUPPORT_UNCLEAR,
+            "basis": "no_usable_signal",
+            "components": (),
+            "explicit": False,
+            "inferred": False,
             "invented_classification": False,
-            "problem_solving_allowed": problem_solving_allowed,
+            "problem_solving_allowed": False,
             "diagnosis": False,
             "personality_trait": False,
             "durable_identity": False,

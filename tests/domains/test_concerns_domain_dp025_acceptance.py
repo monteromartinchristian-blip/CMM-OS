@@ -507,10 +507,10 @@ def test_recurring_pattern_grounding_gate():
     from cmm.domains.concerns.rules import evaluate_repetitive_certainty_pattern
 
     full_turns = (
-        {"turn": 1, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 2, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 3, "same_question": True, "evidence_state": "unchanged"},
-        {"turn": 4, "same_question": True, "relief_followed_by_checking": True},
+        {"turn": 1, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
+        {"turn": 2, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
+        {"turn": 3, "same_question": True, "evidence_state": "unchanged", "impossible_certainty": True},
+        {"turn": 4, "same_question": True, "relief_followed_by_checking": True, "pursuing_certainty": True},
     )
     complete = evaluate_repetitive_certainty_pattern(turns=full_turns)
     incomplete = evaluate_repetitive_certainty_pattern(
@@ -551,7 +551,8 @@ def test_no_forced_action_gate():
         options=("A", "B"), user_request="decide for me"
     )
     assert none_needed["state"] == "NO_ACTION_NEEDED"
-    assert waiting["state"] in ("NO_ACTION_NEEDED", "ACTION_OPTIONAL")
+    # Explicit wait is respected: no action is invited against current intent (I-003).
+    assert waiting["state"] == "NO_ACTION_NEEDED"
     assert deciding_for_user["decision_adopted"] is False
     assert deciding_for_user["external_action_executed"] is False
 
