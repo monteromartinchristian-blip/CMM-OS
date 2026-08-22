@@ -278,10 +278,19 @@ _OUTPUT_SCHEMAS: dict[str, dict] = {
         },
     ),
     "concerns.separate_reality_interpretation": _schema(
-        ("statements", "promotions_blocked_total", "persisted", "malformed_input"),
+        (
+            "statements",
+            "promotions_blocked_total",
+            "interpretation_promoted_to_fact",
+            "catastrophic_escalation_present",
+            "persisted",
+            "malformed_input",
+        ),
         {
             "statements": _RECORDS,
             "promotions_blocked_total": _INT,
+            "interpretation_promoted_to_fact": _BOOL,
+            "catastrophic_escalation_present": _BOOL,
             "persisted": _BOOL,
             "malformed_input": _BOOL,
         },
@@ -345,6 +354,7 @@ _OUTPUT_SCHEMAS: dict[str, dict] = {
             "specialized_authorized",
             "reassurance_coexists_with_uncertainty",
             "false_reassurance_detected",
+            "false_reassurance",
             "corrected_assessment",
             "persisted",
         ),
@@ -368,6 +378,7 @@ _OUTPUT_SCHEMAS: dict[str, dict] = {
             "specialized_authorized": _BOOL,
             "reassurance_coexists_with_uncertainty": _BOOL,
             "false_reassurance_detected": _BOOL,
+            "false_reassurance": _BOOL,
             "corrected_assessment": _STR,
             "persisted": _BOOL,
         },
@@ -577,14 +588,36 @@ def separate_reality_interpretation_result(*, statements=()) -> dict:
         if classified["promotion_blocked"]:
             promotions_blocked_total += 1
         records.append(classified)
+    # An epistemic-boundary violation is present when any record was promoted
+    # to fact without grounding, or a caller fact label was blocked from
+    # promoting a non-fact level (frozen §18, §117).
+    interpretation_promoted_to_fact = any(
+        record["level"] == "fact" and record["grounded"] is False
+        for record in records
+    ) or any(
+        _is_interpretation_labeled_fact(record) for record in records
+    )
+    # A catastrophic escalation is present when a possibility→probability style
+    # promotion survives the epistemic separation (frozen §24).
+    catastrophic_escalation_present = bool(
+        promotions_blocked_total or interpretation_promoted_to_fact
+    )
     return normalize_json_value(
         {
             "statements": tuple(records),
             "promotions_blocked_total": promotions_blocked_total,
+            "interpretation_promoted_to_fact": interpretation_promoted_to_fact,
+            "catastrophic_escalation_present": catastrophic_escalation_present,
             "malformed_input": malformed_structure,
             "persisted": False,
         }
     )
+
+
+def _is_interpretation_labeled_fact(record: dict) -> bool:
+    """True when a classified record that should stay interpretation was
+    promoted to an external fact label (epistemic boundary violation)."""
+    return bool(record.get("promotion_blocked")) and record.get("level") == "fact"
 
 
 def explore_hypotheses_result(*, hypotheses=()) -> dict:
@@ -714,6 +747,9 @@ def evaluate_reassurance_result(
     record = dict(record)
     record["false_reassurance_detected"] = false_check["false_reassurance"]
     record["corrected_assessment"] = false_check["corrected_assessment"]
+    # Gate-friendly alias required by the reassurance_review honesty gate
+    # (B-003 remediation: the gate reads the field the helper actually emits).
+    record["false_reassurance"] = false_check["false_reassurance"]
     return normalize_json_value(record)
 
 

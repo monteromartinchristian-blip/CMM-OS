@@ -128,20 +128,12 @@ def _workflow(
             "no_final_conclusion": True,
             "no_action_plan": True,
             "no_monitoring_plan": True,
-            # Fail-closed safety defaults: a runtime output that violates any
-            # of these (e.g. decision_adopted=True) overrides the safe default
-            # and blocks the gate; absence keeps the safe state.
-            "decision_adopted": False,
-            "external_action_executed": False,
-            "external_transmission_performed": False,
-            "appointment_booked": False,
-            "contact_performed": False,
-            "pathology_inferred": False,
-            "false_reassurance": False,
-            "catastrophic_escalation_present": False,
-            "interpretation_promoted_to_fact": False,
-            "ritual_questioning_allowed": False,
-            "executed": False,
+            # Immutable workflow policy ONLY.  Runtime-derived safety evidence
+            # (false reassurance, catastrophic escalation, ritual questioning,
+            # external execution, epistemic promotion, pathology) is deliberately
+            # NOT pre-populated: a missing runtime value must fail the gate
+            # closed (validate.condition_unknown) instead of being masked by a
+            # static safe default (B-003 remediation).
             **(extra_metadata or {}),
         },
     )
@@ -193,7 +185,7 @@ def _open_concern_conversation() -> DomainWorkflowDefinition:
                 WorkflowNodeType.VALIDATE,
                 "AskOnlyMaterialQuestions",
                 dependencies=("gaps",),
-                wait_condition={"ritual_questioning_allowed": False},
+                wait_condition={"ritual_questions_suppressed": 0},
             ),
             *_questions_and_tail(dependencies=("material_question_gate",)),
         ),
@@ -288,7 +280,7 @@ def _reality_check() -> DomainWorkflowDefinition:
                 "epistemic_gate",
                 WorkflowNodeType.VALIDATE,
                 "LevelsStayDistinct",
-                dependencies=("uncertainty",),
+                dependencies=("separation", "uncertainty"),
                 wait_condition={"interpretation_promoted_to_fact": False},
             ),
             *_questions_and_tail(dependencies=("epistemic_gate",)),
@@ -326,13 +318,20 @@ def _reassurance_review() -> DomainWorkflowDefinition:
                 WorkflowNodeType.VALIDATE,
                 "NoFalseReassurance",
                 dependencies=("reassurance",),
-                wait_condition={"false_reassurance": False},
+                wait_condition={"false_reassurance_detected": False},
+            ),
+            _node(
+                "escalation",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "DetectEscalation",
+                dependencies=("honesty_gate",),
+                operation_id="concerns.separate_reality_interpretation",
             ),
             _node(
                 "proportionality_gate",
                 WorkflowNodeType.VALIDATE,
                 "NoCatastrophicEscalation",
-                dependencies=("honesty_gate",),
+                dependencies=("escalation",),
                 wait_condition={"catastrophic_escalation_present": False},
             ),
             *_questions_and_tail(dependencies=("proportionality_gate",)),
@@ -387,7 +386,7 @@ def _practical_problem_solving() -> DomainWorkflowDefinition:
                 "no_execution_gate",
                 WorkflowNodeType.VALIDATE,
                 "NothingExecuted",
-                dependencies=("agency_gate",),
+                dependencies=("next_step",),
                 wait_condition={"external_action_executed": False},
             ),
             *_questions_and_tail(dependencies=("no_execution_gate",)),

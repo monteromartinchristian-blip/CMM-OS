@@ -182,9 +182,29 @@ def _workflow_by_id(workflow_id):
 
 def test_reassurance_review_blocks_false_reassurance_gate_violation():
     wf = _workflow_by_id("concerns.reassurance_review")
+    # The honesty gate reads the canonical helper field
+    # false_reassurance_detected; a safe helper output with the gate alias
+    # completes.
     run = _run_workflow(
         wf,
-        {"concerns.evaluate_reassurance": {"false_reassurance": False}},
+        {
+            "understand": {"understood": True},
+            "reassurance": {
+                "assessment": "REASSURANCE_SUPPORTED",
+                "false_reassurance_detected": False,
+                "false_reassurance": False,
+                "corrected_assessment": "REASSURANCE_SUPPORTED",
+                "remaining_uncertainty": (),
+                "absolute_certainty": False,
+            },
+            "escalation": {
+                "catastrophic_escalation_present": False,
+                "statements": (),
+                "promotions_blocked_total": 0,
+            },
+            "questions": {"questions": (), "ritual_questions_suppressed": 0},
+        },
+        by_node=True,
     )
     assert run.status is WorkflowRunStatus.COMPLETED
 
