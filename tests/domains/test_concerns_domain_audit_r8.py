@@ -759,3 +759,128 @@ def test_f5_connected_dp025_standard_resolver_and_workflow():
     assert reassurance["material_concern"] is True
     assert "silence means they lost interest" in reassurance["acknowledged_concerns"]
     assert reassurance["concern_erased"] is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F6 — Finish presentation semantic preservation (RI-005)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_f6_presentation_preserves_flat_risk_and_epistemic_state():
+    """Flat risk helper output is preserved in presentation; CONCERN_SUPPORTED is not known_fact without facts."""
+    from cmm.domains.concerns.operations import evaluate_risk_result
+    from cmm.domains.concerns.presentation import (
+        present_concerns_result,
+        PRESENTATION_STATE_KNOWN_FACT,
+        PRESENTATION_STATE_INTERPRETATION,
+    )
+
+    # 1. Flat risk helper output preserved
+    rec = {
+        "identity": "r1",
+        "claim": "user missed medication",
+        "stance": "supports_target",
+        "grounding": "med:1",
+        "source_quality": "grounded",
+        "temporal_relevance": "current",
+    }
+    risk_res = evaluate_risk_result(severity="low", evidence=(rec,))
+    assert risk_res["risk_level"] == "low"
+    presented_risk = present_concerns_result(risk_res)
+    assert presented_risk["risk"]["risk_level"] == "low"
+    assert presented_risk["proportional_action"]["risk"]["risk_level"] == "low"
+
+    # 2. CONCERN_SUPPORTED is an epistemic assessment, NOT known_fact without facts
+    concern_res = {
+        "assessment": "CONCERN_SUPPORTED",
+        "interpretations": ({"statement": "they are ignoring me"},),
+        "facts": (),
+    }
+    presented_concern = present_concerns_result(concern_res)
+    assert presented_concern["presentation_state"] != PRESENTATION_STATE_KNOWN_FACT
+    assert presented_concern["presentation_state"] == PRESENTATION_STATE_INTERPRETATION
+
+
+def test_f6_presentation_parity_across_all_13_operations():
+    """All 13 canonical operations in Concerns Domain project cleanly through presentation without losing semantics."""
+    from cmm.domains.concerns.operations import (
+        understand_concern_result,
+        infer_support_need_result,
+        map_lived_experience_result,
+        separate_reality_interpretation_result,
+        explore_hypotheses_result,
+        calibrate_uncertainty_result,
+        evaluate_reassurance_result,
+        evaluate_risk_result,
+        identify_open_questions_result,
+        explore_options_result,
+        prepare_next_step_result,
+        review_recurring_concern_result,
+        prepare_professional_discussion_result,
+    )
+    from cmm.domains.concerns.presentation import present_concerns_result
+
+    # 1. understand_concern
+    op1 = understand_concern_result(material={"situation": "late reply", "what_matters": "friendship"})
+    p1 = present_concerns_result(op1)
+    assert "section_order" in p1
+
+    # 2. infer_support_need
+    op2 = infer_support_need_result(explicit_request="Tell me what you think.")
+    p2 = present_concerns_result(op2)
+    assert p2["support_need"] == op2["support_need"]
+
+    # 3. map_lived_experience
+    op3 = map_lived_experience_result(material={"emotion_statements": ("worried",)})
+    p3 = present_concerns_result(op3)
+    assert len(p3["experiences"]) == 1
+
+    # 4. separate_reality_interpretation
+    op4 = separate_reality_interpretation_result(statements=({"statement": "they are angry", "level": "interpretation"},))
+    p4 = present_concerns_result(op4)
+    assert len(p4["interpretations"]) == 1
+
+    # 5. explore_hypotheses
+    op5 = explore_hypotheses_result(hypotheses=({"statement": "they were busy"},))
+    p5 = present_concerns_result(op5)
+    assert len(p5["hypotheses"]) == 1
+
+    # 6. calibrate_uncertainty
+    op6 = calibrate_uncertainty_result(records=({"statement": "might rain"},))
+    p6 = present_concerns_result(op6)
+    assert "section_order" in p6
+
+    # 7. evaluate_reassurance
+    op7 = evaluate_reassurance_result(target_claim="they are safe", evidence=(), uncertainty=({"unknown": "whereabouts"},))
+    p7 = present_concerns_result(op7)
+    assert p7["reassurance_assessment"] == op7["assessment"]
+
+    # 8. evaluate_risk
+    op8 = evaluate_risk_result(severity="low")
+    p8 = present_concerns_result(op8)
+    assert p8["risk"]["risk_level"] == op8["risk_level"]
+
+    # 9. identify_open_questions
+    op9 = identify_open_questions_result(questions=({"question": "When did you last speak?", "changes": ("meaning",)},))
+    p9 = present_concerns_result(op9)
+    assert "section_order" in p9
+
+    # 10. explore_options
+    op10 = explore_options_result(options=({"option_id": "opt1", "expected_benefit": "clarity"},))
+    p10 = present_concerns_result(op10)
+    assert len(p10["options"]) == 1
+
+    # 11. prepare_next_step
+    op11 = prepare_next_step_result(desired_outcome="clarity", options=("opt1",), user_request="What to do?")
+    p11 = present_concerns_result(op11)
+    assert p11["next_step"] is not None
+
+    # 12. review_recurring_concern
+    op12 = review_recurring_concern_result(current={"topic": "t1"}, previous=())
+    p12 = present_concerns_result(op12)
+    assert "section_order" in p12
+
+    # 13. prepare_professional_discussion
+    op13 = prepare_professional_discussion_result(concern_summary="health symptoms", key_facts=("bp 120/80",))
+    p13 = present_concerns_result(op13)
+    assert "section_order" in p13

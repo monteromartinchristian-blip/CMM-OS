@@ -149,26 +149,50 @@ def present_concerns_result(result) -> dict:
             "presentation_state": PRESENTATION_STATE_UNKNOWN,
         }
 
-    facts = _project_records(result.get("facts"), state=PRESENTATION_STATE_KNOWN_FACT)
+    raw_statements = result.get("statements") or result.get("records") or ()
+    stmt_facts = []
+    stmt_experiences = []
+    stmt_interpretations = []
+    stmt_hypotheses = []
+    stmt_fears = []
+    if isinstance(raw_statements, (list, tuple)):
+        for item in raw_statements:
+            if isinstance(item, Mapping):
+                lvl = item.get("level") or item.get("kind")
+                if lvl in ("fact", "known_fact"):
+                    stmt_facts.append(item)
+                elif lvl in ("experience", "emotion"):
+                    stmt_experiences.append(item)
+                elif lvl in ("interpretation", "inference"):
+                    stmt_interpretations.append(item)
+                elif lvl in ("hypothesis", "hypothetical"):
+                    stmt_hypotheses.append(item)
+                elif lvl in ("fear", "worry"):
+                    stmt_fears.append(item)
+
+    facts = _project_records(
+        result.get("facts") or tuple(stmt_facts),
+        state=PRESENTATION_STATE_KNOWN_FACT,
+    )
     experiences = _project_records(
-        result.get("experiences") or result.get("emotions"),
+        result.get("experiences") or result.get("emotions") or tuple(stmt_experiences),
         state=PRESENTATION_STATE_USER_EXPERIENCE,
         experience_valid=True,
         external_fact=False,
     )
     interpretations = _project_records(
-        result.get("interpretations"),
+        result.get("interpretations") or tuple(stmt_interpretations),
         state=PRESENTATION_STATE_INTERPRETATION,
         promoted_to_fact=False,
         user_fact=False,
     )
     hypotheses = _project_records(
-        result.get("hypotheses"),
+        result.get("hypotheses") or tuple(stmt_hypotheses),
         state=PRESENTATION_STATE_HYPOTHETICAL,
         fact=False,
     )
     fears = _project_records(
-        result.get("fears"),
+        result.get("fears") or tuple(stmt_fears),
         state=PRESENTATION_STATE_FEAR,
         prediction=False,
         probability_claim=False,
@@ -222,7 +246,20 @@ def present_concerns_result(result) -> dict:
         or _literal_true(result.get("certainty_amplified"))
     )
     risk_value = result.get("risk")
-    risk = dict(risk_value) if isinstance(risk_value, Mapping) else {"risk_level": "none"}
+    if isinstance(risk_value, Mapping):
+        risk = dict(risk_value)
+    elif result.get("risk_level") is not None:
+        risk = {
+            "risk_level": result.get("risk_level"),
+            "emotion_drove_risk": result.get("emotion_drove_risk", False),
+            "grounded_risk_evidence": result.get("grounded_risk_evidence", False),
+            "specialized_ownership_preserved": result.get("specialized_ownership_preserved", False),
+            "immediate": result.get("immediate", False),
+            "escalation_recommended": result.get("escalation_recommended", False),
+        }
+    else:
+        risk = {"risk_level": "none"}
+
     action_state = result.get("action_state") or "NO_ACTION_NEEDED"
     memory_value = result.get("memory_state")
     memory_state = (
@@ -242,6 +279,23 @@ def present_concerns_result(result) -> dict:
     epistemic_distinctions = _string_items(result.get("epistemic_distinctions"))
     lived_impact = _string_items(result.get("lived_impact"))
     actual_concern = _string_items(result.get("actual_concern"))
+
+    if unresolved or absolute_certainty_claimed:
+        presentation_state = PRESENTATION_STATE_UNCERTAIN
+    elif bool(facts):
+        presentation_state = PRESENTATION_STATE_KNOWN_FACT
+    elif bool(interpretations):
+        presentation_state = PRESENTATION_STATE_INTERPRETATION
+    elif bool(hypotheses):
+        presentation_state = PRESENTATION_STATE_HYPOTHETICAL
+    elif bool(fears):
+        presentation_state = PRESENTATION_STATE_FEAR
+    elif bool(experiences):
+        presentation_state = PRESENTATION_STATE_USER_EXPERIENCE
+    elif bool(scenarios):
+        presentation_state = PRESENTATION_STATE_SCENARIO
+    else:
+        presentation_state = PRESENTATION_STATE_UNKNOWN
 
     return {
         "section_order": _SECTION_ORDER,
@@ -289,11 +343,7 @@ def present_concerns_result(result) -> dict:
         "unresolved": unresolved or absolute_certainty_claimed,
         "certainty_amplified": absolute_certainty_claimed,
         "conclusion_presented": not unresolved,
-        "presentation_state": (
-            PRESENTATION_STATE_UNCERTAIN
-            if unresolved or absolute_certainty_claimed
-            else PRESENTATION_STATE_KNOWN_FACT
-        ),
+        "presentation_state": presentation_state,
     }
 
 
