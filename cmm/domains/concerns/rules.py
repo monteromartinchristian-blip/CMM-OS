@@ -2771,31 +2771,53 @@ class NoCatastrophicEscalationRule:
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
         transitions = _seq(context.metadata, "transitions")
-        if not transitions:
+        caveats = _seq(context.metadata, "caveats")
+        if not transitions and not caveats:
             return _result(
                 self.definition,
                 context,
                 ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
-                message="No semantic transitions supplied.",
+                message="No semantic transitions or caveats supplied.",
             )
-        results = tuple(
-            detect_catastrophic_escalation(
-                source_state=(
-                    transition.get("source_state")
-                    if isinstance(transition, Mapping)
-                    else None
-                ),
-                proposed_state=(
-                    transition.get("proposed_state")
-                    if isinstance(transition, Mapping)
-                    else None
-                ),
+        results = ()
+        blocked = ()
+        if transitions:
+            results = tuple(
+                detect_catastrophic_escalation(
+                    source_state=(
+                        transition.get("source_state")
+                        if isinstance(transition, Mapping)
+                        else {"kind": transition.get("source_kind") or transition.get("source")}
+                        if isinstance(transition, Mapping)
+                        else None
+                    ),
+                    proposed_state=(
+                        transition.get("proposed_state")
+                        if isinstance(transition, Mapping)
+                        else {"kind": transition.get("proposed_kind") or transition.get("proposed")}
+                        if isinstance(transition, Mapping)
+                        else None
+                    ),
+                )
+                for transition in transitions
             )
-            for transition in transitions
-        )
-        blocked = tuple(result["promotion"] for result in results if result["blocked"])
+            blocked = tuple(result["promotion"] for result in results if result["blocked"])
+
+        caveat_record = None
+        if caveats:
+            caveat_record = evaluate_caveat_policy(caveats=caveats)
+
         any_blocked = bool(blocked)
+        finding_metadata: dict[str, Any] = {
+            "blocked_promotions": blocked,
+            "results": results,
+        }
+        if caveat_record is not None:
+            finding_metadata["retained_caveats"] = caveat_record["retained"]
+            finding_metadata["suppressed_caveats_count"] = caveat_record["suppressed_count"]
+            finding_metadata["remote_possibilities_not_stacked"] = caveat_record["remote_possibilities_not_stacked"]
+
         finding = ReasoningFinding(
             code=(
                 "CATASTROPHIC_ESCALATION_BLOCKED"
@@ -2805,12 +2827,12 @@ class NoCatastrophicEscalationRule:
             message=(
                 "Unsupported catastrophic promotion detected and blocked."
                 if any_blocked
-                else "No unsupported catastrophic promotion found."
+                else "No unsupported catastrophic promotion found; caveat policy enforced."
             ),
             severity=ReasoningSeverity.WARNING if any_blocked else ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
-            metadata={"blocked_promotions": blocked, "results": results},
+            metadata=finding_metadata,
         )
         return _result(
             self.definition,
@@ -2822,7 +2844,7 @@ class NoCatastrophicEscalationRule:
             ),
             findings=(finding,),
             code="CATASTROPHIC_ESCALATION_EVALUATED",
-            message="Catastrophic escalation gate evaluated.",
+            message="Catastrophic escalation and caveat policy evaluated.",
         )
 
 

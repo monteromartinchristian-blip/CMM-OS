@@ -178,6 +178,19 @@ def present_concerns_result(result) -> dict:
         state=PRESENTATION_STATE_SCENARIO,
         probability_claim=False,
     )
+    caveats_input = result.get("caveats")
+    if caveats_input:
+        from cmm.domains.concerns.rules import evaluate_caveat_policy
+
+        caveat_eval = evaluate_caveat_policy(caveats=caveats_input)
+        retained_texts = {
+            c["caveat"] for c in caveat_eval["retained"] if "caveat" in c
+        }
+        scenarios = tuple(
+            s
+            for s in scenarios
+            if s.get("statement") in retained_texts or s.get("caveat") in retained_texts
+        )
 
     uncertainty_raw = result.get("uncertainty")
     if isinstance(uncertainty_raw, (str, list, tuple)):

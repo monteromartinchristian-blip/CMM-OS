@@ -438,3 +438,64 @@ def test_f2_2_safely_blocked_fact_label_promotion_passes_catastrophic_gate():
 
     for k, v in prop_gate.wait_condition.items():
         assert result.get(k) == v, f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F3 — Wire caveat stacking into canonical runtime path (RI-001)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_f3_caveat_stacking_enforced_by_rule_and_presentation():
+    """Remote technical negative caveats are filtered by rule and do not stack in output."""
+    from datetime import datetime, timezone
+    from cmm.domains.concerns.presentation import present_concerns_result
+    from cmm.domains.concerns.rules import build_concerns_rules
+
+    rules = build_concerns_rules()
+    cat_rule = next(r for r in rules if "no_catastrophic_escalation" in r.definition.id)
+
+    proposed_caveats = (
+        {
+            "caveat": "the building might collapse unexpectedly",
+            "materiality": "remote_possibility",
+            "relevance": "low",
+            "uncertainty": "high",
+        },
+        {
+            "caveat": "there is a severe storm warning in effect today",
+            "materiality": "material_warning",
+            "grounding": "weather_gov:alert:101",
+            "relevance": "high",
+            "uncertainty": "low",
+        },
+    )
+
+    # 1. Rule path filters remote caveat and retains genuine grounded warning
+    ctx = ReasoningRuleContext(
+        reasoning_id="r-caveats",
+        timestamp=datetime.now(timezone.utc),
+        metadata={
+            "caveats": proposed_caveats,
+        },
+    )
+    rule_res = cat_rule.evaluate(ctx)
+    assert rule_res.status == ReasoningRuleResultStatus.APPLIED
+    finding = rule_res.findings[0]
+    assert finding.metadata["suppressed_caveats_count"] == 1
+    assert len(finding.metadata["retained_caveats"]) == 1
+    assert finding.metadata["retained_caveats"][0]["caveat"] == "there is a severe storm warning in effect today"
+    assert finding.metadata["remote_possibilities_not_stacked"] is True
+
+    # 2. Presentation path filters remote caveats
+    presented = present_concerns_result(
+        {
+            "scenarios": (
+                {"statement": "the building might collapse unexpectedly"},
+                {"statement": "there is a severe storm warning in effect today"},
+            ),
+            "caveats": proposed_caveats,
+        }
+    )
+    scenario_texts = [s["statement"] for s in presented["scenarios"]]
+    assert "the building might collapse unexpectedly" not in scenario_texts
+    assert "there is a severe storm warning in effect today" in scenario_texts
