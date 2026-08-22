@@ -886,10 +886,17 @@ def evaluate_proportional_risk(
 ) -> dict:
     """Calibrate risk proportionally; emotional intensity alone never elevates it.
 
-    Specialized risk semantics arriving from Health or another authorized
-    specialized domain are preserved with provenance and are never downgraded
-    because wording is calm (frozen design §23, §63).  Malformed inputs fail
-    closed to unresolved rather than triggering high-risk state.
+    Separates:
+      - subjective severity / lived impact (never objective risk by itself);
+      - grounded objective risk evidence (a real change to objective risk);
+      - authorized specialized risk (preserved with provenance and never
+        downgraded because wording is calm) (frozen design §23, §63).
+
+    Without grounded risk evidence or an authorized specialized result,
+    subjective severity cannot create an objective risk state: medium stays
+    unresolved, high stays unresolved with ``emotion_drove_risk=True``.
+    Malformed inputs fail closed to unresolved rather than triggering
+    high-risk state.
     """
     severity_norm = _semantic_text(severity)
     severity_malformed = severity is not None and (
@@ -926,6 +933,21 @@ def evaluate_proportional_risk(
             if usable_flags:
                 specialized_red_flags = usable_flags
 
+    # ── Grounded objective risk evidence (I-006) ──────────────────────────
+    # Evidence records may explicitly support a material risk (stance
+    # supports_risk / supports / material).  Only grounded, current, material
+    # records count toward objective risk.
+    risk_evidence, _risk_dup, risk_malformed = _normalize_evidence_entries(evidence)
+    grounded_risk_records = [
+        item
+        for item in risk_evidence
+        if item["grounding"]
+        and item["stance"] in (STANCE_SUPPORTS_TARGET, "supports_risk", "material")
+        and item["source_quality"] not in _WEAK_SOURCE_QUALITIES
+        and item["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
+    ]
+    risk_evidence_material = len(grounded_risk_records) >= 1
+
     emotion_drove_risk = False
     if severity_malformed:
         base_risk = _RISK_UNRESOLVED
@@ -938,22 +960,38 @@ def evaluate_proportional_risk(
             emotion_drove_risk = True
             base_risk = _RISK_UNRESOLVED
         elif mapped_severity in (_RISK_MEDIUM,):
-            base_risk = _RISK_MEDIUM
+            # Medium subjective severity alone does NOT create a medium
+            # objective risk state without evidence (I-006).
+            emotion_drove_risk = True
+            base_risk = _RISK_UNRESOLVED
         elif mapped_severity == _RISK_LOW:
             base_risk = _RISK_LOW
         else:
             base_risk = _RISK_NONE
 
-    if specialized_authorized and specialized_red_flags or immediate_claim and base_risk in (_RISK_MEDIUM,):
+    # Objective risk ladder (grounding first):
+    # - authorized specialized red flags → high (never downgraded by calm
+    #   wording);
+    # - grounded material risk evidence → calibrated non-none risk;
+    # - immediacy alone without grounding stays unresolved;
+    # - subjective severity never creates objective risk.
+    if specialized_authorized and specialized_red_flags:
         risk_level = _RISK_HIGH
-    elif immediate_claim and base_risk == _RISK_NONE:
+        emotion_drove_risk = False
+    elif risk_evidence_material and immediate_claim:
+        risk_level = _RISK_HIGH
+    elif risk_evidence_material:
+        risk_level = _RISK_MEDIUM if len(grounded_risk_records) >= 2 else _RISK_LOW
+    elif immediate_claim and base_risk not in (_RISK_NONE, _RISK_UNRESOLVED):
+        risk_level = base_risk
+    elif immediate_claim and risk_malformed == 0 and not risk_evidence_material:
         # Immediacy without grounded basis still cannot manufacture risk.
         risk_level = _RISK_UNRESOLVED
     else:
-        risk_level = base_risk if base_risk != _RISK_NONE else _RISK_NONE
+        risk_level = base_risk if base_risk not in (_RISK_NONE,) else _RISK_NONE
 
     invented_risk = (
-        risk_level == _RISK_HIGH and not specialized_authorized and not immediate_claim
+        risk_level == _RISK_HIGH and not specialized_authorized and not risk_evidence_material
     )
     return normalize_json_value(
         {
@@ -963,6 +1001,7 @@ def evaluate_proportional_risk(
             "specialized_ownership_preserved": specialized_authorized,
             "specialized_domain_id": specialized_domain_id,
             "specialized_red_flags": specialized_red_flags,
+            "grounded_risk_evidence": bool(grounded_risk_records),
             "immediate": immediate_claim and risk_level == _RISK_HIGH,
             "escalation_recommended": risk_level == _RISK_HIGH
             and specialized_authorized,
@@ -1008,6 +1047,99 @@ def detect_catastrophic_escalation(*, source_state, proposed_state) -> dict:
             "source_kind": source_kind,
             "proposed_kind": proposed_kind,
             "adequate_evidence": False,
+        }
+    )
+
+
+# ── Caveat stacking guard (frozen design §24.1, §88.4; I-005) ───────────────
+#
+# Remote negative possibilities must not be appended as safety caveats merely
+# because they are technically possible.  A caveat survives only when it is
+# material AND grounded AND current-relevant.  Unsupported remote negatives
+# are suppressed and counted, so "probably fine, BUT..." lists never grow from
+# technical possibility alone.
+
+_MATERIAL_WARNING_KINDS: frozenset[str] = frozenset(
+    {"material_warning", "material", "warning", "grounded_warning"}
+)
+_REMOTE_POSSIBILITY_KINDS: frozenset[str] = frozenset(
+    {
+        "remote_possibility",
+        "remote",
+        "technical_possibility",
+        "speculative",
+        "unlikely",
+    }
+)
+
+
+def evaluate_caveat_policy(*, caveats=()) -> dict:
+    """Apply the proportional-caveat guard to a proposed caveat/scenario set.
+
+    Each proposed item may carry:
+
+        caveat          — the text
+        grounding       — provenance/source reference
+        materiality     — material_warning | remote_possibility | ...
+        relevance       — low/medium/high
+        source          — source label
+        uncertainty     — low/medium/high
+
+    A caveat is RETAINED only when it is a material, grounded, relevant
+    warning.  Remote negative possibilities are suppressed (never stacked)
+    even when technically possible.  The result is JSON-safe and order
+    invariant.
+    """
+    raw, malformed = _normalize_collection(caveats, require_mapping_elements=True)
+    retained: list[dict] = []
+    suppressed = 0
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            suppressed += 1
+            continue
+        caveat = _usable_scalar_string(
+            entry.get("caveat") or entry.get("warning") or entry.get("text")
+        )
+        if caveat is None:
+            suppressed += 1
+            continue
+        materiality = _semantic_text(entry.get("materiality")) or "remote_possibility"
+        grounding = _usable_reference(entry.get("grounding"))
+        relevance = _semantic_text(entry.get("relevance")) or "low"
+        uncertainty = _semantic_text(entry.get("uncertainty")) or "high"
+
+        is_material = materiality in _MATERIAL_WARNING_KINDS or (
+            materiality not in _REMOTE_POSSIBILITY_KINDS and grounding is not None
+        )
+        relevant = relevance in ("high", "medium")
+        grounded = grounding is not None
+        if is_material and grounded and relevant and uncertainty not in ("high", "unknown"):
+            retained.append(
+                {
+                    "caveat": caveat,
+                    "grounding": grounding,
+                    "materiality": materiality,
+                    "relevance": relevance,
+                    "source": _usable_scalar_string(entry.get("source")),
+                    "uncertainty": uncertainty,
+                }
+            )
+        else:
+            suppressed += 1
+
+    retained = sorted(retained, key=lambda item: str(item["caveat"]))
+    return normalize_json_value(
+        {
+            "retained": tuple(retained),
+            "suppressed_count": suppressed + (1 if malformed else 0),
+            "suppression_reason": (
+                "unsupported_remote_possibilities" if retained and suppressed
+                else "unsupported_remote_possibilities"
+                if suppressed and not retained
+                else None
+            ),
+            "remote_possibilities_not_stacked": True,
+            "malformed_input": malformed,
         }
     )
 
