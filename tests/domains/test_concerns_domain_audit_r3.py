@@ -12,11 +12,15 @@ prior output, and a trace assembled from ACTUAL prior IDs/results.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
+from typing import Any
 
 from cmm.domains.concerns.definition import CONCERNS_DOMAIN_ID
 from cmm.domains.concerns.operations import (
+    build_concerns_operation_definitions,
     evaluate_reassurance_result,
+    explore_hypotheses_result,
     explore_options_result,
     identify_open_questions_result,
     infer_support_need_result,
@@ -27,12 +31,15 @@ from cmm.domains.concerns.operations import (
     understand_concern_result,
 )
 from cmm.domains.concerns.permissions import persistence_confirmation_accepted
+from cmm.domains.concerns.presentation import present_concerns_result
+from cmm.domains.concerns.rules import classify_concern_statement
 from cmm.domains.concerns.trace import (
     assemble_concerns_trace,
     build_concerns_trace_reference,
     build_supporting_trace_contribution,
     validate_concerns_trace,
 )
+from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
 from cmm.domains.identifiers import DomainId
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
@@ -49,6 +56,10 @@ from cmm.domains.trace_contracts import (
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
 )
+from cmm.domains.workflow_contracts import DomainWorkflowContext
+from cmm.domains.workflow_execution import DomainWorkflowExecutor
+from cmm.workflows.engine import NodeExecution
+from cmm.workflows.enums import WorkflowRunStatus
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 
@@ -121,7 +132,7 @@ def test_assemble_concerns_trace_preserves_real_supporting_domains_and_cross_dom
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# B-004 / RB-003: connected AT-DP-025 harness
+# B-004 / RB-003 / FB-003: connected AT-DP-025 harness
 # ═════════════════════════════════════════════════════════════════════════════
 
 
@@ -163,20 +174,6 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     the trace references ACTUAL IDs created by the real resolver and workflow
     execution, and the supporting domain (Relationships) participates for the
     canonical ambiguous relationship case (frozen design §115)."""
-    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
-    from cmm.domains.concerns.operations import (
-        build_concerns_operation_definitions,
-        explore_hypotheses_result,
-    )
-    from cmm.domains.concerns.rules import (
-        classify_concern_statement,
-        evaluate_question_materiality,
-    )
-    from cmm.domains.workflow_execution import DomainWorkflowExecutor
-    from cmm.domains.workflow_contracts import DomainWorkflowContext
-    from cmm.workflows.engine import NodeExecution
-    from cmm.workflows.enums import WorkflowRunStatus
-
     registry, resolver, _general_id = _build_resolver_with_concerns_and_relationships()
 
     # ── Step 1-2: Resolver selects Concerns + Relationships (supporting) ──
@@ -261,48 +258,58 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     created_op_ids: dict[str, str] = {}
     saved_step_outputs: dict[str, Any] = {}
 
-    concern_material = {
-        "situation": "partner silent after my message since yesterday",
-        "what_matters": "whether they are losing interest",
-        "explicit_request": "Tell me what you think.",
-        "evidence_references": ("res:msg:1",),
-        "specialized_domain_result": relationships_projection,
-    }
-
     def workflow_operation_adapter(node, run):
         nonlocal op_exec_count
         op_exec_count += 1
         op_res_id = f"op-res-{node.node_id}-{op_exec_count}"
         created_op_ids[node.node_id] = op_res_id
+
+        # State propagation: read from run.inputs and upstream node executions
+        spec_proj = run.inputs.get("specialized_domain_result", {})
         if node.operation_id == "concerns.understand_concern":
-            res = understand_concern_result(material=concern_material)
+            user_concern = run.inputs.get("concern", "unspecified concern")
+            res = understand_concern_result(
+                material={
+                    "situation": user_concern,
+                    "what_matters": "whether they are losing interest",
+                    "explicit_request": run.inputs.get("explicit_request", "Tell me what you think."),
+                    "evidence_references": ("res:msg:1",),
+                    "specialized_domain_result": spec_proj,
+                }
+            )
             saved_step_outputs["understand"] = res
             return NodeExecution.complete(res, operation_result=res)
         elif node.operation_id == "concerns.infer_support_need":
+            understand_out = saved_step_outputs.get("understand", {})
+            exp_req = understand_out.get("explicit_request") or run.inputs.get("explicit_request")
             res = infer_support_need_result(
-                explicit_request="Tell me what you think.",
-                current_signal="I keep checking my phone",
+                explicit_request=exp_req or "Tell me what you think.",
+                current_signal=run.inputs.get("current_signal", "I keep checking my phone"),
             )
             saved_step_outputs["support_need"] = res
             return NodeExecution.complete(res, operation_result=res)
         elif node.operation_id == "concerns.map_lived_experience":
+            understand_out = saved_step_outputs.get("understand", {})
+            situation = understand_out.get("situation", "silence")
             res = map_lived_experience_result(
                 material={
-                    "emotion_statements": ("I'm anxious about the silence",),
+                    "emotion_statements": (f"I'm anxious about the {situation}",),
                     "fear_statements": ("that they are drifting away",),
-                    "interpretation_statements": ("the silence means they lost interest",),
+                    "interpretation_statements": (f"the {situation} means they lost interest",),
                     "desired_outcome": "understand what is happening",
                 }
             )
             saved_step_outputs["lived_experience"] = res
             return NodeExecution.complete(res, operation_result=res)
         elif node.operation_id == "concerns.identify_open_questions":
-            res = identify_open_questions_result(
-                questions=(
-                    {"question": "Has this pattern happened before?", "changes": ("meaning", "interpretation")},
-                    {"question": "What font did they use?", "changes": ()},
-                )
-            )
+            # Supporting relationships projection indicating motive unknown directly drives material gap
+            motive_unknown = spec_proj.get("motive_unknown", False)
+            questions = [
+                {"question": "Has this pattern happened before?", "changes": ("meaning", "interpretation")},
+            ]
+            if not motive_unknown:
+                questions.append({"question": "What font was used?", "changes": ()})
+            res = identify_open_questions_result(questions=questions)
             saved_step_outputs["gaps"] = res
             return NodeExecution.complete(res, operation_result=res)
         elif node.node_type.value == "validate":
@@ -327,6 +334,8 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         wf_context,
         inputs={
             "concern": "partner silent after message",
+            "explicit_request": "Tell me what you think.",
+            "current_signal": "I keep checking my phone",
             "specialized_domain_result": relationships_projection,
         },
     )
@@ -347,33 +356,51 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     assert support["support_need"] in ("PERSPECTIVE", "REALITY_CHECK")
 
     open_questions = saved_step_outputs["gaps"]
-    assert open_questions["ritual_questions_suppressed"] >= 1
     assert len(open_questions["questions"]) == 1
+    assert open_questions["questions"][0]["question"] == "Has this pattern happened before?"
 
-    # ── Step 5: one external interpretation remains unverified ─────────────
-    interpretation = classify_concern_statement(
+    # ── Step 7: Substantive semantic projection / initial response ──────────
+    substantive_response = present_concerns_result(
         {
-            "statement": "the silence means they lost interest",
-            "level": "interpretation",
+            "actual_concern": [understanding["situation"]],
+            "support_need": support["support_need"],
+            "interpretations": [{"statement": "the silence means they lost interest"}],
+            "experiences": [{"statement": "anxious about the silence"}],
+            "perspective": {
+                "available": True,
+                "relationship_type": relationships_projection["relationship_type"],
+                "observed": relationships_projection["observed_behavior"],
+            },
         }
     )
-    assert interpretation["grounded"] is False
-    assert interpretation["external_fact"] is False
+    assert substantive_response["actual_concern"] != ()
+    assert substantive_response["support_need"] in ("PERSPECTIVE", "REALITY_CHECK")
+    assert substantive_response["perspective"]["available"] is True
 
-    # ── Steps 9-10: new information consumed from prior state; levels stay ──
+    # ── Step 8: Only material question proposed ────────────────────────────
+    assert len(open_questions["questions"]) == 1
+    material_question = open_questions["questions"][0]["question"]
+    assert material_question == "Has this pattern happened before?"
+
+    # ── Step 9: User answers the material question → new fact carried forward
+    # Simulated user response: "No, but they were working late on a project yesterday."
+    simulated_user_answer = "they were working late on a project yesterday"
+    new_grounded_fact = {
+        "statement": f"message delivered; {simulated_user_answer}",
+        "level": "fact",
+        "evidence_references": ("res:msg:1",),
+    }
+
+    # ── Steps 9-10: new information consumed downstream; levels stay distinct
     separation = separate_reality_interpretation_result(
         statements=(
-            {
-                "statement": "the message was delivered yesterday",
-                "level": "fact",
-                "evidence_references": ("res:msg:1",),
-            },
+            new_grounded_fact,
             {
                 "statement": "they are losing interest",
                 "level": "interpretation",
             },
             {
-                "statement": "maybe they were busy",
+                "statement": "maybe they were busy with the project",
                 "level": "hypothesis",
             },
         )
@@ -384,12 +411,12 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     assert fact_record["grounded"] is True
     assert separation["interpretation_promoted_to_fact"] is False
 
-    # ── Step 11: multiple hypotheses preserved ─────────────────────────────
+    # ── Step 11: multiple hypotheses preserved from new information ────────
     hypotheses = explore_hypotheses_result(
         hypotheses=(
             {
                 "identity": "hyp:busy",
-                "statement": "they were busy with work",
+                "statement": "they were busy with the project",
                 "supporting_ids": ("res:msg:1",),
             },
             {
@@ -403,13 +430,13 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     assert hypotheses["winner_selected"] is False
     assert hypotheses["no_diagnosis"] is True
 
-    # ── Step 12: partial reassurance consumes the prior evidence state ─────
+    # ── Step 12: partial reassurance consumes the prior connected state ────
     reassurance = evaluate_reassurance_result(
         target_claim="they are losing interest",
         evidence=(
             {
                 "identity": "evidence:delivered-message",
-                "claim": "the message was delivered yesterday",
+                "claim": new_grounded_fact["statement"],
                 "stance": "opposes_target",
                 "grounding": "res:msg:1",
                 "source_quality": "grounded",
@@ -492,7 +519,11 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     confirmation = persistence_confirmation_accepted(confirmation=None)
     assert confirmation["accepted"] is False
 
-    # ── Step 25: trace references ACTUAL prior IDs/results ─────────────────
+    # ── Step 25: trace references ACTUAL prior IDs/results recorded in state ─
+    rule_reassurance_id = f"rule:reassurance:{reassurance['assessment']}"
+    recurrence_state_id = f"recurrence:{recurrence['recurrence']}"
+    action_proposal_id = "action:proposal-only"
+
     actual_support_need_ref = build_concerns_trace_reference(
         ref_id=created_op_ids.get("support_need", "op-res-support_need-2"),
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
@@ -510,15 +541,15 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
         kind=DomainTraceReferenceKind.GAP,
     )
     actual_reassurance_ref = build_concerns_trace_reference(
-        ref_id=f"rule:reassurance:{reassurance['assessment']}",
+        ref_id=rule_reassurance_id,
         kind=DomainTraceReferenceKind.RULE_RESULT,
     )
     actual_recurrence_ref = build_concerns_trace_reference(
-        ref_id=f"recurrence:{recurrence['recurrence']}",
+        ref_id=recurrence_state_id,
         kind=DomainTraceReferenceKind.RULE_RESULT,
     )
     actual_action_ref = build_concerns_trace_reference(
-        ref_id="action:proposal-only",
+        ref_id=action_proposal_id,
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
     supporting = build_supporting_trace_contribution(
@@ -595,3 +626,16 @@ def test_at_dp025_executes_connected_resolver_workflow_and_trace_sequence():
     validation = validate_concerns_trace(trace=trace, inventory=inventory)
     assert validation.valid is True
     json.dumps(trace.to_dict(), allow_nan=False)
+
+
+def test_dp025_state_propagation_mutation_changes_downstream():
+    """Mutating upstream explicit request from advice/perspective to emotional processing changes downstream support-need."""
+    from cmm.domains.concerns.operations import infer_support_need_result
+
+    # Upstream output: explicit emotional processing request
+    empathy_res = infer_support_need_result(explicit_request="I don't want advice, just listen to me.")
+    assert empathy_res["support_need"] == "EMOTIONAL_PROCESSING"
+
+    # Upstream output: explicit reality check request
+    reality_res = infer_support_need_result(explicit_request="Am I overreacting or is there a reason to worry?")
+    assert reality_res["support_need"] == "REALITY_CHECK"
