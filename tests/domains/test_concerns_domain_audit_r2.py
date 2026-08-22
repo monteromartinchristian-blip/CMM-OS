@@ -317,7 +317,11 @@ def test_open_concern_completes_with_ritual_suppression_zero():
             "understand": {"understood": True, "ok": True},
             "support_need": {"support_need": "PERSPECTIVE", "ok": True},
             "lived_experience": {"diagnosis": False, "ok": True},
-            "gaps": {"questions": (), "ritual_questions_suppressed": 0},
+            "gaps": {
+                "questions": (),
+                "ritual_questions_suppressed": 0,
+                "all_questions_material": True,
+            },
         },
     )
     assert run.status is WorkflowRunStatus.COMPLETED

@@ -185,7 +185,7 @@ def _open_concern_conversation() -> DomainWorkflowDefinition:
                 WorkflowNodeType.VALIDATE,
                 "AskOnlyMaterialQuestions",
                 dependencies=("gaps",),
-                wait_condition={"ritual_questions_suppressed": 0},
+                wait_condition={"all_questions_material": True},
             ),
             *_questions_and_tail(dependencies=("material_question_gate",)),
         ),

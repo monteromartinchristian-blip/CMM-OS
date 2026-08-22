@@ -339,3 +339,102 @@ def test_f1_6_no_false_reassurance_rule_integration():
     res_supported = rule.evaluate(ctx_supported)
     assert res_supported.status == ReasoningRuleResultStatus.BLOCKED
     assert res_supported.findings[0].code == "FALSE_REASSURANCE_BLOCKED"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# F2 — Workflow semantic gates (RB-002)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_f2_1_question_gate_allows_correct_suppression_and_requires_all_emitted_material():
+    """Suppression of immaterial questions is not a failure; all emitted questions must be material."""
+    from cmm.domains.concerns.operations import identify_open_questions_result
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+
+    # 1 material question + 1 immaterial question
+    candidates = (
+        {
+            "question": "Has this happened before?",
+            "changes": ("meaning",),
+        },
+        {
+            "question": "What font should we use?",
+            "changes": (),
+        },
+    )
+    result = identify_open_questions_result(questions=candidates)
+    assert result["ritual_questions_suppressed"] == 1
+    assert len(result["questions"]) == 1
+    assert result["all_questions_material"] is True
+
+    # Check workflow gate
+    wfs = build_concerns_workflow_definitions()
+    open_concern = next(w for w in wfs if w.workflow_id == "concerns.open_concern_conversation")
+    gate_node = next(n for n in open_concern.nodes if n.node_id == "material_question_gate")
+
+    # Gate condition must match producer field
+    for k, v in gate_node.wait_condition.items():
+        assert result.get(k) == v, f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+
+
+def test_f2_2_catastrophic_escalation_all_seven_transitions():
+    """All seven canonical catastrophic escalation transitions are detected by producer output."""
+    from cmm.domains.concerns.operations import separate_reality_interpretation_result
+    from cmm.domains.concerns.rules import (
+        _CATASTROPHIC_PROMOTIONS,
+        detect_catastrophic_escalation,
+    )
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+
+    transitions = [
+        ("possibility", "probability"),
+        ("ambiguity", "warning_sign"),
+        ("change", "deterioration"),
+        ("silence", "rejection"),
+        ("symptom", "serious_disease"),
+        ("setback", "failure"),
+        ("uncertainty", "danger"),
+    ]
+
+    for src, prop in transitions:
+        # Direct rule helper
+        rule_res = detect_catastrophic_escalation(
+            source_state={"kind": src},
+            proposed_state={"kind": prop},
+        )
+        assert rule_res["evaluated"] is True
+        assert rule_res["blocked"] is True
+        assert rule_res["source_kind"] == src
+        assert rule_res["proposed_kind"] == prop
+
+        # Producer operation output
+        op_res = separate_reality_interpretation_result(
+            transitions=[{"source_kind": src, "proposed_kind": prop}]
+        )
+        assert op_res["catastrophic_promotions_detected"] >= 1
+        assert op_res["catastrophic_escalation_present"] is False  # Safely caught & blocked!
+
+
+def test_f2_2_safely_blocked_fact_label_promotion_passes_catastrophic_gate():
+    """A safely blocked fact-label promotion does not fail the catastrophic gate."""
+    from cmm.domains.concerns.operations import separate_reality_interpretation_result
+    from cmm.domains.concerns.workflows import build_concerns_workflow_definitions
+
+    # Caller attempts to promote an interpretation to fact
+    input_statement = {
+        "statement": "they reject me",
+        "level": "interpretation",
+        "fact": True,
+    }
+    result = separate_reality_interpretation_result(statements=[input_statement])
+    assert result["promotions_blocked_total"] == 1
+    assert result["interpretation_promoted_to_fact"] is False
+    assert result["catastrophic_escalation_present"] is False
+
+    # Check workflow gate
+    wfs = build_concerns_workflow_definitions()
+    reality_check = next(w for w in wfs if w.workflow_id == "concerns.reassurance_review")
+    prop_gate = next(n for n in reality_check.nodes if n.node_id == "proportionality_gate")
+
+    for k, v in prop_gate.wait_condition.items():
+        assert result.get(k) == v, f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"

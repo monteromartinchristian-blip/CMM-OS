@@ -27,6 +27,7 @@ from cmm.domains.concerns.catalog import CANONICAL_CONCERNS_OPERATION_IDS
 from cmm.domains.concerns.rules import (
     QUESTION_MATERIAL,
     classify_concern_statement,
+    detect_catastrophic_escalation,
     detect_false_reassurance,
     evaluate_action_state,
     evaluate_immediate_risk_escalation,
@@ -115,7 +116,11 @@ _INPUT_SCHEMAS: dict[str, dict] = {
         ("material",), {"material": {"type": "object"}}
     ),
     "concerns.separate_reality_interpretation": _schema(
-        ("statements",), {"statements": _RECORDS}
+        ("statements",),
+        {
+            "statements": _RECORDS,
+            "transitions": _RECORDS,
+        },
     ),
     "concerns.explore_hypotheses": _schema(("hypotheses",), {"hypotheses": _RECORDS}),
     "concerns.calibrate_uncertainty": _schema(("records",), {"records": _RECORDS}),
@@ -288,7 +293,9 @@ _OUTPUT_SCHEMAS: dict[str, dict] = {
         ),
         {
             "statements": _RECORDS,
+            "transitions": _RECORDS,
             "promotions_blocked_total": _INT,
+            "catastrophic_promotions_detected": _INT,
             "interpretation_promoted_to_fact": _BOOL,
             "catastrophic_escalation_present": _BOOL,
             "persisted": _BOOL,
@@ -418,10 +425,16 @@ _OUTPUT_SCHEMAS: dict[str, dict] = {
         },
     ),
     "concerns.identify_open_questions": _schema(
-        ("questions", "ritual_questions_suppressed", "malformed_input"),
+        (
+            "questions",
+            "ritual_questions_suppressed",
+            "all_questions_material",
+            "malformed_input",
+        ),
         {
             "questions": _RECORDS,
             "ritual_questions_suppressed": _INT,
+            "all_questions_material": _BOOL,
             "malformed_input": _BOOL,
         },
     ),
@@ -578,36 +591,77 @@ def map_lived_experience_result(*, material=None) -> dict:
     return normalize_json_value(map_lived_experience(material))
 
 
-def separate_reality_interpretation_result(*, statements=()) -> dict:
-    """Classify statements into epistemic levels without promotion."""
+def separate_reality_interpretation_result(
+    *, statements=(), transitions=()
+) -> dict:
+    """Classify statements into epistemic levels without promotion and detect catastrophic escalations."""
     records = []
+    transition_records = []
     promotions_blocked_total = 0
+    catastrophic_promotions_detected = 0
     malformed_structure = False
-    raw, structure_malformed = _normalize_statement_collection(statements)
-    malformed_structure = malformed_structure or structure_malformed
-    for entry in raw:
+    raw_statements, st_malformed = _normalize_statement_collection(statements)
+    raw_transitions, tr_malformed = _normalize_record_collection(transitions)
+    malformed_structure = st_malformed or tr_malformed
+
+    for entry in raw_statements:
+        if isinstance(entry, Mapping) and (
+            "source_kind" in entry or "source_state" in entry or "source" in entry
+        ):
+            src = entry.get("source_state") or {
+                "kind": entry.get("source_kind") or entry.get("source")
+            }
+            prop = entry.get("proposed_state") or {
+                "kind": entry.get("proposed_kind")
+                or entry.get("proposed")
+                or entry.get("to")
+            }
+            cat_res = detect_catastrophic_escalation(
+                source_state=src, proposed_state=prop
+            )
+            transition_records.append(cat_res)
+            if cat_res["blocked"]:
+                catastrophic_promotions_detected += 1
+            continue
         classified = classify_concern_statement(entry)
         if classified["promotion_blocked"]:
             promotions_blocked_total += 1
         records.append(classified)
+
+    for entry in raw_transitions:
+        if isinstance(entry, Mapping):
+            src = entry.get("source_state") or {
+                "kind": entry.get("source_kind") or entry.get("source")
+            }
+            prop = entry.get("proposed_state") or {
+                "kind": entry.get("proposed_kind")
+                or entry.get("proposed")
+                or entry.get("to")
+            }
+            cat_res = detect_catastrophic_escalation(
+                source_state=src, proposed_state=prop
+            )
+            transition_records.append(cat_res)
+            if cat_res["blocked"]:
+                catastrophic_promotions_detected += 1
+
     # An epistemic-boundary violation is present when any record was promoted
-    # to fact without grounding, or a caller fact label was blocked from
-    # promoting a non-fact level (frozen §18, §117).
+    # to fact without grounding (external fact requires grounding).
     interpretation_promoted_to_fact = any(
         record["level"] == "fact" and record["grounded"] is False
         for record in records
-    ) or any(
-        _is_interpretation_labeled_fact(record) for record in records
     )
-    # A catastrophic escalation is present when a possibility→probability style
-    # promotion survives the epistemic separation (frozen §24).
-    catastrophic_escalation_present = bool(
-        promotions_blocked_total or interpretation_promoted_to_fact
-    )
+
+    # An unsafe catastrophic escalation survives only if an ungrounded interpretation
+    # was actually promoted to fact or an ungrounded transition was not blocked.
+    catastrophic_escalation_present = interpretation_promoted_to_fact
+
     return normalize_json_value(
         {
             "statements": tuple(records),
+            "transitions": tuple(transition_records),
             "promotions_blocked_total": promotions_blocked_total,
+            "catastrophic_promotions_detected": catastrophic_promotions_detected,
             "interpretation_promoted_to_fact": interpretation_promoted_to_fact,
             "catastrophic_escalation_present": catastrophic_escalation_present,
             "malformed_input": malformed_structure,
@@ -807,10 +861,14 @@ def identify_open_questions_result(*, questions=()) -> dict:
                 "why_it_matters": tuple(sorted(materiality["recognized_changes"])),
             }
         )
+    all_questions_material = not malformed and all(
+        q.get("materiality") == QUESTION_MATERIAL for q in evaluated
+    )
     return normalize_json_value(
         {
             "questions": tuple(evaluated),
             "ritual_questions_suppressed": ritual_suppressed,
+            "all_questions_material": all_questions_material,
             "malformed_input": malformed,
         }
     )
