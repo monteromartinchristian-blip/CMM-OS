@@ -270,3 +270,154 @@ def test_professional_discussion_validated_input_preserves_semantics():
     assert "blood pressure" in result["prepared_content"]
     assert "140/90" in result["prepared_content"]
     assert "dizziness" in result["prepared_content"]
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# C2 (FB-002) — Reassurance metadata genuinely fail closed
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_missing_target_cannot_fully_reassure():
+    """Missing target_claim prevents REASSURANCE_SUPPORTED even with multiple grounded opposing records."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED, REASSURANCE_PARTIAL
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim=None, evidence=ev)
+    assert res["assessment"] != REASSURANCE_SUPPORTED
+    assert res["assessment"] == REASSURANCE_PARTIAL
+    assert res["target_claim"] is None
+
+
+def test_missing_source_quality_cannot_fully_reassure():
+    """Missing source_quality (None) fails closed and cannot produce REASSURANCE_SUPPORTED."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": None,
+            "temporal_relevance": "current",
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": None,
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are ignoring me", evidence=ev)
+    assert res["assessment"] != REASSURANCE_SUPPORTED
+
+
+def test_unknown_source_quality_cannot_fully_reassure():
+    """Unknown source_quality ('banana') fails closed and cannot produce REASSURANCE_SUPPORTED."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": "banana",
+            "temporal_relevance": "current",
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": "banana",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are ignoring me", evidence=ev)
+    assert res["assessment"] != REASSURANCE_SUPPORTED
+
+
+def test_missing_temporal_relevance_cannot_fully_reassure():
+    """Missing temporal_relevance (None) fails closed and cannot produce REASSURANCE_SUPPORTED."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": "grounded",
+            "temporal_relevance": None,
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": "grounded",
+            "temporal_relevance": None,
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are ignoring me", evidence=ev)
+    assert res["assessment"] != REASSURANCE_SUPPORTED
+
+
+def test_unknown_temporal_relevance_cannot_fully_reassure():
+    """Unknown temporal_relevance ('nonsense') fails closed and cannot produce REASSURANCE_SUPPORTED."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": "grounded",
+            "temporal_relevance": "nonsense",
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": "grounded",
+            "temporal_relevance": "nonsense",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are ignoring me", evidence=ev)
+    assert res["assessment"] != REASSURANCE_SUPPORTED
+
+
+def test_explicit_grounded_current_evidence_can_fully_reassure():
+    """Explicit recognized strong quality ('grounded') and temporal relevance ('current') can produce REASSURANCE_SUPPORTED."""
+    from cmm.domains.concerns.rules import evaluate_reassurance, REASSURANCE_SUPPORTED
+
+    ev = (
+        {
+            "claim": "warm reply",
+            "stance": "opposes_target",
+            "grounding": "m1",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+        {
+            "claim": "invited me",
+            "stance": "opposes_target",
+            "grounding": "m2",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are ignoring me", evidence=ev)
+    assert res["assessment"] == REASSURANCE_SUPPORTED

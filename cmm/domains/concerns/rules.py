@@ -293,6 +293,21 @@ STANCE_NEUTRAL = "neutral"
 _KNOWN_STANCES: frozenset[str] = frozenset(
     {STANCE_SUPPORTS_TARGET, STANCE_OPPOSES_TARGET, STANCE_NEUTRAL}
 )
+# Explicitly recognized strong source qualities (closed vocabulary).
+# Full reassurance requires an explicit recognized strong quality.
+_STRONG_SOURCE_QUALITIES: frozenset[str] = frozenset(
+    {
+        "grounded",
+        "direct_observation",
+        "verified_record",
+        "reliable_source",
+        "primary_source",
+        "verified",
+        "sensor",
+        "system_record",
+        "first_hand",
+    }
+)
 
 # Explicitly weak source qualities: such records can never upgrade an
 # assessment to full support (frozen design §22 "source quality").
@@ -305,6 +320,20 @@ _WEAK_SOURCE_QUALITIES: frozenset[str] = frozenset(
         "unverified",
         "secondhand_anecdote",
         "weak",
+    }
+)
+
+# Explicitly recognized current temporal relevance (closed vocabulary).
+# Full reassurance requires an explicit recognized current value.
+_CURRENT_TEMPORAL_RELEVANCE: frozenset[str] = frozenset(
+    {
+        "current",
+        "recent",
+        "active",
+        "up_to_date",
+        "present",
+        "live",
+        "real_time",
     }
 )
 
@@ -793,9 +822,13 @@ def evaluate_reassurance(
     pool = (*supporting, *countering)
 
     def _is_current_and_grounded(record: dict) -> bool:
+        sq = record.get("source_quality")
+        tr = record.get("temporal_relevance")
         return (
-            record["source_quality"] not in _WEAK_SOURCE_QUALITIES
-            and record["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
+            sq in _STRONG_SOURCE_QUALITIES
+            and sq not in _WEAK_SOURCE_QUALITIES
+            and tr in _CURRENT_TEMPORAL_RELEVANCE
+            and tr not in _STALE_TEMPORAL_RELEVANCE
         )
 
     pro_concern_all = [
@@ -807,6 +840,12 @@ def evaluate_reassurance(
         item
         for item in pool
         if item["stance"] == STANCE_OPPOSES_TARGET
+    ]
+    pro_concern_valid = [
+        item
+        for item in pro_concern_all
+        if item["source_quality"] not in _WEAK_SOURCE_QUALITIES
+        and item["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
     ]
     pro_concern_strong = [
         item for item in pro_concern_all if _is_current_and_grounded(item)
@@ -885,40 +924,35 @@ def evaluate_reassurance(
     )
     base_plausibility_value = raw_bp if canonical_bp is not None else None
     evaluated_bp = canonical_bp or BASE_PLAUSIBILITY_UNKNOWN
+    target = _usable_scalar_string(target_claim)
 
     both_sides = bool(pro_reassurance_all) and (
         bool(pro_concern_all) or specialized_concern
     )
 
     # Decision ladder (frozen design §22, §25):
-    # - a material concern backed by >=2 distinct grounded target-supporting
-    #   records is acknowledged (reassurance would minimize real evidence);
-    # - a clear majority of grounded target-supporting records is a real
-    #   concern basis;
-    # - genuine target-supporting evidence caps reassurance below SUPPORTED
-    #   (never minimized; §25);
-    # - full reassurance requires >=2 strong, current, well-sourced records
-    #   opposing the target with no genuine supporting record, and low/moderate
-    #   base plausibility;
+    # - mixed signals with material concern → REASSURANCE_PARTIAL;
+    # - mixed signals without material concern → UNCERTAIN;
+    # - concern-only basis (material concern or >=2 valid grounded records without reassurance) → CONCERN_SUPPORTED;
+    # - genuine target-supporting evidence caps reassurance below SUPPORTED (never minimized; §25);
+    # - full reassurance requires >=2 strong, current, well-sourced records opposing the target with no genuine supporting record, a valid target claim, and low/moderate base plausibility;
     # - weak/stale opposing records stay visible in supporting but cap at partial;
-    # - high base plausibility of feared target caps reassurance ceiling at partial.
-    if (
-        material_concern
-        or specialized_concern
-        or len(pro_concern_strong) >= len(pro_reassurance_strong)
-    ) and len(pro_concern_strong) >= 2:
-        assessment = CONCERN_SUPPORTED
-    elif specialized_concern and not pro_reassurance_all:
-        assessment = CONCERN_SUPPORTED
-    elif both_sides and (material_concern or specialized_concern):
+    # - missing target claim fails closed: direction without a target cannot fully reassure.
+    if both_sides and (material_concern or specialized_concern):
         assessment = REASSURANCE_PARTIAL
     elif both_sides:
         assessment = UNCERTAIN
+    elif (
+        (material_concern and not pro_reassurance_all)
+        or (len(pro_concern_valid) >= 2 and not pro_reassurance_all)
+        or (specialized_concern and not pro_reassurance_all)
+    ):
+        assessment = CONCERN_SUPPORTED
     elif (material_concern or specialized_concern) and (
         pro_reassurance_all or pro_concern_all or specialized_reassuring
     ):
         assessment = REASSURANCE_PARTIAL
-    elif pro_concern_strong:
+    elif pro_concern_valid:
         # A single grounded target-supporting record is a real counter-signal
         # but not a confirmed concern basis.
         assessment = UNCERTAIN
@@ -927,7 +961,7 @@ def evaluate_reassurance(
         and not specialized_concern
         and not material_concern
     ):
-        if evaluated_bp == BASE_PLAUSIBILITY_HIGH:
+        if target is None or evaluated_bp == BASE_PLAUSIBILITY_HIGH:
             assessment = REASSURANCE_PARTIAL
         else:
             assessment = REASSURANCE_SUPPORTED
@@ -947,11 +981,14 @@ def evaluate_reassurance(
     else:
         assessment = INSUFFICIENT_BASIS
 
+    if target is None and assessment == REASSURANCE_SUPPORTED:
+        assessment = REASSURANCE_PARTIAL
+
     absolute_certainty = False
     return normalize_json_value(
         {
             "assessment": assessment,
-            "target_claim": _usable_scalar_string(target_claim),
+            "target_claim": target,
             "base_plausibility": base_plausibility_value,
             "supporting": tuple(pro_reassurance_all),
             "counterevidence": tuple(pro_concern_all),
@@ -1064,7 +1101,9 @@ def evaluate_proportional_risk(
         for item in risk_evidence
         if item["grounding"]
         and item["stance"] in (STANCE_SUPPORTS_TARGET, "supports_risk", "material")
+        and item["source_quality"] in _STRONG_SOURCE_QUALITIES
         and item["source_quality"] not in _WEAK_SOURCE_QUALITIES
+        and item["temporal_relevance"] in _CURRENT_TEMPORAL_RELEVANCE
         and item["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
     ]
     risk_evidence_material = len(grounded_risk_records) >= 1

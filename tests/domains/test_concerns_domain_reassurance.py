@@ -132,12 +132,40 @@ def test_clear_counterevidence_supports_reassurance():
     record = evaluate_reassurance(
         target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:1"},
+            {
+                "identity": "e1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "msg:1",
+                "source_quality": "grounded",
+                "temporal_relevance": "current",
+            },
         ),
         counterevidence=(
-            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:2"},
-            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:3"},
-            {"identity": "c3", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "msg:4"},
+            {
+                "identity": "c1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "msg:2",
+                "source_quality": "grounded",
+                "temporal_relevance": "current",
+            },
+            {
+                "identity": "c2",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "msg:3",
+                "source_quality": "grounded",
+                "temporal_relevance": "current",
+            },
+            {
+                "identity": "c3",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "msg:4",
+                "source_quality": "grounded",
+                "temporal_relevance": "current",
+            },
         ),
     )
     assert record["assessment"] == REASSURANCE_SUPPORTED
@@ -212,10 +240,33 @@ def test_all_five_canonical_states_exist_and_are_used():
         {},  # insufficient
         {
             "target_claim": "x",
-            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
+            "evidence": (
+                {
+                    "identity": "e1",
+                    "claim": "x",
+                    "stance": "opposes_target",
+                    "grounding": "s1",
+                    "source_quality": "grounded",
+                    "temporal_relevance": "current",
+                },
+            ),
             "counterevidence": (
-                {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
-                {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
+                {
+                    "identity": "c1",
+                    "claim": "x",
+                    "stance": "opposes_target",
+                    "grounding": "a",
+                    "source_quality": "grounded",
+                    "temporal_relevance": "current",
+                },
+                {
+                    "identity": "c2",
+                    "claim": "x",
+                    "stance": "opposes_target",
+                    "grounding": "b",
+                    "source_quality": "grounded",
+                    "temporal_relevance": "current",
+                },
             ),
         },  # supported
         {

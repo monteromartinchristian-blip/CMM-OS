@@ -45,6 +45,7 @@ def test_presenting_actual_reassurance_helper_output_preserves_assessment_and_un
                 "stance": "opposes_target",
                 "grounding": "msg:1",
                 "source_quality": "grounded",
+                "temporal_relevance": "current",
             },
             {
                 "identity": "e2",
@@ -52,6 +53,7 @@ def test_presenting_actual_reassurance_helper_output_preserves_assessment_and_un
                 "stance": "opposes_target",
                 "grounding": "cal:1",
                 "source_quality": "grounded",
+                "temporal_relevance": "current",
             },
         ),
         uncertainty=(
@@ -192,6 +194,7 @@ def test_presentation_parity_reassurance_semantics_matrix():
                     "stance": "opposes_target",
                     "grounding": "msg:1",
                     "source_quality": "grounded",
+                    "temporal_relevance": "current",
                 },
                 {
                     "identity": "e2",
@@ -199,6 +202,7 @@ def test_presentation_parity_reassurance_semantics_matrix():
                     "stance": "opposes_target",
                     "grounding": "cal:1",
                     "source_quality": "grounded",
+                    "temporal_relevance": "current",
                 },
             ),
             uncertainty=({"identity": "u", "unknown": "intent"},),

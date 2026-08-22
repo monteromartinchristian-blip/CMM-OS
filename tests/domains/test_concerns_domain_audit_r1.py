@@ -171,6 +171,7 @@ def test_source_quality_can_limit_reassurance():
                 "stance": "opposes_target",
                 "grounding": "msg:1",
                 "source_quality": "grounded",
+                "temporal_relevance": "current",
             },
             {
                 "identity": "s2",
@@ -178,6 +179,7 @@ def test_source_quality_can_limit_reassurance():
                 "stance": "opposes_target",
                 "grounding": "msg:2",
                 "source_quality": "grounded",
+                "temporal_relevance": "current",
             },
         ),
     )
@@ -216,6 +218,7 @@ def test_temporally_stale_evidence_cannot_upgrade_reassurance():
                 "claim": "warm reply today",
                 "stance": "opposes_target",
                 "grounding": "msg:today",
+                "source_quality": "grounded",
                 "temporal_relevance": "current",
             },
             {
@@ -223,6 +226,7 @@ def test_temporally_stale_evidence_cannot_upgrade_reassurance():
                 "claim": "meeting scheduled this week",
                 "stance": "opposes_target",
                 "grounding": "cal:this-week",
+                "source_quality": "grounded",
                 "temporal_relevance": "current",
             },
         ),
