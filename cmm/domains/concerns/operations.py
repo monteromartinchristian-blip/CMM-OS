@@ -621,18 +621,18 @@ def _is_interpretation_labeled_fact(record: dict) -> bool:
 
 
 def explore_hypotheses_result(*, hypotheses=()) -> dict:
-    """Preserve multiple hypotheses; no arbitrary winner, no diagnosis."""
-    from datetime import datetime, timezone
+    """Preserve multiple hypotheses; no arbitrary winner, no diagnosis.
 
-    from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
-    from cmm.domains.reflection.rules import evaluate_hypotheses as reflection_evaluate
+    Reuses the shared domain-generic hypothesis evaluator
+    (``cmm.cognitive.hypothesis_evaluation``) — the same shared contract
+    Reflection consumes — with a conservative no-diagnosis default: Concerns
+    never classifies statements as psychological diagnoses (I-004).  Each
+    hypothesis keeps its supporting/counterevidence and uncertainty; no
+    winner is selected and nothing is converted into a fact.
+    """
+    from cmm.cognitive.hypothesis_evaluation import evaluate_hypotheses as shared
 
-    # Concerns reuses the shared Reflection hypothesis evaluator through the
-    # public helper contract: multiple hypotheses, counterevidence preserved,
-    # no winner, no diagnosis.  This is composition over shared contracts, not
-    # a competing implementation.
-    record = reflection_evaluate(hypotheses=hypotheses)
-    del ReasoningRuleContext, datetime, timezone
+    record = shared(hypotheses=hypotheses, diagnostic_signal=None)
     return normalize_json_value(
         {
             "hypotheses": record["hypotheses"],
