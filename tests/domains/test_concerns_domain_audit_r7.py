@@ -16,7 +16,6 @@ import pytest
 
 from cmm.domains.concerns.catalog import CANONICAL_CONCERNS_OPERATION_IDS
 from cmm.domains.concerns.operations import (
-    build_concerns_operation_definitions,
     calibrate_uncertainty_result,
     evaluate_reassurance_result,
     evaluate_risk_result,
