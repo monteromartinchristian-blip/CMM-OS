@@ -318,6 +318,9 @@ class DomainTraceReferenceKind(str, Enum):
     PERMISSION_DECISION = "permission_decision"
     APPROVAL_REQUEST = "approval_request"
     APPROVAL_DECISION = "approval_decision"
+    EVIDENCE = "evidence"
+    MEMORY_PROPOSAL = "memory_proposal"
+    MEMORY_BINDING = "memory_binding"
     FINDING = "finding"
     GAP = "gap"
     CONTRADICTION = "contradiction"
@@ -334,6 +337,7 @@ class DomainTraceReferenceKind(str, Enum):
     CROSS_DOMAIN_TRACE = "cross_domain_trace"
     PRESENTATION_PLAN = "presentation_plan"
     PRESENTATION_VALIDATION_RESULT = "presentation_validation_result"
+    PRESENTATION_RESULT = "presentation_result"
 
 
 _GLOBAL_KINDS = frozenset(
@@ -349,6 +353,7 @@ _GLOBAL_KINDS = frozenset(
         DomainTraceReferenceKind.CROSS_DOMAIN_TRACE,
         DomainTraceReferenceKind.PRESENTATION_PLAN,
         DomainTraceReferenceKind.PRESENTATION_VALIDATION_RESULT,
+        DomainTraceReferenceKind.PRESENTATION_RESULT,
     }
 )
 

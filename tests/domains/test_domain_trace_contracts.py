@@ -26,6 +26,12 @@ from cmm.domains.trace_contracts import (
 
 NOW = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
 
+DOMAIN_OWNED_SHARED_SEMANTIC_KINDS = (
+    "evidence",
+    "memory_proposal",
+    "memory_binding",
+)
+
 
 def _request() -> DomainTraceAssemblyRequest:
     primary = DomainTraceContribution(
@@ -92,6 +98,44 @@ def test_reference_category_is_strictly_tied_to_domain_ownership() -> None:
         DomainTraceReference("resolution-context:1", DomainTraceReferenceKind.RESOLUTION_CONTEXT, "domain:health")
     with pytest.raises(DomainTraceContractError):
         DomainTraceReference("warning:1", DomainTraceReferenceKind.WARNING)
+
+
+@pytest.mark.parametrize("kind_value", DOMAIN_OWNED_SHARED_SEMANTIC_KINDS)
+def test_new_domain_owned_semantic_references_round_trip(kind_value: str) -> None:
+    kind = DomainTraceReferenceKind(kind_value)
+    reference = DomainTraceReference(
+        f"{kind_value}:1", kind, "domain:languages"
+    )
+
+    assert DomainTraceReference.from_dict(reference.to_dict()) == reference
+
+
+@pytest.mark.parametrize("kind_value", DOMAIN_OWNED_SHARED_SEMANTIC_KINDS)
+def test_new_domain_owned_semantic_references_require_domain_id(
+    kind_value: str,
+) -> None:
+    kind = DomainTraceReferenceKind(kind_value)
+
+    with pytest.raises(DomainTraceContractError):
+        DomainTraceReference(f"{kind_value}:1", kind)
+
+
+def test_presentation_result_is_global_and_round_trips() -> None:
+    reference = DomainTraceReference(
+        "presentation-result:1",
+        DomainTraceReferenceKind("presentation_result"),
+    )
+
+    assert DomainTraceReference.from_dict(reference.to_dict()) == reference
+
+
+def test_presentation_result_rejects_domain_ownership() -> None:
+    with pytest.raises(DomainTraceContractError):
+        DomainTraceReference(
+            "presentation-result:1",
+            DomainTraceReferenceKind("presentation_result"),
+            "domain:languages",
+        )
 
 
 def test_inventory_rejects_duplicate_result_pairing_ids() -> None:
