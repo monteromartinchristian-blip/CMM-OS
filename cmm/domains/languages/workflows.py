@@ -83,7 +83,7 @@ def _workflow(
         nodes=(*_ordered_prefix(), *core_nodes),
         completion_criteria={
             "all_required_nodes_completed": True,
-            "validation_passed": True,
+            "no_blocking_failures": True,
         },
         metadata={
             "phase": "10.26",
