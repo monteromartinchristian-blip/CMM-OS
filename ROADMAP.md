@@ -12,7 +12,7 @@ The roadmap distinguishes clearly between:
 > **Implemented:** Phases 0–9<br>
 > **Implemented and audited:** Phases 0–9<br>
 > **Current test baseline:** 5409 passing tests<br>
-> **Next milestone:** Begin Phase 10 — Domain Intelligence
+> **Next milestone:** Implement Phase 10.26 — Languages Domain
 
 ---
 
@@ -50,7 +50,7 @@ Integrate everything into a stable local platform
 | 7 | Continuous Validation | Complete |
 | 8 | Cognitive Layer | Complete |
 | 9 | Autonomous Agent Runtime | Complete and audited |
-| 10 | Domain Intelligence | Planned |
+| 10 | Domain Intelligence | In progress |
 | 11 | Stable Integrated Platform | Planned |
 
 ---
@@ -462,6 +462,8 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
+**Current progress:** Phase 10.19–10.25 are complete and audited. Phase 10.26 (`domain:languages`) has a frozen canonical design and is pending implementation. Phase 10.27–10.30 remain pending.
+
 **Implemented through:** Phase 10.19 — General Domain, implemented pending audit.
 Phase 10.15 remains closed; Phase 10.20 — Health Domain is next.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
@@ -618,7 +620,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The implementation and audit baseline now covers Phases 0–9, while Phase 10 is the next engineering milestone.
+The current published release is `v0.8.0`. The implementation and audit baseline covers Phases 0–9, while Phase 10 is actively implementing Domain Intelligence.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 

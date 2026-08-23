@@ -3634,104 +3634,212 @@ Implementation status (2026-08-21)
 
 ⸻
 
-**10.26** - **Languages Domain**
+10.26 - Languages Domain
+
+**Status:** Design frozen. Implementation pending.
+
+Canonical design:
+
+`docs/superpowers/specs/2026-08-23-languages-domain-design.md`
+
+Canonical identity:
+
+```text
+domain:languages
+Display name: Idiomas
+Profile: LanguageLearningProfile
+```
 
 Objective
 
-Specify CMM OS to manage language, level, goals, practice, errors, planning and evaluation.
+Specialize CMM OS as an active language-learning tutor and rigorous
+longitudinal learning system while preserving the shared Kernel,
+Cognitive Layer, Knowledge Model, Agent Runtime, Planner, Workflow
+System, Validation System, permissions, and memory contracts.
 
-Entidades
+The domain is multi-language by design, supports multiple concurrent
+goals per language, and distinguishes preferred language variety from
+exclusive correctness.
 
-* language;
-* skill;
-* proficiency_level;
-* exercise;
-* mistake;
-* vocabulary_item;
-* grammar_topic;
-* study_session;
-* exam;
-* certification;
-* learning_goal.
+Canonical proficiency invariants:
 
-Resources
+```text
+certified proficiency != estimated proficiency
+estimated proficiency != observed performance
+global proficiency != proficiency by skill
+practice result != stable proficiency
+certification readiness != general proficiency
+```
 
-* language_plan;
-* exercise_result;
-* conversation;
-* writing_sample;
-* audio_transcript;
-* vocabulary_list;
-* exam_guide;
-* calendar_event;
-* user_message;
-* memory_entry.
+Canonical error and progression invariants:
 
-Rules
+```text
+observed error != recurrent error pattern
+better score once != demonstrated stable progression
+valid language variety != error
+transcript alone != pronunciation evidence
+```
 
+### Entities — 16
+
+```text
+language
+language_variety
+skill_dimension
+language_goal
+proficiency_framework
+proficiency_record
+assessment_evidence
+practice_session
+exercise
+observed_error
+error_pattern
+vocabulary_item
+grammar_topic
+certification_target
+review_item
+learning_plan
+```
+
+### Resources — 15
+
+```text
+user_message
+conversation
+writing_sample
+audio_transcript
+exercise_result
+assessment_result
+language_plan
+lesson_material
+vocabulary_list
+language_reference
+certification_guide
+official_certification_source
+calendar_event
+memory_entry
+domain_result
+```
+
+### Rules — 14
+
+```text
 LanguageLevelEvidenceRule
-
-Distinguishes certified level, estimated level, and point-in-time performance.
-
 SkillSeparationRule
-
-Separa:
-
-* oral understanding
-* oral expression
-* written understanding
-* written expression;
-* grammar
-* vocabulario.
-
-ErrorPatternRule
-
-It detects recurrent errors without generalizing from a minimum sample.
-
+LanguageVarietyValidityRule
+ProficiencyFrameworkRule
+ErrorPatternEvidenceRule
+CorrectionPriorityRule
+AdaptiveDifficultyRule
 SpacedReviewRule
-
-Prioriza revisiones temporalmente distribuidas.
-
 LearningLoadRule
-
-It adapts the plan to time, energy and other targets.
-
+GoalAlignmentRule
+ProgressionEvidenceRule
 CertificationTemporalRule
+CulturalContextEvidenceRule
+LanguageMemoryConsentRule
+```
 
-Checks official calls, levels, and current dates.
+### Operations — 15
 
-Operaciones
+```text
+languages.assess_sample
+languages.update_level_evidence
+languages.create_learning_plan
+languages.generate_lesson
+languages.generate_exercises
+languages.review_exercise
+languages.review_writing
+languages.generate_conversation_turn
+languages.generate_roleplay_turn
+languages.review_speaking
+languages.review_errors
+languages.track_vocabulary
+languages.plan_review_schedule
+languages.prepare_certification
+languages.generate_progress_review
+```
 
-* languages.assess_sample;
-* languages.create_learning_plan;
-* languages.generate_exercises;
-* languages.review_errors;
-* languages.track_vocabulary;
-* languages.prepare_exam;
-* languages.generate_weekly_review;
-* languages.update_level_evidence;
-* languages.plan_conversation_practice.
+### Workflows — 9
 
-Workflows
-
-Language Level Review
-
-Weekly Language Plan
-
+```text
+Language Onboarding
+Proficiency Assessment
+Adaptive Language Lesson
+Conversation & Roleplay Practice
 Writing Review
-
-Speaking Practice
-
+Error Remediation
+Vocabulary & Spaced Review
 Certification Preparation
+Progress Review
+```
 
-Vocabulary Review
+Canonical Progress Review workflow ID:
+
+```text
+languages.progress_checkpoint
+```
+
+Pedagogical modes:
+
+```text
+teach
+practice
+assess
+review
+certification
+immersion
+```
 
 Permissions
 
-* bajo riesgo;
-* monitoring of recurrent errors
-* non-automatic external actions;
-* calendars under authorisation.
+```text
+low-risk internal pedagogy
+consent-gated longitudinal progress tracking
+shared approval for external mutations
+no automatic external actions
+calendar proposal != calendar write
+```
+
+Memory
+
+```text
+session observation != persistent memory
+observed error != persistent recurrent pattern
+candidate update != confirmed persistence
+cross-domain relevance != unrestricted sharing
+```
+
+Cross-domain ownership:
+
+```text
+Languages
+→ language competence, teaching, practice, correction,
+  certification preparation and progression
+
+University
+→ academic objective and university obligations
+
+Oppositions
+→ opposition objective, requirements and deadlines
+
+General
+→ non-linguistic knowledge/content
+
+Concerns
+→ worry, uncertainty and reassurance
+
+Reflection
+→ personal meaning, identity and broad reflection
+```
+
+The domain owning the objective is primary. Languages is supporting
+when it supplies specialized linguistic competence to another primary
+domain.
+
+`DP-026` and `AT-DP-026` remain implementation-pending. The frozen
+design defines their acceptance semantics but does not constitute an
+implementation pass.
 
 ⸻
 
