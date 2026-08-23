@@ -131,7 +131,7 @@ def build_languages_permission_policy() -> DomainPermissionPolicy:
         prohibited_capabilities=LANGUAGES_PROHIBITED_CAPABILITIES,
         approval_capabilities=(PermissionCapability.MEMORY_WRITE,),
         allowed_resource_kinds=LANGUAGES_RESOURCE_KINDS,
-        allowed_sensitivity_levels=("restricted", "secret"),
+        allowed_sensitivity_levels=("internal", "restricted", "secret"),
         allow_memory_read=True,
         allow_memory_write=True,
         allow_external_search=False,

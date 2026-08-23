@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
+from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+)
+from cmm.agent_runtime.enums import PolicyRiskLevel
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.enums import DomainOperationType
 from cmm.domains.languages.definition import LANGUAGES_DOMAIN_ID
 from cmm.domains.languages.memory import (
     build_languages_memory_binding,
@@ -12,6 +22,7 @@ from cmm.domains.languages.memory import (
     build_languages_memory_view_request,
     validate_languages_memory_binding,
 )
+from cmm.domains.languages.permissions import build_languages_permission_policy
 from cmm.domains.memory_contracts import (
     DomainMemoryApprovalDecisionSnapshot,
     DomainMemoryApprovalRequestSnapshot,
@@ -27,6 +38,12 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
 )
+from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+
+NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
 
 
 def _reference(reference_id: str, canonical_id: str) -> DomainMemoryReference:
@@ -185,3 +202,116 @@ def test_full_chain_validation_and_no_private_memory_store() -> None:
         "LanguageMemoryEngine",
     ):
         assert not hasattr(cmm.domains.languages, forbidden)
+
+
+def test_proposal_and_binding_do_not_consume_real_memory_write_approval() -> None:
+    registry = DomainPermissionRegistry()
+    registry.register(build_languages_permission_policy())
+    service = ApprovalService(InMemoryApprovalRepository())
+    gate = DomainPermissionGate(
+        DomainPermissionResolver(registry), service, clock=lambda: NOW
+    )
+    operation = DomainOperationDefinition(
+        operation_id="languages.test_memory_proposal_apply_boundary",
+        domain_id=LANGUAGES_DOMAIN_ID,
+        version="1.0.0",
+        name="Test memory proposal apply boundary",
+        description="Test-only operation for proposal/apply permission separation.",
+        operation_type=DomainOperationType.ANALYSIS,
+        required_permissions=(PermissionCapability.MEMORY_WRITE.value,),
+        risk_level=PolicyRiskLevel.LOW,
+        reversible=True,
+    )
+    pending = gate.evaluate_operation_definition(
+        operation,
+        request_id="languages-memory-proposal-1",
+        actor_id="actor-1",
+        session_id="session-1",
+    )
+    assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    requirement = PermissionApprovalRequirement.from_dict(
+        pending.approval_requirements[0]
+    )
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement, agent_run_id="run-languages-memory"),
+        requested_by="agent-runtime",
+    )
+    service.approve(approval.id, "human-approver")
+
+    proposal_id = "proposal-real-approval-1"
+    reference = _reference(f"ref:{proposal_id}", f"item:{proposal_id}")
+    trace_id = f"trace:{proposal_id}"
+    memory_permission_id = f"permission:{proposal_id}"
+    memory_permission = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=memory_permission_id,
+        allowed=True,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=LANGUAGES_DOMAIN_ID,
+        target_domain_id=LANGUAGES_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    request = build_languages_memory_view_request(
+        request_id=f"request:{proposal_id}",
+        trace_id=trace_id,
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(reference,),
+        permission_decision_ids=(memory_permission_id,),
+    )
+    base_inventory = DomainMemoryReferenceInventory(
+        references=(reference,),
+        traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
+        permission_decisions=(memory_permission,),
+    )
+    view = build_languages_memory_view(request=request, inventory=base_inventory)
+    proposal = build_languages_memory_proposal(
+        proposal_id=proposal_id, affected_reference_ids=(reference.reference_id,)
+    )
+    decision_id = service.repository.list_decisions(approval.id)[0].id
+    binding = build_languages_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=trace_id,
+        permission_decision_ids=(memory_permission_id,),
+        approval_request_ids=(approval.id,),
+        approval_decision_ids=(decision_id,),
+    )
+    inventory = DomainMemoryReferenceInventory(
+        references=(reference,),
+        proposals=(proposal,),
+        permission_decisions=(memory_permission,),
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=approval.id, proposal_id=proposal_id
+            ),
+        ),
+        approval_decisions=(
+            DomainMemoryApprovalDecisionSnapshot(
+                decision_id=decision_id, request_id=approval.id, approved=True
+            ),
+        ),
+        traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=view.view_id,
+                request_id=view.request_id,
+                primary_domain=view.primary_domain,
+                trace_id=view.trace_id,
+                view_digest=view.content_digest,
+            ),
+        ),
+    )
+
+    assert proposal.requires_confirmation is True
+    assert validate_languages_memory_binding(binding=binding, inventory=inventory).is_valid
+    assert service.repository.is_consumed(approval.id) is False
+
+    applied = gate.evaluate_operation_definition(
+        operation,
+        request_id="languages-memory-proposal-1",
+        actor_id="actor-1",
+        session_id="session-1",
+        approval_request_id=approval.id,
+    )
+    assert applied.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert applied.allowed
+    assert service.repository.is_consumed(approval.id) is True
