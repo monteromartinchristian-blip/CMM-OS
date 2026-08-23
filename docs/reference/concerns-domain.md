@@ -1,7 +1,7 @@
 # Concerns Domain (`domain:concerns`)
 
 **Phase:** 10.25
-**Status:** Implemented — independent audits performed, closure findings remediated, final closure audit pending
+**Status:** Complete — independently audited and closed
 **Canonical identity:** `domain:concerns` · namespace `concerns.*` · version `1.0.0`
 **Canonical profile:** `ConcernSupportProfile`
 **Design (frozen):** `docs/superpowers/specs/2026-08-21-concerns-domain-design.md`
@@ -269,6 +269,5 @@ cross_domain, integration, adversarial, dp025_acceptance.
 ## 11. Acceptance status
 
 - `DP-025`: implemented per the frozen redesigned semantics.
-- `AT-DP-025`: executable acceptance matrix green (25-step scenario + 22
-  named gates), recorded as implementation-side candidate evidence.
-- Independent audit: **independent audits performed; latest audit findings remediated; final closure audit pending**.
+- `AT-DP-025`: connected executable acceptance scenario green and independently audited — `PASS`.
+- Independent audit: **complete — all findings remediated; final closure check `PASS`; no unresolved blocking finding**.

@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, and Phase 10.24 — Reflection Domain are complete and audited; the remaining work proceeds from 10.25 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, and Phase 10.25 — Concerns Domain are complete and audited; the remaining work proceeds from 10.26 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -3011,7 +3011,7 @@ Permissions
 
 Status
 
-Implemented. Pending independent audit.
+Complete. Independently audited.
 
 Canonical specification:
 
@@ -3624,12 +3624,13 @@ Implementation status (2026-08-21)
   authorization chain; permissions fail closed on literal-boolean semantics.
 - Bootstrap is atomic validation-first with complete snapshot/restore
   rollback at every registration boundary; fresh import registers nothing.
-- Focused Concerns suite: 297 tests green; all-domain and global suites run
-  in Task 14 verification.
-- `AT-DP-025`: executable acceptance matrix (25-step scenario + 22 named
-  gates) recorded as implementation-side candidate evidence — `PASS` at
-  implementation level.
-- Independent audit: pending. The phase is not independently audited.
+- Focused, all-domain and global verification suites are green; fresh closure
+  evidence is recorded in the Phase 10.25 final closure audit.
+- `AT-DP-025`: connected 25-step acceptance scenario plus named gates —
+  `PASS`, independently audited.
+- Independent audit: complete. All blocking findings from the audit,
+  re-audit, final-audit and closure-audit sequence were remediated; the final
+  independent closure check is `PASS` with no unresolved blocking finding.
 
 ⸻
 
