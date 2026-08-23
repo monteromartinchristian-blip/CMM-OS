@@ -195,3 +195,15 @@ def test_presentation_preserves_fail_closed_missing_evidence_outputs() -> None:
         ["speaking_sample", "pronunciation_evidence"],
         ["current_profile"],
     )
+
+
+def test_presentation_preserves_insufficient_progress_payload() -> None:
+    presented = present_languages_result(
+        generate_progress_review_result(language="English", period="month")
+    )
+
+    assert presented["overall_progression"] == "insufficient_evidence"
+    assert presented["skill_progress"] == {}
+    assert presented["active_patterns_count"] == 0
+    assert presented["certification_readiness"] == "not_assessed"
+    assert presented["recommended_next_focus"] == "not_assessed"

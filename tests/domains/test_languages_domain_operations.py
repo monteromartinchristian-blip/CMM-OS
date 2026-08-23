@@ -264,8 +264,97 @@ def test_progress_review_exposes_valid_stable_progression_invariant() -> None:
     )
 
     assert result["stable_progression"] is True
+    assert result["skill_progress"] == {"writing": "stable_improvement"}
     assert result["progression_evidence_valid"] is True
     assert result["cross_skill_inflation"] is False
+
+
+def test_progress_review_without_evidence_has_no_positive_payload() -> None:
+    result = generate_progress_review_result(
+        language="English",
+        period="last_30_days",
+    )
+
+    assert result["overall_progression"] == "insufficient_evidence"
+    assert result["stable_progression"] is False
+    assert result["skill_progress"] == {}
+    assert result["active_patterns_count"] == 0
+    assert result["certification_readiness"] == "not_assessed"
+    assert result["recommended_next_focus"] == "not_assessed"
+    assert result["progression_evidence_valid"] is True
+    assert result["cross_skill_inflation"] is False
+
+
+def test_progress_review_only_projects_evidenced_skills_and_state() -> None:
+    result = generate_progress_review_result(
+        language="English",
+        period="last_30_days",
+        previous_evidence=(
+            {
+                "provenance_id": "baseline-writing",
+                "score": 0.6,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+        ),
+        evidence=(
+            {
+                "provenance_id": "current-writing-1",
+                "score": 0.85,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+            {
+                "provenance_id": "current-writing-2",
+                "score": 0.88,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+        ),
+        skill="writing",
+        patterns=({"error_type": "inversion", "eligible": True},),
+        certification_profile={"readiness_score": 0.7},
+        goals=({"id": "goal-c1", "target": "C1 writing"},),
+    )
+
+    assert result["skill_progress"] == {"writing": "stable_improvement"}
+    assert "reading" not in result["skill_progress"]
+    assert result["active_patterns_count"] == 1
+    assert result["certification_readiness"] == "in_progress"
+    assert result["recommended_next_focus"] == "inversion"
+    assert set(result["skill_progress"]) <= {"writing"}
+    assert result["cross_skill_inflation"] is False
+
+
+def test_progress_review_multiple_skills_uses_only_each_skills_evidence() -> None:
+    previous = (
+        {"provenance_id": "w0", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "r0", "score": 0.55, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
+    )
+    current = (
+        {"provenance_id": "w1", "score": 0.8, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "w2", "score": 0.82, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "r1", "score": 0.78, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
+        {"provenance_id": "r2", "score": 0.8, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
+    )
+
+    result = generate_progress_review_result(
+        language="English",
+        period="month",
+        previous_evidence=previous,
+        evidence=current,
+    )
+
+    assert result["skill_progress"] == {
+        "reading": "stable_improvement",
+        "writing": "stable_improvement",
+    }
+    assert result["overall_progression"] == "stable_improvement"
+    assert result["stable_progression"] is True
+    assert result["progression_evidence_valid"] is True
 
 
 def test_certification_preparation_no_external_mutation() -> None:

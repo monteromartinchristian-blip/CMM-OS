@@ -120,6 +120,31 @@ def test_non_comparable_results_cannot_create_stable_progression() -> None:
     assert result["progression_outcome"] == "insufficient_evidence"
 
 
+def test_progress_operation_never_inflates_unrelated_skills() -> None:
+    from cmm.domains.languages.operations import generate_progress_review_result
+
+    result = generate_progress_review_result(
+        language="English",
+        period="month",
+        previous_evidence=(
+            {"provenance_id": "w0", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        ),
+        evidence=(
+            {"provenance_id": "w1", "score": 0.8, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+            {"provenance_id": "w2", "score": 0.82, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        ),
+        skill="writing",
+    )
+
+    assert set(result["skill_progress"]) == {"writing"}
+    assert set(result["skill_progress"]) <= {
+        item["skill"] for item in (
+            {"skill": "writing"},
+        )
+    }
+    assert result["cross_skill_inflation"] is False
+
+
 def test_evaluate_progression_one_poor_session_no_stable_regression() -> None:
     """One poor session does not produce stable regression."""
     prev_ev = ({"id": "p1", "score": 0.85, "skill": "writing"},)

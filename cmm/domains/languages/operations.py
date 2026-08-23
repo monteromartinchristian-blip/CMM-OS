@@ -232,6 +232,8 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "goals": {"type": ["array", "null"], "items": {"type": "object"}},
             "previous_evidence": {"type": ["array", "null"], "items": {"type": "object"}},
             "skill": _STR_OR_NULL,
+            "patterns": {"type": ["array", "null"], "items": {"type": "object"}},
+            "certification_profile": {"type": ["object", "null"]},
         },
     ),
 }
@@ -1109,27 +1111,111 @@ def generate_progress_review_result(
     goals: tuple[Any, ...] | list[Any] | None = None,
     previous_evidence: tuple[Any, ...] | list[Any] | None = None,
     skill: str | None = None,
+    patterns: tuple[Any, ...] | list[Any] | None = None,
+    certification_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate comprehensive progress review."""
     ev = list(evidence or [])
-    prog = evaluate_progression(
-        previous_evidence=previous_evidence or (),
-        current_evidence=ev,
-        skill=skill,
+    evidenced_skills = {
+        item_skill.strip()
+        for item in ev
+        if isinstance(item, Mapping)
+        and isinstance((item_skill := item.get("skill")), str)
+        and item_skill.strip()
+    }
+    skill_results = {
+        evidenced_skill: evaluate_progression(
+            previous_evidence=previous_evidence or (),
+            current_evidence=ev,
+            skill=evidenced_skill,
+        )
+        for evidenced_skill in sorted(evidenced_skills)
+    }
+    skill_progress = {
+        evidenced_skill: result["progression_outcome"]
+        for evidenced_skill, result in skill_results.items()
+    }
+    if skill is None and skill_results:
+        skill_outcomes = set(skill_progress.values())
+        prog = {
+            "progression_outcome": (
+                next(iter(skill_outcomes)) if len(skill_outcomes) == 1 else "mixed"
+            ),
+            "stable_progression": all(
+                result["stable_progression"] for result in skill_results.values()
+            ),
+        }
+    else:
+        prog = evaluate_progression(
+            previous_evidence=previous_evidence or (),
+            current_evidence=ev,
+            skill=skill,
+        )
+
+    grounded_patterns = [
+        dict(normalize_json_value(pattern))
+        for pattern in (patterns or ())
+        if isinstance(pattern, Mapping)
+        and (
+            pattern.get("eligible") is True
+            or pattern.get("pattern_state") in {"candidate", "evidenced", "improving"}
+        )
+    ]
+    profile = dict(normalize_json_value(certification_profile or {}))
+    readiness_score = profile.get("readiness_score")
+    if (
+        isinstance(readiness_score, (int, float))
+        and not isinstance(readiness_score, bool)
+        and readiness_score >= 0.8
+    ):
+        certification_readiness = "ready"
+    elif (
+        isinstance(readiness_score, (int, float))
+        and not isinstance(readiness_score, bool)
+        and readiness_score > 0
+    ):
+        certification_readiness = "in_progress"
+    else:
+        certification_readiness = "not_assessed"
+
+    if grounded_patterns:
+        first_pattern = grounded_patterns[0]
+        recommended_next_focus = str(
+            first_pattern.get("recommended_focus")
+            or first_pattern.get("error_type")
+            or "pattern_review"
+        )
+    else:
+        grounded_goals = [
+            dict(normalize_json_value(goal))
+            for goal in (goals or ())
+            if isinstance(goal, Mapping)
+        ]
+        recommended_next_focus = (
+            str(grounded_goals[0].get("target") or grounded_goals[0].get("id"))
+            if grounded_goals
+            else "not_assessed"
+        )
+
+    positive_outcomes = {"short_term_improvement", "stable_improvement"}
+    cross_skill_inflation = not set(skill_progress).issubset(evidenced_skills)
+    progression_evidence_valid = not (
+        prog["progression_outcome"] == "insufficient_evidence"
+        and any(value in positive_outcomes for value in skill_progress.values())
     )
 
     return {
         "review_id": f"pr-{uuid.uuid4().hex[:8]}",
         "language": language,
         "period": period,
-        "skill_progress": {"writing": "improving", "reading": "consolidated"},
+        "skill_progress": skill_progress,
         "overall_progression": prog["progression_outcome"],
         "stable_progression": prog["stable_progression"],
-        "active_patterns_count": 1,
-        "certification_readiness": "in_progress",
-        "recommended_next_focus": "Writing coherence and timed tasks",
-        "progression_evidence_valid": True,
-        "cross_skill_inflation": False,
+        "active_patterns_count": len(grounded_patterns),
+        "certification_readiness": certification_readiness,
+        "recommended_next_focus": recommended_next_focus,
+        "progression_evidence_valid": progression_evidence_valid,
+        "cross_skill_inflation": cross_skill_inflation,
     }
 
 

@@ -236,6 +236,13 @@ def test_schema_valid_empty_operation_inputs_never_invent_evidence() -> None:
     assert certification["readiness_score"] == 0.0
     assert not certification["skill_gaps"]
 
+    progress = generate_progress_review_result(language="English", period="month")
+    assert progress["overall_progression"] == "insufficient_evidence"
+    assert progress["skill_progress"] == {}
+    assert progress["active_patterns_count"] == 0
+    assert progress["certification_readiness"] == "not_assessed"
+    assert progress["recommended_next_focus"] == "not_assessed"
+
 
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
