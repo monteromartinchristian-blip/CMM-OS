@@ -105,8 +105,9 @@ typed `DomainMetadata.metadata` extraction in domain composition; accumulated
 workflow-output visibility at the ready-node adapter boundary; shared Domain
 Trace kinds for evidence, memory proposal/binding and presentation result; and
 the global `presentation_result_ids` carrier. These changes do not alter domain
-scoring/ranking, workflow scheduling/ordering/readiness/status semantics, or
-existing public payload shapes.
+scoring/ranking or workflow scheduling/ordering/readiness/status semantics.
+Their serialized contract extensions are additive and preserve backward reads;
+no existing field is removed or reinterpreted.
 
 This is candidate remediation evidence only. `DP-026` remains
 `REQUIRES_PHASE_INSPECTION`; candidate `AT-DP-026` is `PASS`, independent V3
