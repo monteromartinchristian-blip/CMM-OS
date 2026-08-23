@@ -123,6 +123,15 @@ def normalize_json_value(value: Any) -> Any:
     return str(value)
 
 
+def _canonical_json_value(value: Any) -> str:
+    """Return a deterministic hashable representation of normalized JSON."""
+    return json.dumps(
+        normalize_json_value(value),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _safe_str(val: Any) -> str | None:
     if val is None or not isinstance(val, str):
         return None
@@ -171,11 +180,7 @@ def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
         _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
         _safe_str(record.get("skill")),
         _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
-        json.dumps(
-            normalize_json_value(record.get("score")),
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
+        _canonical_json_value(record.get("score")),
         _safe_str(record.get("error_type")),
         _safe_str(record.get("sentence")),
         _safe_str(record.get("comparison_key")),
@@ -220,6 +225,20 @@ def classify_proficiency_record(
     elif clean_kind == "CERTIFIED":
         clean_kind = "ESTIMATED" if len(deduped_ev) >= 2 else "OBSERVED_PERFORMANCE"
 
+    default_confidence = (
+        0.95
+        if clean_kind == "CERTIFIED"
+        else (0.75 if clean_kind == "ESTIMATED" else 0.5)
+    )
+    clean_confidence = (
+        float(confidence)
+        if isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and math.isfinite(float(confidence))
+        and 0.0 <= float(confidence) <= 1.0
+        else default_confidence
+    )
+
     return {
         "kind": clean_kind,
         "framework": _safe_str(framework) or "CEFR",
@@ -228,7 +247,7 @@ def classify_proficiency_record(
         "evidence": deduped_ev,
         "is_certified": clean_kind == "CERTIFIED",
         "certification_evidence_valid": certification_evidence_valid,
-        "confidence": confidence if isinstance(confidence, (int, float)) and not math.isnan(confidence) else (0.95 if clean_kind == "CERTIFIED" else (0.75 if clean_kind == "ESTIMATED" else 0.5)),
+        "confidence": clean_confidence,
     }
 
 
@@ -1148,7 +1167,11 @@ def evaluate_certification_source(
         # Check if format/dates conflict
         keys_to_compare = ("format", "task_count", "requirements", "exam_date")
         for k in keys_to_compare:
-            vals = {s.get(k) for s in top_tier if s.get(k) is not None}
+            vals = {
+                _canonical_json_value(s.get(k))
+                for s in top_tier
+                if s.get(k) is not None
+            }
             if len(vals) > 1:
                 unresolved = True
                 break

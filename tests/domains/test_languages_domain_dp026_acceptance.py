@@ -252,8 +252,13 @@ class ConnectedLanguagesScenario:
                 decision_critical=True,
             )
             selected_source = authority["selected_source"]
-            self.state["certification_authority"] = authority
-            self.state["certification_selected_source"] = selected_source
+            certification_case = inputs.get("certification_case", "primary")
+            self.state.setdefault("certification_authorities", {})[
+                certification_case
+            ] = authority
+            if certification_case == "primary":
+                self.state["certification_authority"] = authority
+                self.state["certification_selected_source"] = selected_source
             result = prepare_certification_result(target_certification=inputs["target_certification"], official_source=selected_source)
         elif op == "languages.generate_progress_review":
             result = generate_progress_review_result(language=inputs["language"], period=inputs["period"], previous_evidence=inputs["previous_evidence"], evidence=inputs["evidence"], skill="writing")
@@ -307,6 +312,7 @@ class ConnectedLanguagesScenario:
             },
             "languages.certification_preparation": {
                 "language": "English", "target_certification": "Cambridge C1",
+                "certification_case": "primary",
                 "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False},
                 "official_sources": (
                     {"id": "stale-official", "source_type": "official", "date_valid": False},
@@ -421,7 +427,39 @@ class ConnectedLanguagesScenario:
         authority = self.state["certification_authority"]
         self.checkpoint("37-current-official-wins", authority["selected_source"]["id"] == "current-official")
         self.checkpoint("38-readiness-not-proficiency", certification["readiness_promoted_to_proficiency"] is False)
-        self.checkpoint("39-current-requirements-verified", certification["needs_verification"] is False)
+        certification_workflow = next(
+            workflow
+            for workflow in workflows
+            if workflow.workflow_id == "languages.certification_preparation"
+        )
+        stale_certification_run = executor.execute(
+            certification_workflow,
+            context,
+            {
+                "language": "English",
+                "target_certification": "Cambridge C1",
+                "certification_case": "stale-verification",
+                "official_source": {
+                    "id": "stale-only-official",
+                    "source_type": "official",
+                    "date_valid": False,
+                },
+            },
+        )
+        self.state["stale_certification_run"] = stale_certification_run
+        self.actual_produced_ids.add(stale_certification_run.common_run.run_id)
+        self.actual_produced_ids.update(
+            event.event_id
+            for event in stale_certification_run.execution_result.events
+        )
+        stale_certification = stale_certification_run.common_run.outputs[
+            "certification"
+        ]
+        self.checkpoint(
+            "39-stale-requirements-preserve-verification",
+            stale_certification_run.status is WorkflowRunStatus.COMPLETED
+            and stale_certification["needs_verification"] is True,
+        )
         spaced = runs["languages.vocabulary_spaced_review"].common_run.outputs["review_plan"]
         self.state["spaced_review"] = spaced
         self.checkpoint("40-review-proposal-no-calendar-mutation", spaced["calendar_modified"] is False and spaced["external_action_executed"] is False)

@@ -212,6 +212,15 @@ def test_nested_malformed_evidence_fails_closed_without_type_error() -> None:
     assert result["is_certified"] is False
 
 
+def test_invalid_confidence_cannot_create_certainty_or_non_json_numbers() -> None:
+    for confidence in (True, -0.1, 1.1, float("inf"), float("-inf"), float("nan")):
+        result = classify_proficiency_record(
+            kind="OBSERVED_PERFORMANCE",
+            confidence=confidence,
+        )
+        assert result["confidence"] == 0.5
+
+
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
     base = {"observed": "B2", "skill": "writing", "comparable": True, "comparison_key": "essay"}
@@ -306,6 +315,26 @@ def test_certification_temporality_and_readiness_never_upgrade_proficiency() -> 
     )
     assert conflict["selected_source"] is None
     assert conflict["needs_verification"] is True
+    structured_conflict = evaluate_certification_source(
+        sources=(
+            {
+                "id": "structured-a",
+                "source_type": "official",
+                "date_valid": True,
+                "requirements": ["writing", {"speaking": "oral"}],
+            },
+            {
+                "id": "structured-b",
+                "source_type": "official",
+                "date_valid": True,
+                "requirements": ["writing", {"speaking": "interview"}],
+            },
+        ),
+        decision_critical=True,
+    )
+    assert structured_conflict["selected_source"] is None
+    assert structured_conflict["unresolved_conflict"] is True
+    assert structured_conflict["needs_verification"] is True
     assert prepare_certification_result(target_certification="C1")["readiness_promoted_to_proficiency"] is False
 
 
