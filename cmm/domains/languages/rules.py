@@ -521,3 +521,278 @@ class ProficiencyFrameworkRule:
             code="FRAMEWORK_MAPPING_APPLIED",
             message="Framework mapping evaluated.",
         )
+
+
+# ── Task 4 Helpers & Rule Classes ────────────────────────────────────────────
+
+def evaluate_error_pattern(
+    *,
+    observations: tuple[Any, ...] | list[Any] = (),
+    minimum_independent_occurrences: int = 2,
+) -> dict[str, Any]:
+    """Evaluate error pattern evidence across independent comparable observations."""
+    valid_observations: list[dict[str, Any]] = []
+    for obs in observations:
+        if not isinstance(obs, Mapping):
+            continue
+        if obs.get("is_valid_alternative") is True:
+            continue
+        valid_observations.append(dict(normalize_json_value(obs)))
+
+    # Deduplicate observations by id and (context_id, sentence)
+    seen: set[str] = set()
+    distinct_contexts: set[str] = set()
+    evidence_ids: list[str] = []
+    has_resolved = False
+    has_unresolved = False
+
+    for obs in valid_observations:
+        obs_id = _safe_str(obs.get("id")) or ""
+        ctx_id = _safe_str(obs.get("context_id")) or obs_id
+        sentence = _safe_str(obs.get("sentence")) or ""
+        err_type = _safe_str(obs.get("error_type")) or "error"
+        key = f"{ctx_id}:{sentence}:{err_type}"
+        if key in seen:
+            continue
+        seen.add(key)
+        distinct_contexts.add(ctx_id)
+        if obs_id:
+            evidence_ids.append(obs_id)
+        if obs.get("resolved") is True:
+            has_resolved = True
+        else:
+            has_unresolved = True
+
+    indep_count = len(distinct_contexts)
+    lapse_possible = has_resolved and has_unresolved
+
+    if indep_count < minimum_independent_occurrences:
+        pattern_state = "insufficient_evidence"
+        eligible = False
+    elif has_resolved and not has_unresolved:
+        pattern_state = "resolved"
+        eligible = False
+    elif lapse_possible:
+        pattern_state = "improving"
+        eligible = True
+    elif indep_count == minimum_independent_occurrences:
+        pattern_state = "candidate"
+        eligible = True
+    else:
+        pattern_state = "evidenced"
+        eligible = True
+
+    return {
+        "pattern_state": pattern_state,
+        "eligible": eligible,
+        "independent_occurrences": indep_count,
+        "comparable_contexts": len(distinct_contexts),
+        "lapse_possible": lapse_possible,
+        "evidence_ids": sorted(evidence_ids),
+    }
+
+
+def prioritize_corrections(
+    *,
+    errors: tuple[Any, ...] | list[Any] = (),
+    mode: str = "practice",
+    active_goals: tuple[Any, ...] | list[Any] = (),
+    certification_relevance: tuple[Any, ...] | list[Any] = (),
+) -> dict[str, Any]:
+    """Prioritize language corrections based on communicative usefulness and mode."""
+    clean_mode = (_safe_str(mode) or "practice").lower()
+    raw_errors = [dict(normalize_json_value(e)) for e in errors if isinstance(e, Mapping)]
+
+    goal_set = {_safe_str(g) for g in active_goals if _safe_str(g)}
+    cert_set = {_safe_str(c) for c in certification_relevance if _safe_str(c)}
+
+    def _score(err: dict[str, Any]) -> int:
+        cat = _safe_str(err.get("category")) or ""
+        blocking = err.get("blocking") is True or cat == "comprehension_blocking"
+        if blocking:
+            return 100
+        if cat == "recurrent":
+            return 80
+        err_id = _safe_str(err.get("id")) or ""
+        err_type = _safe_str(err.get("error_type")) or ""
+        if err_id in goal_set or err_type in goal_set:
+            return 60
+        if err_id in cert_set or err_type in cert_set:
+            return 40
+        if cat in ("naturalness", "register", "naturalness_register"):
+            return 20
+        return 10  # minor_style
+
+    sorted_errors = sorted(raw_errors, key=_score, reverse=True)
+
+    defer_feedback = clean_mode == "assess"
+    selective_density = clean_mode == "practice"
+
+    immediate_errors = []
+    deferred_errors = []
+    for err in sorted_errors:
+        score = _score(err)
+        if clean_mode == "assess" or clean_mode == "practice" and score <= 10 and any(_score(e) > 10 for e in sorted_errors):
+            deferred_errors.append(err)
+        else:
+            immediate_errors.append(err)
+
+    return {
+        "prioritized_errors": sorted_errors,
+        "immediate_errors": immediate_errors,
+        "deferred_errors": deferred_errors,
+        "mode": clean_mode,
+        "defer_feedback": defer_feedback,
+        "selective_density": selective_density,
+        "immediate_correction_count": len(immediate_errors),
+    }
+
+
+def adapt_difficulty(
+    *,
+    current_difficulty: float,
+    performance: tuple[Any, ...] | list[Any] = (),
+    stable_proficiency: str | None = None,
+) -> dict[str, Any]:
+    """Adapt exercise difficulty based on accumulated comparable performance."""
+    cur_diff = int(current_difficulty) if isinstance(current_difficulty, (int, float)) and not math.isnan(current_difficulty) else 1
+    comparable_perf = [
+        p for p in performance
+        if isinstance(p, Mapping) and isinstance(p.get("score"), (int, float)) and not math.isnan(p.get("score"))
+    ]
+
+    if not comparable_perf:
+        return {
+            "action": "insufficient_evidence",
+            "current_difficulty": cur_diff,
+            "target_difficulty": cur_diff,
+            "stable_proficiency_changed": False,
+            "reason": "no_comparable_performance",
+        }
+
+    scores = [float(p["score"]) for p in comparable_perf]
+    avg_score = sum(scores) / len(scores)
+
+    if len(comparable_perf) < 2:
+        # Single session is insufficient for stable difficulty advancement or regression
+        action = "scaffold_reduce" if avg_score < 0.40 else "maintain_and_advance"
+        target_diff = max(1, cur_diff - 1) if avg_score < 0.40 else cur_diff
+        return {
+            "action": action,
+            "current_difficulty": cur_diff,
+            "target_difficulty": target_diff,
+            "stable_proficiency_changed": False,
+            "reason": "single_session_scaffold_only",
+        }
+
+    if avg_score >= 0.85:
+        return {
+            "action": "increase",
+            "current_difficulty": cur_diff,
+            "target_difficulty": cur_diff + 1,
+            "stable_proficiency_changed": False,
+            "reason": "consistent_high_mastery",
+        }
+    elif avg_score <= 0.50:
+        return {
+            "action": "scaffold_reduce",
+            "current_difficulty": cur_diff,
+            "target_difficulty": max(1, cur_diff - 1),
+            "stable_proficiency_changed": False,
+            "reason": "consistent_high_difficulty",
+        }
+    else:
+        return {
+            "action": "maintain_and_advance",
+            "current_difficulty": cur_diff,
+            "target_difficulty": cur_diff,
+            "stable_proficiency_changed": False,
+            "reason": "adequate_consolidation",
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorPatternEvidenceRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_error_pattern(
+            observations=mat.get("observations", ()),
+            minimum_independent_occurrences=mat.get("minimum_independent_occurrences", 2),
+        )
+        finding = ReasoningFinding(
+            code="ERROR_PATTERN_EVALUATED",
+            message=f"Error pattern state: {res['pattern_state']}.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="ERROR_PATTERN_EVIDENCE_APPLIED",
+            message="Error pattern evidence evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionPriorityRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = prioritize_corrections(
+            errors=mat.get("errors", ()),
+            mode=mat.get("mode", "practice"),
+            active_goals=mat.get("active_goals", ()),
+            certification_relevance=mat.get("certification_relevance", ()),
+        )
+        finding = ReasoningFinding(
+            code="CORRECTION_PRIORITY_EVALUATED",
+            message=f"Prioritized {len(res['prioritized_errors'])} errors for mode {res['mode']}.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="CORRECTION_PRIORITY_APPLIED",
+            message="Correction priority evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveDifficultyRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = adapt_difficulty(
+            current_difficulty=mat.get("current_difficulty", 1),
+            performance=mat.get("performance", ()),
+            stable_proficiency=mat.get("stable_proficiency"),
+        )
+        finding = ReasoningFinding(
+            code="ADAPTIVE_DIFFICULTY_EVALUATED",
+            message=f"Difficulty action: {res['action']}.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="ADAPTIVE_DIFFICULTY_APPLIED",
+            message="Adaptive difficulty evaluated.",
+        )
