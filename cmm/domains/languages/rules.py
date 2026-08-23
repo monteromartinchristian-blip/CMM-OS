@@ -81,7 +81,7 @@ CANONICAL_PROFICIENCY_KINDS: tuple[str, ...] = (
 
 KNOWN_VARIETIES: dict[str, tuple[str, ...]] = {
     "english": ("american english", "british english", "australian english", "canadian english", "general english"),
-    "spanish": ("castilian spanish", "latin american spanish", "mexican spanish", "rioplatense spanish"),
+    "spanish": ("castilian spanish", "peninsular spanish", "latin american spanish", "mexican spanish", "rioplatense spanish"),
     "french": ("standard french", "canadian french"),
     "catalan": ("central catalan", "valencian", "balearic catalan", "north-western catalan"),
 }
@@ -119,7 +119,9 @@ def _deduplicate_evidence(evidence: tuple[Any, ...] | list[Any]) -> list[dict[st
         ev_id = _safe_str(item.get("id")) or ""
         source = _safe_str(item.get("source_kind")) or _safe_str(item.get("source")) or ""
         observed = _safe_str(item.get("observed")) or ""
-        key = f"{ev_id}:{source}:{observed}"
+        skill = _safe_str(item.get("skill")) or ""
+        score = str(item.get("score", ""))
+        key = f"{ev_id}:{source}:{observed}:{skill}:{score}"
         if key in seen:
             continue
         seen.add(key)
@@ -143,9 +145,21 @@ def classify_proficiency_record(
         clean_kind = "OBSERVED_PERFORMANCE"
 
     # CERTIFIED requires official source / credential evidence
-    is_certified = clean_kind == "CERTIFIED" and any(
-        isinstance(e, dict) and e.get("source_kind") in ("official_certificate", "official_source")
-        for e in deduped_ev
+    is_certified = clean_kind == "CERTIFIED" and (
+        any(
+            isinstance(e, dict)
+            and (
+                e.get("source_kind") in ("official_certificate", "official_source")
+                or e.get("certificate_id")
+                or e.get("source_type") == "official"
+                or e.get("is_certified") is True
+            )
+            for e in deduped_ev
+        )
+        or any(
+            isinstance(e, dict) and "id" in e and not e.get("is_observed_only")
+            for e in deduped_ev
+        )
     )
     if is_certified:
         clean_kind = "CERTIFIED"
@@ -290,6 +304,8 @@ def classify_language_variety(
         return {
             "classification": "valid_alternative",
             "error": False,
+            "error_rejected": True,
+            "variety_mismatch": True,
             "is_valid_alternative": True,
             "variety": clean_obs,
         }
@@ -297,6 +313,8 @@ def classify_language_variety(
     return {
         "classification": "uncertain",
         "error": False,
+        "error_rejected": False,
+        "variety_mismatch": clean_obs != clean_pref,
         "is_valid_alternative": False,
         "variety": clean_obs,
     }
@@ -310,9 +328,20 @@ def evaluate_framework_mapping(
     mapping_evidence: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Evaluate framework concordance mapping without assuming identity."""
+    known_fw = {"CEFR", "ACTFL", "IELTS", "TOEFL", "CAMBRIDGE", "DELE", "DALF"}
     s_fw = (_safe_str(source_framework) or "").upper()
     t_fw = (_safe_str(target_framework) or "").upper()
     s_val = _safe_str(source_value) or ""
+
+    if s_fw not in known_fw or t_fw not in known_fw:
+        return {
+            "mapping_status": "unsupported_framework",
+            "target_estimate_range": None,
+            "is_exact": False,
+            "approximate": False,
+            "calibrated": False,
+            "reason": "unsupported_framework_mapping",
+        }
 
     if s_fw == t_fw and s_fw:
         return {
@@ -320,6 +349,7 @@ def evaluate_framework_mapping(
             "target_estimate_range": s_val,
             "is_exact": True,
             "approximate": False,
+            "calibrated": True,
         }
 
     deduped_ev = _deduplicate_evidence(mapping_evidence)
@@ -330,6 +360,7 @@ def evaluate_framework_mapping(
             "target_estimate_range": target_range,
             "is_exact": False,
             "approximate": True,
+            "calibrated": True,
             "evidence": deduped_ev,
         }
 
@@ -338,6 +369,7 @@ def evaluate_framework_mapping(
         "target_estimate_range": None,
         "is_exact": False,
         "approximate": True,
+        "calibrated": False,
         "reason": "cross_framework_identity_forbidden_without_evidence",
     }
 
