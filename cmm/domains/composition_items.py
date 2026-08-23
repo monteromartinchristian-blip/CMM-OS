@@ -279,7 +279,8 @@ def _get_reasoning_profile_metadata(
     meta = definition.metadata
     if meta is None:
         return None
-    rp = meta.get("reasoning_profile")
+    free_meta = meta if isinstance(meta, Mapping) else meta.metadata
+    rp = free_meta.get("reasoning_profile")
     if rp is None:
         return None
     if isinstance(rp, Mapping):

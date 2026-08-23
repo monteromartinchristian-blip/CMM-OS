@@ -7,7 +7,12 @@ from datetime import datetime, timezone
 import pytest
 
 from cmm.domains.composer import DefaultDomainComposer, DomainComposer
-from cmm.domains.contracts import DomainDefinition, DomainDependency, DomainManifestId
+from cmm.domains.contracts import (
+    DomainDefinition,
+    DomainDependency,
+    DomainManifestId,
+    DomainMetadata,
+)
 from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainKind,
@@ -59,6 +64,28 @@ def test_resolved_composes():
     result = composer.compose(resolution, [d1])
     assert result.status == DomainCompositionStatus.COMPOSED
     assert result.primary_domain.slug == "primary"
+
+
+def test_composer_supports_typed_domain_metadata() -> None:
+    """Real typed DomainMetadata is compatible with profile extraction."""
+    resolution = make_resolution()
+    definition = make_definition(
+        "primary",
+        metadata=DomainMetadata(
+            author="CMM OS",
+            license="internal",
+            metadata={
+                "reasoning_profile": {
+                    "added_rules": ("rule:typed-metadata",),
+                }
+            },
+        ),
+    )
+
+    result = DefaultDomainComposer().compose(resolution, (definition,))
+
+    assert result.effective_profile is not None
+    assert "rule:typed-metadata" in result.effective_profile.added_rules
 
 
 def test_ambiguous_rejected():
