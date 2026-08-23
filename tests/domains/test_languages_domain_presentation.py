@@ -171,3 +171,27 @@ def test_all_actual_operation_outputs_preserve_epistemic_boundaries() -> None:
     assert presented["vocabulary"]["persistence_applied"] is False
     assert presented["learning_plan"]["memory_proposal_required"] is True
     assert presented["learning_plan"]["persistence_applied"] is False
+
+
+def test_presentation_preserves_fail_closed_missing_evidence_outputs() -> None:
+    outputs = (
+        assess_sample_result(sample={}),
+        review_writing_result(writing_sample={}),
+        review_speaking_result(audio_transcript={}),
+        prepare_certification_result(target_certification="Cambridge C1"),
+    )
+
+    presented = tuple(present_languages_result(output) for output in outputs)
+
+    assert presented[0]["observed_performance"] == "unknown"
+    assert presented[0]["confidence"] == 0.0
+    assert presented[1]["estimated_level"] == "unknown"
+    assert presented[1]["score"] == 0.0
+    assert presented[2]["fluency_score"] == 0.0
+    assert presented[3]["readiness_score"] == 0.0
+    assert tuple(item["missing_evidence"] for item in presented) == (
+        ["writing_sample"],
+        ["writing_sample"],
+        ["speaking_sample", "pronunciation_evidence"],
+        ["current_profile"],
+    )

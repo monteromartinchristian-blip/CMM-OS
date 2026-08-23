@@ -396,6 +396,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "score",
             "valid_variety_misclassified",
             "proficiency_upgraded_without_evidence",
+            "missing_evidence",
         ),
         {
             "review_id": _STR,
@@ -409,6 +410,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "score": _NUM,
             "valid_variety_misclassified": _BOOL,
             "proficiency_upgraded_without_evidence": _BOOL,
+            "missing_evidence": _STR_LIST,
         },
     ),
     "languages.generate_conversation_turn": _schema(
@@ -457,6 +459,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "observed_errors",
             "pronunciation_evidence_valid",
             "pronunciation_inferred_from_transcript_only",
+            "missing_evidence",
         ),
         {
             "review_id": _STR,
@@ -467,6 +470,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "observed_errors": _RECORDS,
             "pronunciation_evidence_valid": _BOOL,
             "pronunciation_inferred_from_transcript_only": _BOOL,
+            "missing_evidence": _STR_LIST,
         },
     ),
     "languages.review_errors": _schema(
@@ -537,6 +541,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "submission_performed",
             "temporal_evidence_valid",
             "readiness_promoted_to_proficiency",
+            "missing_evidence",
         ),
         {
             "prep_id": _STR,
@@ -551,6 +556,7 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "submission_performed": _BOOL,
             "temporal_evidence_valid": _BOOL,
             "readiness_promoted_to_proficiency": _BOOL,
+            "missing_evidence": _STR_LIST,
         },
     ),
     "languages.generate_progress_review": _schema(
@@ -623,7 +629,9 @@ def assess_sample_result(
 ) -> dict[str, Any]:
     """Assess a language sample and return observed performance without inflating certified level."""
     s_dict = dict(normalize_json_value(sample or {}))
-    text = str(s_dict.get("text", ""))
+    raw_text = s_dict.get("text")
+    text = raw_text.strip() if isinstance(raw_text, str) else ""
+    has_sample_evidence = bool(text)
 
     errors: list[dict[str, Any]] = []
     valid_alts: list[dict[str, Any]] = []
@@ -644,15 +652,25 @@ def assess_sample_result(
             })
 
     # Missing evidence check (e.g. speaking when assessing writing)
-    missing = ["speaking", "listening"] if skill_scope == "writing" else ["writing"]
+    missing = (
+        (["speaking", "listening"] if skill_scope == "writing" else ["writing"])
+        if has_sample_evidence
+        else [f"{sample_type}_sample"]
+    )
 
     return {
         "assessment_id": f"as-{uuid.uuid4().hex[:8]}",
         "language": target_language,
         "skill_scope": skill_scope,
-        "observed_performance": "B2" if len(text) > 10 else "A2",
-        "confidence": 0.75,
-        "strengths": ["Clear expression", "Good lexical choice"] if len(text) > 10 else ["Initial production"],
+        "observed_performance": (
+            "B2" if len(text) > 10 else "A2"
+        ) if has_sample_evidence else "unknown",
+        "confidence": 0.75 if has_sample_evidence else 0.0,
+        "strengths": (
+            ["Clear expression", "Good lexical choice"]
+            if len(text) > 10
+            else ["Initial production"]
+        ) if has_sample_evidence else [],
         "errors": errors,
         "valid_alternatives": valid_alts,
         "missing_evidence": missing,
@@ -828,8 +846,10 @@ def review_writing_result(
 ) -> dict[str, Any]:
     """Review writing sample distinguishing errors from valid varieties."""
     ws = dict(writing_sample or {})
-    text = str(ws.get("text", ""))
+    raw_text = ws.get("text")
+    text = raw_text.strip() if isinstance(raw_text, str) else ""
     word_count = len(text.split())
+    has_writing_evidence = word_count > 0
 
     valid_alts = []
     if preferred_variety and "colour" in text.lower() and "british" in preferred_variety.lower():
@@ -843,14 +863,21 @@ def review_writing_result(
         "review_id": f"wr-{uuid.uuid4().hex[:8]}",
         "language": language,
         "word_count": word_count,
-        "strengths": ["Coherent structure", "Appropriate register"],
+        "strengths": (
+            ["Coherent structure", "Appropriate register"]
+            if has_writing_evidence
+            else []
+        ),
         "observed_errors": [],
         "valid_alternatives": valid_alts,
-        "register_feedback": "Formal and appropriate.",
-        "estimated_level": "B2" if word_count > 10 else "A2",
-        "score": 0.85,
+        "register_feedback": "Formal and appropriate." if has_writing_evidence else "not_assessed",
+        "estimated_level": (
+            "B2" if word_count > 10 else "A2"
+        ) if has_writing_evidence else "unknown",
+        "score": 0.85 if has_writing_evidence else 0.0,
         "valid_variety_misclassified": False,
         "proficiency_upgraded_without_evidence": False,
+        "missing_evidence": [] if has_writing_evidence else ["writing_sample"],
     }
 
 
@@ -908,7 +935,8 @@ def review_speaking_result(
 ) -> dict[str, Any]:
     """Review speaking transcript, ensuring transcript alone never assesses pronunciation."""
     at = dict(audio_transcript or {})
-    transcript = str(at.get("transcript", ""))
+    raw_transcript = at.get("transcript")
+    transcript = raw_transcript.strip() if isinstance(raw_transcript, str) else ""
     observed_errors = [
         dict(normalize_json_value(item))
         for item in at.get("observed_errors", ())
@@ -916,15 +944,21 @@ def review_speaking_result(
     ]
 
     has_audio_evidence = bool(pronunciation_evidence)
+    missing_evidence = []
+    if not transcript:
+        missing_evidence.append("speaking_sample")
+    if not has_audio_evidence:
+        missing_evidence.append("pronunciation_evidence")
     return {
         "review_id": f"sr-{uuid.uuid4().hex[:8]}",
         "transcript_text": transcript,
         "pronunciation_assessed": has_audio_evidence,
         "pronunciation_feedback": "Phoneme clarity verified." if has_audio_evidence else None,
-        "fluency_score": 0.80,
+        "fluency_score": 0.80 if transcript else 0.0,
         "observed_errors": observed_errors,
         "pronunciation_evidence_valid": True,
         "pronunciation_inferred_from_transcript_only": False,
+        "missing_evidence": missing_evidence,
     }
 
 
@@ -1004,20 +1038,66 @@ def prepare_certification_result(
 ) -> dict[str, Any]:
     """Prepare for certification exam, keeping readiness distinct from general proficiency and never registering/paying."""
     src_eval = evaluate_certification_source(sources=[official_source] if official_source else [], decision_critical=True)
+    profile = dict(normalize_json_value(current_profile or {}))
+    raw_skill_levels = profile.get("skill_levels")
+    skill_levels = (
+        {
+            str(skill): str(level).upper()
+            for skill, level in raw_skill_levels.items()
+            if isinstance(skill, str) and isinstance(level, str)
+        }
+        if isinstance(raw_skill_levels, Mapping)
+        else {}
+    )
+    estimated_level = profile.get("estimated_level")
+    if not skill_levels and isinstance(estimated_level, str) and estimated_level.strip():
+        skill_levels = {"general": estimated_level.strip().upper()}
+
+    cefr_rank = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
+    target_level = next(
+        (level for level in reversed(tuple(cefr_rank)) if level in target_certification.upper()),
+        None,
+    )
+    grounded_levels = {
+        skill: level
+        for skill, level in skill_levels.items()
+        if level in cefr_rank
+    }
+    has_profile_evidence = bool(grounded_levels) and target_level is not None
+    target_rank = cefr_rank[target_level] if target_level is not None else 0
+    readiness_score = (
+        round(
+            sum(min(cefr_rank[level] / target_rank, 1.0) for level in grounded_levels.values())
+            / len(grounded_levels),
+            2,
+        )
+        if has_profile_evidence
+        else 0.0
+    )
+    skill_gaps = (
+        [
+            f"{skill}:{level}->{target_level}"
+            for skill, level in grounded_levels.items()
+            if cefr_rank[level] < target_rank
+        ]
+        if has_profile_evidence
+        else []
+    )
 
     return {
         "prep_id": f"cp-{uuid.uuid4().hex[:8]}",
         "target_certification": target_certification,
         "framework": "CEFR",
-        "readiness_score": 0.72,
-        "skill_gaps": ["Timed essay writing", "Formal monologue"],
+        "readiness_score": readiness_score,
+        "skill_gaps": skill_gaps,
         "official_source_status": "verified" if official_source else "unverified_guide",
-        "needs_verification": src_eval["needs_verification"],
+        "needs_verification": src_eval["needs_verification"] or not has_profile_evidence,
         "registration_performed": False,
         "payment_performed": False,
         "submission_performed": False,
         "temporal_evidence_valid": True,
         "readiness_promoted_to_proficiency": False,
+        "missing_evidence": [] if has_profile_evidence else ["current_profile"],
     }
 
 

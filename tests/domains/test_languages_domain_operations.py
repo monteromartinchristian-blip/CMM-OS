@@ -285,3 +285,57 @@ def test_plan_review_schedule_no_calendar_mutation() -> None:
     )
     assert res["calendar_modified"] is False
     assert res["external_action_executed"] is False
+
+
+def test_empty_assessment_fails_closed_without_proficiency_judgment() -> None:
+    result = assess_sample_result(sample={})
+
+    assert result["observed_performance"] == "unknown"
+    assert result["confidence"] == 0.0
+    assert result["strengths"] == []
+    assert result["missing_evidence"] == ["writing_sample"]
+
+
+def test_empty_writing_review_contains_no_unsupported_judgment() -> None:
+    result = review_writing_result(writing_sample={})
+
+    assert result["word_count"] == 0
+    assert result["estimated_level"] == "unknown"
+    assert result["score"] == 0.0
+    assert result["strengths"] == []
+    assert result["register_feedback"] == "not_assessed"
+    assert result["missing_evidence"] == ["writing_sample"]
+    assert result["proficiency_upgraded_without_evidence"] is False
+
+
+def test_empty_speaking_review_contains_no_fluency_judgment() -> None:
+    result = review_speaking_result(audio_transcript={})
+
+    assert result["transcript_text"] == ""
+    assert result["fluency_score"] == 0.0
+    assert result["pronunciation_assessed"] is False
+    assert result["missing_evidence"] == [
+        "speaking_sample",
+        "pronunciation_evidence",
+    ]
+
+
+def test_certification_readiness_derives_from_current_profile() -> None:
+    missing = prepare_certification_result(target_certification="Cambridge C1")
+    grounded = prepare_certification_result(
+        target_certification="Cambridge C1",
+        current_profile={
+            "skill_levels": {
+                "writing": "B2",
+                "speaking": "B1",
+            },
+        },
+    )
+
+    assert missing["readiness_score"] == 0.0
+    assert missing["skill_gaps"] == []
+    assert missing["missing_evidence"] == ["current_profile"]
+    assert missing["needs_verification"] is True
+    assert grounded["readiness_score"] == 0.7
+    assert grounded["skill_gaps"] == ["writing:B2->C1", "speaking:B1->C1"]
+    assert grounded["missing_evidence"] == []

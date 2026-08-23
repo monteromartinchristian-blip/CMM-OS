@@ -221,6 +221,22 @@ def test_invalid_confidence_cannot_create_certainty_or_non_json_numbers() -> Non
         assert result["confidence"] == 0.5
 
 
+def test_schema_valid_empty_operation_inputs_never_invent_evidence() -> None:
+    assessment = assess_sample_result(sample={})
+    writing = review_writing_result(writing_sample={})
+    speaking = review_speaking_result(audio_transcript={})
+    certification = prepare_certification_result(target_certification="C1")
+
+    assert assessment["observed_performance"] == "unknown"
+    assert not assessment["strengths"]
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert not writing["strengths"]
+    assert speaking["fluency_score"] == 0.0
+    assert certification["readiness_score"] == 0.0
+    assert not certification["skill_gaps"]
+
+
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
     base = {"observed": "B2", "skill": "writing", "comparable": True, "comparison_key": "essay"}
