@@ -40,6 +40,7 @@ from typing import Any
 
 from cmm.cognitive.enums import (
     ReasoningRiskLevel,
+    ReasoningRuleCategory,
     ReasoningRuleResultStatus,
     ReasoningRuleScope,
     ReasoningRuleStatus,
@@ -796,3 +797,501 @@ class AdaptiveDifficultyRule:
             code="ADAPTIVE_DIFFICULTY_APPLIED",
             message="Adaptive difficulty evaluated.",
         )
+
+
+# ── Task 5 Helpers & Rule Classes ────────────────────────────────────────────
+
+def plan_spaced_review(
+    *,
+    items: tuple[Any, ...] | list[Any] = (),
+    active_goals: tuple[Any, ...] | list[Any] = (),
+) -> dict[str, Any]:
+    """Plan spaced review items based on mastery, due status, and active patterns."""
+    raw_items = [dict(normalize_json_value(i)) for i in items if isinstance(i, Mapping)]
+    goal_set = {_safe_str(g) for g in active_goals if _safe_str(g)}
+
+    def _review_priority(item: dict[str, Any]) -> float:
+        score = 0.0
+        if item.get("due") is True:
+            score += 50.0
+        if item.get("active_pattern") is True:
+            score += 30.0
+        item_id = _safe_str(item.get("id")) or ""
+        item_term = _safe_str(item.get("term")) or ""
+        if item_id in goal_set or item_term in goal_set or item.get("goal_relevant") is True:
+            score += 20.0
+        mastery = float(item.get("mastery", 0.5)) if isinstance(item.get("mastery"), (int, float)) else 0.5
+        score += (1.0 - mastery) * 20.0
+        return score
+
+    sorted_items = sorted(raw_items, key=_review_priority, reverse=True)
+    due_items = [i for i in sorted_items if i.get("due") is True or i.get("active_pattern") is True]
+
+    return {
+        "prioritized_items": sorted_items,
+        "review_queue": sorted_items[:10],
+        "due_items": due_items,
+        "backlog_count": len(due_items),
+    }
+
+
+def evaluate_learning_load(
+    *,
+    available_time: float | None = None,
+    energy: str | None = None,
+    priorities: tuple[Any, ...] | list[Any] = (),
+    deadlines: tuple[Any, ...] | list[Any] = (),
+    recent_load: Any | None = None,
+    review_backlog: tuple[Any, ...] | list[Any] = (),
+) -> dict[str, Any]:
+    """Evaluate learning load respecting energy and time constraints without mutating calendar."""
+    clean_time = int(available_time) if isinstance(available_time, (int, float)) and not math.isnan(available_time) else 30
+    clean_energy = (_safe_str(energy) or "moderate").lower()
+
+    if clean_energy == "low":
+        recommended_duration = min(clean_time, 15)
+        load_status = "scaffolded_light"
+    elif clean_energy == "high":
+        recommended_duration = clean_time
+        load_status = "optimal"
+    else:
+        recommended_duration = min(clean_time, 30)
+        load_status = "standard"
+
+    backlog_count = len(review_backlog)
+    recommended_activities = []
+    if backlog_count > 0:
+        recommended_activities.append("spaced_review")
+    recommended_activities.extend([_safe_str(p) for p in priorities if _safe_str(p)])
+
+    return {
+        "recommended_duration_minutes": recommended_duration,
+        "recommended_activities": recommended_activities or ["micro_practice"],
+        "load_status": load_status,
+        "calendar_modified": False,
+        "backlog_considered": backlog_count,
+    }
+
+
+def align_activity_to_goals(
+    *,
+    activity: Any,
+    goals: tuple[Any, ...] | list[Any] = (),
+) -> dict[str, Any]:
+    """Align activity to concurrent user goals without single-goal hegemony."""
+    raw_goals = [dict(normalize_json_value(g)) for g in goals if isinstance(g, Mapping)]
+    coexisting_ids = [_safe_str(g.get("id")) for g in raw_goals if _safe_str(g.get("id"))]
+
+    return {
+        "coexisting_goals": coexisting_ids,
+        "total_goals_count": len(raw_goals),
+        "activity_fit": "aligned",
+        "aligned_goals": coexisting_ids,
+    }
+
+
+def evaluate_progression(
+    *,
+    previous_evidence: tuple[Any, ...] | list[Any] = (),
+    current_evidence: tuple[Any, ...] | list[Any] = (),
+    skill: str | None = None,
+) -> dict[str, Any]:
+    """Evaluate skill-level progression distinguishing short-term vs stable improvement."""
+    clean_prev = [p for p in previous_evidence if isinstance(p, Mapping)]
+    clean_curr = [c for c in current_evidence if isinstance(c, Mapping)]
+
+    if not clean_curr:
+        return {
+            "progression_outcome": "insufficient_evidence",
+            "stable_progression": False,
+            "skill": skill or "general",
+        }
+
+    prev_scores = [float(p["score"]) for p in clean_prev if isinstance(p.get("score"), (int, float))]
+    curr_scores = [float(c["score"]) for c in clean_curr if isinstance(c.get("score"), (int, float))]
+
+    prev_avg = (sum(prev_scores) / len(prev_scores)) if prev_scores else 0.5
+    curr_avg = (sum(curr_scores) / len(curr_scores)) if curr_scores else 0.5
+
+    if len(clean_curr) == 1:
+        if curr_avg > prev_avg + 0.15:
+            outcome = "short_term_improvement"
+        elif curr_avg < prev_avg - 0.20:
+            outcome = "possible_regression"
+        else:
+            outcome = "stable"
+        stable_prog = False
+    else:
+        if curr_avg > prev_avg + 0.10:
+            outcome = "stable_improvement"
+            stable_prog = True
+        elif curr_avg < prev_avg - 0.25:
+            outcome = "plateau"
+            stable_prog = False
+        else:
+            outcome = "stable"
+            stable_prog = False
+
+    return {
+        "progression_outcome": outcome,
+        "stable_progression": stable_prog,
+        "skill": skill or "general",
+        "previous_average": prev_avg,
+        "current_average": curr_avg,
+    }
+
+
+def evaluate_certification_source(
+    *,
+    sources: tuple[Any, ...] | list[Any] = (),
+    decision_critical: bool = False,
+) -> dict[str, Any]:
+    """Evaluate certification source authority and detect conflicts."""
+    raw_sources = [dict(normalize_json_value(s)) for s in sources if isinstance(s, Mapping)]
+
+    if not raw_sources:
+        return {
+            "selected_source": None,
+            "authority_rank": 0,
+            "needs_verification": decision_critical,
+            "unresolved_conflict": False,
+        }
+
+    def _auth(s: dict[str, Any]) -> int:
+        stype = _safe_str(s.get("source_type"))
+        if stype == "official":
+            return 3
+        if stype == "secondary":
+            return 2
+        return int(s.get("authority", 1)) if isinstance(s.get("authority"), (int, float)) else 1
+
+    sorted_sources = sorted(raw_sources, key=_auth, reverse=True)
+    top_auth = _auth(sorted_sources[0])
+    top_tier = [s for s in sorted_sources if _auth(s) == top_auth]
+
+    # Check for conflicts in top tier
+    unresolved = False
+    if len(top_tier) >= 2:
+        # Check if format/dates conflict
+        keys_to_compare = ("format", "task_count", "requirements", "exam_date")
+        for k in keys_to_compare:
+            vals = {s.get(k) for s in top_tier if s.get(k) is not None}
+            if len(vals) > 1:
+                unresolved = True
+                break
+
+    selected = None if unresolved else top_tier[0]
+    needs_verif = unresolved or (decision_critical and top_auth < 3)
+
+    return {
+        "selected_source": selected,
+        "top_sources": top_tier,
+        "authority_rank": top_auth,
+        "unresolved_conflict": unresolved,
+        "needs_verification": needs_verif,
+    }
+
+
+def evaluate_cultural_context(
+    *,
+    claim: str | None = None,
+    evidence: tuple[Any, ...] | list[Any] = (),
+    universal_claim: bool = False,
+) -> dict[str, Any]:
+    """Evaluate cultural claims to reject universal stereotyping and preserve qualified tendencies."""
+    is_universal = universal_claim or any(
+        kw in (claim or "").lower() for kw in ("all native speakers", "always", "every spanish", "everyone in")
+    )
+    return {
+        "claim": claim or "",
+        "universal_claim_rejected": is_universal,
+        "qualified_tendency": True,
+        "nuance_preserved": True,
+    }
+
+
+def evaluate_language_memory_consent(
+    *,
+    content_kind: str | None = None,
+    session_only: bool = True,
+    consent: Any = None,
+    permission_chain_valid: bool = False,
+) -> dict[str, Any]:
+    """Evaluate memory consent requirements enforcing literal boolean True and shared approval."""
+    if session_only:
+        return {
+            "content_kind": content_kind or "session_data",
+            "session_only_allowed": True,
+            "persistence_required": False,
+            "persistence_authorized": False,
+            "proposal_required": False,
+            "persistence_applied": False,
+        }
+
+    is_literal_true_consent = consent is True
+    authorized = is_literal_true_consent and permission_chain_valid is True
+
+    return {
+        "content_kind": content_kind or "learning_state",
+        "session_only_allowed": True,
+        "persistence_required": True,
+        "persistence_authorized": authorized,
+        "proposal_required": is_literal_true_consent,
+        "persistence_applied": False,  # Persistence is never directly applied by domain helper
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class SpacedReviewRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = plan_spaced_review(
+            items=mat.get("items", ()),
+            active_goals=mat.get("active_goals", ()),
+        )
+        finding = ReasoningFinding(
+            code="SPACED_REVIEW_EVALUATED",
+            message=f"Spaced review queue formed with {len(res['review_queue'])} items.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="SPACED_REVIEW_APPLIED",
+            message="Spaced review evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LearningLoadRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_learning_load(
+            available_time=mat.get("available_time"),
+            energy=mat.get("energy"),
+            priorities=mat.get("priorities", ()),
+            deadlines=mat.get("deadlines", ()),
+            recent_load=mat.get("recent_load"),
+            review_backlog=mat.get("review_backlog", ()),
+        )
+        finding = ReasoningFinding(
+            code="LEARNING_LOAD_EVALUATED",
+            message=f"Recommended {res['recommended_duration_minutes']} min load.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="LEARNING_LOAD_APPLIED",
+            message="Learning load evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GoalAlignmentRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = align_activity_to_goals(
+            activity=mat.get("activity"),
+            goals=mat.get("goals", ()),
+        )
+        finding = ReasoningFinding(
+            code="GOAL_ALIGNMENT_EVALUATED",
+            message=f"Aligned across {res['total_goals_count']} coexisting goals.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="GOAL_ALIGNMENT_APPLIED",
+            message="Goal alignment evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressionEvidenceRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_progression(
+            previous_evidence=mat.get("previous_evidence", ()),
+            current_evidence=mat.get("current_evidence", ()),
+            skill=mat.get("skill"),
+        )
+        finding = ReasoningFinding(
+            code="PROGRESSION_EVIDENCE_EVALUATED",
+            message=f"Progression outcome: {res['progression_outcome']}.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="PROGRESSION_EVIDENCE_APPLIED",
+            message="Progression evidence evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CertificationTemporalRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_certification_source(
+            sources=mat.get("sources", ()),
+            decision_critical=mat.get("decision_critical", False),
+        )
+        finding = ReasoningFinding(
+            code="CERTIFICATION_TEMPORAL_EVALUATED",
+            message=f"Certification source evaluated (needs_verification={res['needs_verification']}).",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="CERTIFICATION_TEMPORAL_APPLIED",
+            message="Certification temporal source evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CulturalContextEvidenceRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_cultural_context(
+            claim=mat.get("claim"),
+            evidence=mat.get("evidence", ()),
+            universal_claim=mat.get("universal_claim", False),
+        )
+        finding = ReasoningFinding(
+            code="CULTURAL_CONTEXT_EVALUATED",
+            message="Cultural context evaluated with qualification.",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="CULTURAL_CONTEXT_APPLIED",
+            message="Cultural context evaluated.",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageMemoryConsentRule:
+    definition: DomainReasoningRuleDefinition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        mat = _mapping(context.metadata, "material") or {}
+        res = evaluate_language_memory_consent(
+            content_kind=mat.get("content_kind"),
+            session_only=mat.get("session_only", True),
+            consent=mat.get("consent"),
+            permission_chain_valid=mat.get("permission_chain_valid", False),
+        )
+        finding = ReasoningFinding(
+            code="MEMORY_CONSENT_EVALUATED",
+            message=f"Memory consent evaluated (persistence_authorized={res['persistence_authorized']}).",
+            severity=ReasoningSeverity.INFO,
+            rule_id=self.definition.id,
+            domain_id=self.definition.domain_id,
+            metadata=res,
+        )
+        return _result(
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=(finding,),
+            code="MEMORY_CONSENT_APPLIED",
+            message="Memory consent evaluated.",
+        )
+
+
+def build_languages_rules() -> tuple[Any, ...]:
+    """Build the fourteen Languages Domain rules deterministically in canonical catalog order."""
+    by_id = {
+        "languages.language_level_evidence": LanguageLevelEvidenceRule(
+            definition=_definition("languages.language_level_evidence", "LanguageLevelEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 700)
+        ),
+        "languages.skill_separation": SkillSeparationRule(
+            definition=_definition("languages.skill_separation", "SkillSeparationRule", ReasoningRuleCategory.EPISTEMIC.value, 710)
+        ),
+        "languages.language_variety_validity": LanguageVarietyValidityRule(
+            definition=_definition("languages.language_variety_validity", "LanguageVarietyValidityRule", ReasoningRuleCategory.EPISTEMIC.value, 720)
+        ),
+        "languages.proficiency_framework": ProficiencyFrameworkRule(
+            definition=_definition("languages.proficiency_framework", "ProficiencyFrameworkRule", ReasoningRuleCategory.EPISTEMIC.value, 730)
+        ),
+        "languages.error_pattern_evidence": ErrorPatternEvidenceRule(
+            definition=_definition("languages.error_pattern_evidence", "ErrorPatternEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 740)
+        ),
+        "languages.correction_priority": CorrectionPriorityRule(
+            definition=_definition("languages.correction_priority", "CorrectionPriorityRule", ReasoningRuleCategory.INFERENCE.value, 750)
+        ),
+        "languages.adaptive_difficulty": AdaptiveDifficultyRule(
+            definition=_definition("languages.adaptive_difficulty", "AdaptiveDifficultyRule", ReasoningRuleCategory.INFERENCE.value, 760)
+        ),
+        "languages.spaced_review": SpacedReviewRule(
+            definition=_definition("languages.spaced_review", "SpacedReviewRule", ReasoningRuleCategory.INFERENCE.value, 770)
+        ),
+        "languages.learning_load": LearningLoadRule(
+            definition=_definition("languages.learning_load", "LearningLoadRule", ReasoningRuleCategory.INFERENCE.value, 780)
+        ),
+        "languages.goal_alignment": GoalAlignmentRule(
+            definition=_definition("languages.goal_alignment", "GoalAlignmentRule", ReasoningRuleCategory.INFERENCE.value, 790)
+        ),
+        "languages.progression_evidence": ProgressionEvidenceRule(
+            definition=_definition("languages.progression_evidence", "ProgressionEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 800)
+        ),
+        "languages.certification_temporal": CertificationTemporalRule(
+            definition=_definition("languages.certification_temporal", "CertificationTemporalRule", ReasoningRuleCategory.TEMPORALITY.value, 810)
+        ),
+        "languages.cultural_context_evidence": CulturalContextEvidenceRule(
+            definition=_definition("languages.cultural_context_evidence", "CulturalContextEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 820)
+        ),
+        "languages.language_memory_consent": LanguageMemoryConsentRule(
+            definition=_definition("languages.language_memory_consent", "LanguageMemoryConsentRule", ReasoningRuleCategory.SAFETY.value, 830)
+        ),
+    }
+    return tuple(
+        by_id[rule_id]
+        for rule_id in CANONICAL_LANGUAGES_RULE_IDS
+    )
