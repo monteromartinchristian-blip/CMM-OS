@@ -630,6 +630,198 @@ def _representative_outputs() -> dict[str, dict]:
     }
 
 
+def _minimal_outputs() -> dict[str, dict]:
+    return {
+        "languages.assess_sample": assess_sample_result(),
+        "languages.update_level_evidence": update_level_evidence_result(),
+        "languages.create_learning_plan": create_learning_plan_result(
+            language="English"
+        ),
+        "languages.generate_lesson": generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="unknown",
+            topic="foundations",
+        ),
+        "languages.generate_exercises": generate_exercises_result(
+            language="English",
+            skill="writing",
+            difficulty=1,
+            target_topic="foundations",
+        ),
+        "languages.review_exercise": review_exercise_result(),
+        "languages.review_writing": review_writing_result(),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(),
+        "languages.review_speaking": review_speaking_result(),
+        "languages.review_errors": review_errors_result(),
+        "languages.track_vocabulary": track_vocabulary_result(),
+        "languages.plan_review_schedule": plan_review_schedule_result(),
+        "languages.prepare_certification": prepare_certification_result(
+            target_certification="C1"
+        ),
+        "languages.generate_progress_review": generate_progress_review_result(
+            language="English", period="month"
+        ),
+    }
+
+
+def _malformed_numeric_outputs() -> dict[str, dict]:
+    non_finite = float("nan")
+    return {
+        "languages.assess_sample": assess_sample_result(
+            sample={"text": non_finite}
+        ),
+        "languages.update_level_evidence": update_level_evidence_result(
+            existing_record={
+                "kind": "ESTIMATED",
+                "level_or_score": non_finite,
+                "skill_scope": "writing",
+            }
+        ),
+        "languages.create_learning_plan": create_learning_plan_result(
+            language="English", goals=({"score": non_finite},)
+        ),
+        "languages.generate_lesson": generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="unknown",
+            topic="foundations",
+        ),
+        "languages.generate_exercises": generate_exercises_result(
+            language="English",
+            skill="writing",
+            difficulty=float("inf"),
+            target_topic="foundations",
+            count=non_finite,
+        ),
+        "languages.review_exercise": review_exercise_result(
+            exercise_result={"is_correct": True, "score": non_finite}
+        ),
+        "languages.review_writing": review_writing_result(
+            writing_sample={"text": non_finite}
+        ),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+            conversation={"turns": ()}
+        ),
+        "languages.review_speaking": review_speaking_result(
+            audio_transcript={"transcript": non_finite},
+            pronunciation_evidence=({"score": non_finite},),
+        ),
+        "languages.review_errors": review_errors_result(
+            observed_errors=({"score": non_finite},)
+        ),
+        "languages.track_vocabulary": track_vocabulary_result(
+            vocabulary_list={"items": ({"score": non_finite},)}
+        ),
+        "languages.plan_review_schedule": plan_review_schedule_result(
+            review_items=({"score": non_finite},),
+            available_time=float("inf"),
+        ),
+        "languages.prepare_certification": prepare_certification_result(
+            target_certification="C1",
+            official_source={"task_count": non_finite},
+        ),
+        "languages.generate_progress_review": generate_progress_review_result(
+            language="English",
+            period="month",
+            evidence=({"score": non_finite, "skill": "writing"},),
+            certification_profile={"readiness_score": non_finite},
+        ),
+    }
+
+
+def test_invariant_flags_are_derived_from_payload_content() -> None:
+    no_evidence_progress = generate_progress_review_result(
+        language="English", period="month"
+    )
+    assert no_evidence_progress["cross_skill_inflation"] is False
+    assert no_evidence_progress["skill_progress"] == {}
+    assert no_evidence_progress["progression_evidence_valid"] is True
+    assert no_evidence_progress["overall_progression"] == "insufficient_evidence"
+    assert not any(
+        value in {"short_term_improvement", "stable_improvement"}
+        for value in no_evidence_progress["skill_progress"].values()
+    )
+
+    writing = review_writing_result(writing_sample={})
+    assert writing["proficiency_upgraded_without_evidence"] is False
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert writing["missing_evidence"] == ["writing_sample"]
+
+    sources = (
+        {"id": "stale", "source_type": "official", "date_valid": False},
+        {"id": "current", "source_type": "official", "date_valid": True},
+    )
+    temporal = evaluate_certification_source(
+        sources=sources, decision_critical=True
+    )
+    certification = prepare_certification_result(
+        target_certification="C1",
+        current_profile={"estimated_level": "B2"},
+        official_source=temporal["selected_source"],
+    )
+    assert certification["temporal_evidence_valid"] is True
+    assert temporal["selected_source"]["id"] == "current"
+    assert certification["official_source_status"] == "verified"
+
+    speaking = review_speaking_result(
+        audio_transcript={"transcript": "Hello"},
+        pronunciation_evidence=({"source_id": "audio-1"},),
+    )
+    assert speaking["pronunciation_evidence_valid"] is True
+    assert speaking["pronunciation_assessed"] is True
+    assert speaking["pronunciation_feedback"] is not None
+    assert "pronunciation_evidence" not in speaking["missing_evidence"]
+
+    observations = (
+        {
+            "provenance_id": "one",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "two",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    errors = review_errors_result(observed_errors=observations)
+    pattern = errors["error_patterns"][0]
+    assert errors["pattern_evidence_valid"] is True
+    assert pattern["independent_occurrences"] == 2
+    assert pattern["comparable_contexts"] == 2
+    assert pattern["pattern_state"] == "candidate"
+
+
+def test_all_result_builders_are_strict_json_safe_across_input_classes() -> None:
+    definitions = {
+        definition.operation_id: definition
+        for definition in build_languages_operation_definitions()
+    }
+    output_sets = (
+        _representative_outputs(),
+        _minimal_outputs(),
+        _malformed_numeric_outputs(),
+    )
+    for outputs in output_sets:
+        assert set(outputs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+        for operation_id, output in outputs.items():
+            json.dumps(output, allow_nan=False)
+            assert (
+                validate_operation_schema(
+                    output, definitions[operation_id].output_schema
+                )
+                == ()
+            )
+
+
 def test_all_operation_schemas_and_workflow_invariant_gates_are_directly_connected() -> None:
     outputs = _representative_outputs()
     definitions = build_languages_operation_definitions()

@@ -700,8 +700,8 @@ def update_level_evidence_result(
     evidence: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Update level evidence proposal without overwriting certified record."""
-    ex = dict(existing_record or {})
-    ass = dict(assessment or {})
+    ex = dict(normalize_json_value(existing_record or {}))
+    ass = dict(normalize_json_value(assessment or {}))
     if ass.get("observed") is None and ass.get("observed_performance") is not None:
         ass["observed"] = ass["observed_performance"]
     if ass.get("skill") is None:
@@ -1027,10 +1027,10 @@ def track_vocabulary_result(
     review_results: tuple[Any, ...] | list[Any] | None = None,
 ) -> dict[str, Any]:
     """Track vocabulary items and candidate review updates without mutating persistent store."""
-    vl = dict(vocabulary_list or {})
+    vl = dict(normalize_json_value(vocabulary_list or {}))
     items = list(vl.get("items", []))
     if new_items:
-        items.extend(new_items)
+        items.extend(normalize_json_value(new_items))
 
     plan_res = plan_spaced_review(items=items)
 
