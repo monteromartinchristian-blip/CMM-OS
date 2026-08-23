@@ -17,6 +17,7 @@ from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainResult
 from cmm.domains.enums import DomainOperationType
+from cmm.domains.general.permissions import build_general_permission_policy
 from cmm.domains.identifiers import DomainId
 from cmm.domains.languages import build_standard_languages_domain_bootstrap
 from cmm.domains.languages.definition import (
@@ -99,6 +100,54 @@ from cmm.workflows.enums import WorkflowRunStatus
 
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
 
+FROZEN_SEMANTIC_CHECKPOINTS = (
+    "01-onboard-english",
+    "02-resolve-languages-primary",
+    "03-prefer-american-english",
+    "04-accept-valid-british-alternative",
+    "05-preserve-two-active-goals",
+    "06-authorize-progress-tracking",
+    "07-record-prior-lower-certificate",
+    "08-represent-certificate-as-certified",
+    "09-assess-initial-writing-sample",
+    "10-record-observed-writing-performance",
+    "11-preserve-certified-level",
+    "12-detect-missing-speaking-evidence",
+    "13-preserve-speaking-gap",
+    "14-bound-estimated-writing-range-by-evidence",
+    "15-create-adaptive-plan",
+    "16-execute-adaptive-lesson-workflow",
+    "17-complete-real-exercise",
+    "18-observe-one-error",
+    "19-reject-single-error-as-pattern",
+    "20-execute-real-conversation-roleplay-turns",
+    "21-observe-later-comparable-target-error",
+    "22-evaluate-accumulated-error-pattern-evidence",
+    "23-promote-only-supported-recurrence",
+    "24-prioritize-corrections-selectively",
+    "25-produce-structured-writing-feedback",
+    "26-preserve-valid-varieties-as-non-errors",
+    "27-execute-progress-checkpoint-workflow",
+    "28-reject-one-better-score-as-stable-progress",
+    "29-accept-only-comparable-accumulated-progression",
+    "30-set-official-certification-target",
+    "31-detect-stale-guide-current-source-conflict",
+    "32-select-current-official-certification-source",
+    "33-separate-readiness-from-proficiency",
+    "34-propose-pedagogical-review-schedule",
+    "35-preserve-calendar-without-mutation",
+    "36-receive-user-calendar-event-request",
+    "37-route-calendar-request-to-shared-boundary",
+    "38-propose-persistent-progress-update",
+    "39-validate-consent-and-permission-before-persistence",
+    "40-project-minimum-languages-context-to-oppositions",
+    "41-withhold-full-learning-history",
+    "42-present-certified-estimated-observed-distinctly",
+    "43-present-unassessed-speaking-pronunciation-gaps",
+    "44-trace-actual-connected-runtime-identifiers",
+    "45-use-no-parallel-domain-infrastructure",
+)
+
 
 class DeterministicIds:
     def __init__(self) -> None:
@@ -138,7 +187,7 @@ class ConnectedLanguagesScenario:
     def bootstrap_and_state(self) -> None:
         bootstrap = build_standard_languages_domain_bootstrap()
         self.state["bootstrap"] = bootstrap
-        self.checkpoint("01-standard-bootstrap-general-fallback", bootstrap.resolver.fallback_domain == DomainId("general"))
+        assert bootstrap.resolver.fallback_domain == DomainId("general")
         context = DomainResolutionContextBuilder(id_factory=self.ids, clock=lambda: NOW).build(
             registry_snapshot=bootstrap.domain_registry.snapshot(),
             user_input="Help me practise English fluency while preparing for C1.",
@@ -147,7 +196,7 @@ class ConnectedLanguagesScenario:
         )
         self.state["resolution_context"] = context
         self.actual_produced_ids.add(context.id)
-        self.checkpoint("02-real-language-resolution-context", bool(context.signals))
+        assert context.signals
         resolver = DefaultDomainResolver(
             scoring_policy=bootstrap.resolver.scoring_policy,
             fallback_domain=bootstrap.resolver.fallback_domain,
@@ -158,10 +207,12 @@ class ConnectedLanguagesScenario:
         resolution = resolver.resolve(context)
         self.state["resolution"] = resolution
         self.actual_produced_ids.add(resolution.id)
-        self.checkpoint("03-languages-selected-primary", str(resolution.primary_domain) == LANGUAGES_DOMAIN_ID)
         profile = bootstrap.profile_registry.get_by_domain(DomainId("languages"))
         self.state["profile"] = profile
-        self.checkpoint("04-language-learning-profile-resolves", isinstance(profile, DomainProfileDefinition) and profile.profile_name == "LanguageLearningProfile")
+        assert (
+            isinstance(profile, DomainProfileDefinition)
+            and profile.profile_name == "LanguageLearningProfile"
+        )
         composition = DefaultDomainComposer(id_factory=self.ids, clock=lambda: NOW).compose(resolution, (build_languages_domain_definition(),))
         self.state["composition"] = composition
         self.actual_produced_ids.add(composition.id)
@@ -176,21 +227,45 @@ class ConnectedLanguagesScenario:
             "tracking_consent": True,
         }
         self.state["languages"] = {"English": english}
-        self.checkpoint("05-english-state-isolated", set(self.state["languages"]) == {"English"})
-        self.checkpoint("06-american-english-preferred", english["preferred_variety"] == "American English")
+        self.checkpoint(
+            "01-onboard-english", set(self.state["languages"]) == {"English"}
+        )
+        self.checkpoint(
+            "02-resolve-languages-primary",
+            str(resolution.primary_domain) == LANGUAGES_DOMAIN_ID,
+        )
+        self.checkpoint(
+            "03-prefer-american-english",
+            english["preferred_variety"] == "American English",
+        )
         variety = classify_language_variety(preferred_variety="American English", observed_variety="British English", form_status="valid")
         self.state["variety"] = variety
         self.checkpoint(
-            "07-british-is-valid-alternative",
+            "04-accept-valid-british-alternative",
             variety["is_valid_alternative"]
             and variety["classification"] == "valid_alternative",
         )
-        self.checkpoint("08-fluency-goal-active", english["goals"][0]["active"] is True)
-        self.checkpoint("09-c1-goal-concurrently-active", english["goals"][1]["active"] is True)
-        self.checkpoint("10-tracking-explicit-opt-in", english["tracking_consent"] is True)
+        self.checkpoint(
+            "05-preserve-two-active-goals",
+            len(english["goals"]) == 2
+            and all(goal["active"] is True for goal in english["goals"]),
+        )
+        self.checkpoint(
+            "06-authorize-progress-tracking", english["tracking_consent"] is True
+        )
         self.state["certificate"] = classify_proficiency_record(
             kind="CERTIFIED", framework="CEFR", level_or_score="B1", skill_scope="writing",
             evidence=({"source_kind": "official_certificate", "source_id": "official-certificate-record", "certificate_id": "certificate-B1"},),
+        )
+        self.checkpoint(
+            "07-record-prior-lower-certificate",
+            self.state["certificate"]["level_or_score"] == "B1"
+            and english["goals"][1]["target"] == "C1",
+        )
+        self.checkpoint(
+            "08-represent-certificate-as-certified",
+            self.state["certificate"]["kind"] == "CERTIFIED"
+            and self.state["certificate"]["is_certified"] is True,
         )
 
     def operation_adapter(self, node: Any, run: Any) -> NodeExecution:
@@ -259,7 +334,11 @@ class ConnectedLanguagesScenario:
             if certification_case == "primary":
                 self.state["certification_authority"] = authority
                 self.state["certification_selected_source"] = selected_source
-            result = prepare_certification_result(target_certification=inputs["target_certification"], official_source=selected_source)
+            result = prepare_certification_result(
+                target_certification=inputs["target_certification"],
+                current_profile=inputs.get("current_profile"),
+                official_source=selected_source,
+            )
         elif op == "languages.generate_progress_review":
             result = generate_progress_review_result(language=inputs["language"], period=inputs["period"], previous_evidence=inputs["previous_evidence"], evidence=inputs["evidence"], skill="writing")
         else:
@@ -312,6 +391,9 @@ class ConnectedLanguagesScenario:
             },
             "languages.certification_preparation": {
                 "language": "English", "target_certification": "Cambridge C1",
+                "current_profile": {
+                    "skill_levels": {"writing": "B2", "speaking": "B1"},
+                },
                 "certification_case": "primary",
                 "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False},
                 "official_sources": (
@@ -368,65 +450,155 @@ class ConnectedLanguagesScenario:
         self.state.update(workflow_runs=runs, workflow_inputs=workflow_inputs)
 
         onboarding = runs["languages.language_onboarding"].common_run.outputs["create_plan"]
-        self.checkpoint("11-onboarding-workflow-executes", bool(onboarding["plan_id"]))
-        self.checkpoint("12-onboarding-persists-nothing", onboarding["persistence_applied"] is False)
-        self.checkpoint("13-official-b1-is-certified", self.state["certificate"]["is_certified"] is True)
         assessment_outputs = runs["languages.proficiency_assessment"].common_run.outputs
         assessment, update = assessment_outputs["assess"], assessment_outputs["level_update"]
         self.state.update(assessment=assessment, level_update=update)
-        self.checkpoint("14-writing-assessed-through-workflow", bool(assessment["assessment_id"]))
-        self.checkpoint("15-writing-stays-observed", assessment["proficiency_kind"] == "OBSERVED_PERFORMANCE")
-        self.checkpoint("16-certificate-not-overwritten", update["certificate_overwritten"] is False)
-        self.checkpoint("17-speaking-still-missing", "speaking" in assessment["missing_evidence"])
         self.checkpoint(
-            "18-level-update-is-evidence-only",
-            update["updated_record"]["kind"] == "CERTIFIED"
-            and update["updated_record"]["level_or_score"] == "B1"
+            "09-assess-initial-writing-sample", bool(assessment["assessment_id"])
+        )
+        self.checkpoint(
+            "10-record-observed-writing-performance",
+            assessment["proficiency_kind"] == "OBSERVED_PERFORMANCE",
+        )
+        self.checkpoint(
+            "11-preserve-certified-level",
+            update["certificate_overwritten"] is False
+            and update["updated_record"]["kind"] == "CERTIFIED"
+            and update["updated_record"]["level_or_score"] == "B1",
+        )
+        self.checkpoint(
+            "12-detect-missing-speaking-evidence",
+            "speaking" in assessment["missing_evidence"],
+        )
+        self.checkpoint(
+            "13-preserve-speaking-gap",
+            update["skill_gaps_erased"] is False
+            and "speaking" in assessment["missing_evidence"],
+        )
+        self.checkpoint(
+            "14-bound-estimated-writing-range-by-evidence",
+            assessment["skill_scope"] == "writing"
+            and assessment["observed_performance"] == "B2"
+            and assessment["confidence"] > 0.0
             and update["stable_update_supported"] is False,
         )
-        self.checkpoint("19-plan-preserves-both-goals", len(onboarding["goals"]) == 2)
+        self.checkpoint(
+            "15-create-adaptive-plan",
+            bool(onboarding["plan_id"])
+            and len(onboarding["goals"]) == 2
+            and onboarding["persistence_applied"] is False,
+        )
 
         lesson = runs["languages.adaptive_language_lesson"].common_run.outputs
-        self.checkpoint("20-adaptive-lesson-executes", bool(lesson["lesson"]["lesson_id"]))
-        self.checkpoint("21-generated-exercise-is-reviewed", bool(lesson["review"]["review_id"]))
-        self.checkpoint("22-isolated-error-not-pattern", lesson["review"]["pattern_candidate"] is False)
-        self.checkpoint("23-one-session-does-not-change-proficiency", lesson["review"]["stable_proficiency_changed"] is False)
+        self.checkpoint(
+            "16-execute-adaptive-lesson-workflow",
+            bool(lesson["lesson"]["lesson_id"]),
+        )
+        self.checkpoint(
+            "17-complete-real-exercise",
+            bool(lesson["exercises"]["exercise_batch_id"])
+            and bool(lesson["review"]["review_id"]),
+        )
+        self.checkpoint(
+            "18-observe-one-error", len(lesson["review"]["observed_errors"]) == 1
+        )
+        self.checkpoint(
+            "19-reject-single-error-as-pattern",
+            lesson["review"]["pattern_candidate"] is False
+            and lesson["review"]["stable_proficiency_changed"] is False,
+        )
         practice = runs["languages.conversation_roleplay_practice"].common_run.outputs
-        self.checkpoint("24-conversation-roleplay-executes", bool(practice["roleplay_turn"]["roleplay_id"]))
-        self.checkpoint("25-transcript-does-not-assess-pronunciation", practice["speaking_review"]["pronunciation_assessed"] is False)
+        self.checkpoint(
+            "20-execute-real-conversation-roleplay-turns",
+            bool(practice["conversation_turn"]["turn_id"])
+            and bool(practice["roleplay_turn"]["roleplay_id"]),
+        )
         errors = self.state["remediation_consumed_errors"]
         self.state["independent_errors"] = errors
-        self.checkpoint("26-independent-comparable-occurrence-produced", errors[0]["provenance_id"] != errors[1]["provenance_id"])
+        self.checkpoint(
+            "21-observe-later-comparable-target-error",
+            errors[0]["provenance_id"] != errors[1]["provenance_id"]
+            and errors[0]["comparison_key"] == errors[1]["comparison_key"],
+        )
         pattern = evaluate_error_pattern(observations=errors)
         self.state["pattern"] = pattern
-        self.checkpoint("27-error-pattern-rule-evaluates", pattern["eligible"] is True)
-        self.checkpoint("28-pattern-needs-independence-and-comparability", pattern["pattern_state"] == "candidate")
+        self.checkpoint(
+            "22-evaluate-accumulated-error-pattern-evidence",
+            pattern["eligible"] is True,
+        )
+        self.checkpoint(
+            "23-promote-only-supported-recurrence",
+            pattern["pattern_state"] == "candidate"
+            and pattern["independent_occurrences"] == 2
+            and pattern["comparable_contexts"] == 2,
+        )
         priority = prioritize_corrections(errors=(*errors, {"id": "style", "category": "minor_style"}), mode="practice")
         self.state["priority"] = priority
-        self.checkpoint("29-correction-priority-is-semantic", priority["prioritized_errors"][-1]["category"] == "minor_style")
+        self.checkpoint(
+            "24-prioritize-corrections-selectively",
+            priority["selective_density"] is True
+            and priority["immediate_correction_count"]
+            < len(priority["prioritized_errors"]),
+        )
 
         writing = runs["languages.writing_review"].common_run.outputs["review"]
-        self.checkpoint("30-writing-review-workflow-executes", bool(writing["review_id"]))
         writing_presentation = present_languages_result(writing)
         self.state["writing_presentation"] = writing_presentation
-        self.checkpoint("31-valid-variety-survives-review", writing_presentation["valid_alternatives"][0]["status"] == "valid_alternative")
+        self.checkpoint(
+            "25-produce-structured-writing-feedback",
+            bool(writing["review_id"])
+            and bool(writing["strengths"])
+            and bool(writing["register_feedback"]),
+        )
+        self.checkpoint(
+            "26-preserve-valid-varieties-as-non-errors",
+            writing_presentation["valid_alternatives"][0]["status"]
+            == "valid_alternative"
+            and writing_presentation["valid_variety_misclassified"] is False,
+        )
         progress = runs["languages.progress_checkpoint"].common_run.outputs["progress"]
-        self.checkpoint("32-progress-checkpoint-executes", bool(progress["review_id"]))
+        self.checkpoint(
+            "27-execute-progress-checkpoint-workflow", bool(progress["review_id"])
+        )
         short = evaluate_progression(previous_evidence=baseline, current_evidence=current[:1], skill="writing")
         self.state["short_progress"] = short
-        self.checkpoint("33-one-better-score-short-term-only", short["stable_progression"] is False)
-        self.checkpoint("34-real-baseline-supports-stable-improvement", progress["stable_progression"] is True)
+        self.checkpoint(
+            "28-reject-one-better-score-as-stable-progress",
+            short["stable_progression"] is False,
+        )
         non_comparable = evaluate_progression(
             previous_evidence=baseline,
             current_evidence=tuple({**item, "comparable": False} for item in current),
             skill="writing",
         )
-        self.checkpoint("35-noncomparable-cannot-be-stable", non_comparable["stable_progression"] is False)
+        self.checkpoint(
+            "29-accept-only-comparable-accumulated-progression",
+            progress["stable_progression"] is True
+            and progress["skill_progress"] == {"writing": "stable_improvement"}
+            and non_comparable["stable_progression"] is False,
+        )
         certification = runs["languages.certification_preparation"].common_run.outputs["certification"]
-        self.checkpoint("36-certification-workflow-executes", bool(certification["prep_id"]))
+        self.checkpoint(
+            "30-set-official-certification-target",
+            certification["target_certification"] == "Cambridge C1",
+        )
         authority = self.state["certification_authority"]
-        self.checkpoint("37-current-official-wins", authority["selected_source"]["id"] == "current-official")
-        self.checkpoint("38-readiness-not-proficiency", certification["readiness_promoted_to_proficiency"] is False)
+        certification_inputs = workflow_inputs["languages.certification_preparation"]
+        self.checkpoint(
+            "31-detect-stale-guide-current-source-conflict",
+            certification_inputs["official_source"]["id"] == "stale-guide"
+            and {source["id"] for source in certification_inputs["official_sources"]}
+            == {"stale-official", "current-official"},
+        )
+        self.checkpoint(
+            "32-select-current-official-certification-source",
+            authority["selected_source"]["id"] == "current-official",
+        )
+        self.checkpoint(
+            "33-separate-readiness-from-proficiency",
+            certification["readiness_score"] > 0.0
+            and certification["readiness_promoted_to_proficiency"] is False,
+        )
         certification_workflow = next(
             workflow
             for workflow in workflows
@@ -455,14 +627,18 @@ class ConnectedLanguagesScenario:
         stale_certification = stale_certification_run.common_run.outputs[
             "certification"
         ]
-        self.checkpoint(
-            "39-stale-requirements-preserve-verification",
-            stale_certification_run.status is WorkflowRunStatus.COMPLETED
-            and stale_certification["needs_verification"] is True,
-        )
+        assert stale_certification_run.status is WorkflowRunStatus.COMPLETED
+        assert stale_certification["needs_verification"] is True
         spaced = runs["languages.vocabulary_spaced_review"].common_run.outputs["review_plan"]
         self.state["spaced_review"] = spaced
-        self.checkpoint("40-review-proposal-no-calendar-mutation", spaced["calendar_modified"] is False and spaced["external_action_executed"] is False)
+        self.checkpoint(
+            "34-propose-pedagogical-review-schedule", bool(spaced["schedule_id"])
+        )
+        self.checkpoint(
+            "35-preserve-calendar-without-mutation",
+            spaced["calendar_modified"] is False
+            and spaced["external_action_executed"] is False,
+        )
 
         assert len(runs) == 9
         assert self.state["level_update_consumed_assessment"] == assessment
@@ -471,8 +647,60 @@ class ConnectedLanguagesScenario:
     def permission_and_memory(self) -> None:
         registry = DomainPermissionRegistry()
         registry.register(build_languages_permission_policy())
+        registry.register(build_general_permission_policy())
         service = ApprovalService(InMemoryApprovalRepository())
         gate = DomainPermissionGate(DomainPermissionResolver(registry), service, clock=lambda: NOW)
+        calendar_request = {
+            "request_id": self.ids(),
+            "capability": PermissionCapability.SCHEDULE_MODIFY.value,
+            "event": {
+                "title": "English spaced review",
+                "duration_minutes": self.state["spaced_review"][
+                    "recommended_duration_minutes"
+                ],
+            },
+            "requested_by": "user",
+        }
+        calendar_operation = DomainOperationDefinition(
+            operation_id="general.calendar_event_create",
+            domain_id="domain:general",
+            version="1.0.0",
+            name="Create calendar event through shared external boundary",
+            description="Test-only request routed to the canonical shared gate.",
+            operation_type=DomainOperationType.EXTERNAL,
+            required_permissions=(PermissionCapability.SCHEDULE_MODIFY.value,),
+            risk_level=PolicyRiskLevel.LOW,
+            reversible=True,
+        )
+        calendar_boundary = gate.evaluate_operation_definition(
+            calendar_operation,
+            request_id=calendar_request["request_id"],
+            actor_id="actor-at-dp-026",
+            session_id="session-at-dp-026",
+        )
+        self.state.update(
+            calendar_request=calendar_request,
+            calendar_operation=calendar_operation,
+            calendar_boundary=calendar_boundary,
+            calendar_mutated=False,
+        )
+        self.checkpoint(
+            "36-receive-user-calendar-event-request",
+            calendar_request["requested_by"] == "user"
+            and calendar_request["event"]["title"]
+            == "English spaced review"
+            and calendar_request["capability"]
+            == PermissionCapability.SCHEDULE_MODIFY.value,
+        )
+        self.checkpoint(
+            "37-route-calendar-request-to-shared-boundary",
+            calendar_operation.operation_id == "general.calendar_event_create"
+            and calendar_operation.required_permissions
+            == (PermissionCapability.SCHEDULE_MODIFY.value,)
+            and calendar_boundary.outcome is PermissionGateOutcome.DENY
+            and not calendar_boundary.allowed
+            and self.state["calendar_mutated"] is False,
+        )
         operation = DomainOperationDefinition(
             operation_id="languages.test_connected_memory_apply", domain_id=LANGUAGES_DOMAIN_ID,
             version="1.0.0", name="Connected acceptance memory apply",
@@ -545,7 +773,12 @@ class ConnectedLanguagesScenario:
         validation = validate_languages_memory_binding(binding=binding, inventory=inventory)
         self.state.update(memory_proposal=proposal, memory_binding=binding, memory_view=view, memory_validation=validation)
         self.actual_produced_ids.update((proposal.proposal_id, binding.binding_id, view.view_id, permission_id, trace_id))
-        self.checkpoint("41-memory-proposal-valid-no-persistence", validation.is_valid and not service.repository.is_consumed(approval.id))
+        self.checkpoint(
+            "38-propose-persistent-progress-update",
+            proposal.proposal_id == proposal_id
+            and validation.is_valid
+            and not service.repository.is_consumed(approval.id),
+        )
         consumed = gate.evaluate_operation_definition(
             operation, request_id=permission_request_id,
             actor_id="actor-at-dp-026", session_id="session-at-dp-026",
@@ -553,8 +786,10 @@ class ConnectedLanguagesScenario:
         )
         self.state["permission_consumed"] = consumed
         self.checkpoint(
-            "42-real-permission-lifecycle-consumes-exact-approval",
-            consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED and consumed.allowed,
+            "39-validate-consent-and-permission-before-persistence",
+            self.state["languages"]["English"]["tracking_consent"] is True
+            and consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+            and consumed.allowed,
         )
 
     def cross_domain_and_presentation(self) -> None:
@@ -614,12 +849,15 @@ class ConnectedLanguagesScenario:
             "all_writing_corrections", "full_languages_memory",
         }
         self.checkpoint(
-            "43-real-cross-domain-minimal-composition",
+            "40-project-minimum-languages-context-to-oppositions",
             str(resolution.primary_domain) == "domain:oppositions"
             and LANGUAGES_DOMAIN_ID in {str(item) for item in resolution.supporting_domains}
             and str(composition.primary_domain) == "domain:oppositions"
-            and set(projection.to_dict()["findings"][0]) == allowed_keys
-            and not forbidden.intersection(projection.to_dict()["findings"][0]),
+            and set(projection.to_dict()["findings"][0]) == allowed_keys,
+        )
+        self.checkpoint(
+            "41-withhold-full-learning-history",
+            not forbidden.intersection(projection.to_dict()["findings"][0]),
         )
         presented = [present_languages_result(result) for result in self.state["operation_outputs"]]
         presented.extend(
@@ -630,9 +868,20 @@ class ConnectedLanguagesScenario:
         self.state["presented_results"] = presented
         speaking = next(item for item in presented if item.get("transcript_text") is not None)
         self.checkpoint(
-            "44-presentation-does-not-upgrade-results",
+            "42-present-certified-estimated-observed-distinctly",
+            certificate["kind"] == "CERTIFIED"
+            and assessment["proficiency_kind"] == "OBSERVED_PERFORMANCE"
+            and self.state["writing_presentation"]["estimated_level"] == "A2"
+            and all(
+                item["presentation_format"] == "standard_pedagogy"
+                for item in presented
+            ),
+        )
+        self.checkpoint(
+            "43-present-unassessed-speaking-pronunciation-gaps",
             speaking["pronunciation_assessed"] is False
-            and all(item["presentation_format"] == "standard_pedagogy" for item in presented),
+            and speaking["pronunciation_badge"] == "Audio evidence not provided"
+            and "pronunciation_evidence" in speaking["missing_evidence"],
         )
 
     def trace(self) -> None:
@@ -687,7 +936,17 @@ class ConnectedLanguagesScenario:
         self.state.update(trace=trace, trace_inventory=inventory, trace_validation=validation)
         self.required_trace_ids = {item.ref_id for item in trace.all_references()}
         assert self.required_trace_ids <= self.actual_produced_ids
-        self.checkpoint("45-connected-trace-valid", validation.valid)
+        self.checkpoint(
+            "44-trace-actual-connected-runtime-identifiers",
+            validation.valid and self.required_trace_ids <= self.actual_produced_ids,
+        )
+        self.checkpoint(
+            "45-use-no-parallel-domain-infrastructure",
+            len(self.state["workflow_runs"]) == 9
+            and isinstance(self.state["resolver"], DefaultDomainResolver)
+            and isinstance(self.state["permission_gate"], DomainPermissionGate)
+            and self.state["calendar_mutated"] is False,
+        )
 
     def run(self) -> None:
         self.bootstrap_and_state()
@@ -737,3 +996,21 @@ def test_at_dp_026_is_one_connected_45_checkpoint_scenario() -> None:
     assert projection["relevant_proficiency"]["writing"] == scenario.state[
         "assessment"
     ]["observed_performance"]
+
+
+def test_at_dp_026_routes_calendar_request_through_shared_schedule_boundary() -> None:
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    request = scenario.state["calendar_request"]
+    boundary = scenario.state["calendar_boundary"]
+    assert request["capability"] == PermissionCapability.SCHEDULE_MODIFY.value
+    assert boundary.outcome is PermissionGateOutcome.DENY
+    assert boundary.action == PermissionCapability.OPERATION_EXECUTE.value
+    assert scenario.state["calendar_mutated"] is False
+
+
+def test_at_dp_026_checkpoints_match_frozen_semantic_sequence() -> None:
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+    assert tuple(scenario.checkpoints) == FROZEN_SEMANTIC_CHECKPOINTS
