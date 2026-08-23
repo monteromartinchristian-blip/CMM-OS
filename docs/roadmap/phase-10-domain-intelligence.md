@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, and Phase 10.25 — Concerns Domain are complete and audited; Phase 10.26 — Languages Domain has candidate remediation implemented, pending independent re-audit; the remaining work proceeds from 10.27 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, and Phase 10.25 — Concerns Domain are complete and audited; Phase 10.26 — Languages Domain has remediated the V2 findings and is pending independent V3 audit; the remaining work proceeds from 10.27 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -3636,7 +3636,7 @@ Implementation status (2026-08-21)
 
 10.26 - Languages Domain
 
-**Status:** Candidate audit remediation implemented; independent re-audit pending.
+**Status:** V2 findings remediated; independent V3 audit pending.
 
 Canonical design:
 
@@ -3837,13 +3837,14 @@ The domain owning the objective is primary. Languages is supporting
 when it supplies specialized linguistic competence to another primary
 domain.
 
-The first independent audit returned `FAIL` with two blockers and five major
-findings. Candidate remediation addresses all seven findings, and the connected
-45-checkpoint `AT-DP-026` now passes through the real shared resolver, composer,
-Workflow Engine, permission, memory, projection, presentation, and trace paths.
-This does not close `DP-026`: its matrix status remains
-`REQUIRES_PHASE_INSPECTION`. Independent re-audit and final closure remain
-pending, and independently re-auditing Phase 10.26 is the next milestone.
+Independent re-audit V2 returned `FAIL` with two blockers and three major
+findings. The V2 remediation candidate addresses all five findings, and the
+connected 45-checkpoint `AT-DP-026` now follows the exact frozen semantic
+sequence through the real shared resolver, composer, Workflow Engine, calendar
+permission boundary, memory, projection, presentation, and independently
+inventoried typed trace paths. This does not close `DP-026`: its matrix status
+remains `REQUIRES_PHASE_INSPECTION`; candidate `AT-DP-026` is `PASS`; and
+independent V3 audit remains `PENDING` as the next milestone.
 
 ⸻
 

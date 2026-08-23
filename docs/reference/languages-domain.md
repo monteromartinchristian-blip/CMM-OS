@@ -1,7 +1,7 @@
 # Languages Domain (`domain:languages`)
 
 **Phase:** 10.26
-**Status:** Implemented — pending independent audit
+**Status:** V2 findings remediated — independent V3 audit pending
 **Canonical identity:** `domain:languages` · namespace `languages.*` · version `1.0.0`
 **Canonical profile:** `LanguageLearningProfile`
 **Design (frozen):** `docs/superpowers/specs/2026-08-23-languages-domain-design.md`
@@ -88,20 +88,26 @@ All 9 workflows run on the shared Workflow Engine with direct producer-to-gate v
 ## 6. Independent-audit remediation status
 
 The first independent Phase 10.26 audit returned `FAIL` with two blockers and
-five major findings. The candidate remediation now addresses all seven
-findings, including the disconnected acceptance path, workflow outcome gates,
-evidence provenance and comparability, real progression baselines, temporal
-certification ranking, and the permission lifecycle.
+five major findings. Independent re-audit V2 also returned `FAIL`, with two
+remaining blockers and three remaining major findings. The V2 remediation
+candidate addresses those `2 BLOCKER + 3 MAJOR` findings; independent V3 audit
+is still `PENDING`.
 
 `AT-DP-026` now passes as one connected 45-checkpoint scenario over the real
 shared resolver, composer, Workflow Engine, permission gate, memory contracts,
-projection, presentation, and trace contracts. The remediation also includes
-two explicitly authorized, minimal shared compatibility fixes: typed
-`DomainMetadata.metadata` extraction in domain composition and accumulated
-workflow-output visibility at the ready-node adapter boundary. Neither changes
-domain scoring, scheduling, ordering, readiness, status semantics, or public
-workflow contracts.
+projection, presentation, and typed trace contracts. Its 45 checkpoints now
+match the frozen semantic sequence exactly, including the real shared calendar
+permission boundary. Its trace inventory is derived from runtime objects before
+assembly, and `WorkflowEvent.event_id` is not represented as a workflow result.
+
+The remediation includes explicitly authorized minimal shared changes:
+typed `DomainMetadata.metadata` extraction in domain composition; accumulated
+workflow-output visibility at the ready-node adapter boundary; shared Domain
+Trace kinds for evidence, memory proposal/binding and presentation result; and
+the global `presentation_result_ids` carrier. These changes do not alter domain
+scoring/ranking, workflow scheduling/ordering/readiness/status semantics, or
+existing public payload shapes.
 
 This is candidate remediation evidence only. `DP-026` remains
-`REQUIRES_PHASE_INSPECTION`; independent re-audit and final closure are still
-pending.
+`REQUIRES_PHASE_INSPECTION`; candidate `AT-DP-026` is `PASS`, independent V3
+audit is `PENDING`, and final closure has not been claimed.
