@@ -50,6 +50,10 @@ def test_ready_node_adapter_sees_completed_producer_output_in_run() -> None:
         if node.node_id == "producer":
             return NodeExecution.complete({"value": "produced"})
         assert run.outputs["producer"] == {"value": "produced"}
+        assert run.completed_nodes == ()
+        assert run.failed_nodes == ()
+        assert run.waiting_nodes == ()
+        assert run.skipped_nodes == ()
         return NodeExecution.complete({"consumed": True})
 
     result = WorkflowEngine(

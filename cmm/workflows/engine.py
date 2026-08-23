@@ -202,10 +202,6 @@ class WorkflowEngine:
                     else:
                         adapter_run = replace(
                             run,
-                            completed_nodes=tuple(completed),
-                            failed_nodes=tuple(failed),
-                            waiting_nodes=tuple(waiting),
-                            skipped_nodes=tuple(skipped),
                             outputs=outputs,
                         )
                         outcome = self._coerce(
