@@ -33,6 +33,7 @@ All public outputs are strict JSON-safe; caller inputs are never mutated.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -100,6 +101,11 @@ _PROVENANCE_FIELDS = (
     "sample_id",
     "context_id",
 )
+_CERTIFICATION_PROVENANCE_FIELDS = (
+    "provenance_id",
+    "source_id",
+    "official_source_id",
+)
 
 
 def normalize_json_value(value: Any) -> Any:
@@ -133,6 +139,15 @@ def _canonical_provenance(record: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _certification_provenance(record: Mapping[str, Any]) -> str | None:
+    """Return provenance grounded in an official certification source."""
+    for field in _CERTIFICATION_PROVENANCE_FIELDS:
+        value = _safe_str(record.get(field))
+        if value is not None:
+            return f"{field}:{value}"
+    return None
+
+
 def _is_certifying_evidence(record: Any) -> bool:
     """Accept only grounded evidence from a recognized official credential source."""
     if not isinstance(record, Mapping):
@@ -145,7 +160,7 @@ def _is_certifying_evidence(record: Any) -> bool:
     return (
         _safe_str(record.get("source_kind")) in _CERTIFIED_SOURCE_KINDS
         and credential_ref is not None
-        and _canonical_provenance(record) is not None
+        and _certification_provenance(record) is not None
     )
 
 
@@ -156,7 +171,11 @@ def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
         _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
         _safe_str(record.get("skill")),
         _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
-        record.get("score"),
+        json.dumps(
+            normalize_json_value(record.get("score")),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
         _safe_str(record.get("error_type")),
         _safe_str(record.get("sentence")),
         _safe_str(record.get("comparison_key")),
@@ -623,6 +642,8 @@ def evaluate_error_pattern(
     distinct_occurrences: set[str] = set()
     comparable_occurrences: set[str] = set()
     comparison_keys: set[str] = set()
+    error_types: set[str] = set()
+    missing_error_type = False
     evidence_ids: list[str] = []
     has_resolved = False
     has_unresolved = False
@@ -631,7 +652,12 @@ def evaluate_error_pattern(
         obs_id = _safe_str(obs.get("id")) or ""
         provenance = _canonical_provenance(obs)
         sentence = _safe_str(obs.get("sentence")) or ""
-        err_type = _safe_str(obs.get("error_type")) or "error"
+        err_type = _safe_str(obs.get("error_type"))
+        if err_type is None:
+            missing_error_type = True
+            err_type = "error"
+        else:
+            error_types.add(err_type)
         key = (provenance or "unprovenanced", sentence, err_type)
         if key in seen:
             continue
@@ -650,7 +676,13 @@ def evaluate_error_pattern(
             has_unresolved = True
 
     indep_count = len(distinct_occurrences)
-    comparable_count = len(comparable_occurrences) if len(comparison_keys) == 1 else 0
+    comparable_count = (
+        len(comparable_occurrences)
+        if len(comparison_keys) == 1
+        and len(error_types) == 1
+        and not missing_error_type
+        else 0
+    )
     lapse_possible = has_resolved and has_unresolved
 
     if comparable_count < minimum_independent_occurrences:
@@ -993,7 +1025,7 @@ def evaluate_progression(
             "skill": skill or "general",
         }
 
-    def _comparable_score(record: Mapping[str, Any]) -> tuple[str, float] | None:
+    def _comparable_score(record: Mapping[str, Any]) -> tuple[str, str, float] | None:
         provenance = _canonical_provenance(record)
         comparison_key = _safe_str(record.get("comparison_key"))
         score = record.get("score")
@@ -1007,11 +1039,13 @@ def evaluate_progression(
             or (skill is not None and _safe_str(record.get("skill")) != skill)
         ):
             return None
-        return comparison_key, float(score)
+        return comparison_key, provenance, float(score)
 
     previous_scores = [value for item in clean_prev if (value := _comparable_score(item)) is not None]
     current_scores = [value for item in clean_curr if (value := _comparable_score(item)) is not None]
-    shared_keys = {key for key, _ in previous_scores} & {key for key, _ in current_scores}
+    shared_keys = {key for key, _, _ in previous_scores} & {
+        key for key, _, _ in current_scores
+    }
     if len(shared_keys) != 1:
         return {
             "progression_outcome": "insufficient_evidence",
@@ -1020,8 +1054,13 @@ def evaluate_progression(
         }
 
     comparison_key = next(iter(shared_keys))
-    prev_scores = [score for key, score in previous_scores if key == comparison_key]
-    curr_scores = [score for key, score in current_scores if key == comparison_key]
+    prev_scores = [score for key, _, score in previous_scores if key == comparison_key]
+    current_for_key = [
+        (provenance, score)
+        for key, provenance, score in current_scores
+        if key == comparison_key
+    ]
+    curr_scores = [score for _, score in current_for_key]
     if not prev_scores or not curr_scores:
         return {
             "progression_outcome": "insufficient_evidence",
@@ -1032,7 +1071,7 @@ def evaluate_progression(
     prev_avg = sum(prev_scores) / len(prev_scores)
     curr_avg = sum(curr_scores) / len(curr_scores)
 
-    if len(curr_scores) == 1:
+    if len({provenance for provenance, _ in current_for_key}) < 2:
         if curr_avg > prev_avg + 0.15:
             outcome = "short_term_improvement"
         elif curr_avg < prev_avg - 0.20:

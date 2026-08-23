@@ -163,6 +163,55 @@ def test_certification_requires_grounded_official_credential_evidence() -> None:
     assert grounded["is_certified"] is True
 
 
+def test_certification_requires_certification_specific_provenance() -> None:
+    for alias in ("context_id", "sample_id", "assessment_id"):
+        result = classify_proficiency_record(
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="C1",
+            skill_scope="writing",
+            evidence=(
+                {
+                    "source_kind": "official_certificate",
+                    "certificate_id": "C1",
+                    alias: "caller-controlled-context",
+                },
+            ),
+        )
+        assert result["is_certified"] is False
+
+    official = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "certificate_id": "C1",
+                "official_source_id": "official-record",
+            },
+        ),
+    )
+    assert official["is_certified"] is True
+
+
+def test_nested_malformed_evidence_fails_closed_without_type_error() -> None:
+    result = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B2",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "nested",
+                "score": {"unexpected": ["nested", "value"]},
+            },
+        ),
+    )
+    assert result["is_certified"] is False
+
+
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
     base = {"observed": "B2", "skill": "writing", "comparable": True, "comparison_key": "essay"}
@@ -204,6 +253,16 @@ def test_error_patterns_require_independence_and_comparability() -> None:
     valid = (one, {**one, "provenance_id": "two"})
     assert evaluate_error_pattern(observations=valid)["pattern_state"] == "candidate"
 
+    unrelated = (
+        one,
+        {
+            **one,
+            "provenance_id": "two",
+            "error_type": "spelling",
+        },
+    )
+    assert evaluate_error_pattern(observations=unrelated)["eligible"] is False
+
 
 def test_progression_requires_real_comparable_baseline_and_repetition() -> None:
     baseline = ({"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},)
@@ -216,6 +275,11 @@ def test_progression_requires_real_comparable_baseline_and_repetition() -> None:
     incomparable = tuple({**item, "comparable": False} for item in current)
     assert evaluate_progression(previous_evidence=baseline, current_evidence=incomparable, skill="writing")["stable_progression"] is False
     assert evaluate_progression(previous_evidence=baseline, current_evidence=current, skill="writing")["stable_progression"] is True
+    same_provenance = (
+        {**current[0], "provenance_id": "same", "score": 0.8},
+        {**current[1], "provenance_id": "same", "score": 0.9},
+    )
+    assert evaluate_progression(previous_evidence=baseline, current_evidence=same_provenance, skill="writing")["stable_progression"] is False
     poor = ({"provenance_id": "poor", "score": 0.2, "skill": "writing", "comparable": True, "comparison_key": "essay"},)
     assert evaluate_progression(previous_evidence=baseline, current_evidence=poor, skill="writing")["progression_outcome"] != "stable_regression"
 

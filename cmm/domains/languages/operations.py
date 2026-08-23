@@ -791,18 +791,23 @@ def review_exercise_result(
     er = dict(exercise_result or {})
     is_correct = er.get("is_correct", True)
     score = float(er.get("score", 1.0 if is_correct else 0.0))
+    review_id = f"exr-{uuid.uuid4().hex[:8]}"
 
     errors = []
     if not is_correct:
         errors.append({
             "id": f"err-{uuid.uuid4().hex[:6]}",
+            "provenance_id": review_id,
             "topic": target_topic or "general",
+            "error_type": "target_structure",
+            "comparable": True,
+            "comparison_key": target_topic or "general",
             "user_answer": er.get("user_answer", ""),
             "category": "observed_error",
         })
 
     return {
-        "review_id": f"exr-{uuid.uuid4().hex[:8]}",
+        "review_id": review_id,
         "score": score,
         "is_correct": is_correct,
         "observed_errors": errors,
@@ -904,6 +909,11 @@ def review_speaking_result(
     """Review speaking transcript, ensuring transcript alone never assesses pronunciation."""
     at = dict(audio_transcript or {})
     transcript = str(at.get("transcript", ""))
+    observed_errors = [
+        dict(normalize_json_value(item))
+        for item in at.get("observed_errors", ())
+        if isinstance(item, Mapping)
+    ]
 
     has_audio_evidence = bool(pronunciation_evidence)
     return {
@@ -912,7 +922,7 @@ def review_speaking_result(
         "pronunciation_assessed": has_audio_evidence,
         "pronunciation_feedback": "Phoneme clarity verified." if has_audio_evidence else None,
         "fluency_score": 0.80,
-        "observed_errors": [],
+        "observed_errors": observed_errors,
         "pronunciation_evidence_valid": True,
         "pronunciation_inferred_from_transcript_only": False,
     }

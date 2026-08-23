@@ -226,10 +226,19 @@ class ConnectedLanguagesScenario:
             result = generate_roleplay_turn_result(conversation={"turns": (producer,)}, language=inputs["language"], scenario=inputs["scenario"])
         elif op == "languages.review_speaking":
             self.state["speaking_consumed_roleplay"] = outputs["roleplay_turn"]
-            result = review_speaking_result(audio_transcript=inputs["audio_transcript"], target_language=inputs["language"], pronunciation_evidence=inputs.get("pronunciation_evidence"))
+            transcript = dict(inputs["audio_transcript"])
+            transcript["observed_errors"] = tuple(
+                {
+                    **item,
+                    "provenance_id": outputs["roleplay_turn"]["roleplay_id"],
+                }
+                for item in transcript.get("observed_errors", ())
+            )
+            result = review_speaking_result(audio_transcript=transcript, target_language=inputs["language"], pronunciation_evidence=inputs.get("pronunciation_evidence"))
         elif op == "languages.review_writing":
             result = review_writing_result(writing_sample=inputs["writing_sample"], language=inputs["language"], preferred_variety=inputs["preferred_variety"])
         elif op == "languages.review_errors":
+            self.state["remediation_consumed_errors"] = tuple(inputs["observed_errors"])
             result = review_errors_result(observed_errors=inputs["observed_errors"], language=inputs["language"])
         elif op == "languages.track_vocabulary":
             result = track_vocabulary_result(vocabulary_list=inputs["vocabulary_list"], language=inputs["language"])
@@ -238,7 +247,14 @@ class ConnectedLanguagesScenario:
             self.state["schedule_consumed_vocabulary"] = producer
             result = plan_review_schedule_result(review_items=producer["candidate_updates"], available_time=20)
         elif op == "languages.prepare_certification":
-            result = prepare_certification_result(target_certification=inputs["target_certification"], official_source=inputs["official_source"])
+            authority = evaluate_certification_source(
+                sources=inputs.get("official_sources", (inputs["official_source"],)),
+                decision_critical=True,
+            )
+            selected_source = authority["selected_source"]
+            self.state["certification_authority"] = authority
+            self.state["certification_selected_source"] = selected_source
+            result = prepare_certification_result(target_certification=inputs["target_certification"], official_source=selected_source)
         elif op == "languages.generate_progress_review":
             result = generate_progress_review_result(language=inputs["language"], period=inputs["period"], previous_evidence=inputs["previous_evidence"], evidence=inputs["evidence"], skill="writing")
         else:
@@ -248,16 +264,12 @@ class ConnectedLanguagesScenario:
 
     def execute_workflows(self) -> None:
         english = self.state["languages"]["English"]
-        errors = (
-            {"provenance_id": "error-context-1", "context_id": "context-1", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing", "category": "comprehension_blocking"},
-            {"provenance_id": "error-context-2", "context_id": "context-2", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing", "category": "recurrent"},
-        )
         baseline = ({"provenance_id": "baseline-writing", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},)
         current = (
             {"provenance_id": "current-writing-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
             {"provenance_id": "current-writing-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
         )
-        self.state.update(independent_errors=errors, baseline=baseline, current=current)
+        self.state.update(baseline=baseline, current=current)
         workflow_inputs = {
             "languages.language_onboarding": {"language": "English", "goals": english["goals"], "tracking_consent": True},
             "languages.proficiency_assessment": {
@@ -270,14 +282,24 @@ class ConnectedLanguagesScenario:
             },
             "languages.conversation_roleplay_practice": {
                 "language": "English", "conversation": {"turns": ()}, "topic": "public speaking", "scenario": "oral exam",
-                "audio_transcript": {"transcript": "I would like to begin my presentation."}, "pronunciation_evidence": None,
+                "audio_transcript": {
+                    "transcript": "Never I saw that structure before.",
+                    "observed_errors": (
+                        {
+                            "error_type": "target_structure",
+                            "category": "recurrent",
+                            "comparable": True,
+                        },
+                    ),
+                },
+                "pronunciation_evidence": None,
             },
             "languages.writing_review": {
                 "language": "English", "writing_sample": {"text": "My favourite colour is blue in this formal proposal."},
                 "preferred_variety": "British English",
             },
             "languages.error_remediation": {
-                "language": "English", "observed_errors": errors,
+                "language": "English", "observed_errors": (),
                 "exercise_result": {"is_correct": True, "user_answer": "Never have I seen"},
             },
             "languages.vocabulary_spaced_review": {
@@ -286,6 +308,10 @@ class ConnectedLanguagesScenario:
             "languages.certification_preparation": {
                 "language": "English", "target_certification": "Cambridge C1",
                 "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False},
+                "official_sources": (
+                    {"id": "stale-official", "source_type": "official", "date_valid": False},
+                    {"id": "current-official", "source_type": "official", "date_valid": True},
+                ),
             },
             "languages.progress_checkpoint": {
                 "language": "English", "period": "last_30_days", "previous_evidence": baseline, "evidence": current,
@@ -303,6 +329,31 @@ class ConnectedLanguagesScenario:
         executor = DomainWorkflowExecutor(id_factory=self.ids, clock=lambda: NOW, operation_adapter=self.operation_adapter)
         runs: dict[str, Any] = {}
         for workflow in workflows:
+            if workflow.workflow_id == "languages.conversation_roleplay_practice":
+                lesson_error = runs[
+                    "languages.adaptive_language_lesson"
+                ].common_run.outputs["review"]["observed_errors"][0]
+                conversation_input = workflow_inputs[workflow.workflow_id]
+                raw_error = conversation_input["audio_transcript"]["observed_errors"][0]
+                conversation_input["audio_transcript"]["observed_errors"] = (
+                    {
+                        **raw_error,
+                        "comparison_key": lesson_error["comparison_key"],
+                    },
+                )
+            if workflow.workflow_id == "languages.error_remediation":
+                lesson_errors = tuple(
+                    runs["languages.adaptive_language_lesson"]
+                    .common_run.outputs["review"]["observed_errors"]
+                )
+                speaking_errors = tuple(
+                    runs["languages.conversation_roleplay_practice"]
+                    .common_run.outputs["speaking_review"]["observed_errors"]
+                )
+                workflow_inputs[workflow.workflow_id]["observed_errors"] = (
+                    *lesson_errors,
+                    *speaking_errors,
+                )
             run = executor.execute(workflow, context, workflow_inputs[workflow.workflow_id])
             assert run.status is WorkflowRunStatus.COMPLETED
             runs[workflow.workflow_id] = run
@@ -337,6 +388,8 @@ class ConnectedLanguagesScenario:
         practice = runs["languages.conversation_roleplay_practice"].common_run.outputs
         self.checkpoint("24-conversation-roleplay-executes", bool(practice["roleplay_turn"]["roleplay_id"]))
         self.checkpoint("25-transcript-does-not-assess-pronunciation", practice["speaking_review"]["pronunciation_assessed"] is False)
+        errors = self.state["remediation_consumed_errors"]
+        self.state["independent_errors"] = errors
         self.checkpoint("26-independent-comparable-occurrence-produced", errors[0]["provenance_id"] != errors[1]["provenance_id"])
         pattern = evaluate_error_pattern(observations=errors)
         self.state["pattern"] = pattern
@@ -365,16 +418,10 @@ class ConnectedLanguagesScenario:
         self.checkpoint("35-noncomparable-cannot-be-stable", non_comparable["stable_progression"] is False)
         certification = runs["languages.certification_preparation"].common_run.outputs["certification"]
         self.checkpoint("36-certification-workflow-executes", bool(certification["prep_id"]))
-        authority = evaluate_certification_source(
-            sources=(
-                {"id": "stale-official", "source_type": "official", "date_valid": False},
-                {"id": "current-official", "source_type": "official", "date_valid": True},
-            ), decision_critical=True,
-        )
-        self.state["certification_authority"] = authority
+        authority = self.state["certification_authority"]
         self.checkpoint("37-current-official-wins", authority["selected_source"]["id"] == "current-official")
         self.checkpoint("38-readiness-not-proficiency", certification["readiness_promoted_to_proficiency"] is False)
-        self.checkpoint("39-verification-preserved-without-failure", certification["needs_verification"] is True)
+        self.checkpoint("39-current-requirements-verified", certification["needs_verification"] is False)
         spaced = runs["languages.vocabulary_spaced_review"].common_run.outputs["review_plan"]
         self.state["spaced_review"] = spaced
         self.checkpoint("40-review-proposal-no-calendar-mutation", spaced["calendar_modified"] is False and spaced["external_action_executed"] is False)
@@ -487,11 +534,29 @@ class ConnectedLanguagesScenario:
         composition = DefaultDomainComposer(id_factory=self.ids, clock=lambda: NOW).compose(
             resolution, (build_oppositions_domain_definition(), build_languages_domain_definition())
         )
+        certificate = self.state["certificate"]
+        assessment = self.state["assessment"]
+        certification = self.state["workflow_runs"][
+            "languages.certification_preparation"
+        ].common_run.outputs["certification"]
+        progress = self.state["workflow_runs"][
+            "languages.progress_checkpoint"
+        ].common_run.outputs["progress"]
+        review_plan = self.state["spaced_review"]
         allowed = {
-            "certification_status": "B1 certified", "estimated_readiness": "developing",
-            "relevant_proficiency": {"writing": "B2 observed"},
-            "progress_toward_shared_goal": "on_track", "recommended_workload": "moderate",
-            "blocking_language_gap": "C1 oral evidence missing",
+            "certification_status": (
+                f"{certificate['level_or_score']} "
+                f"{certificate['kind'].lower()}"
+            ),
+            "estimated_readiness": certification["readiness_score"],
+            "relevant_proficiency": {
+                "writing": assessment["observed_performance"],
+            },
+            "progress_toward_shared_goal": progress["overall_progression"],
+            "recommended_workload": review_plan[
+                "recommended_duration_minutes"
+            ],
+            "blocking_language_gap": certification["skill_gaps"][1],
         }
         projection = DomainResult(
             id=self.ids(), status="completed",
@@ -501,6 +566,11 @@ class ConnectedLanguagesScenario:
         )
         self.state.update(cross_context=context, cross_resolution=resolution, cross_composition=composition, cross_projection=projection)
         self.actual_produced_ids.update((context.id, resolution.id, composition.id, str(projection.id), projection.trace_id))
+        allowed_keys = {
+            "certification_status", "estimated_readiness", "relevant_proficiency",
+            "progress_toward_shared_goal", "recommended_workload",
+            "blocking_language_gap",
+        }
         forbidden = {
             "complete_vocabulary_history", "all_observed_errors", "all_transcripts",
             "all_writing_corrections", "full_languages_memory",
@@ -510,6 +580,7 @@ class ConnectedLanguagesScenario:
             str(resolution.primary_domain) == "domain:oppositions"
             and LANGUAGES_DOMAIN_ID in {str(item) for item in resolution.supporting_domains}
             and str(composition.primary_domain) == "domain:oppositions"
+            and set(projection.to_dict()["findings"][0]) == allowed_keys
             and not forbidden.intersection(projection.to_dict()["findings"][0]),
         )
         presented = [present_languages_result(result) for result in self.state["operation_outputs"]]
@@ -598,3 +669,33 @@ def test_at_dp_026_is_one_connected_45_checkpoint_scenario() -> None:
     assert scenario.state["permission_consumed"].outcome is PermissionGateOutcome.APPROVAL_CONSUMED
     assert scenario.state["cross_composition"].id in scenario.actual_produced_ids
     assert scenario.required_trace_ids <= scenario.actual_produced_ids
+    lesson_errors = tuple(
+        scenario.state["workflow_runs"]["languages.adaptive_language_lesson"]
+        .common_run.outputs["review"]["observed_errors"]
+    )
+    speaking_errors = tuple(
+        scenario.state["workflow_runs"]["languages.conversation_roleplay_practice"]
+        .common_run.outputs["speaking_review"]["observed_errors"]
+    )
+    assert scenario.state["remediation_consumed_errors"] == (
+        *lesson_errors,
+        *speaking_errors,
+    )
+    assert scenario.state["certification_selected_source"]["id"] == "current-official"
+    assert (
+        scenario.state["workflow_runs"]["languages.certification_preparation"]
+        .common_run.outputs["certification"]["needs_verification"]
+        is False
+    )
+    projection = scenario.state["cross_projection"].to_dict()["findings"][0]
+    assert set(projection) == {
+        "certification_status",
+        "estimated_readiness",
+        "relevant_proficiency",
+        "progress_toward_shared_goal",
+        "recommended_workload",
+        "blocking_language_gap",
+    }
+    assert projection["relevant_proficiency"]["writing"] == scenario.state[
+        "assessment"
+    ]["observed_performance"]
