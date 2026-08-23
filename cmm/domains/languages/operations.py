@@ -230,6 +230,8 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "period": _STR,
             "evidence": {"type": ["array", "null"], "items": {"type": "object"}},
             "goals": {"type": ["array", "null"], "items": {"type": "object"}},
+            "previous_evidence": {"type": ["array", "null"], "items": {"type": "object"}},
+            "skill": _STR_OR_NULL,
         },
     ),
 }
@@ -366,6 +368,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "feedback",
             "difficulty_adjustment",
             "pattern_candidate",
+            "stable_proficiency_changed",
+            "error_pattern_promoted_without_evidence",
         ),
         {
             "review_id": _STR,
@@ -375,6 +379,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "feedback": _STR,
             "difficulty_adjustment": _STR,
             "pattern_candidate": _BOOL,
+            "stable_proficiency_changed": _BOOL,
+            "error_pattern_promoted_without_evidence": _BOOL,
         },
     ),
     "languages.review_writing": _schema(
@@ -388,6 +394,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "register_feedback",
             "estimated_level",
             "score",
+            "valid_variety_misclassified",
+            "proficiency_upgraded_without_evidence",
         ),
         {
             "review_id": _STR,
@@ -399,6 +407,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "register_feedback": _STR,
             "estimated_level": _STR,
             "score": _NUM,
+            "valid_variety_misclassified": _BOOL,
+            "proficiency_upgraded_without_evidence": _BOOL,
         },
     ),
     "languages.generate_conversation_turn": _schema(
@@ -445,6 +455,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "pronunciation_feedback",
             "fluency_score",
             "observed_errors",
+            "pronunciation_evidence_valid",
+            "pronunciation_inferred_from_transcript_only",
         ),
         {
             "review_id": _STR,
@@ -453,6 +465,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "pronunciation_feedback": _STR_OR_NULL,
             "fluency_score": _NUM,
             "observed_errors": _RECORDS,
+            "pronunciation_evidence_valid": _BOOL,
+            "pronunciation_inferred_from_transcript_only": _BOOL,
         },
     ),
     "languages.review_errors": _schema(
@@ -462,6 +476,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "error_patterns",
             "prioritized_corrections",
             "recommended_focus",
+            "pattern_evidence_valid",
+            "pattern_promoted_without_independent_recurrence",
         ),
         {
             "review_id": _STR,
@@ -469,6 +485,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "error_patterns": _RECORDS,
             "prioritized_corrections": _RECORDS,
             "recommended_focus": _STR,
+            "pattern_evidence_valid": _BOOL,
+            "pattern_promoted_without_independent_recurrence": _BOOL,
         },
     ),
     "languages.track_vocabulary": _schema(
@@ -517,6 +535,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "registration_performed",
             "payment_performed",
             "submission_performed",
+            "temporal_evidence_valid",
+            "readiness_promoted_to_proficiency",
         ),
         {
             "prep_id": _STR,
@@ -529,6 +549,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "registration_performed": _BOOL,
             "payment_performed": _BOOL,
             "submission_performed": _BOOL,
+            "temporal_evidence_valid": _BOOL,
+            "readiness_promoted_to_proficiency": _BOOL,
         },
     ),
     "languages.generate_progress_review": _schema(
@@ -542,6 +564,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "active_patterns_count",
             "certification_readiness",
             "recommended_next_focus",
+            "progression_evidence_valid",
+            "cross_skill_inflation",
         ),
         {
             "review_id": _STR,
@@ -553,6 +577,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "active_patterns_count": _INT,
             "certification_readiness": _STR,
             "recommended_next_focus": _STR,
+            "progression_evidence_valid": _BOOL,
+            "cross_skill_inflation": _BOOL,
         },
     ),
 }
@@ -783,6 +809,8 @@ def review_exercise_result(
         "feedback": "Great job!" if is_correct else "Review the target structure.",
         "difficulty_adjustment": "maintain" if is_correct else "scaffold",
         "pattern_candidate": False,
+        "stable_proficiency_changed": False,
+        "error_pattern_promoted_without_evidence": False,
     }
 
 
@@ -816,6 +844,8 @@ def review_writing_result(
         "register_feedback": "Formal and appropriate.",
         "estimated_level": "B2" if word_count > 10 else "A2",
         "score": 0.85,
+        "valid_variety_misclassified": False,
+        "proficiency_upgraded_without_evidence": False,
     }
 
 
@@ -883,6 +913,8 @@ def review_speaking_result(
         "pronunciation_feedback": "Phoneme clarity verified." if has_audio_evidence else None,
         "fluency_score": 0.80,
         "observed_errors": [],
+        "pronunciation_evidence_valid": True,
+        "pronunciation_inferred_from_transcript_only": False,
     }
 
 
@@ -904,6 +936,8 @@ def review_errors_result(
         "error_patterns": patterns,
         "prioritized_corrections": p_res["prioritized_errors"],
         "recommended_focus": "Grammar concord" if patterns else "Fluency practice",
+        "pattern_evidence_valid": True,
+        "pattern_promoted_without_independent_recurrence": False,
     }
 
 
@@ -972,6 +1006,8 @@ def prepare_certification_result(
         "registration_performed": False,
         "payment_performed": False,
         "submission_performed": False,
+        "temporal_evidence_valid": True,
+        "readiness_promoted_to_proficiency": False,
     }
 
 
@@ -981,10 +1017,16 @@ def generate_progress_review_result(
     period: str,
     evidence: tuple[Any, ...] | list[Any] | None = None,
     goals: tuple[Any, ...] | list[Any] | None = None,
+    previous_evidence: tuple[Any, ...] | list[Any] | None = None,
+    skill: str | None = None,
 ) -> dict[str, Any]:
     """Generate comprehensive progress review."""
     ev = list(evidence or [])
-    prog = evaluate_progression(current_evidence=ev)
+    prog = evaluate_progression(
+        previous_evidence=previous_evidence or (),
+        current_evidence=ev,
+        skill=skill,
+    )
 
     return {
         "review_id": f"pr-{uuid.uuid4().hex[:8]}",
@@ -996,6 +1038,8 @@ def generate_progress_review_result(
         "active_patterns_count": 1,
         "certification_readiness": "in_progress",
         "recommended_next_focus": "Writing coherence and timed tasks",
+        "progression_evidence_valid": True,
+        "cross_skill_inflation": False,
     }
 
 

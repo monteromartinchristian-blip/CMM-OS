@@ -150,7 +150,11 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateEvidenceGate",
                 dependencies=("level_update",),
-                wait_condition={"is_certified": False, "stable_update_supported": False},
+                wait_condition={
+                    "certificate_overwritten": False,
+                    "skill_gaps_erased": False,
+                    "evidence_boundary_valid": True,
+                },
             ),
             _node(
                 "complete",
@@ -193,7 +197,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateDifficultyGate",
                 dependencies=("review",),
-                wait_condition={"is_correct": True, "pattern_candidate": False},
+                wait_condition={
+                    "stable_proficiency_changed": False,
+                    "error_pattern_promoted_without_evidence": False,
+                },
             ),
             _node(
                 "complete",
@@ -236,7 +243,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidatePracticeGate",
                 dependencies=("speaking_review",),
-                wait_condition={"pronunciation_assessed": False},
+                wait_condition={
+                    "pronunciation_evidence_valid": True,
+                    "pronunciation_inferred_from_transcript_only": False,
+                },
             ),
             _node(
                 "complete",
@@ -265,7 +275,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateVarietyGate",
                 dependencies=("review",),
-                wait_condition={"score": 0.85, "estimated_level": "B2"},
+                wait_condition={
+                    "valid_variety_misclassified": False,
+                    "proficiency_upgraded_without_evidence": False,
+                },
             ),
             _node(
                 "complete",
@@ -307,14 +320,17 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 "pattern_gate",
                 WorkflowNodeType.VALIDATE,
                 "ValidatePatternGate",
-                dependencies=("review",),
-                wait_condition={"pattern_candidate": False},
+                dependencies=("error_review",),
+                wait_condition={
+                    "pattern_evidence_valid": True,
+                    "pattern_promoted_without_independent_recurrence": False,
+                },
             ),
             _node(
                 "complete",
                 WorkflowNodeType.COMPLETE,
                 "Complete",
-                dependencies=("pattern_gate",),
+                dependencies=("pattern_gate", "review"),
             ),
         ),
     )
@@ -374,7 +390,8 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 "ValidateCertificationGate",
                 dependencies=("certification",),
                 wait_condition={
-                    "needs_verification": False,
+                    "temporal_evidence_valid": True,
+                    "readiness_promoted_to_proficiency": False,
                     "registration_performed": False,
                     "payment_performed": False,
                     "submission_performed": False,
@@ -407,7 +424,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateProgressionGate",
                 dependencies=("progress",),
-                wait_condition={"stable_progression": False},
+                wait_condition={
+                    "progression_evidence_valid": True,
+                    "cross_skill_inflation": False,
+                },
             ),
             _node(
                 "complete",

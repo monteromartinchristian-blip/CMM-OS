@@ -207,6 +207,65 @@ def test_speaking_review_transcript_no_pronunciation() -> None:
         target_language="English",
     )
     assert res["pronunciation_assessed"] is False
+    assert res["pronunciation_evidence_valid"] is True
+    assert res["pronunciation_inferred_from_transcript_only"] is False
+
+
+def test_operation_outputs_expose_workflow_invariants() -> None:
+    """Variable pedagogical outcomes expose invariant boundary fields separately."""
+    wrong = review_exercise_result(
+        exercise_result={"user_answer": "go", "is_correct": False},
+        language="English",
+    )
+    assert wrong["stable_proficiency_changed"] is False
+    assert wrong["error_pattern_promoted_without_evidence"] is False
+
+    writing = review_writing_result(
+        writing_sample={"text": "Short text."},
+        language="English",
+    )
+    assert writing["estimated_level"] == "A2"
+    assert writing["valid_variety_misclassified"] is False
+    assert writing["proficiency_upgraded_without_evidence"] is False
+
+    errors = review_errors_result(
+        observed_errors=(
+            {"context_id": "one", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
+            {"context_id": "two", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
+        ),
+        language="English",
+    )
+    assert errors["error_patterns"]
+    assert errors["pattern_evidence_valid"] is True
+    assert errors["pattern_promoted_without_independent_recurrence"] is False
+
+    certification = prepare_certification_result(
+        target_certification="Cambridge C1",
+        official_source={"source_type": "official", "date_valid": False},
+    )
+    assert certification["needs_verification"] is True
+    assert certification["temporal_evidence_valid"] is True
+    assert certification["readiness_promoted_to_proficiency"] is False
+
+
+def test_progress_review_exposes_valid_stable_progression_invariant() -> None:
+    """A justified stable outcome remains separate from its evidence invariant."""
+    result = generate_progress_review_result(
+        language="English",
+        period="last_30_days",
+        previous_evidence=(
+            {"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        ),
+        evidence=(
+            {"provenance_id": "current-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+            {"provenance_id": "current-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        ),
+        skill="writing",
+    )
+
+    assert result["stable_progression"] is True
+    assert result["progression_evidence_valid"] is True
+    assert result["cross_skill_inflation"] is False
 
 
 def test_certification_preparation_no_external_mutation() -> None:
