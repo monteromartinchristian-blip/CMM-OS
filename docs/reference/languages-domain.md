@@ -84,3 +84,24 @@ Importing `cmm.domains.languages` has zero registration side effects; fresh impo
 All 15 operations are low-risk internal operations (`PolicyRiskLevel.LOW`).
 No operation mutates external calendars, makes payments, submits exam registrations, or alters persistent memory directly.
 All 9 workflows run on the shared Workflow Engine with direct producer-to-gate validation.
+
+## 6. Independent-audit remediation status
+
+The first independent Phase 10.26 audit returned `FAIL` with two blockers and
+five major findings. The candidate remediation now addresses all seven
+findings, including the disconnected acceptance path, workflow outcome gates,
+evidence provenance and comparability, real progression baselines, temporal
+certification ranking, and the permission lifecycle.
+
+`AT-DP-026` now passes as one connected 45-checkpoint scenario over the real
+shared resolver, composer, Workflow Engine, permission gate, memory contracts,
+projection, presentation, and trace contracts. The remediation also includes
+two explicitly authorized, minimal shared compatibility fixes: typed
+`DomainMetadata.metadata` extraction in domain composition and accumulated
+workflow-output visibility at the ready-node adapter boundary. Neither changes
+domain scoring, scheduling, ordering, readiness, status semantics, or public
+workflow contracts.
+
+This is candidate remediation evidence only. `DP-026` remains
+`REQUIRES_PHASE_INSPECTION`; independent re-audit and final closure are still
+pending.

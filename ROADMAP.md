@@ -462,9 +462,9 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.25 are complete and audited. Phase 10.26 (`domain:languages`) is implemented and its connected `AT-DP-026` candidate acceptance passes; independent audit remains pending. Phase 10.27–10.30 remain pending.
+**Current progress:** Phase 10.19–10.25 are complete and audited. Phase 10.26 (`domain:languages`) received a first independent-audit `FAIL` (two blockers and five major findings); candidate remediation is implemented and its connected 45-checkpoint `AT-DP-026` passes. Independent re-audit remains pending. Phase 10.27–10.30 remain pending.
 
-**Implemented through:** Phase 10.26 — Languages Domain, pending independent audit.
+**Implemented through:** Phase 10.26 — Languages Domain, pending independent re-audit.
 Phase 10.15 remains closed; Phase 10.20 — Health Domain is next.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.

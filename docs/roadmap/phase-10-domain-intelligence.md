@@ -3636,7 +3636,7 @@ Implementation status (2026-08-21)
 
 10.26 - Languages Domain
 
-**Status:** Implemented, pending independent audit.
+**Status:** Candidate audit remediation implemented; independent re-audit pending.
 
 Canonical design:
 
@@ -3837,7 +3837,13 @@ The domain owning the objective is primary. Languages is supporting
 when it supplies specialized linguistic competence to another primary
 domain.
 
-`DP-026` is implemented and the connected `AT-DP-026` candidate acceptance passes. Independent audit and final closure remain pending.
+The first independent audit returned `FAIL` with two blockers and five major
+findings. Candidate remediation addresses all seven findings, and the connected
+45-checkpoint `AT-DP-026` now passes through the real shared resolver, composer,
+Workflow Engine, permission, memory, projection, presentation, and trace paths.
+This does not close `DP-026`: its matrix status remains
+`REQUIRES_PHASE_INSPECTION`. Independent re-audit and final closure remain
+pending, and independently re-auditing Phase 10.26 is the next milestone.
 
 ⸻
 
