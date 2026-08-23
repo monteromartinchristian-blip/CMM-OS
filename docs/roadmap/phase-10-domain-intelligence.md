@@ -3837,9 +3837,7 @@ The domain owning the objective is primary. Languages is supporting
 when it supplies specialized linguistic competence to another primary
 domain.
 
-`DP-026` and `AT-DP-026` remain implementation-pending. The frozen
-design defines their acceptance semantics but does not constitute an
-implementation pass.
+`DP-026` is implemented and the connected `AT-DP-026` candidate acceptance passes. Independent audit and final closure remain pending.
 
 ⸻
 
