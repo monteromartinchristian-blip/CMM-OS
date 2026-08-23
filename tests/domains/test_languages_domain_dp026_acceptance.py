@@ -71,7 +71,13 @@ class _ScenarioATDP026:
             framework="CEFR",
             level_or_score="B1",
             skill_scope="writing",
-            evidence=({"id": "cert-1", "certificate_id": "C123"},),
+            evidence=(
+                {
+                    "source_kind": "official_certificate",
+                    "source_id": "official-record-1",
+                    "certificate_id": "C123",
+                },
+            ),
         )
         est_rec = classify_proficiency_record(
             kind="ESTIMATED",
@@ -167,8 +173,8 @@ class _ScenarioATDP026:
 
         # Independent occurrences evaluate to pattern
         obs = (
-            {"id": "o1", "context_id": "ctx1", "sentence": "s1", "error_type": "inversion"},
-            {"id": "o2", "context_id": "ctx2", "sentence": "s2", "error_type": "inversion"},
+            {"id": "o1", "context_id": "ctx1", "sentence": "s1", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
+            {"id": "o2", "context_id": "ctx2", "sentence": "s2", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
         )
         pat = evaluate_error_pattern(observations=obs)
         assert pat["pattern_state"] == "candidate"
@@ -212,10 +218,10 @@ class _ScenarioATDP026:
 
     def step_20_progression_evaluation(self) -> dict:
         prog = evaluate_progression(
-            previous_evidence=({"id": "p1", "score": 0.6},),
+            previous_evidence=({"provenance_id": "p1", "score": 0.6, "comparable": True, "comparison_key": "writing-argumentative"},),
             current_evidence=(
-                {"id": "c1", "score": 0.85},
-                {"id": "c2", "score": 0.88},
+                {"provenance_id": "c1", "score": 0.85, "comparable": True, "comparison_key": "writing-argumentative"},
+                {"provenance_id": "c2", "score": 0.88, "comparable": True, "comparison_key": "writing-argumentative"},
             ),
         )
         assert prog["progression_outcome"] == "stable_improvement"
@@ -226,7 +232,7 @@ class _ScenarioATDP026:
     def step_21_and_22_certification_preparation(self) -> tuple[dict, dict]:
         cert_prep = prepare_certification_result(
             target_certification="IELTS Academic",
-            official_source={"source_type": "official", "authority": 3},
+            official_source={"source_type": "official", "authority": 3, "date_valid": True},
         )
         assert cert_prep["registration_performed"] is False
         assert cert_prep["payment_performed"] is False

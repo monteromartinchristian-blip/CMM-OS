@@ -27,10 +27,10 @@ from cmm.domains.enums import DomainOperationType
 from cmm.domains.languages.catalog import CANONICAL_LANGUAGES_OPERATION_IDS
 from cmm.domains.languages.rules import (
     classify_language_variety,
-    classify_proficiency_record,
     evaluate_certification_source,
     evaluate_error_pattern,
     evaluate_learning_load,
+    evaluate_level_update,
     evaluate_progression,
     normalize_json_value,
     plan_spaced_review,
@@ -270,6 +270,9 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "reason",
             "updated_record",
             "is_certified",
+            "certificate_overwritten",
+            "skill_gaps_erased",
+            "evidence_boundary_valid",
         ),
         {
             "skill_scope": _STR,
@@ -279,6 +282,9 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "reason": _STR,
             "updated_record": {"type": "object"},
             "is_certified": _BOOL,
+            "certificate_overwritten": _BOOL,
+            "skill_gaps_erased": _BOOL,
+            "evidence_boundary_valid": _BOOL,
         },
     ),
     "languages.create_learning_plan": _schema(
@@ -638,46 +644,31 @@ def update_level_evidence_result(
     """Update level evidence proposal without overwriting certified record."""
     ex = dict(existing_record or {})
     ass = dict(assessment or {})
+    if ass.get("observed") is None and ass.get("observed_performance") is not None:
+        ass["observed"] = ass["observed_performance"]
+    if ass.get("skill") is None:
+        ass["skill"] = target_skill
     all_ev = list(evidence)
     if ass:
         all_ev.append(ass)
 
-    rec = classify_proficiency_record(
-        kind=ex.get("kind", "ESTIMATED"),
-        framework=ex.get("framework", "CEFR"),
-        level_or_score=ex.get("level_or_score", "B1"),
-        skill_scope=target_skill,
-        evidence=ex.get("evidence", ()),
+    evaluation = evaluate_level_update(
+        existing=ex,
+        evidence=all_ev,
+        target_skill=target_skill,
     )
-
-    if rec["is_certified"]:
-        return {
-            "skill_scope": target_skill,
-            "current_level": ex.get("level_or_score"),
-            "proposed_level": ex.get("level_or_score"),
-            "stable_update_supported": False,
-            "reason": "certified_record_cannot_be_overwritten",
-            "updated_record": ex,
-            "is_certified": True,
-        }
-
-    # If we have at least 2 comparable evidence items
-    has_two_comparable = len(all_ev) >= 2
-    obs_level = ass.get("observed") or ass.get("observed_performance") or "B2"
 
     return {
         "skill_scope": target_skill,
-        "current_level": ex.get("level_or_score", "B1"),
-        "proposed_level": obs_level if has_two_comparable else ex.get("level_or_score", "B1"),
-        "stable_update_supported": has_two_comparable,
-        "reason": "comparable_longitudinal_evidence" if has_two_comparable else "insufficient_comparable_evidence",
-        "updated_record": {
-            "kind": "ESTIMATED",
-            "skill_scope": target_skill,
-            "level_or_score": obs_level if has_two_comparable else ex.get("level_or_score", "B1"),
-            "evidence": all_ev,
-        },
-        "is_certified": False,
+        "current_level": ex.get("level_or_score"),
+        "proposed_level": evaluation["proposed_level"],
+        "stable_update_supported": evaluation["stable_update_supported"],
+        "reason": evaluation["reason"],
+        "updated_record": evaluation["updated_record"],
+        "is_certified": ex.get("kind") == "CERTIFIED",
+        "certificate_overwritten": False,
+        "skill_gaps_erased": False,
+        "evidence_boundary_valid": True,
     }
 
 

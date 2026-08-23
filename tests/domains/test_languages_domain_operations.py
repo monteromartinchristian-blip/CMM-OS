@@ -168,6 +168,38 @@ def test_onboarding_learning_plan_fields() -> None:
     assert res["persistence_applied"] is False
 
 
+def test_update_level_operation_uses_canonical_evidence_semantics() -> None:
+    """Operation aliases cannot bypass canonical provenance/comparability checks."""
+    result = update_level_evidence_result(
+        existing_record={"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"},
+        assessment={
+            "id": "caller-a",
+            "provenance_id": "sample-1",
+            "observed": "B2",
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "writing-argumentative",
+        },
+        target_skill="writing",
+        evidence=(
+            {
+                "id": "caller-b",
+                "provenance_id": "sample-1",
+                "observed": "B2",
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "writing-argumentative",
+            },
+        ),
+    )
+
+    assert result["stable_update_supported"] is False
+    assert result["reason"] == "insufficient_comparable_evidence"
+    assert result["certificate_overwritten"] is False
+    assert result["skill_gaps_erased"] is False
+    assert result["evidence_boundary_valid"] is True
+
+
 def test_speaking_review_transcript_no_pronunciation() -> None:
     """Verify review_speaking without audio evidence has pronunciation_assessed=False."""
     res = review_speaking_result(

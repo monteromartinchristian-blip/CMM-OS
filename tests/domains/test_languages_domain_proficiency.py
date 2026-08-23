@@ -32,7 +32,12 @@ def test_classify_proficiency_record_kinds() -> None:
         level_or_score="C1",
         skill_scope="reading",
         evidence=(
-            {"id": "cert-1", "source_kind": "official_certificate", "issuer": "Cambridge"},
+            {
+                "source_kind": "official_certificate",
+                "source_id": "cambridge-record-1",
+                "certificate_id": "cert-1",
+                "issuer": "Cambridge",
+            },
         ),
     )
     assert cert["kind"] == "CERTIFIED"
@@ -67,6 +72,62 @@ def test_classify_proficiency_record_kinds() -> None:
     assert est["is_certified"] is False
 
 
+def test_generic_evidence_id_cannot_create_certified_record() -> None:
+    """Caller-controlled IDs are metadata, not certification authority."""
+    record = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=({"id": "caller-controlled"},),
+    )
+
+    assert record["is_certified"] is False
+    assert record["kind"] != "CERTIFIED"
+    assert record["certification_evidence_valid"] is False
+
+
+def test_user_sample_cannot_create_certified_record() -> None:
+    """A grounded user sample remains non-certifying evidence."""
+    record = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "id": "sample-1",
+                "source_kind": "user_sample",
+                "source_id": "sample-1",
+            },
+        ),
+    )
+
+    assert record["is_certified"] is False
+    assert record["certification_evidence_valid"] is False
+
+
+def test_grounded_official_credential_can_create_certified_record() -> None:
+    """A recognized credential plus independent official provenance can certify."""
+    record = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "cambridge-record-1",
+                "certificate_id": "CERT-123",
+            },
+        ),
+    )
+
+    assert record["kind"] == "CERTIFIED"
+    assert record["is_certified"] is True
+    assert record["certification_evidence_valid"] is True
+
+
 def test_evaluate_level_update_single_sample_not_stable() -> None:
     """A single strong sample cannot update stable proficiency estimate."""
     result = evaluate_level_update(
@@ -83,6 +144,73 @@ def test_evaluate_level_update_single_sample_not_stable() -> None:
     assert result["stable_update_supported"] is False
     assert result["reason"] == "insufficient_comparable_evidence"
     assert result["proposed_level"] is None or result["proposed_level"] == "B1+"
+
+
+def test_same_provenance_different_ids_does_not_support_stable_level() -> None:
+    """Aliases for one occurrence count as one evidence unit."""
+    evidence = (
+        {
+            "id": "caller-a",
+            "provenance_id": "sample-1",
+            "skill": "writing",
+            "observed": "B2",
+            "score": 0.8,
+            "comparable": True,
+            "comparison_key": "writing-argumentative",
+        },
+        {
+            "id": "caller-b",
+            "provenance_id": "sample-1",
+            "skill": "writing",
+            "observed": "B2",
+            "score": 0.8,
+            "comparable": True,
+            "comparison_key": "writing-argumentative",
+        },
+    )
+
+    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+
+    assert result["stable_update_supported"] is False
+    assert result["reason"] == "insufficient_comparable_evidence"
+
+
+def test_two_non_comparable_samples_do_not_support_stable_level() -> None:
+    """Two observations without an explicit comparison contract stay unstable."""
+    evidence = (
+        {"provenance_id": "sample-1", "skill": "writing", "observed": "B2"},
+        {"provenance_id": "sample-2", "skill": "writing", "observed": "B2"},
+    )
+
+    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+
+    assert result["stable_update_supported"] is False
+    assert result["reason"] == "insufficient_comparable_evidence"
+
+
+def test_independent_comparable_samples_support_stable_level() -> None:
+    """Distinct matching observations under one comparison contract may update."""
+    evidence = (
+        {
+            "provenance_id": "sample-1",
+            "skill": "writing",
+            "observed": "B2",
+            "comparable": True,
+            "comparison_key": "writing-argumentative",
+        },
+        {
+            "provenance_id": "sample-2",
+            "skill": "writing",
+            "observed": "B2",
+            "comparable": True,
+            "comparison_key": "writing-argumentative",
+        },
+    )
+
+    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+
+    assert result["stable_update_supported"] is True
+    assert result["proposed_level"] == "B2"
 
 
 def test_evaluate_level_update_cannot_overwrite_certified() -> None:
@@ -177,7 +305,11 @@ def test_language_level_evidence_rule_evaluation() -> None:
                 "kind": "CERTIFIED",
                 "framework": "CEFR",
                 "level_or_score": "C1",
-                "evidence": [{"id": "c1", "source_kind": "official_certificate"}],
+                "evidence": [{
+                    "source_kind": "official_certificate",
+                    "source_id": "official-record-c1",
+                    "certificate_id": "c1",
+                }],
             }
         },
     )

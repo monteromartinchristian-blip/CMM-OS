@@ -54,13 +54,53 @@ def test_evaluate_error_pattern_independent_comparable_samples() -> None:
     """Same systematic error across independent contexts confirms pattern."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go to school."},
-            {"id": "err-2", "error_type": "subject_verb_agreement", "context_id": "c2", "sentence": "She have a dog."},
+            {"id": "err-1", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go to school.", "comparable": True, "comparison_key": "free-writing"},
+            {"id": "err-2", "error_type": "subject_verb_agreement", "context_id": "c2", "sentence": "She have a dog.", "comparable": True, "comparison_key": "free-writing"},
         )
     )
     assert result["pattern_state"] in ("candidate", "evidenced")
     assert result["eligible"] is True
     assert result["independent_occurrences"] >= 2
+
+
+def test_same_error_same_provenance_different_ids_is_not_recurrent_pattern() -> None:
+    """Caller aliases cannot manufacture independent recurrence."""
+    observations = (
+        {
+            "id": "caller-a",
+            "provenance_id": "sample-1",
+            "sentence": "No sooner I had...",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "free-writing",
+        },
+        {
+            "id": "caller-b",
+            "provenance_id": "sample-1",
+            "sentence": "No sooner I had...",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "free-writing",
+        },
+    )
+
+    result = evaluate_error_pattern(observations=observations)
+
+    assert result["eligible"] is False
+    assert result["independent_occurrences"] == 1
+
+
+def test_different_non_comparable_occurrences_do_not_form_pattern() -> None:
+    """Distinct occurrences still require explicit semantic comparability."""
+    observations = (
+        {"provenance_id": "sample-1", "error_type": "inversion", "comparable": False},
+        {"provenance_id": "sample-2", "error_type": "inversion", "comparable": False},
+    )
+
+    result = evaluate_error_pattern(observations=observations)
+
+    assert result["eligible"] is False
+    assert result["pattern_state"] == "insufficient_evidence"
 
 
 def test_evaluate_error_pattern_valid_variety_excluded() -> None:
@@ -80,9 +120,9 @@ def test_evaluate_error_pattern_resolved_with_isolated_slip() -> None:
     """A resolved pattern with one isolated slip shows lapse_possible without full regression."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "past_tense", "context_id": "c1", "resolved": True},
-            {"id": "err-2", "error_type": "past_tense", "context_id": "c2", "resolved": True},
-            {"id": "slip-1", "error_type": "past_tense", "context_id": "c3", "resolved": False},
+            {"id": "err-1", "error_type": "past_tense", "context_id": "c1", "resolved": True, "comparable": True, "comparison_key": "free-writing"},
+            {"id": "err-2", "error_type": "past_tense", "context_id": "c2", "resolved": True, "comparable": True, "comparison_key": "free-writing"},
+            {"id": "slip-1", "error_type": "past_tense", "context_id": "c3", "resolved": False, "comparable": True, "comparison_key": "free-writing"},
         )
     )
     assert result["lapse_possible"] is True

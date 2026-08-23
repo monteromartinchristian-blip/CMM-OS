@@ -86,6 +86,21 @@ KNOWN_VARIETIES: dict[str, tuple[str, ...]] = {
     "catalan": ("central catalan", "valencian", "balearic catalan", "north-western catalan"),
 }
 
+_CERTIFIED_SOURCE_KINDS = frozenset(
+    {
+        "official_certificate",
+        "official_exam_result",
+        "official_credential",
+    }
+)
+_PROVENANCE_FIELDS = (
+    "provenance_id",
+    "source_id",
+    "assessment_id",
+    "sample_id",
+    "context_id",
+)
+
 
 def normalize_json_value(value: Any) -> Any:
     """Normalize arbitrarily nested values to strict JSON-safe types."""
@@ -109,19 +124,53 @@ def _safe_str(val: Any) -> str | None:
     return cleaned if cleaned else None
 
 
+def _canonical_provenance(record: Mapping[str, Any]) -> str | None:
+    """Return occurrence provenance that is independent of caller aliases."""
+    for field in _PROVENANCE_FIELDS:
+        value = _safe_str(record.get(field))
+        if value is not None:
+            return f"{field}:{value}"
+    return None
+
+
+def _is_certifying_evidence(record: Any) -> bool:
+    """Accept only grounded evidence from a recognized official credential source."""
+    if not isinstance(record, Mapping):
+        return False
+    credential_ref = (
+        _safe_str(record.get("certificate_id"))
+        or _safe_str(record.get("credential_id"))
+        or _safe_str(record.get("official_result_id"))
+    )
+    return (
+        _safe_str(record.get("source_kind")) in _CERTIFIED_SOURCE_KINDS
+        and credential_ref is not None
+        and _canonical_provenance(record) is not None
+    )
+
+
+def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Identify semantic evidence without treating caller-controlled IDs as provenance."""
+    return (
+        _canonical_provenance(record) or "unprovenanced",
+        _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
+        _safe_str(record.get("skill")),
+        _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
+        record.get("score"),
+        _safe_str(record.get("error_type")),
+        _safe_str(record.get("sentence")),
+        _safe_str(record.get("comparison_key")),
+    )
+
+
 def _deduplicate_evidence(evidence: tuple[Any, ...] | list[Any]) -> list[dict[str, Any]]:
-    """Deduplicate evidence items deterministically by content/id."""
-    seen: set[str] = set()
+    """Deduplicate evidence by grounded occurrence and semantic content."""
+    seen: set[tuple[Any, ...]] = set()
     deduped: list[dict[str, Any]] = []
     for item in evidence:
         if not isinstance(item, Mapping):
             continue
-        ev_id = _safe_str(item.get("id")) or ""
-        source = _safe_str(item.get("source_kind")) or _safe_str(item.get("source")) or ""
-        observed = _safe_str(item.get("observed")) or ""
-        skill = _safe_str(item.get("skill")) or ""
-        score = str(item.get("score", ""))
-        key = f"{ev_id}:{source}:{observed}:{skill}:{score}"
+        key = _semantic_evidence_key(item)
         if key in seen:
             continue
         seen.add(key)
@@ -144,23 +193,9 @@ def classify_proficiency_record(
     if clean_kind not in CANONICAL_PROFICIENCY_KINDS:
         clean_kind = "OBSERVED_PERFORMANCE"
 
-    # CERTIFIED requires official source / credential evidence
-    is_certified = clean_kind == "CERTIFIED" and (
-        any(
-            isinstance(e, dict)
-            and (
-                e.get("source_kind") in ("official_certificate", "official_source")
-                or e.get("certificate_id")
-                or e.get("source_type") == "official"
-                or e.get("is_certified") is True
-            )
-            for e in deduped_ev
-        )
-        or any(
-            isinstance(e, dict) and "id" in e and not e.get("is_observed_only")
-            for e in deduped_ev
-        )
-    )
+    # CERTIFIED requires recognized, grounded official credential evidence.
+    certification_evidence_valid = any(_is_certifying_evidence(e) for e in deduped_ev)
+    is_certified = clean_kind == "CERTIFIED" and certification_evidence_valid
     if is_certified:
         clean_kind = "CERTIFIED"
     elif clean_kind == "CERTIFIED":
@@ -173,6 +208,7 @@ def classify_proficiency_record(
         "skill_scope": _safe_str(skill_scope) or "general",
         "evidence": deduped_ev,
         "is_certified": clean_kind == "CERTIFIED",
+        "certification_evidence_valid": certification_evidence_valid,
         "confidence": confidence if isinstance(confidence, (int, float)) and not math.isnan(confidence) else (0.95 if clean_kind == "CERTIFIED" else (0.75 if clean_kind == "ESTIMATED" else 0.5)),
     }
 
@@ -197,7 +233,17 @@ def evaluate_level_update(
         }
 
     deduped_ev = _deduplicate_evidence(evidence)
-    if len(deduped_ev) < 2:
+    comparable = [
+        item
+        for item in deduped_ev
+        if item.get("comparable") is True
+        and _safe_str(item.get("comparison_key")) is not None
+        and _canonical_provenance(item) is not None
+        and (target_skill is None or _safe_str(item.get("skill")) == target_skill)
+    ]
+    comparison_keys = {_safe_str(item.get("comparison_key")) for item in comparable}
+    provenance_units = {_canonical_provenance(item) for item in comparable}
+    if len(comparable) < 2 or len(provenance_units) < 2 or len(comparison_keys) != 1:
         return {
             "stable_update_supported": False,
             "reason": "insufficient_comparable_evidence",
@@ -205,7 +251,7 @@ def evaluate_level_update(
             "updated_record": existing_dict,
         }
 
-    observed_levels = [e.get("observed") for e in deduped_ev if e.get("observed")]
+    observed_levels = [e.get("observed") for e in comparable if e.get("observed")]
     if len(observed_levels) >= 2 and len(set(observed_levels)) == 1:
         new_level = observed_levels[0]
         return {
@@ -216,7 +262,7 @@ def evaluate_level_update(
                 "kind": "ESTIMATED",
                 "skill_scope": target_skill or existing_dict.get("skill_scope", "general"),
                 "level_or_score": new_level,
-                "evidence": deduped_ev,
+                "evidence": comparable,
             },
         }
 
@@ -572,23 +618,30 @@ def evaluate_error_pattern(
             continue
         valid_observations.append(dict(normalize_json_value(obs)))
 
-    # Deduplicate observations by id and (context_id, sentence)
-    seen: set[str] = set()
-    distinct_contexts: set[str] = set()
+    # Caller-controlled IDs are display references, never occurrence provenance.
+    seen: set[tuple[Any, ...]] = set()
+    distinct_occurrences: set[str] = set()
+    comparable_occurrences: set[str] = set()
+    comparison_keys: set[str] = set()
     evidence_ids: list[str] = []
     has_resolved = False
     has_unresolved = False
 
     for obs in valid_observations:
         obs_id = _safe_str(obs.get("id")) or ""
-        ctx_id = _safe_str(obs.get("context_id")) or obs_id
+        provenance = _canonical_provenance(obs)
         sentence = _safe_str(obs.get("sentence")) or ""
         err_type = _safe_str(obs.get("error_type")) or "error"
-        key = f"{ctx_id}:{sentence}:{err_type}"
+        key = (provenance or "unprovenanced", sentence, err_type)
         if key in seen:
             continue
         seen.add(key)
-        distinct_contexts.add(ctx_id)
+        if provenance is not None:
+            distinct_occurrences.add(provenance)
+            comparison_key = _safe_str(obs.get("comparison_key"))
+            if obs.get("comparable") is True and comparison_key is not None:
+                comparable_occurrences.add(provenance)
+                comparison_keys.add(comparison_key)
         if obs_id:
             evidence_ids.append(obs_id)
         if obs.get("resolved") is True:
@@ -596,10 +649,11 @@ def evaluate_error_pattern(
         else:
             has_unresolved = True
 
-    indep_count = len(distinct_contexts)
+    indep_count = len(distinct_occurrences)
+    comparable_count = len(comparable_occurrences) if len(comparison_keys) == 1 else 0
     lapse_possible = has_resolved and has_unresolved
 
-    if indep_count < minimum_independent_occurrences:
+    if comparable_count < minimum_independent_occurrences:
         pattern_state = "insufficient_evidence"
         eligible = False
     elif has_resolved and not has_unresolved:
@@ -619,7 +673,7 @@ def evaluate_error_pattern(
         "pattern_state": pattern_state,
         "eligible": eligible,
         "independent_occurrences": indep_count,
-        "comparable_contexts": len(distinct_contexts),
+        "comparable_contexts": comparable_count,
         "lapse_possible": lapse_possible,
         "evidence_ids": sorted(evidence_ids),
     }
@@ -929,23 +983,56 @@ def evaluate_progression(
     skill: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate skill-level progression distinguishing short-term vs stable improvement."""
-    clean_prev = [p for p in previous_evidence if isinstance(p, Mapping)]
-    clean_curr = [c for c in current_evidence if isinstance(c, Mapping)]
+    clean_prev = _deduplicate_evidence(previous_evidence)
+    clean_curr = _deduplicate_evidence(current_evidence)
 
-    if not clean_curr:
+    if not clean_prev or not clean_curr:
         return {
             "progression_outcome": "insufficient_evidence",
             "stable_progression": False,
             "skill": skill or "general",
         }
 
-    prev_scores = [float(p["score"]) for p in clean_prev if isinstance(p.get("score"), (int, float))]
-    curr_scores = [float(c["score"]) for c in clean_curr if isinstance(c.get("score"), (int, float))]
+    def _comparable_score(record: Mapping[str, Any]) -> tuple[str, float] | None:
+        provenance = _canonical_provenance(record)
+        comparison_key = _safe_str(record.get("comparison_key"))
+        score = record.get("score")
+        if (
+            provenance is None
+            or comparison_key is None
+            or record.get("comparable") is not True
+            or isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+            or (skill is not None and _safe_str(record.get("skill")) != skill)
+        ):
+            return None
+        return comparison_key, float(score)
 
-    prev_avg = (sum(prev_scores) / len(prev_scores)) if prev_scores else 0.5
-    curr_avg = (sum(curr_scores) / len(curr_scores)) if curr_scores else 0.5
+    previous_scores = [value for item in clean_prev if (value := _comparable_score(item)) is not None]
+    current_scores = [value for item in clean_curr if (value := _comparable_score(item)) is not None]
+    shared_keys = {key for key, _ in previous_scores} & {key for key, _ in current_scores}
+    if len(shared_keys) != 1:
+        return {
+            "progression_outcome": "insufficient_evidence",
+            "stable_progression": False,
+            "skill": skill or "general",
+        }
 
-    if len(clean_curr) == 1:
+    comparison_key = next(iter(shared_keys))
+    prev_scores = [score for key, score in previous_scores if key == comparison_key]
+    curr_scores = [score for key, score in current_scores if key == comparison_key]
+    if not prev_scores or not curr_scores:
+        return {
+            "progression_outcome": "insufficient_evidence",
+            "stable_progression": False,
+            "skill": skill or "general",
+        }
+
+    prev_avg = sum(prev_scores) / len(prev_scores)
+    curr_avg = sum(curr_scores) / len(curr_scores)
+
+    if len(curr_scores) == 1:
         if curr_avg > prev_avg + 0.15:
             outcome = "short_term_improvement"
         elif curr_avg < prev_avg - 0.20:
@@ -989,13 +1076,28 @@ def evaluate_certification_source(
             "unresolved_conflict": False,
         }
 
+    def _temporal_state(source: Mapping[str, Any]) -> str:
+        state = (_safe_str(source.get("temporal_state")) or "").lower()
+        if source.get("date_valid") is True or state in {"current", "active", "verified_current"}:
+            return "current"
+        if source.get("date_valid") is False or state in {"stale", "historical", "expired", "outdated"}:
+            return "stale"
+        return "unknown"
+
     def _auth(s: dict[str, Any]) -> int:
-        stype = _safe_str(s.get("source_type"))
-        if stype == "official":
+        stype = (_safe_str(s.get("source_type")) or "unknown").lower()
+        temporal = _temporal_state(s)
+        if stype == "official" and temporal == "current":
+            return 6
+        if stype in {"secondary", "authoritative_secondary"} and temporal == "current":
+            return 5
+        if stype == "official" and temporal == "stale":
+            return 4
+        if stype == "memory" and temporal == "stale":
             return 3
-        if stype == "secondary":
+        if stype == "guide":
             return 2
-        return int(s.get("authority", 1)) if isinstance(s.get("authority"), (int, float)) else 1
+        return 1
 
     sorted_sources = sorted(raw_sources, key=_auth, reverse=True)
     top_auth = _auth(sorted_sources[0])
@@ -1013,7 +1115,10 @@ def evaluate_certification_source(
                 break
 
     selected = None if unresolved else top_tier[0]
-    needs_verif = unresolved or (decision_critical and top_auth < 3)
+    selected_temporal_state = _temporal_state(top_tier[0])
+    needs_verif = unresolved or (
+        decision_critical and selected_temporal_state != "current"
+    )
 
     return {
         "selected_source": selected,

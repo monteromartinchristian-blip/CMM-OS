@@ -77,20 +77,47 @@ def test_align_activity_to_goals_coexistence() -> None:
 def test_evaluate_progression_single_sample_vs_stable() -> None:
     """One better sample is short_term_improvement; repeated is stable_improvement."""
     # Single improvement
-    prev_ev = ({"id": "p1", "score": 0.6, "skill": "writing"},)
-    curr_ev_single = ({"id": "c1", "score": 0.85, "skill": "writing"},)
+    prev_ev = ({"provenance_id": "p1", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},)
+    curr_ev_single = ({"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},)
     res_single = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_ev_single, skill="writing")
     assert res_single["progression_outcome"] == "short_term_improvement"
     assert res_single["stable_progression"] is False
 
     # Repeated comparable improvement
     curr_ev_repeated = (
-        {"id": "c1", "score": 0.85, "skill": "writing", "comparable": True},
-        {"id": "c2", "score": 0.88, "skill": "writing", "comparable": True},
+        {"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},
+        {"provenance_id": "c2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},
     )
     res_stable = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_ev_repeated, skill="writing")
     assert res_stable["progression_outcome"] == "stable_improvement"
     assert res_stable["stable_progression"] is True
+
+
+def test_no_baseline_cannot_create_stable_progression() -> None:
+    """Current high scores cannot invent their own historical baseline."""
+    current = (
+        {"provenance_id": "c1", "score": 0.90, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},
+        {"provenance_id": "c2", "score": 0.92, "skill": "writing", "comparable": True, "comparison_key": "writing-argumentative"},
+    )
+
+    result = evaluate_progression(previous_evidence=(), current_evidence=current, skill="writing")
+
+    assert result["stable_progression"] is False
+    assert result["progression_outcome"] == "insufficient_evidence"
+
+
+def test_non_comparable_results_cannot_create_stable_progression() -> None:
+    """Longitudinal claims require an explicit shared comparison basis."""
+    previous = ({"provenance_id": "p1", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},)
+    current = (
+        {"provenance_id": "c1", "score": 0.9, "skill": "writing", "comparable": False, "comparison_key": "dialogue"},
+        {"provenance_id": "c2", "score": 0.92, "skill": "writing", "comparable": False, "comparison_key": "translation"},
+    )
+
+    result = evaluate_progression(previous_evidence=previous, current_evidence=current, skill="writing")
+
+    assert result["stable_progression"] is False
+    assert result["progression_outcome"] == "insufficient_evidence"
 
 
 def test_evaluate_progression_one_poor_session_no_stable_regression() -> None:
@@ -120,6 +147,41 @@ def test_evaluate_certification_source_authority() -> None:
     res_conf = evaluate_certification_source(sources=conflicting, decision_critical=True)
     assert res_conf["unresolved_conflict"] is True
     assert res_conf["needs_verification"] is True
+
+
+def test_current_official_beats_stale_official_even_when_stale_is_first() -> None:
+    """Temporal validity outranks input order within official authority."""
+    result = evaluate_certification_source(
+        sources=(
+            {"id": "stale", "source_type": "official", "date_valid": False, "format": "old-format"},
+            {"id": "current", "source_type": "official", "date_valid": True, "format": "current-format"},
+        ),
+        decision_critical=True,
+    )
+
+    assert result["selected_source"]["id"] == "current"
+    assert result["needs_verification"] is False
+
+
+def test_stale_official_only_requires_decision_critical_verification() -> None:
+    """Official provenance cannot make stale facts current."""
+    result = evaluate_certification_source(
+        sources=({"id": "stale", "source_type": "official", "date_valid": False},),
+        decision_critical=True,
+    )
+
+    assert result["selected_source"]["id"] == "stale"
+    assert result["needs_verification"] is True
+
+
+def test_unknown_official_temporality_requires_verification() -> None:
+    """Missing currentness fails closed for decision-critical facts."""
+    result = evaluate_certification_source(
+        sources=({"id": "unknown", "source_type": "official"},),
+        decision_critical=True,
+    )
+
+    assert result["needs_verification"] is True
 
 
 def test_evaluate_cultural_context_stereotypes_rejected() -> None:
