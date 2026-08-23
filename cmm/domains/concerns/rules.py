@@ -841,11 +841,8 @@ def evaluate_reassurance(
         for item in pool
         if item["stance"] == STANCE_OPPOSES_TARGET
     ]
-    pro_concern_valid = [
-        item
-        for item in pro_concern_all
-        if item["source_quality"] not in _WEAK_SOURCE_QUALITIES
-        and item["temporal_relevance"] not in _STALE_TEMPORAL_RELEVANCE
+    pro_concern_strong = [
+        item for item in pro_concern_all if _is_current_and_grounded(item)
     ]
     # Weak/stale opposing records stay visible in output supporting pool,
     # but only strong/current records can upgrade reassurance to full support.
@@ -925,7 +922,7 @@ def evaluate_reassurance(
     # Decision ladder (frozen design §22, §25):
     # - mixed signals with material concern → REASSURANCE_PARTIAL;
     # - mixed signals without material concern → UNCERTAIN;
-    # - concern-only basis (material concern or >=2 valid grounded records without reassurance) → CONCERN_SUPPORTED;
+    # - concern-only basis (material concern or >=2 strong grounded records without reassurance) → CONCERN_SUPPORTED;
     # - genuine target-supporting evidence caps reassurance below SUPPORTED (never minimized; §25);
     # - full reassurance requires >=2 strong, current, well-sourced records opposing the target with no genuine supporting record, a valid target claim, and low/moderate base plausibility;
     # - weak/stale opposing records stay visible in supporting but cap at partial;
@@ -936,7 +933,7 @@ def evaluate_reassurance(
         assessment = UNCERTAIN
     elif (
         (material_concern and not pro_reassurance_all)
-        or (len(pro_concern_valid) >= 2 and not pro_reassurance_all)
+        or (len(pro_concern_strong) >= 2 and not pro_reassurance_all)
         or (specialized_concern and not pro_reassurance_all)
     ):
         assessment = CONCERN_SUPPORTED
@@ -944,8 +941,8 @@ def evaluate_reassurance(
         pro_reassurance_all or pro_concern_all or specialized_reassuring
     ):
         assessment = REASSURANCE_PARTIAL
-    elif pro_concern_valid:
-        # A single grounded target-supporting record is a real counter-signal
+    elif pro_concern_strong:
+        # A single strong grounded target-supporting record is a real counter-signal
         # but not a confirmed concern basis.
         assessment = UNCERTAIN
     elif (

@@ -582,3 +582,252 @@ def test_all_13_operations_have_detailed_presentation_semantic_parity():
     p13 = present_concerns_result(prepare_professional_discussion_result(concern_summary="health", key_facts=("bp 120/80",)))
     assert "health" in p13["actual_concern"]
     assert len(p13["facts"]) == 1
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CB-001 — Fail closed on concern evidence quality & temporal relevance
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_missing_quality_target_support_cannot_produce_concern_supported():
+    """Two supports_target records with missing source_quality MUST NOT produce CONCERN_SUPPORTED (CB-001 Case 1)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "deliberate snub",
+            "stance": "supports_target",
+            "grounding": "msg:1",
+            "source_quality": None,
+            "temporal_relevance": "current",
+        },
+        {
+            "identity": "c2",
+            "claim": "unfriended on social media",
+            "stance": "supports_target",
+            "grounding": "web:1",
+            "source_quality": None,
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    assert res["assessment"] != CONCERN_SUPPORTED
+
+
+def test_unknown_quality_target_support_cannot_produce_concern_supported():
+    """Two supports_target records with unknown/arbitrary source_quality MUST NOT produce CONCERN_SUPPORTED (CB-001 Case 2)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "deliberate snub",
+            "stance": "supports_target",
+            "grounding": "msg:1",
+            "source_quality": "banana",
+            "temporal_relevance": "current",
+        },
+        {
+            "identity": "c2",
+            "claim": "unfriended on social media",
+            "stance": "supports_target",
+            "grounding": "web:1",
+            "source_quality": "banana",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    assert res["assessment"] != CONCERN_SUPPORTED
+
+
+def test_missing_temporal_target_support_cannot_produce_concern_supported():
+    """Two supports_target records with missing temporal_relevance MUST NOT produce CONCERN_SUPPORTED (CB-001 Case 3)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "deliberate snub",
+            "stance": "supports_target",
+            "grounding": "msg:1",
+            "source_quality": "grounded",
+            "temporal_relevance": None,
+        },
+        {
+            "identity": "c2",
+            "claim": "unfriended on social media",
+            "stance": "supports_target",
+            "grounding": "web:1",
+            "source_quality": "grounded",
+            "temporal_relevance": None,
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    assert res["assessment"] != CONCERN_SUPPORTED
+
+
+def test_unknown_temporal_target_support_cannot_produce_concern_supported():
+    """Two supports_target records with unknown temporal_relevance MUST NOT produce CONCERN_SUPPORTED (CB-001 Case 4)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "deliberate snub",
+            "stance": "supports_target",
+            "grounding": "msg:1",
+            "source_quality": "grounded",
+            "temporal_relevance": "nonsense",
+        },
+        {
+            "identity": "c2",
+            "claim": "unfriended on social media",
+            "stance": "supports_target",
+            "grounding": "web:1",
+            "source_quality": "grounded",
+            "temporal_relevance": "nonsense",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    assert res["assessment"] != CONCERN_SUPPORTED
+
+
+def test_weak_target_support_remains_visible_in_counterevidence_without_upgrading_concern():
+    """Weak/stale target-supporting evidence remains visible in counterevidence but cannot upgrade to CONCERN_SUPPORTED (CB-001 Case 5)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "rumor from third party",
+            "stance": "supports_target",
+            "grounding": "msg:1",
+            "source_quality": "unverified_hearsay",
+            "temporal_relevance": "current",
+        },
+        {
+            "identity": "c2",
+            "claim": "old disagreement three years ago",
+            "stance": "supports_target",
+            "grounding": "msg:2",
+            "source_quality": "grounded",
+            "temporal_relevance": "historical_only",
+        },
+    )
+    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    assert res["assessment"] != CONCERN_SUPPORTED
+    # Weak/stale records stay visible in counterevidence
+    counter_claims = {c["claim"] for c in res["counterevidence"]}
+    assert "rumor from third party" in counter_claims
+    assert "old disagreement three years ago" in counter_claims
+
+
+def test_two_strong_current_target_support_records_can_produce_concern_supported():
+    """Two recognized strong/current target-supporting records produce CONCERN_SUPPORTED (CB-001 Case 6)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "received termination notice",
+            "stance": "supports_target",
+            "grounding": "doc:termination",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+        {
+            "identity": "c2",
+            "claim": "badge access revoked today",
+            "stance": "supports_target",
+            "grounding": "log:badge_system",
+            "source_quality": "direct_observation",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="employment is terminating", evidence=records)
+    assert res["assessment"] == CONCERN_SUPPORTED
+
+
+def test_explicit_material_concern_still_produces_concern_supported_without_erasure():
+    """Explicit material_concern remains acknowledged and produces CONCERN_SUPPORTED without reassurance (CB-001 Case 7)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    res = evaluate_reassurance(
+        target_claim="financial shortfall",
+        material_concerns=("rent payment due tomorrow with insufficient funds",),
+    )
+    assert res["assessment"] == CONCERN_SUPPORTED
+    assert res["material_concern"] is True
+    assert "rent payment due tomorrow with insufficient funds" in res["acknowledged_concerns"]
+
+
+def test_authorized_specialized_concern_preserved_without_downgrade():
+    """Authorized specialized-domain concern/red flag is preserved and not downgraded (CB-001 Case 8)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    spec_res = {
+        "authorized": True,
+        "domain_id": "domain:health",
+        "red_flags": ("severe_allergic_reaction",),
+        "assessment": "risk",
+    }
+    res = evaluate_reassurance(
+        target_claim="health emergency",
+        specialized_domain_result=spec_res,
+    )
+    assert res["assessment"] == CONCERN_SUPPORTED
+    assert res["specialized_authorized"] is True
+
+
+def test_duplicate_provenance_cannot_create_second_strong_concern_signal():
+    """Duplicate provenance for target-supporting record cannot inflate into CONCERN_SUPPORTED (CB-001 Case 9)."""
+    from cmm.domains.concerns.rules import CONCERN_SUPPORTED, evaluate_reassurance
+
+    records = (
+        {
+            "identity": "c1",
+            "claim": "badge access revoked today",
+            "stance": "supports_target",
+            "grounding": "log:badge_system",
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+        {
+            "identity": "c2_duplicate",
+            "claim": "badge access revoked today",
+            "stance": "supports_target",
+            "grounding": "log:badge_system",  # Same grounding + claim + stance
+            "source_quality": "grounded",
+            "temporal_relevance": "current",
+        },
+    )
+    res = evaluate_reassurance(target_claim="employment is terminating", evidence=records)
+    # Deduplicated to 1 record: cannot reach CONCERN_SUPPORTED
+    assert res["assessment"] != CONCERN_SUPPORTED
+
+
+def test_evidence_input_order_does_not_change_assessment():
+    """Input ordering of evidence does not alter reassurance/concern assessment (CB-001 Case 10)."""
+    from cmm.domains.concerns.rules import evaluate_reassurance
+
+    r1 = {
+        "identity": "c1",
+        "claim": "received notice",
+        "stance": "supports_target",
+        "grounding": "doc:1",
+        "source_quality": "grounded",
+        "temporal_relevance": "current",
+    }
+    r2 = {
+        "identity": "c2",
+        "claim": "badge revoked",
+        "stance": "supports_target",
+        "grounding": "doc:2",
+        "source_quality": "grounded",
+        "temporal_relevance": "current",
+    }
+    res_ab = evaluate_reassurance(target_claim="job loss", evidence=(r1, r2))
+    res_ba = evaluate_reassurance(target_claim="job loss", evidence=(r2, r1))
+    assert res_ab["assessment"] == res_ba["assessment"]
+    assert res_ab["material_concern"] == res_ba["material_concern"]

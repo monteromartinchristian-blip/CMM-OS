@@ -272,8 +272,22 @@ def test_all_five_canonical_states_exist_and_are_used():
         {
             "target_claim": "x",
             "evidence": (
-                {"identity": "e1", "claim": "x", "stance": "supports_target", "grounding": "s1"},
-                {"identity": "e2", "claim": "x", "stance": "supports_target", "grounding": "s2"},
+                {
+                    "identity": "e1",
+                    "claim": "x",
+                    "stance": "supports_target",
+                    "grounding": "s1",
+                    "source_quality": "grounded",
+                    "temporal_relevance": "current",
+                },
+                {
+                    "identity": "e2",
+                    "claim": "x",
+                    "stance": "supports_target",
+                    "grounding": "s2",
+                    "source_quality": "grounded",
+                    "temporal_relevance": "current",
+                },
             ),
         },  # concern supported
         {
@@ -285,8 +299,10 @@ def test_all_five_canonical_states_exist_and_are_used():
             ),
         },  # partial
         {
-            "uncertainty": ({"identity": "u1", "unknown": "intent"},),
-        },
+            "target_claim": "x",
+            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
+            "counterevidence": ({"identity": "c1", "claim": "x", "stance": "supports_target", "grounding": "t"},),
+        },  # uncertain (mixed signals)
     ):
         seen.add(evaluate_reassurance(**kwargs)["assessment"])
     assert len(seen & canonical) >= 4
