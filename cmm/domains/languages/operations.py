@@ -18,6 +18,7 @@ Safety posture:
 
 from __future__ import annotations
 
+import math
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -37,6 +38,17 @@ from cmm.domains.languages.rules import (
     prioritize_corrections,
 )
 from cmm.domains.operation_contracts import DomainOperationDefinition
+
+
+def _finite_number(value: Any) -> float | None:
+    """Normalize a public numeric input without accepting bool or NaN/Inf."""
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    ):
+        return float(value)
+    return None
 
 LANGUAGES_OPERATION_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_OPERATION_IDS
 
@@ -781,13 +793,25 @@ def generate_exercises_result(
     count: int | None = None,
 ) -> dict[str, Any]:
     """Generate targeted practice exercises aligned with skill and difficulty."""
-    num = count or 3
+    clean_count = _finite_number(count)
+    num = (
+        int(clean_count)
+        if clean_count is not None and clean_count.is_integer() and clean_count > 0
+        else 3
+    )
+    clean_difficulty_value = _finite_number(difficulty)
+    clean_difficulty = (
+        int(clean_difficulty_value)
+        if clean_difficulty_value is not None
+        and clean_difficulty_value.is_integer()
+        else 1
+    )
     exercises = [
         {
             "exercise_id": f"ex-{i+1}",
             "prompt": f"Complete the sentence using correct {target_topic}.",
             "target_skill": skill,
-            "difficulty": difficulty,
+            "difficulty": clean_difficulty,
         }
         for i in range(num)
     ]
@@ -795,7 +819,7 @@ def generate_exercises_result(
         "exercise_batch_id": f"exb-{uuid.uuid4().hex[:8]}",
         "language": language,
         "skill": skill,
-        "difficulty": difficulty,
+        "difficulty": clean_difficulty,
         "exercises": exercises,
         "exercise_count": len(exercises),
     }
@@ -809,8 +833,16 @@ def review_exercise_result(
 ) -> dict[str, Any]:
     """Review exercise outcome without prematurely turning isolated error into pattern."""
     er = dict(exercise_result or {})
-    is_correct = er.get("is_correct", True)
-    score = float(er.get("score", 1.0 if is_correct else 0.0))
+    is_correct = er.get("is_correct", True) is True
+    if "score" in er:
+        clean_score = _finite_number(er.get("score"))
+        if clean_score is None:
+            is_correct = False
+            score = 0.0
+        else:
+            score = clean_score
+    else:
+        score = 1.0 if is_correct else 0.0
     review_id = f"exr-{uuid.uuid4().hex[:8]}"
 
     errors = []
@@ -1021,7 +1053,11 @@ def plan_review_schedule_result(
 ) -> dict[str, Any]:
     """Generate pedagogical review proposal with explicit no calendar mutation guarantee."""
     plan_res = plan_spaced_review(items=review_items, active_goals=active_goals or ())
-    load_res = evaluate_learning_load(available_time=available_time, energy=energy, review_backlog=review_items)
+    load_res = evaluate_learning_load(
+        available_time=_finite_number(available_time),
+        energy=energy,
+        review_backlog=review_items,
+    )
 
     return {
         "schedule_id": f"rs-{uuid.uuid4().hex[:8]}",

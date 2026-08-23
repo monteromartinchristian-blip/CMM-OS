@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.agent_runtime.operation_schema import validate_operation_schema
 from cmm.domains.languages.catalog import (
@@ -365,6 +367,55 @@ def test_certification_preparation_no_external_mutation() -> None:
     assert res["registration_performed"] is False
     assert res["payment_performed"] is False
     assert res["submission_performed"] is False
+
+
+def test_review_exercise_malformed_scores_fail_closed_and_remain_json_safe() -> None:
+    malformed_scores = (
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        True,
+        False,
+        "not-a-number",
+        {},
+        [],
+        None,
+    )
+
+    for malformed_score in malformed_scores:
+        result = review_exercise_result(
+            exercise_result={
+                "is_correct": True,
+                "score": malformed_score,
+                "user_answer": "unsupported",
+            }
+        )
+
+        assert result["score"] == 0.0
+        assert result["is_correct"] is False
+        assert result["feedback"] != "Great job!"
+        assert result["stable_proficiency_changed"] is False
+        json.dumps(result, allow_nan=False)
+
+
+def test_other_numeric_operation_inputs_use_the_same_fail_closed_boundary() -> None:
+    exercises = generate_exercises_result(
+        language="English",
+        skill="grammar",
+        difficulty=float("inf"),
+        target_topic="inversion",
+        count="not-a-count",
+    )
+    schedule = plan_review_schedule_result(
+        review_items=(),
+        available_time=float("inf"),
+    )
+
+    assert exercises["difficulty"] == 1
+    assert exercises["exercise_count"] == 3
+    assert schedule["recommended_duration_minutes"] == 30
+    json.dumps(exercises, allow_nan=False)
+    json.dumps(schedule, allow_nan=False)
 
 
 def test_plan_review_schedule_no_calendar_mutation() -> None:

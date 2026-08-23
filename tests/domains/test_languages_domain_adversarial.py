@@ -244,6 +244,16 @@ def test_schema_valid_empty_operation_inputs_never_invent_evidence() -> None:
     assert progress["recommended_next_focus"] == "not_assessed"
 
 
+def test_exercise_numeric_inputs_never_escape_fail_closed_json_boundary() -> None:
+    for score in (float("nan"), float("inf"), float("-inf"), True, "bad", {}, []):
+        result = review_exercise_result(
+            exercise_result={"is_correct": True, "score": score}
+        )
+        assert result["score"] == 0.0
+        assert result["is_correct"] is False
+        json.dumps(result, allow_nan=False)
+
+
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
     base = {"observed": "B2", "skill": "writing", "comparable": True, "comparison_key": "essay"}
