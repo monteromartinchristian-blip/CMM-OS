@@ -200,6 +200,8 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
                 "provenance": True,
                 "cross_domain_projection": True,
                 "minimal_authorized_projection": True,
+                "no_private_store_merge": True,
+                "specialized_ownership_preserved": True,
             },
         ),
     }
