@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -200,7 +200,17 @@ class WorkflowEngine:
                         # adapter-driven (existing domain-pack contract).
                         outcome = self._evaluate_validate_node(node, outputs, run)
                     else:
-                        outcome = self._coerce(self._node_adapter(node, run), node_id)
+                        adapter_run = replace(
+                            run,
+                            completed_nodes=tuple(completed),
+                            failed_nodes=tuple(failed),
+                            waiting_nodes=tuple(waiting),
+                            skipped_nodes=tuple(skipped),
+                            outputs=outputs,
+                        )
+                        outcome = self._coerce(
+                            self._node_adapter(node, adapter_run), node_id
+                        )
                     if outcome.status is WorkflowNodeStatus.SKIPPED and node.required:
                         outcome = NodeExecution.failure(outcome.reason_code or "node.not_applicable")
                     if outcome.status is WorkflowNodeStatus.FAILED and outcome.retryable and self._attempts[node_id] < limit:
