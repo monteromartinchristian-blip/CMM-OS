@@ -12,7 +12,7 @@ The roadmap distinguishes clearly between:
 > **Implemented:** Phases 0–9<br>
 > **Implemented and audited:** Phases 0–9<br>
 > **Current test baseline:** 5409 passing tests<br>
-> **Next milestone:** Independently audit Phase 10.26 — Languages Domain
+> **Next milestone:** Independently re-audit Phase 10.26 — Languages Domain
 
 ---
 
