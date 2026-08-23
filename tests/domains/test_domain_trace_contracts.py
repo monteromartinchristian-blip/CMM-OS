@@ -138,6 +138,61 @@ def test_presentation_result_rejects_domain_ownership() -> None:
         )
 
 
+def test_presentation_results_travel_as_sorted_global_trace_references() -> None:
+    references = DomainTraceReferences(
+        "resolution-context:1",
+        "resolution-result:1",
+        "composition:1",
+        presentation_result_ids=(
+            "presentation-result:2",
+            "presentation-result:1",
+        ),
+    )
+
+    assert references.presentation_result_ids == (
+        "presentation-result:1",
+        "presentation-result:2",
+    )
+    assert tuple(
+        reference
+        for reference in references.all_references()
+        if reference.kind is DomainTraceReferenceKind.PRESENTATION_RESULT
+    ) == (
+        DomainTraceReference(
+            "presentation-result:1",
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        ),
+        DomainTraceReference(
+            "presentation-result:2",
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        ),
+    )
+
+
+def test_presentation_result_carrier_round_trips() -> None:
+    original = DomainTraceReferences(
+        "resolution-context:1",
+        "resolution-result:1",
+        "composition:1",
+        presentation_result_ids=("presentation-result:1",),
+    )
+
+    assert DomainTraceReferences.from_dict(original.to_dict()) == original
+
+
+def test_old_trace_references_payload_defaults_presentation_results_to_empty() -> None:
+    old_payload = DomainTraceReferences(
+        "resolution-context:1",
+        "resolution-result:1",
+        "composition:1",
+    ).to_dict()
+    old_payload.pop("presentation_result_ids", None)
+
+    restored = DomainTraceReferences.from_dict(old_payload)
+
+    assert restored.presentation_result_ids == ()
+
+
 def test_inventory_rejects_duplicate_result_pairing_ids() -> None:
     pairing = DomainResultTraceReference("domain-result:1", "domain:life-plan", "domain-trace:1")
 

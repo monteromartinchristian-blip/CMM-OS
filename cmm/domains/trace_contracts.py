@@ -548,13 +548,14 @@ class DomainTraceReferences:
     cross_domain_results: tuple[CrossDomainTraceReference, ...] = ()
     presentation_plan_ids: tuple[str, ...] = ()
     presentation_validation_result_ids: tuple[str, ...] = ()
+    presentation_result_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("resolution_context_id", "resolution_result_id", "composition_id"):
             object.__setattr__(self, name, _identifier(getattr(self, name), name))
         if self.agent_trace_id is not None:
             object.__setattr__(self, "agent_trace_id", _identifier(self.agent_trace_id, "agent_trace_id"))
-        for name in ("cognitive_result_ids", "reasoning_trace_ids", "knowledge_package_ids", "presentation_plan_ids", "presentation_validation_result_ids"):
+        for name in ("cognitive_result_ids", "reasoning_trace_ids", "knowledge_package_ids", "presentation_plan_ids", "presentation_validation_result_ids", "presentation_result_ids"):
             object.__setattr__(self, name, _sorted_ids(getattr(self, name), name))
         pairings = tuple(
             pairing if isinstance(pairing, CrossDomainTraceReference) else CrossDomainTraceReference.from_dict(pairing)
@@ -582,6 +583,7 @@ class DomainTraceReferences:
         )
         items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_PLAN) for item in self.presentation_plan_ids)
         items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_VALIDATION_RESULT) for item in self.presentation_validation_result_ids)
+        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_RESULT) for item in self.presentation_result_ids)
         return tuple(sorted(items, key=_reference_sort_key))
 
     def to_dict(self) -> dict[str, Any]:
@@ -593,6 +595,7 @@ class DomainTraceReferences:
             "cross_domain_results": [item.to_dict() for item in self.cross_domain_results],
             "presentation_plan_ids": list(self.presentation_plan_ids),
             "presentation_validation_result_ids": list(self.presentation_validation_result_ids),
+            "presentation_result_ids": list(self.presentation_result_ids),
         }
 
     @classmethod
