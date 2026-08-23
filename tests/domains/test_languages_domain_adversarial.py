@@ -800,6 +800,22 @@ def test_invariant_flags_are_derived_from_payload_content() -> None:
     assert pattern["pattern_state"] == "candidate"
 
 
+def test_unusable_pronunciation_evidence_never_supports_assessment() -> None:
+    for evidence in (
+        ({},),
+        ({"source_id": "  "},),
+        ({"score": float("inf")},),
+    ):
+        speaking = review_speaking_result(
+            audio_transcript={"transcript": "Hello"},
+            pronunciation_evidence=evidence,
+        )
+
+        assert speaking["pronunciation_assessed"] is False
+        assert speaking["pronunciation_feedback"] is None
+        assert "pronunciation_evidence" in speaking["missing_evidence"]
+
+
 def test_all_result_builders_are_strict_json_safe_across_input_classes() -> None:
     definitions = {
         definition.operation_id: definition

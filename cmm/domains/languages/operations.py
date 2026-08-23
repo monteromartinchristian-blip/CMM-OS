@@ -977,7 +977,14 @@ def review_speaking_result(
         if isinstance(item, Mapping)
     ]
 
-    has_audio_evidence = bool(pronunciation_evidence)
+    has_audio_evidence = any(
+        isinstance(item, Mapping)
+        and any(
+            isinstance(item.get(key), str) and bool(item[key].strip())
+            for key in ("source_id", "provenance_id")
+        )
+        for item in pronunciation_evidence or ()
+    )
     missing_evidence = []
     if not transcript:
         missing_evidence.append("speaking_sample")
