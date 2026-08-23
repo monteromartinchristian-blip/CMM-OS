@@ -99,6 +99,7 @@ def assemble_languages_trace(
     supporting_domains: tuple[DomainId | str, ...] = (),
     contributions: tuple[DomainTraceContribution, ...] = (),
     cross_domain_results: tuple[Any, ...] = (),
+    presentation_result_ids: tuple[str, ...] = (),
     goal_id: str | None = None,
 ) -> DomainTrace:
     """Assemble a final reference-only ``DomainTrace`` for Languages Domain."""
@@ -124,6 +125,7 @@ def assemble_languages_trace(
         resolution_result_id=resolution_result_id,
         composition_id=composition_id,
         cross_domain_results=tuple(cross_domain_results),
+        presentation_result_ids=presentation_result_ids,
     )
     request = DomainTraceAssemblyRequest(
         request_id=request_id,

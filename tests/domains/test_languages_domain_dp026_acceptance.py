@@ -13,6 +13,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
 )
 from cmm.agent_runtime.enums import PolicyRiskLevel
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainResult
@@ -52,6 +53,7 @@ from cmm.domains.languages.operations import (
 from cmm.domains.languages.permissions import build_languages_permission_policy
 from cmm.domains.languages.presentation import present_languages_result
 from cmm.domains.languages.rules import (
+    build_languages_rules,
     classify_language_variety,
     classify_proficiency_record,
     evaluate_certification_source,
@@ -61,6 +63,7 @@ from cmm.domains.languages.rules import (
 )
 from cmm.domains.languages.trace import (
     assemble_languages_trace,
+    build_languages_trace_contribution,
     build_languages_trace_reference,
     validate_languages_trace,
 )
@@ -89,9 +92,14 @@ from cmm.domains.resolution_contracts import DomainResolutionSignal
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.trace_contracts import (
     CrossDomainTraceReference,
+    DomainResultTraceReference,
+    DomainTrace,
     DomainTraceDomainSelection,
+    DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceStatus,
 )
 from cmm.domains.workflow_contracts import DomainWorkflowContext
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
@@ -146,6 +154,21 @@ FROZEN_SEMANTIC_CHECKPOINTS = (
     "43-present-unassessed-speaking-pronunciation-gaps",
     "44-trace-actual-connected-runtime-identifiers",
     "45-use-no-parallel-domain-infrastructure",
+)
+
+REQUIRED_CONNECTED_TRACE_KINDS = frozenset(
+    {
+        DomainTraceReferenceKind.PROFILE,
+        DomainTraceReferenceKind.EVIDENCE,
+        DomainTraceReferenceKind.RULE_RESULT,
+        DomainTraceReferenceKind.OPERATION_RESULT,
+        DomainTraceReferenceKind.WORKFLOW_RUN,
+        DomainTraceReferenceKind.PERMISSION_DECISION,
+        DomainTraceReferenceKind.MEMORY_PROPOSAL,
+        DomainTraceReferenceKind.MEMORY_BINDING,
+        DomainTraceReferenceKind.CROSS_DOMAIN_RESULT,
+        DomainTraceReferenceKind.PRESENTATION_RESULT,
+    }
 )
 
 
@@ -771,7 +794,13 @@ class ConnectedLanguagesScenario:
             ),),
         )
         validation = validate_languages_memory_binding(binding=binding, inventory=inventory)
-        self.state.update(memory_proposal=proposal, memory_binding=binding, memory_view=view, memory_validation=validation)
+        self.state.update(
+            memory_proposal=proposal,
+            memory_binding=binding,
+            memory_view=view,
+            memory_validation=validation,
+            memory_permission=memory_permission,
+        )
         self.actual_produced_ids.update((proposal.proposal_id, binding.binding_id, view.view_id, permission_id, trace_id))
         self.checkpoint(
             "38-propose-persistent-progress-update",
@@ -866,6 +895,12 @@ class ConnectedLanguagesScenario:
         )
         presented.append(present_languages_result(projection.to_dict()))
         self.state["presented_results"] = presented
+        presentation_result = {
+            "result_id": self.ids(),
+            "items": tuple(presented),
+        }
+        self.state["presentation_result"] = presentation_result
+        self.actual_produced_ids.add(presentation_result["result_id"])
         speaking = next(item for item in presented if item.get("transcript_text") is not None)
         self.checkpoint(
             "42-present-certified-estimated-observed-distinctly",
@@ -884,57 +919,231 @@ class ConnectedLanguagesScenario:
             and "pronunciation_evidence" in speaking["missing_evidence"],
         )
 
+    def evaluate_selected_trace_rules(self) -> tuple[Any, ...]:
+        rules = {rule.definition.id: rule for rule in build_languages_rules()}
+        certification_inputs = self.state["workflow_inputs"][
+            "languages.certification_preparation"
+        ]
+        materials = {
+            "languages.error_pattern_evidence": {
+                "observations": self.state["independent_errors"],
+            },
+            "languages.progression_evidence": {
+                "previous_evidence": self.state["baseline"],
+                "current_evidence": self.state["current"],
+                "skill": "writing",
+            },
+            "languages.certification_temporal": {
+                "sources": certification_inputs["official_sources"],
+                "decision_critical": True,
+            },
+        }
+        results = []
+        for rule_id, material in materials.items():
+            context = ReasoningRuleContext(
+                reasoning_id=self.ids(),
+                timestamp=NOW,
+                session_id="session-at-dp-026",
+                active_domains=(LANGUAGES_DOMAIN_ID,),
+                primary_domain=LANGUAGES_DOMAIN_ID,
+                metadata={"material": material},
+            )
+            results.append(rules[rule_id].evaluate(context))
+        selected = tuple(results)
+        self.state["selected_rule_results"] = selected
+        return selected
+
     def trace(self) -> None:
-        references = []
-        for run in self.state["workflow_runs"].values():
-            references.append(build_languages_trace_reference(
-                ref_id=run.common_run.run_id, kind=DomainTraceReferenceKind.WORKFLOW_RUN
-            ))
-            if run.execution_result.events:
-                references.append(build_languages_trace_reference(
-                    ref_id=run.execution_result.events[-1].event_id,
-                    kind=DomainTraceReferenceKind.WORKFLOW_RESULT,
-                ))
-        for value, kind in (
-            (self.state["assessment"]["assessment_id"], DomainTraceReferenceKind.OPERATION_RESULT),
-            (self.state["approval_request"].id, DomainTraceReferenceKind.APPROVAL_REQUEST),
-            (self.state["approval_decision"].id, DomainTraceReferenceKind.APPROVAL_DECISION),
-            (self.state["memory_proposal"].proposal_id, DomainTraceReferenceKind.FINDING),
-        ):
-            references.append(build_languages_trace_reference(ref_id=value, kind=kind))
-            self.actual_produced_ids.add(value)
+        selected_rule_results = self.evaluate_selected_trace_rules()
+        operation_results_by_id = {
+            value: result
+            for result in self.state["operation_outputs"]
+            for key, value in result.items()
+            if key.endswith("_id") and isinstance(value, str)
+        }
+        evidence_by_id = {
+            item["provenance_id"]: item
+            for item in (*self.state["baseline"], *self.state["current"])
+        }
+        selected_source = self.state["certification_selected_source"]
+        evidence_by_id[selected_source["id"]] = selected_source
         runs = self.state["workflow_runs"]
         domain_result = DomainResult(
-            id=self.ids(), status="completed", objective="Connected Languages acceptance result",
+            id=self.ids(),
+            status="completed",
+            objective="Connected Languages acceptance result",
             primary_domain=LANGUAGES_DOMAIN_ID,
-            workflow_result_id=runs["languages.progress_checkpoint"].common_run.run_id,
-            operation_result_ids=(self.state["assessment"]["assessment_id"],),
+            operation_result_ids=tuple(sorted(operation_results_by_id)),
             approval_ids=(self.state["approval_request"].id,),
-            trace_id=self.state["memory_binding"].trace_id, confidence=0.8,
+            trace_id=self.state["memory_binding"].trace_id,
+            confidence=0.8,
         )
         self.state["domain_result"] = domain_result
-        self.actual_produced_ids.add(str(domain_result.id))
         cross = self.state["cross_projection"]
-        cross_reference = CrossDomainTraceReference(result_id=str(cross.id), trace_id=cross.trace_id)
-        resolution, composition, context = (
-            self.state["resolution"], self.state["composition"], self.state["resolution_context"]
+        cross_reference = CrossDomainTraceReference(
+            result_id=str(cross.id), trace_id=cross.trace_id
         )
-        trace = assemble_languages_trace(
-            request_id=self.ids(), resolution_context_id=context.id,
-            resolution_result_id=resolution.id, composition_id=composition.id,
-            domain_result_id=str(domain_result.id), started_at=NOW, completed_at=NOW,
-            references=tuple(references), cross_domain_results=(cross_reference,),
+        resolution, composition, context = (
+            self.state["resolution"],
+            self.state["composition"],
+            self.state["resolution_context"],
+        )
+        profile = self.state["profile"]
+        permission_decision = self.state["memory_permission"]
+        memory_proposal = self.state["memory_proposal"]
+        memory_binding = self.state["memory_binding"]
+        presentation_result = self.state["presentation_result"]
+
+        expected_id_to_kind: dict[str, DomainTraceReferenceKind] = {}
+
+        def expect(ref_id: str, kind: DomainTraceReferenceKind) -> None:
+            assert ref_id not in expected_id_to_kind
+            expected_id_to_kind[ref_id] = kind
+
+        expect(context.id, DomainTraceReferenceKind.RESOLUTION_CONTEXT)
+        expect(resolution.id, DomainTraceReferenceKind.RESOLUTION_RESULT)
+        expect(composition.id, DomainTraceReferenceKind.COMPOSITION)
+        expect(str(domain_result.id), DomainTraceReferenceKind.DOMAIN_RESULT)
+        expect(str(cross.id), DomainTraceReferenceKind.CROSS_DOMAIN_RESULT)
+        expect(cross.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE)
+        expect(
+            presentation_result["result_id"],
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        )
+        expect(str(profile.id), DomainTraceReferenceKind.PROFILE)
+        for run in runs.values():
+            expect(run.common_run.run_id, DomainTraceReferenceKind.WORKFLOW_RUN)
+        for result_id in operation_results_by_id:
+            expect(result_id, DomainTraceReferenceKind.OPERATION_RESULT)
+        for evidence_id in evidence_by_id:
+            expect(evidence_id, DomainTraceReferenceKind.EVIDENCE)
+        for result in selected_rule_results:
+            expect(result.rule_id, DomainTraceReferenceKind.RULE_RESULT)
+        expect(
+            permission_decision.decision_id,
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+        )
+        expect(
+            self.state["approval_request"].id,
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+        )
+        expect(
+            self.state["approval_decision"].id,
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+        )
+        expect(
+            memory_proposal.proposal_id,
+            DomainTraceReferenceKind.MEMORY_PROPOSAL,
+        )
+        expect(memory_binding.binding_id, DomainTraceReferenceKind.MEMORY_BINDING)
+
+        global_kinds = {
+            DomainTraceReferenceKind.RESOLUTION_CONTEXT,
+            DomainTraceReferenceKind.RESOLUTION_RESULT,
+            DomainTraceReferenceKind.COMPOSITION,
+            DomainTraceReferenceKind.CROSS_DOMAIN_RESULT,
+            DomainTraceReferenceKind.CROSS_DOMAIN_TRACE,
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        }
+        expected_references = tuple(
+            DomainTraceReference(ref_id, kind)
+            if kind in global_kinds
+            else build_languages_trace_reference(ref_id=ref_id, kind=kind)
+            for ref_id, kind in expected_id_to_kind.items()
+        )
+        contribution_references = tuple(
+            reference
+            for reference in expected_references
+            if reference.kind
+            not in global_kinds | {DomainTraceReferenceKind.DOMAIN_RESULT}
+        )
+        request_id = self.ids()
+        goal_id = self.state["languages"]["English"]["goals"][0]["id"]
+        trace_references = DomainTraceReferences(
+            resolution_context_id=context.id,
+            resolution_result_id=resolution.id,
+            composition_id=composition.id,
+            cross_domain_results=(cross_reference,),
+            presentation_result_ids=(presentation_result["result_id"],),
+        )
+        probe = DomainTrace(
+            id="domain-trace:probe",
+            digest="0" * 64,
+            request_id=request_id,
+            goal_id=goal_id,
+            primary_domain=LANGUAGES_DOMAIN_ID,
+            supporting_domains=(),
+            contributions=(
+                build_languages_trace_contribution(
+                    domain_result_id=str(domain_result.id),
+                    references=contribution_references,
+                ),
+            ),
+            references=trace_references,
+            domain_results=(
+                DomainResultTraceReference(
+                    str(domain_result.id),
+                    LANGUAGES_DOMAIN_ID,
+                    "domain-trace:probe",
+                ),
+            ),
+            status=DomainTraceStatus.COMPLETED,
+            started_at=NOW,
+            completed_at=NOW,
+            duration_ms=0,
+        )
+        expected_trace_id = probe.canonical_id
+        domain_result_references = (
+            DomainResultTraceReference(
+                str(domain_result.id), LANGUAGES_DOMAIN_ID, expected_trace_id
+            ),
         )
         inventory = DomainTraceReferenceInventory(
-            references=trace.all_references(), domain_results=trace.domain_results,
-            cross_domain_results=trace.references.cross_domain_results,
-            expected_primary_domain=LANGUAGES_DOMAIN_ID, expected_supporting_domains=(),
-            resolution_result_domains=DomainTraceDomainSelection(resolution.id, LANGUAGES_DOMAIN_ID),
-            composition_domains=DomainTraceDomainSelection(composition.id, LANGUAGES_DOMAIN_ID),
+            references=expected_references,
+            domain_results=domain_result_references,
+            cross_domain_results=(cross_reference,),
+            expected_primary_domain=LANGUAGES_DOMAIN_ID,
+            expected_supporting_domains=(),
+            resolution_result_domains=DomainTraceDomainSelection(
+                resolution.id, LANGUAGES_DOMAIN_ID
+            ),
+            composition_domains=DomainTraceDomainSelection(
+                composition.id, LANGUAGES_DOMAIN_ID
+            ),
         )
+        self.state.update(
+            expected_id_to_kind=dict(expected_id_to_kind),
+            trace_inventory=inventory,
+            trace_runtime_objects={
+                "profile": profile,
+                "operations": operation_results_by_id,
+                "evidence": evidence_by_id,
+                "rules": selected_rule_results,
+                "permission": permission_decision,
+                "memory_proposal": memory_proposal,
+                "memory_binding": memory_binding,
+                "presentation": presentation_result,
+            },
+        )
+
+        trace = assemble_languages_trace(
+            request_id=request_id,
+            resolution_context_id=context.id,
+            resolution_result_id=resolution.id,
+            composition_id=composition.id,
+            domain_result_id=str(domain_result.id),
+            started_at=NOW,
+            completed_at=NOW,
+            references=contribution_references,
+            cross_domain_results=(cross_reference,),
+            presentation_result_ids=(presentation_result["result_id"],),
+            goal_id=goal_id,
+        )
+        assert trace.id == expected_trace_id
         validation = validate_languages_trace(trace=trace, inventory=inventory)
-        self.state.update(trace=trace, trace_inventory=inventory, trace_validation=validation)
+        self.state.update(trace=trace, trace_validation=validation)
         self.required_trace_ids = {item.ref_id for item in trace.all_references()}
+        self.actual_produced_ids.update(expected_id_to_kind)
         assert self.required_trace_ids <= self.actual_produced_ids
         self.checkpoint(
             "44-trace-actual-connected-runtime-identifiers",
@@ -1014,3 +1223,45 @@ def test_at_dp_026_checkpoints_match_frozen_semantic_sequence() -> None:
     scenario = ConnectedLanguagesScenario()
     scenario.run()
     assert tuple(scenario.checkpoints) == FROZEN_SEMANTIC_CHECKPOINTS
+
+
+def test_at_dp_026_trace_never_labels_workflow_events_as_results() -> None:
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+    event_ids = {
+        event.event_id
+        for run in scenario.state["workflow_runs"].values()
+        for event in run.execution_result.events
+    }
+
+    assert not any(
+        reference.ref_id in event_ids
+        and reference.kind is DomainTraceReferenceKind.WORKFLOW_RESULT
+        for reference in scenario.state["trace"].all_references()
+    )
+
+
+def test_at_dp_026_trace_matches_independent_runtime_kind_map() -> None:
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+    expected_id_to_kind = scenario.state["expected_id_to_kind"]
+    actual_id_to_kind = {
+        reference.ref_id: reference.kind
+        for reference in scenario.state["trace"].all_references()
+    }
+
+    assert actual_id_to_kind == expected_id_to_kind
+    assert {
+        reference.ref_id: reference.kind
+        for reference in scenario.state["trace_inventory"].references
+    } == expected_id_to_kind
+
+
+def test_at_dp_026_trace_contains_all_frozen_runtime_categories() -> None:
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+    actual_kinds = {
+        reference.kind for reference in scenario.state["trace"].all_references()
+    }
+
+    assert REQUIRED_CONNECTED_TRACE_KINDS <= actual_kinds

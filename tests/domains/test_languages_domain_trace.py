@@ -107,3 +107,23 @@ def test_assemble_languages_trace_and_validation() -> None:
     bad = replace(inventory, references=(*inventory.references, ghost))
     bad_res = validate_languages_trace(trace=trace, inventory=bad)
     assert bad_res.valid is False
+
+
+def test_assemble_languages_trace_carries_global_presentation_results() -> None:
+    now = datetime.now(timezone.utc)
+
+    trace = assemble_languages_trace(
+        request_id="req-presentation-1",
+        resolution_context_id="ctx-presentation-1",
+        resolution_result_id="res-presentation-1",
+        composition_id="comp-presentation-1",
+        domain_result_id="domain-result-presentation-1",
+        started_at=now,
+        completed_at=now,
+        presentation_result_ids=("presentation-result-1",),
+    )
+
+    assert DomainTraceReference(
+        "presentation-result-1",
+        DomainTraceReferenceKind.PRESENTATION_RESULT,
+    ) in trace.all_references()
