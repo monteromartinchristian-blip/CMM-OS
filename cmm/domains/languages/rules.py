@@ -1074,11 +1074,19 @@ def evaluate_progression(
         }
 
     comparison_key = next(iter(shared_keys))
-    prev_scores = [score for key, _, score in previous_scores if key == comparison_key]
+    previous_for_key = [
+        (provenance, score)
+        for key, provenance, score in previous_scores
+        if key == comparison_key
+    ]
+    prev_scores = [score for _, score in previous_for_key]
+    baseline_provenance = {
+        provenance for provenance, _ in previous_for_key
+    }
     current_for_key = [
         (provenance, score)
         for key, provenance, score in current_scores
-        if key == comparison_key
+        if key == comparison_key and provenance not in baseline_provenance
     ]
     curr_scores = [score for _, score in current_for_key]
     if not prev_scores or not curr_scores:

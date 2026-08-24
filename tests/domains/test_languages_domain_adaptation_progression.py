@@ -93,6 +93,46 @@ def test_evaluate_progression_single_sample_vs_stable() -> None:
     assert res_stable["stable_progression"] is True
 
 
+def test_baseline_provenance_replay_cannot_support_stable_progression() -> None:
+    """Stable improvement requires two current observations new to the baseline."""
+    previous = (
+        {
+            "provenance_id": "shared-observation",
+            "score": 0.60,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    current = (
+        {
+            "provenance_id": "shared-observation",
+            "score": 0.90,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "new-observation",
+            "score": 0.90,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+
+    result = evaluate_progression(
+        previous_evidence=previous,
+        current_evidence=current,
+        skill="writing",
+    )
+
+    assert result["progression_outcome"] == "short_term_improvement"
+    assert result["stable_progression"] is False
+    assert result["previous_average"] == 0.60
+    assert result["current_average"] == 0.90
+
+
 def test_no_baseline_cannot_create_stable_progression() -> None:
     """Current high scores cannot invent their own historical baseline."""
     current = (
