@@ -255,6 +255,116 @@ def test_exercise_numeric_inputs_never_escape_fail_closed_json_boundary() -> Non
         json.dumps(result, allow_nan=False)
 
 
+def test_empty_vocabulary_never_reports_impossible_mastery() -> None:
+    """Catches the hard-coded five-mastered-items summary."""
+    result = track_vocabulary_result(vocabulary_list={"items": []})
+    assert result["total_items"] == 0
+    assert result["mastery_summary"]["mastered"] == 0
+    assert result["mastery_summary"]["learning"] == 0
+    assert result["candidate_updates"] == []
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"]
+        + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_learning_vocabulary_item_is_not_counted_as_mastered() -> None:
+    """Catches a fixed mastery count that ignores an item's candidate state."""
+    result = track_vocabulary_result(
+        vocabulary_list={"items": [{"id": "v1", "term": "hello", "state": "learning"}]}
+    )
+    assert result["total_items"] == 1
+    assert result["mastery_summary"]["mastered"] == 0
+    assert result["mastery_summary"]["learning"] == 1
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"]
+        + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_vocabulary_normalization_deduplicates_and_ignores_unknown_reviews() -> None:
+    """Malformed or duplicate input cannot inflate candidates or invent vocabulary."""
+    result = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "kept", "state": "consolidated"},
+                {"item_id": "kept", "state": "new"},
+                {"id": "malformed-state", "state": "mastered"},
+                "not-a-vocabulary-item",
+            ]
+        },
+        new_items=[
+            {"id": "kept", "state": "learning"},
+            ["also-not-a-vocabulary-item"],
+        ],
+        review_results=[
+            {"id": "unknown", "state": "consolidated"},
+            {"id": "malformed-state", "correct": "yes"},
+        ],
+    )
+
+    assert result["candidate_updates"] == [
+        {"id": "kept", "state": "consolidated"},
+        {"id": "malformed-state", "state": "new"},
+    ]
+    assert result["total_items"] == 2
+    assert result["mastery_summary"] == {"mastered": 1, "learning": 1}
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"]
+        + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
+def test_vocabulary_candidates_are_json_safe_and_do_not_mutate_inputs() -> None:
+    """Candidate normalization must leave source records untouched and strict-JSON safe."""
+    vocabulary_list = {
+        "items": [
+            {
+                "id": 4,
+                "state": " LEARNING ",
+                "metadata": {"non_finite": float("inf")},
+            }
+        ]
+    }
+    new_items = [{"id": 5, "state": "not-a-frozen-state"}]
+    review_results = [{"id": 4, "correct": True}]
+    original_vocabulary_list = copy.deepcopy(vocabulary_list)
+    original_new_items = copy.deepcopy(new_items)
+    original_review_results = copy.deepcopy(review_results)
+
+    result = track_vocabulary_result(
+        vocabulary_list=vocabulary_list,
+        new_items=new_items,
+        review_results=review_results,
+    )
+
+    assert vocabulary_list == original_vocabulary_list
+    assert new_items == original_new_items
+    assert review_results == original_review_results
+    assert result["candidate_updates"] == [
+        {"id": "4", "state": "review", "metadata": {"non_finite": None}},
+        {"id": "5", "state": "new"},
+    ]
+    assert result["mastery_summary"] == {"mastered": 0, "learning": 2}
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"]
+        + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+    json.dumps(result, allow_nan=False)
+
+
 def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None:
     existing = {"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"}
     base = {"observed": "B2", "skill": "writing", "comparable": True, "comparison_key": "essay"}

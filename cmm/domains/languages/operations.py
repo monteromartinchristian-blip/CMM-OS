@@ -18,6 +18,7 @@ Safety posture:
 
 from __future__ import annotations
 
+import json
 import math
 import uuid
 from collections.abc import Mapping
@@ -49,6 +50,122 @@ def _finite_number(value: Any) -> float | None:
     ):
         return float(value)
     return None
+
+
+_VOCABULARY_STATES = frozenset(
+    {"new", "learning", "review", "consolidated", "needs_reinforcement"}
+)
+
+
+def _normalize_vocabulary_state(value: Any) -> str:
+    """Return a frozen candidate state, failing closed to ``new``."""
+    state = value.strip().lower() if isinstance(value, str) else ""
+    return state if state in _VOCABULARY_STATES else "new"
+
+
+def _normalize_vocabulary_item_id(value: Any) -> str | None:
+    """Return a stable JSON-safe vocabulary identity or ``None`` when unusable."""
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        return str(int(value)) if value.is_integer() else str(value)
+    return None
+
+
+def _vocabulary_item_identity(item: Mapping[str, Any]) -> str | None:
+    """Read an item's stable identity, preferring item_id over id."""
+    return _normalize_vocabulary_item_id(item.get("item_id")) or _normalize_vocabulary_item_id(
+        item.get("id")
+    )
+
+
+def _normalize_vocabulary_item(item: Any) -> dict[str, Any] | None:
+    """Copy and normalize one candidate vocabulary item without mutating its source."""
+    if not isinstance(item, Mapping):
+        return None
+
+    candidate = dict(normalize_json_value(item))
+    for field in ("item_id", "id"):
+        if field not in item:
+            continue
+        normalized_id = _normalize_vocabulary_item_id(item[field])
+        if normalized_id is None:
+            candidate.pop(field, None)
+        else:
+            candidate[field] = normalized_id
+    candidate["state"] = _normalize_vocabulary_state(item.get("state"))
+    return candidate
+
+
+def _candidate_vocabulary_items(
+    *,
+    vocabulary_list: Mapping[str, Any] | None,
+    new_items: tuple[Any, ...] | list[Any] | None,
+) -> list[dict[str, Any]]:
+    """Normalize and deterministically deduplicate vocabulary candidates."""
+    existing_items = vocabulary_list.get("items", ()) if isinstance(vocabulary_list, Mapping) else ()
+    raw_items = list(existing_items) if isinstance(existing_items, (tuple, list)) else []
+    if isinstance(new_items, (tuple, list)):
+        raw_items.extend(new_items)
+
+    candidates: list[dict[str, Any]] = []
+    seen_identities: set[str] = set()
+    seen_anonymous_items: set[str] = set()
+    for item in raw_items:
+        candidate = _normalize_vocabulary_item(item)
+        if candidate is None:
+            continue
+        identity = _vocabulary_item_identity(candidate)
+        if identity is not None:
+            if identity in seen_identities:
+                continue
+            seen_identities.add(identity)
+        else:
+            anonymous_key = json.dumps(
+                candidate,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if anonymous_key in seen_anonymous_items:
+                continue
+            seen_anonymous_items.add(anonymous_key)
+        candidates.append(candidate)
+    return candidates
+
+
+def _candidate_state_from_review(review: Mapping[str, Any]) -> str | None:
+    """Derive one conservative candidate transition from a grounded review payload."""
+    explicit_state = review.get("state")
+    if isinstance(explicit_state, str):
+        normalized_state = explicit_state.strip().lower()
+        if normalized_state in _VOCABULARY_STATES:
+            return normalized_state
+    if review.get("correct") is True:
+        return "review"
+    if review.get("correct") is False:
+        return "needs_reinforcement"
+    return None
+
+
+def _candidate_review_states(
+    review_results: tuple[Any, ...] | list[Any] | None,
+) -> dict[str, str]:
+    """Build a stable-ID lookup of review-derived candidate states."""
+    if not isinstance(review_results, (tuple, list)):
+        return {}
+
+    transitions: dict[str, str] = {}
+    for review in review_results:
+        if not isinstance(review, Mapping):
+            continue
+        identity = _vocabulary_item_identity(review)
+        candidate_state = _candidate_state_from_review(review)
+        if identity is not None and candidate_state is not None:
+            transitions[identity] = candidate_state
+    return transitions
 
 LANGUAGES_OPERATION_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_OPERATION_IDS
 
@@ -1046,19 +1163,28 @@ def track_vocabulary_result(
     review_results: tuple[Any, ...] | list[Any] | None = None,
 ) -> dict[str, Any]:
     """Track vocabulary items and candidate review updates without mutating persistent store."""
-    vl = dict(normalize_json_value(vocabulary_list or {}))
-    items = list(vl.get("items", []))
-    if new_items:
-        items.extend(normalize_json_value(new_items))
+    candidates = _candidate_vocabulary_items(
+        vocabulary_list=vocabulary_list,
+        new_items=new_items,
+    )
+    review_states = _candidate_review_states(review_results)
+    for candidate in candidates:
+        identity = _vocabulary_item_identity(candidate)
+        if identity is not None and identity in review_states:
+            candidate["state"] = review_states[identity]
 
-    plan_res = plan_spaced_review(items=items)
+    plan_res = plan_spaced_review(items=candidates)
+    mastered = sum(item["state"] == "consolidated" for item in candidates)
 
     return {
         "tracking_id": f"vt-{uuid.uuid4().hex[:8]}",
-        "total_items": len(items),
+        "total_items": len(candidates),
         "due_items": plan_res["backlog_count"],
-        "mastery_summary": {"mastered": 5, "learning": len(items)},
-        "candidate_updates": items,
+        "mastery_summary": {
+            "mastered": mastered,
+            "learning": len(candidates) - mastered,
+        },
+        "candidate_updates": candidates,
         "persistence_applied": False,
     }
 

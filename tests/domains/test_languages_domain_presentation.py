@@ -81,6 +81,33 @@ def test_presentation_preserves_unassessed_exercise_outcome() -> None:
     json.dumps(presented, allow_nan=False)
 
 
+def test_presentation_preserves_derived_vocabulary_candidate_state_and_counts() -> None:
+    """Presentation is a projection and cannot change vocabulary mastery evidence."""
+    vocabulary = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "consolidated", "state": "consolidated"},
+                {"id": "learning", "state": "learning"},
+            ]
+        },
+        review_results=[{"id": "learning", "correct": False}],
+    )
+    presented = present_languages_result(vocabulary)
+
+    assert presented["candidate_updates"] == vocabulary["candidate_updates"]
+    assert presented["mastery_summary"] == {"mastered": 1, "learning": 1}
+    assert presented["total_items"] == 2
+    assert presented["persistence_applied"] is False
+    assert 0 <= presented["mastery_summary"]["mastered"] <= presented["total_items"]
+    assert 0 <= presented["mastery_summary"]["learning"] <= presented["total_items"]
+    assert (
+        presented["mastery_summary"]["mastered"]
+        + presented["mastery_summary"]["learning"]
+        == presented["total_items"]
+    )
+    json.dumps(presented, allow_nan=False)
+
+
 def _actual_operation_outputs() -> dict[str, dict]:
     comparable = {
         "skill": "writing",

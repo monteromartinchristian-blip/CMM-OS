@@ -170,6 +170,78 @@ def test_onboarding_learning_plan_fields() -> None:
     assert res["persistence_applied"] is False
 
 
+def test_track_vocabulary_derives_mastery_for_each_frozen_candidate_state() -> None:
+    """Each canonical state yields a bounded, evidence-derived mastery summary."""
+    expected_mastered = {
+        "new": 0,
+        "learning": 0,
+        "review": 0,
+        "consolidated": 1,
+        "needs_reinforcement": 0,
+    }
+
+    for state, mastered in expected_mastered.items():
+        result = track_vocabulary_result(
+            vocabulary_list={"items": [{"id": f"word-{state}", "state": state}]}
+        )
+
+        assert result["candidate_updates"] == [
+            {"id": f"word-{state}", "state": state}
+        ]
+        assert result["total_items"] == 1
+        assert result["mastery_summary"] == {
+            "mastered": mastered,
+            "learning": 1 - mastered,
+        }
+        assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+        assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+        assert (
+            result["mastery_summary"]["mastered"]
+            + result["mastery_summary"]["learning"]
+            == result["total_items"]
+        )
+
+
+def test_track_vocabulary_applies_grounded_review_evidence_to_candidate_items() -> None:
+    """Reviews update only matching candidates; a lone correct answer remains review."""
+    result = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "correct", "state": "learning"},
+                {"item_id": "incorrect", "state": "review"},
+                {"id": "explicit", "state": "learning"},
+                {"id": "unusable-review", "state": "review"},
+            ]
+        },
+        new_items=[{"id": "new-word", "state": "new"}],
+        review_results=[
+            {"id": "correct", "correct": True},
+            {"item_id": "incorrect", "correct": False},
+            {"id": "explicit", "state": "consolidated"},
+            {"item_id": "new-word", "state": "learning"},
+            {"id": "unusable-review", "state": "not-a-frozen-state"},
+        ],
+    )
+
+    assert [item["state"] for item in result["candidate_updates"]] == [
+        "review",
+        "needs_reinforcement",
+        "consolidated",
+        "review",
+        "learning",
+    ]
+    assert result["total_items"] == 5
+    assert result["mastery_summary"] == {"mastered": 1, "learning": 4}
+    assert result["persistence_applied"] is False
+    assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
+    assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
+    assert (
+        result["mastery_summary"]["mastered"]
+        + result["mastery_summary"]["learning"]
+        == result["total_items"]
+    )
+
+
 def test_update_level_operation_uses_canonical_evidence_semantics() -> None:
     """Operation aliases cannot bypass canonical provenance/comparability checks."""
     result = update_level_evidence_result(
