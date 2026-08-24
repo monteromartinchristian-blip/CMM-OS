@@ -106,6 +106,7 @@ _PROVENANCE_FIELDS = (
     "assessment_id",
     "sample_id",
     "context_id",
+    "session_id",
 )
 _CERTIFICATION_PROVENANCE_FIELDS = (
     "provenance_id",
@@ -999,13 +1000,60 @@ def adapt_difficulty(
     stable_proficiency: str | None = None,
 ) -> dict[str, Any]:
     """Adapt exercise difficulty based on accumulated comparable performance."""
-    cur_diff = int(current_difficulty) if isinstance(current_difficulty, (int, float)) and not math.isnan(current_difficulty) else 1
-    comparable_perf = [
-        p for p in performance
-        if isinstance(p, Mapping) and isinstance(p.get("score"), (int, float)) and not math.isnan(p.get("score"))
-    ]
+    if (
+        isinstance(current_difficulty, bool)
+        or not isinstance(current_difficulty, (int, float))
+        or math.isnan(current_difficulty)
+        or math.isinf(current_difficulty)
+        or current_difficulty < 1
+    ):
+        return {
+            "action": "insufficient_evidence",
+            "current_difficulty": 1,
+            "target_difficulty": 1,
+            "stable_proficiency_changed": False,
+            "reason": "invalid_current_difficulty",
+        }
 
-    if not comparable_perf:
+    cur_diff = int(current_difficulty)
+
+    if not isinstance(performance, Iterable) or isinstance(performance, (str, bytes)):
+        perf_list: list[Any] = []
+    else:
+        perf_list = list(performance)
+
+    # Filter and validate each performance unit
+    qualified_by_provenance: dict[str, dict[str, Any]] = {}
+    comparison_keys: set[str] = set()
+
+    for p in perf_list:
+        if not isinstance(p, Mapping):
+            continue
+        if p.get("comparable") is not True:
+            continue
+        comp_key = _safe_str(p.get("comparison_key"))
+        if comp_key is None:
+            continue
+        provenance = _canonical_provenance(p)
+        if provenance is None:
+            continue
+        score = p.get("score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or math.isnan(score) or math.isinf(score):
+            continue
+        score_val = float(score)
+        if not (0.0 <= score_val <= 1.0):
+            continue
+
+        normalized = dict(normalize_json_value(p))
+        normalized["_score_val"] = score_val
+        comparison_keys.add(comp_key)
+
+        existing = qualified_by_provenance.get(provenance)
+        if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
+            qualified_by_provenance[provenance] = normalized
+
+    # All counted records must share one comparison key
+    if len(comparison_keys) != 1 or not qualified_by_provenance:
         return {
             "action": "insufficient_evidence",
             "current_difficulty": cur_diff,
@@ -1014,11 +1062,14 @@ def adapt_difficulty(
             "reason": "no_comparable_performance",
         }
 
-    scores = [float(p["score"]) for p in comparable_perf]
+    qualified_records = sorted(
+        qualified_by_provenance.values(),
+        key=_canonical_json_value,
+    )
+    scores = [r["_score_val"] for r in qualified_records]
     avg_score = sum(scores) / len(scores)
 
-    if len(comparable_perf) < 2:
-        # Single session is insufficient for stable difficulty advancement or regression
+    if len(qualified_records) < 2:
         action = "scaffold_reduce" if avg_score < 0.40 else "maintain_and_advance"
         target_diff = max(1, cur_diff - 1) if avg_score < 0.40 else cur_diff
         return {

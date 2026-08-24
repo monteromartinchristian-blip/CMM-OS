@@ -217,8 +217,8 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
     """Verify adaptive difficulty responses to performance evidence."""
     # High score across comparable sessions -> increase
     perf_high = (
-        {"session_id": "s1", "score": 0.95, "comparable": True},
-        {"session_id": "s2", "score": 0.92, "comparable": True},
+        {"session_id": "s1", "score": 0.95, "comparable": True, "comparison_key": "exercises"},
+        {"session_id": "s2", "score": 0.92, "comparable": True, "comparison_key": "exercises"},
     )
     res_inc = adapt_difficulty(current_difficulty=3, performance=perf_high)
     assert res_inc["action"] == "increase"
@@ -226,8 +226,8 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 
     # Low score -> scaffold_reduce
     perf_low = (
-        {"session_id": "s1", "score": 0.35, "comparable": True},
-        {"session_id": "s2", "score": 0.40, "comparable": True},
+        {"session_id": "s1", "score": 0.35, "comparable": True, "comparison_key": "exercises"},
+        {"session_id": "s2", "score": 0.40, "comparable": True, "comparison_key": "exercises"},
     )
     res_red = adapt_difficulty(current_difficulty=3, performance=perf_low)
     assert res_red["action"] == "scaffold_reduce"
@@ -235,8 +235,8 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 
     # Adequate score -> maintain_and_advance
     perf_mid = (
-        {"session_id": "s1", "score": 0.75, "comparable": True},
-        {"session_id": "s2", "score": 0.78, "comparable": True},
+        {"session_id": "s1", "score": 0.75, "comparable": True, "comparison_key": "exercises"},
+        {"session_id": "s2", "score": 0.78, "comparable": True, "comparison_key": "exercises"},
     )
     res_adv = adapt_difficulty(current_difficulty=3, performance=perf_mid)
     assert res_adv["action"] == "maintain_and_advance"
@@ -246,7 +246,7 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 def test_adapt_difficulty_one_bad_session_no_stable_regression() -> None:
     """One single bad session does not alter stable proficiency."""
     perf_single_bad = (
-        {"session_id": "s1", "score": 0.20, "comparable": True},
+        {"session_id": "s1", "score": 0.20, "comparable": True, "comparison_key": "exercises"},
     )
     res = adapt_difficulty(current_difficulty=4, performance=perf_single_bad, stable_proficiency="B2")
     assert res["stable_proficiency_changed"] is False

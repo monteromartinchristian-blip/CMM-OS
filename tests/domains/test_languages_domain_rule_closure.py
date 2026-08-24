@@ -1051,6 +1051,67 @@ def test_adaptive_difficulty_ignores_noncomparable_high_scores():
     assert result["action"] == "insufficient_evidence"
 
 
+@pytest.mark.parametrize("invalid_diff", (True, False, float("nan"), float("inf"), float("-inf"), -5, 0, "3", [3], None))
+def test_adaptive_difficulty_invalid_current_difficulty_fails_closed(invalid_diff):
+    """Invalid current difficulty values fail closed safely without crashing or increasing."""
+    perf = (
+        {"provenance_id": "p1", "comparison_key": "k1", "score": 0.95, "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "k1", "score": 0.95, "comparable": True},
+    )
+    result = adapt_difficulty(current_difficulty=invalid_diff, performance=perf)
+    assert result["action"] == "insufficient_evidence"
+    assert result["target_difficulty"] == 1
+    assert result["current_difficulty"] == 1
+
+
+@pytest.mark.parametrize("invalid_score", (True, False, float("nan"), float("inf"), float("-inf"), -1.0, 2.0, "high", None))
+def test_adaptive_difficulty_invalid_scores_ignored(invalid_score):
+    """Non-numeric, bool, NaN, Inf, or out-of-range scores cannot drive difficulty changes."""
+    perf = (
+        {"provenance_id": "p1", "comparison_key": "k1", "score": invalid_score, "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "k1", "score": invalid_score, "comparable": True},
+    )
+    result = adapt_difficulty(current_difficulty=3, performance=perf)
+    assert result["action"] == "insufficient_evidence"
+
+
+def test_adaptive_difficulty_mismatched_comparison_keys_fail_closed():
+    """Performance evidence across different comparison keys cannot combine into an increase."""
+    perf = (
+        {"provenance_id": "p1", "comparison_key": "free_writing", "score": 0.95, "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "cloze_test", "score": 0.95, "comparable": True},
+    )
+    result = adapt_difficulty(current_difficulty=3, performance=perf)
+    assert result["action"] == "insufficient_evidence"
+
+
+def test_adaptive_difficulty_duplicate_provenance_does_not_permit_increase():
+    """Duplicate records for the same provenance cannot act as independent sessions for increase."""
+    perf = (
+        {"id": "c1", "provenance_id": "session-1", "comparison_key": "k1", "score": 0.95, "comparable": True},
+        {"id": "c2", "provenance_id": "session-1", "comparison_key": "k1", "score": 0.95, "comparable": True},
+    )
+    result = adapt_difficulty(current_difficulty=3, performance=perf)
+    # A single session cannot cause an increase; it maintains
+    assert result["action"] != "increase"
+    assert result["target_difficulty"] == 3
+
+
+def test_adaptive_difficulty_json_immutability_and_permutation_invariance():
+    """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
+    perf = [
+        {"id": "c1", "provenance_id": "p1", "comparison_key": "k1", "score": 0.95, "comparable": True},
+        {"id": "c2", "provenance_id": "p2", "comparison_key": "k1", "score": 0.90, "comparable": True},
+    ]
+    before = deepcopy(perf)
+    forward = adapt_difficulty(current_difficulty=3, performance=perf)
+    reverse = adapt_difficulty(current_difficulty=3, performance=list(reversed(perf)))
+
+    assert forward == reverse
+    assert perf == before
+    assert json.loads(json.dumps(forward, allow_nan=False)) == forward
+
+
 def test_goal_alignment_rejects_unrelated_activity():
     result = align_activity_to_goals(
         activity={"type": "unrelated_accounting"},
