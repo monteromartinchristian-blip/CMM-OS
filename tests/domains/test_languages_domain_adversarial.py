@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
+from typing import Any
 
 from cmm.agent_runtime.approval_contracts import ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
@@ -733,7 +735,22 @@ def _representative_outputs() -> dict[str, dict]:
         "languages.generate_conversation_turn": generate_conversation_turn_result(conversation={"turns": ()}),
         "languages.generate_roleplay_turn": generate_roleplay_turn_result(conversation={"turns": ()}),
         "languages.review_speaking": review_speaking_result(audio_transcript={"transcript": "Hello"}),
-        "languages.review_errors": review_errors_result(observed_errors=()),
+        "languages.review_errors": review_errors_result(
+            observed_errors=(
+                {
+                    "provenance_id": "sample-1",
+                    "error_type": "inversion",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                {
+                    "provenance_id": "sample-2",
+                    "error_type": "inversion",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+            )
+        ),
         "languages.track_vocabulary": track_vocabulary_result(vocabulary_list={"items": ()}),
         "languages.plan_review_schedule": plan_review_schedule_result(review_items=()),
         "languages.prepare_certification": prepare_certification_result(target_certification="C1"),
@@ -743,10 +760,17 @@ def _representative_outputs() -> dict[str, dict]:
 
 def _minimal_outputs() -> dict[str, dict]:
     return {
-        "languages.assess_sample": assess_sample_result(),
-        "languages.update_level_evidence": update_level_evidence_result(),
+        "languages.assess_sample": assess_sample_result(
+            sample={},
+            sample_type="writing",
+            target_language="English",
+            skill_scope="writing",
+        ),
+        "languages.update_level_evidence": update_level_evidence_result(
+            existing_record={}, assessment={}, target_skill="writing", evidence=[]
+        ),
         "languages.create_learning_plan": create_learning_plan_result(
-            language="English"
+            language="English", goals=[]
         ),
         "languages.generate_lesson": generate_lesson_result(
             language="English",
@@ -760,14 +784,30 @@ def _minimal_outputs() -> dict[str, dict]:
             difficulty=1,
             target_topic="foundations",
         ),
-        "languages.review_exercise": review_exercise_result(),
-        "languages.review_writing": review_writing_result(),
-        "languages.generate_conversation_turn": generate_conversation_turn_result(),
-        "languages.generate_roleplay_turn": generate_roleplay_turn_result(),
-        "languages.review_speaking": review_speaking_result(),
-        "languages.review_errors": review_errors_result(),
-        "languages.track_vocabulary": track_vocabulary_result(),
-        "languages.plan_review_schedule": plan_review_schedule_result(),
+        "languages.review_exercise": review_exercise_result(
+            exercise_result={}, language="English"
+        ),
+        "languages.review_writing": review_writing_result(
+            writing_sample={}, language="English"
+        ),
+        "languages.generate_conversation_turn": generate_conversation_turn_result(
+            conversation={"turns": []}, language="English"
+        ),
+        "languages.generate_roleplay_turn": generate_roleplay_turn_result(
+            conversation={"turns": []}, language="English", scenario="General scenario"
+        ),
+        "languages.review_speaking": review_speaking_result(
+            audio_transcript={}, target_language="English"
+        ),
+        "languages.review_errors": review_errors_result(
+            observed_errors=[], language="English"
+        ),
+        "languages.track_vocabulary": track_vocabulary_result(
+            vocabulary_list={"items": []}, language="English"
+        ),
+        "languages.plan_review_schedule": plan_review_schedule_result(
+            review_items=[]
+        ),
         "languages.prepare_certification": prepare_certification_result(
             target_certification="C1"
         ),
@@ -843,6 +883,426 @@ def _malformed_numeric_outputs() -> dict[str, dict]:
             certification_profile={"readiness_score": non_finite},
         ),
     }
+
+
+def _mutable_helper_call_specs() -> dict[
+    str, tuple[Callable[..., dict[str, Any]], dict[str, Any]]
+]:
+    """Return one representative call with mutable input containers per helper."""
+    return {
+        "languages.assess_sample": (
+            assess_sample_result,
+            {
+                "sample": {"text": "A complete writing sample.", "tags": ["exam"]},
+                "sample_type": "writing",
+                "target_language": "English",
+                "skill_scope": "writing",
+                "preferred_variety": "British English",
+            },
+        ),
+        "languages.update_level_evidence": (
+            update_level_evidence_result,
+            {
+                "existing_record": {
+                    "kind": "ESTIMATED",
+                    "level_or_score": "B1",
+                    "skill_scope": "writing",
+                },
+                "assessment": {
+                    "provenance_id": "assessment-2",
+                    "observed": "B2",
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                "target_skill": "writing",
+                "evidence": [
+                    {
+                        "provenance_id": "assessment-1",
+                        "observed": "B2",
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    }
+                ],
+            },
+        ),
+        "languages.create_learning_plan": (
+            create_learning_plan_result,
+            {
+                "language": "English",
+                "goals": [{"id": "goal-c1", "target": "C1"}],
+                "initial_assessment": {"skill_levels": {"writing": "B1"}},
+                "tracking_consent": True,
+            },
+        ),
+        "languages.generate_lesson": (
+            generate_lesson_result,
+            {
+                "language": "English",
+                "target_skill": "writing",
+                "current_level": "B1",
+                "topic": "essays",
+                "mode": "practice",
+            },
+        ),
+        "languages.generate_exercises": (
+            generate_exercises_result,
+            {
+                "language": "English",
+                "skill": "grammar",
+                "difficulty": 2,
+                "target_topic": "inversion",
+                "count": 2,
+            },
+        ),
+        "languages.review_exercise": (
+            review_exercise_result,
+            {
+                "exercise_result": {"is_correct": False, "user_answer": "I go"},
+                "language": "English",
+                "target_topic": "past tense",
+            },
+        ),
+        "languages.review_writing": (
+            review_writing_result,
+            {
+                "writing_sample": {
+                    "text": "My favourite colour is blue.",
+                    "tags": ["draft"],
+                },
+                "language": "English",
+                "preferred_variety": "British English",
+                "prompt": "Describe a preference.",
+            },
+        ),
+        "languages.generate_conversation_turn": (
+            generate_conversation_turn_result,
+            {
+                "conversation": {"turns": [{"speaker": "learner", "text": "Hello"}]},
+                "language": "English",
+                "role": "tutor",
+                "topic": "travel",
+                "target_level": "B2",
+            },
+        ),
+        "languages.generate_roleplay_turn": (
+            generate_roleplay_turn_result,
+            {
+                "conversation": {"turns": [{"speaker": "learner", "text": "Hello"}]},
+                "language": "English",
+                "scenario": "hotel check-in",
+                "user_role": "guest",
+                "agent_role": "receptionist",
+            },
+        ),
+        "languages.review_speaking": (
+            review_speaking_result,
+            {
+                "audio_transcript": {
+                    "transcript": "Hello there",
+                    "observed_errors": [{"error_type": "pause"}],
+                },
+                "target_language": "English",
+                "pronunciation_evidence": [{"source_id": "audio-1", "score": 0.8}],
+            },
+        ),
+        "languages.review_errors": (
+            review_errors_result,
+            {
+                "observed_errors": [
+                    {
+                        "provenance_id": "sample-1",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                    {
+                        "provenance_id": "sample-2",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                ],
+                "language": "English",
+                "history": [{"session_id": "earlier"}],
+            },
+        ),
+        "languages.track_vocabulary": (
+            track_vocabulary_result,
+            {
+                "vocabulary_list": {
+                    "items": [{"id": "word-1", "state": "learning", "due": True}]
+                },
+                "language": "English",
+                "new_items": [{"id": "word-2", "state": "new"}],
+                "review_results": [{"id": "word-1", "correct": True}],
+            },
+        ),
+        "languages.plan_review_schedule": (
+            plan_review_schedule_result,
+            {
+                "review_items": [{"id": "word-1", "due": True}],
+                "available_time": 20,
+                "energy": "moderate",
+                "active_goals": ["word-1"],
+            },
+        ),
+        "languages.prepare_certification": (
+            prepare_certification_result,
+            {
+                "target_certification": "Cambridge C1",
+                "current_profile": {"skill_levels": {"writing": "B2"}},
+                "official_source": {
+                    "source_type": "official",
+                    "date_valid": True,
+                    "requirements": ["writing"],
+                },
+            },
+        ),
+        "languages.generate_progress_review": (
+            generate_progress_review_result,
+            {
+                "language": "English",
+                "period": "month",
+                "evidence": [
+                    {
+                        "provenance_id": "current-1",
+                        "score": 0.8,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                    {
+                        "provenance_id": "current-2",
+                        "score": 0.82,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                ],
+                "goals": [{"id": "goal-c1", "target": "C1 writing"}],
+                "previous_evidence": [
+                    {
+                        "provenance_id": "baseline",
+                        "score": 0.5,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    }
+                ],
+                "skill": "writing",
+                "patterns": [{"eligible": True, "error_type": "inversion"}],
+                "certification_profile": {"readiness_score": 0.7},
+            },
+        ),
+    }
+
+
+def _without_ids(value: Any) -> Any:
+    """Remove generated identity fields while preserving semantic payload data."""
+    if isinstance(value, dict):
+        return {
+            key: _without_ids(item)
+            for key, item in value.items()
+            if key != "id" and not key.endswith("_id")
+        }
+    if isinstance(value, list):
+        return [_without_ids(item) for item in value]
+    return value
+
+
+def test_assessment_like_helpers_do_not_invent_state_from_empty_evidence() -> None:
+    """Protect every assessment-like helper's actual no-evidence payload."""
+    assessment = assess_sample_result(sample={})
+    assert assessment["observed_performance"] == "unknown"
+    assert assessment["confidence"] == 0.0
+    assert assessment["strengths"] == []
+    assert assessment["errors"] == []
+    assert assessment["missing_evidence"] == ["writing_sample"]
+
+    level_update = update_level_evidence_result(
+        existing_record={}, assessment={}, evidence=[]
+    )
+    assert level_update["current_level"] is None
+    assert level_update["proposed_level"] is None
+    assert level_update["stable_update_supported"] is False
+    assert level_update["reason"] == "insufficient_comparable_evidence"
+    assert level_update["updated_record"] == {}
+
+    exercise = review_exercise_result(exercise_result={})
+    assert exercise["score"] is None
+    assert exercise["is_correct"] is None
+    assert exercise["observed_errors"] == []
+    assert exercise["feedback"] == "Not assessed: missing exercise outcome."
+    assert exercise["difficulty_adjustment"] == "hold"
+
+    writing = review_writing_result(writing_sample={})
+    assert writing["word_count"] == 0
+    assert writing["strengths"] == []
+    assert writing["estimated_level"] == "unknown"
+    assert writing["score"] == 0.0
+    assert writing["register_feedback"] == "not_assessed"
+    assert writing["missing_evidence"] == ["writing_sample"]
+
+    speaking = review_speaking_result(
+        audio_transcript={}, pronunciation_evidence=[]
+    )
+    assert speaking["transcript_text"] == ""
+    assert speaking["fluency_score"] == 0.0
+    assert speaking["pronunciation_assessed"] is False
+    assert speaking["pronunciation_feedback"] is None
+    assert speaking["observed_errors"] == []
+    assert speaking["missing_evidence"] == [
+        "speaking_sample",
+        "pronunciation_evidence",
+    ]
+
+    errors = review_errors_result(observed_errors=[], history=[])
+    assert errors["total_errors"] == 0
+    assert errors["error_patterns"] == []
+    assert errors["prioritized_corrections"] == []
+    assert errors["recommended_focus"] == "not_assessed"
+
+    vocabulary = track_vocabulary_result(
+        vocabulary_list={"items": []}, new_items=[], review_results=[]
+    )
+    assert vocabulary["total_items"] == 0
+    assert vocabulary["due_items"] == 0
+    assert vocabulary["mastery_summary"] == {"mastered": 0, "learning": 0}
+    assert vocabulary["candidate_updates"] == []
+
+    certification = prepare_certification_result(
+        target_certification="C1", current_profile={}
+    )
+    assert certification["readiness_score"] == 0.0
+    assert certification["skill_gaps"] == []
+    assert certification["needs_verification"] is True
+    assert certification["missing_evidence"] == ["current_profile"]
+
+    progress = generate_progress_review_result(
+        language="English",
+        period="month",
+        evidence=[],
+        goals=[],
+        previous_evidence=[],
+        patterns=[],
+        certification_profile={},
+    )
+    assert progress["skill_progress"] == {}
+    assert progress["overall_progression"] == "insufficient_evidence"
+    assert progress["stable_progression"] is False
+    assert progress["active_patterns_count"] == 0
+    assert progress["certification_readiness"] == "not_assessed"
+    assert progress["recommended_next_focus"] == "not_assessed"
+
+
+def test_all_result_helpers_preserve_mutable_inputs() -> None:
+    """Catches in-place mutation of any public helper's nested caller data."""
+    call_specs = _mutable_helper_call_specs()
+    assert set(call_specs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+
+    for operation_id, (helper, kwargs) in call_specs.items():
+        before = copy.deepcopy(kwargs)
+
+        helper(**kwargs)
+
+        assert kwargs == before, f"{operation_id} mutated caller input"
+
+
+def test_all_result_helpers_have_deterministic_non_id_semantics() -> None:
+    """Catches random or stateful semantic output while allowing fresh IDs."""
+    call_specs = _mutable_helper_call_specs()
+    assert set(call_specs) == set(CANONICAL_LANGUAGES_OPERATION_IDS)
+
+    for operation_id, (helper, kwargs) in call_specs.items():
+        first = helper(**copy.deepcopy(kwargs))
+        second = helper(**copy.deepcopy(kwargs))
+
+        assert _without_ids(first) == _without_ids(second), operation_id
+
+
+def test_operation_payload_counts_are_non_negative_and_bounded() -> None:
+    """Catches impossible counts, oversized subsets, and broken state totals."""
+    writing = review_writing_result(
+        writing_sample={"text": "one two three"}
+    )
+    assert writing["word_count"] == 3
+    assert writing["word_count"] >= 0
+
+    exercises = generate_exercises_result(
+        language="English",
+        skill="grammar",
+        difficulty=2,
+        target_topic="inversion",
+        count=4,
+    )
+    assert exercises["exercise_count"] == 4
+    assert exercises["exercise_count"] == len(exercises["exercises"])
+    assert exercises["exercise_count"] >= 0
+
+    turns = [{"speaker": "learner"}, {"speaker": "tutor"}]
+    conversation = generate_conversation_turn_result(
+        conversation={"turns": turns}
+    )
+    roleplay = generate_roleplay_turn_result(conversation={"turns": turns})
+    assert conversation["turn_count"] == len(turns) + 1
+    assert roleplay["turn_number"] == len(turns) + 1
+    assert conversation["turn_count"] >= 0
+    assert roleplay["turn_number"] >= 0
+
+    observed_errors = [
+        {
+            "provenance_id": "sample-1",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "sample-2",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    ]
+    errors = review_errors_result(observed_errors=observed_errors)
+    assert errors["total_errors"] == 2
+    assert 0 <= len(errors["error_patterns"]) <= errors["total_errors"]
+    assert 0 <= len(errors["prioritized_corrections"]) <= errors["total_errors"]
+
+    vocabulary = track_vocabulary_result(
+        vocabulary_list={
+            "items": [
+                {"id": "mastered", "state": "consolidated"},
+                {"id": "due", "state": "review", "due": True},
+                {"id": "learning", "state": "learning"},
+            ]
+        }
+    )
+    summary = vocabulary["mastery_summary"]
+    assert vocabulary["total_items"] == 3
+    assert 0 <= vocabulary["due_items"] <= vocabulary["total_items"]
+    assert 0 <= summary["mastered"] <= vocabulary["total_items"]
+    assert 0 <= summary["learning"] <= vocabulary["total_items"]
+    assert summary["mastered"] + summary["learning"] == vocabulary["total_items"]
+
+    review_items = [{"id": f"item-{index}", "due": True} for index in range(12)]
+    schedule = plan_review_schedule_result(
+        review_items=review_items, available_time=20
+    )
+    assert 0 <= len(schedule["review_queue"]) <= len(review_items)
+    assert schedule["recommended_duration_minutes"] >= 0
+
+    patterns = [
+        {"eligible": True, "error_type": "inversion"},
+        {"pattern_state": "candidate", "error_type": "agreement"},
+        {"pattern_state": "insufficient_evidence", "error_type": "register"},
+    ]
+    progress = generate_progress_review_result(
+        language="English", period="month", patterns=patterns
+    )
+    assert progress["active_patterns_count"] == 2
+    assert 0 <= progress["active_patterns_count"] <= len(patterns)
 
 
 def test_invariant_flags_are_derived_from_payload_content() -> None:

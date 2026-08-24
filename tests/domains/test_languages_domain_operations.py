@@ -403,6 +403,19 @@ def test_progress_review_only_projects_evidenced_skills_and_state() -> None:
     assert result["cross_skill_inflation"] is False
 
 
+def test_progress_review_non_finite_readiness_is_not_assessed() -> None:
+    """Catches non-finite profile data being promoted to certification readiness."""
+    for readiness_score in (float("nan"), float("inf"), float("-inf")):
+        result = generate_progress_review_result(
+            language="English",
+            period="last_30_days",
+            certification_profile={"readiness_score": readiness_score},
+        )
+
+        assert result["certification_readiness"] == "not_assessed"
+        json.dumps(result, allow_nan=False)
+
+
 def test_progress_review_multiple_skills_uses_only_each_skills_evidence() -> None:
     previous = (
         {"provenance_id": "w0", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
@@ -603,6 +616,16 @@ def test_empty_speaking_review_contains_no_fluency_judgment() -> None:
         "speaking_sample",
         "pronunciation_evidence",
     ]
+
+
+def test_empty_error_review_has_no_evidence_derived_focus() -> None:
+    """Catches a targeted correction being inferred from zero observed errors."""
+    result = review_errors_result(observed_errors=())
+
+    assert result["total_errors"] == 0
+    assert result["error_patterns"] == []
+    assert result["prioritized_corrections"] == []
+    assert result["recommended_focus"] == "not_assessed"
 
 
 def test_certification_readiness_derives_from_current_profile() -> None:

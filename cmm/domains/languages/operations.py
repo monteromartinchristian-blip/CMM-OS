@@ -1149,7 +1149,7 @@ def review_errors_result(
         "total_errors": len(observed_errors),
         "error_patterns": patterns,
         "prioritized_corrections": p_res["prioritized_errors"],
-        "recommended_focus": "Grammar concord" if patterns else "Fluency practice",
+        "recommended_focus": "Grammar concord" if patterns else "not_assessed",
         "pattern_evidence_valid": True,
         "pattern_promoted_without_independent_recurrence": False,
     }
