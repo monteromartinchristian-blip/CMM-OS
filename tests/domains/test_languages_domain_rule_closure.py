@@ -980,6 +980,7 @@ def test_correction_priority_hierarchy_and_mutation():
         errors=(goal_error, base_error),
         active_goals=(),
     )
+    assert res_without_goal["prioritized_errors"][0]["id"] == "err-3"
     # With active goal:
     res_with_goal = prioritize_corrections(
         errors=(goal_error, base_error),
@@ -1281,6 +1282,7 @@ def test_spaced_review_active_pattern_and_goal_sensitivity():
     # Goal relevance: mutate active goals
     item_goal = {"id": "v_goal", "term": "subtle", "mastery": 0.5, "due": True}
     res_no_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=())
+    assert res_no_goal["prioritized_items"][0]["id"] == "v_base"
     res_with_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=("subtle",))
     assert res_with_goal["prioritized_items"][0]["id"] == "v_goal"
 

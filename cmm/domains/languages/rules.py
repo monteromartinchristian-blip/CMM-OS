@@ -149,10 +149,10 @@ def _canonical_json_value(value: Any) -> str:
         items_str = ",".join(_canonical_json_value(x) for x in norm)
         return f"[{items_str}]"
     if isinstance(norm, Mapping):
-        sorted_keys = sorted(str(k) for k in norm.keys())
+        sorted_keys = sorted(str(k) for k in norm)
         pairs_str = ",".join(f"{_canonical_json_value(k)}:{_canonical_json_value(norm[k])}" for k in sorted_keys)
         return f"{{{pairs_str}}}"
-    return f'"{str(norm)}"'
+    return f'"{norm!s}"'
 
 
 def _safe_str(val: Any) -> str | None:
@@ -838,7 +838,7 @@ def evaluate_error_pattern(
     ):
         min_occurrences = 2
     else:
-        min_occurrences = int(minimum_independent_occurrences) if int(minimum_independent_occurrences) >= 2 else 2
+        min_occurrences = int(minimum_independent_occurrences) if int(minimum_independent_occurrences) >= 2 else 2  # noqa: FURB136
 
     if not isinstance(observations, (list, tuple, set, frozenset)):
         observations = ()
@@ -1236,7 +1236,7 @@ def plan_spaced_review(
             mastery = 0.5
         else:
             m_val = float(raw_mastery)
-            mastery = 1.0 if m_val > 1.0 else (0.0 if m_val < 0.0 else m_val)
+            mastery = 1.0 if m_val > 1.0 else (0.0 if m_val < 0.0 else m_val)  # noqa: FURB136
         score += (1.0 - mastery) * 20.0
 
         # Recall: lower recall -> higher priority (bounded [0.0, 1.0], default 0.5)
@@ -1246,7 +1246,7 @@ def plan_spaced_review(
                 recall = 0.5
             else:
                 r_val = float(raw_recall)
-                recall = 1.0 if r_val > 1.0 else (0.0 if r_val < 0.0 else r_val)
+                recall = 1.0 if r_val > 1.0 else (0.0 if r_val < 0.0 else r_val)  # noqa: FURB136
             score += (1.0 - recall) * 15.0
 
         # Importance: higher importance -> higher priority (bounded [0.0, 1.0], default 0.5)
@@ -1256,7 +1256,7 @@ def plan_spaced_review(
                 importance = 0.5
             else:
                 imp_val = float(raw_importance)
-                importance = 1.0 if imp_val > 1.0 else (0.0 if imp_val < 0.0 else imp_val)
+                importance = 1.0 if imp_val > 1.0 else (0.0 if imp_val < 0.0 else imp_val)  # noqa: FURB136
             score += importance * 15.0
 
         return score
@@ -1310,6 +1310,7 @@ def evaluate_learning_load(
                 "recommended_activities": ["micro_practice"],
                 "load_status": "insufficient_constraints",
                 "calendar_modified": False,
+                "priorities_considered": len(priorities_list),
                 "backlog_considered": len(backlog_list),
                 "deadlines_considered": len(deadlines_list),
                 "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
@@ -1330,18 +1331,20 @@ def evaluate_learning_load(
         recommended_duration = min(clean_time, 30)
         load_status = "standard"
 
-    backlog_count = len(backlog_list)
-    recommended_activities = []
-    if backlog_count > 0:
-        recommended_activities.append("spaced_review")
-    recommended_activities.extend([_safe_str(p) for p in priorities_list if _safe_str(p)])
+    if clean_energy == "low":
+        recommended_activities = ["micro_practice", "passive_input"]
+    elif clean_energy == "high":
+        recommended_activities = ["active_production", "concept_expansion"]
+    else:
+        recommended_activities = ["guided_practice", "spaced_review"]
 
     return {
         "recommended_duration_minutes": recommended_duration,
-        "recommended_activities": recommended_activities or ["micro_practice"],
+        "recommended_activities": recommended_activities,
         "load_status": load_status,
         "calendar_modified": False,
-        "backlog_considered": backlog_count,
+        "priorities_considered": len(priorities_list),
+        "backlog_considered": len(backlog_list),
         "deadlines_considered": len(deadlines_list),
         "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
     }
@@ -1410,29 +1413,23 @@ def align_activity_to_goals(
             if act_skill and (act_skill == g_skill or act_skill in g_kind or act_skill in g_target):
                 matched = True
 
-            if act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic:
-                if g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target:
-                    matched = True
+            if (act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic) and (g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target):
+                matched = True
 
-            if act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test"):
-                if g_kind in ("certification", "exam", "assessment") or any(fw in g_target for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge")):
-                    matched = True
+            if (act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test")) and (g_kind in ("certification", "exam", "assessment") or any(fw in g_target for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge"))):
+                matched = True
 
-            if act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching"):
-                if g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target:
-                    matched = True
+            if (act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching")) and (g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target):
+                matched = True
 
-            if act_type in ("grammar_drill", "grammar", "syntax", "conjugation"):
-                if g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target:
-                    matched = True
+            if (act_type in ("grammar_drill", "grammar", "syntax", "conjugation")) and (g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target):
+                matched = True
 
-            if act_type in ("reading", "article_reading", "comprehension", "literature"):
-                if g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target:
-                    matched = True
+            if (act_type in ("reading", "article_reading", "comprehension", "literature")) and (g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target):
+                matched = True
 
-            if act_type in ("writing", "essay", "composition", "free_writing"):
-                if g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target:
-                    matched = True
+            if (act_type in ("writing", "essay", "composition", "free_writing")) and (g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target):
+                matched = True
 
             if act_type in ("practice", "review", "lesson", "exercise") and not is_unrelated:
                 matched = True
