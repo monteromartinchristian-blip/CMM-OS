@@ -15,11 +15,13 @@ authorization evidence that the orchestrator uses to decide.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from threading import Lock
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 from cmm.agent_runtime.domain_permission_contracts import (
     EffectivePermissionResult,
@@ -45,6 +47,10 @@ from cmm.workflows.contracts import WorkflowNode
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _new_permission_gate_decision_id() -> str:
+    return f"permission-gate-decision-{uuid4()}"
 
 
 class PermissionGateOutcome:
@@ -100,6 +106,7 @@ class PermissionGateResult:
     approval_evidence: Mapping[str, Any] | None = None
     approval_requirements: tuple[Mapping[str, Any], ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    decision_id: str | None = None
 
     @property
     def allowed(self) -> bool:
@@ -125,6 +132,7 @@ class PermissionGateResult:
             "approval_evidence": dict(self.approval_evidence) if self.approval_evidence else None,
             "approval_requirements": [dict(r) for r in self.approval_requirements],
             "metadata": dict(self.metadata),
+            "decision_id": self.decision_id,
         }
 
     @classmethod
@@ -209,10 +217,29 @@ class DomainPermissionGate:
         approval_service: ApprovalServiceProtocol | None = None,
         *,
         clock: Any | None = None,
+        id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._resolver = resolver
         self._approval_service = approval_service
         self._clock = clock or _now_utc
+        self._id_factory = (
+            id_factory if id_factory is not None else _new_permission_gate_decision_id
+        )
+        self._issued_decision_ids: set[str] = set()
+        self._decision_id_lock = Lock()
+
+    def _next_decision_id(self) -> str:
+        with self._decision_id_lock:
+            decision_id = self._id_factory()
+            if not isinstance(decision_id, str) or not decision_id.strip():
+                raise ValueError("permission gate decision ID must be a non-empty string")
+            if decision_id in self._issued_decision_ids:
+                raise ValueError("permission gate decision ID must be unique")
+            self._issued_decision_ids.add(decision_id)
+        return decision_id
+
+    def _result(self, **values: Any) -> PermissionGateResult:
+        return PermissionGateResult(decision_id=self._next_decision_id(), **values)
 
     def evaluate_operation(
         self,
@@ -287,7 +314,7 @@ class DomainPermissionGate:
             "operation_version": definition.version,
         }
         if decision.decision is PermissionOutcome.DENY:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=PermissionCapability.OPERATION_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -298,7 +325,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         if decision.decision is PermissionOutcome.ALLOW:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.ALLOW,
                 action=PermissionCapability.OPERATION_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -346,7 +373,7 @@ class DomainPermissionGate:
         if not requirements or any(
             item.requirement_id not in references for item in requirements
         ):
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=aggregate_action,
                 domain_id=domain_id,
@@ -358,7 +385,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         if self._approval_service is None:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=aggregate_action,
                 domain_id=domain_id,
@@ -375,7 +402,7 @@ class DomainPermissionGate:
                 or requirement.session_id != session_id
                 or requirement.domain_id != domain_id
             ):
-                return PermissionGateResult(
+                return self._result(
                     outcome=PermissionGateOutcome.DENY,
                     action=aggregate_action,
                     domain_id=domain_id,
@@ -394,7 +421,7 @@ class DomainPermissionGate:
         )
         if validate_batch is None:
             if len(batch) != 1:
-                return PermissionGateResult(
+                return self._result(
                     outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                     action=aggregate_action,
                     domain_id=domain_id,
@@ -426,7 +453,7 @@ class DomainPermissionGate:
             evidences = validate_batch(batch, dry_run=dry_run, now=now)
         denied = next((item for item in evidences if not item.granted), None)
         if denied is not None:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_DENIED,
                 action=aggregate_action,
                 domain_id=domain_id,
@@ -441,7 +468,7 @@ class DomainPermissionGate:
                 approval_requirements=serialized,
                 metadata=metadata,
             )
-        return PermissionGateResult(
+        return self._result(
             outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
             action=aggregate_action,
             domain_id=domain_id,
@@ -534,7 +561,7 @@ class DomainPermissionGate:
             "blocked_nodes": decision.blocked_nodes,
         }
         if decision.decision is PermissionOutcome.DENY:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=PermissionCapability.WORKFLOW_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -555,7 +582,7 @@ class DomainPermissionGate:
             if item.requirement_id not in node_requirement_ids
         )
         if not start_requirements:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.ALLOW,
                 action=PermissionCapability.WORKFLOW_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -607,7 +634,7 @@ class DomainPermissionGate:
         )
         metadata = {"workflow_id": definition.workflow_id, "node_id": node.node_id}
         if decision.decision is PermissionOutcome.DENY:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=PermissionCapability.WORKFLOW_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -618,7 +645,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         if decision.decision is PermissionOutcome.ALLOW:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.ALLOW,
                 action=PermissionCapability.WORKFLOW_EXECUTE.value,
                 domain_id=definition.domain_id,
@@ -727,7 +754,7 @@ class DomainPermissionGate:
             "duration": request.duration.value,
         }
         if decision.decision is PermissionOutcome.DENY:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=action,
                 domain_id=request.source_domain,
@@ -738,7 +765,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         if decision.decision is PermissionOutcome.ALLOW:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.ALLOW,
                 action=action,
                 domain_id=request.source_domain,
@@ -751,7 +778,7 @@ class DomainPermissionGate:
 
         approval_reqs = tuple(item.to_dict() for item in decision.approval_requirements)
         if not approval_request_id or self._approval_service is None:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=action,
                 domain_id=request.source_domain,
@@ -763,7 +790,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         if len(decision.approval_requirements) != 1:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=action,
                 domain_id=request.source_domain,
@@ -806,7 +833,7 @@ class DomainPermissionGate:
             and dict(requirement.constraints) == dict(request.constraints)
         )
         if not exact_context:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=action,
                 domain_id=request.source_domain,
@@ -833,7 +860,7 @@ class DomainPermissionGate:
             now=now,
         )
         if evidence.granted:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
                 action=action,
                 domain_id=request.source_domain,
@@ -844,7 +871,7 @@ class DomainPermissionGate:
                 approval_evidence=evidence.to_dict(),
                 metadata=metadata,
             )
-        return PermissionGateResult(
+        return self._result(
             outcome=PermissionGateOutcome.APPROVAL_DENIED,
             action=action,
             domain_id=request.source_domain,
@@ -877,7 +904,7 @@ class DomainPermissionGate:
     ) -> PermissionGateResult:
         """Core resolution evaluator shared by operation/workflow/cross-domain."""
         if effective.decision is PermissionOutcome.DENY:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=action,
                 domain_id=domain_id,
@@ -889,7 +916,7 @@ class DomainPermissionGate:
             )
 
         if effective.decision is PermissionOutcome.ALLOW:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.ALLOW,
                 action=action,
                 domain_id=domain_id,
@@ -904,7 +931,7 @@ class DomainPermissionGate:
         approval_reqs = tuple(r.to_dict() for r in effective.approval_requirements)
 
         if not approval_request_id:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=action,
                 domain_id=domain_id,
@@ -921,7 +948,7 @@ class DomainPermissionGate:
             )
 
         if self._approval_service is None:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=action,
                 domain_id=domain_id,
@@ -934,7 +961,7 @@ class DomainPermissionGate:
             )
 
         if len(effective.approval_requirements) != 1:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
                 action=action,
                 domain_id=domain_id,
@@ -972,7 +999,7 @@ class DomainPermissionGate:
                 if requirement.scope != scope
                 else PermissionGateReason.BINDING_FAILURE.value
             )
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.DENY,
                 action=action,
                 domain_id=domain_id,
@@ -1004,7 +1031,7 @@ class DomainPermissionGate:
         )
 
         if evidence.granted:
-            return PermissionGateResult(
+            return self._result(
                 outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
                 action=action,
                 domain_id=domain_id,
@@ -1016,7 +1043,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
 
-        return PermissionGateResult(
+        return self._result(
             outcome=PermissionGateOutcome.APPROVAL_DENIED,
             action=action,
             domain_id=domain_id,

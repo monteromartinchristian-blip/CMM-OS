@@ -54,7 +54,8 @@ from cmm.domains.approval_bridge import (
     to_approval_requirement,
     to_approval_requirements,
 )
-from cmm.domains.enums import DomainOperationStatus
+from cmm.domains.enums import DomainOperationStatus, DomainOperationType
+from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
     PermissionGateOutcome,
@@ -247,6 +248,171 @@ class TestGateApprovalConsumed:
         assert result.outcome == PermissionGateOutcome.APPROVAL_CONSUMED
         assert result.approval_evidence is not None
         assert result.approval_evidence["granted"] is True
+
+
+class TestGateDecisionIdentity:
+    def test_each_evaluation_has_a_distinct_default_decision_identity(self):
+        """Catches reuse of request identity or one gate identity across evaluations."""
+        resolver = _FakeResolver(PermissionOutcome.ALLOW)
+        gate = DomainPermissionGate(resolver, clock=lambda: _NOW)
+
+        first = gate.evaluate_operation(
+            request_id="same-request",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            operation_id="op-1",
+        )
+        second = gate.evaluate_operation(
+            request_id="same-request",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            operation_id="op-1",
+        )
+
+        assert first.decision_id.startswith("permission-gate-decision-")
+        assert second.decision_id.startswith("permission-gate-decision-")
+        assert first.decision_id != second.decision_id
+
+    def test_injected_id_factory_controls_gate_decision_identity(self):
+        """Catches a gate that bypasses its deterministic identity dependency."""
+        decision_ids = iter(("decision-first", "decision-second"))
+        resolver = _FakeResolver(PermissionOutcome.DENY)
+        gate = DomainPermissionGate(
+            resolver,
+            clock=lambda: _NOW,
+            id_factory=decision_ids.__next__,
+        )
+
+        first = gate.evaluate_operation(
+            request_id="req-1",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            operation_id="op-1",
+        )
+        second = gate.evaluate_workflow(
+            request_id="req-2",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            workflow_id="workflow-1",
+        )
+
+        assert first.decision_id == "decision-first"
+        assert second.decision_id == "decision-second"
+
+    @pytest.mark.parametrize("generated", ["", "   ", None, 7])
+    def test_gate_rejects_invalid_generated_decision_identity(self, generated):
+        """Catches gate-produced decisions with missing or blank runtime identity."""
+        resolver = _FakeResolver(PermissionOutcome.ALLOW)
+        gate = DomainPermissionGate(
+            resolver,
+            clock=lambda: _NOW,
+            id_factory=lambda: generated,
+        )
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            gate.evaluate_operation(
+                request_id="req-invalid-id",
+                domain_id="domain:test",
+                actor_id="actor-1",
+                session_id="sess-1",
+                operation_id="op-1",
+            )
+
+    def test_gate_rejects_duplicate_generated_decision_identity(self):
+        """Catches two gate evaluations that claim the same runtime decision."""
+        resolver = _FakeResolver(PermissionOutcome.ALLOW)
+        gate = DomainPermissionGate(
+            resolver,
+            clock=lambda: _NOW,
+            id_factory=lambda: "duplicate-decision",
+        )
+        gate.evaluate_operation(
+            request_id="req-1",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            operation_id="op-1",
+        )
+
+        with pytest.raises(ValueError, match="unique"):
+            gate.evaluate_operation(
+                request_id="req-2",
+                domain_id="domain:test",
+                actor_id="actor-1",
+                session_id="sess-1",
+                operation_id="op-1",
+            )
+
+    def test_decision_identity_round_trip_and_legacy_payload_compatibility(self):
+        """Catches loss of new identity or rejection of pre-identity payloads."""
+        identified = PermissionGateResult(
+            outcome=PermissionGateOutcome.ALLOW,
+            action="operation.execute",
+            domain_id="domain:test",
+            actor_id="actor-1",
+            session_id="sess-1",
+            decision_id="decision-round-trip",
+        )
+
+        assert identified.to_dict()["decision_id"] == "decision-round-trip"
+        assert PermissionGateResult.from_dict(identified.to_dict()) == identified
+
+        legacy_payload = {
+            "outcome": PermissionGateOutcome.DENY,
+            "action": "operation.execute",
+            "domain_id": "domain:test",
+            "actor_id": "actor-1",
+            "session_id": "sess-1",
+        }
+        legacy = PermissionGateResult.from_dict(legacy_payload)
+        assert legacy.decision_id is None
+        assert PermissionGateResult.from_dict(legacy.to_dict()) == legacy
+
+    def test_consumed_operation_definition_decision_has_runtime_identity(self):
+        """Catches a gate result that cannot identify its own consumed decision."""
+        requirement = PermissionApprovalRequirement(
+            requirement_id="par-decision-identity",
+            action=PermissionCapability.OPERATION_EXECUTE,
+            actor_id="actor-1",
+            session_id="sess-1",
+            domain_id="domain:test",
+            operation_id="test.op-definition",
+            operation_version="1.0.0",
+            fingerprint="fp-decision-identity",
+            scope="operation",
+        )
+        resolver = _FakeResolver(
+            PermissionOutcome.APPROVAL_REQUIRED,
+            reasons=("approval_required",),
+            approval_requirements=(requirement,),
+        )
+        service, request_id = _create_approval_service_and_request(requirement)
+        gate = DomainPermissionGate(resolver, service, clock=lambda: _NOW)
+        operation = DomainOperationDefinition(
+            operation_id="test.op-definition",
+            domain_id="domain:test",
+            version="1.0.0",
+            name="Operation definition identity test",
+            description="Consumes a real approval through the definition gate.",
+            operation_type=DomainOperationType.ANALYSIS,
+            risk_level=PolicyRiskLevel.LOW,
+            reversible=True,
+        )
+
+        consumed = gate.evaluate_operation_definition(
+            operation,
+            request_id="req-decision-identity",
+            actor_id="actor-1",
+            session_id="sess-1",
+            approval_request_id=request_id,
+        )
+
+        assert consumed.outcome == PermissionGateOutcome.APPROVAL_CONSUMED
+        assert consumed.decision_id
 
 
 # ── 5. One-time consumption atomicity ────────────────────────────────────────
