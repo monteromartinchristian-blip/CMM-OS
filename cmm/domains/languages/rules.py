@@ -663,16 +663,20 @@ def evaluate_framework_mapping(
         if _safe_str(norm.get("target_range")) is None:
             return False
         rec_src_fw = _safe_str(norm.get("source_framework"))
-        if rec_src_fw is not None and rec_src_fw.upper() != s_fw:
+        if rec_src_fw is None or rec_src_fw.upper() != s_fw:
             return False
         rec_tgt_fw = _safe_str(norm.get("target_framework"))
-        if rec_tgt_fw is not None and rec_tgt_fw.upper() != t_fw:
+        if rec_tgt_fw is None or rec_tgt_fw.upper() != t_fw:
             return False
-        rec_src_val = _safe_str(norm.get("source_value"))
-        rec_src_rng = _safe_str(norm.get("source_range"))
-        if rec_src_val is not None and rec_src_val.upper() != s_val.upper():
+        rec_src_val = _clean_proficiency_value(norm.get("source_value"))
+        if rec_src_val is None:
             return False
-        return not (rec_src_rng is not None and s_val.upper() not in rec_src_rng.upper())
+        clean_s_val = _clean_proficiency_value(s_val)
+        if clean_s_val is None:
+            return False
+        if isinstance(clean_s_val, float) and isinstance(rec_src_val, float):
+            return clean_s_val == rec_src_val
+        return str(clean_s_val).strip().casefold() == str(rec_src_val).strip().casefold()
 
     valid_recs = [
         norm

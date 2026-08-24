@@ -701,7 +701,13 @@ def test_framework_mapping_rejects_source_looking_display_string_without_provena
 )
 def test_framework_mapping_accepts_each_canonical_provenance_alias(provenance_field):
     """Each established canonical provenance alias can ground a range mapping."""
-    evidence = {provenance_field: "concordance-v1", "target_range": "B2"}
+    evidence = {
+        provenance_field: "concordance-v1",
+        "source_framework": "IELTS",
+        "source_value": "6.5",
+        "target_framework": "CEFR",
+        "target_range": "B2",
+    }
 
     result = evaluate_framework_mapping(
         source_framework="IELTS",
@@ -726,7 +732,13 @@ def test_framework_mapping_requires_a_usable_target_range(target_range):
         source_value="6.5",
         target_framework="CEFR",
         mapping_evidence=(
-            {"source_id": "concordance-v1", "target_range": target_range},
+            {
+                "source_id": "concordance-v1",
+                "source_framework": "IELTS",
+                "source_value": "6.5",
+                "target_framework": "CEFR",
+                "target_range": target_range,
+            },
         ),
     )
 
@@ -740,8 +752,22 @@ def test_framework_mapping_requires_a_usable_target_range(target_range):
 def test_framework_mapping_duplicate_provenance_does_not_add_mapping_authority(provenance_field):
     """Duplicate source occurrences collapse even when caller display fields differ."""
     evidence = [
-        {"source": "Concordance copy A", provenance_field: "concordance-v1", "target_range": "B2"},
-        {"source": "Concordance copy B", provenance_field: "concordance-v1", "target_range": "B2"},
+        {
+            "source": "Concordance copy A",
+            provenance_field: "concordance-v1",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "B2",
+        },
+        {
+            "source": "Concordance copy B",
+            provenance_field: "concordance-v1",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "B2",
+        },
     ]
     before = deepcopy(evidence)
 
@@ -762,8 +788,22 @@ def test_framework_mapping_duplicate_provenance_does_not_add_mapping_authority(p
 def test_framework_mapping_evidence_order_does_not_change_result():
     """Equivalent sets of grounded mapping evidence have deterministic output order."""
     evidence = (
-        {"source": "Concordance B", "source_id": "concordance-b", "target_range": "B2"},
-        {"source": "Concordance A", "source_id": "concordance-a", "target_range": "B2"},
+        {
+            "source": "Concordance B",
+            "source_id": "concordance-b",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "B2",
+        },
+        {
+            "source": "Concordance A",
+            "source_id": "concordance-a",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "B2",
+        },
     )
 
     forward = evaluate_framework_mapping(
@@ -790,8 +830,20 @@ def test_framework_mapping_conflicting_ranges_fail_closed_and_permutation_invari
         source_value="6.5",
         target_framework="CEFR",
         mapping_evidence=(
-            {"source_id": "concordance-v1", "target_range": "C1"},
-            {"source_id": "concordance-v1", "target_range": "B1"},
+            {
+                "source_id": "concordance-v1",
+                "source_framework": "IELTS",
+                "source_value": "6.5",
+                "target_framework": "CEFR",
+                "target_range": "C1",
+            },
+            {
+                "source_id": "concordance-v1",
+                "source_framework": "IELTS",
+                "source_value": "6.5",
+                "target_framework": "CEFR",
+                "target_range": "B1",
+            },
         ),
     )
     assert same_prov_conflict["calibrated"] is False
@@ -800,8 +852,20 @@ def test_framework_mapping_conflicting_ranges_fail_closed_and_permutation_invari
 
     # Independent provenance conflict (forward and reverse)
     evidence_forward = (
-        {"source_id": "source-a", "target_range": "B1"},
-        {"source_id": "source-b", "target_range": "C1"},
+        {
+            "source_id": "source-a",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "B1",
+        },
+        {
+            "source_id": "source-b",
+            "source_framework": "IELTS",
+            "source_value": "6.5",
+            "target_framework": "CEFR",
+            "target_range": "C1",
+        },
     )
     forward = evaluate_framework_mapping(
         source_framework="IELTS",

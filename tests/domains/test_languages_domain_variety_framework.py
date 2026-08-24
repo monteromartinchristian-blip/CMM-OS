@@ -95,6 +95,9 @@ def test_evaluate_framework_mapping_known_approximate() -> None:
             {
                 "source": "Cambridge English Concordance",
                 "source_id": "cambridge-concordance-v1",
+                "source_framework": "CEFR",
+                "source_value": "C1",
+                "target_framework": "IELTS",
                 "target_range": "7.0-8.0",
             },
         ),
