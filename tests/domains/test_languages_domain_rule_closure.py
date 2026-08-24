@@ -36,6 +36,175 @@ def test_level_estimate_requires_evidence():
     assert result["confidence"] == 0.0
 
 
+@pytest.mark.parametrize(
+    ("preferred_variety", "observed_variety"),
+    (
+        ("American English", "British English"),
+        ("British English", "American English"),
+        ("Mexican Spanish", "Peninsular Spanish"),
+    ),
+)
+def test_language_variety_known_alternative_is_not_an_error(
+    preferred_variety,
+    observed_variety,
+):
+    """A recognized alternative remains valid even when it is not preferred."""
+    result = classify_language_variety(
+        preferred_variety=preferred_variety,
+        observed_variety=observed_variety,
+        assessment_standard="General English",
+        form_status="valid",
+    )
+
+    assert result["classification"] == "valid_alternative"
+    assert result["error"] is False
+    assert result["error_rejected"] is True
+    assert result["is_valid_alternative"] is True
+
+
+def test_language_variety_preferred_form_remains_preferred_without_excluding_alternatives():
+    """The preferred form is preferred, not an exclusive correctness source."""
+    preferred = classify_language_variety(
+        preferred_variety="American English",
+        observed_variety="American English",
+        form_status="valid",
+    )
+    alternative = classify_language_variety(
+        preferred_variety="American English",
+        observed_variety="British English",
+        form_status="valid",
+    )
+
+    assert preferred["classification"] == "preferred"
+    assert preferred["error"] is False
+    assert alternative["classification"] == "valid_alternative"
+    assert alternative["error"] is False
+
+
+@pytest.mark.parametrize(
+    ("preferred_variety", "observed_variety"),
+    (
+        ("American English", "Fictional Variety 99"),
+        ("American English", "Fictional American English"),
+        ("Fictional Variety 99", "British English"),
+        ("Fictional Variety 99", "Fictional Variety 99"),
+        ("Fictional Preferred", "Fictional Observed"),
+    ),
+)
+def test_language_variety_unknown_caller_strings_fail_closed(
+    preferred_variety,
+    observed_variety,
+):
+    """Unknown caller labels do not silently become recognized alternatives."""
+    result = classify_language_variety(
+        preferred_variety=preferred_variety,
+        observed_variety=observed_variety,
+        form_status="valid",
+    )
+
+    assert result["classification"] == "uncertain"
+    assert result["error"] is False
+    assert result["is_valid_alternative"] is False
+
+
+@pytest.mark.parametrize(
+    ("preferred_variety", "observed_variety"),
+    (
+        (None, "British English"),
+        ("", "British English"),
+        ("American English", None),
+        ("American English", ""),
+    ),
+)
+def test_language_variety_missing_required_input_is_uncertain(
+    preferred_variety,
+    observed_variety,
+):
+    """Removing either side of a variety comparison removes the classification."""
+    result = classify_language_variety(
+        preferred_variety=preferred_variety,
+        observed_variety=observed_variety,
+        form_status="valid",
+    )
+
+    assert result["classification"] == "uncertain"
+    assert result["error"] is False
+    assert result["is_valid_alternative"] is False
+
+
+@pytest.mark.parametrize(
+    ("preferred_variety", "observed_variety"),
+    (
+        (["American English"], "British English"),
+        ("American English", {"name": "British English"}),
+        (123, "British English"),
+        ("American English", 456),
+    ),
+)
+def test_language_variety_malformed_variety_inputs_fail_closed(
+    preferred_variety,
+    observed_variety,
+):
+    """Non-string variety payloads cannot add a valid alternative claim."""
+    result = classify_language_variety(
+        preferred_variety=preferred_variety,
+        observed_variety=observed_variety,
+        form_status="valid",
+    )
+
+    assert result["classification"] == "uncertain"
+    assert result["error"] is False
+    assert result["is_valid_alternative"] is False
+
+
+def test_language_variety_explicit_incorrect_form_remains_incorrect():
+    """An explicit incorrect assessment overrides a recognized variety difference."""
+    result = classify_language_variety(
+        preferred_variety="American English",
+        observed_variety="British English",
+        form_status="incorrect",
+    )
+
+    assert result["classification"] == "incorrect"
+    assert result["error"] is True
+    assert result["is_valid_alternative"] is False
+
+
+def test_language_variety_case_and_whitespace_normalization_is_equivalent():
+    """Case and surrounding whitespace do not change variety semantics."""
+    canonical = classify_language_variety(
+        preferred_variety="American English",
+        observed_variety="British English",
+        assessment_standard="General English",
+        form_status="valid",
+    )
+    normalized = classify_language_variety(
+        preferred_variety="  aMeRiCaN eNgLiSh  ",
+        observed_variety="\tBRITISH ENGLISH\n",
+        assessment_standard=" general english ",
+        form_status=" VALID ",
+    )
+
+    assert normalized == canonical
+
+
+def test_language_variety_output_is_json_safe_and_inputs_are_immutable():
+    """Classification normalizes output without mutating caller-owned input."""
+    inputs = {
+        "preferred_variety": " American English ",
+        "observed_variety": " British English ",
+        "assessment_standard": {"label": "General English"},
+        "form_status": "valid",
+    }
+    before = deepcopy(inputs)
+
+    result = classify_language_variety(**inputs)
+
+    assert result["classification"] == "valid_alternative"
+    assert inputs == before
+    assert json.loads(json.dumps(result, allow_nan=False)) == result
+
+
 @pytest.mark.parametrize("kind", ("CERTIFIED", "ESTIMATED", "OBSERVED_PERFORMANCE"))
 def test_level_classification_without_evidence_is_unassessed(kind):
     """Caller labels without usable evidence cannot retain a grounded level."""

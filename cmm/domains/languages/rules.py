@@ -494,7 +494,16 @@ def classify_language_variety(
             "variety": clean_obs or "unknown",
         }
 
-    if clean_obs == clean_pref:
+    preferred_family = next(
+        (varieties for varieties in KNOWN_VARIETIES.values() if clean_pref in varieties),
+        None,
+    )
+    observed_family = next(
+        (varieties for varieties in KNOWN_VARIETIES.values() if clean_obs in varieties),
+        None,
+    )
+
+    if clean_obs == clean_pref and preferred_family is not None:
         return {
             "classification": "preferred",
             "error": False,
@@ -502,13 +511,11 @@ def classify_language_variety(
             "variety": clean_obs,
         }
 
-    is_known_alternative = False
-    for varieties in KNOWN_VARIETIES.values():
-        if any(clean_pref in v or v in clean_pref for v in varieties) and any(clean_obs in v or v in clean_obs for v in varieties):
-            is_known_alternative = True
-            break
-
-    if is_known_alternative and clean_status != "incorrect":
+    if (
+        preferred_family is not None
+        and preferred_family == observed_family
+        and clean_status != "incorrect"
+    ):
         return {
             "classification": "valid_alternative",
             "error": False,
