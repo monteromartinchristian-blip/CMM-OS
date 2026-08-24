@@ -1702,6 +1702,17 @@ def evaluate_progression(
     }
 
 
+def _has_certification_source_authority_identity(source: Mapping[str, Any]) -> bool:
+    """Accept only narrow source-identity predicates for certification authority."""
+    if not isinstance(source, Mapping):
+        return False
+    return (
+        _safe_str(source.get("official_source_id")) is not None
+        or _safe_str(source.get("source_id")) is not None
+        or _safe_str(source.get("provenance_id")) is not None
+    )
+
+
 def evaluate_certification_source(
     *,
     sources: tuple[Any, ...] | list[Any] = (),
@@ -1733,12 +1744,7 @@ def evaluate_certification_source(
         return "unknown"
 
     def _source_has_provenance(s: Mapping[str, Any]) -> bool:
-        return (
-            _certification_provenance(s) is not None
-            or _canonical_provenance(s) is not None
-            or _safe_str(s.get("official_source_id")) is not None
-            or _safe_str(s.get("source_id")) is not None
-        )
+        return _has_certification_source_authority_identity(s)
 
     def _auth(s: dict[str, Any]) -> int:
         stype = (_safe_str(s.get("source_type")) or "unknown").lower()
