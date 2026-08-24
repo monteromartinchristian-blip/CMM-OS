@@ -93,7 +93,7 @@ tmp/phase-10-26-final-invariant-independent-closure-audit-bundle.tar.gz
 - Consumes: current canonical public helpers in `cmm/domains/languages/rules.py`.
 - Produces: one reproducible RED ledger containing every known surviving bypass before production changes.
 
-- [ ] **Step 1: Verify baseline identity**
+- [x] **Step 1: Verify baseline identity**
 
 Run:
 
@@ -112,7 +112,7 @@ tracked worktree clean
 only tmp/ untracked
 ```
 
-- [ ] **Step 2: Run current Languages baseline**
+- [x] **Step 2: Run current Languages baseline**
 
 Run:
 
@@ -122,7 +122,7 @@ pytest -q tests/domains/test_languages_domain_*.py
 
 Expected: current suite GREEN before adding final REDs.
 
-- [ ] **Step 3: Add REDs for incomplete framework mapping records**
+- [x] **Step 3: Add REDs for incomplete framework mapping records**
 
 Add tests proving all of these are rejected for cross-framework calibration:
 
@@ -145,7 +145,7 @@ A fully applicable positive record must include:
 }
 ```
 
-- [ ] **Step 4: Add REDs for textual `source_range`**
+- [x] **Step 4: Add REDs for textual `source_range`**
 
 Add a test establishing final policy:
 
@@ -169,7 +169,7 @@ calibrated=False
 
 unless the implementation already contains a fully structured, property-tested range contract. Do not add such a subsystem merely to preserve this field.
 
-- [ ] **Step 5: Add RED for cross-framework `evaluate_level_update()`**
+- [x] **Step 5: Add RED for cross-framework `evaluate_level_update()`**
 
 Create existing CEFR B2 writing record plus two independent ACTFL C1 writing observations with matching comparison key.
 
@@ -181,7 +181,7 @@ stable_update_supported=False
 
 and no CEFR C1 proposal from ACTFL identity evidence.
 
-- [ ] **Step 6: Add RED that stable update preserves framework**
+- [x] **Step 6: Add RED that stable update preserves framework**
 
 For a valid CEFR B2 → CEFR C1 stable update, assert the resulting record contains:
 
@@ -189,7 +189,7 @@ For a valid CEFR B2 → CEFR C1 stable update, assert the resulting record conta
 "framework": "CEFR"
 ```
 
-- [ ] **Step 7: Add source-authority category REDs**
+- [x] **Step 7: Add source-authority category REDs**
 
 For each of:
 
@@ -217,7 +217,7 @@ authority_rank != 6
 needs_verification=True
 ```
 
-- [ ] **Step 8: Add GoalAlignment generic-practice RED**
+- [x] **Step 8: Add GoalAlignment generic-practice RED**
 
 Two active goals:
 
@@ -234,7 +234,7 @@ Activity:
 
 Assert it does not align both goals.
 
-- [ ] **Step 9: Add nested bool numeric RED**
+- [x] **Step 9: Add nested bool numeric RED**
 
 Call `evaluate_learning_load()` with:
 
@@ -244,7 +244,7 @@ deadlines=({"days_remaining": True},)
 
 Assert `exam_practice` is not added solely because of the bool.
 
-- [ ] **Step 10: Run only new REDs and capture exact failures**
+- [x] **Step 10: Run only new REDs and capture exact failures**
 
 Run the exact test node IDs. Capture output:
 
@@ -256,7 +256,7 @@ Expected: every new test FAILS for the intended semantic reason.
 
 If any test is already GREEN, inspect whether production is already correct or the test is not exercising the bypass. Do not manufacture a failure.
 
-- [ ] **Step 11: Commit RED tests only**
+- [x] **Step 11: Commit RED tests only**
 
 ```bash
 git add tests/domains/test_languages_domain_*.py tmp/phase10-26-final-invariant-red.txt
@@ -278,7 +278,7 @@ If `tmp/` is intentionally ignored, do not force-add it in this commit; include 
 - Consumes: canonical evidence mappings already accepted by Languages.
 - Produces: one private predicate used by direct classification and stable level update.
 
-- [ ] **Step 1: Identify existing duplicated predicates**
+- [x] **Step 1: Identify existing duplicated predicates**
 
 Read all logic used by:
 
@@ -289,7 +289,7 @@ evaluate_level_update
 
 and list the currently duplicated checks for framework, skill, observed value, provenance, comparability.
 
-- [ ] **Step 2: Implement one private predicate**
+- [x] **Step 2: Implement one private predicate**
 
 Implement one private helper equivalent to:
 
@@ -319,19 +319,19 @@ bool/non-finite numeric values never become support
 
 Do not implement framework conversion here.
 
-- [ ] **Step 3: Route `classify_proficiency_record()` through it**
+- [x] **Step 3: Route `classify_proficiency_record()` through it**
 
 Remove duplicated claim-binding conditions now superseded by the helper.
 
-- [ ] **Step 4: Route `evaluate_level_update()` through it**
+- [x] **Step 4: Route `evaluate_level_update()` through it**
 
 The stable-update path must use the same helper and requested framework from the existing record / explicit call context.
 
-- [ ] **Step 5: Preserve framework in updated record**
+- [x] **Step 5: Preserve framework in updated record**
 
 When returning a framework-dependent estimated level, include the normalized framework explicitly.
 
-- [ ] **Step 6: Run focused REDs**
+- [x] **Step 6: Run focused REDs**
 
 Expected:
 
@@ -342,7 +342,7 @@ valid same-framework stable update preserved
 framework preserved in output
 ```
 
-- [ ] **Step 7: Run all proficiency/progression tests**
+- [x] **Step 7: Run all proficiency/progression tests**
 
 ```bash
 pytest -q \
@@ -351,11 +351,11 @@ pytest -q \
   tests/domains/test_languages_domain_operations.py
 ```
 
-- [ ] **Step 8: Mutation review**
+- [x] **Step 8: Mutation review**
 
 Temporarily reason/test that removing the framework check would make both classifier and level-update tests fail. The test suite must cover both paths.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add cmm/domains/languages/rules.py tests/domains/
@@ -375,7 +375,7 @@ git commit -m "fix(languages): unify proficiency evidence binding"
 - Consumes: cross-framework mapping request and evidence records.
 - Produces: calibrated mapping only from a complete applicable record.
 
-- [ ] **Step 1: Define the final complete mapping record**
+- [x] **Step 1: Define the final complete mapping record**
 
 A calibrated record requires exactly these semantic components:
 
@@ -389,7 +389,7 @@ target_range
 
 Use existing canonical aliases only for provenance identity.
 
-- [ ] **Step 2: Reject incomplete records before applicability checks**
+- [x] **Step 2: Reject incomplete records before applicability checks**
 
 Do not write:
 
@@ -405,7 +405,7 @@ required field malformed -> not applicable
 required field mismatched -> not applicable
 ```
 
-- [ ] **Step 3: Reject textual `source_range` as calibration evidence**
+- [x] **Step 3: Reject textual `source_range` as calibration evidence**
 
 Do not use substring matching.
 
@@ -415,7 +415,7 @@ A record containing only `source_range` instead of `source_value` remains visibl
 calibrated=True
 ```
 
-- [ ] **Step 4: Normalize exact source values deterministically**
+- [x] **Step 4: Normalize exact source values deterministically**
 
 Use a conservative normalization that preserves type semantics. Do not make `True == 1`.
 
@@ -427,7 +427,7 @@ For numeric source values:
 For strings:
 - trim and case-normalize only where the existing framework contract already treats the value as symbolic text.
 
-- [ ] **Step 5: Update legacy tests**
+- [x] **Step 5: Update legacy tests**
 
 Search all Languages tests asserting:
 
@@ -448,7 +448,7 @@ alone must be updated to a full applicable record.
 
 Do not delete useful provenance-alias coverage; enrich each fixture with the required applicability fields.
 
-- [ ] **Step 6: Add explicit legacy minimal-record rejection test**
+- [x] **Step 6: Add explicit legacy minimal-record rejection test**
 
 Required:
 
@@ -458,11 +458,11 @@ minimal = {"source_id": "conc-1", "target_range": "B2"}
 
 for `IELTS 6.5 -> CEFR` must not calibrate.
 
-- [ ] **Step 7: Run all framework mapping tests**
+- [x] **Step 7: Run all framework mapping tests**
 
 Expected all GREEN.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add cmm/domains/languages/rules.py tests/domains/
@@ -482,7 +482,7 @@ git commit -m "fix(languages): require complete framework mapping records"
 - Consumes: certification source records.
 - Produces: authority rank based on source identity, not occurrence identity.
 
-- [ ] **Step 1: Create a dedicated authority predicate**
+- [x] **Step 1: Create a dedicated authority predicate**
 
 Implement a private predicate equivalent to:
 
@@ -511,11 +511,11 @@ assessment_id
 context_id
 ```
 
-- [ ] **Step 2: Route certification authority ranking through it**
+- [x] **Step 2: Route certification authority ranking through it**
 
 Do not call the generic evidence provenance helper for source authority.
 
-- [ ] **Step 3: Preserve temporal ordering**
+- [x] **Step 3: Preserve temporal ordering**
 
 Existing semantics for:
 
@@ -528,7 +528,7 @@ conflict / verification
 
 must remain intact.
 
-- [ ] **Step 4: Strengthen AT-DP-026 mutation**
+- [x] **Step 4: Strengthen AT-DP-026 mutation**
 
 The acceptance fixture retains its grounded `official_source_id`.
 
@@ -536,7 +536,7 @@ Add a test/probe that removing that exact source identity weakens the source aut
 
 Keep the exact 45 checkpoint names and 9 real workflows.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Expected:
 
@@ -549,7 +549,7 @@ official + assessment_id only -> not rank 6
 official + context_id only -> not rank 6
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmm/domains/languages/rules.py tests/domains/
@@ -569,7 +569,7 @@ git commit -m "fix(languages): narrow certification source authority"
 - Consumes: decision-driving numeric inputs.
 - Produces: finite non-bool validated numbers or `None`.
 
-- [ ] **Step 1: Consolidate existing numeric helpers**
+- [x] **Step 1: Consolidate existing numeric helpers**
 
 Implement/reuse one helper equivalent to:
 
@@ -595,13 +595,13 @@ above maximum -> None
 valid int/float -> finite float
 ```
 
-- [ ] **Step 2: Route `deadline.days_remaining` through it**
+- [x] **Step 2: Route `deadline.days_remaining` through it**
 
 Urgency may be inferred only from a valid semantic number.
 
 `True` must not mean one day.
 
-- [ ] **Step 3: Audit every decision-driving numeric in `rules.py`**
+- [x] **Step 3: Audit every decision-driving numeric in `rules.py`**
 
 Search for:
 
@@ -619,7 +619,7 @@ Where the value can increase certainty, priority, difficulty, mastery, review pr
 
 Do not refactor cosmetic counts that cannot influence an epistemic/pedagogical decision.
 
-- [ ] **Step 4: Add nested numeric mutation tests**
+- [x] **Step 4: Add nested numeric mutation tests**
 
 At minimum:
 
@@ -635,11 +635,11 @@ importance True/NaN/Inf
 
 All invalid values must fail closed.
 
-- [ ] **Step 5: Run focused rule suite**
+- [x] **Step 5: Run focused rule suite**
 
 Expected GREEN.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmm/domains/languages/rules.py tests/domains/
@@ -659,7 +659,7 @@ git commit -m "fix(languages): centralize semantic numeric guards"
 - Consumes: normalized activity representations and active goals.
 - Produces: alignment only from goal-specific semantic relations.
 
-- [ ] **Step 1: Remove generic universal alignment**
+- [x] **Step 1: Remove generic universal alignment**
 
 Delete/refactor semantics equivalent to:
 
@@ -668,7 +668,7 @@ type in practice/review/lesson/exercise -> every goal aligned
 purpose in practice/review/lesson/study -> every goal aligned
 ```
 
-- [ ] **Step 2: Keep supported linkage paths**
+- [x] **Step 2: Keep supported linkage paths**
 
 Alignment may be supported by:
 
@@ -679,7 +679,7 @@ specific purpose relation
 specific activity type relation
 ```
 
-- [ ] **Step 3: Keep generic activity valid but epistemically weak**
+- [x] **Step 3: Keep generic activity valid but epistemically weak**
 
 Generic `practice` may produce:
 
@@ -689,15 +689,15 @@ not specifically aligned
 
 rather than being rejected as an invalid activity.
 
-- [ ] **Step 4: Add concurrent-goal adversarial test**
+- [x] **Step 4: Add concurrent-goal adversarial test**
 
 With unrelated active goals, generic practice must not align all.
 
-- [ ] **Step 5: Verify existing roleplay/writing/certification positives**
+- [x] **Step 5: Verify existing roleplay/writing/certification positives**
 
 Specific semantic activities must still align correctly.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cmm/domains/languages/rules.py tests/domains/
@@ -716,7 +716,7 @@ git commit -m "fix(languages): require semantic goal alignment"
 - Consumes: final invariant helpers indirectly through public rule APIs.
 - Produces: a closure gate that fails when one path becomes more permissive than another.
 
-- [ ] **Step 1: Add proficiency cross-path matrix**
+- [x] **Step 1: Add proficiency cross-path matrix**
 
 Exercise:
 
@@ -736,7 +736,7 @@ cross-framework identity evidence may not
 mapping requires complete grounded applicability
 ```
 
-- [ ] **Step 2: Add authority cross-path matrix**
+- [x] **Step 2: Add authority cross-path matrix**
 
 Exercise:
 
@@ -747,7 +747,7 @@ AT-DP-026 fixture mutation
 
 with source identity present/removed.
 
-- [ ] **Step 3: Add numeric cross-path matrix**
+- [x] **Step 3: Add numeric cross-path matrix**
 
 For representative decision-driving numeric fields:
 
@@ -756,7 +756,7 @@ valid numeric -> used
 True/NaN/Inf -> no semantic upgrade
 ```
 
-- [ ] **Step 4: Add goal-alignment representation matrix**
+- [x] **Step 4: Add goal-alignment representation matrix**
 
 Check coherent semantics for:
 
@@ -771,7 +771,7 @@ goal_ids
 
 and generic `practice`.
 
-- [ ] **Step 5: Give the meta-tests explicit names**
+- [x] **Step 5: Give the meta-tests explicit names**
 
 Names must make source grep/review easy, including:
 
@@ -783,11 +783,11 @@ semantic_numeric
 source_authority
 ```
 
-- [ ] **Step 6: Run meta-tests alone**
+- [x] **Step 6: Run meta-tests alone**
 
 Expected GREEN only after Tasks 1–5.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tests/domains/
@@ -806,7 +806,7 @@ git commit -m "test(languages): enforce cross-path epistemic invariants"
 - Consumes: entire Languages test suite.
 - Produces: reviewer-inspected proof that no old test requires a forbidden permissive contract.
 
-- [ ] **Step 1: Search material assertions**
+- [x] **Step 1: Search material assertions**
 
 Run searches for:
 
@@ -816,7 +816,7 @@ rg -n \
   tests/domains/test_languages_domain_*.py
 ```
 
-- [ ] **Step 2: Inspect every result manually**
+- [x] **Step 2: Inspect every result manually**
 
 For each assertion, determine whether its fixture satisfies the final spec.
 
@@ -829,11 +829,11 @@ generic practice -> all goals aligned
 cross-framework identity evidence -> stable proficiency
 ```
 
-- [ ] **Step 3: Update contradictory fixtures/expectations**
+- [x] **Step 3: Update contradictory fixtures/expectations**
 
 Preserve test intent where possible. Remove only the permissive assumption.
 
-- [ ] **Step 4: Run a second search for minimal mapping fixtures**
+- [x] **Step 4: Run a second search for minimal mapping fixtures**
 
 Search:
 
@@ -845,7 +845,7 @@ rg -n -U \
 
 Inspect every hit that expects calibration.
 
-- [ ] **Step 5: Create consistency evidence**
+- [x] **Step 5: Create consistency evidence**
 
 Write:
 
@@ -865,13 +865,13 @@ tmp/phase10-26-final-contract-consistency.txt
 
 Only write zeros after manual inspection.
 
-- [ ] **Step 6: Run all Languages tests**
+- [x] **Step 6: Run all Languages tests**
 
 ```bash
 pytest -q tests/domains/test_languages_domain_*.py
 ```
 
-- [ ] **Step 7: Commit test-contract normalization**
+- [x] **Step 7: Commit test-contract normalization**
 
 ```bash
 git add tests/domains/
@@ -890,7 +890,7 @@ git commit -m "test(languages): remove legacy permissive contracts"
 - Consumes: all historical audit findings V1/V2/V3/rule-hardening/epistemic-binding.
 - Produces: one explicit no-survivor adversarial review.
 
-- [ ] **Step 1: Build historical bypass ledger**
+- [x] **Step 1: Build historical bypass ledger**
 
 Include every item from the final design §14:
 
@@ -919,13 +919,13 @@ runtime trace/permission identity
 calendar boundary
 ```
 
-- [ ] **Step 2: Map each bypass to an exact living test**
+- [x] **Step 2: Map each bypass to an exact living test**
 
 The review must name the test node or file/test function for each item.
 
 No “covered by suite” generic claims.
 
-- [ ] **Step 3: Attempt new alternate-path bypasses**
+- [x] **Step 3: Attempt new alternate-path bypasses**
 
 Search public helpers in `rules.py` for:
 - duplicated framework comparisons;
@@ -934,11 +934,11 @@ Search public helpers in `rules.py` for:
 - hard-coded positive pedagogical defaults;
 - ignored semantic parameters.
 
-- [ ] **Step 4: Fix any surviving bypass using the central invariant, not a local exception**
+- [x] **Step 4: Fix any surviving bypass using the central invariant, not a local exception**
 
 If a new bypass is found, return to RED before production changes.
 
-- [ ] **Step 5: Write adversarial review**
+- [x] **Step 5: Write adversarial review**
 
 Required conclusion:
 
@@ -963,15 +963,15 @@ If not zero, do not proceed.
 - Consumes: final canonical 45 checkpoints and 9 workflows.
 - Produces: connected candidate PASS with source-authority mutation.
 
-- [ ] **Step 1: Verify exact frozen checkpoint names/count**
+- [x] **Step 1: Verify exact frozen checkpoint names/count**
 
 Assert exactly 45 canonical checkpoint identifiers.
 
-- [ ] **Step 2: Verify exactly 9 real workflows execute**
+- [x] **Step 2: Verify exactly 9 real workflows execute**
 
 Do not accept static/fake workflow IDs.
 
-- [ ] **Step 3: Verify runtime trace identity**
+- [x] **Step 3: Verify runtime trace identity**
 
 Preserve:
 - real rule execution result IDs;
@@ -981,19 +981,19 @@ Preserve:
 - presentation result references;
 - memory proposal/binding references.
 
-- [ ] **Step 4: Verify certification fixture is grounded**
+- [x] **Step 4: Verify certification fixture is grounded**
 
 Current official source must contain real source authority identity.
 
-- [ ] **Step 5: Add source-authority negative mutation**
+- [x] **Step 5: Add source-authority negative mutation**
 
 Remove the source authority identity from an equivalent source and assert the certification authority gate weakens/fails.
 
-- [ ] **Step 6: Run connected suite**
+- [x] **Step 6: Run connected suite**
 
 Expected all PASS.
 
-- [ ] **Step 7: Commit if tests changed**
+- [x] **Step 7: Commit if tests changed**
 
 ```bash
 git add tests/domains/test_languages_domain_dp026_acceptance.py
@@ -1012,21 +1012,21 @@ git commit -m "test(languages): close DP-026 source authority mutation"
 - Consumes: completed implementation.
 - Produces: fresh independent-audit evidence.
 
-- [ ] **Step 1: Dedicated invariant/rule suite**
+- [x] **Step 1: Dedicated invariant/rule suite**
 
 ```bash
 pytest -q tests/domains/test_languages_domain_rule_closure.py \
   | tee tmp/phase10-26-final-rule-tests.txt
 ```
 
-- [ ] **Step 2: All Languages**
+- [x] **Step 2: All Languages**
 
 ```bash
 pytest -q tests/domains/test_languages_domain_*.py \
   | tee tmp/phase10-26-final-languages-tests.txt
 ```
 
-- [ ] **Step 3: Connected acceptance**
+- [x] **Step 3: Connected acceptance**
 
 Run the DP-026 acceptance file and capture:
 
@@ -1034,7 +1034,7 @@ Run the DP-026 acceptance file and capture:
 tmp/phase10-26-final-connected-tests.txt
 ```
 
-- [ ] **Step 4: Shared regressions**
+- [x] **Step 4: Shared regressions**
 
 Run relevant shared rule runtime, trace, permission, workflow, composer, resolver tests and capture:
 
@@ -1042,21 +1042,21 @@ Run relevant shared rule runtime, trace, permission, workflow, composer, resolve
 tmp/phase10-26-final-shared-regressions.txt
 ```
 
-- [ ] **Step 5: All domains**
+- [x] **Step 5: All domains**
 
 ```bash
 pytest -q tests/domains/ \
   | tee tmp/phase10-26-final-all-domains.txt
 ```
 
-- [ ] **Step 6: Global**
+- [x] **Step 6: Global**
 
 ```bash
 pytest -q \
   | tee tmp/phase10-26-final-global.txt
 ```
 
-- [ ] **Step 7: Ruff**
+- [x] **Step 7: Ruff**
 
 Capture normal and py310-compatible checks separately:
 
@@ -1065,7 +1065,7 @@ tmp/phase10-26-final-ruff.txt
 tmp/phase10-26-final-ruff-py310.txt
 ```
 
-- [ ] **Step 8: Isolated compileall**
+- [x] **Step 8: Isolated compileall**
 
 Capture:
 
@@ -1073,7 +1073,7 @@ Capture:
 tmp/phase10-26-final-compileall.txt
 ```
 
-- [ ] **Step 9: Fresh import + canon**
+- [x] **Step 9: Fresh import + canon**
 
 Capture:
 - import of Languages package in a fresh interpreter;
@@ -1087,7 +1087,7 @@ tmp/phase10-26-final-fresh-import.txt
 tmp/phase10-26-final-canon.txt
 ```
 
-- [ ] **Step 10: Git diff and Paternidad scope**
+- [x] **Step 10: Git diff and Paternidad scope**
 
 Capture:
 
@@ -1099,7 +1099,7 @@ git diff 070d1a2..HEAD -- cmm/domains/parenthood docs | ...
 
 Ensure no Phase 10.27 production change.
 
-- [ ] **Step 11: Generate direct markers from real probes**
+- [x] **Step 11: Generate direct markers from real probes**
 
 Create:
 
@@ -1162,11 +1162,11 @@ Every marker must be backed by either an exact test or direct executable probe.
 - Consumes: all verification artifacts.
 - Produces: accurate pre-audit status.
 
-- [ ] **Step 1: Review all verification logs for failures/skips/errors**
+- [x] **Step 1: Review all verification logs for failures/skips/errors**
 
 Do not infer PASS from process exit alone if output contains collection errors or unexpected skips.
 
-- [ ] **Step 2: Review git scope**
+- [x] **Step 2: Review git scope**
 
 Expected production diff should be narrowly concentrated in:
 
@@ -1176,7 +1176,7 @@ cmm/domains/languages/rules.py
 
 plus Languages tests/docs.
 
-- [ ] **Step 3: Update Phase 10.26 status conservatively**
+- [x] **Step 3: Update Phase 10.26 status conservatively**
 
 Allowed wording only:
 
@@ -1191,7 +1191,7 @@ DP-026: REQUIRES_PHASE_INSPECTION
 
 Do not write `closed`, `complete`, or `DP-026 PASS`.
 
-- [ ] **Step 4: Commit documentation/status**
+- [x] **Step 4: Commit documentation/status**
 
 Use a separate docs commit.
 
@@ -1207,7 +1207,7 @@ Use a separate docs commit.
 - Consumes: exact current candidate and all verification evidence.
 - Produces: self-contained audit bundle for independent closure review.
 
-- [ ] **Step 1: Refuse bundle creation unless all mandatory gates pass**
+- [x] **Step 1: Refuse bundle creation unless all mandatory gates pass**
 
 Check:
 
@@ -1228,7 +1228,7 @@ tracked worktree clean except tmp/
 
 If any is not PASS, stop bundle creation and fix the root cause.
 
-- [ ] **Step 2: Include exact relevant source/tests/docs**
+- [x] **Step 2: Include exact relevant source/tests/docs**
 
 Include:
 - all 14 Languages production modules;
@@ -1246,11 +1246,11 @@ Include:
 - candidate metadata;
 - manifest.
 
-- [ ] **Step 3: Create internal `SHA256SUMS`**
+- [x] **Step 3: Create internal `SHA256SUMS`**
 
 Verify every bundled file.
 
-- [ ] **Step 4: Create archive and external SHA**
+- [x] **Step 4: Create archive and external SHA**
 
 Archive:
 
@@ -1260,7 +1260,7 @@ tmp/phase-10-26-final-invariant-independent-closure-audit-bundle.tar.gz
 
 Print its SHA-256.
 
-- [ ] **Step 5: Final repo state**
+- [x] **Step 5: Final repo state**
 
 Required:
 
@@ -1271,7 +1271,7 @@ no push
 no merge
 ```
 
-- [ ] **Step 6: Final agent status**
+- [x] **Step 6: Final agent status**
 
 Print only:
 
