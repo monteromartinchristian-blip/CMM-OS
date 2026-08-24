@@ -1290,7 +1290,42 @@ def evaluate_learning_load(
     review_backlog: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Evaluate learning load respecting energy and time constraints without mutating calendar."""
-    clean_time = int(available_time) if isinstance(available_time, (int, float)) and not math.isnan(available_time) else 30
+    if not isinstance(priorities, Iterable) or isinstance(priorities, (str, bytes)):
+        priorities_list: list[Any] = []
+    else:
+        priorities_list = list(priorities)
+
+    if not isinstance(deadlines, Iterable) or isinstance(deadlines, (str, bytes)):
+        deadlines_list: list[Any] = []
+    else:
+        deadlines_list = list(deadlines)
+
+    if not isinstance(review_backlog, Iterable) or isinstance(review_backlog, (str, bytes)):
+        backlog_list: list[Any] = []
+    else:
+        backlog_list = list(review_backlog)
+
+    if available_time is not None:
+        if (
+            isinstance(available_time, bool)
+            or not isinstance(available_time, (int, float))
+            or math.isnan(available_time)
+            or math.isinf(available_time)
+            or available_time < 0
+        ):
+            return {
+                "recommended_duration_minutes": 0,
+                "recommended_activities": ["micro_practice"],
+                "load_status": "insufficient_constraints",
+                "calendar_modified": False,
+                "backlog_considered": len(backlog_list),
+                "deadlines_considered": len(deadlines_list),
+                "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
+            }
+        clean_time = int(available_time)
+    else:
+        clean_time = 30
+
     clean_energy = (_safe_str(energy) or "moderate").lower()
 
     if clean_energy == "low":
@@ -1303,11 +1338,11 @@ def evaluate_learning_load(
         recommended_duration = min(clean_time, 30)
         load_status = "standard"
 
-    backlog_count = len(review_backlog)
+    backlog_count = len(backlog_list)
     recommended_activities = []
     if backlog_count > 0:
         recommended_activities.append("spaced_review")
-    recommended_activities.extend([_safe_str(p) for p in priorities if _safe_str(p)])
+    recommended_activities.extend([_safe_str(p) for p in priorities_list if _safe_str(p)])
 
     return {
         "recommended_duration_minutes": recommended_duration,
@@ -1315,6 +1350,8 @@ def evaluate_learning_load(
         "load_status": load_status,
         "calendar_modified": False,
         "backlog_considered": backlog_count,
+        "deadlines_considered": len(deadlines_list),
+        "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
     }
 
 

@@ -1128,11 +1128,57 @@ def test_goal_alignment_rejects_unrelated_activity():
     assert result["aligned_goals"] == []
 
 
-@pytest.mark.parametrize("available_time", [float("inf"), float("-inf"), True, -10])
+@pytest.mark.parametrize("available_time", [float("inf"), float("-inf"), True, False, -10, float("nan"), "30", [30]])
 def test_learning_load_invalid_time_fails_closed(available_time):
     result = evaluate_learning_load(available_time=available_time)
     assert result["load_status"] == "insufficient_constraints"
     assert result["recommended_duration_minutes"] == 0
+    assert result["calendar_modified"] is False
+    assert json.loads(json.dumps(result, allow_nan=False)) == result
+
+
+def test_learning_load_energy_and_time_constraints_precede_preferences():
+    """Hard time/energy constraints bound duration and never mutate calendar."""
+    # Low energy caps at 15 even with 60 available
+    res_low = evaluate_learning_load(available_time=60, energy="low", priorities=("reading", "writing"))
+    assert res_low["recommended_duration_minutes"] == 15
+    assert res_low["load_status"] == "scaffolded_light"
+    assert res_low["calendar_modified"] is False
+
+    # High energy allows full available time
+    res_high = evaluate_learning_load(available_time=45, energy="high")
+    assert res_high["recommended_duration_minutes"] == 45
+    assert res_high["load_status"] == "optimal"
+    assert res_high["calendar_modified"] is False
+
+
+def test_learning_load_deadlines_and_recent_load_reflection():
+    """Deadlines and recent load are reflected in the result structure without modifying calendar."""
+    res = evaluate_learning_load(
+        available_time=30,
+        deadlines=[{"id": "d1", "exam_date": "2026-09-01"}],
+        recent_load={"minutes_last_7_days": 120},
+    )
+    assert res["deadlines_considered"] == 1
+    assert res["recent_load_considered"] == {"minutes_last_7_days": 120}
+    assert res["calendar_modified"] is False
+
+
+def test_learning_load_json_immutability():
+    """Evaluation preserves input immutability and strict JSON safety."""
+    inputs = {
+        "available_time": 25,
+        "energy": "low",
+        "priorities": ["vocab", "grammar"],
+        "deadlines": [{"id": "d1"}],
+        "recent_load": {"sessions": 3},
+        "review_backlog": [{"id": "b1"}],
+    }
+    before = deepcopy(inputs)
+    result = evaluate_learning_load(**inputs)
+
+    assert inputs == before
+    assert json.loads(json.dumps(result, allow_nan=False)) == result
 
 
 def test_spaced_review_deduplicates_logical_item():
