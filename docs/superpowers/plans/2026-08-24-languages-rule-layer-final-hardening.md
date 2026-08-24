@@ -1413,43 +1413,43 @@ Combine adjacent changes only when inseparable. Do not mix unrelated shared chan
 # Definition of Done
 
 ```text
-[ ] final audit B-001 fully closed
-[ ] final audit M-001 fully closed
-[ ] final audit M-002 fully closed
+[x] final audit B-001 fully closed
+[x] final audit M-001 fully closed
+[x] final audit M-002 fully closed
 
-[ ] all 14 rule contracts have mutation tests
-[ ] no caller can lower canonical error-pattern minimum
-[ ] no required semantic field can be ignored while positive tests still pass
-[ ] no malformed bool/NaN/Inf/negative numeric can increase support
-[ ] no duplicate evidence/item increases support
-[ ] no unprovenanced framework mapping is calibrated
-[ ] no ungrounded proficiency estimate is accepted
-[ ] no unrelated activity is aligned
-[ ] no impossible learning duration
-[ ] no duplicated logical spaced-review backlog
-[ ] recall and importance demonstrably affect spaced-review priority
+[x] all 14 rule contracts have mutation tests
+[x] no caller can lower canonical error-pattern minimum
+[x] no required semantic field can be ignored while positive tests still pass
+[x] no malformed bool/NaN/Inf/negative numeric can increase support
+[x] no duplicate evidence/item increases support
+[x] no unprovenanced framework mapping is calibrated
+[x] no ungrounded proficiency estimate is accepted
+[x] no unrelated activity is aligned
+[x] no impossible learning duration
+[x] no duplicated logical spaced-review backlog
+[x] recall and importance demonstrably affect spaced-review priority
 
-[ ] V1 regressions green
-[ ] V2 regressions green
-[ ] V3 regressions green
-[ ] connected AT-DP-026 still 45 exact semantic checkpoints
-[ ] nine real workflows
-[ ] trace provenance still real
-[ ] permission decision identity still real
+[x] V1 regressions green
+[x] V2 regressions green
+[x] V3 regressions green
+[x] connected AT-DP-026 still 45 exact semantic checkpoints
+[x] nine real workflows
+[x] trace provenance still real
+[x] permission decision identity still real
 
-[ ] Languages tests green
-[ ] all domains green
-[ ] global suite green
-[ ] Ruff green
-[ ] Ruff py310 green
-[ ] compileall green
-[ ] fresh import green
-[ ] canon 16/15/14/15/9
-[ ] 14 production modules
-[ ] Paternidad unchanged
-[ ] tracked worktree clean
-[ ] no push
-[ ] no merge
+[x] Languages tests green
+[x] all domains green
+[x] global suite green
+[x] Ruff green
+[x] Ruff py310 green
+[x] compileall green
+[x] fresh import green
+[x] canon 16/15/14/15/9
+[x] 14 production modules
+[x] Paternidad unchanged
+[x] tracked worktree clean
+[x] no push
+[x] no merge
 
-[ ] new independent closure audit remains pending
+[x] new independent closure audit remains pending
 ```
