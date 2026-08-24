@@ -874,6 +874,88 @@ def test_error_pattern_canonical_minimum_cannot_be_lowered(threshold, observatio
     assert result["pattern_state"] == "insufficient_evidence"
 
 
+@pytest.mark.parametrize("invalid_threshold", (float("nan"), float("inf"), float("-inf"), "three", [3], {"min": 3}))
+def test_error_pattern_nan_inf_nonnumeric_threshold_normalizes_to_canonical_minimum(invalid_threshold):
+    """NaN/Inf or non-numeric thresholds fall back to canonical minimum 2."""
+    obs_1 = (
+        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    )
+    res_1 = evaluate_error_pattern(observations=obs_1, minimum_independent_occurrences=invalid_threshold)
+    assert res_1["eligible"] is False
+    assert res_1["pattern_state"] == "insufficient_evidence"
+
+    obs_2 = (
+        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    )
+    res_2 = evaluate_error_pattern(observations=obs_2, minimum_independent_occurrences=invalid_threshold)
+    assert res_2["eligible"] is True
+    assert res_2["pattern_state"] == "candidate"
+
+
+def test_error_pattern_stricter_caller_threshold_is_honored():
+    """Callers may increase threshold above 2, requiring more evidence."""
+    obs_2 = (
+        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    )
+    res_stricter = evaluate_error_pattern(observations=obs_2, minimum_independent_occurrences=3)
+    assert res_stricter["eligible"] is False
+    assert res_stricter["pattern_state"] == "insufficient_evidence"
+
+    obs_3 = obs_2 + (
+        {"provenance_id": "p3", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    )
+    res_met = evaluate_error_pattern(observations=obs_3, minimum_independent_occurrences=3)
+    assert res_met["eligible"] is True
+    assert res_met["pattern_state"] == "candidate"
+
+
+def test_error_pattern_requires_same_error_type_and_comparison_key():
+    """Mismatched error types or comparison keys do not form a single comparable pattern."""
+    mismatched_types = (
+        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "agreement", "comparable": True},
+    )
+    res_type = evaluate_error_pattern(observations=mismatched_types)
+    assert res_type["eligible"] is False
+    assert res_type["pattern_state"] == "insufficient_evidence"
+
+    mismatched_keys = (
+        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"provenance_id": "p2", "comparison_key": "conversation", "error_type": "tense", "comparable": True},
+    )
+    res_key = evaluate_error_pattern(observations=mismatched_keys)
+    assert res_key["eligible"] is False
+    assert res_key["pattern_state"] == "insufficient_evidence"
+
+
+def test_error_pattern_duplicate_provenance_does_not_inflate_occurrences():
+    """Multiple observations with same provenance count as 1 occurrence."""
+    duplicate_prov = (
+        {"id": "c1", "provenance_id": "session-1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"id": "c2", "provenance_id": "session-1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    )
+    res = evaluate_error_pattern(observations=duplicate_prov)
+    assert res["eligible"] is False
+    assert res["independent_occurrences"] == 1
+
+
+def test_error_pattern_json_immutability_and_permutation_invariance():
+    """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
+    obs = [
+        {"id": "c1", "provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {"id": "c2", "provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+    ]
+    before = deepcopy(obs)
+    forward = evaluate_error_pattern(observations=obs)
+    reverse = evaluate_error_pattern(observations=list(reversed(obs)))
+
+    assert forward == reverse
+    assert obs == before
+    assert json.loads(json.dumps(forward, allow_nan=False)) == forward
+
+
 def test_adaptive_difficulty_ignores_noncomparable_high_scores():
     result = adapt_difficulty(
         current_difficulty=3,

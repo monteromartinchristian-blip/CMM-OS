@@ -824,6 +824,19 @@ def evaluate_error_pattern(
     minimum_independent_occurrences: int = 2,
 ) -> dict[str, Any]:
     """Evaluate error pattern evidence across independent comparable observations."""
+    if (
+        isinstance(minimum_independent_occurrences, bool)
+        or not isinstance(minimum_independent_occurrences, (int, float))
+        or math.isnan(minimum_independent_occurrences)
+        or math.isinf(minimum_independent_occurrences)
+    ):
+        min_occurrences = 2
+    else:
+        min_occurrences = max(2, int(minimum_independent_occurrences))
+
+    if not isinstance(observations, Iterable) or isinstance(observations, (str, bytes)):
+        observations = ()
+
     valid_observations: list[dict[str, Any]] = []
     for obs in observations:
         if not isinstance(obs, Mapping):
@@ -881,7 +894,7 @@ def evaluate_error_pattern(
     )
     lapse_possible = has_resolved and has_unresolved
 
-    if comparable_count < minimum_independent_occurrences:
+    if comparable_count < min_occurrences:
         pattern_state = "insufficient_evidence"
         eligible = False
     elif has_resolved and not has_unresolved:
@@ -890,7 +903,7 @@ def evaluate_error_pattern(
     elif lapse_possible:
         pattern_state = "improving"
         eligible = True
-    elif indep_count == minimum_independent_occurrences:
+    elif indep_count == min_occurrences:
         pattern_state = "candidate"
         eligible = True
     else:
