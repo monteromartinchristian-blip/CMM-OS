@@ -238,8 +238,14 @@ class DomainPermissionGate:
             self._issued_decision_ids.add(decision_id)
         return decision_id
 
-    def _result(self, **values: Any) -> PermissionGateResult:
-        return PermissionGateResult(decision_id=self._next_decision_id(), **values)
+    def _result(
+        self,
+        *,
+        decision_id: str | None = None,
+        **values: Any,
+    ) -> PermissionGateResult:
+        reserved_id = decision_id if decision_id is not None else self._next_decision_id()
+        return PermissionGateResult(decision_id=reserved_id, **values)
 
     def evaluate_operation(
         self,
@@ -419,19 +425,20 @@ class DomainPermissionGate:
         validate_batch = getattr(
             self._approval_service, "validate_and_consume_batch", None
         )
+        if validate_batch is None and len(batch) != 1:
+            return self._result(
+                outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
+                action=aggregate_action,
+                domain_id=domain_id,
+                actor_id=actor_id,
+                session_id=session_id,
+                reasons=(*reasons, "atomic_batch_validation_unavailable"),
+                effective_constraints=effective_constraints,
+                approval_requirements=serialized,
+                metadata=metadata,
+            )
+        decision_id = self._next_decision_id()
         if validate_batch is None:
-            if len(batch) != 1:
-                return self._result(
-                    outcome=PermissionGateOutcome.APPROVAL_REQUIRED,
-                    action=aggregate_action,
-                    domain_id=domain_id,
-                    actor_id=actor_id,
-                    session_id=session_id,
-                    reasons=(*reasons, "atomic_batch_validation_unavailable"),
-                    effective_constraints=effective_constraints,
-                    approval_requirements=serialized,
-                    metadata=metadata,
-                )
             request_reference, requirement = batch[0]
             evidences = (
                 self._approval_service.validate_and_consume(
@@ -454,6 +461,7 @@ class DomainPermissionGate:
         denied = next((item for item in evidences if not item.granted), None)
         if denied is not None:
             return self._result(
+                decision_id=decision_id,
                 outcome=PermissionGateOutcome.APPROVAL_DENIED,
                 action=aggregate_action,
                 domain_id=domain_id,
@@ -469,6 +477,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         return self._result(
+            decision_id=decision_id,
             outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
             action=aggregate_action,
             domain_id=domain_id,
@@ -845,6 +854,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
 
+        decision_id = self._next_decision_id()
         evidence = self._approval_service.validate_and_consume(
             approval_request_id,
             actor_id=request.actor_id,
@@ -861,6 +871,7 @@ class DomainPermissionGate:
         )
         if evidence.granted:
             return self._result(
+                decision_id=decision_id,
                 outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
                 action=action,
                 domain_id=request.source_domain,
@@ -872,6 +883,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
         return self._result(
+            decision_id=decision_id,
             outcome=PermissionGateOutcome.APPROVAL_DENIED,
             action=action,
             domain_id=request.source_domain,
@@ -1015,6 +1027,7 @@ class DomainPermissionGate:
                 metadata=metadata,
             )
 
+        decision_id = self._next_decision_id()
         evidence = self._approval_service.validate_and_consume(
             approval_request_id,
             actor_id=actor_id,
@@ -1032,6 +1045,7 @@ class DomainPermissionGate:
 
         if evidence.granted:
             return self._result(
+                decision_id=decision_id,
                 outcome=PermissionGateOutcome.APPROVAL_CONSUMED,
                 action=action,
                 domain_id=domain_id,
@@ -1044,6 +1058,7 @@ class DomainPermissionGate:
             )
 
         return self._result(
+            decision_id=decision_id,
             outcome=PermissionGateOutcome.APPROVAL_DENIED,
             action=action,
             domain_id=domain_id,

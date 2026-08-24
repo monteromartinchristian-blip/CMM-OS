@@ -251,6 +251,45 @@ class TestGateApprovalConsumed:
 
 
 class TestGateDecisionIdentity:
+    @staticmethod
+    def _approval_consumption_scenario(id_factory):
+        requirement = PermissionApprovalRequirement(
+            requirement_id="par-post-approval-identity",
+            action=PermissionCapability.OPERATION_EXECUTE,
+            actor_id="actor-1",
+            session_id="sess-1",
+            domain_id="domain:test",
+            operation_id="test.post-approval-identity",
+            operation_version="1.0.0",
+            fingerprint="fp-post-approval-identity",
+            scope="operation",
+        )
+        resolver = _FakeResolver(
+            PermissionOutcome.APPROVAL_REQUIRED,
+            reasons=("approval_required",),
+            approval_requirements=(requirement,),
+        )
+        service, approval_request_id = _create_approval_service_and_request(
+            requirement
+        )
+        gate = DomainPermissionGate(
+            resolver,
+            service,
+            clock=lambda: _NOW,
+            id_factory=id_factory,
+        )
+        operation = DomainOperationDefinition(
+            operation_id="test.post-approval-identity",
+            domain_id="domain:test",
+            version="1.0.0",
+            name="Post-approval identity validation test",
+            description="Exercises identity reservation before approval consumption.",
+            operation_type=DomainOperationType.ANALYSIS,
+            risk_level=PolicyRiskLevel.LOW,
+            reversible=True,
+        )
+        return gate, service, approval_request_id, operation
+
     def test_each_evaluation_has_a_distinct_default_decision_identity(self):
         """Catches reuse of request identity or one gate identity across evaluations."""
         resolver = _FakeResolver(PermissionOutcome.ALLOW)
@@ -346,6 +385,47 @@ class TestGateDecisionIdentity:
                 session_id="sess-1",
                 operation_id="op-1",
             )
+
+    def test_invalid_post_approval_identity_does_not_consume_approval(self):
+        """Catches invalid ID validation that runs after one-time consumption."""
+        gate, service, approval_request_id, operation = (
+            self._approval_consumption_scenario(lambda: "")
+        )
+
+        with pytest.raises(ValueError, match="non-empty string"):
+            gate.evaluate_operation_definition(
+                operation,
+                request_id="req-invalid-post-approval-id",
+                actor_id="actor-1",
+                session_id="sess-1",
+                approval_request_id=approval_request_id,
+            )
+
+        assert service.repository.is_consumed(approval_request_id) is False
+
+    def test_duplicate_post_approval_identity_does_not_consume_approval(self):
+        """Catches duplicate ID validation that runs after one-time consumption."""
+        gate, service, approval_request_id, operation = (
+            self._approval_consumption_scenario(lambda: "duplicate-decision")
+        )
+        pending = gate.evaluate_operation_definition(
+            operation,
+            request_id="req-pending-duplicate-id",
+            actor_id="actor-1",
+            session_id="sess-1",
+        )
+        assert pending.decision_id == "duplicate-decision"
+
+        with pytest.raises(ValueError, match="unique"):
+            gate.evaluate_operation_definition(
+                operation,
+                request_id="req-duplicate-post-approval-id",
+                actor_id="actor-1",
+                session_id="sess-1",
+                approval_request_id=approval_request_id,
+            )
+
+        assert service.repository.is_consumed(approval_request_id) is False
 
     def test_decision_identity_round_trip_and_legacy_payload_compatibility(self):
         """Catches loss of new identity or rejection of pre-identity payloads."""
