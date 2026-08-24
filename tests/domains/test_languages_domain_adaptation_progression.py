@@ -133,6 +133,41 @@ def test_baseline_provenance_replay_cannot_support_stable_progression() -> None:
     assert result["current_average"] == 0.90
 
 
+def test_provenance_field_aliases_cannot_support_stable_progression() -> None:
+    """One observation exposed through two ID fields remains one observation."""
+    result = evaluate_progression(
+        previous_evidence=(
+            {
+                "provenance_id": "baseline",
+                "score": 0.60,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+        ),
+        current_evidence=(
+            {
+                "provenance_id": "same-current",
+                "score": 0.90,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+            {
+                "source_id": "same-current",
+                "score": 0.90,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+        ),
+        skill="writing",
+    )
+
+    assert result["progression_outcome"] == "short_term_improvement"
+    assert result["stable_progression"] is False
+
+
 def test_no_baseline_cannot_create_stable_progression() -> None:
     """Current high scores cannot invent their own historical baseline."""
     current = (

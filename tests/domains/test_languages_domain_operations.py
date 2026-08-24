@@ -279,6 +279,59 @@ def test_update_level_operation_uses_canonical_evidence_semantics() -> None:
     assert result["evidence_boundary_valid"] is True
 
 
+def test_generate_lesson_uses_selected_pedagogical_mode() -> None:
+    """The selected profile mode must change real lesson behavior."""
+    lessons = {
+        mode: generate_lesson_result(
+            language="English",
+            target_skill="writing",
+            current_level="B1",
+            topic="inversion",
+            mode=mode,
+        )
+        for mode in (
+            "teach",
+            "practice",
+            "assess",
+            "review",
+            "certification",
+            "immersion",
+        )
+    }
+
+    behaviors = {
+        (
+            lesson["warmup"],
+            lesson["input_material"],
+            lesson["guided_practice"],
+            lesson["active_production"],
+            lesson["next_step"],
+        )
+        for lesson in lessons.values()
+    }
+    assert len(behaviors) == 6
+    assert "active use" in lessons["practice"]["guided_practice"].lower()
+    assert "without coaching" in lessons["assess"]["active_production"].lower()
+
+
+def test_schema_valid_nested_null_collections_are_treated_as_empty() -> None:
+    """Nullable nested caller data must not crash public operation helpers."""
+    conversation = {"turns": None}
+    transcript = {"transcript": "Hello", "observed_errors": None}
+
+    conversation_result = generate_conversation_turn_result(
+        conversation=conversation
+    )
+    roleplay_result = generate_roleplay_turn_result(conversation=conversation)
+    speaking_result = review_speaking_result(audio_transcript=transcript)
+
+    assert conversation_result["turn_count"] == 1
+    assert roleplay_result["turn_number"] == 1
+    assert speaking_result["observed_errors"] == []
+    assert conversation == {"turns": None}
+    assert transcript == {"transcript": "Hello", "observed_errors": None}
+
+
 def test_speaking_review_transcript_no_pronunciation() -> None:
     """Verify review_speaking without audio evidence has pronunciation_assessed=False."""
     res = review_speaking_result(

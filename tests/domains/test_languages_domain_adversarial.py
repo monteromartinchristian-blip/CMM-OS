@@ -377,6 +377,16 @@ def test_level_updates_require_distinct_comparable_same_skill_evidence() -> None
     )
     assert duplicated["stable_update_supported"] is False
 
+    aliased = evaluate_level_update(
+        existing=existing,
+        target_skill="writing",
+        evidence=(
+            {**base, "provenance_id": "same"},
+            {**base, "source_id": "same"},
+        ),
+    )
+    assert aliased["stable_update_supported"] is False
+
     non_comparable = evaluate_level_update(
         existing=existing,
         target_skill="writing",
@@ -400,6 +410,16 @@ def test_error_patterns_require_independence_and_comparability() -> None:
     assert evaluate_error_pattern(observations=(one,))["eligible"] is False
     copied = ({**one, "id": "a"}, {**one, "id": "b"})
     assert evaluate_error_pattern(observations=copied)["eligible"] is False
+    aliased = (
+        {**one, "provenance_id": "same"},
+        {
+            "source_id": "same",
+            "error_type": "inversion",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+    )
+    assert evaluate_error_pattern(observations=aliased)["eligible"] is False
     non_comparable = (
         one,
         {**one, "provenance_id": "two", "comparable": False},

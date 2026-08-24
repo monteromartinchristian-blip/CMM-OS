@@ -144,7 +144,7 @@ def _canonical_provenance(record: Mapping[str, Any]) -> str | None:
     for field in _PROVENANCE_FIELDS:
         value = _safe_str(record.get(field))
         if value is not None:
-            return f"{field}:{value}"
+            return value
     return None
 
 
@@ -153,7 +153,7 @@ def _certification_provenance(record: Mapping[str, Any]) -> str | None:
     for field in _CERTIFICATION_PROVENANCE_FIELDS:
         value = _safe_str(record.get(field))
         if value is not None:
-            return f"{field}:{value}"
+            return value
     return None
 
 

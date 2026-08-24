@@ -1686,6 +1686,10 @@ def assert_selected_profile_mode_trace_semantics(
     selected_profile_mode = scenario.state["selected_profile_mode"]
     assert selected_profile_mode in LANGUAGES_PEDAGOGICAL_MODES
     assert scenario.state["lesson_input_mode"] == selected_profile_mode
+    lesson = scenario.state["workflow_runs"][
+        "languages.adaptive_language_lesson"
+    ].common_run.outputs["lesson"]
+    assert "active use" in lesson["guided_practice"].lower()
     assert trace.metadata["selected_profile_mode"] == selected_profile_mode
     assert trace.metadata["selected_profile_mode"] in LANGUAGES_PEDAGOGICAL_MODES
 

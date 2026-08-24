@@ -27,6 +27,7 @@ from typing import Any
 from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.languages.catalog import CANONICAL_LANGUAGES_OPERATION_IDS
+from cmm.domains.languages.profile import LANGUAGES_PEDAGOGICAL_MODES
 from cmm.domains.languages.rules import (
     classify_language_variety,
     evaluate_certification_source,
@@ -73,6 +74,59 @@ def _pronunciation_outcome_feedback(evidence: Any) -> str | None:
 _VOCABULARY_STATES = frozenset(
     {"new", "learning", "review", "consolidated", "needs_reinforcement"}
 )
+
+_LESSON_MODE_BEHAVIORS: dict[str, dict[str, str | tuple[str, ...]]] = {
+    "teach": {
+        "warmup": "Review prerequisite vocabulary and activate prior knowledge.",
+        "input_material": "Explicit explanation with models and worked examples.",
+        "guided_practice": "Scaffolded construction with checks for understanding.",
+        "active_production": "Apply the new concept with gradually reduced support.",
+        "feedback_criteria": ("Accuracy", "Understanding", "Task fulfillment"),
+        "next_step": "Reapply the concept independently in a communicative task.",
+    },
+    "practice": {
+        "warmup": "Use a brief retrieval prompt before sustained practice.",
+        "input_material": "A concise model that leaves most time for active use.",
+        "guided_practice": "Active use rehearsal with minimal flow interruption.",
+        "active_production": "Sustain a meaningful response before selective feedback.",
+        "feedback_criteria": ("Communicative effectiveness", "Priority accuracy", "Flow"),
+        "next_step": "Review selective feedback after the useful interaction unit.",
+    },
+    "assess": {
+        "warmup": "Confirm task instructions without coaching the target skill.",
+        "input_material": "Neutral task material without worked target answers.",
+        "guided_practice": "Orient to the task without contaminating the evidence.",
+        "active_production": "Complete the target task without coaching or hints.",
+        "feedback_criteria": ("Observed evidence", "Uncertainty", "Task fulfillment"),
+        "next_step": "Classify the observed result without inferring a stable level.",
+    },
+    "review": {
+        "warmup": "Retrieve previously authorized material and unresolved gaps.",
+        "input_material": "Compare prior evidence with a targeted refresher model.",
+        "guided_practice": "Reinforce weak material through spaced retrieval.",
+        "active_production": "Demonstrate the reviewed concept in a fresh context.",
+        "feedback_criteria": ("Retention", "Resolved gaps", "Remaining uncertainty"),
+        "next_step": "Schedule further reinforcement only where evidence supports it.",
+    },
+    "certification": {
+        "warmup": "Recall the current official task format and rubric boundaries.",
+        "input_material": "Current certification criteria and task-specific models.",
+        "guided_practice": "Rehearse the official format without equating it to broad proficiency.",
+        "active_production": "Complete a certification-style response under relevant constraints.",
+        "feedback_criteria": ("Official rubric", "Format readiness", "General-skill boundary"),
+        "next_step": "Separate exam-format readiness from broader proficiency needs.",
+    },
+    "immersion": {
+        "warmup": "Activate the topic primarily in the target language.",
+        "input_material": "Comprehensible target-language material with minimal fallback.",
+        "guided_practice": "Use target-language scaffolding while preserving comprehension.",
+        "active_production": "Respond in the target language with user-controlled fallback.",
+        "feedback_criteria": ("Comprehensibility", "Target-language use", "Naturalness"),
+        "next_step": "Increase target-language use while keeping the task comprehensible.",
+    },
+}
+
+assert set(_LESSON_MODE_BEHAVIORS) == set(LANGUAGES_PEDAGOGICAL_MODES)
 
 
 def _normalize_vocabulary_state(value: Any) -> str:
@@ -906,18 +960,20 @@ def generate_lesson_result(
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Generate structured lesson material for guided teaching."""
+    selected_mode = mode if mode in LANGUAGES_PEDAGOGICAL_MODES else "teach"
+    behavior = _LESSON_MODE_BEHAVIORS[selected_mode]
     return {
         "lesson_id": f"lsn-{uuid.uuid4().hex[:8]}",
         "language": language,
         "target_skill": target_skill,
         "level": current_level,
         "objective": f"Master {topic} in {language} for {target_skill}",
-        "warmup": f"Review key vocabulary related to {topic}.",
-        "input_material": f"Authentic text and models demonstrating {topic}.",
-        "guided_practice": "Scaffolded sentence construction and analysis.",
-        "active_production": "Open response prompt applying new concepts.",
-        "feedback_criteria": ["Accuracy", "Naturalness", "Task fulfillment"],
-        "next_step": "Apply in communicative roleplay or writing.",
+        "warmup": f"{behavior['warmup']} Topic: {topic}.",
+        "input_material": f"{behavior['input_material']} Focus: {topic}.",
+        "guided_practice": behavior["guided_practice"],
+        "active_production": behavior["active_production"],
+        "feedback_criteria": list(behavior["feedback_criteria"]),
+        "next_step": behavior["next_step"],
     }
 
 
@@ -1072,7 +1128,8 @@ def generate_conversation_turn_result(
 ) -> dict[str, Any]:
     """Generate one pedagogical conversation turn without executing a conversation loop."""
     conv = dict(conversation or {})
-    turns = conv.get("turns", [])
+    raw_turns = conv.get("turns")
+    turns = raw_turns if isinstance(raw_turns, (list, tuple)) else ()
     turn_count = len(turns) + 1
 
     return {
@@ -1095,7 +1152,8 @@ def generate_roleplay_turn_result(
 ) -> dict[str, Any]:
     """Generate one roleplay turn grounded in scenario."""
     conv = dict(conversation or {})
-    turns = conv.get("turns", [])
+    raw_turns = conv.get("turns")
+    turns = raw_turns if isinstance(raw_turns, (list, tuple)) else ()
     turn_num = len(turns) + 1
 
     return {
@@ -1118,9 +1176,14 @@ def review_speaking_result(
     at = dict(audio_transcript or {})
     raw_transcript = at.get("transcript")
     transcript = raw_transcript.strip() if isinstance(raw_transcript, str) else ""
+    raw_observed_errors = at.get("observed_errors")
     observed_errors = [
         dict(normalize_json_value(item))
-        for item in at.get("observed_errors", ())
+        for item in (
+            raw_observed_errors
+            if isinstance(raw_observed_errors, (list, tuple))
+            else ()
+        )
         if isinstance(item, Mapping)
     ]
 
