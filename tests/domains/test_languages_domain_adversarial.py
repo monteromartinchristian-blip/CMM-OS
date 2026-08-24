@@ -218,6 +218,8 @@ def test_invalid_confidence_cannot_create_certainty_or_non_json_numbers() -> Non
     for confidence in (True, -0.1, 1.1, float("inf"), float("-inf"), float("nan")):
         result = classify_proficiency_record(
             kind="OBSERVED_PERFORMANCE",
+            level_or_score="B2",
+            evidence=({"provenance_id": "observed-sample", "observed": "B2"},),
             confidence=confidence,
         )
         assert result["confidence"] == 0.5

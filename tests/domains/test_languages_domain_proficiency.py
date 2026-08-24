@@ -51,10 +51,11 @@ def test_classify_proficiency_record_kinds() -> None:
         level_or_score="B2",
         skill_scope="writing",
         evidence=(
-            {"id": "sample-1", "task_type": "essay"},
+            {"provenance_id": "sample-1", "task_type": "essay", "skill": "writing", "observed": "B2"},
         ),
     )
     assert sample["kind"] == "OBSERVED_PERFORMANCE"
+    assert sample["level_or_score"] == "B2"
     assert sample["is_certified"] is False
 
     # Longitudinal -> ESTIMATED
@@ -64,8 +65,8 @@ def test_classify_proficiency_record_kinds() -> None:
         level_or_score="B1+",
         skill_scope="writing",
         evidence=(
-            {"id": "sample-1", "task_type": "essay", "observed": "B1+"},
-            {"id": "sample-2", "task_type": "summary", "observed": "B1+"},
+            {"provenance_id": "sample-1", "task_type": "essay", "skill": "writing", "observed": "B1+"},
+            {"provenance_id": "sample-2", "task_type": "summary", "skill": "writing", "observed": "B1+"},
         ),
     )
     assert est["kind"] == "ESTIMATED"

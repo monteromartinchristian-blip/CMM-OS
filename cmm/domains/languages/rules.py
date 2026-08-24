@@ -173,6 +173,66 @@ def _is_certifying_evidence(record: Any) -> bool:
     )
 
 
+def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
+    """Return whether a record can ground an observed proficiency level or score."""
+    if _canonical_provenance(record) is None:
+        return False
+    if "skill" in record and _safe_str(record.get("skill")) is None:
+        return False
+    if _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")):
+        return True
+    score = record.get("score")
+    return (
+        isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and math.isfinite(float(score))
+    )
+
+
+def _clean_proficiency_value(value: Any) -> str | float | None:
+    """Normalize a direct claimed level or finite numeric score without mapping it."""
+    text_value = _safe_str(value)
+    if text_value is not None:
+        return text_value
+    if (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    ):
+        return float(value)
+    return None
+
+
+def _evidence_matches_proficiency_claim(
+    record: Mapping[str, Any],
+    *,
+    skill_scope: str,
+    claimed_value: str | float | None,
+) -> bool:
+    """Require direct evidence to support the requested scope and value exactly."""
+    if not _is_grounded_proficiency_evidence(record) or claimed_value is None:
+        return False
+
+    normalized_scope = skill_scope.casefold()
+    if normalized_scope in CANONICAL_SKILL_DIMENSIONS:
+        evidence_skill = _safe_str(record.get("skill"))
+        if evidence_skill is None or evidence_skill.casefold() != normalized_scope:
+            return False
+
+    observed_value = _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance"))
+    if observed_value is not None:
+        return isinstance(claimed_value, str) and observed_value.casefold() == claimed_value.casefold()
+
+    score = record.get("score")
+    return (
+        isinstance(claimed_value, float)
+        and isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and math.isfinite(float(score))
+        and float(score) == claimed_value
+    )
+
+
 def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
     """Identify semantic evidence without treating caller-controlled IDs as provenance."""
     return (
@@ -206,44 +266,72 @@ def classify_proficiency_record(
     *,
     kind: str | None = None,
     framework: str | None = None,
-    level_or_score: str | None = None,
+    level_or_score: str | float | None = None,
     skill_scope: str | None = None,
     evidence: tuple[Any, ...] | list[Any] = (),
     confidence: float | None = None,
 ) -> dict[str, Any]:
     """Classify a proficiency record preserving CERTIFIED vs ESTIMATED vs OBSERVED_PERFORMANCE."""
     deduped_ev = _deduplicate_evidence(evidence)
-    clean_kind = _safe_str(kind) or "OBSERVED_PERFORMANCE"
-    if clean_kind not in CANONICAL_PROFICIENCY_KINDS:
-        clean_kind = "OBSERVED_PERFORMANCE"
+    requested_kind = _safe_str(kind) or "OBSERVED_PERFORMANCE"
+    if requested_kind not in CANONICAL_PROFICIENCY_KINDS:
+        requested_kind = "OBSERVED_PERFORMANCE"
+    clean_skill_scope = _safe_str(skill_scope) or "general"
+    clean_level_or_score = _clean_proficiency_value(level_or_score)
 
     # CERTIFIED requires recognized, grounded official credential evidence.
     certification_evidence_valid = any(_is_certifying_evidence(e) for e in deduped_ev)
-    is_certified = clean_kind == "CERTIFIED" and certification_evidence_valid
+    is_certified = requested_kind == "CERTIFIED" and certification_evidence_valid
     if is_certified:
         clean_kind = "CERTIFIED"
-    elif clean_kind == "CERTIFIED":
-        clean_kind = "ESTIMATED" if len(deduped_ev) >= 2 else "OBSERVED_PERFORMANCE"
+    else:
+        grounded_ev = [
+            item
+            for item in deduped_ev
+            if _evidence_matches_proficiency_claim(
+                item,
+                skill_scope=clean_skill_scope,
+                claimed_value=clean_level_or_score,
+            )
+        ]
+        grounded_provenance = {_canonical_provenance(item) for item in grounded_ev}
+        has_observed_evidence = bool(grounded_ev)
+        has_independent_evidence = len(grounded_provenance) >= 2
+
+        if requested_kind == "ESTIMATED" and has_independent_evidence:
+            clean_kind = "ESTIMATED"
+        else:
+            # An invalid certificate does not invent an estimate; any separately
+            # grounded task/session evidence remains only observed performance.
+            clean_kind = "OBSERVED_PERFORMANCE"
+
+    evidence_supports_level = (
+        is_certified
+        or (requested_kind == "ESTIMATED" and has_independent_evidence)
+        or (requested_kind == "OBSERVED_PERFORMANCE" and has_observed_evidence)
+    )
 
     default_confidence = (
         0.95
         if clean_kind == "CERTIFIED"
         else (0.75 if clean_kind == "ESTIMATED" else 0.5)
     )
-    clean_confidence = (
-        float(confidence)
-        if isinstance(confidence, (int, float))
-        and not isinstance(confidence, bool)
-        and math.isfinite(float(confidence))
-        and 0.0 <= float(confidence) <= 1.0
-        else default_confidence
-    )
+    clean_confidence = 0.0
+    if evidence_supports_level:
+        clean_confidence = (
+            float(confidence)
+            if isinstance(confidence, (int, float))
+            and not isinstance(confidence, bool)
+            and math.isfinite(float(confidence))
+            and 0.0 <= float(confidence) <= 1.0
+            else default_confidence
+        )
 
     return {
         "kind": clean_kind,
         "framework": _safe_str(framework) or "CEFR",
-        "level_or_score": _safe_str(level_or_score) or "unassessed",
-        "skill_scope": _safe_str(skill_scope) or "general",
+        "level_or_score": clean_level_or_score if evidence_supports_level and clean_level_or_score is not None else "unassessed",
+        "skill_scope": clean_skill_scope,
         "evidence": deduped_ev,
         "is_certified": clean_kind == "CERTIFIED",
         "certification_evidence_valid": certification_evidence_valid,
