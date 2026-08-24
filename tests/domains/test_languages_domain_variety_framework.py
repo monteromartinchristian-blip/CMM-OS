@@ -80,7 +80,10 @@ def test_evaluate_framework_mapping_identity_forbidden() -> None:
         target_framework="IELTS",
         mapping_evidence=(),
     )
-    assert result["mapping_status"] in ("identity_forbidden", "grounded_approximate_mapping")
+    assert result["mapping_status"] in (
+        "identity_forbidden",
+        "grounded_approximate_mapping",
+    )
     assert result["is_exact"] is False
     assert result["approximate"] is True
 

@@ -80,10 +80,27 @@ CANONICAL_PROFICIENCY_KINDS: tuple[str, ...] = (
 )
 
 KNOWN_VARIETIES: dict[str, tuple[str, ...]] = {
-    "english": ("american english", "british english", "australian english", "canadian english", "general english"),
-    "spanish": ("castilian spanish", "peninsular spanish", "latin american spanish", "mexican spanish", "rioplatense spanish"),
+    "english": (
+        "american english",
+        "british english",
+        "australian english",
+        "canadian english",
+        "general english",
+    ),
+    "spanish": (
+        "castilian spanish",
+        "peninsular spanish",
+        "latin american spanish",
+        "mexican spanish",
+        "rioplatense spanish",
+    ),
     "french": ("standard french", "canadian french"),
-    "catalan": ("central catalan", "valencian", "balearic catalan", "north-western catalan"),
+    "catalan": (
+        "central catalan",
+        "valencian",
+        "balearic catalan",
+        "north-western catalan",
+    ),
 }
 
 _CERTIFIED_SOURCE_KINDS = frozenset(
@@ -141,16 +158,27 @@ def _canonical_json_value(value: Any) -> str:
     if isinstance(norm, int):
         return str(norm)
     if isinstance(norm, float):
-        return f"{norm:.8f}".rstrip("0").rstrip(".") if "." in f"{norm:.8f}" else str(norm)
+        return (
+            f"{norm:.8f}".rstrip("0").rstrip(".") if "." in f"{norm:.8f}" else str(norm)
+        )
     if isinstance(norm, str):
-        escaped = norm.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        escaped = (
+            norm.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
         return f'"{escaped}"'
     if isinstance(norm, list):
         items_str = ",".join(_canonical_json_value(x) for x in norm)
         return f"[{items_str}]"
     if isinstance(norm, Mapping):
         sorted_keys = sorted(str(k) for k in norm)
-        pairs_str = ",".join(f"{_canonical_json_value(k)}:{_canonical_json_value(norm[k])}" for k in sorted_keys)
+        pairs_str = ",".join(
+            f"{_canonical_json_value(k)}:{_canonical_json_value(norm[k])}"
+            for k in sorted_keys
+        )
         return f"{{{pairs_str}}}"
     return f'"{norm!s}"'
 
@@ -231,7 +259,9 @@ def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
         return False
     if "skill" in record and _safe_str(record.get("skill")) is None:
         return False
-    if _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")):
+    if _safe_str(record.get("observed")) or _safe_str(
+        record.get("observed_performance")
+    ):
         return True
     score = _finite_semantic_number(record.get("score"))
     return score is not None
@@ -239,10 +269,20 @@ def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
 
 def _has_explicit_pronunciation_result(record: Mapping[str, Any]) -> bool:
     """Return whether an assessment record contains a usable pronunciation outcome."""
-    if len([
-        field for field in ("pronunciation_result", "pronunciation_feedback", "finding")
-        if _safe_str(record.get(field)) is not None
-    ]) > 0:
+    if (
+        len(
+            [
+                field
+                for field in (
+                    "pronunciation_result",
+                    "pronunciation_feedback",
+                    "finding",
+                )
+                if _safe_str(record.get(field)) is not None
+            ]
+        )
+        > 0
+    ):
         return True
     score = _finite_semantic_number(record.get("score"))
     return score is not None
@@ -281,7 +321,8 @@ def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
         _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
         _safe_str(record.get("framework")),
         _safe_str(record.get("skill")),
-        _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
+        _safe_str(record.get("observed"))
+        or _safe_str(record.get("observed_performance")),
         _canonical_json_value(record.get("score")),
         _safe_str(record.get("error_type")),
         _safe_str(record.get("sentence")),
@@ -345,7 +386,9 @@ def _proficiency_evidence_supports_claim(
         return False
 
     if requested_value is not None:
-        observed_value = _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance"))
+        observed_value = _safe_str(record.get("observed")) or _safe_str(
+            record.get("observed_performance")
+        )
         if observed_value is not None:
             if isinstance(requested_value, str):
                 return observed_value.casefold() == requested_value.casefold()
@@ -357,7 +400,9 @@ def _proficiency_evidence_supports_claim(
             return score == req_num
         return False
 
-    observed_value = _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance"))
+    observed_value = _safe_str(record.get("observed")) or _safe_str(
+        record.get("observed_performance")
+    )
     if observed_value is not None:
         return True
     score = _finite_semantic_number(record.get("score"))
@@ -383,7 +428,9 @@ def classify_proficiency_record(
     clean_level_or_score = _clean_proficiency_value(level_or_score)
 
     # CERTIFIED requires recognized, grounded official credential evidence.
-    certification_evidence_valid = len([e for e in deduped_ev if _is_certifying_evidence(e)]) > 0
+    certification_evidence_valid = (
+        len([e for e in deduped_ev if _is_certifying_evidence(e)]) > 0
+    )
     is_certified = requested_kind == "CERTIFIED" and certification_evidence_valid
     if is_certified:
         clean_kind = "CERTIFIED"
@@ -435,7 +482,9 @@ def classify_proficiency_record(
     return {
         "kind": clean_kind,
         "framework": _safe_str(framework) or "CEFR",
-        "level_or_score": clean_level_or_score if evidence_supports_level and clean_level_or_score is not None else "unassessed",
+        "level_or_score": clean_level_or_score
+        if evidence_supports_level and clean_level_or_score is not None
+        else "unassessed",
         "skill_scope": clean_skill_scope,
         "evidence": deduped_ev,
         "is_certified": clean_kind == "CERTIFIED",
@@ -489,7 +538,8 @@ def evaluate_level_update(
     observed_levels = [
         _safe_str(e.get("observed")) or _safe_str(e.get("observed_performance"))
         for e in comparable
-        if (_safe_str(e.get("observed")) or _safe_str(e.get("observed_performance"))) is not None
+        if (_safe_str(e.get("observed")) or _safe_str(e.get("observed_performance")))
+        is not None
     ]
     if len(observed_levels) >= 2 and len(set(observed_levels)) == 1:
         new_level = observed_levels[0]
@@ -500,7 +550,8 @@ def evaluate_level_update(
             "updated_record": {
                 "kind": "ESTIMATED",
                 "framework": existing_framework,
-                "skill_scope": target_skill or existing_dict.get("skill_scope", "general"),
+                "skill_scope": target_skill
+                or existing_dict.get("skill_scope", "general"),
                 "level_or_score": new_level,
                 "evidence": comparable,
             },
@@ -514,21 +565,37 @@ def evaluate_level_update(
     }
 
 
-def separate_skill_evidence(*, evidence: tuple[Any, ...] | list[Any] = ()) -> dict[str, Any]:
+def separate_skill_evidence(
+    *, evidence: tuple[Any, ...] | list[Any] = ()
+) -> dict[str, Any]:
     """Strictly partition evidence across canonical skill dimensions."""
     deduped_ev = _deduplicate_evidence(evidence)
 
     pron_items = [
-        e for e in deduped_ev
-        if e.get("skill") == "pronunciation" and _is_grounded_pronunciation_assessment(e)
+        e
+        for e in deduped_ev
+        if e.get("skill") == "pronunciation"
+        and _is_grounded_pronunciation_assessment(e)
     ]
     has_pronunciation_specific_evidence = len(pron_items) > 0
 
     by_skill = {
         skill: {
-            "status": "evidenced" if (pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill]) else "insufficient_evidence",
-            "evidence_count": len(pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill]),
-            "evidence": pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill],
+            "status": "evidenced"
+            if (
+                pron_items
+                if skill == "pronunciation"
+                else [e for e in deduped_ev if e.get("skill") == skill]
+            )
+            else "insufficient_evidence",
+            "evidence_count": len(
+                pron_items
+                if skill == "pronunciation"
+                else [e for e in deduped_ev if e.get("skill") == skill]
+            ),
+            "evidence": pron_items
+            if skill == "pronunciation"
+            else [e for e in deduped_ev if e.get("skill") == skill],
         }
         for skill in CANONICAL_SKILL_DIMENSIONS
     }
@@ -569,7 +636,11 @@ def classify_language_variety(
         }
 
     preferred_family = next(
-        (varieties for varieties in KNOWN_VARIETIES.values() if clean_pref in varieties),
+        (
+            varieties
+            for varieties in KNOWN_VARIETIES.values()
+            if clean_pref in varieties
+        ),
         None,
     )
     observed_family = next(
@@ -652,7 +723,11 @@ def evaluate_framework_mapping(
             "calibrated": True,
         }
 
-    mapping_list = list(mapping_evidence) if isinstance(mapping_evidence, (list, tuple, set, frozenset)) else []
+    mapping_list = (
+        list(mapping_evidence)
+        if isinstance(mapping_evidence, (list, tuple, set, frozenset))
+        else []
+    )
 
     def _is_applicable_mapping(norm: dict[str, Any]) -> bool:
         if _framework_mapping_provenance(norm) is None:
@@ -673,7 +748,9 @@ def evaluate_framework_mapping(
             return False
         if isinstance(clean_s_val, float) and isinstance(rec_src_val, float):
             return clean_s_val == rec_src_val
-        return str(clean_s_val).strip().casefold() == str(rec_src_val).strip().casefold()
+        return (
+            str(clean_s_val).strip().casefold() == str(rec_src_val).strip().casefold()
+        )
 
     valid_recs = [
         norm
@@ -683,10 +760,16 @@ def evaluate_framework_mapping(
         if _is_applicable_mapping(norm)
     ]
     prov_to_ranges = {
-        _framework_mapping_provenance(r): {_safe_str(x.get("target_range")) for x in valid_recs if _framework_mapping_provenance(x) == _framework_mapping_provenance(r)}
+        _framework_mapping_provenance(r): {
+            _safe_str(x.get("target_range"))
+            for x in valid_recs
+            if _framework_mapping_provenance(x) == _framework_mapping_provenance(r)
+        }
         for r in valid_recs
     }
-    has_same_prov_conflict = len([ranges for ranges in prov_to_ranges.values() if len(ranges) > 1]) > 0
+    has_same_prov_conflict = (
+        len([ranges for ranges in prov_to_ranges.values() if len(ranges) > 1]) > 0
+    )
     all_ranges = {_safe_str(r.get("target_range")) for r in valid_recs}
     has_conflict = has_same_prov_conflict or len(all_ranges) > 1
 
@@ -911,6 +994,7 @@ class ProficiencyFrameworkRule:
 
 # ── Task 4 Helpers & Rule Classes ────────────────────────────────────────────
 
+
 def evaluate_error_pattern(
     *,
     observations: tuple[Any, ...] | list[Any] = (),
@@ -1031,7 +1115,9 @@ def prioritize_corrections(
     else:
         certification_relevance_list = list(certification_relevance)
 
-    raw_errors = [dict(normalize_json_value(e)) for e in raw_errors_list if isinstance(e, Mapping)]
+    raw_errors = [
+        dict(normalize_json_value(e)) for e in raw_errors_list if isinstance(e, Mapping)
+    ]
 
     goal_set = {_safe_str(g) for g in active_goals_list if _safe_str(g)}
     cert_set = {_safe_str(c) for c in certification_relevance_list if _safe_str(c)}
@@ -1053,7 +1139,9 @@ def prioritize_corrections(
             return 20
         return 10  # minor_style
 
-    sorted_errors = sorted(raw_errors, key=lambda err: (-_score(err), _canonical_json_value(err)))
+    sorted_errors = sorted(
+        raw_errors, key=lambda err: (-_score(err), _canonical_json_value(err))
+    )
 
     defer_feedback = clean_mode == "assess"
     selective_density = clean_mode == "practice"
@@ -1062,7 +1150,11 @@ def prioritize_corrections(
     deferred_errors = []
     for err in sorted_errors:
         score = _score(err)
-        if clean_mode == "assess" or (clean_mode == "practice" and score <= 10 and len([e for e in sorted_errors if _score(e) > 10]) > 0):
+        if clean_mode == "assess" or (
+            clean_mode == "practice"
+            and score <= 10
+            and len([e for e in sorted_errors if _score(e) > 10]) > 0
+        ):
             deferred_errors.append(err)
         else:
             immediate_errors.append(err)
@@ -1110,7 +1202,9 @@ def adapt_difficulty(
         if comp_key is not None
         for provenance in [_canonical_provenance(p)]
         if provenance is not None
-        for score_val in [_finite_semantic_number(p.get("score"), minimum=0.0, maximum=1.0)]
+        for score_val in [
+            _finite_semantic_number(p.get("score"), minimum=0.0, maximum=1.0)
+        ]
         if score_val is not None
         for norm in [dict(normalize_json_value(p))]
     ]
@@ -1124,9 +1218,13 @@ def adapt_difficulty(
             "reason": "no_comparable_performance",
         }
 
-    sorted_perf = sorted(valid_perf, key=lambda item: _canonical_json_value(item[3]), reverse=True)
+    sorted_perf = sorted(
+        valid_perf, key=lambda item: _canonical_json_value(item[3]), reverse=True
+    )
     deduped_by_prov = {prov: (score, norm) for prov, score, _, norm in sorted_perf}
-    qualified_records = sorted(deduped_by_prov.values(), key=lambda item: _canonical_json_value(item[1]))
+    qualified_records = sorted(
+        deduped_by_prov.values(), key=lambda item: _canonical_json_value(item[1])
+    )
     scores = [score for score, _ in qualified_records]
     avg_score = sum(scores) / len(scores)
 
@@ -1175,7 +1273,9 @@ class ErrorPatternEvidenceRule:
         mat = _mapping(context.metadata, "material") or {}
         res = evaluate_error_pattern(
             observations=mat.get("observations", ()),
-            minimum_independent_occurrences=mat.get("minimum_independent_occurrences", 2),
+            minimum_independent_occurrences=mat.get(
+                "minimum_independent_occurrences", 2
+            ),
         )
         finding = ReasoningFinding(
             code="ERROR_PATTERN_EVALUATED",
@@ -1256,6 +1356,7 @@ class AdaptiveDifficultyRule:
 
 # ── Task 5 Helpers & Rule Classes ────────────────────────────────────────────
 
+
 def plan_spaced_review(
     *,
     items: tuple[Any, ...] | list[Any] = (),
@@ -1284,13 +1385,22 @@ def plan_spaced_review(
     deduped_by_id = {
         item_id: item
         for item in sorted_raw
-        for item_id in [_safe_str(item.get("id")) or _safe_str(item.get("term")) or _safe_str(item.get("item_id"))]
+        for item_id in [
+            _safe_str(item.get("id"))
+            or _safe_str(item.get("term"))
+            or _safe_str(item.get("item_id"))
+        ]
         if item_id is not None
     }
     anon_items = [
         item
         for item in sorted_raw
-        if (_safe_str(item.get("id")) or _safe_str(item.get("term")) or _safe_str(item.get("item_id"))) is None
+        if (
+            _safe_str(item.get("id"))
+            or _safe_str(item.get("term"))
+            or _safe_str(item.get("item_id"))
+        )
+        is None
     ]
     unique_items = list(deduped_by_id.values()) + anon_items
 
@@ -1302,34 +1412,46 @@ def plan_spaced_review(
             score += 30.0
         item_id = _safe_str(item.get("id")) or ""
         item_term = _safe_str(item.get("term")) or ""
-        if item_id in goal_set or item_term in goal_set or item.get("goal_relevant") is True:
+        if (
+            item_id in goal_set
+            or item_term in goal_set
+            or item.get("goal_relevant") is True
+        ):
             score += 20.0
 
         # Mastery: lower mastery -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_mastery = _finite_semantic_number(item.get("mastery"))
-        if raw_mastery is None:
-            mastery = 0.5
-        else:
-            mastery = 1.0 if raw_mastery > 1.0 else (0.0 if raw_mastery < 0.0 else raw_mastery)  # noqa: FURB136
+        raw_mastery = _finite_semantic_number(
+            item.get("mastery"), minimum=0.0, maximum=1.0
+        )
+        mastery = 0.5 if raw_mastery is None else raw_mastery
         score += (1.0 - mastery) * 20.0
 
         # Recall: lower recall -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_recall_field = item.get("recall") if "recall" in item else item.get("retrieval_strength")
-        raw_recall = _finite_semantic_number(raw_recall_field)
+        raw_recall_field = (
+            item.get("recall") if "recall" in item else item.get("retrieval_strength")
+        )
+        raw_recall = _finite_semantic_number(raw_recall_field, minimum=0.0, maximum=1.0)
         if raw_recall is not None:
-            recall = 1.0 if raw_recall > 1.0 else (0.0 if raw_recall < 0.0 else raw_recall)  # noqa: FURB136
-            score += (1.0 - recall) * 15.0
+            score += (1.0 - raw_recall) * 15.0
 
         # Importance: higher importance -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_imp = _finite_semantic_number(item.get("importance"))
+        raw_imp = _finite_semantic_number(
+            item.get("importance"), minimum=0.0, maximum=1.0
+        )
         if raw_imp is not None:
-            importance = 1.0 if raw_imp > 1.0 else (0.0 if raw_imp < 0.0 else raw_imp)  # noqa: FURB136
-            score += importance * 15.0
+            score += raw_imp * 15.0
 
         return score
 
-    sorted_items = sorted(unique_items, key=lambda item: (-_review_priority(item), _canonical_json_value(item)))
-    due_items = [i for i in sorted_items if i.get("due") is True or i.get("active_pattern") is True]
+    sorted_items = sorted(
+        unique_items,
+        key=lambda item: (-_review_priority(item), _canonical_json_value(item)),
+    )
+    due_items = [
+        i
+        for i in sorted_items
+        if i.get("due") is True or i.get("active_pattern") is True
+    ]
 
     return {
         "prioritized_items": sorted_items,
@@ -1375,7 +1497,9 @@ def evaluate_learning_load(
                 "priorities_considered": len(priorities_list),
                 "backlog_considered": len(backlog_list),
                 "deadlines_considered": len(deadlines_list),
-                "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
+                "recent_load_considered": normalize_json_value(recent_load)
+                if recent_load is not None
+                else None,
             }
         clean_time = int(clean_time_num)
     else:
@@ -1425,15 +1549,24 @@ def evaluate_learning_load(
     activities_order: list[str] = []
 
     # 1. Urgent deadlines prepend exam/prep activity
-    has_urgent_deadline = len([
-        d for d in deadlines_list
-        if isinstance(d, Mapping)
-        and (
-            d.get("urgent") is True
-            or _safe_str(d.get("priority")) == "urgent"
-            or (_finite_semantic_number(d.get("days_remaining")) is not None and _finite_semantic_number(d.get("days_remaining")) <= 3)
+    has_urgent_deadline = (
+        len(
+            [
+                d
+                for d in deadlines_list
+                if isinstance(d, Mapping)
+                and (
+                    d.get("urgent") is True
+                    or _safe_str(d.get("priority")) == "urgent"
+                    or (
+                        _finite_semantic_number(d.get("days_remaining")) is not None
+                        and _finite_semantic_number(d.get("days_remaining")) <= 3
+                    )
+                )
+            ]
         )
-    ]) > 0
+        > 0
+    )
     if has_urgent_deadline:
         activities_order.append("exam_practice")
 
@@ -1464,7 +1597,9 @@ def evaluate_learning_load(
         "priorities_considered": len(priorities_list),
         "backlog_considered": len(backlog_list),
         "deadlines_considered": len(deadlines_list),
-        "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
+        "recent_load_considered": normalize_json_value(recent_load)
+        if recent_load is not None
+        else None,
     }
 
 
@@ -1479,8 +1614,12 @@ def align_activity_to_goals(
     else:
         goals_list = list(goals)
 
-    raw_goals = [dict(normalize_json_value(g)) for g in goals_list if isinstance(g, Mapping)]
-    coexisting_ids = sorted({gid for g in raw_goals if (gid := _safe_str(g.get("id"))) is not None})
+    raw_goals = [
+        dict(normalize_json_value(g)) for g in goals_list if isinstance(g, Mapping)
+    ]
+    coexisting_ids = sorted(
+        {gid for g in raw_goals if (gid := _safe_str(g.get("id"))) is not None}
+    )
 
     if not isinstance(activity, Mapping):
         if isinstance(activity, str) and activity.strip():
@@ -1490,8 +1629,17 @@ def align_activity_to_goals(
     else:
         activity_dict = dict(normalize_json_value(activity))
 
-    act_type = (_safe_str(activity_dict.get("type")) or _safe_str(activity_dict.get("activity_type")) or _safe_str(activity_dict.get("kind")) or "").lower()
-    act_skill = (_safe_str(activity_dict.get("skill")) or _safe_str(activity_dict.get("target_skill")) or "").lower()
+    act_type = (
+        _safe_str(activity_dict.get("type"))
+        or _safe_str(activity_dict.get("activity_type"))
+        or _safe_str(activity_dict.get("kind"))
+        or ""
+    ).lower()
+    act_skill = (
+        _safe_str(activity_dict.get("skill"))
+        or _safe_str(activity_dict.get("target_skill"))
+        or ""
+    ).lower()
     act_purpose = (_safe_str(activity_dict.get("purpose")) or "").lower()
     act_topic = (_safe_str(activity_dict.get("topic")) or "").lower()
     act_target = (_safe_str(activity_dict.get("target")) or "").lower()
@@ -1515,11 +1663,25 @@ def align_activity_to_goals(
         act_goal_ids = set()
 
     is_unrelated = (
-        not act_type and not act_skills and not act_topic and not act_target and not act_goal_ids and not act_purpose
-    ) or len([
-        u for u in ("unrelated", "accounting", "tax_filing", "non_learning", "irrelevant")
-        if u in act_type or u in act_purpose
-    ]) > 0
+        not act_type
+        and not act_skills
+        and not act_topic
+        and not act_target
+        and not act_goal_ids
+        and not act_purpose
+    ) or len(
+        [
+            u
+            for u in (
+                "unrelated",
+                "accounting",
+                "tax_filing",
+                "non_learning",
+                "irrelevant",
+            )
+            if u in act_type or u in act_purpose
+        ]
+    ) > 0
 
     aligned_goal_ids: list[str] = []
 
@@ -1533,31 +1695,130 @@ def align_activity_to_goals(
                 aligned_goal_ids.append(gid)
                 continue
 
-            g_kind = (_safe_str(g.get("kind")) or _safe_str(g.get("type")) or "").lower()
+            g_kind = (
+                _safe_str(g.get("kind")) or _safe_str(g.get("type")) or ""
+            ).lower()
             g_skill = (_safe_str(g.get("skill")) or "").lower()
             g_target = (_safe_str(g.get("target")) or "").lower()
 
             matched = False
 
-            if act_skills and len([s for s in act_skills if s == g_skill or s in g_kind or s in g_target]) > 0:
+            if (
+                act_skills
+                and len(
+                    [
+                        s
+                        for s in act_skills
+                        if s == g_skill or s in g_kind or s in g_target
+                    ]
+                )
+                > 0
+            ):
                 matched = True
 
-            if (act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic or "conversation" in act_purpose or "speaking" in act_purpose or "speaking" in act_skills or "conversation" in act_skills or "listening" in act_skills) and (g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target):
+            if (
+                act_type
+                in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat")
+                or "conversation" in act_topic
+                or "conversation" in act_purpose
+                or "speaking" in act_purpose
+                or "speaking" in act_skills
+                or "conversation" in act_skills
+                or "listening" in act_skills
+            ) and (
+                g_kind in ("conversation", "speaking", "fluency")
+                or g_skill in ("speaking", "listening")
+                or "conversation" in g_target
+                or "fluency" in g_target
+            ):
                 matched = True
 
-            if (act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test") or "exam" in act_purpose or "certification" in act_purpose or "assessment" in act_purpose) and (g_kind in ("certification", "exam", "assessment") or len([fw for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge") if fw in g_target]) > 0):
+            if (
+                act_type
+                in (
+                    "formal_exam_essay",
+                    "exam_practice",
+                    "certification_prep",
+                    "mock_test",
+                    "standardized_test",
+                )
+                or "exam" in act_purpose
+                or "certification" in act_purpose
+                or "assessment" in act_purpose
+            ) and (
+                g_kind in ("certification", "exam", "assessment")
+                or len(
+                    [
+                        fw
+                        for fw in (
+                            "c1",
+                            "c2",
+                            "b2",
+                            "b1",
+                            "dele",
+                            "ielts",
+                            "toefl",
+                            "cambridge",
+                        )
+                        if fw in g_target
+                    ]
+                )
+                > 0
+            ):
                 matched = True
 
-            if (act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching") or "vocab" in act_purpose or "vocabulary" in act_skills or "vocab" in act_skills) and (g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target):
+            if (
+                act_type
+                in (
+                    "vocab_drill",
+                    "vocabulary",
+                    "flashcards",
+                    "spaced_review",
+                    "word_matching",
+                )
+                or "vocab" in act_purpose
+                or "vocabulary" in act_skills
+                or "vocab" in act_skills
+            ) and (
+                g_kind in ("vocabulary", "vocab", "lexicon")
+                or g_skill == "vocabulary"
+                or "vocab" in g_target
+            ):
                 matched = True
 
-            if (act_type in ("grammar_drill", "grammar", "syntax", "conjugation") or "grammar" in act_purpose or "grammar" in act_skills or "syntax" in act_skills) and (g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target):
+            if (
+                act_type in ("grammar_drill", "grammar", "syntax", "conjugation")
+                or "grammar" in act_purpose
+                or "grammar" in act_skills
+                or "syntax" in act_skills
+            ) and (
+                g_kind in ("grammar", "syntax", "accuracy")
+                or g_skill == "grammar"
+                or "grammar" in g_target
+            ):
                 matched = True
 
-            if (act_type in ("reading", "article_reading", "comprehension", "literature") or "reading" in act_purpose or "reading" in act_skills) and (g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target):
+            if (
+                act_type
+                in ("reading", "article_reading", "comprehension", "literature")
+                or "reading" in act_purpose
+                or "reading" in act_skills
+            ) and (
+                g_kind in ("reading", "literature", "comprehension")
+                or g_skill == "reading"
+                or "reading" in g_target
+            ):
                 matched = True
 
-            if (act_type in ("writing", "essay", "composition", "free_writing") or "writing" in act_purpose or "writing" in act_skills) and (g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target):
+            if (
+                act_type in ("writing", "essay", "composition", "free_writing")
+                or "writing" in act_purpose
+                or "writing" in act_skills
+            ) and (
+                g_kind in ("writing", "academic_writing", "composition")
+                or g_skill == "writing"
+                or "writing" in g_target
+            ):
                 matched = True
 
             if matched:
@@ -1605,8 +1866,12 @@ def evaluate_progression(
             return None
         return comparison_key, provenance, score
 
-    previous_scores = [value for item in clean_prev if (value := _comparable_score(item)) is not None]
-    current_scores = [value for item in clean_curr if (value := _comparable_score(item)) is not None]
+    previous_scores = [
+        value for item in clean_prev if (value := _comparable_score(item)) is not None
+    ]
+    current_scores = [
+        value for item in clean_curr if (value := _comparable_score(item)) is not None
+    ]
     shared_keys = {key for key, _, _ in previous_scores} & {
         key for key, _, _ in current_scores
     }
@@ -1624,9 +1889,7 @@ def evaluate_progression(
         if key == comparison_key
     ]
     prev_scores = [score for _, score in previous_for_key]
-    baseline_provenance = {
-        provenance for provenance, _ in previous_for_key
-    }
+    baseline_provenance = {provenance for provenance, _ in previous_for_key}
     current_for_key = [
         (provenance, score)
         for key, provenance, score in current_scores
@@ -1693,7 +1956,9 @@ def evaluate_certification_source(
     else:
         sources_list = list(sources)
 
-    raw_sources = [dict(normalize_json_value(s)) for s in sources_list if isinstance(s, Mapping)]
+    raw_sources = [
+        dict(normalize_json_value(s)) for s in sources_list if isinstance(s, Mapping)
+    ]
 
     if not raw_sources:
         return {
@@ -1706,9 +1971,18 @@ def evaluate_certification_source(
 
     def _temporal_state(source: Mapping[str, Any]) -> str:
         state = (_safe_str(source.get("temporal_state")) or "").lower()
-        if source.get("date_valid") is True or state in {"current", "active", "verified_current"}:
+        if source.get("date_valid") is True or state in {
+            "current",
+            "active",
+            "verified_current",
+        }:
             return "current"
-        if source.get("date_valid") is False or state in {"stale", "historical", "expired", "outdated"}:
+        if source.get("date_valid") is False or state in {
+            "stale",
+            "historical",
+            "expired",
+            "outdated",
+        }:
             return "stale"
         return "unknown"
 
@@ -1722,7 +1996,11 @@ def evaluate_certification_source(
 
         if stype == "official" and temporal == "current" and has_prov:
             return 6
-        if stype in {"secondary", "authoritative_secondary"} and temporal == "current" and has_prov:
+        if (
+            stype in {"secondary", "authoritative_secondary"}
+            and temporal == "current"
+            and has_prov
+        ):
             return 5
         if stype == "official" and temporal == "stale" and has_prov:
             return 4
@@ -1732,7 +2010,9 @@ def evaluate_certification_source(
             return 2
         return 1
 
-    sorted_sources = sorted(raw_sources, key=lambda s: (-_auth(s), _canonical_json_value(s)))
+    sorted_sources = sorted(
+        raw_sources, key=lambda s: (-_auth(s), _canonical_json_value(s))
+    )
     top_auth = _auth(sorted_sources[0])
     top_tier = sorted(
         [s for s in sorted_sources if _auth(s) == top_auth],
@@ -1793,24 +2073,35 @@ def evaluate_cultural_context(
     else:
         ev_list = list(evidence)
 
-    valid_evidence = [dict(normalize_json_value(e)) for e in ev_list if isinstance(e, Mapping)]
+    valid_evidence = [
+        dict(normalize_json_value(e)) for e in ev_list if isinstance(e, Mapping)
+    ]
     claim_str = _safe_str(claim) or ""
 
-    is_universal = universal_claim or len([
-        kw for kw in (
-            "all native speakers",
-            "always",
-            "every spanish",
-            "everyone in",
-            "never",
-            "all french",
-            "all germans",
-            "universal rule",
+    is_universal = (
+        universal_claim
+        or len(
+            [
+                kw
+                for kw in (
+                    "all native speakers",
+                    "always",
+                    "every spanish",
+                    "everyone in",
+                    "never",
+                    "all french",
+                    "all germans",
+                    "universal rule",
+                )
+                if kw in claim_str.lower()
+            ]
         )
-        if kw in claim_str.lower()
-    ]) > 0
+        > 0
+    )
 
-    has_grounded_evidence = len([e for e in valid_evidence if _is_grounded_cultural_evidence(e)]) > 0
+    has_grounded_evidence = (
+        len([e for e in valid_evidence if _is_grounded_cultural_evidence(e)]) > 0
+    )
 
     return {
         "claim": claim_str,
@@ -1818,7 +2109,9 @@ def evaluate_cultural_context(
         "qualified_tendency": True,
         "nuance_preserved": True,
         "has_grounded_evidence": has_grounded_evidence,
-        "evidence_status": "evidenced" if has_grounded_evidence else "weak_or_unprovenanced",
+        "evidence_status": "evidenced"
+        if has_grounded_evidence
+        else "weak_or_unprovenanced",
         "evidence": valid_evidence,
     }
 
@@ -2062,49 +2355,116 @@ def build_languages_rules() -> tuple[Any, ...]:
     """Build the fourteen Languages Domain rules deterministically in canonical catalog order."""
     by_id = {
         "languages.language_level_evidence": LanguageLevelEvidenceRule(
-            definition=_definition("languages.language_level_evidence", "LanguageLevelEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 700)
+            definition=_definition(
+                "languages.language_level_evidence",
+                "LanguageLevelEvidenceRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                700,
+            )
         ),
         "languages.skill_separation": SkillSeparationRule(
-            definition=_definition("languages.skill_separation", "SkillSeparationRule", ReasoningRuleCategory.EPISTEMIC.value, 710)
+            definition=_definition(
+                "languages.skill_separation",
+                "SkillSeparationRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                710,
+            )
         ),
         "languages.language_variety_validity": LanguageVarietyValidityRule(
-            definition=_definition("languages.language_variety_validity", "LanguageVarietyValidityRule", ReasoningRuleCategory.EPISTEMIC.value, 720)
+            definition=_definition(
+                "languages.language_variety_validity",
+                "LanguageVarietyValidityRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                720,
+            )
         ),
         "languages.proficiency_framework": ProficiencyFrameworkRule(
-            definition=_definition("languages.proficiency_framework", "ProficiencyFrameworkRule", ReasoningRuleCategory.EPISTEMIC.value, 730)
+            definition=_definition(
+                "languages.proficiency_framework",
+                "ProficiencyFrameworkRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                730,
+            )
         ),
         "languages.error_pattern_evidence": ErrorPatternEvidenceRule(
-            definition=_definition("languages.error_pattern_evidence", "ErrorPatternEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 740)
+            definition=_definition(
+                "languages.error_pattern_evidence",
+                "ErrorPatternEvidenceRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                740,
+            )
         ),
         "languages.correction_priority": CorrectionPriorityRule(
-            definition=_definition("languages.correction_priority", "CorrectionPriorityRule", ReasoningRuleCategory.INFERENCE.value, 750)
+            definition=_definition(
+                "languages.correction_priority",
+                "CorrectionPriorityRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                750,
+            )
         ),
         "languages.adaptive_difficulty": AdaptiveDifficultyRule(
-            definition=_definition("languages.adaptive_difficulty", "AdaptiveDifficultyRule", ReasoningRuleCategory.INFERENCE.value, 760)
+            definition=_definition(
+                "languages.adaptive_difficulty",
+                "AdaptiveDifficultyRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                760,
+            )
         ),
         "languages.spaced_review": SpacedReviewRule(
-            definition=_definition("languages.spaced_review", "SpacedReviewRule", ReasoningRuleCategory.INFERENCE.value, 770)
+            definition=_definition(
+                "languages.spaced_review",
+                "SpacedReviewRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                770,
+            )
         ),
         "languages.learning_load": LearningLoadRule(
-            definition=_definition("languages.learning_load", "LearningLoadRule", ReasoningRuleCategory.INFERENCE.value, 780)
+            definition=_definition(
+                "languages.learning_load",
+                "LearningLoadRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                780,
+            )
         ),
         "languages.goal_alignment": GoalAlignmentRule(
-            definition=_definition("languages.goal_alignment", "GoalAlignmentRule", ReasoningRuleCategory.INFERENCE.value, 790)
+            definition=_definition(
+                "languages.goal_alignment",
+                "GoalAlignmentRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                790,
+            )
         ),
         "languages.progression_evidence": ProgressionEvidenceRule(
-            definition=_definition("languages.progression_evidence", "ProgressionEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 800)
+            definition=_definition(
+                "languages.progression_evidence",
+                "ProgressionEvidenceRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                800,
+            )
         ),
         "languages.certification_temporal": CertificationTemporalRule(
-            definition=_definition("languages.certification_temporal", "CertificationTemporalRule", ReasoningRuleCategory.TEMPORALITY.value, 810)
+            definition=_definition(
+                "languages.certification_temporal",
+                "CertificationTemporalRule",
+                ReasoningRuleCategory.TEMPORALITY.value,
+                810,
+            )
         ),
         "languages.cultural_context_evidence": CulturalContextEvidenceRule(
-            definition=_definition("languages.cultural_context_evidence", "CulturalContextEvidenceRule", ReasoningRuleCategory.EPISTEMIC.value, 820)
+            definition=_definition(
+                "languages.cultural_context_evidence",
+                "CulturalContextEvidenceRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                820,
+            )
         ),
         "languages.language_memory_consent": LanguageMemoryConsentRule(
-            definition=_definition("languages.language_memory_consent", "LanguageMemoryConsentRule", ReasoningRuleCategory.SAFETY.value, 830)
+            definition=_definition(
+                "languages.language_memory_consent",
+                "LanguageMemoryConsentRule",
+                ReasoningRuleCategory.SAFETY.value,
+                830,
+            )
         ),
     }
-    return tuple(
-        by_id[rule_id]
-        for rule_id in CANONICAL_LANGUAGES_RULE_IDS
-    )
+    return tuple(by_id[rule_id] for rule_id in CANONICAL_LANGUAGES_RULE_IDS)

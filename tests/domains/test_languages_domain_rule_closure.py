@@ -244,8 +244,18 @@ def test_level_estimate_rejects_duplicate_provenance_despite_caller_id_changes()
         level_or_score="C1",
         skill_scope="writing",
         evidence=(
-            {"id": "caller-a", "provenance_id": "essay-1", "skill": "writing", "observed": "C1"},
-            {"id": "caller-b", "provenance_id": "essay-1", "skill": "writing", "observed": "C1"},
+            {
+                "id": "caller-a",
+                "provenance_id": "essay-1",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "id": "caller-b",
+                "provenance_id": "essay-1",
+                "skill": "writing",
+                "observed": "C1",
+            },
         ),
     )
 
@@ -292,8 +302,16 @@ def test_level_estimate_requires_two_independent_grounded_evidence_units():
         (
             "C1",
             (
-                {"provenance_id": "writing-1", "skill": "writing", "observed": "not-a-level"},
-                {"provenance_id": "writing-2", "skill": "writing", "observed": "not-a-level"},
+                {
+                    "provenance_id": "writing-1",
+                    "skill": "writing",
+                    "observed": "not-a-level",
+                },
+                {
+                    "provenance_id": "writing-2",
+                    "skill": "writing",
+                    "observed": "not-a-level",
+                },
             ),
         ),
         (
@@ -305,7 +323,9 @@ def test_level_estimate_requires_two_independent_grounded_evidence_units():
         ),
     ),
 )
-def test_level_estimate_requires_evidence_relevant_to_scope_and_claim(level_or_score, evidence):
+def test_level_estimate_requires_evidence_relevant_to_scope_and_claim(
+    level_or_score, evidence
+):
     """Independent provenance cannot compensate for a different skill or claimed value."""
     result = classify_proficiency_record(
         kind="ESTIMATED",
@@ -343,11 +363,22 @@ def test_level_estimate_accepts_matching_grounded_numeric_scores():
     (
         ("B2", ({"provenance_id": "reading-1", "skill": "reading", "observed": "B2"},)),
         ("B2", ({"provenance_id": "writing-1", "skill": "writing", "observed": "A1"},)),
-        ("B2", ({"provenance_id": "writing-1", "skill": "writing", "observed": "not-a-level"},)),
+        (
+            "B2",
+            (
+                {
+                    "provenance_id": "writing-1",
+                    "skill": "writing",
+                    "observed": "not-a-level",
+                },
+            ),
+        ),
         (0.8, ({"provenance_id": "writing-1", "skill": "writing", "score": 0.7},)),
     ),
 )
-def test_observed_performance_requires_evidence_relevant_to_scope_and_claim(level_or_score, evidence):
+def test_observed_performance_requires_evidence_relevant_to_scope_and_claim(
+    level_or_score, evidence
+):
     """A task/session may ground only its own canonical skill and observed value."""
     result = classify_proficiency_record(
         kind="OBSERVED_PERFORMANCE",
@@ -392,7 +423,9 @@ def test_certification_level_requires_valid_official_credential_evidence():
         kind="CERTIFIED",
         framework="CEFR",
         level_or_score="C1",
-        evidence=({"source_kind": "official_certificate", "source_id": "unverified-record"},),
+        evidence=(
+            {"source_kind": "official_certificate", "source_id": "unverified-record"},
+        ),
     )
 
     assert valid["kind"] == "CERTIFIED"
@@ -427,8 +460,18 @@ def test_certified_record_without_claimed_level_remains_unassessed():
     (
         ({"provenance_id": "essay-1", "skill": "writing", "observed": "C1"},),
         (
-            {"id": "caller-a", "provenance_id": "essay-1", "skill": "writing", "observed": "C1"},
-            {"id": "caller-b", "provenance_id": "essay-1", "skill": "writing", "observed": "C1"},
+            {
+                "id": "caller-a",
+                "provenance_id": "essay-1",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "id": "caller-b",
+                "provenance_id": "essay-1",
+                "skill": "writing",
+                "observed": "C1",
+            },
         ),
         (
             {"id": "caller-a", "skill": "writing", "observed": "C1"},
@@ -526,7 +569,9 @@ def test_level_estimate_mutations_fail_closed_when_grounding_is_removed(evidence
         ),
     ),
 )
-def test_skill_separation_rejects_ungrounded_or_non_acoustic_pronunciation_evidence(evidence):
+def test_skill_separation_rejects_ungrounded_or_non_acoustic_pronunciation_evidence(
+    evidence,
+):
     """Text and self-claims cannot establish pronunciation assessment."""
     separated = separate_skill_evidence(evidence=evidence)
 
@@ -613,7 +658,9 @@ def test_skill_separation_accepts_grounded_explicit_pronunciation_assessments(ev
         None,
     ),
 )
-def test_skill_separation_pronunciation_provenance_removal_and_malformed_records_fail_closed(evidence):
+def test_skill_separation_pronunciation_provenance_removal_and_malformed_records_fail_closed(
+    evidence,
+):
     """Removing assessment provenance or malformed assessment fields cannot add support."""
     separated = separate_skill_evidence(evidence=(evidence,))
 
@@ -724,7 +771,9 @@ def test_framework_mapping_accepts_each_canonical_provenance_alias(provenance_fi
     assert result["evidence"] == [evidence]
 
 
-@pytest.mark.parametrize("target_range", (None, "", "  ", ["B2"], {"range": "B2"}, True))
+@pytest.mark.parametrize(
+    "target_range", (None, "", "  ", ["B2"], {"range": "B2"}, True)
+)
 def test_framework_mapping_requires_a_usable_target_range(target_range):
     """Removing or corrupting the target range prevents calibration despite provenance."""
     result = evaluate_framework_mapping(
@@ -749,7 +798,9 @@ def test_framework_mapping_requires_a_usable_target_range(target_range):
 
 
 @pytest.mark.parametrize("provenance_field", ("source_id", "official_source_id"))
-def test_framework_mapping_duplicate_provenance_does_not_add_mapping_authority(provenance_field):
+def test_framework_mapping_duplicate_provenance_does_not_add_mapping_authority(
+    provenance_field,
+):
     """Duplicate source occurrences collapse even when caller display fields differ."""
     evidence = [
         {
@@ -848,7 +899,11 @@ def test_framework_mapping_conflicting_ranges_fail_closed_and_permutation_invari
     )
     assert same_prov_conflict["calibrated"] is False
     assert same_prov_conflict["target_estimate_range"] is None
-    assert same_prov_conflict["mapping_status"] in {"identity_forbidden", "insufficient_evidence", "conflicting_evidence"}
+    assert same_prov_conflict["mapping_status"] in {
+        "identity_forbidden",
+        "insufficient_evidence",
+        "conflicting_evidence",
+    }
 
     # Independent provenance conflict (forward and reverse)
     evidence_forward = (
@@ -883,7 +938,11 @@ def test_framework_mapping_conflicting_ranges_fail_closed_and_permutation_invari
     assert forward == reverse
     assert forward["calibrated"] is False
     assert forward["target_estimate_range"] is None
-    assert forward["mapping_status"] in {"identity_forbidden", "insufficient_evidence", "conflicting_evidence"}
+    assert forward["mapping_status"] in {
+        "identity_forbidden",
+        "insufficient_evidence",
+        "conflicting_evidence",
+    }
 
 
 @pytest.mark.parametrize("invalid_container", (None, 42, "string_container", True))
@@ -939,21 +998,45 @@ def test_error_pattern_canonical_minimum_cannot_be_lowered(threshold, observatio
     assert result["pattern_state"] == "insufficient_evidence"
 
 
-@pytest.mark.parametrize("invalid_threshold", (float("nan"), float("inf"), float("-inf"), "three", [3], {"min": 3}))
-def test_error_pattern_nan_inf_nonnumeric_threshold_normalizes_to_canonical_minimum(invalid_threshold):
+@pytest.mark.parametrize(
+    "invalid_threshold",
+    (float("nan"), float("inf"), float("-inf"), "three", [3], {"min": 3}),
+)
+def test_error_pattern_nan_inf_nonnumeric_threshold_normalizes_to_canonical_minimum(
+    invalid_threshold,
+):
     """NaN/Inf or non-numeric thresholds fall back to canonical minimum 2."""
     obs_1 = (
-        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
-    res_1 = evaluate_error_pattern(observations=obs_1, minimum_independent_occurrences=invalid_threshold)
+    res_1 = evaluate_error_pattern(
+        observations=obs_1, minimum_independent_occurrences=invalid_threshold
+    )
     assert res_1["eligible"] is False
     assert res_1["pattern_state"] == "insufficient_evidence"
 
     obs_2 = (
-        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
-    res_2 = evaluate_error_pattern(observations=obs_2, minimum_independent_occurrences=invalid_threshold)
+    res_2 = evaluate_error_pattern(
+        observations=obs_2, minimum_independent_occurrences=invalid_threshold
+    )
     assert res_2["eligible"] is True
     assert res_2["pattern_state"] == "candidate"
 
@@ -961,17 +1044,36 @@ def test_error_pattern_nan_inf_nonnumeric_threshold_normalizes_to_canonical_mini
 def test_error_pattern_stricter_caller_threshold_is_honored():
     """Callers may increase threshold above 2, requiring more evidence."""
     obs_2 = (
-        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
-    res_stricter = evaluate_error_pattern(observations=obs_2, minimum_independent_occurrences=3)
+    res_stricter = evaluate_error_pattern(
+        observations=obs_2, minimum_independent_occurrences=3
+    )
     assert res_stricter["eligible"] is False
     assert res_stricter["pattern_state"] == "insufficient_evidence"
 
     obs_3 = obs_2 + (
-        {"provenance_id": "p3", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "provenance_id": "p3",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
-    res_met = evaluate_error_pattern(observations=obs_3, minimum_independent_occurrences=3)
+    res_met = evaluate_error_pattern(
+        observations=obs_3, minimum_independent_occurrences=3
+    )
     assert res_met["eligible"] is True
     assert res_met["pattern_state"] == "candidate"
 
@@ -979,16 +1081,36 @@ def test_error_pattern_stricter_caller_threshold_is_honored():
 def test_error_pattern_requires_same_error_type_and_comparison_key():
     """Mismatched error types or comparison keys do not form a single comparable pattern."""
     mismatched_types = (
-        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "essay", "error_type": "agreement", "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "essay",
+            "error_type": "agreement",
+            "comparable": True,
+        },
     )
     res_type = evaluate_error_pattern(observations=mismatched_types)
     assert res_type["eligible"] is False
     assert res_type["pattern_state"] == "insufficient_evidence"
 
     mismatched_keys = (
-        {"provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "conversation", "error_type": "tense", "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "conversation",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
     res_key = evaluate_error_pattern(observations=mismatched_keys)
     assert res_key["eligible"] is False
@@ -998,8 +1120,20 @@ def test_error_pattern_requires_same_error_type_and_comparison_key():
 def test_error_pattern_duplicate_provenance_does_not_inflate_occurrences():
     """Multiple observations with same provenance count as 1 occurrence."""
     duplicate_prov = (
-        {"id": "c1", "provenance_id": "session-1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"id": "c2", "provenance_id": "session-1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "id": "c1",
+            "provenance_id": "session-1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "id": "c2",
+            "provenance_id": "session-1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     )
     res = evaluate_error_pattern(observations=duplicate_prov)
     assert res["eligible"] is False
@@ -1009,8 +1143,20 @@ def test_error_pattern_duplicate_provenance_does_not_inflate_occurrences():
 def test_error_pattern_json_immutability_and_permutation_invariance():
     """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
     obs = [
-        {"id": "c1", "provenance_id": "p1", "comparison_key": "essay", "error_type": "tense", "comparable": True},
-        {"id": "c2", "provenance_id": "p2", "comparison_key": "essay", "error_type": "tense", "comparable": True},
+        {
+            "id": "c1",
+            "provenance_id": "p1",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
+        {
+            "id": "c2",
+            "provenance_id": "p2",
+            "comparison_key": "essay",
+            "error_type": "tense",
+            "comparable": True,
+        },
     ]
     before = deepcopy(obs)
     forward = evaluate_error_pattern(observations=obs)
@@ -1023,16 +1169,36 @@ def test_error_pattern_json_immutability_and_permutation_invariance():
 
 def test_correction_priority_hierarchy_and_mutation():
     """Verify priority hierarchy by mutating properties and observing priority shifts."""
-    base_error = {"id": "err-1", "error_type": "style_flow", "category": "minor_style", "blocking": False}
+    base_error = {
+        "id": "err-1",
+        "error_type": "style_flow",
+        "category": "minor_style",
+        "blocking": False,
+    }
 
     # 1. Minor style vs blocking
-    blocking_error = {"id": "err-2", "error_type": "verb_drop", "category": "comprehension_blocking", "blocking": True}
+    blocking_error = {
+        "id": "err-2",
+        "error_type": "verb_drop",
+        "category": "comprehension_blocking",
+        "blocking": True,
+    }
     res_blocking = prioritize_corrections(errors=(base_error, blocking_error))
     assert res_blocking["prioritized_errors"][0]["id"] == "err-2"
 
     # 2. Recurrent outranks goal-critical
-    recurrent_error = {"id": "err-3", "error_type": "tense", "category": "recurrent", "blocking": False}
-    goal_error = {"id": "err-4", "error_type": "vocab_formal", "category": "register", "blocking": False}
+    recurrent_error = {
+        "id": "err-3",
+        "error_type": "tense",
+        "category": "recurrent",
+        "blocking": False,
+    }
+    goal_error = {
+        "id": "err-4",
+        "error_type": "vocab_formal",
+        "category": "register",
+        "blocking": False,
+    }
     res_recur_goal = prioritize_corrections(
         errors=(goal_error, recurrent_error),
         active_goals=("vocab_formal",),
@@ -1054,7 +1220,12 @@ def test_correction_priority_hierarchy_and_mutation():
     assert res_with_goal["prioritized_errors"][0]["id"] == "err-4"
 
     # 4. Mutating certification relevance changes priority
-    cert_error = {"id": "err-5", "error_type": "inversion", "category": "syntax", "blocking": False}
+    cert_error = {
+        "id": "err-5",
+        "error_type": "inversion",
+        "category": "syntax",
+        "blocking": False,
+    }
     res_cert = prioritize_corrections(
         errors=(cert_error, base_error),
         certification_relevance=("inversion",),
@@ -1088,8 +1259,14 @@ def test_correction_priority_json_immutability_and_permutation_invariance():
         {"id": "e2", "category": "comprehension_blocking", "blocking": True},
     ]
     before = deepcopy(errors)
-    forward = prioritize_corrections(errors=errors, active_goals=["g1"], certification_relevance=["c1"])
-    reverse = prioritize_corrections(errors=list(reversed(errors)), active_goals=["g1"], certification_relevance=["c1"])
+    forward = prioritize_corrections(
+        errors=errors, active_goals=["g1"], certification_relevance=["c1"]
+    )
+    reverse = prioritize_corrections(
+        errors=list(reversed(errors)),
+        active_goals=["g1"],
+        certification_relevance=["c1"],
+    )
 
     assert forward == reverse
     assert errors == before
@@ -1117,12 +1294,25 @@ def test_adaptive_difficulty_ignores_noncomparable_high_scores():
     assert result["action"] == "insufficient_evidence"
 
 
-@pytest.mark.parametrize("invalid_diff", (True, False, float("nan"), float("inf"), float("-inf"), -5, 0, "3", [3], None))
+@pytest.mark.parametrize(
+    "invalid_diff",
+    (True, False, float("nan"), float("inf"), float("-inf"), -5, 0, "3", [3], None),
+)
 def test_adaptive_difficulty_invalid_current_difficulty_fails_closed(invalid_diff):
     """Invalid current difficulty values fail closed safely without crashing or increasing."""
     perf = (
-        {"provenance_id": "p1", "comparison_key": "k1", "score": 0.95, "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "k1", "score": 0.95, "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "k1",
+            "score": 0.95,
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "k1",
+            "score": 0.95,
+            "comparable": True,
+        },
     )
     result = adapt_difficulty(current_difficulty=invalid_diff, performance=perf)
     assert result["action"] == "insufficient_evidence"
@@ -1130,12 +1320,25 @@ def test_adaptive_difficulty_invalid_current_difficulty_fails_closed(invalid_dif
     assert result["current_difficulty"] == 1
 
 
-@pytest.mark.parametrize("invalid_score", (True, False, float("nan"), float("inf"), float("-inf"), -1.0, 2.0, "high", None))
+@pytest.mark.parametrize(
+    "invalid_score",
+    (True, False, float("nan"), float("inf"), float("-inf"), -1.0, 2.0, "high", None),
+)
 def test_adaptive_difficulty_invalid_scores_ignored(invalid_score):
     """Non-numeric, bool, NaN, Inf, or out-of-range scores cannot drive difficulty changes."""
     perf = (
-        {"provenance_id": "p1", "comparison_key": "k1", "score": invalid_score, "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "k1", "score": invalid_score, "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "k1",
+            "score": invalid_score,
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "k1",
+            "score": invalid_score,
+            "comparable": True,
+        },
     )
     result = adapt_difficulty(current_difficulty=3, performance=perf)
     assert result["action"] == "insufficient_evidence"
@@ -1144,8 +1347,18 @@ def test_adaptive_difficulty_invalid_scores_ignored(invalid_score):
 def test_adaptive_difficulty_mismatched_comparison_keys_fail_closed():
     """Performance evidence across different comparison keys cannot combine into an increase."""
     perf = (
-        {"provenance_id": "p1", "comparison_key": "free_writing", "score": 0.95, "comparable": True},
-        {"provenance_id": "p2", "comparison_key": "cloze_test", "score": 0.95, "comparable": True},
+        {
+            "provenance_id": "p1",
+            "comparison_key": "free_writing",
+            "score": 0.95,
+            "comparable": True,
+        },
+        {
+            "provenance_id": "p2",
+            "comparison_key": "cloze_test",
+            "score": 0.95,
+            "comparable": True,
+        },
     )
     result = adapt_difficulty(current_difficulty=3, performance=perf)
     assert result["action"] == "insufficient_evidence"
@@ -1154,8 +1367,20 @@ def test_adaptive_difficulty_mismatched_comparison_keys_fail_closed():
 def test_adaptive_difficulty_duplicate_provenance_does_not_permit_increase():
     """Duplicate records for the same provenance cannot act as independent sessions for increase."""
     perf = (
-        {"id": "c1", "provenance_id": "session-1", "comparison_key": "k1", "score": 0.95, "comparable": True},
-        {"id": "c2", "provenance_id": "session-1", "comparison_key": "k1", "score": 0.95, "comparable": True},
+        {
+            "id": "c1",
+            "provenance_id": "session-1",
+            "comparison_key": "k1",
+            "score": 0.95,
+            "comparable": True,
+        },
+        {
+            "id": "c2",
+            "provenance_id": "session-1",
+            "comparison_key": "k1",
+            "score": 0.95,
+            "comparable": True,
+        },
     )
     result = adapt_difficulty(current_difficulty=3, performance=perf)
     # A single session cannot cause an increase; it maintains
@@ -1166,8 +1391,20 @@ def test_adaptive_difficulty_duplicate_provenance_does_not_permit_increase():
 def test_adaptive_difficulty_json_immutability_and_permutation_invariance():
     """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
     perf = [
-        {"id": "c1", "provenance_id": "p1", "comparison_key": "k1", "score": 0.95, "comparable": True},
-        {"id": "c2", "provenance_id": "p2", "comparison_key": "k1", "score": 0.90, "comparable": True},
+        {
+            "id": "c1",
+            "provenance_id": "p1",
+            "comparison_key": "k1",
+            "score": 0.95,
+            "comparable": True,
+        },
+        {
+            "id": "c2",
+            "provenance_id": "p2",
+            "comparison_key": "k1",
+            "score": 0.90,
+            "comparable": True,
+        },
     ]
     before = deepcopy(perf)
     forward = adapt_difficulty(current_difficulty=3, performance=perf)
@@ -1207,12 +1444,16 @@ def test_goal_alignment_activity_mutation_changes_alignment():
     assert res_conv["aligned_goals"] == ["g_conv"]
 
     # 2. Formal exam essay matches certification goal
-    res_cert = align_activity_to_goals(activity={"type": "formal_exam_essay"}, goals=goals)
+    res_cert = align_activity_to_goals(
+        activity={"type": "formal_exam_essay"}, goals=goals
+    )
     assert res_cert["activity_fit"] == "aligned"
     assert res_cert["aligned_goals"] == ["g_cert"]
 
     # 3. Unrelated activity matches neither
-    res_unrel = align_activity_to_goals(activity={"type": "unrelated_tax_filing"}, goals=goals)
+    res_unrel = align_activity_to_goals(
+        activity={"type": "unrelated_tax_filing"}, goals=goals
+    )
     assert res_unrel["activity_fit"] != "aligned"
     assert res_unrel["aligned_goals"] == []
 
@@ -1244,7 +1485,10 @@ def test_goal_alignment_json_immutability_and_permutation_invariance():
     assert json.loads(json.dumps(forward, allow_nan=False)) == forward
 
 
-@pytest.mark.parametrize("available_time", [float("inf"), float("-inf"), True, False, -10, float("nan"), "30", [30]])
+@pytest.mark.parametrize(
+    "available_time",
+    [float("inf"), float("-inf"), True, False, -10, float("nan"), "30", [30]],
+)
 def test_learning_load_invalid_time_fails_closed(available_time):
     result = evaluate_learning_load(available_time=available_time)
     assert result["load_status"] == "insufficient_constraints"
@@ -1256,7 +1500,9 @@ def test_learning_load_invalid_time_fails_closed(available_time):
 def test_learning_load_energy_and_time_constraints_precede_preferences():
     """Hard time/energy constraints bound duration and never mutate calendar."""
     # Low energy caps at 15 even with 60 available
-    res_low = evaluate_learning_load(available_time=60, energy="low", priorities=("reading", "writing"))
+    res_low = evaluate_learning_load(
+        available_time=60, energy="low", priorities=("reading", "writing")
+    )
     assert res_low["recommended_duration_minutes"] == 15
     assert res_low["load_status"] == "scaffolded_light"
     assert res_low["calendar_modified"] is False
@@ -1348,7 +1594,9 @@ def test_spaced_review_active_pattern_and_goal_sensitivity():
     item_goal = {"id": "v_goal", "term": "subtle", "mastery": 0.5, "due": True}
     res_no_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=())
     assert res_no_goal["prioritized_items"][0]["id"] == "v_base"
-    res_with_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=("subtle",))
+    res_with_goal = plan_spaced_review(
+        items=(item_base, item_goal), active_goals=("subtle",)
+    )
     assert res_with_goal["prioritized_items"][0]["id"] == "v_goal"
 
 
@@ -1369,20 +1617,42 @@ def test_spaced_review_json_immutability_and_permutation_invariance():
 
 # ── Task 11: ProgressionEvidenceRule ──────────────────────────────────────────
 
+
 def test_progression_requires_comparable_baseline_and_current_evidence():
     """Progression cannot be established without baseline and comparable current evidence."""
     # No baseline
     res_no_prev = evaluate_progression(
         previous_evidence=(),
-        current_evidence=({"provenance_id": "c1", "score": 0.85, "comparable": True, "comparison_key": "k1"},),
+        current_evidence=(
+            {
+                "provenance_id": "c1",
+                "score": 0.85,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
     )
     assert res_no_prev["progression_outcome"] == "insufficient_evidence"
     assert res_no_prev["stable_progression"] is False
 
     # Noncomparable evidence
     res_noncomp = evaluate_progression(
-        previous_evidence=({"provenance_id": "p1", "score": 0.6, "comparable": False, "comparison_key": "k1"},),
-        current_evidence=({"provenance_id": "c1", "score": 0.85, "comparable": False, "comparison_key": "k1"},),
+        previous_evidence=(
+            {
+                "provenance_id": "p1",
+                "score": 0.6,
+                "comparable": False,
+                "comparison_key": "k1",
+            },
+        ),
+        current_evidence=(
+            {
+                "provenance_id": "c1",
+                "score": 0.85,
+                "comparable": False,
+                "comparison_key": "k1",
+            },
+        ),
     )
     assert res_noncomp["progression_outcome"] == "insufficient_evidence"
     assert res_noncomp["stable_progression"] is False
@@ -1391,23 +1661,51 @@ def test_progression_requires_comparable_baseline_and_current_evidence():
 def test_progression_single_sample_vs_stable_improvement():
     """One better sample is short_term_improvement; two independent current samples form stable_improvement."""
     prev_ev = (
-        {"provenance_id": "p1", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "p1",
+            "score": 0.5,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
 
     # 1 sample -> short_term_improvement
     curr_single = (
-        {"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "c1",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
-    res_single = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_single, skill="writing")
+    res_single = evaluate_progression(
+        previous_evidence=prev_ev, current_evidence=curr_single, skill="writing"
+    )
     assert res_single["progression_outcome"] == "short_term_improvement"
     assert res_single["stable_progression"] is False
 
     # 2 independent samples -> stable_improvement
     curr_multi = (
-        {"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "c2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "c1",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "c2",
+            "score": 0.88,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
-    res_multi = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_multi, skill="writing")
+    res_multi = evaluate_progression(
+        previous_evidence=prev_ev, current_evidence=curr_multi, skill="writing"
+    )
     assert res_multi["progression_outcome"] == "stable_improvement"
     assert res_multi["stable_progression"] is True
 
@@ -1415,25 +1713,63 @@ def test_progression_single_sample_vs_stable_improvement():
 def test_progression_duplicate_current_provenance_not_stable():
     """Duplicate provenance in current evidence cannot satisfy independence requirement."""
     prev_ev = (
-        {"provenance_id": "p1", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "p1",
+            "score": 0.5,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
     curr_dup = (
-        {"id": "a", "provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-        {"id": "b", "provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {
+            "id": "a",
+            "provenance_id": "c1",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "id": "b",
+            "provenance_id": "c1",
+            "score": 0.85,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
-    res = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_dup, skill="writing")
+    res = evaluate_progression(
+        previous_evidence=prev_ev, current_evidence=curr_dup, skill="writing"
+    )
     assert res["progression_outcome"] == "short_term_improvement"
     assert res["stable_progression"] is False
 
 
 # ── Task 12: CertificationTemporalRule ────────────────────────────────────────
 
+
 def test_certification_temporal_precedence():
     """Current official source takes precedence over stale official and secondary sources."""
     sources = (
-        {"id": "s1", "source_type": "official", "temporal_state": "stale", "source_id": "inst_1"},
-        {"id": "s2", "source_type": "official", "temporal_state": "current", "official_source_id": "inst_2"},
-        {"id": "s3", "source_type": "secondary", "temporal_state": "current", "source_id": "inst_3"},
+        {
+            "id": "s1",
+            "source_type": "official",
+            "temporal_state": "stale",
+            "source_id": "inst_1",
+        },
+        {
+            "id": "s2",
+            "source_type": "official",
+            "temporal_state": "current",
+            "official_source_id": "inst_2",
+        },
+        {
+            "id": "s3",
+            "source_type": "secondary",
+            "temporal_state": "current",
+            "source_id": "inst_3",
+        },
     )
     res = evaluate_certification_source(sources=sources)
     assert res["selected_source"]["id"] == "s2"
@@ -1443,7 +1779,12 @@ def test_certification_temporal_precedence():
 def test_certification_source_requires_grounded_provenance_identity():
     """Stale official and memory sources require verification when decision critical."""
     sources_stale = (
-        {"id": "s_stale", "source_type": "official", "temporal_state": "stale", "source_id": "inst_1"},
+        {
+            "id": "s_stale",
+            "source_type": "official",
+            "temporal_state": "stale",
+            "source_id": "inst_1",
+        },
     )
     res = evaluate_certification_source(sources=sources_stale, decision_critical=True)
     assert res["authority_rank"] == 4
@@ -1453,8 +1794,20 @@ def test_certification_source_requires_grounded_provenance_identity():
 def test_certification_source_conflict_detection():
     """Conflicting top-tier sources produce unresolved_conflict=True and needs_verification=True."""
     conflicting_sources = (
-        {"id": "s1", "source_type": "official", "temporal_state": "current", "official_source_id": "o1", "format": "computer_based"},
-        {"id": "s2", "source_type": "official", "temporal_state": "current", "official_source_id": "o2", "format": "paper_based"},
+        {
+            "id": "s1",
+            "source_type": "official",
+            "temporal_state": "current",
+            "official_source_id": "o1",
+            "format": "computer_based",
+        },
+        {
+            "id": "s2",
+            "source_type": "official",
+            "temporal_state": "current",
+            "official_source_id": "o2",
+            "format": "paper_based",
+        },
     )
     res = evaluate_certification_source(sources=conflicting_sources)
     assert res["unresolved_conflict"] is True
@@ -1463,6 +1816,7 @@ def test_certification_source_conflict_detection():
 
 
 # ── Task 13: CulturalContextEvidenceRule ──────────────────────────────────────
+
 
 def test_cultural_context_universal_stereotypes_rejected():
     """Universal cultural claims are rejected in favor of qualified tendencies."""
@@ -1476,7 +1830,9 @@ def test_cultural_context_universal_stereotypes_rejected():
 
 def test_cultural_context_evidence_status_visibility():
     """Absence or presence of grounded evidence is explicitly visible in result."""
-    res_no_ev = evaluate_cultural_context(claim="In formal settings, usted is commonly preferred.")
+    res_no_ev = evaluate_cultural_context(
+        claim="In formal settings, usted is commonly preferred."
+    )
     assert res_no_ev["has_grounded_evidence"] is False
     assert res_no_ev["evidence_status"] == "weak_or_unprovenanced"
 
@@ -1489,6 +1845,7 @@ def test_cultural_context_evidence_status_visibility():
 
 
 # ── Task 14: LanguageMemoryConsentRule ────────────────────────────────────────
+
 
 def test_memory_consent_strict_boolean_and_permission_chain():
     """Session observation does not become durable state without literal boolean True consent and permission chain."""
@@ -1517,18 +1874,27 @@ def test_memory_consent_strict_boolean_and_permission_chain():
         permission_chain_valid=True,
     )
     assert res_auth["persistence_authorized"] is True
-    assert res_auth["persistence_applied"] is False  # Never applied by domain rule helper
+    assert (
+        res_auth["persistence_applied"] is False
+    )  # Never applied by domain rule helper
 
 
 # ── Task 15: Cross-Rule Property Suite for All 14 Rules ───────────────────────
 
+
 def test_all_14_rules_strict_json_serialization():
     """Verify all 14 public rule helpers produce strict JSON-safe serializable structures."""
     results = [
-        classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=()),
+        classify_proficiency_record(
+            kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=()
+        ),
         separate_skill_evidence(evidence=()),
-        classify_language_variety(preferred_variety="American English", observed_variety="British English"),
-        evaluate_framework_mapping(source_framework="CEFR", source_value="B2", target_framework="IELTS"),
+        classify_language_variety(
+            preferred_variety="American English", observed_variety="British English"
+        ),
+        evaluate_framework_mapping(
+            source_framework="CEFR", source_value="B2", target_framework="IELTS"
+        ),
         evaluate_error_pattern(observations=()),
         prioritize_corrections(errors=()),
         adapt_difficulty(current_difficulty=3, performance=()),
@@ -1548,25 +1914,65 @@ def test_all_14_rules_strict_json_serialization():
 
 def test_all_14_rules_input_immutability():
     """Verify none of the 14 public rule helpers mutate caller-supplied collections or dicts."""
-    ev = [{"id": "e1", "score": 0.8, "comparable": True, "comparison_key": "k1", "provenance_id": "p1"}]
-    obs = [{"id": "o1", "error_type": "tense", "sentence": "He go.", "comparable": True, "comparison_key": "k1", "provenance_id": "p1"}]
+    ev = [
+        {
+            "id": "e1",
+            "score": 0.8,
+            "comparable": True,
+            "comparison_key": "k1",
+            "provenance_id": "p1",
+        }
+    ]
+    obs = [
+        {
+            "id": "o1",
+            "error_type": "tense",
+            "sentence": "He go.",
+            "comparable": True,
+            "comparison_key": "k1",
+            "provenance_id": "p1",
+        }
+    ]
     errs = [{"id": "err1", "category": "minor_style", "blocking": False}]
     items = [{"id": "item1", "mastery": 0.5, "due": True}]
     goals = [{"id": "g1", "kind": "conversation", "target": "fluency"}]
-    sources = [{"id": "s1", "source_type": "official", "temporal_state": "current", "official_source_id": "o1"}]
+    sources = [
+        {
+            "id": "s1",
+            "source_type": "official",
+            "temporal_state": "current",
+            "official_source_id": "o1",
+        }
+    ]
 
     all_inputs = [ev, obs, errs, items, goals, sources]
     snapshots = [deepcopy(x) for x in all_inputs]
 
-    classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=ev)
+    classify_proficiency_record(
+        kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=ev
+    )
     separate_skill_evidence(evidence=ev)
-    classify_language_variety(preferred_variety="American English", observed_variety="British English")
-    evaluate_framework_mapping(source_framework="CEFR", source_value="B2", target_framework="IELTS", mapping_evidence=ev)
+    classify_language_variety(
+        preferred_variety="American English", observed_variety="British English"
+    )
+    evaluate_framework_mapping(
+        source_framework="CEFR",
+        source_value="B2",
+        target_framework="IELTS",
+        mapping_evidence=ev,
+    )
     evaluate_error_pattern(observations=obs)
-    prioritize_corrections(errors=errs, active_goals=["g1"], certification_relevance=["c1"])
+    prioritize_corrections(
+        errors=errs, active_goals=["g1"], certification_relevance=["c1"]
+    )
     adapt_difficulty(current_difficulty=3, performance=ev)
     plan_spaced_review(items=items, active_goals=["g1"])
-    evaluate_learning_load(available_time=30, priorities=["p1"], deadlines=[{"id": "d1"}], review_backlog=[{"id": "b1"}])
+    evaluate_learning_load(
+        available_time=30,
+        priorities=["p1"],
+        deadlines=[{"id": "d1"}],
+        review_backlog=[{"id": "b1"}],
+    )
     align_activity_to_goals(activity={"type": "roleplay"}, goals=goals)
     evaluate_progression(previous_evidence=ev, current_evidence=ev)
     evaluate_certification_source(sources=sources)
@@ -1579,6 +1985,7 @@ def test_all_14_rules_input_immutability():
 
 # ── Epistemic Binding Remediation (Findings 1–5) ─────────────────────────────
 
+
 def test_certification_source_authority_unprovenanced_official_blocked():
     """Unprovenanced current official source must not receive rank 6 and must require verification."""
     unprov_official = {
@@ -1587,7 +1994,9 @@ def test_certification_source_authority_unprovenanced_official_blocked():
         "temporal_state": "current",
         "format": "computer",
     }
-    res = evaluate_certification_source(sources=(unprov_official,), decision_critical=True)
+    res = evaluate_certification_source(
+        sources=(unprov_official,), decision_critical=True
+    )
     assert res["authority_rank"] != 6
     assert res["needs_verification"] is True
 
@@ -1596,7 +2005,9 @@ def test_certification_source_authority_unprovenanced_official_blocked():
         "source_type": "secondary",
         "temporal_state": "current",
     }
-    res_sec = evaluate_certification_source(sources=(unprov_sec,), decision_critical=True)
+    res_sec = evaluate_certification_source(
+        sources=(unprov_sec,), decision_critical=True
+    )
     assert res_sec["authority_rank"] != 5
 
     # Grounded official gets rank 6 and needs no verification
@@ -1606,7 +2017,9 @@ def test_certification_source_authority_unprovenanced_official_blocked():
         "temporal_state": "current",
         "official_source_id": "official-inst-1",
     }
-    res_prov = evaluate_certification_source(sources=(prov_official,), decision_critical=True)
+    res_prov = evaluate_certification_source(
+        sources=(prov_official,), decision_critical=True
+    )
     assert res_prov["authority_rank"] == 6
     assert res_prov["needs_verification"] is False
 
@@ -1617,7 +2030,9 @@ def test_certification_source_authority_unprovenanced_official_blocked():
         "temporal_state": "current",
         "source_id": "sec-inst-1",
     }
-    res_prov_sec = evaluate_certification_source(sources=(prov_sec,), decision_critical=True)
+    res_prov_sec = evaluate_certification_source(
+        sources=(prov_sec,), decision_critical=True
+    )
     assert res_prov_sec["authority_rank"] == 5
 
     # Grounded stale official gets rank 4 and requires verification if decision critical
@@ -1627,7 +2042,9 @@ def test_certification_source_authority_unprovenanced_official_blocked():
         "temporal_state": "stale",
         "official_source_id": "official-inst-1",
     }
-    res_stale = evaluate_certification_source(sources=(stale_official,), decision_critical=True)
+    res_stale = evaluate_certification_source(
+        sources=(stale_official,), decision_critical=True
+    )
     assert res_stale["authority_rank"] == 4
     assert res_stale["needs_verification"] is True
 
@@ -1635,8 +2052,18 @@ def test_certification_source_authority_unprovenanced_official_blocked():
 def test_language_level_framework_leakage_blocked():
     """Cross-framework evidence cannot ground an estimate in a different framework."""
     actfl_evidence = (
-        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
-        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
+        {
+            "provenance_id": "p1",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "ACTFL",
+        },
+        {
+            "provenance_id": "p2",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "ACTFL",
+        },
     )
     res_cefr = classify_proficiency_record(
         kind="ESTIMATED",
@@ -1650,8 +2077,18 @@ def test_language_level_framework_leakage_blocked():
 
     # Mixed framework: only matching framework evidence counts
     mixed_evidence = (
-        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
-        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR"},
+        {
+            "provenance_id": "p1",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "ACTFL",
+        },
+        {
+            "provenance_id": "p2",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "CEFR",
+        },
     )
     res_mixed = classify_proficiency_record(
         kind="ESTIMATED",
@@ -1665,8 +2102,18 @@ def test_language_level_framework_leakage_blocked():
 
     # Two matching CEFR records -> ESTIMATED allowed
     cefr_evidence = (
-        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR"},
-        {"provenance_id": "p3", "skill": "writing", "observed": "C1", "framework": "CEFR"},
+        {
+            "provenance_id": "p2",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "CEFR",
+        },
+        {
+            "provenance_id": "p3",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "CEFR",
+        },
     )
     res_valid = classify_proficiency_record(
         kind="ESTIMATED",
@@ -1687,7 +2134,15 @@ def test_framework_mapping_source_value_and_applicability_required():
             source_framework="IELTS",
             source_value=bad_val,
             target_framework="CEFR",
-            mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+            mapping_evidence=(
+                {
+                    "source_id": "c1",
+                    "source_framework": "IELTS",
+                    "source_value": "7.0",
+                    "target_framework": "CEFR",
+                    "target_range": "C1",
+                },
+            ),
         )
         assert res["calibrated"] is False
         assert res["target_estimate_range"] is None
@@ -1705,7 +2160,15 @@ def test_framework_mapping_source_value_and_applicability_required():
         source_framework="IELTS",
         source_value="7.0",
         target_framework="CEFR",
-        mapping_evidence=({"source_id": "c1", "source_framework": "TOEFL", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+        mapping_evidence=(
+            {
+                "source_id": "c1",
+                "source_framework": "TOEFL",
+                "source_value": "7.0",
+                "target_framework": "CEFR",
+                "target_range": "C1",
+            },
+        ),
     )
     assert res_wrong_src["calibrated"] is False
 
@@ -1714,7 +2177,15 @@ def test_framework_mapping_source_value_and_applicability_required():
         source_framework="IELTS",
         source_value="7.0",
         target_framework="CEFR",
-        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "DELE", "target_range": "C1"},),
+        mapping_evidence=(
+            {
+                "source_id": "c1",
+                "source_framework": "IELTS",
+                "source_value": "7.0",
+                "target_framework": "DELE",
+                "target_range": "C1",
+            },
+        ),
     )
     assert res_wrong_tgt["calibrated"] is False
 
@@ -1723,7 +2194,15 @@ def test_framework_mapping_source_value_and_applicability_required():
         source_framework="IELTS",
         source_value="7.0",
         target_framework="CEFR",
-        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "5.0", "target_framework": "CEFR", "target_range": "B1"},),
+        mapping_evidence=(
+            {
+                "source_id": "c1",
+                "source_framework": "IELTS",
+                "source_value": "5.0",
+                "target_framework": "CEFR",
+                "target_range": "B1",
+            },
+        ),
     )
     assert res_wrong_val["calibrated"] is False
 
@@ -1732,7 +2211,15 @@ def test_framework_mapping_source_value_and_applicability_required():
         source_framework="IELTS",
         source_value="7.0",
         target_framework="CEFR",
-        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+        mapping_evidence=(
+            {
+                "source_id": "c1",
+                "source_framework": "IELTS",
+                "source_value": "7.0",
+                "target_framework": "CEFR",
+                "target_range": "C1",
+            },
+        ),
     )
     assert res_match["calibrated"] is True
     assert res_match["target_estimate_range"] == "C1"
@@ -1750,7 +2237,10 @@ def test_learning_load_semantic_inputs_mutation_sensitivity():
         energy="moderate",
         recent_load={"hours": 5, "status": "high"},
     )
-    assert heavy_load_res["recommended_duration_minutes"] < base_res["recommended_duration_minutes"]
+    assert (
+        heavy_load_res["recommended_duration_minutes"]
+        < base_res["recommended_duration_minutes"]
+    )
     assert heavy_load_res["load_status"] == "scaffolded_light"
     assert heavy_load_res["recommended_duration_minutes"] <= 30
     assert heavy_load_res["calendar_modified"] is False
@@ -1761,7 +2251,10 @@ def test_learning_load_semantic_inputs_mutation_sensitivity():
         energy="moderate",
         deadlines=({"id": "d1", "urgent": True},),
     )
-    assert "exam_practice" in deadline_res["recommended_activities"] or "targeted_practice" in deadline_res["recommended_activities"]
+    assert (
+        "exam_practice" in deadline_res["recommended_activities"]
+        or "targeted_practice" in deadline_res["recommended_activities"]
+    )
 
     # Non-empty review backlog prioritizes spaced review
     backlog_res = evaluate_learning_load(
@@ -1819,7 +2312,16 @@ def test_goal_alignment_approved_activity_contract_skills_and_purpose():
 
 def test_malformed_evidence_container_fails_closed_across_all_helpers():
     """Non-iterable scalar/None/NaN/Inf/bool evidence containers fail closed safely without raising TypeError."""
-    bad_containers = (None, True, False, 42, float("nan"), float("inf"), object(), "invalid_string")
+    bad_containers = (
+        None,
+        True,
+        False,
+        42,
+        float("nan"),
+        float("inf"),
+        object(),
+        "invalid_string",
+    )
 
     for bad in bad_containers:
         # classify_proficiency_record
@@ -1835,7 +2337,9 @@ def test_malformed_evidence_container_fails_closed_across_all_helpers():
         # separate_skill_evidence
         res_sep = separate_skill_evidence(evidence=bad)
         assert isinstance(res_sep, dict)
-        assert all(v["status"] == "insufficient_evidence" for v in res_sep["by_skill"].values())
+        assert all(
+            v["status"] == "insufficient_evidence" for v in res_sep["by_skill"].values()
+        )
         assert res_sep["total_evidence_count"] == 0
 
         # evaluate_progression
@@ -1856,20 +2360,29 @@ def test_cultural_context_arbitrary_mapping_not_grounded():
     assert res_empty["evidence_status"] == "weak_or_unprovenanced"
 
     # Arbitrary dict
-    res_arbitrary = evaluate_cultural_context(claim="Native speakers do X", evidence=({"foo": "bar"},))
+    res_arbitrary = evaluate_cultural_context(
+        claim="Native speakers do X", evidence=({"foo": "bar"},)
+    )
     assert res_arbitrary["has_grounded_evidence"] is False
     assert res_arbitrary["evidence_status"] == "weak_or_unprovenanced"
 
     # Grounded evidence
     res_grounded = evaluate_cultural_context(
         claim="In Spain, direct forms are common",
-        evidence=({"source_id": "corpus-1", "reference_id": "ref-1", "observation": "common usage in Madrid"},),
+        evidence=(
+            {
+                "source_id": "corpus-1",
+                "reference_id": "ref-1",
+                "observation": "common usage in Madrid",
+            },
+        ),
     )
     assert res_grounded["has_grounded_evidence"] is True
     assert res_grounded["evidence_status"] == "evidenced"
 
 
 # ── Final Epistemic Invariant Consolidation RED Tests ─────────────────────────
+
 
 def test_framework_mapping_incomplete_records_rejected():
     """Mapping evidence missing source_framework, source_value, target_framework, or target_range fails closed."""
@@ -1888,7 +2401,9 @@ def test_framework_mapping_incomplete_records_rejected():
         source_framework="IELTS",
         source_value="6.5",
         target_framework="CEFR",
-        mapping_evidence=({"source_framework": "IELTS", "source_id": "conc-1", "target_range": "B2"},),
+        mapping_evidence=(
+            {"source_framework": "IELTS", "source_id": "conc-1", "target_range": "B2"},
+        ),
     )
     assert res_no_val["calibrated"] is False
 
@@ -1897,7 +2412,9 @@ def test_framework_mapping_incomplete_records_rejected():
         source_framework="IELTS",
         source_value="6.5",
         target_framework="CEFR",
-        mapping_evidence=({"source_value": "6.5", "source_id": "conc-1", "target_range": "B2"},),
+        mapping_evidence=(
+            {"source_value": "6.5", "source_id": "conc-1", "target_range": "B2"},
+        ),
     )
     assert res_no_sfw["calibrated"] is False
 
@@ -1906,7 +2423,9 @@ def test_framework_mapping_incomplete_records_rejected():
         source_framework="IELTS",
         source_value="6.5",
         target_framework="CEFR",
-        mapping_evidence=({"target_framework": "CEFR", "source_id": "conc-1", "target_range": "B2"},),
+        mapping_evidence=(
+            {"target_framework": "CEFR", "source_id": "conc-1", "target_range": "B2"},
+        ),
     )
     assert res_no_sval["calibrated"] is False
 
@@ -1951,31 +2470,77 @@ def test_framework_mapping_textual_source_range_rejected():
 
 def test_evaluate_level_update_cross_framework_leakage_blocked():
     """Cross-framework evidence cannot update a CEFR level directly via ACTFL identity."""
-    existing = {"kind": "ESTIMATED", "level_or_score": "B2", "skill_scope": "writing", "framework": "CEFR"}
+    existing = {
+        "kind": "ESTIMATED",
+        "level_or_score": "B2",
+        "skill_scope": "writing",
+        "framework": "CEFR",
+    }
     actfl_evidence = (
-        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "ACTFL", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "p1",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "ACTFL",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "p2",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "ACTFL",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
-    res = evaluate_level_update(existing=existing, evidence=actfl_evidence, target_skill="writing")
+    res = evaluate_level_update(
+        existing=existing, evidence=actfl_evidence, target_skill="writing"
+    )
     assert res["stable_update_supported"] is False
     assert res["proposed_level"] == "B2"
 
 
 def test_evaluate_level_update_preserves_framework():
     """A valid stable level update preserves explicit framework in updated_record."""
-    existing = {"kind": "ESTIMATED", "level_or_score": "B2", "skill_scope": "writing", "framework": "CEFR"}
+    existing = {
+        "kind": "ESTIMATED",
+        "level_or_score": "B2",
+        "skill_scope": "writing",
+        "framework": "CEFR",
+    }
     cefr_evidence = (
-        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "CEFR", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR", "comparable": True, "comparison_key": "essay"},
+        {
+            "provenance_id": "p1",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "CEFR",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "p2",
+            "skill": "writing",
+            "observed": "C1",
+            "framework": "CEFR",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
     )
-    res = evaluate_level_update(existing=existing, evidence=cefr_evidence, target_skill="writing")
+    res = evaluate_level_update(
+        existing=existing, evidence=cefr_evidence, target_skill="writing"
+    )
     assert res["stable_update_supported"] is True
     assert res["proposed_level"] == "C1"
     assert res["updated_record"].get("framework") == "CEFR"
 
 
-@pytest.mark.parametrize("occurrence_alias", ("session_id", "sample_id", "assessment_id", "context_id"))
-def test_certification_source_authority_occurrence_aliases_not_authoritative(occurrence_alias):
+@pytest.mark.parametrize(
+    "occurrence_alias", ("session_id", "sample_id", "assessment_id", "context_id")
+)
+def test_certification_source_authority_occurrence_aliases_not_authoritative(
+    occurrence_alias,
+):
     """Generic occurrence identifiers cannot confer certification source authority."""
     src = {
         "id": "s1",
@@ -2013,19 +2578,30 @@ def test_learning_load_bool_numeric_deadline_days_remaining_rejected():
 
 # ── Cross-Path Invariant Meta-Tests Suite ─────────────────────────────────────
 
+
 @pytest.mark.parametrize(
     "helper_call",
     [
-        lambda ev: classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="B2", evidence=ev),
+        lambda ev: classify_proficiency_record(
+            kind="ESTIMATED", framework="CEFR", level_or_score="B2", evidence=ev
+        ),
         lambda ev: evaluate_error_pattern(observations=ev),
         lambda ev: adapt_difficulty(current_difficulty=2, performance=ev),
-        lambda ev: evaluate_progression(previous_evidence=ev, current_evidence=ev, skill="writing"),
+        lambda ev: evaluate_progression(
+            previous_evidence=ev, current_evidence=ev, skill="writing"
+        ),
         lambda ev: evaluate_cultural_context(claim="Specific claim", evidence=ev),
     ],
 )
 def test_meta_all_evidence_helpers_reject_unprovenanced_records(helper_call):
     """Every evidence-consuming rule helper strictly rejects records without canonical provenance."""
-    unprovenanced_record = {"score": 0.8, "observed": "B2", "comparable": True, "comparison_key": "k1", "skill": "writing"}
+    unprovenanced_record = {
+        "score": 0.8,
+        "observed": "B2",
+        "comparable": True,
+        "comparison_key": "k1",
+        "skill": "writing",
+    }
     res = helper_call((unprovenanced_record,))
     assert isinstance(res, dict)
     # Check that unprovenanced record was not treated as valid grounded evidence
@@ -2041,13 +2617,16 @@ def test_meta_all_evidence_helpers_reject_unprovenanced_records(helper_call):
         assert res["has_grounded_evidence"] is False
 
 
-@pytest.mark.parametrize("source_fw,target_fw", [
-    ("CEFR", "ACTFL"),
-    ("ACTFL", "CEFR"),
-    ("IELTS", "TOEFL"),
-    ("TOEFL", "IELTS"),
-    ("CEFR", "IELTS"),
-])
+@pytest.mark.parametrize(
+    "source_fw,target_fw",
+    [
+        ("CEFR", "ACTFL"),
+        ("ACTFL", "CEFR"),
+        ("IELTS", "TOEFL"),
+        ("TOEFL", "IELTS"),
+        ("CEFR", "IELTS"),
+    ],
+)
 def test_meta_cross_framework_direct_identity_always_forbidden(source_fw, target_fw):
     """Direct cross-framework identity is unconditionally forbidden without grounded concordance."""
     res = evaluate_framework_mapping(
@@ -2061,7 +2640,19 @@ def test_meta_cross_framework_direct_identity_always_forbidden(source_fw, target
     assert res["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
 
 
-@pytest.mark.parametrize("bad_numeric", [True, False, float("nan"), float("inf"), float("-inf"), "0.8", [0.8], {"val": 0.8}])
+@pytest.mark.parametrize(
+    "bad_numeric",
+    [
+        True,
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "0.8",
+        [0.8],
+        {"val": 0.8},
+    ],
+)
 def test_meta_all_numeric_fields_fail_closed_on_non_finite_or_bool(bad_numeric):
     """All numeric fields across domain rules reject bool, NaN, Inf, string, and collection values."""
     # 1. Proficiency score
@@ -2069,20 +2660,42 @@ def test_meta_all_numeric_fields_fail_closed_on_non_finite_or_bool(bad_numeric):
         kind="ESTIMATED",
         framework="CEFR",
         level_or_score=bad_numeric,
-        evidence=({"provenance_id": "p1", "score": bad_numeric, "comparable": True, "comparison_key": "k1"},),
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "score": bad_numeric,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
     )
     assert res_prof["level_or_score"] == "unassessed"
 
     # 2. Adaptive difficulty current_difficulty & score
     res_diff = adapt_difficulty(
         current_difficulty=bad_numeric,
-        performance=({"provenance_id": "p1", "score": bad_numeric, "comparable": True, "comparison_key": "k1"},),
+        performance=(
+            {
+                "provenance_id": "p1",
+                "score": bad_numeric,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
     )
     assert res_diff["action"] == "insufficient_evidence"
 
     # 3. Spaced review mastery / recall / importance
     res_sr = plan_spaced_review(
-        items=({"id": "v1", "mastery": bad_numeric, "recall": bad_numeric, "importance": bad_numeric, "due": True},),
+        items=(
+            {
+                "id": "v1",
+                "mastery": bad_numeric,
+                "recall": bad_numeric,
+                "importance": bad_numeric,
+                "due": True,
+            },
+        ),
     )
     assert len(res_sr["prioritized_items"]) == 1
 
@@ -2093,14 +2706,25 @@ def test_meta_all_numeric_fields_fail_closed_on_non_finite_or_bool(bad_numeric):
 
     # 5. Error pattern minimum_independent_occurrences
     res_ep = evaluate_error_pattern(
-        observations=({"provenance_id": "p1", "error_type": "tense", "comparable": True, "comparison_key": "k1"},),
+        observations=(
+            {
+                "provenance_id": "p1",
+                "error_type": "tense",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
         minimum_independent_occurrences=bad_numeric,
     )
     assert res_ep["eligible"] is False
 
 
-@pytest.mark.parametrize("generic_id_field", ["session_id", "sample_id", "assessment_id", "context_id"])
-def test_meta_generic_occurrence_ids_never_grant_certification_authority(generic_id_field):
+@pytest.mark.parametrize(
+    "generic_id_field", ["session_id", "sample_id", "assessment_id", "context_id"]
+)
+def test_meta_generic_occurrence_ids_never_grant_certification_authority(
+    generic_id_field,
+):
     """Generic occurrence identifiers never confer certification authority rank 6 or bypass verification."""
     source = {
         "id": "s1",
@@ -2116,8 +2740,18 @@ def test_meta_generic_occurrence_ids_never_grant_certification_authority(generic
 def test_meta_goal_alignment_requires_explicit_semantic_link():
     """Goal alignment never matches without explicit goal ID, matching skill, or matching specific purpose."""
     goals = (
-        {"id": "goal_reading", "kind": "reading", "skill": "reading", "target": "academic articles"},
-        {"id": "goal_speaking", "kind": "conversation", "skill": "speaking", "target": "fluency in travel"},
+        {
+            "id": "goal_reading",
+            "kind": "reading",
+            "skill": "reading",
+            "target": "academic articles",
+        },
+        {
+            "id": "goal_speaking",
+            "kind": "conversation",
+            "skill": "speaking",
+            "target": "fluency in travel",
+        },
     )
     # Generic practice without matching skill/topic/purpose
     res_generic = align_activity_to_goals(activity={"type": "practice"}, goals=goals)
@@ -2125,13 +2759,15 @@ def test_meta_goal_alignment_requires_explicit_semantic_link():
     assert res_generic["aligned_goals"] == []
 
     # Specific reading activity only matches reading goal
-    res_reading = align_activity_to_goals(activity={"type": "article_reading", "skill": "reading"}, goals=goals)
+    res_reading = align_activity_to_goals(
+        activity={"type": "article_reading", "skill": "reading"}, goals=goals
+    )
     assert res_reading["activity_fit"] == "aligned"
     assert res_reading["aligned_goals"] == ["goal_reading"]
 
     # Specific speaking activity only matches speaking goal
-    res_speaking = align_activity_to_goals(activity={"type": "roleplay", "skill": "speaking"}, goals=goals)
+    res_speaking = align_activity_to_goals(
+        activity={"type": "roleplay", "skill": "speaking"}, goals=goals
+    )
     assert res_speaking["activity_fit"] == "aligned"
     assert res_speaking["aligned_goals"] == ["goal_speaking"]
-
-
