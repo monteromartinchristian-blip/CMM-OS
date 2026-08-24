@@ -215,10 +215,7 @@ def _finite_semantic_number(
         return None
     if not isinstance(value, (int, float)):
         return None
-    try:
-        val_float = float(value)
-    except (TypeError, ValueError):
-        return None
+    val_float = float(value)
     if not math.isfinite(val_float):
         return None
     if minimum is not None and val_float < minimum:
