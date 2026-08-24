@@ -102,8 +102,10 @@ def _schema(required: tuple[str, ...], properties: dict[str, Any]) -> dict[str, 
 _STR = {"type": "string"}
 _STR_OR_NULL = {"type": ["string", "null"]}
 _BOOL = {"type": "boolean"}
+_BOOL_OR_NULL = {"type": ["boolean", "null"]}
 _INT = {"type": "integer"}
 _NUM = {"type": "number"}
+_NUM_OR_NULL = {"type": ["number", "integer", "null"]}
 _RECORDS = {"type": "array", "items": {"type": "object"}}
 _STR_LIST = {"type": "array", "items": {"type": "string"}}
 
@@ -387,8 +389,8 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         ),
         {
             "review_id": _STR,
-            "score": _NUM,
-            "is_correct": _BOOL,
+            "score": _NUM_OR_NULL,
+            "is_correct": _BOOL_OR_NULL,
             "observed_errors": _RECORDS,
             "feedback": _STR,
             "difficulty_adjustment": _STR,
@@ -833,20 +835,22 @@ def review_exercise_result(
 ) -> dict[str, Any]:
     """Review exercise outcome without prematurely turning isolated error into pattern."""
     er = dict(exercise_result or {})
-    is_correct = er.get("is_correct", True) is True
-    if "score" in er:
-        clean_score = _finite_number(er.get("score"))
-        if clean_score is None:
-            is_correct = False
-            score = 0.0
-        else:
-            score = clean_score
+    has_correctness = isinstance(er.get("is_correct"), bool)
+    clean_score = _finite_number(er.get("score")) if "score" in er else None
+    has_score = clean_score is not None
+    if not has_correctness and not has_score:
+        is_correct = None
+        score = None
+    elif has_correctness:
+        is_correct = er["is_correct"]
+        score = clean_score if has_score else (1.0 if is_correct else 0.0)
     else:
-        score = 1.0 if is_correct else 0.0
+        is_correct = None
+        score = clean_score
     review_id = f"exr-{uuid.uuid4().hex[:8]}"
 
     errors = []
-    if not is_correct:
+    if is_correct is False:
         errors.append({
             "id": f"err-{uuid.uuid4().hex[:6]}",
             "provenance_id": review_id,
@@ -863,8 +867,16 @@ def review_exercise_result(
         "score": score,
         "is_correct": is_correct,
         "observed_errors": errors,
-        "feedback": "Great job!" if is_correct else "Review the target structure.",
-        "difficulty_adjustment": "maintain" if is_correct else "scaffold",
+        "feedback": (
+            "Great job!" if is_correct is True
+            else "Review the target structure." if is_correct is False
+            else "Not assessed: missing exercise outcome."
+        ),
+        "difficulty_adjustment": (
+            "maintain" if is_correct is True
+            else "scaffold" if is_correct is False
+            else "hold"
+        ),
         "pattern_candidate": False,
         "stable_proficiency_changed": False,
         "error_pattern_promoted_without_evidence": False,

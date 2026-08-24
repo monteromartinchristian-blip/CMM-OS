@@ -247,10 +247,11 @@ def test_schema_valid_empty_operation_inputs_never_invent_evidence() -> None:
 def test_exercise_numeric_inputs_never_escape_fail_closed_json_boundary() -> None:
     for score in (float("nan"), float("inf"), float("-inf"), True, "bad", {}, []):
         result = review_exercise_result(
-            exercise_result={"is_correct": True, "score": score}
+            exercise_result={"score": score}
         )
-        assert result["score"] == 0.0
-        assert result["is_correct"] is False
+        assert result["score"] is None
+        assert result["is_correct"] is None
+        assert result["observed_errors"] == []
         json.dumps(result, allow_nan=False)
 
 
@@ -891,3 +892,11 @@ def test_semantic_rules_are_order_invariant_non_mutating_finite_and_json_safe() 
 
     for output in _representative_outputs().values():
         json.dumps(output, allow_nan=False)
+
+
+def test_user_answer_without_exercise_outcome_is_not_correctness_evidence() -> None:
+    """Catches treating a submitted answer as a positive correctness outcome."""
+    result = review_exercise_result(exercise_result={"user_answer": "x"})
+
+    assert result["is_correct"] is None
+    assert result["score"] is None

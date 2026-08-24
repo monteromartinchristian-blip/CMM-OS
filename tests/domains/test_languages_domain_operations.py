@@ -369,7 +369,7 @@ def test_certification_preparation_no_external_mutation() -> None:
     assert res["submission_performed"] is False
 
 
-def test_review_exercise_malformed_scores_fail_closed_and_remain_json_safe() -> None:
+def test_review_exercise_malformed_scores_without_correctness_remain_unassessed() -> None:
     malformed_scores = (
         float("nan"),
         float("inf"),
@@ -385,17 +385,90 @@ def test_review_exercise_malformed_scores_fail_closed_and_remain_json_safe() -> 
     for malformed_score in malformed_scores:
         result = review_exercise_result(
             exercise_result={
-                "is_correct": True,
                 "score": malformed_score,
                 "user_answer": "unsupported",
             }
         )
 
-        assert result["score"] == 0.0
-        assert result["is_correct"] is False
-        assert result["feedback"] != "Great job!"
+        assert result["score"] is None
+        assert result["is_correct"] is None
+        assert result["observed_errors"] == []
+        assert result["feedback"] == "Not assessed: missing exercise outcome."
+        assert result["difficulty_adjustment"] == "hold"
         assert result["stable_proficiency_changed"] is False
         json.dumps(result, allow_nan=False)
+
+
+def test_review_exercise_correctness_evidence_survives_malformed_score() -> None:
+    """Catches malformed score data overriding an observed boolean outcome."""
+    for malformed_score in (float("nan"), float("inf"), float("-inf"), True, "bad"):
+        result = review_exercise_result(
+            exercise_result={"is_correct": True, "score": malformed_score}
+        )
+
+        assert result["is_correct"] is True
+        assert result["score"] == 1.0
+        assert result["observed_errors"] == []
+        assert result["feedback"] == "Great job!"
+        assert result["difficulty_adjustment"] == "maintain"
+        json.dumps(result, allow_nan=False)
+
+
+def test_review_exercise_missing_outcome_remains_unassessed() -> None:
+    """Catches a positive default when no exercise outcome was supplied."""
+    result = review_exercise_result(exercise_result={})
+
+    assert result["is_correct"] is None
+    assert result["score"] is None
+    assert result["observed_errors"] == []
+    assert result["feedback"] == "Not assessed: missing exercise outcome."
+    assert result["difficulty_adjustment"] == "hold"
+
+
+def test_review_exercise_preserves_each_kind_of_observed_outcome() -> None:
+    """Catches deriving correctness from score or discarding valid outcome evidence."""
+    cases = (
+        ({"is_correct": True}, True, 1.0, 0, "Great job!", "maintain"),
+        ({"is_correct": False}, False, 0.0, 1, "Review the target structure.", "scaffold"),
+        ({"score": 0.8}, None, 0.8, 0, "Not assessed: missing exercise outcome.", "hold"),
+        ({"is_correct": False, "score": 0.2}, False, 0.2, 1, "Review the target structure.", "scaffold"),
+    )
+
+    for exercise_result, correct, score, error_count, feedback, difficulty in cases:
+        result = review_exercise_result(exercise_result=exercise_result)
+
+        assert result["is_correct"] is correct
+        assert result["score"] == score
+        assert len(result["observed_errors"]) == error_count
+        assert result["feedback"] == feedback
+        assert result["difficulty_adjustment"] == difficulty
+        json.dumps(result, allow_nan=False)
+
+
+def test_review_exercise_unassessed_container_inputs_remain_json_safe() -> None:
+    """Catches coercing absent or non-mapping exercise outcomes into success."""
+    for exercise_result in ({}, [], None):
+        result = review_exercise_result(exercise_result=exercise_result)
+
+        assert result["is_correct"] is None
+        assert result["score"] is None
+        assert result["observed_errors"] == []
+        json.dumps(result, allow_nan=False)
+
+
+def test_review_exercise_unassessed_output_matches_its_declared_schema() -> None:
+    """Catches a nullable outcome rejected by the public operation schema."""
+    definitions = {
+        definition.operation_id: definition
+        for definition in build_languages_operation_definitions()
+    }
+    definition = definitions["languages.review_exercise"]
+    result = review_exercise_result(exercise_result={})
+    assert result["is_correct"] is None
+    assert result["score"] is None
+    assert validate_operation_schema(
+        result, definition.output_schema
+    ) == ()
 
 
 def test_other_numeric_operation_inputs_use_the_same_fail_closed_boundary() -> None:

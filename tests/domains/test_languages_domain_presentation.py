@@ -69,6 +69,18 @@ def test_present_languages_result_speaking_without_audio() -> None:
     assert presented["pronunciation_badge"] == "Audio evidence not provided"
 
 
+def test_presentation_preserves_unassessed_exercise_outcome() -> None:
+    """Catches projection turning unknown exercise evidence into a completed result."""
+    presented = present_languages_result(review_exercise_result(exercise_result={}))
+
+    assert presented["is_correct"] is None
+    assert presented["score"] is None
+    assert presented["observed_errors"] == []
+    assert presented["feedback"] == "Not assessed: missing exercise outcome."
+    assert presented["difficulty_adjustment"] == "hold"
+    json.dumps(presented, allow_nan=False)
+
+
 def _actual_operation_outputs() -> dict[str, dict]:
     comparable = {
         "skill": "writing",
