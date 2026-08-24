@@ -920,15 +920,8 @@ def evaluate_error_pattern(
     minimum_independent_occurrences: int = 2,
 ) -> dict[str, Any]:
     """Evaluate error pattern evidence across independent comparable observations."""
-    if (
-        isinstance(minimum_independent_occurrences, bool)
-        or not isinstance(minimum_independent_occurrences, (int, float))
-        or math.isnan(minimum_independent_occurrences)
-        or math.isinf(minimum_independent_occurrences)
-    ):
-        min_occurrences = 2
-    else:
-        min_occurrences = int(minimum_independent_occurrences) if int(minimum_independent_occurrences) >= 2 else 2  # noqa: FURB136
+    min_num = _finite_semantic_number(minimum_independent_occurrences, minimum=2.0)
+    min_occurrences = int(min_num) if min_num is not None else 2
 
     if not isinstance(observations, (list, tuple, set, frozenset)):
         observations = ()
@@ -1095,13 +1088,8 @@ def adapt_difficulty(
     stable_proficiency: str | None = None,
 ) -> dict[str, Any]:
     """Adapt exercise difficulty based on accumulated comparable performance."""
-    if (
-        isinstance(current_difficulty, bool)
-        or not isinstance(current_difficulty, (int, float))
-        or math.isnan(current_difficulty)
-        or math.isinf(current_difficulty)
-        or current_difficulty < 1
-    ):
+    cur_diff_num = _finite_semantic_number(current_difficulty, minimum=1.0)
+    if cur_diff_num is None:
         return {
             "action": "insufficient_evidence",
             "current_difficulty": 1,
@@ -1110,7 +1098,7 @@ def adapt_difficulty(
             "reason": "invalid_current_difficulty",
         }
 
-    cur_diff = int(current_difficulty)
+    cur_diff = int(cur_diff_num)
 
     if not isinstance(performance, (list, tuple, set, frozenset)):
         perf_list: list[Any] = []
@@ -1118,15 +1106,15 @@ def adapt_difficulty(
         perf_list = list(performance)
 
     valid_perf = [
-        (provenance, float(p.get("score")), comp_key, norm)
+        (provenance, score_val, comp_key, norm)
         for p in perf_list
         if isinstance(p, Mapping) and p.get("comparable") is True
         for comp_key in [_safe_str(p.get("comparison_key"))]
         if comp_key is not None
         for provenance in [_canonical_provenance(p)]
         if provenance is not None
-        for score in [p.get("score")]
-        if not isinstance(score, bool) and isinstance(score, (int, float)) and not math.isnan(score) and not math.isinf(score) and 0.0 <= float(score) <= 1.0
+        for score_val in [_finite_semantic_number(p.get("score"), minimum=0.0, maximum=1.0)]
+        if score_val is not None
         for norm in [dict(normalize_json_value(p))]
     ]
     comparison_keys = {comp_key for _, _, comp_key, _ in valid_perf}
@@ -1321,32 +1309,24 @@ def plan_spaced_review(
             score += 20.0
 
         # Mastery: lower mastery -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_mastery = item.get("mastery")
-        if isinstance(raw_mastery, bool) or not isinstance(raw_mastery, (int, float)) or math.isnan(raw_mastery) or math.isinf(raw_mastery):
+        raw_mastery = _finite_semantic_number(item.get("mastery"))
+        if raw_mastery is None:
             mastery = 0.5
         else:
-            m_val = float(raw_mastery)
-            mastery = 1.0 if m_val > 1.0 else (0.0 if m_val < 0.0 else m_val)  # noqa: FURB136
+            mastery = 1.0 if raw_mastery > 1.0 else (0.0 if raw_mastery < 0.0 else raw_mastery)  # noqa: FURB136
         score += (1.0 - mastery) * 20.0
 
         # Recall: lower recall -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_recall = item.get("recall") if "recall" in item else item.get("retrieval_strength")
+        raw_recall_field = item.get("recall") if "recall" in item else item.get("retrieval_strength")
+        raw_recall = _finite_semantic_number(raw_recall_field)
         if raw_recall is not None:
-            if isinstance(raw_recall, bool) or not isinstance(raw_recall, (int, float)) or math.isnan(raw_recall) or math.isinf(raw_recall):
-                recall = 0.5
-            else:
-                r_val = float(raw_recall)
-                recall = 1.0 if r_val > 1.0 else (0.0 if r_val < 0.0 else r_val)  # noqa: FURB136
+            recall = 1.0 if raw_recall > 1.0 else (0.0 if raw_recall < 0.0 else raw_recall)  # noqa: FURB136
             score += (1.0 - recall) * 15.0
 
         # Importance: higher importance -> higher priority (bounded [0.0, 1.0], default 0.5)
-        raw_importance = item.get("importance")
-        if raw_importance is not None:
-            if isinstance(raw_importance, bool) or not isinstance(raw_importance, (int, float)) or math.isnan(raw_importance) or math.isinf(raw_importance):
-                importance = 0.5
-            else:
-                imp_val = float(raw_importance)
-                importance = 1.0 if imp_val > 1.0 else (0.0 if imp_val < 0.0 else imp_val)  # noqa: FURB136
+        raw_imp = _finite_semantic_number(item.get("importance"))
+        if raw_imp is not None:
+            importance = 1.0 if raw_imp > 1.0 else (0.0 if raw_imp < 0.0 else raw_imp)  # noqa: FURB136
             score += importance * 15.0
 
         return score
@@ -1388,13 +1368,8 @@ def evaluate_learning_load(
         backlog_list = list(review_backlog)
 
     if available_time is not None:
-        if (
-            isinstance(available_time, bool)
-            or not isinstance(available_time, (int, float))
-            or math.isnan(available_time)
-            or math.isinf(available_time)
-            or available_time < 0
-        ):
+        clean_time_num = _finite_semantic_number(available_time, minimum=0.0)
+        if clean_time_num is None:
             return {
                 "recommended_duration_minutes": 0,
                 "recommended_activities": ["micro_practice"],
@@ -1405,7 +1380,7 @@ def evaluate_learning_load(
                 "deadlines_considered": len(deadlines_list),
                 "recent_load_considered": normalize_json_value(recent_load) if recent_load is not None else None,
             }
-        clean_time = int(available_time)
+        clean_time = int(clean_time_num)
     else:
         clean_time = 30
 
@@ -1428,17 +1403,19 @@ def evaluate_learning_load(
     is_heavy_recent_load = False
     if isinstance(recent_load, Mapping):
         norm_load = dict(normalize_json_value(recent_load))
-        hours = norm_load.get("hours")
-        mins = norm_load.get("recent_minutes")
+        hours = _finite_semantic_number(norm_load.get("hours"))
+        mins = _finite_semantic_number(norm_load.get("recent_minutes"))
         status = _safe_str(norm_load.get("status"))
         is_heavy_recent_load = (
-            (isinstance(hours, (int, float)) and not isinstance(hours, bool) and hours >= 4)
-            or (isinstance(mins, (int, float)) and not isinstance(mins, bool) and mins >= 120)
+            (hours is not None and hours >= 4)
+            or (mins is not None and mins >= 120)
             or (status in ("high", "heavy", "fatigued"))
             or norm_load.get("energy_depleted") is True
         )
-    elif isinstance(recent_load, (int, float)) and not isinstance(recent_load, bool) and recent_load >= 4:
-        is_heavy_recent_load = True
+    else:
+        scalar_load = _finite_semantic_number(recent_load)
+        if scalar_load is not None and scalar_load >= 4:
+            is_heavy_recent_load = True
 
     if is_heavy_recent_load:
         recommended_duration = min(recommended_duration, 15)
@@ -1457,7 +1434,7 @@ def evaluate_learning_load(
         and (
             d.get("urgent") is True
             or _safe_str(d.get("priority")) == "urgent"
-            or (isinstance(d.get("days_remaining"), (int, float)) and d.get("days_remaining") <= 3)
+            or (_finite_semantic_number(d.get("days_remaining")) is not None and _finite_semantic_number(d.get("days_remaining")) <= 3)
         )
     ]) > 0
     if has_urgent_deadline:
@@ -1623,18 +1600,16 @@ def evaluate_progression(
     def _comparable_score(record: Mapping[str, Any]) -> tuple[str, str, float] | None:
         provenance = _canonical_provenance(record)
         comparison_key = _safe_str(record.get("comparison_key"))
-        score = record.get("score")
+        score = _finite_semantic_number(record.get("score"))
         if (
             provenance is None
             or comparison_key is None
             or record.get("comparable") is not True
-            or isinstance(score, bool)
-            or not isinstance(score, (int, float))
-            or not math.isfinite(float(score))
+            or score is None
             or (skill is not None and _safe_str(record.get("skill")) != skill)
         ):
             return None
-        return comparison_key, provenance, float(score)
+        return comparison_key, provenance, score
 
     previous_scores = [value for item in clean_prev if (value := _comparable_score(item)) is not None]
     current_scores = [value for item in clean_curr if (value := _comparable_score(item)) is not None]
