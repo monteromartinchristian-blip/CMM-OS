@@ -14,10 +14,15 @@ from cmm.agent_runtime.domain_permission_contracts import (
 )
 from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
+from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainResult
-from cmm.domains.enums import DomainOperationType
+from cmm.domains.enums import (
+    DomainOperationType,
+    DomainRuleSelectionStatus,
+    DomainRuleSource,
+)
 from cmm.domains.general.permissions import build_general_permission_policy
 from cmm.domains.identifiers import DomainId
 from cmm.domains.languages import build_standard_languages_domain_bootstrap
@@ -90,6 +95,12 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolution_contracts import DomainResolutionSignal
 from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.rule_contracts import (
+    DomainRuleExecutionPlan,
+    DomainRuleSourceRecord,
+    SelectedReasoningRule,
+)
+from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 from cmm.domains.trace_contracts import (
     CrossDomainTraceReference,
     DomainResultTraceReference,
@@ -160,6 +171,7 @@ REQUIRED_CONNECTED_TRACE_KINDS = frozenset(
     {
         DomainTraceReferenceKind.PROFILE,
         DomainTraceReferenceKind.EVIDENCE,
+        DomainTraceReferenceKind.RULE_PLAN,
         DomainTraceReferenceKind.RULE_RESULT,
         DomainTraceReferenceKind.OPERATION_RESULT,
         DomainTraceReferenceKind.WORKFLOW_RUN,
@@ -919,42 +931,94 @@ class ConnectedLanguagesScenario:
             and "pronunciation_evidence" in speaking["missing_evidence"],
         )
 
-    def evaluate_selected_trace_rules(self) -> tuple[Any, ...]:
+    def execute_selected_trace_rules(self) -> None:
         rules = {rule.definition.id: rule for rule in build_languages_rules()}
         certification_inputs = self.state["workflow_inputs"][
             "languages.certification_preparation"
         ]
-        materials = {
-            "languages.error_pattern_evidence": {
-                "observations": self.state["independent_errors"],
-            },
-            "languages.progression_evidence": {
-                "previous_evidence": self.state["baseline"],
-                "current_evidence": self.state["current"],
-                "skill": "writing",
-            },
-            "languages.certification_temporal": {
-                "sources": certification_inputs["official_sources"],
-                "decision_critical": True,
-            },
+        selected_rule_ids = (
+            "languages.error_pattern_evidence",
+            "languages.progression_evidence",
+            "languages.certification_temporal",
+        )
+        material = {
+            "observations": self.state["independent_errors"],
+            "previous_evidence": self.state["baseline"],
+            "current_evidence": self.state["current"],
+            "skill": "writing",
+            "sources": certification_inputs["official_sources"],
+            "decision_critical": True,
         }
-        results = []
-        for rule_id, material in materials.items():
-            context = ReasoningRuleContext(
+        profile = self.state["profile"]
+        rule_plan = DomainRuleExecutionPlan(
+            id=self.ids(),
+            status=DomainRuleSelectionStatus.READY,
+            created_at=NOW,
+            selected_rules=tuple(
+                SelectedReasoningRule(
+                    definition=rules[rule_id].definition,
+                    sources=(
+                        DomainRuleSourceRecord(
+                            source=DomainRuleSource.PROFILE,
+                            reference=rule_id,
+                            required=True,
+                            domain_id=LANGUAGES_DOMAIN_ID,
+                            profile_name=profile.profile_name,
+                        ),
+                    ),
+                    group=DomainRuleSource.PRIMARY_DOMAIN,
+                    required=True,
+                )
+                for rule_id in selected_rule_ids
+            ),
+            contributing_profiles=(profile.profile_name,),
+            contributing_domains=(LANGUAGES_DOMAIN_ID,),
+        )
+        rule_registry = InMemoryReasoningRuleRegistry()
+        for rule_id in selected_rule_ids:
+            rule_registry.register(rules[rule_id])
+        rule_execution = DefaultDomainRuleExecutor(
+            clock=lambda: NOW,
+            id_factory=self.ids,
+        ).execute(
+            plan=rule_plan,
+            context=ReasoningRuleContext(
                 reasoning_id=self.ids(),
                 timestamp=NOW,
                 session_id="session-at-dp-026",
                 active_domains=(LANGUAGES_DOMAIN_ID,),
                 primary_domain=LANGUAGES_DOMAIN_ID,
                 metadata={"material": material},
-            )
-            results.append(rules[rule_id].evaluate(context))
-        selected = tuple(results)
-        self.state["selected_rule_results"] = selected
-        return selected
+            ),
+            registry=rule_registry,
+        )
+        findings = {finding.code: finding for finding in rule_execution.findings}
+        assert findings["ERROR_PATTERN_EVALUATED"].metadata["pattern_state"] == "candidate"
+        assert (
+            findings["PROGRESSION_EVIDENCE_EVALUATED"].metadata[
+                "progression_outcome"
+            ]
+            == "stable_improvement"
+        )
+        assert (
+            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata[
+                "selected_source"
+            ]["id"]
+            == "current-official"
+        )
+        assert (
+            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata[
+                "needs_verification"
+            ]
+            is False
+        )
+        self.state["rule_plan"] = rule_plan
+        self.state["rule_execution"] = rule_execution
+        self.state["selected_rule_results"] = rule_execution.rule_results
+        self.actual_produced_ids.update((rule_plan.id, rule_execution.id))
 
     def trace(self) -> None:
-        selected_rule_results = self.evaluate_selected_trace_rules()
+        self.execute_selected_trace_rules()
         operation_results_by_id = {
             value: result
             for result in self.state["operation_outputs"]
@@ -993,6 +1057,8 @@ class ConnectedLanguagesScenario:
         memory_proposal = self.state["memory_proposal"]
         memory_binding = self.state["memory_binding"]
         presentation_result = self.state["presentation_result"]
+        rule_plan = self.state["rule_plan"]
+        rule_execution = self.state["rule_execution"]
 
         expected_id_to_kind: dict[str, DomainTraceReferenceKind] = {}
 
@@ -1017,8 +1083,8 @@ class ConnectedLanguagesScenario:
             expect(result_id, DomainTraceReferenceKind.OPERATION_RESULT)
         for evidence_id in evidence_by_id:
             expect(evidence_id, DomainTraceReferenceKind.EVIDENCE)
-        for result in selected_rule_results:
-            expect(result.rule_id, DomainTraceReferenceKind.RULE_RESULT)
+        expect(rule_plan.id, DomainTraceReferenceKind.RULE_PLAN)
+        expect(rule_execution.id, DomainTraceReferenceKind.RULE_RESULT)
         expect(
             permission_decision.decision_id,
             DomainTraceReferenceKind.PERMISSION_DECISION,
@@ -1118,7 +1184,8 @@ class ConnectedLanguagesScenario:
                 "profile": profile,
                 "operations": operation_results_by_id,
                 "evidence": evidence_by_id,
-                "rules": selected_rule_results,
+                "rule_plan": rule_plan,
+                "rule_execution": rule_execution,
                 "permission": permission_decision,
                 "memory_proposal": memory_proposal,
                 "memory_binding": memory_binding,
@@ -1239,6 +1306,35 @@ def test_at_dp_026_trace_never_labels_workflow_events_as_results() -> None:
         and reference.kind is DomainTraceReferenceKind.WORKFLOW_RESULT
         for reference in scenario.state["trace"].all_references()
     )
+
+
+def test_at_dp_026_trace_uses_runtime_rule_execution_not_static_rule_definitions() -> None:
+    """Catches static ``languages.*`` definition IDs labeled as rule results."""
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    rule_plan = scenario.state["rule_plan"]
+    rule_execution = scenario.state["rule_execution"]
+    definition_ids = {
+        selected.definition.id for selected in rule_plan.selected_rules
+    }
+    trace_rule_result_ids = {
+        reference.ref_id
+        for reference in scenario.state["trace"].all_references()
+        if reference.kind is DomainTraceReferenceKind.RULE_RESULT
+    }
+    trace_rule_plan_ids = {
+        reference.ref_id
+        for reference in scenario.state["trace"].all_references()
+        if reference.kind is DomainTraceReferenceKind.RULE_PLAN
+    }
+
+    assert rule_execution.id not in definition_ids
+    assert rule_execution.plan_id == rule_plan.id
+    assert {result.rule_id for result in rule_execution.rule_results} == definition_ids
+    assert trace_rule_plan_ids == {rule_plan.id}
+    assert not definition_ids.intersection(trace_rule_result_ids)
+    assert trace_rule_result_ids == {rule_execution.id}
 
 
 def test_at_dp_026_trace_matches_independent_runtime_kind_map() -> None:
