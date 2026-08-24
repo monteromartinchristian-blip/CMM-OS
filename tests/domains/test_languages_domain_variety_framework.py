@@ -92,12 +92,19 @@ def test_evaluate_framework_mapping_known_approximate() -> None:
         source_value="C1",
         target_framework="IELTS",
         mapping_evidence=(
-            {"source": "Cambridge English Concordance", "target_range": "7.0-8.0"},
+            {
+                "source": "Cambridge English Concordance",
+                "source_id": "cambridge-concordance-v1",
+                "target_range": "7.0-8.0",
+            },
         ),
     )
     assert result["mapping_status"] == "grounded_approximate_mapping"
     assert result["target_estimate_range"] == "7.0-8.0"
     assert result["approximate"] is True
+    assert result["is_exact"] is False
+    assert result["calibrated"] is True
+    assert result["evidence"][0]["source_id"] == "cambridge-concordance-v1"
 
 
 def test_language_variety_validity_rule_evaluation() -> None:

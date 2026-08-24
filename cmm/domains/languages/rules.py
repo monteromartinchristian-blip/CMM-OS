@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -161,6 +161,11 @@ def _certification_provenance(record: Mapping[str, Any]) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def _framework_mapping_provenance(record: Mapping[str, Any]) -> str | None:
+    """Return established provenance that can identify a framework concordance."""
+    return _canonical_provenance(record) or _certification_provenance(record)
 
 
 def _is_certifying_evidence(record: Any) -> bool:
@@ -567,16 +572,56 @@ def evaluate_framework_mapping(
             "calibrated": True,
         }
 
-    deduped_ev = _deduplicate_evidence(mapping_evidence)
-    if deduped_ev:
-        target_range = deduped_ev[0].get("target_range") or "approximate"
+    if not isinstance(mapping_evidence, Iterable) or isinstance(mapping_evidence, (str, bytes)):
+        mapping_evidence = ()
+
+    qualified_by_provenance: dict[str, dict[str, Any]] = {}
+    distinct_target_ranges: set[str] = set()
+    has_conflict = False
+
+    for evidence in mapping_evidence:
+        if not isinstance(evidence, Mapping):
+            continue
+        normalized = dict(normalize_json_value(evidence))
+        provenance = _framework_mapping_provenance(normalized)
+        target_range = _safe_str(normalized.get("target_range"))
+        if provenance is None or target_range is None:
+            continue
+
+        distinct_target_ranges.add(target_range)
+        existing = qualified_by_provenance.get(provenance)
+        if existing is not None and _safe_str(existing.get("target_range")) != target_range:
+            has_conflict = True
+        if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
+            qualified_by_provenance[provenance] = normalized
+
+    if len(distinct_target_ranges) > 1:
+        has_conflict = True
+
+    qualified_evidence = sorted(
+        qualified_by_provenance.values(),
+        key=_canonical_json_value,
+    )
+    if qualified_evidence and not has_conflict:
+        target_range = _safe_str(qualified_evidence[0].get("target_range"))
         return {
             "mapping_status": "grounded_approximate_mapping",
             "target_estimate_range": target_range,
             "is_exact": False,
             "approximate": True,
             "calibrated": True,
-            "evidence": deduped_ev,
+            "evidence": qualified_evidence,
+        }
+
+    if has_conflict:
+        return {
+            "mapping_status": "insufficient_evidence",
+            "target_estimate_range": None,
+            "is_exact": False,
+            "approximate": True,
+            "calibrated": False,
+            "reason": "conflicting_mapping_evidence",
+            "evidence": qualified_evidence,
         }
 
     return {

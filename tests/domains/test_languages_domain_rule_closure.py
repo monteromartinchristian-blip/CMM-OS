@@ -655,6 +655,187 @@ def test_framework_mapping_requires_provenance():
     assert result["calibrated"] is False
 
 
+def test_framework_mapping_rejects_arbitrary_target_range_record():
+    """Removing provenance from a range record prevents cross-framework calibration."""
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=({"target_range": "B2", "authority": "official"},),
+    )
+
+    assert result["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
+    assert result["target_estimate_range"] is None
+    assert result["is_exact"] is False
+    assert result["calibrated"] is False
+
+
+def test_framework_mapping_rejects_source_looking_display_string_without_provenance():
+    """A source label is display context, not canonical mapping provenance."""
+    result = evaluate_framework_mapping(
+        source_framework="CEFR",
+        source_value="C1",
+        target_framework="IELTS",
+        mapping_evidence=(
+            {"source": "Cambridge English Concordance", "target_range": "7.0-8.0"},
+        ),
+    )
+
+    assert result["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
+    assert result["target_estimate_range"] is None
+    assert result["is_exact"] is False
+    assert result["calibrated"] is False
+
+
+@pytest.mark.parametrize(
+    "provenance_field",
+    (
+        "provenance_id",
+        "source_id",
+        "assessment_id",
+        "sample_id",
+        "context_id",
+        "official_source_id",
+    ),
+)
+def test_framework_mapping_accepts_each_canonical_provenance_alias(provenance_field):
+    """Each established canonical provenance alias can ground a range mapping."""
+    evidence = {provenance_field: "concordance-v1", "target_range": "B2"}
+
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(evidence,),
+    )
+
+    assert result["mapping_status"] == "grounded_approximate_mapping"
+    assert result["target_estimate_range"] == "B2"
+    assert result["is_exact"] is False
+    assert result["approximate"] is True
+    assert result["calibrated"] is True
+    assert result["evidence"] == [evidence]
+
+
+@pytest.mark.parametrize("target_range", (None, "", "  ", ["B2"], {"range": "B2"}, True))
+def test_framework_mapping_requires_a_usable_target_range(target_range):
+    """Removing or corrupting the target range prevents calibration despite provenance."""
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(
+            {"source_id": "concordance-v1", "target_range": target_range},
+        ),
+    )
+
+    assert result["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
+    assert result["target_estimate_range"] is None
+    assert result["is_exact"] is False
+    assert result["calibrated"] is False
+
+
+@pytest.mark.parametrize("provenance_field", ("source_id", "official_source_id"))
+def test_framework_mapping_duplicate_provenance_does_not_add_mapping_authority(provenance_field):
+    """Duplicate source occurrences collapse even when caller display fields differ."""
+    evidence = [
+        {"source": "Concordance copy A", provenance_field: "concordance-v1", "target_range": "B2"},
+        {"source": "Concordance copy B", provenance_field: "concordance-v1", "target_range": "B2"},
+    ]
+    before = deepcopy(evidence)
+
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=evidence,
+    )
+
+    assert result["mapping_status"] == "grounded_approximate_mapping"
+    assert result["target_estimate_range"] == "B2"
+    assert len(result["evidence"]) == 1
+    assert evidence == before
+    assert json.loads(json.dumps(result, allow_nan=False)) == result
+
+
+def test_framework_mapping_evidence_order_does_not_change_result():
+    """Equivalent sets of grounded mapping evidence have deterministic output order."""
+    evidence = (
+        {"source": "Concordance B", "source_id": "concordance-b", "target_range": "B2"},
+        {"source": "Concordance A", "source_id": "concordance-a", "target_range": "B2"},
+    )
+
+    forward = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=evidence,
+    )
+    reverse = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=tuple(reversed(evidence)),
+    )
+
+    assert forward == reverse
+
+
+def test_framework_mapping_conflicting_ranges_fail_closed_and_permutation_invariant():
+    """Conflicting target ranges across or within sources cannot produce an authoritative calibrated range."""
+    # Same-provenance conflict
+    same_prov_conflict = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(
+            {"source_id": "concordance-v1", "target_range": "C1"},
+            {"source_id": "concordance-v1", "target_range": "B1"},
+        ),
+    )
+    assert same_prov_conflict["calibrated"] is False
+    assert same_prov_conflict["target_estimate_range"] is None
+    assert same_prov_conflict["mapping_status"] in {"identity_forbidden", "insufficient_evidence", "conflicting_evidence"}
+
+    # Independent provenance conflict (forward and reverse)
+    evidence_forward = (
+        {"source_id": "source-a", "target_range": "B1"},
+        {"source_id": "source-b", "target_range": "C1"},
+    )
+    forward = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=evidence_forward,
+    )
+    reverse = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=tuple(reversed(evidence_forward)),
+    )
+
+    assert forward == reverse
+    assert forward["calibrated"] is False
+    assert forward["target_estimate_range"] is None
+    assert forward["mapping_status"] in {"identity_forbidden", "insufficient_evidence", "conflicting_evidence"}
+
+
+@pytest.mark.parametrize("invalid_container", (None, 42, "string_container", True))
+def test_framework_mapping_malformed_evidence_container_fails_closed(invalid_container):
+    """Non-collection or malformed evidence containers fail closed without raising TypeError."""
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=invalid_container,
+    )
+    assert result["calibrated"] is False
+    assert result["target_estimate_range"] is None
+    assert result["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
+    assert json.loads(json.dumps(result, allow_nan=False)) == result
+
+
 @pytest.mark.parametrize(
     ("threshold", "observations"),
     [
