@@ -285,6 +285,57 @@ def test_speaking_review_transcript_no_pronunciation() -> None:
     assert res["pronunciation_inferred_from_transcript_only"] is False
 
 
+def test_speaking_review_provenance_without_outcome_is_not_assessed() -> None:
+    """Provenance identifies a source but cannot stand in for an assessment finding."""
+    unusable_evidence = (
+        [{"source_id": "audio-1"}],
+        [{"source_id": "audio-1", "finding": "  "}],
+        [{"source_id": "audio-1", "score": float("nan")}],
+        [{"source_id": "audio-1", "score": float("inf")}],
+        [{"source_id": "audio-1", "score": True}],
+    )
+
+    for pronunciation_evidence in unusable_evidence:
+        result = review_speaking_result(
+            audio_transcript={"transcript": "Hello"},
+            pronunciation_evidence=pronunciation_evidence,
+        )
+
+        assert result["pronunciation_assessed"] is False
+        assert result["pronunciation_feedback"] is None
+        assert "pronunciation_evidence" in result["missing_evidence"]
+        json.dumps(result, allow_nan=False)
+
+
+def test_speaking_review_uses_only_grounded_pronunciation_outcomes() -> None:
+    """A usable finding or finite score plus provenance supports neutral assessment output."""
+    cases = (
+        (
+            [{"source_id": "audio-1", "score": 0.8}],
+            "Pronunciation assessment recorded.",
+        ),
+        (
+            [
+                {
+                    "provenance_id": "audio-2",
+                    "finding": "Final consonants need practice.",
+                }
+            ],
+            "Final consonants need practice.",
+        ),
+    )
+
+    for pronunciation_evidence, expected_feedback in cases:
+        result = review_speaking_result(
+            audio_transcript={"transcript": "Hello"},
+            pronunciation_evidence=pronunciation_evidence,
+        )
+
+        assert result["pronunciation_assessed"] is True
+        assert result["pronunciation_feedback"] == expected_feedback
+        assert "pronunciation_evidence" not in result["missing_evidence"]
+
+
 def test_operation_outputs_expose_workflow_invariants() -> None:
     """Variable pedagogical outcomes expose invariant boundary fields separately."""
     wrong = review_exercise_result(
@@ -647,3 +698,41 @@ def test_certification_readiness_derives_from_current_profile() -> None:
     assert grounded["readiness_score"] == 0.7
     assert grounded["skill_gaps"] == ["writing:B2->C1", "speaking:B1->C1"]
     assert grounded["missing_evidence"] == []
+
+
+def test_certification_source_status_requires_current_authoritative_source() -> None:
+    """A truthy stale, unknown, guide, or malformed source cannot be verified."""
+    unverified_sources = (
+        {"source_type": "official", "date_valid": False},
+        {"source_type": "official"},
+        {"source_type": "guide"},
+        {"date_valid": True},
+    )
+
+    for official_source in unverified_sources:
+        result = prepare_certification_result(
+            target_certification="Cambridge C1",
+            current_profile={"estimated_level": "B2"},
+            official_source=official_source,
+        )
+
+        assert result["official_source_status"] == "needs_verification"
+        assert result["needs_verification"] is True
+
+
+def test_certification_source_status_accepts_current_authoritative_sources() -> None:
+    """Preserve the existing evaluator's current authoritative source boundary."""
+    authoritative_sources = (
+        {"source_type": "official", "date_valid": True},
+        {"source_type": "authoritative_secondary", "temporal_state": "current"},
+    )
+
+    for official_source in authoritative_sources:
+        result = prepare_certification_result(
+            target_certification="Cambridge C1",
+            current_profile={"estimated_level": "B2"},
+            official_source=official_source,
+        )
+
+        assert result["official_source_status"] == "verified"
+        assert result["needs_verification"] is False

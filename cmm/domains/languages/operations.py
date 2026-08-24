@@ -52,6 +52,24 @@ def _finite_number(value: Any) -> float | None:
     return None
 
 
+def _pronunciation_outcome_feedback(evidence: Any) -> str | None:
+    """Return grounded pronunciation feedback from provenance plus an outcome."""
+    if not isinstance(evidence, Mapping):
+        return None
+    has_provenance = any(
+        isinstance(evidence.get(key), str) and bool(evidence[key].strip())
+        for key in ("source_id", "provenance_id")
+    )
+    if not has_provenance:
+        return None
+    finding = evidence.get("finding")
+    if isinstance(finding, str) and finding.strip():
+        return finding.strip()
+    if _finite_number(evidence.get("score")) is not None:
+        return "Pronunciation assessment recorded."
+    return None
+
+
 _VOCABULARY_STATES = frozenset(
     {"new", "learning", "review", "consolidated", "needs_reinforcement"}
 )
@@ -1106,14 +1124,15 @@ def review_speaking_result(
         if isinstance(item, Mapping)
     ]
 
-    has_audio_evidence = any(
-        isinstance(item, Mapping)
-        and any(
-            isinstance(item.get(key), str) and bool(item[key].strip())
-            for key in ("source_id", "provenance_id")
-        )
-        for item in pronunciation_evidence or ()
+    pronunciation_feedback = next(
+        (
+            feedback
+            for item in pronunciation_evidence or ()
+            if (feedback := _pronunciation_outcome_feedback(item)) is not None
+        ),
+        None,
     )
+    has_audio_evidence = pronunciation_feedback is not None
     missing_evidence = []
     if not transcript:
         missing_evidence.append("speaking_sample")
@@ -1123,7 +1142,7 @@ def review_speaking_result(
         "review_id": f"sr-{uuid.uuid4().hex[:8]}",
         "transcript_text": transcript,
         "pronunciation_assessed": has_audio_evidence,
-        "pronunciation_feedback": "Phoneme clarity verified." if has_audio_evidence else None,
+        "pronunciation_feedback": pronunciation_feedback,
         "fluency_score": 0.80 if transcript else 0.0,
         "observed_errors": observed_errors,
         "pronunciation_evidence_valid": True,
@@ -1221,6 +1240,11 @@ def prepare_certification_result(
 ) -> dict[str, Any]:
     """Prepare for certification exam, keeping readiness distinct from general proficiency and never registering/paying."""
     src_eval = evaluate_certification_source(sources=[official_source] if official_source else [], decision_critical=True)
+    source_verified = (
+        src_eval["selected_source"] is not None
+        and src_eval["needs_verification"] is False
+        and src_eval["authority_rank"] >= 5
+    )
     profile = dict(normalize_json_value(current_profile or {}))
     raw_skill_levels = profile.get("skill_levels")
     skill_levels = (
@@ -1273,8 +1297,14 @@ def prepare_certification_result(
         "framework": "CEFR",
         "readiness_score": readiness_score,
         "skill_gaps": skill_gaps,
-        "official_source_status": "verified" if official_source else "unverified_guide",
-        "needs_verification": src_eval["needs_verification"] or not has_profile_evidence,
+        "official_source_status": (
+            "verified"
+            if source_verified
+            else "needs_verification"
+            if official_source
+            else "unverified_guide"
+        ),
+        "needs_verification": not source_verified or not has_profile_evidence,
         "registration_performed": False,
         "payment_performed": False,
         "submission_performed": False,

@@ -549,7 +549,12 @@ def test_workflows_accept_legitimate_variable_outcomes_and_reject_mutations() ->
 
     speaking = review_speaking_result(
         audio_transcript={"transcript": "Hello"},
-        pronunciation_evidence=({"source_id": "audio-1", "phoneme": "h"},),
+        pronunciation_evidence=(
+            {
+                "source_id": "audio-1",
+                "finding": "Phoneme /h/ needs additional practice.",
+            },
+        ),
     )
     practice_run = _execute_workflow(
         "languages.conversation_roleplay_practice",
@@ -1100,16 +1105,99 @@ def _mutable_helper_call_specs() -> dict[
 
 
 def _without_ids(value: Any) -> Any:
-    """Remove generated identity fields while preserving semantic payload data."""
-    if isinstance(value, dict):
-        return {
-            key: _without_ids(item)
+    """Remove generated result identities while retaining caller-stable IDs."""
+    generated_result_fields = {
+        "assessment_id",
+        "plan_id",
+        "lesson_id",
+        "exercise_batch_id",
+        "review_id",
+        "turn_id",
+        "roleplay_id",
+        "tracking_id",
+        "schedule_id",
+        "prep_id",
+    }
+    generated_result_ids = (
+        {
+            item
             for key, item in value.items()
-            if key != "id" and not key.endswith("_id")
+            if key in generated_result_fields and isinstance(item, str)
         }
-    if isinstance(value, list):
-        return [_without_ids(item) for item in value]
-    return value
+        if isinstance(value, dict)
+        else set()
+    )
+
+    def normalize(item: Any, *, parent_key: str | None = None, root: bool = False) -> Any:
+        if isinstance(item, dict):
+            references_generated_result = (
+                item.get("provenance_id") in generated_result_ids
+            )
+            return {
+                key: normalize(nested, parent_key=key)
+                for key, nested in item.items()
+                if not (root and key in generated_result_fields)
+                and not (
+                    references_generated_result
+                    and key in {"id", "provenance_id"}
+                )
+                and not (
+                    parent_key == "exercises" and key == "exercise_id"
+                )
+                and not (
+                    parent_key == "valid_alternatives" and key == "id"
+                )
+            }
+        if isinstance(item, list):
+            return [normalize(nested, parent_key=parent_key) for nested in item]
+        return item
+
+    return normalize(value, root=True)
+
+
+def test_non_id_normalizer_preserves_caller_stable_identity_associations() -> None:
+    """Catches masking a semantic reassignment by deleting every nested identity."""
+    payload = {
+        "tracking_id": "generated-tracking",
+        "review_id": "generated-review",
+        "candidate_updates": [
+            {"id": "word-1", "item_id": "lexeme-1", "state": "new"},
+            {"id": "word-2", "item_id": "lexeme-2", "state": "review"},
+        ],
+        "review_queue": [{"id": "queue-1", "term": "uno"}],
+        "goals": [{"id": "goal-1", "target": "C1"}],
+        "evidence": [
+            {"provenance_id": "sample-1", "source_id": "source-1", "score": 0.8}
+        ],
+        "observed_errors": [
+            {
+                "id": "generated-error",
+                "provenance_id": "generated-review",
+                "source_id": "source-2",
+                "error_type": "agreement",
+            }
+        ],
+    }
+
+    assert _without_ids(payload) == {
+        "candidate_updates": [
+            {"id": "word-1", "item_id": "lexeme-1", "state": "new"},
+            {"id": "word-2", "item_id": "lexeme-2", "state": "review"},
+        ],
+        "review_queue": [{"id": "queue-1", "term": "uno"}],
+        "goals": [{"id": "goal-1", "target": "C1"}],
+        "evidence": [
+            {"provenance_id": "sample-1", "source_id": "source-1", "score": 0.8}
+        ],
+        "observed_errors": [
+            {"source_id": "source-2", "error_type": "agreement"}
+        ],
+    }
+
+    reassigned = copy.deepcopy(payload)
+    reassigned["candidate_updates"][0]["id"] = "word-2"
+    reassigned["candidate_updates"][1]["id"] = "word-1"
+    assert _without_ids(payload) != _without_ids(reassigned)
 
 
 def test_assessment_like_helpers_do_not_invent_state_from_empty_evidence() -> None:
@@ -1342,11 +1430,11 @@ def test_invariant_flags_are_derived_from_payload_content() -> None:
 
     speaking = review_speaking_result(
         audio_transcript={"transcript": "Hello"},
-        pronunciation_evidence=({"source_id": "audio-1"},),
+        pronunciation_evidence=({"source_id": "audio-1", "score": 0.8},),
     )
     assert speaking["pronunciation_evidence_valid"] is True
     assert speaking["pronunciation_assessed"] is True
-    assert speaking["pronunciation_feedback"] is not None
+    assert speaking["pronunciation_feedback"] == "Pronunciation assessment recorded."
     assert "pronunciation_evidence" not in speaking["missing_evidence"]
 
     observations = (
