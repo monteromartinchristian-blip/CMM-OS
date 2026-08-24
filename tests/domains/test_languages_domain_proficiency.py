@@ -37,6 +37,10 @@ def test_classify_proficiency_record_kinds() -> None:
                 "source_id": "cambridge-record-1",
                 "certificate_id": "cert-1",
                 "issuer": "Cambridge",
+                "framework": "CEFR",
+                "result": "C1",
+                "valid_at": "2026-01-01",
+                "skill": "reading",
             },
         ),
     )
@@ -51,7 +55,12 @@ def test_classify_proficiency_record_kinds() -> None:
         level_or_score="B2",
         skill_scope="writing",
         evidence=(
-            {"provenance_id": "sample-1", "task_type": "essay", "skill": "writing", "observed": "B2"},
+            {
+                "provenance_id": "sample-1",
+                "task_type": "essay",
+                "skill": "writing",
+                "observed": "B2",
+            },
         ),
     )
     assert sample["kind"] == "OBSERVED_PERFORMANCE"
@@ -65,8 +74,18 @@ def test_classify_proficiency_record_kinds() -> None:
         level_or_score="B1+",
         skill_scope="writing",
         evidence=(
-            {"provenance_id": "sample-1", "task_type": "essay", "skill": "writing", "observed": "B1+"},
-            {"provenance_id": "sample-2", "task_type": "summary", "skill": "writing", "observed": "B1+"},
+            {
+                "provenance_id": "sample-1",
+                "task_type": "essay",
+                "skill": "writing",
+                "observed": "B1+",
+            },
+            {
+                "provenance_id": "sample-2",
+                "task_type": "summary",
+                "skill": "writing",
+                "observed": "B1+",
+            },
         ),
     )
     assert est["kind"] == "ESTIMATED"
@@ -120,6 +139,10 @@ def test_grounded_official_credential_can_create_certified_record() -> None:
                 "source_kind": "official_certificate",
                 "source_id": "cambridge-record-1",
                 "certificate_id": "CERT-123",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": "2026-01-01",
+                "skill": "writing",
             },
         ),
     )
@@ -137,9 +160,7 @@ def test_evaluate_level_update_single_sample_not_stable() -> None:
             "skill_scope": "writing",
             "level_or_score": "B1+",
         },
-        evidence=(
-            {"id": "sample-1", "skill": "writing", "observed": "B2"},
-        ),
+        evidence=({"id": "sample-1", "skill": "writing", "observed": "B2"},),
         target_skill="writing",
     )
     assert result["stable_update_supported"] is False
@@ -170,7 +191,9 @@ def test_same_provenance_different_ids_does_not_support_stable_level() -> None:
         },
     )
 
-    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+    result = evaluate_level_update(
+        existing=None, evidence=evidence, target_skill="writing"
+    )
 
     assert result["stable_update_supported"] is False
     assert result["reason"] == "insufficient_comparable_evidence"
@@ -183,7 +206,9 @@ def test_two_non_comparable_samples_do_not_support_stable_level() -> None:
         {"provenance_id": "sample-2", "skill": "writing", "observed": "B2"},
     )
 
-    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+    result = evaluate_level_update(
+        existing=None, evidence=evidence, target_skill="writing"
+    )
 
     assert result["stable_update_supported"] is False
     assert result["reason"] == "insufficient_comparable_evidence"
@@ -208,7 +233,9 @@ def test_independent_comparable_samples_support_stable_level() -> None:
         },
     )
 
-    result = evaluate_level_update(existing=None, evidence=evidence, target_skill="writing")
+    result = evaluate_level_update(
+        existing=None, evidence=evidence, target_skill="writing"
+    )
 
     assert result["stable_update_supported"] is True
     assert result["proposed_level"] == "B2"
@@ -257,7 +284,12 @@ def test_separate_skill_evidence_isolation() -> None:
 def test_transcript_only_is_not_pronunciation() -> None:
     """Audio transcript alone provides reading/lexical/grammar evidence, never pronunciation."""
     evidence = (
-        {"id": "trans-1", "source_kind": "audio_transcript", "skill": "speaking", "transcript": "Hello world"},
+        {
+            "id": "trans-1",
+            "source_kind": "audio_transcript",
+            "skill": "speaking",
+            "transcript": "Hello world",
+        },
     )
     separated = separate_skill_evidence(evidence=evidence)
     assert separated["pronunciation_assessed"] is False
@@ -306,11 +338,16 @@ def test_language_level_evidence_rule_evaluation() -> None:
                 "kind": "CERTIFIED",
                 "framework": "CEFR",
                 "level_or_score": "C1",
-                "evidence": [{
-                    "source_kind": "official_certificate",
-                    "source_id": "official-record-c1",
-                    "certificate_id": "c1",
-                }],
+                "evidence": [
+                    {
+                        "source_kind": "official_certificate",
+                        "source_id": "official-record-c1",
+                        "certificate_id": "c1",
+                        "framework": "CEFR",
+                        "result": "C1",
+                        "valid_at": "2026-01-01",
+                    }
+                ],
             }
         },
     )

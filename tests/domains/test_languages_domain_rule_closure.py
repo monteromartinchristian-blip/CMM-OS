@@ -416,6 +416,9 @@ def test_certification_level_requires_valid_official_credential_evidence():
                 "source_kind": "official_certificate",
                 "source_id": "cambridge-record-1",
                 "certificate_id": "CERT-1",
+                "framework": "CEFR",
+                "result": "C1",
+                "valid_at": "2026-01-01",
             },
         ),
     )
@@ -437,7 +440,7 @@ def test_certification_level_requires_valid_official_credential_evidence():
 
 
 def test_certified_record_without_claimed_level_remains_unassessed():
-    """Relevance filtering must preserve the existing unassessed level default."""
+    """Sparse certificate without result or valid_at cannot certify and fails closed."""
     result = classify_proficiency_record(
         kind="CERTIFIED",
         framework="CEFR",
@@ -450,9 +453,10 @@ def test_certified_record_without_claimed_level_remains_unassessed():
         ),
     )
 
-    assert result["kind"] == "CERTIFIED"
+    assert result["is_certified"] is False
+    assert result["kind"] != "CERTIFIED"
     assert result["level_or_score"] == "unassessed"
-    assert result["confidence"] == 0.95
+    assert result["confidence"] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -736,20 +740,16 @@ def test_framework_mapping_rejects_source_looking_display_string_without_provena
 
 
 @pytest.mark.parametrize(
-    "provenance_field",
+    "source_field",
     (
-        "provenance_id",
         "source_id",
-        "assessment_id",
-        "sample_id",
-        "context_id",
         "official_source_id",
     ),
 )
-def test_framework_mapping_accepts_each_canonical_provenance_alias(provenance_field):
-    """Each established canonical provenance alias can ground a range mapping."""
+def test_framework_mapping_accepts_dedicated_source_authority_fields(source_field):
+    """Only dedicated source authority fields can ground a framework range mapping."""
     evidence = {
-        provenance_field: "concordance-v1",
+        source_field: "concordance-v1",
         "source_framework": "IELTS",
         "source_value": "6.5",
         "target_framework": "CEFR",
@@ -2771,3 +2771,171 @@ def test_meta_goal_alignment_requires_explicit_semantic_link():
     )
     assert res_speaking["activity_fit"] == "aligned"
     assert res_speaking["aligned_goals"] == ["goal_speaking"]
+
+
+def test_red_certified_mismatched_framework_result_skill_rejected() -> None:
+    """ACTFL B1 speaking certificate requested as CEFR C2 writing fails closed."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C2",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "official_source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "ACTFL",
+                "skill": "speaking",
+                "observed": "B1",
+                "result": "B1",
+                "valid_at": "2026-01-01",
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_certified_sparse_record_rejected() -> None:
+    """Sparse certificate missing framework, result, or date fails closed."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="C2",
+        skill_scope="writing",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-2",
+                "certificate_id": "cert-2",
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_certified_complete_matching_record_accepted() -> None:
+    """Complete matching certificate passes with confidence=0.95."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-certificate-record",
+                "certificate_id": "certificate-B1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": "2026-01-01",
+            },
+        ),
+    )
+    assert res["kind"] == "CERTIFIED"
+    assert res["is_certified"] is True
+    assert res["level_or_score"] == "B1"
+    assert res["framework"] == "CEFR"
+    assert res["confidence"] == 0.95
+
+
+def test_red_no_implicit_cefr_fallback() -> None:
+    """Omitting framework with ACTFL evidence infers ACTFL, never CEFR."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+        ),
+    )
+    assert res["framework"] == "ACTFL"
+    assert res["level_or_score"] == "C1"
+
+
+@pytest.mark.parametrize(
+    "occurrence_field",
+    ["provenance_id", "assessment_id", "sample_id", "context_id", "session_id"],
+)
+def test_red_mapping_occurrence_aliases_not_source_authority(
+    occurrence_field: str,
+) -> None:
+    """Framework mapping rejects generic occurrence IDs as concordance authority."""
+    evidence = {
+        occurrence_field: "concordance-v1",
+        "source_framework": "IELTS",
+        "source_value": "6.5",
+        "target_framework": "CEFR",
+        "target_range": "B2",
+    }
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(evidence,),
+    )
+    assert result["calibrated"] is False
+    assert result["target_estimate_range"] is None
+
+
+@pytest.mark.parametrize("source_field", ["source_id", "official_source_id"])
+def test_red_mapping_source_fields_accepted(source_field: str) -> None:
+    """Framework mapping accepts dedicated source-role authority fields."""
+    evidence = {
+        source_field: "concordance-v1",
+        "source_framework": "IELTS",
+        "source_value": "6.5",
+        "target_framework": "CEFR",
+        "target_range": "B2",
+    }
+    result = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(evidence,),
+    )
+    assert result["calibrated"] is True
+    assert result["target_estimate_range"] == "B2"
+
+
+def test_red_cert_auth_provenance_id_not_source() -> None:
+    """Certification source authority rejects provenance_id alone."""
+    source = {
+        "id": "s1",
+        "source_type": "official",
+        "temporal_state": "current",
+        "provenance_id": "user-session-evidence",
+    }
+    res = evaluate_certification_source(sources=(source,), decision_critical=True)
+    assert res["authority_rank"] < 6
+    assert res["needs_verification"] is True
+
+
+@pytest.mark.parametrize("source_field", ["source_id", "official_source_id"])
+def test_red_cert_auth_source_fields_accepted(source_field: str) -> None:
+    """Certification source authority accepts official_source_id and source_id."""
+    source = {
+        "id": "s1",
+        "source_type": "official",
+        "temporal_state": "current",
+        source_field: "official-inst-1",
+    }
+    res = evaluate_certification_source(sources=(source,), decision_critical=True)
+    assert res["authority_rank"] == 6
+    assert res["needs_verification"] is False

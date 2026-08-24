@@ -124,10 +124,9 @@ _PROVENANCE_FIELDS = (
     "context_id",
     "session_id",
 )
-_CERTIFICATION_PROVENANCE_FIELDS = (
-    "provenance_id",
-    "source_id",
+_CERTIFICATION_SOURCE_FIELDS = (
     "official_source_id",
+    "source_id",
 )
 
 
@@ -199,34 +198,107 @@ def _canonical_provenance(record: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _certification_provenance(record: Mapping[str, Any]) -> str | None:
-    """Return provenance grounded in an official certification source."""
-    for field in _CERTIFICATION_PROVENANCE_FIELDS:
+def _certification_source_identity(record: Mapping[str, Any]) -> str | None:
+    """Return source-role identity grounded in an official certification source."""
+    for field in _CERTIFICATION_SOURCE_FIELDS:
         value = _safe_str(record.get(field))
         if value is not None:
             return value
     return None
 
 
-def _framework_mapping_provenance(record: Mapping[str, Any]) -> str | None:
-    """Return established provenance that can identify a framework concordance."""
-    return _canonical_provenance(record) or _certification_provenance(record)
+def _framework_mapping_source_identity(record: Mapping[str, Any]) -> str | None:
+    """Return dedicated mapping-source authority identity (source_id or official_source_id)."""
+    for field in ("official_source_id", "source_id"):
+        value = _safe_str(record.get(field))
+        if value is not None:
+            return value
+    return None
 
 
-def _is_certifying_evidence(record: Any) -> bool:
-    """Accept only grounded evidence from a recognized official credential source."""
+def _is_certifying_evidence(
+    record: Any,
+    *,
+    requested_framework: str | None = None,
+    requested_skill: str | None = None,
+    requested_value: Any | None = None,
+) -> bool:
+    """Accept only complete, matching, grounded evidence from a recognized official credential source."""
     if not isinstance(record, Mapping):
+        return False
+    source_kind = _safe_str(record.get("source_kind"))
+    if source_kind not in _CERTIFIED_SOURCE_KINDS:
+        return False
+    if _certification_source_identity(record) is None:
         return False
     credential_ref = (
         _safe_str(record.get("certificate_id"))
         or _safe_str(record.get("credential_id"))
         or _safe_str(record.get("official_result_id"))
     )
-    return (
-        _safe_str(record.get("source_kind")) in _CERTIFIED_SOURCE_KINDS
-        and credential_ref is not None
-        and _certification_provenance(record) is not None
+    if credential_ref is None:
+        return False
+
+    cert_fw = _safe_str(record.get("framework"))
+    if cert_fw is None:
+        return False
+    if (
+        requested_framework is not None
+        and cert_fw.upper() != requested_framework.strip().upper()
+    ):
+        return False
+
+    cert_result = (
+        _safe_str(record.get("result"))
+        or _safe_str(record.get("observed"))
+        or _safe_str(record.get("observed_performance"))
+        or _clean_proficiency_value(record.get("level_or_score"))
     )
+    if cert_result is None:
+        return False
+    if requested_value is not None:
+        clean_req_val = _clean_proficiency_value(requested_value)
+        if isinstance(clean_req_val, str):
+            if str(cert_result).strip().casefold() != clean_req_val.casefold():
+                return False
+        elif isinstance(clean_req_val, (int, float)):
+            cert_num = _finite_semantic_number(cert_result)
+            if cert_num is None or cert_num != clean_req_val:
+                return False
+        else:
+            return False
+
+    cert_validity = (
+        _safe_str(record.get("valid_at"))
+        or _safe_str(record.get("effective_date"))
+        or _safe_str(record.get("issue_date"))
+        or _safe_str(record.get("date"))
+        or _safe_str(record.get("timestamp"))
+    )
+    if cert_validity is None:
+        return False
+
+    cert_skill = _safe_str(record.get("skill")) or _safe_str(record.get("skill_scope"))
+    clean_req_skill = _safe_str(requested_skill)
+    if clean_req_skill is not None:
+        norm_req_skill = clean_req_skill.casefold()
+        if norm_req_skill in CANONICAL_SKILL_DIMENSIONS:
+            if cert_skill is None or cert_skill.casefold() != norm_req_skill:
+                return False
+        elif (
+            norm_req_skill == "general"
+            and cert_skill is not None
+            and cert_skill.casefold() != "general"
+        ):
+            return False
+    else:
+        if (
+            cert_skill is not None
+            and cert_skill.casefold() in CANONICAL_SKILL_DIMENSIONS
+        ):
+            return False
+
+    return True
 
 
 def _finite_semantic_number(
@@ -423,17 +495,43 @@ def classify_proficiency_record(
     requested_kind = _safe_str(kind) or "OBSERVED_PERFORMANCE"
     if requested_kind not in CANONICAL_PROFICIENCY_KINDS:
         requested_kind = "OBSERVED_PERFORMANCE"
+
     clean_framework = _safe_str(framework)
     clean_skill_scope = _safe_str(skill_scope) or "general"
     clean_level_or_score = _clean_proficiency_value(level_or_score)
 
-    # CERTIFIED requires recognized, grounded official credential evidence.
-    certification_evidence_valid = (
-        len([e for e in deduped_ev if _is_certifying_evidence(e)]) > 0
+    if clean_framework is None:
+        ev_frameworks = {
+            _safe_str(e.get("framework")).upper()
+            for e in deduped_ev
+            if _safe_str(e.get("framework")) is not None
+        }
+        if len(ev_frameworks) == 1:
+            clean_framework = next(iter(ev_frameworks))
+
+    # CERTIFIED requires complete, matching, recognized official credential evidence.
+    valid_cert_ev = [
+        e
+        for e in deduped_ev
+        if _is_certifying_evidence(
+            e,
+            requested_framework=clean_framework,
+            requested_skill=clean_skill_scope,
+            requested_value=clean_level_or_score,
+        )
+    ]
+    certification_evidence_valid = len(valid_cert_ev) > 0
+    is_certified = (
+        requested_kind == "CERTIFIED"
+        and certification_evidence_valid
+        and clean_level_or_score is not None
+        and clean_framework is not None
     )
-    is_certified = requested_kind == "CERTIFIED" and certification_evidence_valid
+
     if is_certified:
         clean_kind = "CERTIFIED"
+        has_independent_evidence = False
+        has_observed_evidence = False
     else:
         grounded_ev = [
             item
@@ -481,7 +579,7 @@ def classify_proficiency_record(
 
     return {
         "kind": clean_kind,
-        "framework": _safe_str(framework) or "CEFR",
+        "framework": clean_framework,
         "level_or_score": clean_level_or_score
         if evidence_supports_level and clean_level_or_score is not None
         else "unassessed",
@@ -730,7 +828,7 @@ def evaluate_framework_mapping(
     )
 
     def _is_applicable_mapping(norm: dict[str, Any]) -> bool:
-        if _framework_mapping_provenance(norm) is None:
+        if _framework_mapping_source_identity(norm) is None:
             return False
         if _safe_str(norm.get("target_range")) is None:
             return False
@@ -760,10 +858,11 @@ def evaluate_framework_mapping(
         if _is_applicable_mapping(norm)
     ]
     prov_to_ranges = {
-        _framework_mapping_provenance(r): {
+        _framework_mapping_source_identity(r): {
             _safe_str(x.get("target_range"))
             for x in valid_recs
-            if _framework_mapping_provenance(x) == _framework_mapping_provenance(r)
+            if _framework_mapping_source_identity(x)
+            == _framework_mapping_source_identity(r)
         }
         for r in valid_recs
     }
@@ -774,7 +873,7 @@ def evaluate_framework_mapping(
     has_conflict = has_same_prov_conflict or len(all_ranges) > 1
 
     sorted_valid = sorted(valid_recs, key=_canonical_json_value, reverse=True)
-    deduped_by_prov = {_framework_mapping_provenance(r): r for r in sorted_valid}
+    deduped_by_prov = {_framework_mapping_source_identity(r): r for r in sorted_valid}
     qualified_evidence = sorted(
         deduped_by_prov.values(),
         key=_canonical_json_value,
@@ -1941,7 +2040,6 @@ def _has_certification_source_authority_identity(source: Mapping[str, Any]) -> b
     return (
         _safe_str(source.get("official_source_id")) is not None
         or _safe_str(source.get("source_id")) is not None
-        or _safe_str(source.get("provenance_id")) is not None
     )
 
 

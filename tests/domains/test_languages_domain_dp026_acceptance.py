@@ -367,24 +367,55 @@ class ConnectedLanguagesScenario:
         self.checkpoints.append(name)
 
     @staticmethod
-    def signals(primary: str, supporting: str | None = None) -> tuple[DomainResolutionSignal, ...]:
+    def signals(
+        primary: str, supporting: str | None = None
+    ) -> tuple[DomainResolutionSignal, ...]:
         signals = [
-            DomainResolutionSignal(kind="intent", source="user", value=f"{primary}-intent", domain_ids=(f"domain:{primary}",)),
-            DomainResolutionSignal(kind="objective", source="user", value=f"{primary}-objective", domain_ids=(f"domain:{primary}",)),
-            DomainResolutionSignal(kind="entity", source="user", value=f"{primary}-entity", domain_ids=(f"domain:{primary}",)),
+            DomainResolutionSignal(
+                kind="intent",
+                source="user",
+                value=f"{primary}-intent",
+                domain_ids=(f"domain:{primary}",),
+            ),
+            DomainResolutionSignal(
+                kind="objective",
+                source="user",
+                value=f"{primary}-objective",
+                domain_ids=(f"domain:{primary}",),
+            ),
+            DomainResolutionSignal(
+                kind="entity",
+                source="user",
+                value=f"{primary}-entity",
+                domain_ids=(f"domain:{primary}",),
+            ),
         ]
         if supporting:
-            signals.extend((
-                DomainResolutionSignal(kind="operation", source="system", value=f"{supporting}-operation", domain_ids=(f"domain:{supporting}",)),
-                DomainResolutionSignal(kind="entity", source="system", value=f"{supporting}-entity", domain_ids=(f"domain:{supporting}",)),
-            ))
+            signals.extend(
+                (
+                    DomainResolutionSignal(
+                        kind="operation",
+                        source="system",
+                        value=f"{supporting}-operation",
+                        domain_ids=(f"domain:{supporting}",),
+                    ),
+                    DomainResolutionSignal(
+                        kind="entity",
+                        source="system",
+                        value=f"{supporting}-entity",
+                        domain_ids=(f"domain:{supporting}",),
+                    ),
+                )
+            )
         return tuple(signals)
 
     def bootstrap_and_state(self) -> None:
         bootstrap = build_standard_languages_domain_bootstrap()
         self.state["bootstrap"] = bootstrap
         assert bootstrap.resolver.fallback_domain == DomainId("general")
-        context = DomainResolutionContextBuilder(id_factory=self.ids, clock=lambda: NOW).build(
+        context = DomainResolutionContextBuilder(
+            id_factory=self.ids, clock=lambda: NOW
+        ).build(
             registry_snapshot=bootstrap.domain_registry.snapshot(),
             user_input="Help me practise English fluency while preparing for C1.",
             authorized_domains=("domain:general", LANGUAGES_DOMAIN_ID),
@@ -412,7 +443,9 @@ class ConnectedLanguagesScenario:
         selected_profile_mode = "practice"
         assert selected_profile_mode in LANGUAGES_PEDAGOGICAL_MODES
         self.state["selected_profile_mode"] = selected_profile_mode
-        composition = DefaultDomainComposer(id_factory=self.ids, clock=lambda: NOW).compose(resolution, (build_languages_domain_definition(),))
+        composition = DefaultDomainComposer(
+            id_factory=self.ids, clock=lambda: NOW
+        ).compose(resolution, (build_languages_domain_definition(),))
         self.state["composition"] = composition
         self.actual_produced_ids.add(composition.id)
 
@@ -421,7 +454,12 @@ class ConnectedLanguagesScenario:
             "preferred_variety": "American English",
             "goals": (
                 {"id": "goal-fluency", "kind": "fluency", "active": True},
-                {"id": "goal-c1", "kind": "certification", "target": "C1", "active": True},
+                {
+                    "id": "goal-c1",
+                    "kind": "certification",
+                    "target": "C1",
+                    "active": True,
+                },
             ),
             "tracking_consent": True,
         }
@@ -437,7 +475,11 @@ class ConnectedLanguagesScenario:
             "03-prefer-american-english",
             english["preferred_variety"] == "American English",
         )
-        variety = classify_language_variety(preferred_variety="American English", observed_variety="British English", form_status="valid")
+        variety = classify_language_variety(
+            preferred_variety="American English",
+            observed_variety="British English",
+            form_status="valid",
+        )
         self.state["variety"] = variety
         self.checkpoint(
             "04-accept-valid-british-alternative",
@@ -453,8 +495,20 @@ class ConnectedLanguagesScenario:
             "06-authorize-progress-tracking", english["tracking_consent"] is True
         )
         self.state["certificate"] = classify_proficiency_record(
-            kind="CERTIFIED", framework="CEFR", level_or_score="B1", skill_scope="writing",
-            evidence=({"source_kind": "official_certificate", "source_id": "official-certificate-record", "certificate_id": "certificate-B1"},),
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="B1",
+            skill_scope="general",
+            evidence=(
+                {
+                    "source_kind": "official_certificate",
+                    "source_id": "official-certificate-record",
+                    "certificate_id": "certificate-B1",
+                    "framework": "CEFR",
+                    "result": "B1",
+                    "valid_at": "2026-01-01",
+                },
+            ),
         )
         self.checkpoint(
             "07-record-prior-lower-certificate",
@@ -469,36 +523,78 @@ class ConnectedLanguagesScenario:
 
     def operation_adapter(self, node: Any, run: Any) -> NodeExecution:
         inputs, outputs = run.inputs, run.outputs
-        self.state["adapter_saw_inputs"] = self.state.get("adapter_saw_inputs", False) or bool(inputs)
+        self.state["adapter_saw_inputs"] = self.state.get(
+            "adapter_saw_inputs", False
+        ) or bool(inputs)
         op = node.operation_id
         if not op:
             return NodeExecution.complete({"ok": True})
         if op == "languages.create_learning_plan":
-            result = create_learning_plan_result(language=inputs["language"], goals=inputs["goals"], tracking_consent=inputs["tracking_consent"])
+            result = create_learning_plan_result(
+                language=inputs["language"],
+                goals=inputs["goals"],
+                tracking_consent=inputs["tracking_consent"],
+            )
         elif op == "languages.assess_sample":
-            result = assess_sample_result(sample=inputs["sample"], target_language=inputs["language"], skill_scope="writing", preferred_variety=inputs["preferred_variety"])
+            result = assess_sample_result(
+                sample=inputs["sample"],
+                target_language=inputs["language"],
+                skill_scope="writing",
+                preferred_variety=inputs["preferred_variety"],
+            )
         elif op == "languages.update_level_evidence":
             assessment = outputs["assess"]
             self.state["level_update_consumed_assessment"] = assessment
-            result = update_level_evidence_result(existing_record=inputs["existing_record"], assessment=assessment, target_skill="writing")
+            result = update_level_evidence_result(
+                existing_record=inputs["existing_record"],
+                assessment=assessment,
+                target_skill="writing",
+            )
         elif op == "languages.generate_lesson":
             self.state["lesson_input_mode"] = inputs.get("mode")
-            result = generate_lesson_result(language=inputs["language"], target_skill=inputs.get("target_skill", "writing"), current_level=inputs.get("current_level", "B1"), topic=inputs.get("topic", "inversion"), mode=inputs.get("mode"))
+            result = generate_lesson_result(
+                language=inputs["language"],
+                target_skill=inputs.get("target_skill", "writing"),
+                current_level=inputs.get("current_level", "B1"),
+                topic=inputs.get("topic", "inversion"),
+                mode=inputs.get("mode"),
+            )
         elif op == "languages.generate_exercises":
             producer = outputs.get("lesson") or outputs.get("error_review")
             assert producer is not None
             self.state.setdefault("exercise_producers", []).append(producer)
-            result = generate_exercises_result(language=inputs["language"], skill=producer.get("target_skill", "grammar"), difficulty=2, target_topic=producer.get("objective", producer.get("recommended_focus", "inversion")), count=1)
+            result = generate_exercises_result(
+                language=inputs["language"],
+                skill=producer.get("target_skill", "grammar"),
+                difficulty=2,
+                target_topic=producer.get(
+                    "objective", producer.get("recommended_focus", "inversion")
+                ),
+                count=1,
+            )
         elif op == "languages.review_exercise":
             generated = outputs["exercises"]
             self.state.setdefault("reviewed_batches", []).append(generated)
-            result = review_exercise_result(exercise_result=inputs["exercise_result"], language=inputs["language"], target_topic=generated["exercises"][0]["prompt"])
+            result = review_exercise_result(
+                exercise_result=inputs["exercise_result"],
+                language=inputs["language"],
+                target_topic=generated["exercises"][0]["prompt"],
+            )
         elif op == "languages.generate_conversation_turn":
-            result = generate_conversation_turn_result(conversation=inputs["conversation"], language=inputs["language"], topic=inputs["topic"], target_level="C1")
+            result = generate_conversation_turn_result(
+                conversation=inputs["conversation"],
+                language=inputs["language"],
+                topic=inputs["topic"],
+                target_level="C1",
+            )
         elif op == "languages.generate_roleplay_turn":
             producer = outputs["conversation_turn"]
             self.state["roleplay_consumed_conversation"] = producer
-            result = generate_roleplay_turn_result(conversation={"turns": (producer,)}, language=inputs["language"], scenario=inputs["scenario"])
+            result = generate_roleplay_turn_result(
+                conversation={"turns": (producer,)},
+                language=inputs["language"],
+                scenario=inputs["scenario"],
+            )
         elif op == "languages.review_speaking":
             self.state["speaking_consumed_roleplay"] = outputs["roleplay_turn"]
             transcript = dict(inputs["audio_transcript"])
@@ -509,27 +605,37 @@ class ConnectedLanguagesScenario:
                 }
                 for item in transcript.get("observed_errors", ())
             )
-            result = review_speaking_result(audio_transcript=transcript, target_language=inputs["language"], pronunciation_evidence=inputs.get("pronunciation_evidence"))
+            result = review_speaking_result(
+                audio_transcript=transcript,
+                target_language=inputs["language"],
+                pronunciation_evidence=inputs.get("pronunciation_evidence"),
+            )
         elif op == "languages.review_writing":
-            result = review_writing_result(writing_sample=inputs["writing_sample"], language=inputs["language"], preferred_variety=inputs["preferred_variety"])
+            result = review_writing_result(
+                writing_sample=inputs["writing_sample"],
+                language=inputs["language"],
+                preferred_variety=inputs["preferred_variety"],
+            )
         elif op == "languages.review_errors":
             self.state["remediation_consumed_errors"] = tuple(inputs["observed_errors"])
-            result = review_errors_result(observed_errors=inputs["observed_errors"], language=inputs["language"])
+            result = review_errors_result(
+                observed_errors=inputs["observed_errors"], language=inputs["language"]
+            )
         elif op == "languages.track_vocabulary":
-            result = track_vocabulary_result(vocabulary_list=inputs["vocabulary_list"], language=inputs["language"])
+            result = track_vocabulary_result(
+                vocabulary_list=inputs["vocabulary_list"], language=inputs["language"]
+            )
         elif op == "languages.plan_review_schedule":
             producer = outputs["vocabulary"]
             self.state["schedule_consumed_vocabulary"] = producer
             dependency_violations = find_languages_runtime_purity_violations(
                 plan_review_schedule_result
             )
-            runtime_state_before = snapshot_languages_module_state(
-                languages_operations
+            runtime_state_before = snapshot_languages_module_state(languages_operations)
+            result = plan_review_schedule_result(
+                review_items=producer["candidate_updates"], available_time=20
             )
-            result = plan_review_schedule_result(review_items=producer["candidate_updates"], available_time=20)
-            runtime_state_after = snapshot_languages_module_state(
-                languages_operations
-            )
+            runtime_state_after = snapshot_languages_module_state(languages_operations)
             self.state.update(
                 schedule_runtime_dependency_violations=dependency_violations,
                 schedule_runtime_state_before=runtime_state_before,
@@ -558,7 +664,13 @@ class ConnectedLanguagesScenario:
                 official_source=selected_source,
             )
         elif op == "languages.generate_progress_review":
-            result = generate_progress_review_result(language=inputs["language"], period=inputs["period"], previous_evidence=inputs["previous_evidence"], evidence=inputs["evidence"], skill="writing")
+            result = generate_progress_review_result(
+                language=inputs["language"],
+                period=inputs["period"],
+                previous_evidence=inputs["previous_evidence"],
+                evidence=inputs["evidence"],
+                skill="writing",
+            )
         else:
             raise AssertionError(f"unhandled operation {op}")
         self.state.setdefault("operation_outputs", []).append(result)
@@ -566,25 +678,59 @@ class ConnectedLanguagesScenario:
 
     def execute_workflows(self) -> None:
         english = self.state["languages"]["English"]
-        baseline = ({"provenance_id": "baseline-writing", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},)
+        baseline = (
+            {
+                "provenance_id": "baseline-writing",
+                "score": 0.6,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+        )
         current = (
-            {"provenance_id": "current-writing-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-            {"provenance_id": "current-writing-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+            {
+                "provenance_id": "current-writing-1",
+                "score": 0.85,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+            {
+                "provenance_id": "current-writing-2",
+                "score": 0.88,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
         )
         self.state.update(baseline=baseline, current=current)
         workflow_inputs = {
-            "languages.language_onboarding": {"language": "English", "goals": english["goals"], "tracking_consent": True},
+            "languages.language_onboarding": {
+                "language": "English",
+                "goals": english["goals"],
+                "tracking_consent": True,
+            },
             "languages.proficiency_assessment": {
-                "language": "English", "sample": {"text": "My favourite colour is blue and I enjoy formal writing."},
-                "preferred_variety": "American English", "existing_record": self.state["certificate"],
+                "language": "English",
+                "sample": {
+                    "text": "My favourite colour is blue and I enjoy formal writing."
+                },
+                "preferred_variety": "American English",
+                "existing_record": self.state["certificate"],
             },
             "languages.adaptive_language_lesson": {
-                "language": "English", "target_skill": "writing", "current_level": "B1", "topic": "inversion",
+                "language": "English",
+                "target_skill": "writing",
+                "current_level": "B1",
+                "topic": "inversion",
                 "mode": self.state["selected_profile_mode"],
                 "exercise_result": {"is_correct": False, "user_answer": "Never I saw"},
             },
             "languages.conversation_roleplay_practice": {
-                "language": "English", "conversation": {"turns": ()}, "topic": "public speaking", "scenario": "oral exam",
+                "language": "English",
+                "conversation": {"turns": ()},
+                "topic": "public speaking",
+                "scenario": "oral exam",
                 "audio_transcript": {
                     "transcript": "Never I saw that structure before.",
                     "observed_errors": (
@@ -598,30 +744,57 @@ class ConnectedLanguagesScenario:
                 "pronunciation_evidence": None,
             },
             "languages.writing_review": {
-                "language": "English", "writing_sample": {"text": "My favourite colour is blue in this formal proposal."},
+                "language": "English",
+                "writing_sample": {
+                    "text": "My favourite colour is blue in this formal proposal."
+                },
                 "preferred_variety": "British English",
             },
             "languages.error_remediation": {
-                "language": "English", "observed_errors": (),
-                "exercise_result": {"is_correct": True, "user_answer": "Never have I seen"},
+                "language": "English",
+                "observed_errors": (),
+                "exercise_result": {
+                    "is_correct": True,
+                    "user_answer": "Never have I seen",
+                },
             },
             "languages.vocabulary_spaced_review": {
-                "language": "English", "vocabulary_list": {"items": ({"id": "word-1", "due": True},)},
+                "language": "English",
+                "vocabulary_list": {"items": ({"id": "word-1", "due": True},)},
             },
             "languages.certification_preparation": {
-                "language": "English", "target_certification": "Cambridge C1",
+                "language": "English",
+                "target_certification": "Cambridge C1",
                 "current_profile": {
                     "skill_levels": {"writing": "B2", "speaking": "B1"},
                 },
                 "certification_case": "primary",
-                "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False, "source_id": "guide-1"},
+                "official_source": {
+                    "id": "stale-guide",
+                    "source_type": "guide",
+                    "date_valid": False,
+                    "source_id": "guide-1",
+                },
                 "official_sources": (
-                    {"id": "stale-official", "source_type": "official", "date_valid": False, "official_source_id": "stale-official-1"},
-                    {"id": "current-official", "source_type": "official", "date_valid": True, "official_source_id": "current-official-1"},
+                    {
+                        "id": "stale-official",
+                        "source_type": "official",
+                        "date_valid": False,
+                        "official_source_id": "stale-official-1",
+                    },
+                    {
+                        "id": "current-official",
+                        "source_type": "official",
+                        "date_valid": True,
+                        "official_source_id": "current-official-1",
+                    },
                 ),
             },
             "languages.progress_checkpoint": {
-                "language": "English", "period": "last_30_days", "previous_evidence": baseline, "evidence": current,
+                "language": "English",
+                "period": "last_30_days",
+                "previous_evidence": baseline,
+                "evidence": current,
             },
         }
         workflows = build_languages_workflow_definitions()
@@ -630,10 +803,18 @@ class ConnectedLanguagesScenario:
             primary_domain_id=LANGUAGES_DOMAIN_ID,
             known_domain_ids=frozenset({LANGUAGES_DOMAIN_ID, "domain:general"}),
             authorized_domain_ids=frozenset({LANGUAGES_DOMAIN_ID}),
-            available_resources=frozenset(resource for workflow in workflows for resource in workflow.required_resources),
+            available_resources=frozenset(
+                resource
+                for workflow in workflows
+                for resource in workflow.required_resources
+            ),
             available_operations=frozenset(item.operation_id for item in operations),
         )
-        executor = DomainWorkflowExecutor(id_factory=self.ids, clock=lambda: NOW, operation_adapter=self.operation_adapter)
+        executor = DomainWorkflowExecutor(
+            id_factory=self.ids,
+            clock=lambda: NOW,
+            operation_adapter=self.operation_adapter,
+        )
         runs: dict[str, Any] = {}
         for workflow in workflows:
             if workflow.workflow_id == "languages.conversation_roleplay_practice":
@@ -650,27 +831,38 @@ class ConnectedLanguagesScenario:
                 )
             if workflow.workflow_id == "languages.error_remediation":
                 lesson_errors = tuple(
-                    runs["languages.adaptive_language_lesson"]
-                    .common_run.outputs["review"]["observed_errors"]
+                    runs["languages.adaptive_language_lesson"].common_run.outputs[
+                        "review"
+                    ]["observed_errors"]
                 )
                 speaking_errors = tuple(
-                    runs["languages.conversation_roleplay_practice"]
-                    .common_run.outputs["speaking_review"]["observed_errors"]
+                    runs["languages.conversation_roleplay_practice"].common_run.outputs[
+                        "speaking_review"
+                    ]["observed_errors"]
                 )
                 workflow_inputs[workflow.workflow_id]["observed_errors"] = (
                     *lesson_errors,
                     *speaking_errors,
                 )
-            run = executor.execute(workflow, context, workflow_inputs[workflow.workflow_id])
+            run = executor.execute(
+                workflow, context, workflow_inputs[workflow.workflow_id]
+            )
             assert run.status is WorkflowRunStatus.COMPLETED
             runs[workflow.workflow_id] = run
             self.actual_produced_ids.add(run.common_run.run_id)
-            self.actual_produced_ids.update(event.event_id for event in run.execution_result.events)
+            self.actual_produced_ids.update(
+                event.event_id for event in run.execution_result.events
+            )
         self.state.update(workflow_runs=runs, workflow_inputs=workflow_inputs)
 
-        onboarding = runs["languages.language_onboarding"].common_run.outputs["create_plan"]
+        onboarding = runs["languages.language_onboarding"].common_run.outputs[
+            "create_plan"
+        ]
         assessment_outputs = runs["languages.proficiency_assessment"].common_run.outputs
-        assessment, update = assessment_outputs["assess"], assessment_outputs["level_update"]
+        assessment, update = (
+            assessment_outputs["assess"],
+            assessment_outputs["level_update"],
+        )
         self.state.update(assessment=assessment, level_update=update)
         self.checkpoint(
             "09-assess-initial-writing-sample", bool(assessment["assessment_id"])
@@ -751,7 +943,10 @@ class ConnectedLanguagesScenario:
             and pattern["independent_occurrences"] == 2
             and pattern["comparable_contexts"] == 2,
         )
-        priority = prioritize_corrections(errors=(*errors, {"id": "style", "category": "minor_style"}), mode="practice")
+        priority = prioritize_corrections(
+            errors=(*errors, {"id": "style", "category": "minor_style"}),
+            mode="practice",
+        )
         self.state["priority"] = priority
         self.checkpoint(
             "24-prioritize-corrections-selectively",
@@ -779,7 +974,9 @@ class ConnectedLanguagesScenario:
         self.checkpoint(
             "27-execute-progress-checkpoint-workflow", bool(progress["review_id"])
         )
-        short = evaluate_progression(previous_evidence=baseline, current_evidence=current[:1], skill="writing")
+        short = evaluate_progression(
+            previous_evidence=baseline, current_evidence=current[:1], skill="writing"
+        )
         self.state["short_progress"] = short
         self.checkpoint(
             "28-reject-one-better-score-as-stable-progress",
@@ -796,7 +993,9 @@ class ConnectedLanguagesScenario:
             and progress["skill_progress"] == {"writing": "stable_improvement"}
             and non_comparable["stable_progression"] is False,
         )
-        certification = runs["languages.certification_preparation"].common_run.outputs["certification"]
+        certification = runs["languages.certification_preparation"].common_run.outputs[
+            "certification"
+        ]
         self.checkpoint(
             "30-set-official-certification-target",
             certification["target_certification"] == "Cambridge C1",
@@ -840,15 +1039,16 @@ class ConnectedLanguagesScenario:
         self.state["stale_certification_run"] = stale_certification_run
         self.actual_produced_ids.add(stale_certification_run.common_run.run_id)
         self.actual_produced_ids.update(
-            event.event_id
-            for event in stale_certification_run.execution_result.events
+            event.event_id for event in stale_certification_run.execution_result.events
         )
         stale_certification = stale_certification_run.common_run.outputs[
             "certification"
         ]
         assert stale_certification_run.status is WorkflowRunStatus.COMPLETED
         assert stale_certification["needs_verification"] is True
-        spaced = runs["languages.vocabulary_spaced_review"].common_run.outputs["review_plan"]
+        spaced = runs["languages.vocabulary_spaced_review"].common_run.outputs[
+            "review_plan"
+        ]
         self.state["spaced_review"] = spaced
         self.checkpoint(
             "34-propose-pedagogical-review-schedule", bool(spaced["schedule_id"])
@@ -870,7 +1070,9 @@ class ConnectedLanguagesScenario:
         registry.register(build_languages_permission_policy())
         registry.register(build_general_permission_policy())
         service = ApprovalService(InMemoryApprovalRepository())
-        gate = DomainPermissionGate(DomainPermissionResolver(registry), service, clock=lambda: NOW)
+        gate = DomainPermissionGate(
+            DomainPermissionResolver(registry), service, clock=lambda: NOW
+        )
         calendar_request = {
             "request_id": self.ids(),
             "capability": PermissionCapability.SCHEDULE_MODIFY.value,
@@ -907,8 +1109,7 @@ class ConnectedLanguagesScenario:
         self.checkpoint(
             "36-receive-user-calendar-event-request",
             calendar_request["requested_by"] == "user"
-            and calendar_request["event"]["title"]
-            == "English spaced review"
+            and calendar_request["event"]["title"] == "English spaced review"
             and calendar_request["capability"]
             == PermissionCapability.SCHEDULE_MODIFY.value,
         )
@@ -922,36 +1123,50 @@ class ConnectedLanguagesScenario:
             and self.state["calendar_mutated"] is False,
         )
         operation = DomainOperationDefinition(
-            operation_id="languages.test_connected_memory_apply", domain_id=LANGUAGES_DOMAIN_ID,
-            version="1.0.0", name="Connected acceptance memory apply",
+            operation_id="languages.test_connected_memory_apply",
+            domain_id=LANGUAGES_DOMAIN_ID,
+            version="1.0.0",
+            name="Connected acceptance memory apply",
             description="Test-only operation for the real shared approval gate.",
             operation_type=DomainOperationType.ANALYSIS,
             required_permissions=(PermissionCapability.MEMORY_WRITE.value,),
-            risk_level=PolicyRiskLevel.LOW, reversible=True,
+            risk_level=PolicyRiskLevel.LOW,
+            reversible=True,
         )
         permission_request_id = self.ids()
         pending = gate.evaluate_operation_definition(
-            operation, request_id=permission_request_id,
-            actor_id="actor-at-dp-026", session_id="session-at-dp-026",
+            operation,
+            request_id=permission_request_id,
+            actor_id="actor-at-dp-026",
+            session_id="session-at-dp-026",
         )
         assert pending.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
-        requirement = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
+        requirement = PermissionApprovalRequirement.from_dict(
+            pending.approval_requirements[0]
+        )
         approval = service.create_request_from_requirement(
-            to_approval_requirement(requirement, agent_run_id=self.ids()), requested_by="agent-runtime"
+            to_approval_requirement(requirement, agent_run_id=self.ids()),
+            requested_by="agent-runtime",
         )
         service.approve(approval.id, "human-approver")
         decision = service.repository.list_decisions(approval.id)[0]
         self.state.update(
-            permission_gate=gate, approval_service=service, permission_operation=operation,
-            permission_request_id=permission_request_id, permission_requirement=requirement,
-            approval_request=approval, approval_decision=decision,
+            permission_gate=gate,
+            approval_service=service,
+            permission_operation=operation,
+            permission_request_id=permission_request_id,
+            permission_requirement=requirement,
+            approval_request=approval,
+            approval_decision=decision,
         )
         self.actual_produced_ids.update((approval.id, decision.id))
 
         proposal_id, reference_id, canonical_id = self.ids(), self.ids(), self.ids()
         reference = DomainMemoryReference(
-            reference_id=reference_id, kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
-            canonical_id=canonical_id, domain_id=LANGUAGES_DOMAIN_ID,
+            reference_id=reference_id,
+            kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+            canonical_id=canonical_id,
+            domain_id=LANGUAGES_DOMAIN_ID,
             applicable_domains=(LANGUAGES_DOMAIN_ID,),
             evidence_ids=(self.state["assessment"]["assessment_id"],),
             resource_ids=(self.state["spaced_review"]["schedule_id"],),
@@ -967,44 +1182,78 @@ class ConnectedLanguagesScenario:
             and not service.repository.is_consumed(approval.id),
         )
         consumed = gate.evaluate_operation_definition(
-            operation, request_id=permission_request_id,
-            actor_id="actor-at-dp-026", session_id="session-at-dp-026",
+            operation,
+            request_id=permission_request_id,
+            actor_id="actor-at-dp-026",
+            session_id="session-at-dp-026",
             approval_request_id=approval.id,
         )
         assert consumed.decision_id is not None
         memory_permission = DomainMemoryPermissionDecisionSnapshot(
-            decision_id=consumed.decision_id, allowed=consumed.allowed,
+            decision_id=consumed.decision_id,
+            allowed=consumed.allowed,
             capabilities=(DomainMemoryCapability.PROPOSE,),
-            source_domain_id=LANGUAGES_DOMAIN_ID, target_domain_id=LANGUAGES_DOMAIN_ID,
+            source_domain_id=LANGUAGES_DOMAIN_ID,
+            target_domain_id=LANGUAGES_DOMAIN_ID,
             sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
         )
         request = build_languages_memory_view_request(
-            request_id=self.ids(), trace_id=trace_id,
+            request_id=self.ids(),
+            trace_id=trace_id,
             requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
-            candidates=(reference,), permission_decision_ids=(consumed.decision_id,),
+            candidates=(reference,),
+            permission_decision_ids=(consumed.decision_id,),
         )
         base_inventory = DomainMemoryReferenceInventory(
             references=(reference,),
-            traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
+            traces=(
+                DomainMemoryTraceSnapshot(
+                    trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID
+                ),
+            ),
             permission_decisions=(memory_permission,),
         )
         view = build_languages_memory_view(request=request, inventory=base_inventory)
         binding = build_languages_memory_binding(
-            proposal=proposal, view=view, trace_id=trace_id,
-            permission_decision_ids=(consumed.decision_id,), approval_request_ids=(approval.id,),
+            proposal=proposal,
+            view=view,
+            trace_id=trace_id,
+            permission_decision_ids=(consumed.decision_id,),
+            approval_request_ids=(approval.id,),
             approval_decision_ids=(decision.id,),
         )
         inventory = DomainMemoryReferenceInventory(
-            references=(reference,), proposals=(proposal,), permission_decisions=(memory_permission,),
-            approval_requests=(DomainMemoryApprovalRequestSnapshot(request_id=approval.id, proposal_id=proposal_id),),
-            approval_decisions=(DomainMemoryApprovalDecisionSnapshot(decision_id=decision.id, request_id=approval.id, approved=True),),
-            traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
-            views=(DomainMemoryViewSnapshot(
-                view_id=view.view_id, request_id=view.request_id, primary_domain=view.primary_domain,
-                trace_id=view.trace_id, view_digest=view.content_digest,
-            ),),
+            references=(reference,),
+            proposals=(proposal,),
+            permission_decisions=(memory_permission,),
+            approval_requests=(
+                DomainMemoryApprovalRequestSnapshot(
+                    request_id=approval.id, proposal_id=proposal_id
+                ),
+            ),
+            approval_decisions=(
+                DomainMemoryApprovalDecisionSnapshot(
+                    decision_id=decision.id, request_id=approval.id, approved=True
+                ),
+            ),
+            traces=(
+                DomainMemoryTraceSnapshot(
+                    trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID
+                ),
+            ),
+            views=(
+                DomainMemoryViewSnapshot(
+                    view_id=view.view_id,
+                    request_id=view.request_id,
+                    primary_domain=view.primary_domain,
+                    trace_id=view.trace_id,
+                    view_digest=view.content_digest,
+                ),
+            ),
         )
-        validation = validate_languages_memory_binding(binding=binding, inventory=inventory)
+        validation = validate_languages_memory_binding(
+            binding=binding, inventory=inventory
+        )
         self.state.update(
             memory_proposal=proposal,
             memory_binding=binding,
@@ -1038,18 +1287,31 @@ class ConnectedLanguagesScenario:
 
     def cross_domain_and_presentation(self) -> None:
         registry = DomainRegistry()
-        for definition in (build_oppositions_domain_definition(), build_languages_domain_definition()):
+        for definition in (
+            build_oppositions_domain_definition(),
+            build_languages_domain_definition(),
+        ):
             registry.register(definition)
             registry.enable(str(definition.id))
-        context = DomainResolutionContextBuilder(id_factory=self.ids, clock=lambda: NOW).build(
+        context = DomainResolutionContextBuilder(
+            id_factory=self.ids, clock=lambda: NOW
+        ).build(
             registry_snapshot=registry.snapshot(),
             user_input="Prepare an opposition exam with an English requirement.",
             authorized_domains=("domain:oppositions", LANGUAGES_DOMAIN_ID),
             signals=self.signals("oppositions", "languages"),
         )
-        resolution = DefaultDomainResolver(id_factory=self.ids, clock=lambda: NOW).resolve(context)
-        composition = DefaultDomainComposer(id_factory=self.ids, clock=lambda: NOW).compose(
-            resolution, (build_oppositions_domain_definition(), build_languages_domain_definition())
+        resolution = DefaultDomainResolver(
+            id_factory=self.ids, clock=lambda: NOW
+        ).resolve(context)
+        composition = DefaultDomainComposer(
+            id_factory=self.ids, clock=lambda: NOW
+        ).compose(
+            resolution,
+            (
+                build_oppositions_domain_definition(),
+                build_languages_domain_definition(),
+            ),
         )
         certificate = self.state["certificate"]
         assessment = self.state["assessment"]
@@ -1062,40 +1324,61 @@ class ConnectedLanguagesScenario:
         review_plan = self.state["spaced_review"]
         allowed = {
             "certification_status": (
-                f"{certificate['level_or_score']} "
-                f"{certificate['kind'].lower()}"
+                f"{certificate['level_or_score']} {certificate['kind'].lower()}"
             ),
             "estimated_readiness": certification["readiness_score"],
             "relevant_proficiency": {
                 "writing": assessment["observed_performance"],
             },
             "progress_toward_shared_goal": progress["overall_progression"],
-            "recommended_workload": review_plan[
-                "recommended_duration_minutes"
-            ],
+            "recommended_workload": review_plan["recommended_duration_minutes"],
             "blocking_language_gap": certification["skill_gaps"][1],
         }
         projection = DomainResult(
-            id=self.ids(), status="completed",
+            id=self.ids(),
+            status="completed",
             objective="Minimal Languages projection for opposition planning",
-            primary_domain=LANGUAGES_DOMAIN_ID, supporting_domains=("domain:oppositions",),
-            findings=(allowed,), trace_id=self.ids(), confidence=0.8,
+            primary_domain=LANGUAGES_DOMAIN_ID,
+            supporting_domains=("domain:oppositions",),
+            findings=(allowed,),
+            trace_id=self.ids(),
+            confidence=0.8,
         )
-        self.state.update(cross_context=context, cross_resolution=resolution, cross_composition=composition, cross_projection=projection)
-        self.actual_produced_ids.update((context.id, resolution.id, composition.id, str(projection.id), projection.trace_id))
+        self.state.update(
+            cross_context=context,
+            cross_resolution=resolution,
+            cross_composition=composition,
+            cross_projection=projection,
+        )
+        self.actual_produced_ids.update(
+            (
+                context.id,
+                resolution.id,
+                composition.id,
+                str(projection.id),
+                projection.trace_id,
+            )
+        )
         allowed_keys = {
-            "certification_status", "estimated_readiness", "relevant_proficiency",
-            "progress_toward_shared_goal", "recommended_workload",
+            "certification_status",
+            "estimated_readiness",
+            "relevant_proficiency",
+            "progress_toward_shared_goal",
+            "recommended_workload",
             "blocking_language_gap",
         }
         forbidden = {
-            "complete_vocabulary_history", "all_observed_errors", "all_transcripts",
-            "all_writing_corrections", "full_languages_memory",
+            "complete_vocabulary_history",
+            "all_observed_errors",
+            "all_transcripts",
+            "all_writing_corrections",
+            "full_languages_memory",
         }
         self.checkpoint(
             "40-project-minimum-languages-context-to-oppositions",
             str(resolution.primary_domain) == "domain:oppositions"
-            and LANGUAGES_DOMAIN_ID in {str(item) for item in resolution.supporting_domains}
+            and LANGUAGES_DOMAIN_ID
+            in {str(item) for item in resolution.supporting_domains}
             and str(composition.primary_domain) == "domain:oppositions"
             and set(projection.to_dict()["findings"][0]) == allowed_keys,
         )
@@ -1103,7 +1386,10 @@ class ConnectedLanguagesScenario:
             "41-withhold-full-learning-history",
             not forbidden.intersection(projection.to_dict()["findings"][0]),
         )
-        presented = [present_languages_result(result) for result in self.state["operation_outputs"]]
+        presented = [
+            present_languages_result(result)
+            for result in self.state["operation_outputs"]
+        ]
         presented.extend(
             present_languages_result(run.common_run.to_dict())
             for run in self.state["workflow_runs"].values()
@@ -1116,15 +1402,16 @@ class ConnectedLanguagesScenario:
         }
         self.state["presentation_result"] = presentation_result
         self.actual_produced_ids.add(presentation_result["result_id"])
-        speaking = next(item for item in presented if item.get("transcript_text") is not None)
+        speaking = next(
+            item for item in presented if item.get("transcript_text") is not None
+        )
         self.checkpoint(
             "42-present-certified-estimated-observed-distinctly",
             certificate["kind"] == "CERTIFIED"
             and assessment["proficiency_kind"] == "OBSERVED_PERFORMANCE"
             and self.state["writing_presentation"]["estimated_level"] == "A2"
             and all(
-                item["presentation_format"] == "standard_pedagogy"
-                for item in presented
+                item["presentation_format"] == "standard_pedagogy" for item in presented
             ),
         )
         self.checkpoint(
@@ -1196,23 +1483,21 @@ class ConnectedLanguagesScenario:
             registry=rule_registry,
         )
         findings = {finding.code: finding for finding in rule_execution.findings}
-        assert findings["ERROR_PATTERN_EVALUATED"].metadata["pattern_state"] == "candidate"
         assert (
-            findings["PROGRESSION_EVIDENCE_EVALUATED"].metadata[
-                "progression_outcome"
-            ]
+            findings["ERROR_PATTERN_EVALUATED"].metadata["pattern_state"] == "candidate"
+        )
+        assert (
+            findings["PROGRESSION_EVIDENCE_EVALUATED"].metadata["progression_outcome"]
             == "stable_improvement"
         )
         assert (
-            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata[
-                "selected_source"
-            ]["id"]
+            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata["selected_source"][
+                "id"
+            ]
             == "current-official"
         )
         assert (
-            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata[
-                "needs_verification"
-            ]
+            findings["CERTIFICATION_TEMPORAL_EVALUATED"].metadata["needs_verification"]
             is False
         )
         self.state["rule_plan"] = rule_plan
@@ -1229,8 +1514,7 @@ class ConnectedLanguagesScenario:
                     assert value not in operation_result_owners
                     operation_result_owners[value] = (result, id_field)
         operation_results_by_id = {
-            result_id: owner[0]
-            for result_id, owner in operation_result_owners.items()
+            result_id: owner[0] for result_id, owner in operation_result_owners.items()
         }
         evidence_owners: dict[str, tuple[Mapping[str, Any], str]] = {
             item["provenance_id"]: (item, "provenance_id")
@@ -1280,9 +1564,7 @@ class ConnectedLanguagesScenario:
         expected_id_to_kind = dict(structural_expected_id_to_kind)
         expected_id_to_owner = dict(structural_expected_id_to_owner)
 
-        def expect(
-            ref_id: str, kind: DomainTraceReferenceKind, owner: object
-        ) -> None:
+        def expect(ref_id: str, kind: DomainTraceReferenceKind, owner: object) -> None:
             assert ref_id not in expected_id_to_kind
             expected_id_to_kind[ref_id] = kind
             expected_id_to_owner[ref_id] = owner
@@ -1290,9 +1572,7 @@ class ConnectedLanguagesScenario:
         expect(context.id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, context)
         expect(resolution.id, DomainTraceReferenceKind.RESOLUTION_RESULT, resolution)
         expect(composition.id, DomainTraceReferenceKind.COMPOSITION, composition)
-        expect(
-            str(cross.id), DomainTraceReferenceKind.CROSS_DOMAIN_RESULT, cross
-        )
+        expect(str(cross.id), DomainTraceReferenceKind.CROSS_DOMAIN_RESULT, cross)
         expect(cross.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE, cross)
         expect(
             presentation_result["result_id"],
@@ -1550,17 +1830,25 @@ def test_at_dp_026_is_one_connected_45_checkpoint_scenario() -> None:
     assert len(scenario.checkpoints) == 45
     assert len(set(scenario.checkpoints)) == 45
     assert len(scenario.state["workflow_runs"]) == 9
-    assert scenario.state["level_update_consumed_assessment"] == scenario.state["assessment"]
-    assert scenario.state["permission_consumed"].outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert (
+        scenario.state["level_update_consumed_assessment"]
+        == scenario.state["assessment"]
+    )
+    assert (
+        scenario.state["permission_consumed"].outcome
+        is PermissionGateOutcome.APPROVAL_CONSUMED
+    )
     assert scenario.state["cross_composition"].id in scenario.actual_produced_ids
     assert scenario.required_trace_ids <= scenario.actual_produced_ids
     lesson_errors = tuple(
-        scenario.state["workflow_runs"]["languages.adaptive_language_lesson"]
-        .common_run.outputs["review"]["observed_errors"]
+        scenario.state["workflow_runs"][
+            "languages.adaptive_language_lesson"
+        ].common_run.outputs["review"]["observed_errors"]
     )
     speaking_errors = tuple(
-        scenario.state["workflow_runs"]["languages.conversation_roleplay_practice"]
-        .common_run.outputs["speaking_review"]["observed_errors"]
+        scenario.state["workflow_runs"][
+            "languages.conversation_roleplay_practice"
+        ].common_run.outputs["speaking_review"]["observed_errors"]
     )
     assert scenario.state["remediation_consumed_errors"] == (
         *lesson_errors,
@@ -1568,8 +1856,9 @@ def test_at_dp_026_is_one_connected_45_checkpoint_scenario() -> None:
     )
     assert scenario.state["certification_selected_source"]["id"] == "current-official"
     assert (
-        scenario.state["workflow_runs"]["languages.certification_preparation"]
-        .common_run.outputs["certification"]["needs_verification"]
+        scenario.state["workflow_runs"][
+            "languages.certification_preparation"
+        ].common_run.outputs["certification"]["needs_verification"]
         is False
     )
     projection = scenario.state["cross_projection"].to_dict()["findings"][0]
@@ -1581,9 +1870,10 @@ def test_at_dp_026_is_one_connected_45_checkpoint_scenario() -> None:
         "recommended_workload",
         "blocking_language_gap",
     }
-    assert projection["relevant_proficiency"]["writing"] == scenario.state[
-        "assessment"
-    ]["observed_performance"]
+    assert (
+        projection["relevant_proficiency"]["writing"]
+        == scenario.state["assessment"]["observed_performance"]
+    )
 
 
 def test_at_dp_026_routes_calendar_request_through_shared_schedule_boundary() -> None:
@@ -1650,16 +1940,16 @@ def test_at_dp_026_trace_never_labels_workflow_events_as_results() -> None:
     )
 
 
-def test_at_dp_026_trace_uses_runtime_rule_execution_not_static_rule_definitions() -> None:
+def test_at_dp_026_trace_uses_runtime_rule_execution_not_static_rule_definitions() -> (
+    None
+):
     """Catches static ``languages.*`` definition IDs labeled as rule results."""
     scenario = ConnectedLanguagesScenario()
     scenario.run()
 
     rule_plan = scenario.state["rule_plan"]
     rule_execution = scenario.state["rule_execution"]
-    definition_ids = {
-        selected.definition.id for selected in rule_plan.selected_rules
-    }
+    definition_ids = {selected.definition.id for selected in rule_plan.selected_rules}
     trace_rule_result_ids = {
         reference.ref_id
         for reference in scenario.state["trace"].all_references()
@@ -1757,51 +2047,62 @@ def test_at_dp_026_trace_inventory_proves_runtime_owner_identity() -> None:
         selected_profile_mode=scenario.state["selected_profile_mode"],
     )
 
-    assert expected_id_to_owner[scenario.state["resolution_context"].id] is (
-        scenario.state["resolution_context"]
+    assert (
+        expected_id_to_owner[scenario.state["resolution_context"].id]
+        is (scenario.state["resolution_context"])
     )
-    assert expected_id_to_owner[scenario.state["resolution"].id] is scenario.state[
-        "resolution"
-    ]
-    assert expected_id_to_owner[scenario.state["composition"].id] is scenario.state[
-        "composition"
-    ]
-    assert expected_id_to_owner[str(scenario.state["profile"].id)] is scenario.state[
-        "profile"
-    ]
-    assert expected_id_to_owner[scenario.state["rule_plan"].id] is scenario.state[
-        "rule_plan"
-    ]
-    assert expected_id_to_owner[scenario.state["rule_execution"].id] is (
-        scenario.state["rule_execution"]
+    assert (
+        expected_id_to_owner[scenario.state["resolution"].id]
+        is scenario.state["resolution"]
     )
-    assert expected_id_to_owner[
-        scenario.state["permission_consumed"].decision_id
-    ] is scenario.state["permission_consumed"]
-    assert expected_id_to_owner[
-        scenario.state["approval_request"].id
-    ] is scenario.state["approval_request"]
-    assert expected_id_to_owner[
-        scenario.state["approval_decision"].id
-    ] is scenario.state["approval_decision"]
-    assert expected_id_to_owner[
-        scenario.state["memory_proposal"].proposal_id
-    ] is scenario.state["memory_proposal"]
-    assert expected_id_to_owner[
-        scenario.state["memory_binding"].binding_id
-    ] is scenario.state["memory_binding"]
-    assert expected_id_to_owner[str(scenario.state["cross_projection"].id)] is (
-        scenario.state["cross_projection"]
+    assert (
+        expected_id_to_owner[scenario.state["composition"].id]
+        is scenario.state["composition"]
     )
-    assert expected_id_to_owner[scenario.state["cross_projection"].trace_id] is (
-        scenario.state["cross_projection"]
+    assert (
+        expected_id_to_owner[str(scenario.state["profile"].id)]
+        is scenario.state["profile"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["rule_plan"].id]
+        is scenario.state["rule_plan"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["rule_execution"].id]
+        is (scenario.state["rule_execution"])
+    )
+    assert (
+        expected_id_to_owner[scenario.state["permission_consumed"].decision_id]
+        is scenario.state["permission_consumed"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["approval_request"].id]
+        is scenario.state["approval_request"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["approval_decision"].id]
+        is scenario.state["approval_decision"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["memory_proposal"].proposal_id]
+        is scenario.state["memory_proposal"]
+    )
+    assert (
+        expected_id_to_owner[scenario.state["memory_binding"].binding_id]
+        is scenario.state["memory_binding"]
+    )
+    assert (
+        expected_id_to_owner[str(scenario.state["cross_projection"].id)]
+        is (scenario.state["cross_projection"])
+    )
+    assert (
+        expected_id_to_owner[scenario.state["cross_projection"].trace_id]
+        is (scenario.state["cross_projection"])
     )
 
     for run in scenario.state["workflow_runs"].values():
         assert expected_id_to_owner[run.common_run.run_id] is run.common_run
-    for result_id, result_mapping in scenario.state[
-        "operation_results_by_id"
-    ].items():
+    for result_id, result_mapping in scenario.state["operation_results_by_id"].items():
         owner_mapping, owner_id_field = expected_id_to_owner[result_id]
         assert owner_mapping is result_mapping
         assert result_mapping[owner_id_field] == result_id
@@ -1973,3 +2274,42 @@ def test_at_dp_026_trace_provenance_rejects_negative_mutation_matrix() -> None:
                 expected_id_to_owner=mutated_owners,
                 selected_profile_mode=scenario.state["selected_profile_mode"],
             )
+
+
+def test_at_dp_026_certificate_negative_mutation_matrix() -> None:
+    """Removing source identity, framework, result, or valid_at from certificate fails certification gate."""
+    base_cert = {
+        "source_kind": "official_certificate",
+        "source_id": "official-certificate-record",
+        "certificate_id": "certificate-B1",
+        "framework": "CEFR",
+        "result": "B1",
+        "valid_at": "2026-01-01",
+    }
+    # 1. Complete passes
+    complete_res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(base_cert,),
+    )
+    assert complete_res["is_certified"] is True
+    assert complete_res["level_or_score"] == "B1"
+
+    # 2. Negative mutations
+    for field_to_remove in ("source_id", "framework", "result", "valid_at"):
+        mutated = {k: v for k, v in base_cert.items() if k != field_to_remove}
+        res = classify_proficiency_record(
+            kind="CERTIFIED",
+            framework="CEFR",
+            level_or_score="B1",
+            skill_scope="general",
+            evidence=(mutated,),
+        )
+        assert res["is_certified"] is False, (
+            f"Expected is_certified=False when removing {field_to_remove}"
+        )
+        assert res["level_or_score"] == "unassessed", (
+            f"Expected unassessed when removing {field_to_remove}"
+        )
