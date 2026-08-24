@@ -1,7 +1,7 @@
 # Languages Domain (`domain:languages`)
 
 **Phase:** 10.26
-**Status:** V2 findings remediated — independent V3 audit pending
+**Status:** V3 independent audit: FAIL; V3 findings remediated: 1 BLOCKER + 2 MAJOR; candidate AT-DP-026: PASS; final independent closure audit: PENDING; DP-026: REQUIRES_PHASE_INSPECTION
 **Canonical identity:** `domain:languages` · namespace `languages.*` · version `1.0.0`
 **Canonical profile:** `LanguageLearningProfile`
 **Design (frozen):** `docs/superpowers/specs/2026-08-23-languages-domain-design.md`
@@ -89,9 +89,8 @@ All 9 workflows run on the shared Workflow Engine with direct producer-to-gate v
 
 The first independent Phase 10.26 audit returned `FAIL` with two blockers and
 five major findings. Independent re-audit V2 also returned `FAIL`, with two
-remaining blockers and three remaining major findings. The V2 remediation
-candidate addresses those `2 BLOCKER + 3 MAJOR` findings; independent V3 audit
-is still `PENDING`.
+remaining blockers and three remaining major findings. The V3 independent audit
+returned `FAIL`; its `1 BLOCKER + 2 MAJOR` findings are remediated.
 
 `AT-DP-026` now passes as one connected 45-checkpoint scenario over the real
 shared resolver, composer, Workflow Engine, permission gate, memory contracts,
@@ -109,6 +108,10 @@ scoring/ranking or workflow scheduling/ordering/readiness/status semantics.
 Their serialized contract extensions are additive and preserve backward reads;
 no existing field is removed or reinterpreted.
 
-This is candidate remediation evidence only. `DP-026` remains
-`REQUIRES_PHASE_INSPECTION`; candidate `AT-DP-026` is `PASS`, independent V3
-audit is `PENDING`, and final closure has not been claimed.
+Current status:
+
+- V3 independent audit: FAIL
+- V3 findings remediated: 1 BLOCKER + 2 MAJOR
+- candidate AT-DP-026: PASS
+- final independent closure audit: PENDING
+- DP-026: REQUIRES_PHASE_INSPECTION

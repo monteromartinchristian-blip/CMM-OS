@@ -3636,7 +3636,7 @@ Implementation status (2026-08-21)
 
 10.26 - Languages Domain
 
-**Status:** V2 findings remediated; independent V3 audit pending.
+**Status:** V3 independent audit: FAIL; V3 findings remediated: 1 BLOCKER + 2 MAJOR; candidate AT-DP-026: PASS; final independent closure audit: PENDING; DP-026: REQUIRES_PHASE_INSPECTION.
 
 Canonical design:
 
@@ -3838,13 +3838,20 @@ when it supplies specialized linguistic competence to another primary
 domain.
 
 Independent re-audit V2 returned `FAIL` with two blockers and three major
-findings. The V2 remediation candidate addresses all five findings, and the
-connected 45-checkpoint `AT-DP-026` now follows the exact frozen semantic
+findings. The V3 independent audit returned `FAIL`; its `1 BLOCKER + 2 MAJOR`
+findings are remediated. The candidate connected 45-checkpoint `AT-DP-026`
+follows the exact frozen semantic
 sequence through the real shared resolver, composer, Workflow Engine, calendar
 permission boundary, memory, projection, presentation, and independently
-inventoried typed trace paths. This does not close `DP-026`: its matrix status
-remains `REQUIRES_PHASE_INSPECTION`; candidate `AT-DP-026` is `PASS`; and
-independent V3 audit remains `PENDING` as the next milestone.
+inventoried typed trace paths.
+
+Current status:
+
+- V3 independent audit: FAIL
+- V3 findings remediated: 1 BLOCKER + 2 MAJOR
+- candidate AT-DP-026: PASS
+- final independent closure audit: PENDING
+- DP-026: REQUIRES_PHASE_INSPECTION
 
 ⸻
 
