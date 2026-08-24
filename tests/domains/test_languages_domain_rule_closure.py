@@ -1510,3 +1510,295 @@ def test_all_14_rules_input_immutability():
 
     for current, snapshot in zip(all_inputs, snapshots, strict=True):
         assert current == snapshot
+
+
+# ── Epistemic Binding Remediation (Findings 1–5) ─────────────────────────────
+
+def test_certification_source_authority_unprovenanced_official_blocked():
+    """Unprovenanced current official source must not receive rank 6 and must require verification."""
+    unprov_official = {
+        "id": "x",
+        "source_type": "official",
+        "temporal_state": "current",
+        "format": "computer",
+    }
+    res = evaluate_certification_source(sources=(unprov_official,), decision_critical=True)
+    assert res["authority_rank"] != 6
+    assert res["needs_verification"] is True
+
+    unprov_sec = {
+        "id": "x",
+        "source_type": "secondary",
+        "temporal_state": "current",
+    }
+    res_sec = evaluate_certification_source(sources=(unprov_sec,), decision_critical=True)
+    assert res_sec["authority_rank"] != 5
+
+    # Grounded official gets rank 6 and needs no verification
+    prov_official = {
+        "id": "x",
+        "source_type": "official",
+        "temporal_state": "current",
+        "official_source_id": "official-inst-1",
+    }
+    res_prov = evaluate_certification_source(sources=(prov_official,), decision_critical=True)
+    assert res_prov["authority_rank"] == 6
+    assert res_prov["needs_verification"] is False
+
+    # Grounded secondary gets rank 5
+    prov_sec = {
+        "id": "x",
+        "source_type": "secondary",
+        "temporal_state": "current",
+        "source_id": "sec-inst-1",
+    }
+    res_prov_sec = evaluate_certification_source(sources=(prov_sec,), decision_critical=True)
+    assert res_prov_sec["authority_rank"] == 5
+
+    # Grounded stale official gets rank 4 and requires verification if decision critical
+    stale_official = {
+        "id": "x",
+        "source_type": "official",
+        "temporal_state": "stale",
+        "official_source_id": "official-inst-1",
+    }
+    res_stale = evaluate_certification_source(sources=(stale_official,), decision_critical=True)
+    assert res_stale["authority_rank"] == 4
+    assert res_stale["needs_verification"] is True
+
+
+def test_language_level_framework_leakage_blocked():
+    """Cross-framework evidence cannot ground an estimate in a different framework."""
+    actfl_evidence = (
+        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
+        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
+    )
+    res_cefr = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=actfl_evidence,
+    )
+    assert res_cefr["level_or_score"] == "unassessed"
+    assert res_cefr["confidence"] == 0.0
+
+    # Mixed framework: only matching framework evidence counts
+    mixed_evidence = (
+        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL"},
+        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR"},
+    )
+    res_mixed = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=mixed_evidence,
+    )
+    # Only 1 matching CEFR record -> insufficient for ESTIMATED (requires 2 independent)
+    assert res_mixed["kind"] == "OBSERVED_PERFORMANCE"
+
+    # Two matching CEFR records -> ESTIMATED allowed
+    cefr_evidence = (
+        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR"},
+        {"provenance_id": "p3", "skill": "writing", "observed": "C1", "framework": "CEFR"},
+    )
+    res_valid = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=cefr_evidence,
+    )
+    assert res_valid["kind"] == "ESTIMATED"
+    assert res_valid["level_or_score"] == "C1"
+
+
+def test_framework_mapping_source_value_and_applicability_required():
+    """Mapping evidence must bind to source framework, target framework, source value, and target range."""
+    # Missing source_value fails closed
+    for bad_val in (None, "", "   ", float("nan"), float("inf"), True, False):
+        res = evaluate_framework_mapping(
+            source_framework="IELTS",
+            source_value=bad_val,
+            target_framework="CEFR",
+            mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+        )
+        assert res["calibrated"] is False
+        assert res["target_estimate_range"] is None
+
+    # Same framework with missing source_value fails closed
+    res_same_bad = evaluate_framework_mapping(
+        source_framework="CEFR",
+        source_value=None,
+        target_framework="CEFR",
+    )
+    assert res_same_bad["calibrated"] is False
+
+    # Mapping record with wrong source framework fails closed
+    res_wrong_src = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="7.0",
+        target_framework="CEFR",
+        mapping_evidence=({"source_id": "c1", "source_framework": "TOEFL", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+    )
+    assert res_wrong_src["calibrated"] is False
+
+    # Mapping record with wrong target framework fails closed
+    res_wrong_tgt = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="7.0",
+        target_framework="CEFR",
+        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "DELE", "target_range": "C1"},),
+    )
+    assert res_wrong_tgt["calibrated"] is False
+
+    # Mapping record with wrong source value fails closed
+    res_wrong_val = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="7.0",
+        target_framework="CEFR",
+        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "5.0", "target_framework": "CEFR", "target_range": "B1"},),
+    )
+    assert res_wrong_val["calibrated"] is False
+
+    # Matching grounded mapping succeeds
+    res_match = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="7.0",
+        target_framework="CEFR",
+        mapping_evidence=({"source_id": "c1", "source_framework": "IELTS", "source_value": "7.0", "target_framework": "CEFR", "target_range": "C1"},),
+    )
+    assert res_match["calibrated"] is True
+    assert res_match["target_estimate_range"] == "C1"
+
+
+def test_learning_load_semantic_inputs_mutation_sensitivity():
+    """Priorities, review_backlog, deadlines, and recent_load semantically control recommendations."""
+    base_res = evaluate_learning_load(available_time=30, energy="moderate")
+    assert base_res["recommended_duration_minutes"] == 30
+    assert base_res["load_status"] == "standard"
+
+    # High recent load reduces duration/burden
+    heavy_load_res = evaluate_learning_load(
+        available_time=30,
+        energy="moderate",
+        recent_load={"hours": 5, "status": "high"},
+    )
+    assert heavy_load_res["recommended_duration_minutes"] < base_res["recommended_duration_minutes"]
+    assert heavy_load_res["load_status"] == "scaffolded_light"
+    assert heavy_load_res["recommended_duration_minutes"] <= 30
+    assert heavy_load_res["calendar_modified"] is False
+
+    # Urgent deadline prioritizes exam/prep activity
+    deadline_res = evaluate_learning_load(
+        available_time=30,
+        energy="moderate",
+        deadlines=({"id": "d1", "urgent": True},),
+    )
+    assert "exam_practice" in deadline_res["recommended_activities"] or "targeted_practice" in deadline_res["recommended_activities"]
+
+    # Non-empty review backlog prioritizes spaced review
+    backlog_res = evaluate_learning_load(
+        available_time=30,
+        energy="moderate",
+        review_backlog=({"id": "b1"},),
+    )
+    assert "spaced_review" in backlog_res["recommended_activities"]
+
+    # Explicit priorities influence recommended activities
+    priority_res = evaluate_learning_load(
+        available_time=30,
+        energy="moderate",
+        priorities=("writing_composition",),
+    )
+    assert "writing_composition" in priority_res["recommended_activities"]
+
+
+def test_goal_alignment_approved_activity_contract_skills_and_purpose():
+    """Activity skills (plural) and purpose fields are consumed for goal alignment."""
+    goal = {"id": "g1", "kind": "conversation", "target": "fluency"}
+
+    # Aligns via skills and purpose
+    res_both = align_activity_to_goals(
+        activity={"skills": ["speaking", "listening"], "purpose": "conversation"},
+        goals=(goal,),
+    )
+    assert res_both["activity_fit"] == "aligned"
+    assert res_both["aligned_goals"] == ["g1"]
+
+    # Aligns via purpose only
+    res_purpose = align_activity_to_goals(
+        activity={"purpose": "conversation"},
+        goals=(goal,),
+    )
+    assert res_purpose["activity_fit"] == "aligned"
+    assert res_purpose["aligned_goals"] == ["g1"]
+
+    # Aligns via skills only
+    res_skills = align_activity_to_goals(
+        activity={"skills": ["speaking"]},
+        goals=(goal,),
+    )
+    assert res_skills["activity_fit"] == "aligned"
+    assert res_skills["aligned_goals"] == ["g1"]
+
+    # Unrelated activity fails closed
+    res_unrelated = align_activity_to_goals(
+        activity={"type": "unrelated_accounting", "purpose": "tax_filing"},
+        goals=(goal,),
+    )
+    assert res_unrelated["activity_fit"] == "not_aligned"
+    assert len(res_unrelated["aligned_goals"]) == 0
+
+
+def test_malformed_evidence_container_fails_closed_across_all_helpers():
+    """Non-iterable scalar/None/NaN/Inf/bool evidence containers fail closed safely without raising TypeError."""
+    bad_containers = (None, True, False, 42, float("nan"), float("inf"), object(), "invalid_string")
+
+    for bad in bad_containers:
+        # classify_proficiency_record
+        res_prof = classify_proficiency_record(
+            kind="ESTIMATED",
+            framework="CEFR",
+            level_or_score="C1",
+            evidence=bad,
+        )
+        assert isinstance(res_prof, dict)
+        assert res_prof["level_or_score"] == "unassessed"
+
+        # separate_skill_evidence
+        res_sep = separate_skill_evidence(evidence=bad)
+        assert isinstance(res_sep, dict)
+        assert all(v["status"] == "insufficient_evidence" for v in res_sep["by_skill"].values())
+        assert res_sep["total_evidence_count"] == 0
+
+        # evaluate_progression
+        res_prog = evaluate_progression(
+            previous_evidence=bad,
+            current_evidence=bad,
+            skill="writing",
+        )
+        assert isinstance(res_prog, dict)
+        assert res_prog["progression_outcome"] == "insufficient_evidence"
+
+
+def test_cultural_context_arbitrary_mapping_not_grounded():
+    """Arbitrary unprovenanced mapping in cultural context is not labeled grounded evidence."""
+    # Empty mapping
+    res_empty = evaluate_cultural_context(claim="Native speakers do X", evidence=({},))
+    assert res_empty["has_grounded_evidence"] is False
+    assert res_empty["evidence_status"] == "weak_or_unprovenanced"
+
+    # Arbitrary dict
+    res_arbitrary = evaluate_cultural_context(claim="Native speakers do X", evidence=({"foo": "bar"},))
+    assert res_arbitrary["has_grounded_evidence"] is False
+    assert res_arbitrary["evidence_status"] == "weak_or_unprovenanced"
+
+    # Grounded evidence
+    res_grounded = evaluate_cultural_context(
+        claim="In Spain, direct forms are common",
+        evidence=({"source_id": "corpus-1", "reference_id": "ref-1", "observation": "common usage in Madrid"},),
+    )
+    assert res_grounded["has_grounded_evidence"] is True
+    assert res_grounded["evidence_status"] == "evidenced"

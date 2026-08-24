@@ -232,8 +232,8 @@ def test_evaluate_progression_one_poor_session_no_stable_regression() -> None:
 def test_evaluate_certification_source_authority() -> None:
     """Current official source outranks stale guide/memory; conflict remains unresolved."""
     sources = (
-        {"id": "s_guide", "source_type": "guide", "authority": 1, "date_valid": True, "format": "3_tasks"},
-        {"id": "s_official", "source_type": "official", "authority": 3, "date_valid": True, "format": "4_tasks"},
+        {"id": "s_guide", "source_type": "guide", "authority": 1, "date_valid": True, "format": "3_tasks", "source_id": "guide-src-1"},
+        {"id": "s_official", "source_type": "official", "authority": 3, "date_valid": True, "format": "4_tasks", "official_source_id": "official-src-1"},
     )
     res = evaluate_certification_source(sources=sources, decision_critical=True)
     assert res["selected_source"]["id"] == "s_official"
@@ -241,8 +241,8 @@ def test_evaluate_certification_source_authority() -> None:
 
     # Conflicting equal authority
     conflicting = (
-        {"id": "s_off1", "source_type": "official", "authority": 3, "date_valid": True, "task_count": 3},
-        {"id": "s_off2", "source_type": "official", "authority": 3, "date_valid": True, "task_count": 4},
+        {"id": "s_off1", "source_type": "official", "authority": 3, "date_valid": True, "task_count": 3, "official_source_id": "off-1"},
+        {"id": "s_off2", "source_type": "official", "authority": 3, "date_valid": True, "task_count": 4, "official_source_id": "off-2"},
     )
     res_conf = evaluate_certification_source(sources=conflicting, decision_critical=True)
     assert res_conf["unresolved_conflict"] is True
@@ -253,8 +253,8 @@ def test_current_official_beats_stale_official_even_when_stale_is_first() -> Non
     """Temporal validity outranks input order within official authority."""
     result = evaluate_certification_source(
         sources=(
-            {"id": "stale", "source_type": "official", "date_valid": False, "format": "old-format"},
-            {"id": "current", "source_type": "official", "date_valid": True, "format": "current-format"},
+            {"id": "stale", "source_type": "official", "date_valid": False, "format": "old-format", "official_source_id": "stale-src"},
+            {"id": "current", "source_type": "official", "date_valid": True, "format": "current-format", "official_source_id": "current-src"},
         ),
         decision_critical=True,
     )

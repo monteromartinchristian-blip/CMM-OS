@@ -789,8 +789,8 @@ def test_certification_source_status_requires_current_authoritative_source() -> 
 def test_certification_source_status_accepts_current_authoritative_sources() -> None:
     """Preserve the existing evaluator's current authoritative source boundary."""
     authoritative_sources = (
-        {"source_type": "official", "date_valid": True},
-        {"source_type": "authoritative_secondary", "temporal_state": "current"},
+        {"source_type": "official", "date_valid": True, "official_source_id": "official-src-1"},
+        {"source_type": "authoritative_secondary", "temporal_state": "current", "source_id": "sec-src-1"},
     )
 
     for official_source in authoritative_sources:

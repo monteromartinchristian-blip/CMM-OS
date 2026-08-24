@@ -219,10 +219,10 @@ def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
 
 def _has_explicit_pronunciation_result(record: Mapping[str, Any]) -> bool:
     """Return whether an assessment record contains a usable pronunciation outcome."""
-    if any(
-        _safe_str(record.get(field)) is not None
-        for field in ("pronunciation_result", "pronunciation_feedback", "finding")
-    ):
+    if len([
+        field for field in ("pronunciation_result", "pronunciation_feedback", "finding")
+        if _safe_str(record.get(field)) is not None
+    ]) > 0:
         return True
     score = record.get("score")
     return (
@@ -261,15 +261,58 @@ def _clean_proficiency_value(value: Any) -> str | float | None:
     return None
 
 
+
+
+def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Identify semantic evidence without treating caller-controlled IDs as provenance."""
+    return (
+        _canonical_provenance(record) or "unprovenanced",
+        _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
+        _safe_str(record.get("framework")),
+        _safe_str(record.get("skill")),
+        _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
+        _canonical_json_value(record.get("score")),
+        _safe_str(record.get("error_type")),
+        _safe_str(record.get("sentence")),
+        _safe_str(record.get("comparison_key")),
+    )
+
+
+def _deduplicate_evidence(evidence: Any) -> list[dict[str, Any]]:
+    """Deduplicate evidence by grounded occurrence and semantic content."""
+    if not isinstance(evidence, (list, tuple, set, frozenset)):
+        return []
+    seen: set[tuple[Any, ...]] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in evidence:
+        if not isinstance(item, Mapping):
+            continue
+        key = _semantic_evidence_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(normalize_json_value(item)))
+    return deduped
+
+
 def _evidence_matches_proficiency_claim(
     record: Mapping[str, Any],
     *,
     skill_scope: str,
     claimed_value: str | float | None,
+    requested_framework: str | None = None,
 ) -> bool:
-    """Require direct evidence to support the requested scope and value exactly."""
+    """Require direct evidence to support the requested scope, framework, and value exactly."""
     if not _is_grounded_proficiency_evidence(record) or claimed_value is None:
         return False
+
+    if requested_framework is not None:
+        req_fw = requested_framework.strip().upper()
+        ev_fw = _safe_str(record.get("framework"))
+        # If evidence specifies a framework, it must match the claimed framework exactly.
+        # If evidence has no framework, it is treated as framework-neutral task evidence.
+        if ev_fw is not None and ev_fw.upper() != req_fw:
+            return False
 
     normalized_scope = skill_scope.casefold()
     if normalized_scope in CANONICAL_SKILL_DIMENSIONS:
@@ -291,35 +334,6 @@ def _evidence_matches_proficiency_claim(
     )
 
 
-def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
-    """Identify semantic evidence without treating caller-controlled IDs as provenance."""
-    return (
-        _canonical_provenance(record) or "unprovenanced",
-        _safe_str(record.get("source_kind")) or _safe_str(record.get("source")),
-        _safe_str(record.get("skill")),
-        _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")),
-        _canonical_json_value(record.get("score")),
-        _safe_str(record.get("error_type")),
-        _safe_str(record.get("sentence")),
-        _safe_str(record.get("comparison_key")),
-    )
-
-
-def _deduplicate_evidence(evidence: tuple[Any, ...] | list[Any]) -> list[dict[str, Any]]:
-    """Deduplicate evidence by grounded occurrence and semantic content."""
-    seen: set[tuple[Any, ...]] = set()
-    deduped: list[dict[str, Any]] = []
-    for item in evidence:
-        if not isinstance(item, Mapping):
-            continue
-        key = _semantic_evidence_key(item)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(dict(normalize_json_value(item)))
-    return deduped
-
-
 def classify_proficiency_record(
     *,
     kind: str | None = None,
@@ -334,11 +348,12 @@ def classify_proficiency_record(
     requested_kind = _safe_str(kind) or "OBSERVED_PERFORMANCE"
     if requested_kind not in CANONICAL_PROFICIENCY_KINDS:
         requested_kind = "OBSERVED_PERFORMANCE"
+    clean_framework = _safe_str(framework)
     clean_skill_scope = _safe_str(skill_scope) or "general"
     clean_level_or_score = _clean_proficiency_value(level_or_score)
 
     # CERTIFIED requires recognized, grounded official credential evidence.
-    certification_evidence_valid = any(_is_certifying_evidence(e) for e in deduped_ev)
+    certification_evidence_valid = len([e for e in deduped_ev if _is_certifying_evidence(e)]) > 0
     is_certified = requested_kind == "CERTIFIED" and certification_evidence_valid
     if is_certified:
         clean_kind = "CERTIFIED"
@@ -350,6 +365,7 @@ def classify_proficiency_record(
                 item,
                 skill_scope=clean_skill_scope,
                 claimed_value=clean_level_or_score,
+                requested_framework=clean_framework,
             )
         ]
         grounded_provenance = {_canonical_provenance(item) for item in grounded_ev}
@@ -564,7 +580,7 @@ def evaluate_framework_mapping(
     known_fw = {"CEFR", "ACTFL", "IELTS", "TOEFL", "CAMBRIDGE", "DELE", "DALF"}
     s_fw = (_safe_str(source_framework) or "").upper()
     t_fw = (_safe_str(target_framework) or "").upper()
-    s_val = _safe_str(source_value) or ""
+    s_val = _safe_str(source_value)
 
     if s_fw not in known_fw or t_fw not in known_fw:
         return {
@@ -574,6 +590,17 @@ def evaluate_framework_mapping(
             "approximate": False,
             "calibrated": False,
             "reason": "unsupported_framework_mapping",
+        }
+
+    if s_val is None:
+        return {
+            "mapping_status": "insufficient_evidence",
+            "target_estimate_range": None,
+            "is_exact": False,
+            "approximate": False,
+            "calibrated": False,
+            "reason": "missing_or_malformed_source_value",
+            "evidence": [],
         }
 
     if s_fw == t_fw and s_fw:
@@ -587,18 +614,35 @@ def evaluate_framework_mapping(
 
     mapping_list = list(mapping_evidence) if isinstance(mapping_evidence, (list, tuple, set, frozenset)) else []
 
+    def _is_applicable_mapping(norm: dict[str, Any]) -> bool:
+        if _framework_mapping_provenance(norm) is None:
+            return False
+        if _safe_str(norm.get("target_range")) is None:
+            return False
+        rec_src_fw = _safe_str(norm.get("source_framework"))
+        if rec_src_fw is not None and rec_src_fw.upper() != s_fw:
+            return False
+        rec_tgt_fw = _safe_str(norm.get("target_framework"))
+        if rec_tgt_fw is not None and rec_tgt_fw.upper() != t_fw:
+            return False
+        rec_src_val = _safe_str(norm.get("source_value"))
+        rec_src_rng = _safe_str(norm.get("source_range"))
+        if rec_src_val is not None and rec_src_val.upper() != s_val.upper():
+            return False
+        return not (rec_src_rng is not None and s_val.upper() not in rec_src_rng.upper())
+
     valid_recs = [
         norm
         for evidence in mapping_list
         if isinstance(evidence, Mapping)
         for norm in [dict(normalize_json_value(evidence))]
-        if _framework_mapping_provenance(norm) is not None and _safe_str(norm.get("target_range")) is not None
+        if _is_applicable_mapping(norm)
     ]
     prov_to_ranges = {
         _framework_mapping_provenance(r): {_safe_str(x.get("target_range")) for x in valid_recs if _framework_mapping_provenance(x) == _framework_mapping_provenance(r)}
         for r in valid_recs
     }
-    has_same_prov_conflict = any(len(ranges) > 1 for ranges in prov_to_ranges.values())
+    has_same_prov_conflict = len([ranges for ranges in prov_to_ranges.values() if len(ranges) > 1]) > 0
     all_ranges = {_safe_str(r.get("target_range")) for r in valid_recs}
     has_conflict = has_same_prov_conflict or len(all_ranges) > 1
 
@@ -636,11 +680,10 @@ def evaluate_framework_mapping(
         "is_exact": False,
         "approximate": True,
         "calibrated": False,
-        "reason": "cross_framework_identity_forbidden_without_evidence",
+        "reason": "cross_framework_identity_forbidden",
+        "evidence": [],
     }
 
-
-# ── Rule Scaffolding ─────────────────────────────────────────────────────────
 
 def _definition(
     rule_id: str,
@@ -982,7 +1025,7 @@ def prioritize_corrections(
     deferred_errors = []
     for err in sorted_errors:
         score = _score(err)
-        if clean_mode == "assess" or (clean_mode == "practice" and score <= 10 and any(_score(e) > 10 for e in sorted_errors)):
+        if clean_mode == "assess" or (clean_mode == "practice" and score <= 10 and len([e for e in sorted_errors if _score(e) > 10]) > 0):
             deferred_errors.append(err)
         else:
             immediate_errors.append(err)
@@ -1281,7 +1324,7 @@ def evaluate_learning_load(
     recent_load: Any | None = None,
     review_backlog: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
-    """Evaluate learning load respecting energy and time constraints without mutating calendar."""
+    """Evaluate learning load respecting energy, time, recent load, deadlines, and review backlog."""
     if not isinstance(priorities, (list, tuple, set, frozenset)):
         priorities_list: list[Any] = []
     else:
@@ -1324,23 +1367,77 @@ def evaluate_learning_load(
     if clean_energy == "low":
         recommended_duration = min(clean_time, 15)
         load_status = "scaffolded_light"
+        base_activities = ["micro_practice", "passive_input"]
     elif clean_energy == "high":
         recommended_duration = clean_time
         load_status = "optimal"
+        base_activities = ["active_production", "concept_expansion"]
     else:
         recommended_duration = min(clean_time, 30)
         load_status = "standard"
+        base_activities = ["guided_practice", "spaced_review"]
 
-    if clean_energy == "low":
-        recommended_activities = ["micro_practice", "passive_input"]
-    elif clean_energy == "high":
-        recommended_activities = ["active_production", "concept_expansion"]
-    else:
-        recommended_activities = ["guided_practice", "spaced_review"]
+    # Recent load semantic adjustment: high recent load reduces burden/duration, never increases
+    is_heavy_recent_load = False
+    if isinstance(recent_load, Mapping):
+        norm_load = dict(normalize_json_value(recent_load))
+        hours = norm_load.get("hours")
+        mins = norm_load.get("recent_minutes")
+        status = _safe_str(norm_load.get("status"))
+        is_heavy_recent_load = (
+            (isinstance(hours, (int, float)) and not isinstance(hours, bool) and hours >= 4)
+            or (isinstance(mins, (int, float)) and not isinstance(mins, bool) and mins >= 120)
+            or (status in ("high", "heavy", "fatigued"))
+            or norm_load.get("energy_depleted") is True
+        )
+    elif isinstance(recent_load, (int, float)) and not isinstance(recent_load, bool) and recent_load >= 4:
+        is_heavy_recent_load = True
+
+    if is_heavy_recent_load:
+        recommended_duration = min(recommended_duration, 15)
+        if load_status == "optimal":
+            load_status = "standard"
+        elif load_status == "standard":
+            load_status = "scaffolded_light"
+
+    # Assemble recommended activities based on deadlines, backlog, priorities, and base activities
+    activities_order: list[str] = []
+
+    # 1. Urgent deadlines prepend exam/prep activity
+    has_urgent_deadline = len([
+        d for d in deadlines_list
+        if isinstance(d, Mapping)
+        and (
+            d.get("urgent") is True
+            or _safe_str(d.get("priority")) == "urgent"
+            or (isinstance(d.get("days_remaining"), (int, float)) and d.get("days_remaining") <= 3)
+        )
+    ]) > 0
+    if has_urgent_deadline:
+        activities_order.append("exam_practice")
+
+    # 2. Review backlog prioritizes spaced review
+    if len(backlog_list) > 0:
+        activities_order.append("spaced_review")
+
+    # 3. Explicit priorities
+    for p in priorities_list:
+        p_str = _safe_str(p)
+        if p_str and p_str not in activities_order:
+            activities_order.append(p_str)
+
+    # 4. Base activities for current energy/load
+    for act in base_activities:
+        if act not in activities_order:
+            activities_order.append(act)
+
+    # Hard constraints: duration <= available_time and duration >= 0
+    final_duration = min(recommended_duration, clean_time)
+    final_duration = 0 if final_duration < 0 else final_duration  # noqa: FURB136
 
     return {
-        "recommended_duration_minutes": recommended_duration,
-        "recommended_activities": recommended_activities,
+        "recommended_duration_minutes": final_duration,
+        "recommended_activities": activities_order or ["micro_practice"],
         "load_status": load_status,
         "calendar_modified": False,
         "priorities_considered": len(priorities_list),
@@ -1374,8 +1471,19 @@ def align_activity_to_goals(
 
     act_type = (_safe_str(activity_dict.get("type")) or _safe_str(activity_dict.get("activity_type")) or _safe_str(activity_dict.get("kind")) or "").lower()
     act_skill = (_safe_str(activity_dict.get("skill")) or _safe_str(activity_dict.get("target_skill")) or "").lower()
+    act_purpose = (_safe_str(activity_dict.get("purpose")) or "").lower()
     act_topic = (_safe_str(activity_dict.get("topic")) or "").lower()
     act_target = (_safe_str(activity_dict.get("target")) or "").lower()
+
+    raw_skills = activity_dict.get("skills") or ()
+    if isinstance(raw_skills, (list, tuple, set, frozenset)):
+        act_skills = {_safe_str(s).lower() for s in raw_skills if _safe_str(s)}
+    elif isinstance(raw_skills, str):
+        act_skills = {raw_skills.lower()}
+    else:
+        act_skills = set()
+    if act_skill:
+        act_skills.add(act_skill)
 
     raw_act_goals = activity_dict.get("goal_ids") or activity_dict.get("goal_id") or ()
     if isinstance(raw_act_goals, str):
@@ -1386,11 +1494,11 @@ def align_activity_to_goals(
         act_goal_ids = set()
 
     is_unrelated = (
-        not act_type and not act_skill and not act_topic and not act_target and not act_goal_ids
-    ) or any(
-        unrelated_term in act_type
-        for unrelated_term in ("unrelated", "accounting", "tax_filing", "non_learning", "irrelevant")
-    )
+        not act_type and not act_skills and not act_topic and not act_target and not act_goal_ids and not act_purpose
+    ) or len([
+        u for u in ("unrelated", "accounting", "tax_filing", "non_learning", "irrelevant")
+        if u in act_type or u in act_purpose
+    ]) > 0
 
     aligned_goal_ids: list[str] = []
 
@@ -1410,28 +1518,28 @@ def align_activity_to_goals(
 
             matched = False
 
-            if act_skill and (act_skill == g_skill or act_skill in g_kind or act_skill in g_target):
+            if act_skills and len([s for s in act_skills if s == g_skill or s in g_kind or s in g_target]) > 0:
                 matched = True
 
-            if (act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic) and (g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target):
+            if (act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic or "conversation" in act_purpose or "speaking" in act_purpose or "speaking" in act_skills or "conversation" in act_skills or "listening" in act_skills) and (g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target):
                 matched = True
 
-            if (act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test")) and (g_kind in ("certification", "exam", "assessment") or any(fw in g_target for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge"))):
+            if (act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test") or "exam" in act_purpose or "certification" in act_purpose or "assessment" in act_purpose) and (g_kind in ("certification", "exam", "assessment") or len([fw for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge") if fw in g_target]) > 0):
                 matched = True
 
-            if (act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching")) and (g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target):
+            if (act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching") or "vocab" in act_purpose or "vocabulary" in act_skills or "vocab" in act_skills) and (g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target):
                 matched = True
 
-            if (act_type in ("grammar_drill", "grammar", "syntax", "conjugation")) and (g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target):
+            if (act_type in ("grammar_drill", "grammar", "syntax", "conjugation") or "grammar" in act_purpose or "grammar" in act_skills or "syntax" in act_skills) and (g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target):
                 matched = True
 
-            if (act_type in ("reading", "article_reading", "comprehension", "literature")) and (g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target):
+            if (act_type in ("reading", "article_reading", "comprehension", "literature") or "reading" in act_purpose or "reading" in act_skills) and (g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target):
                 matched = True
 
-            if (act_type in ("writing", "essay", "composition", "free_writing")) and (g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target):
+            if (act_type in ("writing", "essay", "composition", "free_writing") or "writing" in act_purpose or "writing" in act_skills) and (g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target):
                 matched = True
 
-            if act_type in ("practice", "review", "lesson", "exercise") and not is_unrelated:
+            if (act_type in ("practice", "review", "lesson", "exercise") or act_purpose in ("practice", "review", "lesson", "study")) and not is_unrelated:
                 matched = True
 
             if matched:
@@ -1577,14 +1685,24 @@ def evaluate_certification_source(
             return "stale"
         return "unknown"
 
+    def _source_has_provenance(s: Mapping[str, Any]) -> bool:
+        return (
+            _certification_provenance(s) is not None
+            or _canonical_provenance(s) is not None
+            or _safe_str(s.get("official_source_id")) is not None
+            or _safe_str(s.get("source_id")) is not None
+        )
+
     def _auth(s: dict[str, Any]) -> int:
         stype = (_safe_str(s.get("source_type")) or "unknown").lower()
         temporal = _temporal_state(s)
-        if stype == "official" and temporal == "current":
+        has_prov = _source_has_provenance(s)
+
+        if stype == "official" and temporal == "current" and has_prov:
             return 6
-        if stype in {"secondary", "authoritative_secondary"} and temporal == "current":
+        if stype in {"secondary", "authoritative_secondary"} and temporal == "current" and has_prov:
             return 5
-        if stype == "official" and temporal == "stale":
+        if stype == "official" and temporal == "stale" and has_prov:
             return 4
         if stype == "memory" and temporal == "stale":
             return 3
@@ -1617,7 +1735,7 @@ def evaluate_certification_source(
     selected = None if unresolved else top_tier[0]
     selected_temporal_state = _temporal_state(top_tier[0])
     needs_verif = unresolved or (
-        decision_critical and selected_temporal_state != "current"
+        decision_critical and (selected_temporal_state != "current" or top_auth < 5)
     )
 
     return {
@@ -1627,6 +1745,18 @@ def evaluate_certification_source(
         "unresolved_conflict": unresolved,
         "needs_verification": needs_verif,
     }
+
+
+def _is_grounded_cultural_evidence(record: Mapping[str, Any]) -> bool:
+    """Verify cultural evidence has recognized source/corpus/observation grounding."""
+    return (
+        _canonical_provenance(record) is not None
+        or _safe_str(record.get("corpus_reference")) is not None
+        or _safe_str(record.get("reference_id")) is not None
+        or _safe_str(record.get("source_id")) is not None
+        or _safe_str(record.get("observation_id")) is not None
+        or _safe_str(record.get("lived_experience_id")) is not None
+    )
 
 
 def evaluate_cultural_context(
@@ -1644,9 +1774,8 @@ def evaluate_cultural_context(
     valid_evidence = [dict(normalize_json_value(e)) for e in ev_list if isinstance(e, Mapping)]
     claim_str = _safe_str(claim) or ""
 
-    is_universal = universal_claim or any(
-        kw in claim_str.lower()
-        for kw in (
+    is_universal = universal_claim or len([
+        kw for kw in (
             "all native speakers",
             "always",
             "every spanish",
@@ -1656,9 +1785,10 @@ def evaluate_cultural_context(
             "all germans",
             "universal rule",
         )
-    )
+        if kw in claim_str.lower()
+    ]) > 0
 
-    has_grounded_evidence = len(valid_evidence) > 0
+    has_grounded_evidence = len([e for e in valid_evidence if _is_grounded_cultural_evidence(e)]) > 0
 
     return {
         "claim": claim_str,

@@ -464,8 +464,8 @@ def test_progression_requires_real_comparable_baseline_and_repetition() -> None:
 def test_certification_temporality_and_readiness_never_upgrade_proficiency() -> None:
     ranked = evaluate_certification_source(
         sources=(
-            {"id": "stale", "source_type": "official", "date_valid": False},
-            {"id": "current", "source_type": "official", "date_valid": True},
+            {"id": "stale", "source_type": "official", "date_valid": False, "official_source_id": "stale-src-1"},
+            {"id": "current", "source_type": "official", "date_valid": True, "official_source_id": "current-src-1"},
         ),
         decision_critical=True,
     )
@@ -477,8 +477,8 @@ def test_certification_temporality_and_readiness_never_upgrade_proficiency() -> 
         assert evaluate_certification_source(sources=(source,), decision_critical=True)["needs_verification"] is True
     conflict = evaluate_certification_source(
         sources=(
-            {"id": "a", "source_type": "official", "date_valid": True, "task_count": 3},
-            {"id": "b", "source_type": "official", "date_valid": True, "task_count": 4},
+            {"id": "a", "source_type": "official", "date_valid": True, "task_count": 3, "official_source_id": "off-a"},
+            {"id": "b", "source_type": "official", "date_valid": True, "task_count": 4, "official_source_id": "off-b"},
         ), decision_critical=True,
     )
     assert conflict["selected_source"] is None
@@ -490,12 +490,14 @@ def test_certification_temporality_and_readiness_never_upgrade_proficiency() -> 
                 "source_type": "official",
                 "date_valid": True,
                 "requirements": ["writing", {"speaking": "oral"}],
+                "official_source_id": "struct-a",
             },
             {
                 "id": "structured-b",
                 "source_type": "official",
                 "date_valid": True,
                 "requirements": ["writing", {"speaking": "interview"}],
+                "official_source_id": "struct-b",
             },
         ),
         decision_critical=True,
@@ -1435,8 +1437,8 @@ def test_invariant_flags_are_derived_from_payload_content() -> None:
     assert writing["missing_evidence"] == ["writing_sample"]
 
     sources = (
-        {"id": "stale", "source_type": "official", "date_valid": False},
-        {"id": "current", "source_type": "official", "date_valid": True},
+        {"id": "stale", "source_type": "official", "date_valid": False, "official_source_id": "stale-src"},
+        {"id": "current", "source_type": "official", "date_valid": True, "official_source_id": "current-src"},
     )
     temporal = evaluate_certification_source(
         sources=sources, decision_critical=True

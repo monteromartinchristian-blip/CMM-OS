@@ -614,10 +614,10 @@ class ConnectedLanguagesScenario:
                     "skill_levels": {"writing": "B2", "speaking": "B1"},
                 },
                 "certification_case": "primary",
-                "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False},
+                "official_source": {"id": "stale-guide", "source_type": "guide", "date_valid": False, "source_id": "guide-1"},
                 "official_sources": (
-                    {"id": "stale-official", "source_type": "official", "date_valid": False},
-                    {"id": "current-official", "source_type": "official", "date_valid": True},
+                    {"id": "stale-official", "source_type": "official", "date_valid": False, "official_source_id": "stale-official-1"},
+                    {"id": "current-official", "source_type": "official", "date_valid": True, "official_source_id": "current-official-1"},
                 ),
             },
             "languages.progress_checkpoint": {
