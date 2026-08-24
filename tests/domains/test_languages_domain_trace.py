@@ -9,7 +9,10 @@ from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.enums import DomainRuleSelectionStatus, DomainRuleSource
 from cmm.domains.languages.definition import LANGUAGES_DOMAIN_ID
-from cmm.domains.languages.profile import LANGUAGES_PROFILE_NAME
+from cmm.domains.languages.profile import (
+    LANGUAGES_PEDAGOGICAL_MODES,
+    LANGUAGES_PROFILE_NAME,
+)
 from cmm.domains.languages.rules import build_languages_rules
 from cmm.domains.languages.trace import (
     assemble_languages_trace,
@@ -138,6 +141,28 @@ def test_assemble_languages_trace_carries_global_presentation_results() -> None:
         "presentation-result-1",
         DomainTraceReferenceKind.PRESENTATION_RESULT,
     ) in trace.all_references()
+
+
+def test_assemble_languages_trace_preserves_caller_metadata() -> None:
+    """Caller runtime state remains part of the canonical trace payload."""
+    now = datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc)
+    metadata = {"selected_profile_mode": "practice"}
+
+    trace = assemble_languages_trace(
+        request_id="request-profile-mode",
+        resolution_context_id="context-profile-mode",
+        resolution_result_id="resolution-profile-mode",
+        composition_id="composition-profile-mode",
+        domain_result_id="domain-result-profile-mode",
+        started_at=now,
+        completed_at=now,
+        metadata=metadata,
+    )
+
+    assert trace.metadata["selected_profile_mode"] == "practice"
+    assert trace.metadata["selected_profile_mode"] in LANGUAGES_PEDAGOGICAL_MODES
+    assert trace.id == trace.canonical_id
+    assert trace.digest == trace.calculate_digest()
 
 
 def test_validation_rejects_definition_id_tampered_as_runtime_rule_result() -> None:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
+
+import pytest
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
@@ -57,6 +59,7 @@ from cmm.domains.languages.operations import (
 )
 from cmm.domains.languages.permissions import build_languages_permission_policy
 from cmm.domains.languages.presentation import present_languages_result
+from cmm.domains.languages.profile import LANGUAGES_PEDAGOGICAL_MODES
 from cmm.domains.languages.rules import (
     build_languages_rules,
     classify_language_variety,
@@ -248,6 +251,9 @@ class ConnectedLanguagesScenario:
             isinstance(profile, DomainProfileDefinition)
             and profile.profile_name == "LanguageLearningProfile"
         )
+        selected_profile_mode = "practice"
+        assert selected_profile_mode in LANGUAGES_PEDAGOGICAL_MODES
+        self.state["selected_profile_mode"] = selected_profile_mode
         composition = DefaultDomainComposer(id_factory=self.ids, clock=lambda: NOW).compose(resolution, (build_languages_domain_definition(),))
         self.state["composition"] = composition
         self.actual_produced_ids.add(composition.id)
@@ -318,7 +324,8 @@ class ConnectedLanguagesScenario:
             self.state["level_update_consumed_assessment"] = assessment
             result = update_level_evidence_result(existing_record=inputs["existing_record"], assessment=assessment, target_skill="writing")
         elif op == "languages.generate_lesson":
-            result = generate_lesson_result(language=inputs["language"], target_skill=inputs.get("target_skill", "writing"), current_level=inputs.get("current_level", "B1"), topic=inputs.get("topic", "inversion"))
+            self.state["lesson_input_mode"] = inputs.get("mode")
+            result = generate_lesson_result(language=inputs["language"], target_skill=inputs.get("target_skill", "writing"), current_level=inputs.get("current_level", "B1"), topic=inputs.get("topic", "inversion"), mode=inputs.get("mode"))
         elif op == "languages.generate_exercises":
             producer = outputs.get("lesson") or outputs.get("error_review")
             assert producer is not None
@@ -397,6 +404,7 @@ class ConnectedLanguagesScenario:
             },
             "languages.adaptive_language_lesson": {
                 "language": "English", "target_skill": "writing", "current_level": "B1", "topic": "inversion",
+                "mode": self.state["selected_profile_mode"],
                 "exercise_result": {"is_correct": False, "user_answer": "Never I saw"},
             },
             "languages.conversation_roleplay_practice": {
@@ -1144,6 +1152,9 @@ class ConnectedLanguagesScenario:
         )
         request_id = self.ids()
         goal_id = self.state["languages"]["English"]["goals"][0]["id"]
+        trace_metadata = {
+            "selected_profile_mode": self.state["selected_profile_mode"],
+        }
         trace_references = DomainTraceReferences(
             resolution_context_id=context.id,
             resolution_result_id=resolution.id,
@@ -1176,6 +1187,7 @@ class ConnectedLanguagesScenario:
             started_at=NOW,
             completed_at=NOW,
             duration_ms=0,
+            metadata=trace_metadata,
         )
         expected_trace_id = probe.canonical_id
         domain_result_references = (
@@ -1224,6 +1236,7 @@ class ConnectedLanguagesScenario:
             cross_domain_results=(cross_reference,),
             presentation_result_ids=(presentation_result["result_id"],),
             goal_id=goal_id,
+            metadata=trace_metadata,
         )
         assert trace.id == expected_trace_id
         validation = validate_languages_trace(trace=trace, inventory=inventory)
@@ -1378,6 +1391,39 @@ def test_at_dp_026_trace_uses_runtime_rule_execution_not_static_rule_definitions
     assert trace_rule_plan_ids == {rule_plan.id}
     assert not definition_ids.intersection(trace_rule_result_ids)
     assert trace_rule_result_ids == {rule_execution.id}
+
+
+def assert_selected_profile_mode_trace_semantics(
+    *, scenario: ConnectedLanguagesScenario, trace: DomainTrace
+) -> None:
+    """Verify trace mode remains the mode used by the adaptive-lesson run."""
+    selected_profile_mode = scenario.state["selected_profile_mode"]
+    assert selected_profile_mode in LANGUAGES_PEDAGOGICAL_MODES
+    assert scenario.state["lesson_input_mode"] == selected_profile_mode
+    assert trace.metadata["selected_profile_mode"] == selected_profile_mode
+    assert trace.metadata["selected_profile_mode"] in LANGUAGES_PEDAGOGICAL_MODES
+
+
+def test_at_dp_026_trace_preserves_selected_profile_mode() -> None:
+    """Catches a connected trace that drops or substitutes the pedagogical mode."""
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    trace = scenario.state["trace"]
+    assert_selected_profile_mode_trace_semantics(scenario=scenario, trace=trace)
+
+    unselected_mode = next(
+        mode
+        for mode in LANGUAGES_PEDAGOGICAL_MODES
+        if mode != scenario.state["selected_profile_mode"]
+    )
+    tampered = replace(
+        trace,
+        metadata={**trace.metadata, "selected_profile_mode": unselected_mode},
+    )
+
+    with pytest.raises(AssertionError):
+        assert_selected_profile_mode_trace_semantics(scenario=scenario, trace=tampered)
 
 
 def test_at_dp_026_trace_matches_independent_runtime_kind_map() -> None:

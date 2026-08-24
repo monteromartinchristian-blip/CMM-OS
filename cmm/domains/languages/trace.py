@@ -101,6 +101,7 @@ def assemble_languages_trace(
     cross_domain_results: tuple[Any, ...] = (),
     presentation_result_ids: tuple[str, ...] = (),
     goal_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> DomainTrace:
     """Assemble a final reference-only ``DomainTrace`` for Languages Domain."""
     now = started_at or datetime.now(timezone.utc)
@@ -153,6 +154,7 @@ def assemble_languages_trace(
             ),
         ),
         status=DomainTraceStatus.COMPLETED,
+        metadata=metadata or {},
     )
     return DomainTraceAssembler().assemble(request)
 
