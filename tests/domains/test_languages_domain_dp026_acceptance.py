@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+import cmm.domains.languages.operations as languages_operations
 from cmm.agent_runtime.approval_contracts import ApprovalDecision, ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
@@ -134,6 +135,7 @@ from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.workflows.contracts import WorkflowRun
 from cmm.workflows.engine import NodeExecution
 from cmm.workflows.enums import WorkflowRunStatus
+from tests.domains._languages_runtime_state import snapshot_languages_module_state
 
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
 
@@ -515,7 +517,18 @@ class ConnectedLanguagesScenario:
         elif op == "languages.plan_review_schedule":
             producer = outputs["vocabulary"]
             self.state["schedule_consumed_vocabulary"] = producer
+            runtime_state_before = snapshot_languages_module_state(
+                languages_operations
+            )
             result = plan_review_schedule_result(review_items=producer["candidate_updates"], available_time=20)
+            runtime_state_after = snapshot_languages_module_state(
+                languages_operations
+            )
+            self.state.update(
+                schedule_runtime_state_before=runtime_state_before,
+                schedule_runtime_state_after=runtime_state_after,
+                calendar_mutated=runtime_state_after != runtime_state_before,
+            )
         elif op == "languages.prepare_certification":
             authority = evaluate_certification_source(
                 sources=inputs.get("official_sources", (inputs["official_source"],)),
@@ -878,7 +891,6 @@ class ConnectedLanguagesScenario:
             calendar_request=calendar_request,
             calendar_operation=calendar_operation,
             calendar_boundary=calendar_boundary,
-            calendar_mutated=False,
         )
         self.checkpoint(
             "36-receive-user-calendar-event-request",
@@ -1571,6 +1583,10 @@ def test_at_dp_026_routes_calendar_request_through_shared_schedule_boundary() ->
     assert request["capability"] == PermissionCapability.SCHEDULE_MODIFY.value
     assert boundary.outcome is PermissionGateOutcome.DENY
     assert boundary.action == PermissionCapability.OPERATION_EXECUTE.value
+    assert (
+        scenario.state["schedule_runtime_state_after"]
+        == scenario.state["schedule_runtime_state_before"]
+    )
     assert scenario.state["calendar_mutated"] is False
 
 
