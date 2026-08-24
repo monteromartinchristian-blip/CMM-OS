@@ -1,69 +1,136 @@
 # CMM OS
 
-**CMM OS (Code Management Machine Operating System)** is an AI-native software engineering system that turns high-level intent into structured, inspectable, validated, and reversible execution flows.
+**CMM OS is a local-first, provider-independent personal AI operating system in active development, designed for persistent knowledge, domain intelligence, goal-driven agents, and validated action.**
 
-Instead of allowing an AI model to edit a repository through unstructured text or arbitrary commands, CMM OS separates reasoning, planning, execution, validation, memory, and rollback behind explicit contracts.
+CMM OS turns interchangeable AI models into components of a larger persistent system. Rather than making one model or one chat interface the product, it provides the surrounding architecture for context, memory, structured knowledge, reasoning, goals, domain specialization, permissions, validation, controlled execution, recovery, and human supervision.
+
+CMM OS began as **Code Management Machine Operating System**, a semantic software-engineering runtime. That engineering foundation remains part of the project, but it no longer defines the project's scope.
 
 > **Current release:** `v0.8.0`<br>
 > **Implemented:** Phases 0–9<br>
 > **Automated test baseline:** 5409 passing tests<br>
 > **License:** Apache-2.0
 
+## What CMM OS is
+
+CMM OS is designed as the persistent system around AI models:
+
+- **Persistent** — knowledge, memory, goals, workflows, decisions, and traces can outlive a single conversation or provider.
+- **Cognitive** — information is represented with provenance, temporal validity, epistemic type, confidence, contradictions, and explicit uncertainty.
+- **Agentic** — persistent goals can be observed, planned, executed, validated, retried, paused, recovered, or escalated under policy.
+- **Domain-aware** — the same shared core can be specialized through domain resources, reasoning profiles, rules, operations, workflows, and permissions.
+- **Provider-independent** — local and remote models are replaceable resources rather than the permanent owner of context or memory.
+- **Controlled** — permissions, validation, rollback, budgets, privacy policies, and human approval constrain side effects and autonomy.
+- **Local-first** — the target platform is designed to remain useful without mandatory dependence on a proprietary cloud.
+
+## What CMM OS is not
+
+CMM OS is **not**:
+
+- a foundation model;
+- a model provider;
+- a chat frontend tied to one vendor;
+- an unrestricted autonomous agent;
+- only a Python refactoring or software-engineering tool;
+- a replacement for Claude, ChatGPT, Gemini, Qwen, GLM, Kimi, Ollama, or other model runtimes.
+
+Those systems can become clients, providers, or execution resources behind CMM OS. The persistent value is intended to remain in provider-independent knowledge, memory, policies, domains, goals, workflows, and audit history.
+
 ## Why CMM OS
 
-AI-assisted development is useful, but direct model-to-filesystem access is difficult to trust.
+Most AI products make the model and its interface the center of the system. Context is often temporary, memory is provider-specific, tools are coupled to one runtime, and switching models can mean rebuilding the surrounding workflow.
 
-CMM OS is built around a different principle:
-
-```text
-User intent
-    ↓
-Technical reasoning
-    ↓
-Structured plan
-    ↓
-Typed semantic operations
-    ↓
-Controlled execution
-    ↓
-Validation
-    ↓
-Result, diff and rollback evidence
-```
-
-The system is designed so that changes can be inspected, reproduced, validated, rejected, or reverted without relying on opaque free-form editing.
-
-## Current architecture
+CMM OS uses the opposite architecture:
 
 ```text
-User Goal
-  |
-  v
-Technical Reasoner and Planning
-  |
-  +-- Development Execution Runtime
-  |   `-- CompositeExecutor
-  |       |-- FilesystemExecutor
-  |       |-- PythonExecutor
-  |       `-- GitExecutor
-  |
-  `-- Architectural Transformation Pipeline
-      |-- DAG planning and typed preconditions
-      |-- Impact analysis and reference graph
-      |-- LibCST and filesystem executors
-      |-- Project validation
-      `-- Byte-accurate rollback
+Users / clients / interfaces
+            ↓
+          CMM OS
+            ↓
+Context · Memory · Knowledge · Domains · Goals
+Reasoning · Planning · Permissions · Validation
+Execution · Recovery · Audit · Human approval
+            ↓
+Models · tools · files · services · integrations
 ```
 
-### Main layers
+The model is replaceable. The operating context is not.
 
-- **Semantic Kernel** — common operation, result, executor, registry, validation, and runtime contracts.
-- **Semantic Python Engine** — structural discovery and safe Python modifications.
-- **Assisted Development** — repository analysis, structured planning, dry-run, approval, execution, validation, and diff.
-- **Autonomous Development Loop** — bounded retries, failure classification, correction, re-planning, and rollback.
-- **Technical Memory** — persistent project model used by the reasoner and planners.
-- **Execution Layer** — controlled filesystem, Python, and Git operations through a composite executor.
-- **Architectural Transformation Engine** — validated project-wide transformations with impact analysis and recovery.
+## Current architectural state
+
+The project has evolved in layers:
+
+```text
+Phases 0–6
+Semantic kernel · planning · execution · technical memory
+architectural transformation · reversible operations
+        ↓
+Phase 7
+Continuous validation
+        ↓
+Phase 8
+Structured knowledge · provenance · uncertainty · cognition
+        ↓
+Phase 9
+Persistent goals · policy-bounded autonomous agent runtime
+        ↓
+Phase 10
+Domain Intelligence — specialization of the shared system
+        ↓
+Phase 11
+Stable Integrated Platform — orchestration, interfaces,
+storage, model gateway, integrations and product runtime
+```
+
+The software-engineering runtime remains a first-class capability because it provides the typed execution, validation, rollback, and self-development foundations on which later phases build.
+
+### Architectural principle
+
+```text
+One Kernel
+One Cognitive Layer
+One Knowledge Model
+One Agent Runtime
+One Validation System
+One Memory
+        +
+Domain specialization
+        +
+Replaceable models and integrations
+        +
+Multiple user interfaces
+```
+
+CMM OS is therefore intended to become the stable layer between a person and whichever AI models, tools, services, or interfaces are most useful at a given time.
+
+### Implementation status
+
+The architecture is being delivered incrementally rather than presented as a finished product before the underlying capabilities exist.
+
+**Implemented and audited foundation: Phases 0–9**
+
+The current system already includes:
+
+- a shared semantic kernel and typed execution contracts;
+- structured planning and controlled operation execution;
+- filesystem, Python, and Git execution through registered executors;
+- reversible project-wide architectural transformations;
+- persistent technical memory and project knowledge;
+- continuous validation and commit gating;
+- structured knowledge with provenance, temporal validity, confidence, contradictions, and uncertainty;
+- a shared Cognitive Layer;
+- persistent goals and a policy-bounded Autonomous Agent Runtime;
+- validation, rollback, recovery, traces, and explicit human-approval boundaries.
+
+**Current engineering phase: Phase 10 — Domain Intelligence**
+
+Phase 10 specializes the shared system for real areas of work and life through domain resources, reasoning profiles, rules, operations, workflows, permissions, presentation policies, and controlled cross-domain composition.
+
+**Planned integration phase: Phase 11 — Stable Integrated Platform**
+
+Phase 11 will turn the existing engines into the complete product surface: orchestration, persistent application services, conversational interfaces, storage, integrations, a provider-independent Model Gateway, observability, configuration, backup and recovery, and reusable interfaces such as API, MCP, and CLI.
+
+This distinction is deliberate: CMM OS already has substantial working infrastructure, while the complete personal-platform experience remains an active engineering objective.
 
 ## Implemented capabilities
 

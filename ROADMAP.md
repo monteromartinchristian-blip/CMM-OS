@@ -1,6 +1,6 @@
 # CMM OS Roadmap
 
-This roadmap describes the evolution of **CMM OS (Code Management Machine Operating System)** from a semantic software-engineering runtime into a controlled, persistent, and extensible AI operating platform.
+This roadmap describes the evolution of **CMM OS** from its origin as **Code Management Machine Operating System**, a semantic software-engineering runtime, into a local-first, provider-independent personal AI operating system. The original software-engineering runtime remains a foundational capability, but the current architecture extends beyond code into structured knowledge, cognition, persistent goals, controlled agency, domain intelligence, and an integrated personal platform.
 
 The roadmap distinguishes clearly between:
 
