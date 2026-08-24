@@ -33,9 +33,8 @@ All public outputs are strict JSON-safe; caller inputs are never mutated.
 
 from __future__ import annotations
 
-import json
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -131,12 +130,29 @@ def normalize_json_value(value: Any) -> Any:
 
 
 def _canonical_json_value(value: Any) -> str:
-    """Return a deterministic hashable representation of normalized JSON."""
-    return json.dumps(
-        normalize_json_value(value),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    """Return a deterministic hashable representation of normalized JSON without module imports."""
+    norm = normalize_json_value(value)
+    if norm is None:
+        return "null"
+    if norm is True:
+        return "true"
+    if norm is False:
+        return "false"
+    if isinstance(norm, int):
+        return str(norm)
+    if isinstance(norm, float):
+        return f"{norm:.8f}".rstrip("0").rstrip(".") if "." in f"{norm:.8f}" else str(norm)
+    if isinstance(norm, str):
+        escaped = norm.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        return f'"{escaped}"'
+    if isinstance(norm, list):
+        items_str = ",".join(_canonical_json_value(x) for x in norm)
+        return f"[{items_str}]"
+    if isinstance(norm, Mapping):
+        sorted_keys = sorted(str(k) for k in norm.keys())
+        pairs_str = ",".join(f"{_canonical_json_value(k)}:{_canonical_json_value(norm[k])}" for k in sorted_keys)
+        return f"{{{pairs_str}}}"
+    return f'"{str(norm)}"'
 
 
 def _safe_str(val: Any) -> str | None:
@@ -445,25 +461,21 @@ def evaluate_level_update(
 def separate_skill_evidence(*, evidence: tuple[Any, ...] | list[Any] = ()) -> dict[str, Any]:
     """Strictly partition evidence across canonical skill dimensions."""
     deduped_ev = _deduplicate_evidence(evidence)
-    by_skill: dict[str, dict[str, Any]] = {}
 
-    has_pronunciation_specific_evidence = False
-    for skill in CANONICAL_SKILL_DIMENSIONS:
-        skill_items = [e for e in deduped_ev if e.get("skill") == skill]
-        if skill == "pronunciation":
-            skill_items = [
-                e for e in skill_items
-                if _is_grounded_pronunciation_assessment(e)
-            ]
-            if skill_items:
-                has_pronunciation_specific_evidence = True
+    pron_items = [
+        e for e in deduped_ev
+        if e.get("skill") == "pronunciation" and _is_grounded_pronunciation_assessment(e)
+    ]
+    has_pronunciation_specific_evidence = len(pron_items) > 0
 
-        status = "evidenced" if skill_items else "insufficient_evidence"
-        by_skill[skill] = {
-            "status": status,
-            "evidence_count": len(skill_items),
-            "evidence": skill_items,
+    by_skill = {
+        skill: {
+            "status": "evidenced" if (pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill]) else "insufficient_evidence",
+            "evidence_count": len(pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill]),
+            "evidence": pron_items if skill == "pronunciation" else [e for e in deduped_ev if e.get("skill") == skill],
         }
+        for skill in CANONICAL_SKILL_DIMENSIONS
+    }
 
     return {
         "by_skill": by_skill,
@@ -573,34 +585,27 @@ def evaluate_framework_mapping(
             "calibrated": True,
         }
 
-    if not isinstance(mapping_evidence, Iterable) or isinstance(mapping_evidence, (str, bytes)):
-        mapping_evidence = ()
+    mapping_list = list(mapping_evidence) if isinstance(mapping_evidence, (list, tuple, set, frozenset)) else []
 
-    qualified_by_provenance: dict[str, dict[str, Any]] = {}
-    distinct_target_ranges: set[str] = set()
-    has_conflict = False
+    valid_recs = [
+        norm
+        for evidence in mapping_list
+        if isinstance(evidence, Mapping)
+        for norm in [dict(normalize_json_value(evidence))]
+        if _framework_mapping_provenance(norm) is not None and _safe_str(norm.get("target_range")) is not None
+    ]
+    prov_to_ranges = {
+        _framework_mapping_provenance(r): {_safe_str(x.get("target_range")) for x in valid_recs if _framework_mapping_provenance(x) == _framework_mapping_provenance(r)}
+        for r in valid_recs
+    }
+    has_same_prov_conflict = any(len(ranges) > 1 for ranges in prov_to_ranges.values())
+    all_ranges = {_safe_str(r.get("target_range")) for r in valid_recs}
+    has_conflict = has_same_prov_conflict or len(all_ranges) > 1
 
-    for evidence in mapping_evidence:
-        if not isinstance(evidence, Mapping):
-            continue
-        normalized = dict(normalize_json_value(evidence))
-        provenance = _framework_mapping_provenance(normalized)
-        target_range = _safe_str(normalized.get("target_range"))
-        if provenance is None or target_range is None:
-            continue
-
-        distinct_target_ranges.add(target_range)
-        existing = qualified_by_provenance.get(provenance)
-        if existing is not None and _safe_str(existing.get("target_range")) != target_range:
-            has_conflict = True
-        if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
-            qualified_by_provenance[provenance] = normalized
-
-    if len(distinct_target_ranges) > 1:
-        has_conflict = True
-
+    sorted_valid = sorted(valid_recs, key=_canonical_json_value, reverse=True)
+    deduped_by_prov = {_framework_mapping_provenance(r): r for r in sorted_valid}
     qualified_evidence = sorted(
-        qualified_by_provenance.values(),
+        deduped_by_prov.values(),
         key=_canonical_json_value,
     )
     if qualified_evidence and not has_conflict:
@@ -833,9 +838,9 @@ def evaluate_error_pattern(
     ):
         min_occurrences = 2
     else:
-        min_occurrences = max(2, int(minimum_independent_occurrences))
+        min_occurrences = int(minimum_independent_occurrences) if int(minimum_independent_occurrences) >= 2 else 2
 
-    if not isinstance(observations, Iterable) or isinstance(observations, (str, bytes)):
+    if not isinstance(observations, (list, tuple, set, frozenset)):
         observations = ()
 
     valid_observations: list[dict[str, Any]] = []
@@ -931,17 +936,17 @@ def prioritize_corrections(
     """Prioritize language corrections based on communicative usefulness and mode."""
     clean_mode = (_safe_str(mode) or "practice").lower()
 
-    if not isinstance(errors, Iterable) or isinstance(errors, (str, bytes)):
+    if not isinstance(errors, (list, tuple, set, frozenset)):
         raw_errors_list: list[Any] = []
     else:
         raw_errors_list = list(errors)
 
-    if not isinstance(active_goals, Iterable) or isinstance(active_goals, (str, bytes)):
+    if not isinstance(active_goals, (list, tuple, set, frozenset)):
         active_goals_list: list[Any] = []
     else:
         active_goals_list = list(active_goals)
 
-    if not isinstance(certification_relevance, Iterable) or isinstance(certification_relevance, (str, bytes)):
+    if not isinstance(certification_relevance, (list, tuple, set, frozenset)):
         certification_relevance_list: list[Any] = []
     else:
         certification_relevance_list = list(certification_relevance)
@@ -1017,43 +1022,25 @@ def adapt_difficulty(
 
     cur_diff = int(current_difficulty)
 
-    if not isinstance(performance, Iterable) or isinstance(performance, (str, bytes)):
+    if not isinstance(performance, (list, tuple, set, frozenset)):
         perf_list: list[Any] = []
     else:
         perf_list = list(performance)
 
-    # Filter and validate each performance unit
-    qualified_by_provenance: dict[str, dict[str, Any]] = {}
-    comparison_keys: set[str] = set()
-
-    for p in perf_list:
-        if not isinstance(p, Mapping):
-            continue
-        if p.get("comparable") is not True:
-            continue
-        comp_key = _safe_str(p.get("comparison_key"))
-        if comp_key is None:
-            continue
-        provenance = _canonical_provenance(p)
-        if provenance is None:
-            continue
-        score = p.get("score")
-        if isinstance(score, bool) or not isinstance(score, (int, float)) or math.isnan(score) or math.isinf(score):
-            continue
-        score_val = float(score)
-        if not (0.0 <= score_val <= 1.0):
-            continue
-
-        normalized = dict(normalize_json_value(p))
-        normalized["_score_val"] = score_val
-        comparison_keys.add(comp_key)
-
-        existing = qualified_by_provenance.get(provenance)
-        if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
-            qualified_by_provenance[provenance] = normalized
-
-    # All counted records must share one comparison key
-    if len(comparison_keys) != 1 or not qualified_by_provenance:
+    valid_perf = [
+        (provenance, float(p.get("score")), comp_key, norm)
+        for p in perf_list
+        if isinstance(p, Mapping) and p.get("comparable") is True
+        for comp_key in [_safe_str(p.get("comparison_key"))]
+        if comp_key is not None
+        for provenance in [_canonical_provenance(p)]
+        if provenance is not None
+        for score in [p.get("score")]
+        if not isinstance(score, bool) and isinstance(score, (int, float)) and not math.isnan(score) and not math.isinf(score) and 0.0 <= float(score) <= 1.0
+        for norm in [dict(normalize_json_value(p))]
+    ]
+    comparison_keys = {comp_key for _, _, comp_key, _ in valid_perf}
+    if len(comparison_keys) != 1 or not valid_perf:
         return {
             "action": "insufficient_evidence",
             "current_difficulty": cur_diff,
@@ -1062,20 +1049,19 @@ def adapt_difficulty(
             "reason": "no_comparable_performance",
         }
 
-    qualified_records = sorted(
-        qualified_by_provenance.values(),
-        key=_canonical_json_value,
-    )
-    scores = [r["_score_val"] for r in qualified_records]
+    sorted_perf = sorted(valid_perf, key=lambda item: _canonical_json_value(item[3]), reverse=True)
+    deduped_by_prov = {prov: (score, norm) for prov, score, _, norm in sorted_perf}
+    qualified_records = sorted(deduped_by_prov.values(), key=lambda item: _canonical_json_value(item[1]))
+    scores = [score for score, _ in qualified_records]
     avg_score = sum(scores) / len(scores)
 
     if len(qualified_records) < 2:
         action = "scaffold_reduce" if avg_score < 0.40 else "maintain_and_advance"
-        target_diff = max(1, cur_diff - 1) if avg_score < 0.40 else cur_diff
+        target_diff = (cur_diff - 1) if cur_diff > 1 else 1
         return {
             "action": action,
             "current_difficulty": cur_diff,
-            "target_difficulty": target_diff,
+            "target_difficulty": target_diff if avg_score < 0.40 else cur_diff,
             "stable_proficiency_changed": False,
             "reason": "single_session_scaffold_only",
         }
@@ -1092,7 +1078,7 @@ def adapt_difficulty(
         return {
             "action": "scaffold_reduce",
             "current_difficulty": cur_diff,
-            "target_difficulty": max(1, cur_diff - 1),
+            "target_difficulty": (cur_diff - 1) if cur_diff > 1 else 1,
             "stable_proficiency_changed": False,
             "reason": "consistent_high_difficulty",
         }
@@ -1201,34 +1187,37 @@ def plan_spaced_review(
     active_goals: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Plan spaced review items based on mastery, due status, recall, importance, and active patterns."""
-    if not isinstance(items, Iterable) or isinstance(items, (str, bytes)):
+    if not isinstance(items, (list, tuple, set, frozenset)):
         items_list: list[Any] = []
     else:
         items_list = list(items)
 
-    if not isinstance(active_goals, Iterable) or isinstance(active_goals, (str, bytes)):
+    if not isinstance(active_goals, (list, tuple, set, frozenset)):
         active_goals_list: list[Any] = []
     else:
         active_goals_list = list(active_goals)
 
     goal_set = {_safe_str(g) for g in active_goals_list if _safe_str(g)}
 
-    deduped_items_by_id: dict[str, dict[str, Any]] = {}
-    anonymous_items: list[dict[str, Any]] = []
-
-    for raw in items_list:
-        if not isinstance(raw, Mapping):
-            continue
-        normalized = dict(normalize_json_value(raw))
-        logical_id = _safe_str(normalized.get("id")) or _safe_str(normalized.get("term")) or _safe_str(normalized.get("item_id"))
-        if logical_id is not None:
-            existing = deduped_items_by_id.get(logical_id)
-            if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
-                deduped_items_by_id[logical_id] = normalized
-        else:
-            anonymous_items.append(normalized)
-
-    unique_items = list(deduped_items_by_id.values()) + anonymous_items
+    valid_items = [
+        norm
+        for raw in items_list
+        if isinstance(raw, Mapping)
+        for norm in [dict(normalize_json_value(raw))]
+    ]
+    sorted_raw = sorted(valid_items, key=_canonical_json_value, reverse=True)
+    deduped_by_id = {
+        item_id: item
+        for item in sorted_raw
+        for item_id in [_safe_str(item.get("id")) or _safe_str(item.get("term")) or _safe_str(item.get("item_id"))]
+        if item_id is not None
+    }
+    anon_items = [
+        item
+        for item in sorted_raw
+        if (_safe_str(item.get("id")) or _safe_str(item.get("term")) or _safe_str(item.get("item_id"))) is None
+    ]
+    unique_items = list(deduped_by_id.values()) + anon_items
 
     def _review_priority(item: dict[str, Any]) -> float:
         score = 0.0
@@ -1246,7 +1235,8 @@ def plan_spaced_review(
         if isinstance(raw_mastery, bool) or not isinstance(raw_mastery, (int, float)) or math.isnan(raw_mastery) or math.isinf(raw_mastery):
             mastery = 0.5
         else:
-            mastery = max(0.0, min(1.0, float(raw_mastery)))
+            m_val = float(raw_mastery)
+            mastery = 1.0 if m_val > 1.0 else (0.0 if m_val < 0.0 else m_val)
         score += (1.0 - mastery) * 20.0
 
         # Recall: lower recall -> higher priority (bounded [0.0, 1.0], default 0.5)
@@ -1255,7 +1245,8 @@ def plan_spaced_review(
             if isinstance(raw_recall, bool) or not isinstance(raw_recall, (int, float)) or math.isnan(raw_recall) or math.isinf(raw_recall):
                 recall = 0.5
             else:
-                recall = max(0.0, min(1.0, float(raw_recall)))
+                r_val = float(raw_recall)
+                recall = 1.0 if r_val > 1.0 else (0.0 if r_val < 0.0 else r_val)
             score += (1.0 - recall) * 15.0
 
         # Importance: higher importance -> higher priority (bounded [0.0, 1.0], default 0.5)
@@ -1264,7 +1255,8 @@ def plan_spaced_review(
             if isinstance(raw_importance, bool) or not isinstance(raw_importance, (int, float)) or math.isnan(raw_importance) or math.isinf(raw_importance):
                 importance = 0.5
             else:
-                importance = max(0.0, min(1.0, float(raw_importance)))
+                imp_val = float(raw_importance)
+                importance = 1.0 if imp_val > 1.0 else (0.0 if imp_val < 0.0 else imp_val)
             score += importance * 15.0
 
         return score
@@ -1290,17 +1282,17 @@ def evaluate_learning_load(
     review_backlog: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Evaluate learning load respecting energy and time constraints without mutating calendar."""
-    if not isinstance(priorities, Iterable) or isinstance(priorities, (str, bytes)):
+    if not isinstance(priorities, (list, tuple, set, frozenset)):
         priorities_list: list[Any] = []
     else:
         priorities_list = list(priorities)
 
-    if not isinstance(deadlines, Iterable) or isinstance(deadlines, (str, bytes)):
+    if not isinstance(deadlines, (list, tuple, set, frozenset)):
         deadlines_list: list[Any] = []
     else:
         deadlines_list = list(deadlines)
 
-    if not isinstance(review_backlog, Iterable) or isinstance(review_backlog, (str, bytes)):
+    if not isinstance(review_backlog, (list, tuple, set, frozenset)):
         backlog_list: list[Any] = []
     else:
         backlog_list = list(review_backlog)
@@ -1361,7 +1353,7 @@ def align_activity_to_goals(
     goals: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Align activity to concurrent user goals without single-goal hegemony."""
-    if not isinstance(goals, Iterable) or isinstance(goals, (str, bytes)):
+    if not isinstance(goals, (list, tuple, set, frozenset)):
         goals_list: list[Any] = []
     else:
         goals_list = list(goals)
@@ -1385,7 +1377,7 @@ def align_activity_to_goals(
     raw_act_goals = activity_dict.get("goal_ids") or activity_dict.get("goal_id") or ()
     if isinstance(raw_act_goals, str):
         act_goal_ids = {raw_act_goals}
-    elif isinstance(raw_act_goals, Iterable):
+    elif isinstance(raw_act_goals, (list, tuple, set, frozenset)):
         act_goal_ids = {_safe_str(x) for x in raw_act_goals if _safe_str(x)}
     else:
         act_goal_ids = set()
@@ -1564,11 +1556,17 @@ def evaluate_certification_source(
     decision_critical: bool = False,
 ) -> dict[str, Any]:
     """Evaluate certification source authority and detect conflicts."""
-    raw_sources = [dict(normalize_json_value(s)) for s in sources if isinstance(s, Mapping)]
+    if not isinstance(sources, (list, tuple, set, frozenset)):
+        sources_list: list[Any] = []
+    else:
+        sources_list = list(sources)
+
+    raw_sources = [dict(normalize_json_value(s)) for s in sources_list if isinstance(s, Mapping)]
 
     if not raw_sources:
         return {
             "selected_source": None,
+            "top_sources": [],
             "authority_rank": 0,
             "needs_verification": decision_critical,
             "unresolved_conflict": False,
@@ -1597,9 +1595,12 @@ def evaluate_certification_source(
             return 2
         return 1
 
-    sorted_sources = sorted(raw_sources, key=_auth, reverse=True)
+    sorted_sources = sorted(raw_sources, key=lambda s: (-_auth(s), _canonical_json_value(s)))
     top_auth = _auth(sorted_sources[0])
-    top_tier = [s for s in sorted_sources if _auth(s) == top_auth]
+    top_tier = sorted(
+        [s for s in sorted_sources if _auth(s) == top_auth],
+        key=_canonical_json_value,
+    )
 
     # Check for conflicts in top tier
     unresolved = False
@@ -1638,14 +1639,38 @@ def evaluate_cultural_context(
     universal_claim: bool = False,
 ) -> dict[str, Any]:
     """Evaluate cultural claims to reject universal stereotyping and preserve qualified tendencies."""
+    if not isinstance(evidence, (list, tuple, set, frozenset)):
+        ev_list: list[Any] = []
+    else:
+        ev_list = list(evidence)
+
+    valid_evidence = [dict(normalize_json_value(e)) for e in ev_list if isinstance(e, Mapping)]
+    claim_str = _safe_str(claim) or ""
+
     is_universal = universal_claim or any(
-        kw in (claim or "").lower() for kw in ("all native speakers", "always", "every spanish", "everyone in")
+        kw in claim_str.lower()
+        for kw in (
+            "all native speakers",
+            "always",
+            "every spanish",
+            "everyone in",
+            "never",
+            "all french",
+            "all germans",
+            "universal rule",
+        )
     )
+
+    has_grounded_evidence = len(valid_evidence) > 0
+
     return {
-        "claim": claim or "",
+        "claim": claim_str,
         "universal_claim_rejected": is_universal,
         "qualified_tendency": True,
         "nuance_preserved": True,
+        "has_grounded_evidence": has_grounded_evidence,
+        "evidence_status": "evidenced" if has_grounded_evidence else "weak_or_unprovenanced",
+        "evidence": valid_evidence,
     }
 
 

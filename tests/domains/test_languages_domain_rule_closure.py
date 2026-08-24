@@ -1298,3 +1298,213 @@ def test_spaced_review_json_immutability_and_permutation_invariance():
     assert forward == reverse
     assert items == before
     assert json.loads(json.dumps(forward, allow_nan=False)) == forward
+
+
+# ── Task 11: ProgressionEvidenceRule ──────────────────────────────────────────
+
+def test_progression_requires_comparable_baseline_and_current_evidence():
+    """Progression cannot be established without baseline and comparable current evidence."""
+    # No baseline
+    res_no_prev = evaluate_progression(
+        previous_evidence=(),
+        current_evidence=({"provenance_id": "c1", "score": 0.85, "comparable": True, "comparison_key": "k1"},),
+    )
+    assert res_no_prev["progression_outcome"] == "insufficient_evidence"
+    assert res_no_prev["stable_progression"] is False
+
+    # Noncomparable evidence
+    res_noncomp = evaluate_progression(
+        previous_evidence=({"provenance_id": "p1", "score": 0.6, "comparable": False, "comparison_key": "k1"},),
+        current_evidence=({"provenance_id": "c1", "score": 0.85, "comparable": False, "comparison_key": "k1"},),
+    )
+    assert res_noncomp["progression_outcome"] == "insufficient_evidence"
+    assert res_noncomp["stable_progression"] is False
+
+
+def test_progression_single_sample_vs_stable_improvement():
+    """One better sample is short_term_improvement; two independent current samples form stable_improvement."""
+    prev_ev = (
+        {"provenance_id": "p1", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+    )
+
+    # 1 sample -> short_term_improvement
+    curr_single = (
+        {"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+    )
+    res_single = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_single, skill="writing")
+    assert res_single["progression_outcome"] == "short_term_improvement"
+    assert res_single["stable_progression"] is False
+
+    # 2 independent samples -> stable_improvement
+    curr_multi = (
+        {"provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "c2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+    )
+    res_multi = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_multi, skill="writing")
+    assert res_multi["progression_outcome"] == "stable_improvement"
+    assert res_multi["stable_progression"] is True
+
+
+def test_progression_duplicate_current_provenance_not_stable():
+    """Duplicate provenance in current evidence cannot satisfy independence requirement."""
+    prev_ev = (
+        {"provenance_id": "p1", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+    )
+    curr_dup = (
+        {"id": "a", "provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+        {"id": "b", "provenance_id": "c1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+    )
+    res = evaluate_progression(previous_evidence=prev_ev, current_evidence=curr_dup, skill="writing")
+    assert res["progression_outcome"] == "short_term_improvement"
+    assert res["stable_progression"] is False
+
+
+# ── Task 12: CertificationTemporalRule ────────────────────────────────────────
+
+def test_certification_temporal_precedence():
+    """Current official source takes precedence over stale official and secondary sources."""
+    sources = (
+        {"id": "s1", "source_type": "official", "temporal_state": "stale", "source_id": "inst_1"},
+        {"id": "s2", "source_type": "official", "temporal_state": "current", "official_source_id": "inst_2"},
+        {"id": "s3", "source_type": "secondary", "temporal_state": "current", "source_id": "inst_3"},
+    )
+    res = evaluate_certification_source(sources=sources)
+    assert res["selected_source"]["id"] == "s2"
+    assert res["authority_rank"] == 6
+
+
+def test_certification_source_requires_grounded_provenance_identity():
+    """Stale official and memory sources require verification when decision critical."""
+    sources_stale = (
+        {"id": "s_stale", "source_type": "official", "temporal_state": "stale", "source_id": "inst_1"},
+    )
+    res = evaluate_certification_source(sources=sources_stale, decision_critical=True)
+    assert res["authority_rank"] == 4
+    assert res["needs_verification"] is True
+
+
+def test_certification_source_conflict_detection():
+    """Conflicting top-tier sources produce unresolved_conflict=True and needs_verification=True."""
+    conflicting_sources = (
+        {"id": "s1", "source_type": "official", "temporal_state": "current", "official_source_id": "o1", "format": "computer_based"},
+        {"id": "s2", "source_type": "official", "temporal_state": "current", "official_source_id": "o2", "format": "paper_based"},
+    )
+    res = evaluate_certification_source(sources=conflicting_sources)
+    assert res["unresolved_conflict"] is True
+    assert res["needs_verification"] is True
+    assert res["selected_source"] is None
+
+
+# ── Task 13: CulturalContextEvidenceRule ──────────────────────────────────────
+
+def test_cultural_context_universal_stereotypes_rejected():
+    """Universal cultural claims are rejected in favor of qualified tendencies."""
+    res_universal = evaluate_cultural_context(
+        claim="All native speakers always pronounce this word with a rolled r.",
+        universal_claim=True,
+    )
+    assert res_universal["universal_claim_rejected"] is True
+    assert res_universal["qualified_tendency"] is True
+
+
+def test_cultural_context_evidence_status_visibility():
+    """Absence or presence of grounded evidence is explicitly visible in result."""
+    res_no_ev = evaluate_cultural_context(claim="In formal settings, usted is commonly preferred.")
+    assert res_no_ev["has_grounded_evidence"] is False
+    assert res_no_ev["evidence_status"] == "weak_or_unprovenanced"
+
+    res_with_ev = evaluate_cultural_context(
+        claim="In formal settings, usted is commonly preferred.",
+        evidence=({"corpus_reference": "RAE-2020", "source_id": "rae_1"},),
+    )
+    assert res_with_ev["has_grounded_evidence"] is True
+    assert res_with_ev["evidence_status"] == "evidenced"
+
+
+# ── Task 14: LanguageMemoryConsentRule ────────────────────────────────────────
+
+def test_memory_consent_strict_boolean_and_permission_chain():
+    """Session observation does not become durable state without literal boolean True consent and permission chain."""
+    # Session only
+    res_sess = evaluate_language_memory_consent(content_kind="note", session_only=True)
+    assert res_sess["session_only_allowed"] is True
+    assert res_sess["persistence_required"] is False
+    assert res_sess["persistence_authorized"] is False
+    assert res_sess["persistence_applied"] is False
+
+    # String "true" or int 1 rejected
+    res_str = evaluate_language_memory_consent(
+        content_kind="error_profile",
+        session_only=False,
+        consent="true",
+        permission_chain_valid=True,
+    )
+    assert res_str["persistence_authorized"] is False
+    assert res_str["persistence_applied"] is False
+
+    # Literal True with valid permission chain
+    res_auth = evaluate_language_memory_consent(
+        content_kind="error_profile",
+        session_only=False,
+        consent=True,
+        permission_chain_valid=True,
+    )
+    assert res_auth["persistence_authorized"] is True
+    assert res_auth["persistence_applied"] is False  # Never applied by domain rule helper
+
+
+# ── Task 15: Cross-Rule Property Suite for All 14 Rules ───────────────────────
+
+def test_all_14_rules_strict_json_serialization():
+    """Verify all 14 public rule helpers produce strict JSON-safe serializable structures."""
+    results = [
+        classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=()),
+        separate_skill_evidence(evidence=()),
+        classify_language_variety(preferred_variety="American English", observed_variety="British English"),
+        evaluate_framework_mapping(source_framework="CEFR", source_value="B2", target_framework="IELTS"),
+        evaluate_error_pattern(observations=()),
+        prioritize_corrections(errors=()),
+        adapt_difficulty(current_difficulty=3, performance=()),
+        plan_spaced_review(items=()),
+        evaluate_learning_load(available_time=30),
+        align_activity_to_goals(activity={"type": "roleplay"}, goals=()),
+        evaluate_progression(previous_evidence=(), current_evidence=()),
+        evaluate_certification_source(sources=()),
+        evaluate_cultural_context(claim="Example claim"),
+        evaluate_language_memory_consent(content_kind="profile", session_only=True),
+    ]
+
+    for res in results:
+        serialized = json.dumps(res, allow_nan=False)
+        assert json.loads(serialized) == res
+
+
+def test_all_14_rules_input_immutability():
+    """Verify none of the 14 public rule helpers mutate caller-supplied collections or dicts."""
+    ev = [{"id": "e1", "score": 0.8, "comparable": True, "comparison_key": "k1", "provenance_id": "p1"}]
+    obs = [{"id": "o1", "error_type": "tense", "sentence": "He go.", "comparable": True, "comparison_key": "k1", "provenance_id": "p1"}]
+    errs = [{"id": "err1", "category": "minor_style", "blocking": False}]
+    items = [{"id": "item1", "mastery": 0.5, "due": True}]
+    goals = [{"id": "g1", "kind": "conversation", "target": "fluency"}]
+    sources = [{"id": "s1", "source_type": "official", "temporal_state": "current", "official_source_id": "o1"}]
+
+    all_inputs = [ev, obs, errs, items, goals, sources]
+    snapshots = [deepcopy(x) for x in all_inputs]
+
+    classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="C1", evidence=ev)
+    separate_skill_evidence(evidence=ev)
+    classify_language_variety(preferred_variety="American English", observed_variety="British English")
+    evaluate_framework_mapping(source_framework="CEFR", source_value="B2", target_framework="IELTS", mapping_evidence=ev)
+    evaluate_error_pattern(observations=obs)
+    prioritize_corrections(errors=errs, active_goals=["g1"], certification_relevance=["c1"])
+    adapt_difficulty(current_difficulty=3, performance=ev)
+    plan_spaced_review(items=items, active_goals=["g1"])
+    evaluate_learning_load(available_time=30, priorities=["p1"], deadlines=[{"id": "d1"}], review_backlog=[{"id": "b1"}])
+    align_activity_to_goals(activity={"type": "roleplay"}, goals=goals)
+    evaluate_progression(previous_evidence=ev, current_evidence=ev)
+    evaluate_certification_source(sources=sources)
+    evaluate_cultural_context(claim="Claim", evidence=ev)
+    evaluate_language_memory_consent(content_kind="profile", session_only=True)
+
+    for current, snapshot in zip(all_inputs, snapshots, strict=True):
+        assert current == snapshot
