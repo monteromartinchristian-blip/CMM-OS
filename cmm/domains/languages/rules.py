@@ -929,10 +929,26 @@ def prioritize_corrections(
 ) -> dict[str, Any]:
     """Prioritize language corrections based on communicative usefulness and mode."""
     clean_mode = (_safe_str(mode) or "practice").lower()
-    raw_errors = [dict(normalize_json_value(e)) for e in errors if isinstance(e, Mapping)]
 
-    goal_set = {_safe_str(g) for g in active_goals if _safe_str(g)}
-    cert_set = {_safe_str(c) for c in certification_relevance if _safe_str(c)}
+    if not isinstance(errors, Iterable) or isinstance(errors, (str, bytes)):
+        raw_errors_list: list[Any] = []
+    else:
+        raw_errors_list = list(errors)
+
+    if not isinstance(active_goals, Iterable) or isinstance(active_goals, (str, bytes)):
+        active_goals_list: list[Any] = []
+    else:
+        active_goals_list = list(active_goals)
+
+    if not isinstance(certification_relevance, Iterable) or isinstance(certification_relevance, (str, bytes)):
+        certification_relevance_list: list[Any] = []
+    else:
+        certification_relevance_list = list(certification_relevance)
+
+    raw_errors = [dict(normalize_json_value(e)) for e in raw_errors_list if isinstance(e, Mapping)]
+
+    goal_set = {_safe_str(g) for g in active_goals_list if _safe_str(g)}
+    cert_set = {_safe_str(c) for c in certification_relevance_list if _safe_str(c)}
 
     def _score(err: dict[str, Any]) -> int:
         cat = _safe_str(err.get("category")) or ""
@@ -951,7 +967,7 @@ def prioritize_corrections(
             return 20
         return 10  # minor_style
 
-    sorted_errors = sorted(raw_errors, key=_score, reverse=True)
+    sorted_errors = sorted(raw_errors, key=lambda err: (-_score(err), _canonical_json_value(err)))
 
     defer_feedback = clean_mode == "assess"
     selective_density = clean_mode == "practice"
@@ -960,7 +976,7 @@ def prioritize_corrections(
     deferred_errors = []
     for err in sorted_errors:
         score = _score(err)
-        if clean_mode == "assess" or clean_mode == "practice" and score <= 10 and any(_score(e) > 10 for e in sorted_errors):
+        if clean_mode == "assess" or (clean_mode == "practice" and score <= 10 and any(_score(e) > 10 for e in sorted_errors)):
             deferred_errors.append(err)
         else:
             immediate_errors.append(err)

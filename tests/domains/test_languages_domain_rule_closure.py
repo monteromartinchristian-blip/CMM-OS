@@ -956,6 +956,80 @@ def test_error_pattern_json_immutability_and_permutation_invariance():
     assert json.loads(json.dumps(forward, allow_nan=False)) == forward
 
 
+def test_correction_priority_hierarchy_and_mutation():
+    """Verify priority hierarchy by mutating properties and observing priority shifts."""
+    base_error = {"id": "err-1", "error_type": "style_flow", "category": "minor_style", "blocking": False}
+
+    # 1. Minor style vs blocking
+    blocking_error = {"id": "err-2", "error_type": "verb_drop", "category": "comprehension_blocking", "blocking": True}
+    res_blocking = prioritize_corrections(errors=(base_error, blocking_error))
+    assert res_blocking["prioritized_errors"][0]["id"] == "err-2"
+
+    # 2. Recurrent outranks goal-critical
+    recurrent_error = {"id": "err-3", "error_type": "tense", "category": "recurrent", "blocking": False}
+    goal_error = {"id": "err-4", "error_type": "vocab_formal", "category": "register", "blocking": False}
+    res_recur_goal = prioritize_corrections(
+        errors=(goal_error, recurrent_error),
+        active_goals=("vocab_formal",),
+    )
+    assert res_recur_goal["prioritized_errors"][0]["id"] == "err-3"
+    assert res_recur_goal["prioritized_errors"][1]["id"] == "err-4"
+
+    # 3. Mutating goal relevance changes priority: without active goal, register is below recurrent
+    res_without_goal = prioritize_corrections(
+        errors=(goal_error, base_error),
+        active_goals=(),
+    )
+    # With active goal:
+    res_with_goal = prioritize_corrections(
+        errors=(goal_error, base_error),
+        active_goals=("vocab_formal",),
+    )
+    assert res_with_goal["prioritized_errors"][0]["id"] == "err-4"
+
+    # 4. Mutating certification relevance changes priority
+    cert_error = {"id": "err-5", "error_type": "inversion", "category": "syntax", "blocking": False}
+    res_cert = prioritize_corrections(
+        errors=(cert_error, base_error),
+        certification_relevance=("inversion",),
+    )
+    assert res_cert["prioritized_errors"][0]["id"] == "err-5"
+
+
+def test_correction_priority_modes_defer_and_selective_density():
+    """Assess mode defers all feedback; practice mode defers minor style when high priority errors present."""
+    errors = (
+        {"id": "e_block", "category": "comprehension_blocking", "blocking": True},
+        {"id": "e_minor", "category": "minor_style", "blocking": False},
+    )
+    # Practice mode: e_minor is deferred
+    res_practice = prioritize_corrections(errors=errors, mode="practice")
+    assert res_practice["defer_feedback"] is False
+    assert [e["id"] for e in res_practice["immediate_errors"]] == ["e_block"]
+    assert [e["id"] for e in res_practice["deferred_errors"]] == ["e_minor"]
+
+    # Assess mode: all feedback deferred
+    res_assess = prioritize_corrections(errors=errors, mode="assess")
+    assert res_assess["defer_feedback"] is True
+    assert len(res_assess["immediate_errors"]) == 0
+    assert len(res_assess["deferred_errors"]) == 2
+
+
+def test_correction_priority_json_immutability_and_permutation_invariance():
+    """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
+    errors = [
+        {"id": "e1", "category": "minor_style", "blocking": False},
+        {"id": "e2", "category": "comprehension_blocking", "blocking": True},
+    ]
+    before = deepcopy(errors)
+    forward = prioritize_corrections(errors=errors, active_goals=["g1"], certification_relevance=["c1"])
+    reverse = prioritize_corrections(errors=list(reversed(errors)), active_goals=["g1"], certification_relevance=["c1"])
+
+    assert forward == reverse
+    assert errors == before
+    assert json.loads(json.dumps(forward, allow_nan=False)) == forward
+
+
 def test_adaptive_difficulty_ignores_noncomparable_high_scores():
     result = adapt_difficulty(
         current_difficulty=3,
