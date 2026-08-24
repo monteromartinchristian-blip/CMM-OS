@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
+from cmm.agent_runtime.approval_contracts import ApprovalDecision, ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
@@ -19,6 +21,7 @@ from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.contracts import DomainResult
 from cmm.domains.enums import (
     DomainOperationType,
@@ -81,6 +84,8 @@ from cmm.domains.memory_contracts import (
     DomainMemoryApprovalRequestSnapshot,
     DomainMemoryCapability,
     DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryProposalBinding,
+    DomainMemoryProposalSnapshot,
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
     DomainMemoryReferenceKind,
@@ -90,16 +95,25 @@ from cmm.domains.memory_contracts import (
 )
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
-from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
+from cmm.domains.permission_gate import (
+    DomainPermissionGate,
+    PermissionGateOutcome,
+    PermissionGateResult,
+)
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.profile_contracts import DomainProfileDefinition
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
-from cmm.domains.resolution_contracts import DomainResolutionSignal
+from cmm.domains.resolution_contracts import (
+    DomainResolutionContext,
+    DomainResolutionSignal,
+)
 from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.rule_contracts import (
     DomainRuleExecutionPlan,
+    DomainRuleExecutionResult,
     DomainRuleSourceRecord,
     SelectedReasoningRule,
 )
@@ -117,6 +131,7 @@ from cmm.domains.trace_contracts import (
 )
 from cmm.domains.workflow_contracts import DomainWorkflowContext
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
+from cmm.workflows.contracts import WorkflowRun
 from cmm.workflows.engine import NodeExecution
 from cmm.workflows.enums import WorkflowRunStatus
 
@@ -185,6 +200,144 @@ REQUIRED_CONNECTED_TRACE_KINDS = frozenset(
         DomainTraceReferenceKind.PRESENTATION_RESULT,
     }
 )
+
+_RUNTIME_OBJECT_OWNER_CONTRACTS: dict[
+    DomainTraceReferenceKind, tuple[type[object], str]
+] = {
+    DomainTraceReferenceKind.RESOLUTION_CONTEXT: (DomainResolutionContext, "id"),
+    DomainTraceReferenceKind.RESOLUTION_RESULT: (DomainResolutionResult, "id"),
+    DomainTraceReferenceKind.COMPOSITION: (DomainComposition, "id"),
+    DomainTraceReferenceKind.DOMAIN_RESULT: (DomainResult, "id"),
+    DomainTraceReferenceKind.PROFILE: (DomainProfileDefinition, "id"),
+    DomainTraceReferenceKind.RULE_PLAN: (DomainRuleExecutionPlan, "id"),
+    DomainTraceReferenceKind.RULE_RESULT: (DomainRuleExecutionResult, "id"),
+    DomainTraceReferenceKind.WORKFLOW_RUN: (WorkflowRun, "run_id"),
+    DomainTraceReferenceKind.PERMISSION_DECISION: (
+        PermissionGateResult,
+        "decision_id",
+    ),
+    DomainTraceReferenceKind.APPROVAL_REQUEST: (ApprovalRequest, "id"),
+    DomainTraceReferenceKind.APPROVAL_DECISION: (ApprovalDecision, "id"),
+    DomainTraceReferenceKind.MEMORY_PROPOSAL: (
+        DomainMemoryProposalSnapshot,
+        "proposal_id",
+    ),
+    DomainTraceReferenceKind.MEMORY_BINDING: (
+        DomainMemoryProposalBinding,
+        "binding_id",
+    ),
+    DomainTraceReferenceKind.CROSS_DOMAIN_RESULT: (DomainResult, "id"),
+    DomainTraceReferenceKind.CROSS_DOMAIN_TRACE: (DomainResult, "trace_id"),
+}
+
+
+def assert_runtime_owner_inventory(
+    *,
+    expected_id_to_kind: Mapping[str, DomainTraceReferenceKind],
+    expected_id_to_owner: Mapping[str, object],
+) -> None:
+    """Prove every expected trace ID is owned by its canonical runtime source."""
+    assert set(expected_id_to_owner) == set(expected_id_to_kind)
+    for ref_id, kind in expected_id_to_kind.items():
+        owner = expected_id_to_owner[ref_id]
+        if kind in {
+            DomainTraceReferenceKind.OPERATION_RESULT,
+            DomainTraceReferenceKind.EVIDENCE,
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        }:
+            assert isinstance(owner, tuple) and len(owner) == 2
+            result_mapping, id_field = owner
+            assert isinstance(result_mapping, Mapping)
+            assert isinstance(id_field, str)
+            assert str(result_mapping[id_field]) == ref_id
+            if kind is DomainTraceReferenceKind.OPERATION_RESULT:
+                assert id_field.endswith("_id") and id_field != "provenance_id"
+            elif kind is DomainTraceReferenceKind.EVIDENCE:
+                assert id_field in {"id", "provenance_id"}
+            else:
+                assert id_field == "result_id"
+            continue
+
+        owner_type, id_field = _RUNTIME_OBJECT_OWNER_CONTRACTS[kind]
+        assert isinstance(owner, owner_type)
+        assert str(getattr(owner, id_field)) == ref_id
+
+
+def assert_runtime_trace_provenance(
+    *,
+    trace: DomainTrace,
+    expected_id_to_kind: Mapping[str, DomainTraceReferenceKind],
+    expected_id_to_owner: Mapping[str, object],
+    selected_profile_mode: str,
+) -> bool:
+    """Validate exact trace parity only after validating runtime ownership."""
+    assert_runtime_owner_inventory(
+        expected_id_to_kind=expected_id_to_kind,
+        expected_id_to_owner=expected_id_to_owner,
+    )
+    references = trace.all_references()
+    for reference in references:
+        assert reference.ref_id in expected_id_to_kind
+        assert reference.kind is expected_id_to_kind[reference.ref_id]
+    assert set(expected_id_to_kind) == {reference.ref_id for reference in references}
+    assert len(expected_id_to_kind) == len(references)
+    assert trace.metadata["selected_profile_mode"] == selected_profile_mode
+    assert selected_profile_mode in LANGUAGES_PEDAGOGICAL_MODES
+    return True
+
+
+def tamper_contribution_reference_ids(
+    trace: DomainTrace, replacements: Mapping[str, str]
+) -> DomainTrace:
+    """Copy a trace while substituting contribution-owned runtime references."""
+    return replace(
+        trace,
+        contributions=tuple(
+            replace(
+                contribution,
+                references=tuple(
+                    replace(
+                        reference,
+                        ref_id=replacements.get(reference.ref_id, reference.ref_id),
+                    )
+                    for reference in contribution.references
+                ),
+            )
+            for contribution in trace.contributions
+        ),
+    )
+
+
+def replace_expected_runtime_id(
+    *,
+    expected_id_to_kind: Mapping[str, DomainTraceReferenceKind],
+    expected_id_to_owner: Mapping[str, object],
+    original_id: str,
+    replacement_id: str,
+    replacement_owner: object,
+) -> tuple[dict[str, DomainTraceReferenceKind], dict[str, object]]:
+    """Copy an inventory while substituting one purported runtime owner."""
+    assert replacement_id not in expected_id_to_kind
+    kinds = dict(expected_id_to_kind)
+    owners = dict(expected_id_to_owner)
+    kind = kinds.pop(original_id)
+    owners.pop(original_id)
+    kinds[replacement_id] = kind
+    owners[replacement_id] = replacement_owner
+    return kinds, owners
+
+
+def swap_expected_runtime_kinds(
+    *,
+    expected_id_to_kind: Mapping[str, DomainTraceReferenceKind],
+    expected_id_to_owner: Mapping[str, object],
+    first_id: str,
+    second_id: str,
+) -> tuple[dict[str, DomainTraceReferenceKind], dict[str, object]]:
+    """Copy an inventory while swapping the claimed kinds of two runtime IDs."""
+    kinds = dict(expected_id_to_kind)
+    kinds[first_id], kinds[second_id] = kinds[second_id], kinds[first_id]
+    return kinds, dict(expected_id_to_owner)
 
 
 class DeterministicIds:
@@ -1045,18 +1198,25 @@ class ConnectedLanguagesScenario:
 
     def trace(self) -> None:
         self.execute_selected_trace_rules()
+        operation_result_owners: dict[str, tuple[Mapping[str, Any], str]] = {}
+        for result in self.state["operation_outputs"]:
+            for id_field, value in result.items():
+                if id_field.endswith("_id") and isinstance(value, str):
+                    assert value not in operation_result_owners
+                    operation_result_owners[value] = (result, id_field)
         operation_results_by_id = {
-            value: result
-            for result in self.state["operation_outputs"]
-            for key, value in result.items()
-            if key.endswith("_id") and isinstance(value, str)
+            result_id: owner[0]
+            for result_id, owner in operation_result_owners.items()
         }
-        evidence_by_id = {
-            item["provenance_id"]: item
+        evidence_owners: dict[str, tuple[Mapping[str, Any], str]] = {
+            item["provenance_id"]: (item, "provenance_id")
             for item in (*self.state["baseline"], *self.state["current"])
         }
         selected_source = self.state["certification_selected_source"]
-        evidence_by_id[selected_source["id"]] = selected_source
+        evidence_owners[selected_source["id"]] = (selected_source, "id")
+        evidence_by_id = {
+            evidence_id: owner[0] for evidence_id, owner in evidence_owners.items()
+        }
         runs = self.state["workflow_runs"]
         domain_result = DomainResult(
             id=self.ids(),
@@ -1087,48 +1247,119 @@ class ConnectedLanguagesScenario:
         rule_plan = self.state["rule_plan"]
         rule_execution = self.state["rule_execution"]
 
-        expected_id_to_kind: dict[str, DomainTraceReferenceKind] = {}
+        structural_expected_id_to_kind = {
+            str(domain_result.id): DomainTraceReferenceKind.DOMAIN_RESULT,
+        }
+        structural_expected_id_to_owner: dict[str, object] = {
+            str(domain_result.id): domain_result,
+        }
+        expected_id_to_kind = dict(structural_expected_id_to_kind)
+        expected_id_to_owner = dict(structural_expected_id_to_owner)
 
-        def expect(ref_id: str, kind: DomainTraceReferenceKind) -> None:
+        def expect(
+            ref_id: str, kind: DomainTraceReferenceKind, owner: object
+        ) -> None:
             assert ref_id not in expected_id_to_kind
             expected_id_to_kind[ref_id] = kind
+            expected_id_to_owner[ref_id] = owner
 
-        expect(context.id, DomainTraceReferenceKind.RESOLUTION_CONTEXT)
-        expect(resolution.id, DomainTraceReferenceKind.RESOLUTION_RESULT)
-        expect(composition.id, DomainTraceReferenceKind.COMPOSITION)
-        expect(str(domain_result.id), DomainTraceReferenceKind.DOMAIN_RESULT)
-        expect(str(cross.id), DomainTraceReferenceKind.CROSS_DOMAIN_RESULT)
-        expect(cross.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE)
+        expect(context.id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, context)
+        expect(resolution.id, DomainTraceReferenceKind.RESOLUTION_RESULT, resolution)
+        expect(composition.id, DomainTraceReferenceKind.COMPOSITION, composition)
+        expect(
+            str(cross.id), DomainTraceReferenceKind.CROSS_DOMAIN_RESULT, cross
+        )
+        expect(cross.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE, cross)
         expect(
             presentation_result["result_id"],
             DomainTraceReferenceKind.PRESENTATION_RESULT,
+            (presentation_result, "result_id"),
         )
-        expect(str(profile.id), DomainTraceReferenceKind.PROFILE)
+        expect(str(profile.id), DomainTraceReferenceKind.PROFILE, profile)
         for run in runs.values():
-            expect(run.common_run.run_id, DomainTraceReferenceKind.WORKFLOW_RUN)
-        for result_id in operation_results_by_id:
-            expect(result_id, DomainTraceReferenceKind.OPERATION_RESULT)
-        for evidence_id in evidence_by_id:
-            expect(evidence_id, DomainTraceReferenceKind.EVIDENCE)
-        expect(rule_plan.id, DomainTraceReferenceKind.RULE_PLAN)
-        expect(rule_execution.id, DomainTraceReferenceKind.RULE_RESULT)
+            expect(
+                run.common_run.run_id,
+                DomainTraceReferenceKind.WORKFLOW_RUN,
+                run.common_run,
+            )
+        for result_id, owner in operation_result_owners.items():
+            expect(result_id, DomainTraceReferenceKind.OPERATION_RESULT, owner)
+        for evidence_id, owner in evidence_owners.items():
+            expect(evidence_id, DomainTraceReferenceKind.EVIDENCE, owner)
+        expect(rule_plan.id, DomainTraceReferenceKind.RULE_PLAN, rule_plan)
+        expect(
+            rule_execution.id,
+            DomainTraceReferenceKind.RULE_RESULT,
+            rule_execution,
+        )
         expect(
             permission_gate_result.decision_id,
             DomainTraceReferenceKind.PERMISSION_DECISION,
+            permission_gate_result,
         )
         expect(
             self.state["approval_request"].id,
             DomainTraceReferenceKind.APPROVAL_REQUEST,
+            self.state["approval_request"],
         )
         expect(
             self.state["approval_decision"].id,
             DomainTraceReferenceKind.APPROVAL_DECISION,
+            self.state["approval_decision"],
         )
         expect(
             memory_proposal.proposal_id,
             DomainTraceReferenceKind.MEMORY_PROPOSAL,
+            memory_proposal,
         )
-        expect(memory_binding.binding_id, DomainTraceReferenceKind.MEMORY_BINDING)
+        expect(
+            memory_binding.binding_id,
+            DomainTraceReferenceKind.MEMORY_BINDING,
+            memory_binding,
+        )
+
+        assert expected_id_to_owner[context.id] is context
+        assert expected_id_to_owner[resolution.id] is resolution
+        assert expected_id_to_owner[composition.id] is composition
+        assert expected_id_to_owner[str(domain_result.id)] is domain_result
+        assert expected_id_to_owner[str(profile.id)] is profile
+        assert expected_id_to_owner[rule_plan.id] is rule_plan
+        assert expected_id_to_owner[rule_execution.id] is rule_execution
+        assert (
+            expected_id_to_owner[permission_gate_result.decision_id]
+            is permission_gate_result
+        )
+        assert (
+            expected_id_to_owner[self.state["approval_request"].id]
+            is self.state["approval_request"]
+        )
+        assert (
+            expected_id_to_owner[self.state["approval_decision"].id]
+            is self.state["approval_decision"]
+        )
+        assert expected_id_to_owner[memory_proposal.proposal_id] is memory_proposal
+        assert expected_id_to_owner[memory_binding.binding_id] is memory_binding
+        assert expected_id_to_owner[str(cross.id)] is cross
+        assert expected_id_to_owner[cross.trace_id] is cross
+        for run in runs.values():
+            assert expected_id_to_owner[run.common_run.run_id] is run.common_run
+        for result_id, (result_mapping, id_field) in operation_result_owners.items():
+            owner_mapping, owner_id_field = expected_id_to_owner[result_id]
+            assert owner_mapping is result_mapping
+            assert owner_id_field == id_field
+        for evidence_id, (evidence_mapping, id_field) in evidence_owners.items():
+            owner_mapping, owner_id_field = expected_id_to_owner[evidence_id]
+            assert owner_mapping is evidence_mapping
+            assert owner_id_field == id_field
+        presentation_owner, presentation_id_field = expected_id_to_owner[
+            presentation_result["result_id"]
+        ]
+        assert presentation_owner is presentation_result
+        assert presentation_id_field == "result_id"
+        assert_runtime_owner_inventory(
+            expected_id_to_kind=expected_id_to_kind,
+            expected_id_to_owner=expected_id_to_owner,
+        )
 
         global_kinds = {
             DomainTraceReferenceKind.RESOLUTION_CONTEXT,
@@ -1210,6 +1441,11 @@ class ConnectedLanguagesScenario:
         )
         self.state.update(
             expected_id_to_kind=dict(expected_id_to_kind),
+            expected_id_to_owner=dict(expected_id_to_owner),
+            structural_expected_id_to_kind=dict(structural_expected_id_to_kind),
+            structural_expected_id_to_owner=dict(structural_expected_id_to_owner),
+            operation_results_by_id=operation_results_by_id,
+            evidence_by_id=evidence_by_id,
             trace_inventory=inventory,
             trace_runtime_objects={
                 "profile": profile,
@@ -1240,13 +1476,33 @@ class ConnectedLanguagesScenario:
         )
         assert trace.id == expected_trace_id
         validation = validate_languages_trace(trace=trace, inventory=inventory)
+        ownership_provenance_valid = assert_runtime_trace_provenance(
+            trace=trace,
+            expected_id_to_kind=expected_id_to_kind,
+            expected_id_to_owner=expected_id_to_owner,
+            selected_profile_mode=self.state["selected_profile_mode"],
+        )
         self.state.update(trace=trace, trace_validation=validation)
         self.required_trace_ids = {item.ref_id for item in trace.all_references()}
         self.actual_produced_ids.update(expected_id_to_kind)
         assert self.required_trace_ids <= self.actual_produced_ids
+        trace_kinds = {item.kind for item in trace.all_references()}
+        runtime_provenance_valid = (
+            ownership_provenance_valid
+            and REQUIRED_CONNECTED_TRACE_KINDS <= trace_kinds
+            and {
+                DomainTraceReferenceKind.RESOLUTION_CONTEXT,
+                DomainTraceReferenceKind.RESOLUTION_RESULT,
+                DomainTraceReferenceKind.RULE_PLAN,
+            }
+            <= trace_kinds
+            and trace.metadata["selected_profile_mode"]
+            == self.state["selected_profile_mode"]
+            and set(expected_id_to_kind) == self.required_trace_ids
+        )
         self.checkpoint(
             "44-trace-actual-connected-runtime-identifiers",
-            validation.valid and self.required_trace_ids <= self.actual_produced_ids,
+            validation.valid and runtime_provenance_valid,
         )
         self.checkpoint(
             "45-use-no-parallel-domain-infrastructure",
@@ -1346,6 +1602,7 @@ def test_at_dp_026_checkpoints_match_frozen_semantic_sequence() -> None:
     scenario = ConnectedLanguagesScenario()
     scenario.run()
     assert tuple(scenario.checkpoints) == FROZEN_SEMANTIC_CHECKPOINTS
+    assert len(scenario.checkpoints) == 45
 
 
 def test_at_dp_026_trace_never_labels_workflow_events_as_results() -> None:
@@ -1450,3 +1707,236 @@ def test_at_dp_026_trace_contains_all_frozen_runtime_categories() -> None:
     }
 
     assert REQUIRED_CONNECTED_TRACE_KINDS <= actual_kinds
+
+
+def test_at_dp_026_trace_inventory_proves_runtime_owner_identity() -> None:
+    """Catches an expected inventory derived only from trace membership."""
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    assert "expected_id_to_owner" in scenario.state
+    expected_id_to_kind = scenario.state["expected_id_to_kind"]
+    expected_id_to_owner = scenario.state["expected_id_to_owner"]
+    assert_runtime_trace_provenance(
+        trace=scenario.state["trace"],
+        expected_id_to_kind=expected_id_to_kind,
+        expected_id_to_owner=expected_id_to_owner,
+        selected_profile_mode=scenario.state["selected_profile_mode"],
+    )
+
+    assert expected_id_to_owner[scenario.state["resolution_context"].id] is (
+        scenario.state["resolution_context"]
+    )
+    assert expected_id_to_owner[scenario.state["resolution"].id] is scenario.state[
+        "resolution"
+    ]
+    assert expected_id_to_owner[scenario.state["composition"].id] is scenario.state[
+        "composition"
+    ]
+    assert expected_id_to_owner[str(scenario.state["profile"].id)] is scenario.state[
+        "profile"
+    ]
+    assert expected_id_to_owner[scenario.state["rule_plan"].id] is scenario.state[
+        "rule_plan"
+    ]
+    assert expected_id_to_owner[scenario.state["rule_execution"].id] is (
+        scenario.state["rule_execution"]
+    )
+    assert expected_id_to_owner[
+        scenario.state["permission_consumed"].decision_id
+    ] is scenario.state["permission_consumed"]
+    assert expected_id_to_owner[
+        scenario.state["approval_request"].id
+    ] is scenario.state["approval_request"]
+    assert expected_id_to_owner[
+        scenario.state["approval_decision"].id
+    ] is scenario.state["approval_decision"]
+    assert expected_id_to_owner[
+        scenario.state["memory_proposal"].proposal_id
+    ] is scenario.state["memory_proposal"]
+    assert expected_id_to_owner[
+        scenario.state["memory_binding"].binding_id
+    ] is scenario.state["memory_binding"]
+    assert expected_id_to_owner[str(scenario.state["cross_projection"].id)] is (
+        scenario.state["cross_projection"]
+    )
+    assert expected_id_to_owner[scenario.state["cross_projection"].trace_id] is (
+        scenario.state["cross_projection"]
+    )
+
+    for run in scenario.state["workflow_runs"].values():
+        assert expected_id_to_owner[run.common_run.run_id] is run.common_run
+    for result_id, result_mapping in scenario.state[
+        "operation_results_by_id"
+    ].items():
+        owner_mapping, owner_id_field = expected_id_to_owner[result_id]
+        assert owner_mapping is result_mapping
+        assert result_mapping[owner_id_field] == result_id
+    for evidence_id, evidence_mapping in scenario.state["evidence_by_id"].items():
+        owner_mapping, owner_id_field = expected_id_to_owner[evidence_id]
+        assert owner_mapping is evidence_mapping
+        assert evidence_mapping[owner_id_field] == evidence_id
+    presentation = scenario.state["presentation_result"]
+    presentation_owner, presentation_id_field = expected_id_to_owner[
+        presentation["result_id"]
+    ]
+    assert presentation_owner is presentation
+    assert presentation_id_field == "result_id"
+
+
+def test_at_dp_026_trace_provenance_rejects_negative_mutation_matrix() -> None:
+    """Catches kind-correct trace inventories whose IDs have the wrong owners."""
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    assert "expected_id_to_owner" in scenario.state
+    trace = scenario.state["trace"]
+    expected_kinds = scenario.state["expected_id_to_kind"]
+    expected_owners = scenario.state["expected_id_to_owner"]
+    mutations: list[
+        tuple[
+            str,
+            DomainTrace,
+            dict[str, DomainTraceReferenceKind],
+            dict[str, object],
+        ]
+    ] = []
+
+    rule_execution = scenario.state["rule_execution"]
+    rule_definition = scenario.state["rule_plan"].selected_rules[0].definition
+    rule_kinds, rule_owners = replace_expected_runtime_id(
+        expected_id_to_kind=expected_kinds,
+        expected_id_to_owner=expected_owners,
+        original_id=rule_execution.id,
+        replacement_id=rule_definition.id,
+        replacement_owner=rule_definition,
+    )
+    mutations.append(
+        (
+            "rule definition as result",
+            tamper_contribution_reference_ids(
+                trace, {rule_execution.id: rule_definition.id}
+            ),
+            rule_kinds,
+            rule_owners,
+        )
+    )
+
+    permission = scenario.state["permission_consumed"]
+    assert permission.decision_id is not None
+    random_permission_id = "random-permission-decision"
+    permission_kinds, permission_owners = replace_expected_runtime_id(
+        expected_id_to_kind=expected_kinds,
+        expected_id_to_owner=expected_owners,
+        original_id=permission.decision_id,
+        replacement_id=random_permission_id,
+        replacement_owner=permission,
+    )
+    mutations.append(
+        (
+            "random permission decision",
+            tamper_contribution_reference_ids(
+                trace, {permission.decision_id: random_permission_id}
+            ),
+            permission_kinds,
+            permission_owners,
+        )
+    )
+
+    workflow_run = next(iter(scenario.state["workflow_runs"].values()))
+    workflow_event = workflow_run.execution_result.events[0]
+    workflow_kinds, workflow_owners = replace_expected_runtime_id(
+        expected_id_to_kind=expected_kinds,
+        expected_id_to_owner=expected_owners,
+        original_id=workflow_run.common_run.run_id,
+        replacement_id=workflow_event.event_id,
+        replacement_owner=workflow_event,
+    )
+    mutations.append(
+        (
+            "workflow event as run",
+            tamper_contribution_reference_ids(
+                trace, {workflow_run.common_run.run_id: workflow_event.event_id}
+            ),
+            workflow_kinds,
+            workflow_owners,
+        )
+    )
+
+    operation_id = next(
+        ref_id
+        for ref_id, owner in expected_owners.items()
+        if expected_kinds[ref_id] is DomainTraceReferenceKind.OPERATION_RESULT
+        and owner[1] == "plan_id"
+    )
+    evidence_id = next(
+        ref_id
+        for ref_id, owner in expected_owners.items()
+        if expected_kinds[ref_id] is DomainTraceReferenceKind.EVIDENCE
+        and owner[1] == "provenance_id"
+    )
+    evidence_kinds, evidence_owners = swap_expected_runtime_kinds(
+        expected_id_to_kind=expected_kinds,
+        expected_id_to_owner=expected_owners,
+        first_id=operation_id,
+        second_id=evidence_id,
+    )
+    mutations.append(
+        (
+            "operation as evidence",
+            tamper_contribution_reference_ids(
+                trace, {operation_id: evidence_id, evidence_id: operation_id}
+            ),
+            evidence_kinds,
+            evidence_owners,
+        )
+    )
+
+    proposal_id = scenario.state["memory_proposal"].proposal_id
+    binding_id = scenario.state["memory_binding"].binding_id
+    memory_kinds, memory_owners = swap_expected_runtime_kinds(
+        expected_id_to_kind=expected_kinds,
+        expected_id_to_owner=expected_owners,
+        first_id=proposal_id,
+        second_id=binding_id,
+    )
+    mutations.append(
+        (
+            "swapped memory proposal and binding",
+            tamper_contribution_reference_ids(
+                trace, {proposal_id: binding_id, binding_id: proposal_id}
+            ),
+            memory_kinds,
+            memory_owners,
+        )
+    )
+
+    unselected_mode = next(
+        mode
+        for mode in LANGUAGES_PEDAGOGICAL_MODES
+        if mode != scenario.state["selected_profile_mode"]
+    )
+    mutations.append(
+        (
+            "unselected profile mode",
+            replace(
+                trace,
+                metadata={**trace.metadata, "selected_profile_mode": unselected_mode},
+            ),
+            dict(expected_kinds),
+            dict(expected_owners),
+        )
+    )
+
+    for mutation_name, mutated_trace, mutated_kinds, mutated_owners in mutations:
+        assert {
+            reference.ref_id: reference.kind
+            for reference in mutated_trace.all_references()
+        } == mutated_kinds, mutation_name
+        with pytest.raises(AssertionError):
+            assert_runtime_trace_provenance(
+                trace=mutated_trace,
+                expected_id_to_kind=mutated_kinds,
+                expected_id_to_owner=mutated_owners,
+                selected_profile_mode=scenario.state["selected_profile_mode"],
+            )
