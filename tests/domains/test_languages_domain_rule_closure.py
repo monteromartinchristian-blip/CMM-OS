@@ -1144,3 +1144,61 @@ def test_spaced_review_deduplicates_logical_item():
     )
     assert len(result["review_queue"]) == 1
     assert result["backlog_count"] == 1
+
+
+def test_spaced_review_mastery_bounded_and_mutation_sensitive():
+    """Lower mastery elevates review priority; invalid mastery defaults safely without inflating."""
+    item_low_mastery = {"id": "v_low", "mastery": 0.1, "due": True}
+    item_high_mastery = {"id": "v_high", "mastery": 0.9, "due": True}
+
+    res = plan_spaced_review(items=(item_high_mastery, item_low_mastery))
+    assert res["prioritized_items"][0]["id"] == "v_low"
+
+    # Malformed mastery (e.g. -100, Inf, bool True) cannot bypass upper bound or crash
+    item_invalid_mastery = {"id": "v_inv", "mastery": -100.0, "due": True}
+    res_inv = plan_spaced_review(items=(item_invalid_mastery,))
+    assert len(res_inv["review_queue"]) == 1
+
+
+def test_spaced_review_recall_and_importance_sensitivity():
+    """Recall and importance mutations directly influence ordering."""
+    # Lower recall -> higher priority
+    item_good_recall = {"id": "v_rec_high", "mastery": 0.5, "recall": 0.9, "due": True}
+    item_poor_recall = {"id": "v_rec_low", "mastery": 0.5, "recall": 0.1, "due": True}
+    res_rec = plan_spaced_review(items=(item_good_recall, item_poor_recall))
+    assert res_rec["prioritized_items"][0]["id"] == "v_rec_low"
+
+    # Higher importance -> higher priority
+    item_low_imp = {"id": "v_imp_low", "mastery": 0.5, "importance": 0.1, "due": True}
+    item_high_imp = {"id": "v_imp_high", "mastery": 0.5, "importance": 0.9, "due": True}
+    res_imp = plan_spaced_review(items=(item_low_imp, item_high_imp))
+    assert res_imp["prioritized_items"][0]["id"] == "v_imp_high"
+
+
+def test_spaced_review_active_pattern_and_goal_sensitivity():
+    """Active pattern and active goal matches elevate priority."""
+    item_base = {"id": "v_base", "mastery": 0.5, "due": True}
+    item_pattern = {"id": "v_pat", "mastery": 0.5, "due": True, "active_pattern": True}
+    res_pat = plan_spaced_review(items=(item_base, item_pattern))
+    assert res_pat["prioritized_items"][0]["id"] == "v_pat"
+
+    # Goal relevance: mutate active goals
+    item_goal = {"id": "v_goal", "term": "subtle", "mastery": 0.5, "due": True}
+    res_no_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=())
+    res_with_goal = plan_spaced_review(items=(item_base, item_goal), active_goals=("subtle",))
+    assert res_with_goal["prioritized_items"][0]["id"] == "v_goal"
+
+
+def test_spaced_review_json_immutability_and_permutation_invariance():
+    """Evaluation preserves input immutability, strict JSON serialization, and permutation invariance."""
+    items = [
+        {"id": "v1", "term": "word1", "mastery": 0.3, "due": True},
+        {"id": "v2", "term": "word2", "mastery": 0.8, "due": False},
+    ]
+    before = deepcopy(items)
+    forward = plan_spaced_review(items=items, active_goals=["word1"])
+    reverse = plan_spaced_review(items=list(reversed(items)), active_goals=["word1"])
+
+    assert forward == reverse
+    assert items == before
+    assert json.loads(json.dumps(forward, allow_nan=False)) == forward

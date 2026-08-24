@@ -1200,9 +1200,35 @@ def plan_spaced_review(
     items: tuple[Any, ...] | list[Any] = (),
     active_goals: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
-    """Plan spaced review items based on mastery, due status, and active patterns."""
-    raw_items = [dict(normalize_json_value(i)) for i in items if isinstance(i, Mapping)]
-    goal_set = {_safe_str(g) for g in active_goals if _safe_str(g)}
+    """Plan spaced review items based on mastery, due status, recall, importance, and active patterns."""
+    if not isinstance(items, Iterable) or isinstance(items, (str, bytes)):
+        items_list: list[Any] = []
+    else:
+        items_list = list(items)
+
+    if not isinstance(active_goals, Iterable) or isinstance(active_goals, (str, bytes)):
+        active_goals_list: list[Any] = []
+    else:
+        active_goals_list = list(active_goals)
+
+    goal_set = {_safe_str(g) for g in active_goals_list if _safe_str(g)}
+
+    deduped_items_by_id: dict[str, dict[str, Any]] = {}
+    anonymous_items: list[dict[str, Any]] = []
+
+    for raw in items_list:
+        if not isinstance(raw, Mapping):
+            continue
+        normalized = dict(normalize_json_value(raw))
+        logical_id = _safe_str(normalized.get("id")) or _safe_str(normalized.get("term")) or _safe_str(normalized.get("item_id"))
+        if logical_id is not None:
+            existing = deduped_items_by_id.get(logical_id)
+            if existing is None or _canonical_json_value(normalized) < _canonical_json_value(existing):
+                deduped_items_by_id[logical_id] = normalized
+        else:
+            anonymous_items.append(normalized)
+
+    unique_items = list(deduped_items_by_id.values()) + anonymous_items
 
     def _review_priority(item: dict[str, Any]) -> float:
         score = 0.0
@@ -1214,11 +1240,36 @@ def plan_spaced_review(
         item_term = _safe_str(item.get("term")) or ""
         if item_id in goal_set or item_term in goal_set or item.get("goal_relevant") is True:
             score += 20.0
-        mastery = float(item.get("mastery", 0.5)) if isinstance(item.get("mastery"), (int, float)) else 0.5
+
+        # Mastery: lower mastery -> higher priority (bounded [0.0, 1.0], default 0.5)
+        raw_mastery = item.get("mastery")
+        if isinstance(raw_mastery, bool) or not isinstance(raw_mastery, (int, float)) or math.isnan(raw_mastery) or math.isinf(raw_mastery):
+            mastery = 0.5
+        else:
+            mastery = max(0.0, min(1.0, float(raw_mastery)))
         score += (1.0 - mastery) * 20.0
+
+        # Recall: lower recall -> higher priority (bounded [0.0, 1.0], default 0.5)
+        raw_recall = item.get("recall") if "recall" in item else item.get("retrieval_strength")
+        if raw_recall is not None:
+            if isinstance(raw_recall, bool) or not isinstance(raw_recall, (int, float)) or math.isnan(raw_recall) or math.isinf(raw_recall):
+                recall = 0.5
+            else:
+                recall = max(0.0, min(1.0, float(raw_recall)))
+            score += (1.0 - recall) * 15.0
+
+        # Importance: higher importance -> higher priority (bounded [0.0, 1.0], default 0.5)
+        raw_importance = item.get("importance")
+        if raw_importance is not None:
+            if isinstance(raw_importance, bool) or not isinstance(raw_importance, (int, float)) or math.isnan(raw_importance) or math.isinf(raw_importance):
+                importance = 0.5
+            else:
+                importance = max(0.0, min(1.0, float(raw_importance)))
+            score += importance * 15.0
+
         return score
 
-    sorted_items = sorted(raw_items, key=_review_priority, reverse=True)
+    sorted_items = sorted(unique_items, key=lambda item: (-_review_priority(item), _canonical_json_value(item)))
     due_items = [i for i in sorted_items if i.get("due") is True or i.get("active_pattern") is True]
 
     return {
