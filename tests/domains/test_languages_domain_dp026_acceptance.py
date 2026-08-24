@@ -135,7 +135,10 @@ from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.workflows.contracts import WorkflowRun
 from cmm.workflows.engine import NodeExecution
 from cmm.workflows.enums import WorkflowRunStatus
-from tests.domains._languages_runtime_state import snapshot_languages_module_state
+from tests.domains._languages_runtime_state import (
+    find_languages_runtime_purity_violations,
+    snapshot_languages_module_state,
+)
 
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
 
@@ -517,6 +520,9 @@ class ConnectedLanguagesScenario:
         elif op == "languages.plan_review_schedule":
             producer = outputs["vocabulary"]
             self.state["schedule_consumed_vocabulary"] = producer
+            dependency_violations = find_languages_runtime_purity_violations(
+                plan_review_schedule_result
+            )
             runtime_state_before = snapshot_languages_module_state(
                 languages_operations
             )
@@ -525,9 +531,13 @@ class ConnectedLanguagesScenario:
                 languages_operations
             )
             self.state.update(
+                schedule_runtime_dependency_violations=dependency_violations,
                 schedule_runtime_state_before=runtime_state_before,
                 schedule_runtime_state_after=runtime_state_after,
-                calendar_mutated=runtime_state_after != runtime_state_before,
+                calendar_mutated=(
+                    bool(dependency_violations)
+                    or runtime_state_after != runtime_state_before
+                ),
             )
         elif op == "languages.prepare_certification":
             authority = evaluate_certification_source(
@@ -846,7 +856,9 @@ class ConnectedLanguagesScenario:
         self.checkpoint(
             "35-preserve-calendar-without-mutation",
             spaced["calendar_modified"] is False
-            and spaced["external_action_executed"] is False,
+            and spaced["external_action_executed"] is False
+            and not self.state["schedule_runtime_dependency_violations"]
+            and self.state["calendar_mutated"] is False,
         )
 
         assert len(runs) == 9
@@ -1583,6 +1595,7 @@ def test_at_dp_026_routes_calendar_request_through_shared_schedule_boundary() ->
     assert request["capability"] == PermissionCapability.SCHEDULE_MODIFY.value
     assert boundary.outcome is PermissionGateOutcome.DENY
     assert boundary.action == PermissionCapability.OPERATION_EXECUTE.value
+    assert scenario.state["schedule_runtime_dependency_violations"] == ()
     assert (
         scenario.state["schedule_runtime_state_after"]
         == scenario.state["schedule_runtime_state_before"]

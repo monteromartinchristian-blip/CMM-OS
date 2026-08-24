@@ -28,7 +28,10 @@ from cmm.domains.languages.operations import (
     track_vocabulary_result,
     update_level_evidence_result,
 )
-from tests.domains._languages_runtime_state import snapshot_languages_module_state
+from tests.domains._languages_runtime_state import (
+    find_languages_runtime_purity_violations,
+    snapshot_languages_module_state,
+)
 
 
 def _representative_helper_output(operation_id: str) -> dict:
@@ -631,12 +634,16 @@ def test_other_numeric_operation_inputs_use_the_same_fail_closed_boundary() -> N
 
 def test_plan_review_schedule_no_calendar_mutation() -> None:
     """Observe runtime purity independently of the helper's returned flags."""
+    dependency_violations = find_languages_runtime_purity_violations(
+        plan_review_schedule_result
+    )
     before = snapshot_languages_module_state(languages_operations)
     res = plan_review_schedule_result(
         review_items=[{"id": "v1", "due": True}],
     )
     after = snapshot_languages_module_state(languages_operations)
 
+    assert dependency_violations == ()
     assert after == before
     assert res["calendar_modified"] is False
     assert res["external_action_executed"] is False
