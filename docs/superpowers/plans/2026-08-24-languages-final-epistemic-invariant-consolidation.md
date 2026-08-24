@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Work only on `feature/phase-10-domain-intelligence`.
-- Required starting HEAD: `070d1a2`.
+- Required execution ancestry: `070d1a2` (audited design baseline) and `e238821` (implementation-plan handoff) must both be ancestors of the current HEAD.
 - Do not reset, rewrite history, push, merge, or close Phase 10.26.
 - Preserve frozen canon exactly: 16 entities / 15 resources / 14 rules / 15 operations / 9 workflows / 14 Languages production modules.
 - Do not touch Phase 10.27 / Paternidad.
@@ -100,7 +100,8 @@ Run:
 ```bash
 cd "/Users/chris/CMM OS"
 test "$(git branch --show-current)" = "feature/phase-10-domain-intelligence"
-test "$(git rev-parse --short HEAD)" = "070d1a2"
+git merge-base --is-ancestor 070d1a2 HEAD
+git merge-base --is-ancestor e238821 HEAD
 git status --short --branch
 ```
 
