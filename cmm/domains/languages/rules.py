@@ -1563,9 +1563,6 @@ def align_activity_to_goals(
             if (act_type in ("writing", "essay", "composition", "free_writing") or "writing" in act_purpose or "writing" in act_skills) and (g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target):
                 matched = True
 
-            if (act_type in ("practice", "review", "lesson", "exercise") or act_purpose in ("practice", "review", "lesson", "study")) and not is_unrelated:
-                matched = True
-
             if matched:
                 aligned_goal_ids.append(gid)
 
