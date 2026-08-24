@@ -771,9 +771,24 @@ class ConnectedLanguagesScenario:
             evidence_ids=(self.state["assessment"]["assessment_id"],),
             resource_ids=(self.state["spaced_review"]["schedule_id"],),
         )
-        permission_id, trace_id = self.ids(), self.ids()
+        trace_id = self.ids()
+        proposal = build_languages_memory_proposal(
+            proposal_id=proposal_id,
+            affected_reference_ids=(reference_id,),
+        )
+        self.checkpoint(
+            "38-propose-persistent-progress-update",
+            proposal.proposal_id == proposal_id
+            and not service.repository.is_consumed(approval.id),
+        )
+        consumed = gate.evaluate_operation_definition(
+            operation, request_id=permission_request_id,
+            actor_id="actor-at-dp-026", session_id="session-at-dp-026",
+            approval_request_id=approval.id,
+        )
+        assert consumed.decision_id is not None
         memory_permission = DomainMemoryPermissionDecisionSnapshot(
-            decision_id=permission_id, allowed=True,
+            decision_id=consumed.decision_id, allowed=consumed.allowed,
             capabilities=(DomainMemoryCapability.PROPOSE,),
             source_domain_id=LANGUAGES_DOMAIN_ID, target_domain_id=LANGUAGES_DOMAIN_ID,
             sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
@@ -781,7 +796,7 @@ class ConnectedLanguagesScenario:
         request = build_languages_memory_view_request(
             request_id=self.ids(), trace_id=trace_id,
             requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
-            candidates=(reference,), permission_decision_ids=(permission_id,),
+            candidates=(reference,), permission_decision_ids=(consumed.decision_id,),
         )
         base_inventory = DomainMemoryReferenceInventory(
             references=(reference,),
@@ -789,10 +804,9 @@ class ConnectedLanguagesScenario:
             permission_decisions=(memory_permission,),
         )
         view = build_languages_memory_view(request=request, inventory=base_inventory)
-        proposal = build_languages_memory_proposal(proposal_id=proposal_id, affected_reference_ids=(reference_id,))
         binding = build_languages_memory_binding(
             proposal=proposal, view=view, trace_id=trace_id,
-            permission_decision_ids=(permission_id,), approval_request_ids=(approval.id,),
+            permission_decision_ids=(consumed.decision_id,), approval_request_ids=(approval.id,),
             approval_decision_ids=(decision.id,),
         )
         inventory = DomainMemoryReferenceInventory(
@@ -812,25 +826,29 @@ class ConnectedLanguagesScenario:
             memory_view=view,
             memory_validation=validation,
             memory_permission=memory_permission,
+            permission_consumed=consumed,
+            actual_gate_results=(calendar_boundary, pending, consumed),
         )
-        self.actual_produced_ids.update((proposal.proposal_id, binding.binding_id, view.view_id, permission_id, trace_id))
-        self.checkpoint(
-            "38-propose-persistent-progress-update",
-            proposal.proposal_id == proposal_id
-            and validation.is_valid
-            and not service.repository.is_consumed(approval.id),
+        self.actual_produced_ids.update(
+            (
+                proposal.proposal_id,
+                binding.binding_id,
+                view.view_id,
+                consumed.decision_id,
+                trace_id,
+            )
         )
-        consumed = gate.evaluate_operation_definition(
-            operation, request_id=permission_request_id,
-            actor_id="actor-at-dp-026", session_id="session-at-dp-026",
-            approval_request_id=approval.id,
+        self.actual_produced_ids.update(
+            gate_result.decision_id
+            for gate_result in self.state["actual_gate_results"]
+            if gate_result.decision_id is not None
         )
-        self.state["permission_consumed"] = consumed
         self.checkpoint(
             "39-validate-consent-and-permission-before-persistence",
             self.state["languages"]["English"]["tracking_consent"] is True
             and consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
-            and consumed.allowed,
+            and consumed.allowed
+            and validation.is_valid,
         )
 
     def cross_domain_and_presentation(self) -> None:
@@ -1053,7 +1071,8 @@ class ConnectedLanguagesScenario:
             self.state["resolution_context"],
         )
         profile = self.state["profile"]
-        permission_decision = self.state["memory_permission"]
+        permission_gate_result = self.state["permission_consumed"]
+        assert permission_gate_result.decision_id is not None
         memory_proposal = self.state["memory_proposal"]
         memory_binding = self.state["memory_binding"]
         presentation_result = self.state["presentation_result"]
@@ -1086,7 +1105,7 @@ class ConnectedLanguagesScenario:
         expect(rule_plan.id, DomainTraceReferenceKind.RULE_PLAN)
         expect(rule_execution.id, DomainTraceReferenceKind.RULE_RESULT)
         expect(
-            permission_decision.decision_id,
+            permission_gate_result.decision_id,
             DomainTraceReferenceKind.PERMISSION_DECISION,
         )
         expect(
@@ -1186,7 +1205,7 @@ class ConnectedLanguagesScenario:
                 "evidence": evidence_by_id,
                 "rule_plan": rule_plan,
                 "rule_execution": rule_execution,
-                "permission": permission_decision,
+                "permission": permission_gate_result,
                 "memory_proposal": memory_proposal,
                 "memory_binding": memory_binding,
                 "presentation": presentation_result,
@@ -1284,6 +1303,30 @@ def test_at_dp_026_routes_calendar_request_through_shared_schedule_boundary() ->
     assert boundary.outcome is PermissionGateOutcome.DENY
     assert boundary.action == PermissionCapability.OPERATION_EXECUTE.value
     assert scenario.state["calendar_mutated"] is False
+
+
+def test_at_dp_026_trace_permission_decision_is_real_gate_result() -> None:
+    """Catches a synthetic permission ID standing in for the consumed gate result."""
+    scenario = ConnectedLanguagesScenario()
+    scenario.run()
+
+    consumed = scenario.state["permission_consumed"]
+    memory_permission = scenario.state["memory_permission"]
+    actual_gate_results = scenario.state["actual_gate_results"]
+    trace_permission_ids = {
+        reference.ref_id
+        for reference in scenario.state["trace"].all_references()
+        if reference.kind is DomainTraceReferenceKind.PERMISSION_DECISION
+    }
+
+    assert consumed.decision_id is not None
+    assert memory_permission.decision_id == consumed.decision_id
+    assert trace_permission_ids == {consumed.decision_id}
+    assert trace_permission_ids <= {
+        gate_result.decision_id
+        for gate_result in actual_gate_results
+        if gate_result.decision_id is not None
+    }
 
 
 def test_at_dp_026_checkpoints_match_frozen_semantic_sequence() -> None:
