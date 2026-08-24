@@ -1128,6 +1128,56 @@ def test_goal_alignment_rejects_unrelated_activity():
     assert result["aligned_goals"] == []
 
 
+def test_goal_alignment_activity_mutation_changes_alignment():
+    """Mutating activity changes which goals align without changing goal definitions."""
+    goals = (
+        {"id": "g_cert", "kind": "certification", "target": "C1"},
+        {"id": "g_conv", "kind": "conversation", "target": "conversation fluency"},
+    )
+
+    # 1. Roleplay matches conversation goal
+    res_conv = align_activity_to_goals(activity={"type": "roleplay"}, goals=goals)
+    assert res_conv["activity_fit"] == "aligned"
+    assert res_conv["aligned_goals"] == ["g_conv"]
+
+    # 2. Formal exam essay matches certification goal
+    res_cert = align_activity_to_goals(activity={"type": "formal_exam_essay"}, goals=goals)
+    assert res_cert["activity_fit"] == "aligned"
+    assert res_cert["aligned_goals"] == ["g_cert"]
+
+    # 3. Unrelated activity matches neither
+    res_unrel = align_activity_to_goals(activity={"type": "unrelated_tax_filing"}, goals=goals)
+    assert res_unrel["activity_fit"] != "aligned"
+    assert res_unrel["aligned_goals"] == []
+
+
+def test_goal_alignment_no_active_goals():
+    """Empty goals list results in not_aligned."""
+    res = align_activity_to_goals(activity={"type": "roleplay"}, goals=())
+    assert res["activity_fit"] == "not_aligned"
+    assert res["aligned_goals"] == []
+    assert res["total_goals_count"] == 0
+
+
+def test_goal_alignment_json_immutability_and_permutation_invariance():
+    """Evaluation preserves input immutability, strict JSON safety, and permutation invariance."""
+    goals = [
+        {"id": "g1", "kind": "conversation", "target": "speaking fluency"},
+        {"id": "g2", "kind": "certification", "target": "C1"},
+    ]
+    activity = {"type": "roleplay", "skill": "speaking"}
+    before_goals = deepcopy(goals)
+    before_act = deepcopy(activity)
+
+    forward = align_activity_to_goals(activity=activity, goals=goals)
+    reverse = align_activity_to_goals(activity=activity, goals=list(reversed(goals)))
+
+    assert forward == reverse
+    assert goals == before_goals
+    assert activity == before_act
+    assert json.loads(json.dumps(forward, allow_nan=False)) == forward
+
+
 @pytest.mark.parametrize("available_time", [float("inf"), float("-inf"), True, False, -10, float("nan"), "30", [30]])
 def test_learning_load_invalid_time_fails_closed(available_time):
     result = evaluate_learning_load(available_time=available_time)

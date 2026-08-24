@@ -1361,14 +1361,101 @@ def align_activity_to_goals(
     goals: tuple[Any, ...] | list[Any] = (),
 ) -> dict[str, Any]:
     """Align activity to concurrent user goals without single-goal hegemony."""
-    raw_goals = [dict(normalize_json_value(g)) for g in goals if isinstance(g, Mapping)]
-    coexisting_ids = [_safe_str(g.get("id")) for g in raw_goals if _safe_str(g.get("id"))]
+    if not isinstance(goals, Iterable) or isinstance(goals, (str, bytes)):
+        goals_list: list[Any] = []
+    else:
+        goals_list = list(goals)
+
+    raw_goals = [dict(normalize_json_value(g)) for g in goals_list if isinstance(g, Mapping)]
+    coexisting_ids = sorted({gid for g in raw_goals if (gid := _safe_str(g.get("id"))) is not None})
+
+    if not isinstance(activity, Mapping):
+        if isinstance(activity, str) and activity.strip():
+            activity_dict = {"type": activity.strip()}
+        else:
+            activity_dict = {}
+    else:
+        activity_dict = dict(normalize_json_value(activity))
+
+    act_type = (_safe_str(activity_dict.get("type")) or _safe_str(activity_dict.get("activity_type")) or _safe_str(activity_dict.get("kind")) or "").lower()
+    act_skill = (_safe_str(activity_dict.get("skill")) or _safe_str(activity_dict.get("target_skill")) or "").lower()
+    act_topic = (_safe_str(activity_dict.get("topic")) or "").lower()
+    act_target = (_safe_str(activity_dict.get("target")) or "").lower()
+
+    raw_act_goals = activity_dict.get("goal_ids") or activity_dict.get("goal_id") or ()
+    if isinstance(raw_act_goals, str):
+        act_goal_ids = {raw_act_goals}
+    elif isinstance(raw_act_goals, Iterable):
+        act_goal_ids = {_safe_str(x) for x in raw_act_goals if _safe_str(x)}
+    else:
+        act_goal_ids = set()
+
+    is_unrelated = (
+        not act_type and not act_skill and not act_topic and not act_target and not act_goal_ids
+    ) or any(
+        unrelated_term in act_type
+        for unrelated_term in ("unrelated", "accounting", "tax_filing", "non_learning", "irrelevant")
+    )
+
+    aligned_goal_ids: list[str] = []
+
+    if not is_unrelated and raw_goals:
+        for g in raw_goals:
+            gid = _safe_str(g.get("id"))
+            if gid is None:
+                continue
+
+            if gid in act_goal_ids:
+                aligned_goal_ids.append(gid)
+                continue
+
+            g_kind = (_safe_str(g.get("kind")) or _safe_str(g.get("type")) or "").lower()
+            g_skill = (_safe_str(g.get("skill")) or "").lower()
+            g_target = (_safe_str(g.get("target")) or "").lower()
+
+            matched = False
+
+            if act_skill and (act_skill == g_skill or act_skill in g_kind or act_skill in g_target):
+                matched = True
+
+            if act_type in ("roleplay", "conversation", "speaking_practice", "dialogue", "chat") or "conversation" in act_topic:
+                if g_kind in ("conversation", "speaking", "fluency") or g_skill in ("speaking", "listening") or "conversation" in g_target or "fluency" in g_target:
+                    matched = True
+
+            if act_type in ("formal_exam_essay", "exam_practice", "certification_prep", "mock_test", "standardized_test"):
+                if g_kind in ("certification", "exam", "assessment") or any(fw in g_target for fw in ("c1", "c2", "b2", "b1", "dele", "ielts", "toefl", "cambridge")):
+                    matched = True
+
+            if act_type in ("vocab_drill", "vocabulary", "flashcards", "spaced_review", "word_matching"):
+                if g_kind in ("vocabulary", "vocab", "lexicon") or g_skill == "vocabulary" or "vocab" in g_target:
+                    matched = True
+
+            if act_type in ("grammar_drill", "grammar", "syntax", "conjugation"):
+                if g_kind in ("grammar", "syntax", "accuracy") or g_skill == "grammar" or "grammar" in g_target:
+                    matched = True
+
+            if act_type in ("reading", "article_reading", "comprehension", "literature"):
+                if g_kind in ("reading", "literature", "comprehension") or g_skill == "reading" or "reading" in g_target:
+                    matched = True
+
+            if act_type in ("writing", "essay", "composition", "free_writing"):
+                if g_kind in ("writing", "academic_writing", "composition") or g_skill == "writing" or "writing" in g_target:
+                    matched = True
+
+            if act_type in ("practice", "review", "lesson", "exercise") and not is_unrelated:
+                matched = True
+
+            if matched:
+                aligned_goal_ids.append(gid)
+
+    unique_aligned_goals = sorted(set(aligned_goal_ids))
+    activity_fit = "aligned" if unique_aligned_goals else "not_aligned"
 
     return {
         "coexisting_goals": coexisting_ids,
         "total_goals_count": len(raw_goals),
-        "activity_fit": "aligned",
-        "aligned_goals": coexisting_ids,
+        "activity_fit": activity_fit,
+        "aligned_goals": unique_aligned_goals,
     }
 
 
