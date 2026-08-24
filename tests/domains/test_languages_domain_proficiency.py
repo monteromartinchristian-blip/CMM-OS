@@ -220,6 +220,7 @@ def test_independent_comparable_samples_support_stable_level() -> None:
         {
             "provenance_id": "sample-1",
             "skill": "writing",
+            "framework": "CEFR",
             "observed": "B2",
             "comparable": True,
             "comparison_key": "writing-argumentative",
@@ -227,6 +228,7 @@ def test_independent_comparable_samples_support_stable_level() -> None:
         {
             "provenance_id": "sample-2",
             "skill": "writing",
+            "framework": "CEFR",
             "observed": "B2",
             "comparable": True,
             "comparison_key": "writing-argumentative",

@@ -2939,3 +2939,395 @@ def test_red_cert_auth_source_fields_accepted(source_field: str) -> None:
     res = evaluate_certification_source(sources=(source,), decision_critical=True)
     assert res["authority_rank"] == 6
     assert res["needs_verification"] is False
+
+
+def test_red_general_estimate_from_writing_rejected() -> None:
+    """Two writing observations cannot directly establish a general ESTIMATED record."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_general_observed_from_writing_rejected() -> None:
+    """One writing observation cannot directly establish a general OBSERVED_PERFORMANCE record."""
+    res = classify_proficiency_record(
+        kind="OBSERVED_PERFORMANCE",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_general_level_update_from_writing_rejected() -> None:
+    """Writing-only comparable evidence cannot update general proficiency."""
+    res = evaluate_level_update(
+        existing={
+            "kind": "ESTIMATED",
+            "framework": "CEFR",
+            "level_or_score": "B1",
+            "skill_scope": "general",
+        },
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+    )
+    assert res["stable_update_supported"] is False
+
+
+def test_red_general_progression_from_writing_rejected() -> None:
+    """Writing-only progression with skill=None or 'general' cannot become stable general progression."""
+    res = evaluate_progression(
+        previous_evidence=(
+            {
+                "provenance_id": "p1",
+                "skill": "writing",
+                "score": 0.50,
+                "comparable": True,
+                "comparison_key": "essay-1",
+            },
+        ),
+        current_evidence=(
+            {
+                "provenance_id": "c1",
+                "skill": "writing",
+                "score": 0.80,
+                "comparable": True,
+                "comparison_key": "essay-1",
+            },
+            {
+                "provenance_id": "c2",
+                "skill": "writing",
+                "score": 0.82,
+                "comparable": True,
+                "comparison_key": "essay-1",
+            },
+        ),
+        skill=None,
+    )
+    assert res["stable_progression"] is False
+    assert res["progression_outcome"] == "insufficient_evidence"
+
+
+def test_red_unknown_classify_scope_rejected() -> None:
+    """Unknown non-canonical skill scope fails closed."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="foobar",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "foobar",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "foobar",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_unknown_level_update_scope_rejected() -> None:
+    """Unknown target skill in evaluate_level_update fails closed."""
+    res = evaluate_level_update(
+        existing={
+            "kind": "ESTIMATED",
+            "framework": "CEFR",
+            "level_or_score": "B1",
+            "skill_scope": "writing",
+        },
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "foobar",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "foobar",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+        target_skill="foobar",
+    )
+    assert res["stable_update_supported"] is False
+
+
+def test_red_specific_writing_scope_still_accepted() -> None:
+    """Specific writing evidence continues to ground writing proficiency."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["kind"] == "ESTIMATED"
+    assert res["level_or_score"] == "B1"
+    assert res["skill_scope"] == "writing"
+    assert res["confidence"] == 0.75
+
+
+def test_red_explicit_global_evidence_accepted_if_contract_supports_it() -> None:
+    """Explicitly general or overall evidence grounds general proficiency."""
+    res_gen = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "general",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "general",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res_gen["kind"] == "ESTIMATED"
+    assert res_gen["level_or_score"] == "B1"
+    assert res_gen["skill_scope"] == "general"
+
+
+def test_red_ungrounded_framework_tag_cannot_select_framework() -> None:
+    """Ungrounded framework tag cannot select framework for framework-neutral evidence."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {"framework": "IELTS"},  # no provenance, no observation
+            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
+            {"provenance_id": "p2", "skill": "writing", "observed": "C1"},
+        ),
+    )
+    assert res["framework"] != "IELTS"
+
+
+def test_red_grounded_framework_inference_only() -> None:
+    """Framework is inferred only from grounded evidence."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+        ),
+    )
+    assert res["framework"] == "ACTFL"
+    assert res["level_or_score"] == "C1"
+
+
+def test_red_mixed_grounded_frameworks_fail_closed() -> None:
+    """Mixed grounded frameworks fail closed."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "C1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_level_update_missing_framework_no_cefr_default() -> None:
+    """Missing framework in evaluate_level_update never defaults to CEFR."""
+    res = evaluate_level_update(
+        existing={
+            "kind": "ESTIMATED",
+            "level_or_score": "B1",
+            "skill_scope": "writing",
+        },
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "skill": "writing",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p2",
+                "skill": "writing",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+    )
+    assert res["stable_update_supported"] is False
+    assert res.get("updated_record", {}).get("framework") != "CEFR"
+
+
+def test_red_cert_invalid_date_string_rejected() -> None:
+    """Certificate with invalid date string ('banana') is rejected."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": "banana",
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["certification_evidence_valid"] is False
+    assert res["level_or_score"] == "unassessed"
+
+
+def test_red_cert_empty_date_rejected() -> None:
+    """Certificate with empty date string is rejected."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": "",
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["certification_evidence_valid"] is False
+    assert res["level_or_score"] == "unassessed"
+
+
+def test_red_cert_valid_iso_date_accepted() -> None:
+    """Certificate with valid ISO date string is accepted."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": "2026-01-01",
+            },
+        ),
+    )
+    assert res["kind"] == "CERTIFIED"
+    assert res["is_certified"] is True
+    assert res["certification_evidence_valid"] is True
+    assert res["level_or_score"] == "B1"
+    assert res["confidence"] == 0.95

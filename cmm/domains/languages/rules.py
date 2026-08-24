@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -63,6 +64,18 @@ from cmm.domains.rule_contracts import DomainReasoningRuleDefinition, DomainRule
 LANGUAGES_RULE_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_RULE_IDS
 
 CANONICAL_SKILL_DIMENSIONS: tuple[str, ...] = (
+    "listening",
+    "speaking",
+    "reading",
+    "writing",
+    "grammar",
+    "vocabulary",
+    "pronunciation",
+    "interaction",
+)
+
+CANONICAL_PROFICIENCY_SCOPES: tuple[str, ...] = (
+    "general",
     "listening",
     "speaking",
     "reading",
@@ -189,6 +202,33 @@ def _safe_str(val: Any) -> str | None:
     return cleaned if cleaned else None
 
 
+def _canonical_scope(scope: Any) -> str | None:
+    """Validate and normalize a canonical proficiency scope."""
+    clean = _safe_str(scope)
+    if clean is None:
+        return None
+    norm = clean.casefold()
+    if norm in CANONICAL_PROFICIENCY_SCOPES:
+        return norm
+    return None
+
+
+def _is_valid_iso_temporal(val: Any) -> bool:
+    """Validate deterministic ISO-8601 date/timestamp syntax without internal clock."""
+    if val is None or not isinstance(val, str) or isinstance(val, bool):
+        return False
+    clean = val.strip()
+    if not clean or len(clean) < 10:
+        return False
+    if clean[4] != "-" or clean[7] != "-":
+        return False
+    try:
+        datetime.fromisoformat(clean.replace("Z", "+00:00"))
+        return True
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
 def _canonical_provenance(record: Mapping[str, Any]) -> str | None:
     """Return occurrence provenance that is independent of caller aliases."""
     for field in _PROVENANCE_FIELDS:
@@ -275,27 +315,34 @@ def _is_certifying_evidence(
         or _safe_str(record.get("date"))
         or _safe_str(record.get("timestamp"))
     )
-    if cert_validity is None:
+    if cert_validity is None or not _is_valid_iso_temporal(cert_validity):
         return False
 
-    cert_skill = _safe_str(record.get("skill")) or _safe_str(record.get("skill_scope"))
+    cert_skill_raw = _safe_str(record.get("skill")) or _safe_str(
+        record.get("skill_scope")
+    )
+    cert_skill = (
+        _canonical_scope(cert_skill_raw) if cert_skill_raw is not None else None
+    )
+    if cert_skill_raw is not None and cert_skill is None:
+        return False
+
     clean_req_skill = _safe_str(requested_skill)
     if clean_req_skill is not None:
-        norm_req_skill = clean_req_skill.casefold()
+        norm_req_skill = _canonical_scope(clean_req_skill)
+        if norm_req_skill is None:
+            return False
         if norm_req_skill in CANONICAL_SKILL_DIMENSIONS:
-            if cert_skill is None or cert_skill.casefold() != norm_req_skill:
+            if cert_skill is None or cert_skill != norm_req_skill:
                 return False
         elif (
             norm_req_skill == "general"
             and cert_skill is not None
-            and cert_skill.casefold() != "general"
+            and cert_skill != "general"
         ):
             return False
     else:
-        if (
-            cert_skill is not None
-            and cert_skill.casefold() in CANONICAL_SKILL_DIMENSIONS
-        ):
+        if cert_skill is not None and cert_skill in CANONICAL_SKILL_DIMENSIONS:
             return False
 
     return True
@@ -446,16 +493,38 @@ def _proficiency_evidence_supports_claim(
         if ev_fw is not None and ev_fw.upper() != req_fw:
             return False
 
+    ev_skill_raw = _safe_str(record.get("skill")) or _safe_str(
+        record.get("skill_scope")
+    )
+    if "skill" in record and _safe_str(record.get("skill")) is None:
+        return False
+
     if requested_skill is not None:
         clean_req_skill = _safe_str(requested_skill)
         if clean_req_skill is not None:
-            norm_skill = clean_req_skill.casefold()
+            norm_skill = _canonical_scope(clean_req_skill)
+            if norm_skill is None:
+                return False
             if norm_skill in CANONICAL_SKILL_DIMENSIONS:
-                ev_skill = _safe_str(record.get("skill"))
-                if ev_skill is None or ev_skill.casefold() != norm_skill:
+                if ev_skill_raw is None:
                     return False
-    elif "skill" in record and _safe_str(record.get("skill")) is None:
-        return False
+                ev_norm = _canonical_scope(ev_skill_raw)
+                if ev_norm != norm_skill:
+                    return False
+            elif norm_skill == "general":
+                if ev_skill_raw is not None:
+                    ev_norm = _canonical_scope(ev_skill_raw)
+                    if (
+                        ev_norm is None
+                        or ev_norm in CANONICAL_SKILL_DIMENSIONS
+                        or ev_norm != "general"
+                    ):
+                        return False
+    else:
+        if ev_skill_raw is not None:
+            ev_norm = _canonical_scope(ev_skill_raw)
+            if ev_norm is None:
+                return False
 
     if requested_value is not None:
         observed_value = _safe_str(record.get("observed")) or _safe_str(
@@ -497,17 +566,65 @@ def classify_proficiency_record(
         requested_kind = "OBSERVED_PERFORMANCE"
 
     clean_framework = _safe_str(framework)
-    clean_skill_scope = _safe_str(skill_scope) or "general"
+    raw_skill_scope = _safe_str(skill_scope)
+    if raw_skill_scope is None:
+        clean_skill_scope = "general"
+        scope_valid = True
+    else:
+        canonical_s = _canonical_scope(raw_skill_scope)
+        if canonical_s is not None:
+            clean_skill_scope = canonical_s
+            scope_valid = True
+        else:
+            clean_skill_scope = raw_skill_scope
+            scope_valid = False
+
     clean_level_or_score = _clean_proficiency_value(level_or_score)
 
+    if not scope_valid:
+        return {
+            "kind": "OBSERVED_PERFORMANCE",
+            "framework": clean_framework,
+            "level_or_score": "unassessed",
+            "skill_scope": clean_skill_scope,
+            "evidence": deduped_ev,
+            "is_certified": False,
+            "certification_evidence_valid": False,
+            "confidence": 0.0,
+        }
+
+    # Infer framework ONLY from grounded evidence for the relevant claim context
     if clean_framework is None:
+        grounded_candidates = [
+            e
+            for e in deduped_ev
+            if _proficiency_evidence_supports_claim(
+                e,
+                requested_framework=None,
+                requested_skill=clean_skill_scope,
+                requested_value=clean_level_or_score,
+                require_comparable=False,
+            )
+        ]
         ev_frameworks = {
             _safe_str(e.get("framework")).upper()
-            for e in deduped_ev
+            for e in grounded_candidates
             if _safe_str(e.get("framework")) is not None
         }
         if len(ev_frameworks) == 1:
             clean_framework = next(iter(ev_frameworks))
+        elif len(ev_frameworks) > 1:
+            # Mixed grounded frameworks -> fail closed
+            return {
+                "kind": "OBSERVED_PERFORMANCE",
+                "framework": None,
+                "level_or_score": "unassessed",
+                "skill_scope": clean_skill_scope,
+                "evidence": deduped_ev,
+                "is_certified": False,
+                "certification_evidence_valid": False,
+                "confidence": 0.0,
+            }
 
     # CERTIFIED requires complete, matching, recognized official credential evidence.
     valid_cert_ev = [
@@ -601,7 +718,6 @@ def evaluate_level_update(
     existing_dict = dict(existing) if isinstance(existing, Mapping) else {}
     existing_kind = existing_dict.get("kind")
     existing_level = existing_dict.get("level_or_score")
-    existing_framework = _safe_str(existing_dict.get("framework")) or "CEFR"
 
     if existing_kind == "CERTIFIED":
         return {
@@ -611,14 +727,31 @@ def evaluate_level_update(
             "updated_record": existing_dict,
         }
 
+    # Validate target skill / skill scope
+    req_skill = target_skill or existing_dict.get("skill_scope")
+    if req_skill is not None:
+        clean_skill = _canonical_scope(req_skill)
+        if clean_skill is None:
+            return {
+                "stable_update_supported": False,
+                "reason": "invalid_skill_scope",
+                "proposed_level": existing_level,
+                "updated_record": existing_dict,
+            }
+        resolved_skill = clean_skill
+    else:
+        resolved_skill = "general"
+
+    existing_framework = _safe_str(existing_dict.get("framework"))
     deduped_ev = _deduplicate_evidence(evidence)
+
     comparable = [
         item
         for item in deduped_ev
         if _proficiency_evidence_supports_claim(
             item,
             requested_framework=existing_framework,
-            requested_skill=target_skill or existing_dict.get("skill_scope"),
+            requested_skill=resolved_skill,
             requested_value=None,
             require_comparable=True,
         )
@@ -639,27 +772,43 @@ def evaluate_level_update(
         if (_safe_str(e.get("observed")) or _safe_str(e.get("observed_performance")))
         is not None
     ]
-    if len(observed_levels) >= 2 and len(set(observed_levels)) == 1:
-        new_level = observed_levels[0]
+    if len(observed_levels) < 2 or len(set(observed_levels)) != 1:
         return {
-            "stable_update_supported": True,
-            "reason": "consistent_comparable_evidence",
-            "proposed_level": new_level,
-            "updated_record": {
-                "kind": "ESTIMATED",
-                "framework": existing_framework,
-                "skill_scope": target_skill
-                or existing_dict.get("skill_scope", "general"),
-                "level_or_score": new_level,
-                "evidence": comparable,
-            },
+            "stable_update_supported": False,
+            "reason": "insufficient_comparable_evidence",
+            "proposed_level": existing_level,
+            "updated_record": existing_dict,
         }
 
+    # If framework is not provided on existing, infer only from unambiguous grounded comparable evidence
+    if existing_framework is None:
+        ev_frameworks = {
+            _safe_str(e.get("framework")).upper()
+            for e in comparable
+            if _safe_str(e.get("framework")) is not None
+        }
+        if len(ev_frameworks) == 1:
+            existing_framework = next(iter(ev_frameworks))
+        else:
+            return {
+                "stable_update_supported": False,
+                "reason": "missing_framework",
+                "proposed_level": existing_level,
+                "updated_record": existing_dict,
+            }
+
+    new_level = observed_levels[0]
     return {
-        "stable_update_supported": False,
-        "reason": "insufficient_comparable_evidence",
-        "proposed_level": existing_level,
-        "updated_record": existing_dict,
+        "stable_update_supported": True,
+        "reason": "consistent_comparable_evidence",
+        "proposed_level": new_level,
+        "updated_record": {
+            "kind": "ESTIMATED",
+            "framework": existing_framework,
+            "skill_scope": resolved_skill,
+            "level_or_score": new_level,
+            "evidence": comparable,
+        },
     }
 
 
@@ -1944,11 +2093,26 @@ def evaluate_progression(
     clean_prev = _deduplicate_evidence(previous_evidence)
     clean_curr = _deduplicate_evidence(current_evidence)
 
+    if skill is not None:
+        clean_skill_str = _safe_str(skill)
+        if clean_skill_str is not None:
+            resolved_skill = _canonical_scope(clean_skill_str)
+            if resolved_skill is None:
+                return {
+                    "progression_outcome": "insufficient_evidence",
+                    "stable_progression": False,
+                    "skill": clean_skill_str,
+                }
+        else:
+            resolved_skill = "general"
+    else:
+        resolved_skill = "general"
+
     if not clean_prev or not clean_curr:
         return {
             "progression_outcome": "insufficient_evidence",
             "stable_progression": False,
-            "skill": skill or "general",
+            "skill": resolved_skill,
         }
 
     def _comparable_score(record: Mapping[str, Any]) -> tuple[str, str, float] | None:
@@ -1960,9 +2124,22 @@ def evaluate_progression(
             or comparison_key is None
             or record.get("comparable") is not True
             or score is None
-            or (skill is not None and _safe_str(record.get("skill")) != skill)
         ):
             return None
+        ev_skill_raw = _safe_str(record.get("skill")) or _safe_str(
+            record.get("skill_scope")
+        )
+        if resolved_skill in CANONICAL_SKILL_DIMENSIONS:
+            if ev_skill_raw is None or ev_skill_raw.casefold() != resolved_skill:
+                return None
+        elif resolved_skill == "general" and ev_skill_raw is not None:
+            ev_norm = _canonical_scope(ev_skill_raw)
+            if (
+                ev_norm is None
+                or ev_norm in CANONICAL_SKILL_DIMENSIONS
+                or ev_norm != "general"
+            ):
+                return None
         return comparison_key, provenance, score
 
     previous_scores = [
@@ -1978,7 +2155,7 @@ def evaluate_progression(
         return {
             "progression_outcome": "insufficient_evidence",
             "stable_progression": False,
-            "skill": skill or "general",
+            "skill": resolved_skill,
         }
 
     comparison_key = next(iter(shared_keys))
@@ -1999,7 +2176,7 @@ def evaluate_progression(
         return {
             "progression_outcome": "insufficient_evidence",
             "stable_progression": False,
-            "skill": skill or "general",
+            "skill": resolved_skill,
         }
 
     prev_avg = sum(prev_scores) / len(prev_scores)
@@ -2027,7 +2204,7 @@ def evaluate_progression(
     return {
         "progression_outcome": outcome,
         "stable_progression": stable_prog,
-        "skill": skill or "general",
+        "skill": resolved_skill,
         "previous_average": prev_avg,
         "current_average": curr_avg,
     }

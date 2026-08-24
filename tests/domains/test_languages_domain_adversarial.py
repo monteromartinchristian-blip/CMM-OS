@@ -9,6 +9,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
+import pytest
+
 from cmm.agent_runtime.approval_contracts import ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
@@ -1919,3 +1921,72 @@ def test_user_answer_without_exercise_outcome_is_not_correctness_evidence() -> N
 
     assert result["is_correct"] is None
     assert result["score"] is None
+
+
+def test_adversarial_ungrounded_framework_tag_cannot_label_neutral_evidence() -> None:
+    """An ungrounded framework tag cannot inject framework into neutral samples."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {"framework": "IELTS"},
+            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
+            {"provenance_id": "p2", "skill": "writing", "observed": "C1"},
+        ),
+    )
+    assert res["framework"] is None
+
+
+@pytest.mark.parametrize(
+    "bad_date",
+    ["banana", "not-a-date", "", "2026", "2026-02-31", 12345, True, False],
+)
+def test_adversarial_malformed_certificate_dates_fail_closed(bad_date: Any) -> None:
+    """Malformed date inputs never grant certified status."""
+    res = classify_proficiency_record(
+        kind="CERTIFIED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "source_kind": "official_certificate",
+                "source_id": "official-1",
+                "certificate_id": "cert-1",
+                "framework": "CEFR",
+                "result": "B1",
+                "valid_at": bad_date,
+            },
+        ),
+    )
+    assert res["is_certified"] is False
+    assert res["certification_evidence_valid"] is False
+    assert res["level_or_score"] == "unassessed"
+
+
+def test_adversarial_scope_pollution_fails_closed() -> None:
+    """Cross-scope injection into general proficiency estimate fails closed."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "writing",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
