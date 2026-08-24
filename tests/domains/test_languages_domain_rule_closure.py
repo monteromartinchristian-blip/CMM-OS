@@ -2010,3 +2010,128 @@ def test_learning_load_bool_numeric_deadline_days_remaining_rejected():
     )
     assert "exam_practice" not in res["recommended_activities"]
 
+
+# ── Cross-Path Invariant Meta-Tests Suite ─────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "helper_call",
+    [
+        lambda ev: classify_proficiency_record(kind="ESTIMATED", framework="CEFR", level_or_score="B2", evidence=ev),
+        lambda ev: evaluate_error_pattern(observations=ev),
+        lambda ev: adapt_difficulty(current_difficulty=2, performance=ev),
+        lambda ev: evaluate_progression(previous_evidence=ev, current_evidence=ev, skill="writing"),
+        lambda ev: evaluate_cultural_context(claim="Specific claim", evidence=ev),
+    ],
+)
+def test_meta_all_evidence_helpers_reject_unprovenanced_records(helper_call):
+    """Every evidence-consuming rule helper strictly rejects records without canonical provenance."""
+    unprovenanced_record = {"score": 0.8, "observed": "B2", "comparable": True, "comparison_key": "k1", "skill": "writing"}
+    res = helper_call((unprovenanced_record,))
+    assert isinstance(res, dict)
+    # Check that unprovenanced record was not treated as valid grounded evidence
+    if "level_or_score" in res:
+        assert res["level_or_score"] == "unassessed"
+    if "eligible" in res:
+        assert res["eligible"] is False
+    if "action" in res:
+        assert res["action"] == "insufficient_evidence"
+    if "progression_outcome" in res:
+        assert res["progression_outcome"] == "insufficient_evidence"
+    if "has_grounded_evidence" in res:
+        assert res["has_grounded_evidence"] is False
+
+
+@pytest.mark.parametrize("source_fw,target_fw", [
+    ("CEFR", "ACTFL"),
+    ("ACTFL", "CEFR"),
+    ("IELTS", "TOEFL"),
+    ("TOEFL", "IELTS"),
+    ("CEFR", "IELTS"),
+])
+def test_meta_cross_framework_direct_identity_always_forbidden(source_fw, target_fw):
+    """Direct cross-framework identity is unconditionally forbidden without grounded concordance."""
+    res = evaluate_framework_mapping(
+        source_framework=source_fw,
+        source_value="B2",
+        target_framework=target_fw,
+        mapping_evidence=(),
+    )
+    assert res["calibrated"] is False
+    assert res["target_estimate_range"] is None
+    assert res["mapping_status"] in {"identity_forbidden", "insufficient_evidence"}
+
+
+@pytest.mark.parametrize("bad_numeric", [True, False, float("nan"), float("inf"), float("-inf"), "0.8", [0.8], {"val": 0.8}])
+def test_meta_all_numeric_fields_fail_closed_on_non_finite_or_bool(bad_numeric):
+    """All numeric fields across domain rules reject bool, NaN, Inf, string, and collection values."""
+    # 1. Proficiency score
+    res_prof = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score=bad_numeric,
+        evidence=({"provenance_id": "p1", "score": bad_numeric, "comparable": True, "comparison_key": "k1"},),
+    )
+    assert res_prof["level_or_score"] == "unassessed"
+
+    # 2. Adaptive difficulty current_difficulty & score
+    res_diff = adapt_difficulty(
+        current_difficulty=bad_numeric,
+        performance=({"provenance_id": "p1", "score": bad_numeric, "comparable": True, "comparison_key": "k1"},),
+    )
+    assert res_diff["action"] == "insufficient_evidence"
+
+    # 3. Spaced review mastery / recall / importance
+    res_sr = plan_spaced_review(
+        items=({"id": "v1", "mastery": bad_numeric, "recall": bad_numeric, "importance": bad_numeric, "due": True},),
+    )
+    assert len(res_sr["prioritized_items"]) == 1
+
+    # 4. Learning load available_time
+    res_load = evaluate_learning_load(available_time=bad_numeric)
+    assert res_load["load_status"] == "insufficient_constraints"
+    assert res_load["recommended_duration_minutes"] == 0
+
+    # 5. Error pattern minimum_independent_occurrences
+    res_ep = evaluate_error_pattern(
+        observations=({"provenance_id": "p1", "error_type": "tense", "comparable": True, "comparison_key": "k1"},),
+        minimum_independent_occurrences=bad_numeric,
+    )
+    assert res_ep["eligible"] is False
+
+
+@pytest.mark.parametrize("generic_id_field", ["session_id", "sample_id", "assessment_id", "context_id"])
+def test_meta_generic_occurrence_ids_never_grant_certification_authority(generic_id_field):
+    """Generic occurrence identifiers never confer certification authority rank 6 or bypass verification."""
+    source = {
+        "id": "s1",
+        "source_type": "official",
+        "temporal_state": "current",
+        generic_id_field: "occurrence-abc",
+    }
+    res = evaluate_certification_source(sources=(source,), decision_critical=True)
+    assert res["authority_rank"] < 6
+    assert res["needs_verification"] is True
+
+
+def test_meta_goal_alignment_requires_explicit_semantic_link():
+    """Goal alignment never matches without explicit goal ID, matching skill, or matching specific purpose."""
+    goals = (
+        {"id": "goal_reading", "kind": "reading", "skill": "reading", "target": "academic articles"},
+        {"id": "goal_speaking", "kind": "conversation", "skill": "speaking", "target": "fluency in travel"},
+    )
+    # Generic practice without matching skill/topic/purpose
+    res_generic = align_activity_to_goals(activity={"type": "practice"}, goals=goals)
+    assert res_generic["activity_fit"] == "not_aligned"
+    assert res_generic["aligned_goals"] == []
+
+    # Specific reading activity only matches reading goal
+    res_reading = align_activity_to_goals(activity={"type": "article_reading", "skill": "reading"}, goals=goals)
+    assert res_reading["activity_fit"] == "aligned"
+    assert res_reading["aligned_goals"] == ["goal_reading"]
+
+    # Specific speaking activity only matches speaking goal
+    res_speaking = align_activity_to_goals(activity={"type": "roleplay", "skill": "speaking"}, goals=goals)
+    assert res_speaking["activity_fit"] == "aligned"
+    assert res_speaking["aligned_goals"] == ["goal_speaking"]
+
+
