@@ -90,6 +90,53 @@ def test_same_error_same_provenance_different_ids_is_not_recurrent_pattern() -> 
     assert result["independent_occurrences"] == 1
 
 
+def test_unprovenanced_observation_cannot_change_grounded_pattern_state() -> None:
+    """A caller-only ID cannot turn resolved evidence into an improving lapse."""
+    resolved = (
+        {
+            "id": "resolved-1",
+            "provenance_id": "sample-1",
+            "sentence": "She went home.",
+            "error_type": "past_tense",
+            "resolved": True,
+            "comparable": True,
+            "comparison_key": "free-writing",
+        },
+        {
+            "id": "resolved-2",
+            "provenance_id": "sample-2",
+            "sentence": "They ate already.",
+            "error_type": "past_tense",
+            "resolved": True,
+            "comparable": True,
+            "comparison_key": "free-writing",
+        },
+    )
+    caller_only_unresolved = {
+        "id": "caller-only",
+        "sentence": "Yesterday he go home.",
+        "error_type": "past_tense",
+        "resolved": False,
+        "comparable": True,
+        "comparison_key": "free-writing",
+    }
+
+    grounded_result = evaluate_error_pattern(observations=resolved)
+    mixed_result = evaluate_error_pattern(
+        observations=(*resolved, caller_only_unresolved)
+    )
+
+    assert grounded_result == {
+        "pattern_state": "resolved",
+        "eligible": False,
+        "independent_occurrences": 2,
+        "comparable_contexts": 2,
+        "lapse_possible": False,
+        "evidence_ids": ["resolved-1", "resolved-2"],
+    }
+    assert mixed_result == grounded_result
+
+
 def test_different_non_comparable_occurrences_do_not_form_pattern() -> None:
     """Distinct occurrences still require explicit semantic comparability."""
     observations = (

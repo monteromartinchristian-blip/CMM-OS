@@ -670,6 +670,8 @@ def evaluate_error_pattern(
     for obs in valid_observations:
         obs_id = _safe_str(obs.get("id")) or ""
         provenance = _canonical_provenance(obs)
+        if provenance is None:
+            continue
         sentence = _safe_str(obs.get("sentence")) or ""
         err_type = _safe_str(obs.get("error_type"))
         if err_type is None:
@@ -681,12 +683,11 @@ def evaluate_error_pattern(
         if key in seen:
             continue
         seen.add(key)
-        if provenance is not None:
-            distinct_occurrences.add(provenance)
-            comparison_key = _safe_str(obs.get("comparison_key"))
-            if obs.get("comparable") is True and comparison_key is not None:
-                comparable_occurrences.add(provenance)
-                comparison_keys.add(comparison_key)
+        distinct_occurrences.add(provenance)
+        comparison_key = _safe_str(obs.get("comparison_key"))
+        if obs.get("comparable") is True and comparison_key is not None:
+            comparable_occurrences.add(provenance)
+            comparison_keys.add(comparison_key)
         if obs_id:
             evidence_ids.append(obs_id)
         if obs.get("resolved") is True:
