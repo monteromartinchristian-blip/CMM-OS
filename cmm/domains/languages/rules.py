@@ -94,6 +94,12 @@ _CERTIFIED_SOURCE_KINDS = frozenset(
         "official_credential",
     }
 )
+_PRONUNCIATION_ASSESSMENT_SOURCE_KINDS = frozenset(
+    {
+        "acoustic_assessment",
+        "pronunciation_assessment",
+    }
+)
 _PROVENANCE_FIELDS = (
     "provenance_id",
     "source_id",
@@ -187,6 +193,36 @@ def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
         and not isinstance(score, bool)
         and math.isfinite(float(score))
     )
+
+
+def _has_explicit_pronunciation_result(record: Mapping[str, Any]) -> bool:
+    """Return whether an assessment record contains a usable pronunciation outcome."""
+    if any(
+        _safe_str(record.get(field)) is not None
+        for field in ("pronunciation_result", "pronunciation_feedback", "finding")
+    ):
+        return True
+    score = record.get("score")
+    return (
+        isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and math.isfinite(float(score))
+    )
+
+
+def _is_grounded_pronunciation_assessment(record: Mapping[str, Any]) -> bool:
+    """Accept only provenance-grounded, explicit pronunciation assessment evidence."""
+    if (
+        _safe_str(record.get("skill")) != "pronunciation"
+        or record.get("pronunciation_assessed") is False
+        or _canonical_provenance(record) is None
+    ):
+        return False
+
+    source_kind = _safe_str(record.get("source_kind"))
+    if source_kind not in _PRONUNCIATION_ASSESSMENT_SOURCE_KINDS | {"audio_sample"}:
+        return False
+    return _has_explicit_pronunciation_result(record)
 
 
 def _clean_proficiency_value(value: Any) -> str | float | None:
@@ -411,7 +447,7 @@ def separate_skill_evidence(*, evidence: tuple[Any, ...] | list[Any] = ()) -> di
         if skill == "pronunciation":
             skill_items = [
                 e for e in skill_items
-                if e.get("source_kind") != "audio_transcript" and e.get("pronunciation_assessed") is not False
+                if _is_grounded_pronunciation_assessment(e)
             ]
             if skill_items:
                 has_pronunciation_specific_evidence = True

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from copy import deepcopy
+
 import pytest
 
 from cmm.domains.languages.rules import (
@@ -277,6 +280,200 @@ def test_level_estimate_mutations_fail_closed_when_grounding_is_removed(evidence
     assert result["kind"] != "ESTIMATED"
     assert result["level_or_score"] == "unassessed"
     assert result["confidence"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        (
+            {
+                "source_kind": "audio_transcript",
+                "source_id": "transcript-1",
+                "skill": "pronunciation",
+                "transcript": "Hello world",
+            },
+        ),
+        (
+            {
+                "source_kind": "text_transcript",
+                "source_id": "text-1",
+                "skill": "pronunciation",
+                "transcript": "Hello world",
+            },
+        ),
+        (
+            {
+                "source_kind": "user_message",
+                "source_id": "message-1",
+                "skill": "pronunciation",
+                "text": "My pronunciation is excellent.",
+            },
+        ),
+        (
+            {
+                "source_kind": "self_report",
+                "source_id": "report-1",
+                "skill": "pronunciation",
+                "observed": "excellent",
+            },
+        ),
+        (
+            {
+                "source_kind": "sample",
+                "sample_id": "sample-1",
+                "skill": "pronunciation",
+                "observed": "B2",
+            },
+        ),
+        (
+            {
+                "source_kind": "acoustic_assessment",
+                "assessment_id": "assessment-1",
+                "skill": "pronunciation",
+                "pronunciation_assessed": False,
+            },
+        ),
+        (
+            {
+                "source_kind": "acoustic_assessment",
+                "assessment_id": "assessment-2",
+                "skill": "pronunciation",
+            },
+        ),
+        (
+            {
+                "source_kind": "pronunciation_assessment",
+                "provenance_id": "pronunciation-2",
+                "skill": "pronunciation",
+            },
+        ),
+        (
+            {
+                "source_kind": "pronunciation_assessment",
+                "skill": "pronunciation",
+                "pronunciation_assessed": True,
+            },
+        ),
+    ),
+)
+def test_skill_separation_rejects_ungrounded_or_non_acoustic_pronunciation_evidence(evidence):
+    """Text and self-claims cannot establish pronunciation assessment."""
+    separated = separate_skill_evidence(evidence=evidence)
+
+    assert separated["pronunciation_assessed"] is False
+    assert separated["by_skill"]["pronunciation"] == {
+        "status": "insufficient_evidence",
+        "evidence_count": 0,
+        "evidence": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        (
+            {
+                "source_kind": "acoustic_assessment",
+                "assessment_id": "acoustic-1",
+                "skill": "pronunciation",
+                "finding": "Vowel length is inconsistent.",
+            },
+        ),
+        (
+            {
+                "source_kind": "pronunciation_assessment",
+                "provenance_id": "pronunciation-1",
+                "skill": "pronunciation",
+                "score": 0.8,
+            },
+        ),
+        (
+            {
+                "source_kind": "audio_sample",
+                "sample_id": "audio-1",
+                "skill": "pronunciation",
+                "pronunciation_result": "Final consonants need practice.",
+            },
+        ),
+    ),
+)
+def test_skill_separation_accepts_grounded_explicit_pronunciation_assessments(evidence):
+    """Only explicit acoustic/pronunciation assessments can support this skill."""
+    separated = separate_skill_evidence(evidence=evidence)
+
+    assert separated["pronunciation_assessed"] is True
+    assert separated["by_skill"]["pronunciation"]["status"] == "evidenced"
+    assert separated["by_skill"]["pronunciation"]["evidence_count"] == 1
+    assert separated["by_skill"]["pronunciation"]["evidence"] == list(evidence)
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    (
+        (
+            {
+                "source_kind": "acoustic_assessment",
+                "skill": "pronunciation",
+            },
+        ),
+        (
+            {
+                "source_kind": "audio_sample",
+                "sample_id": "audio-1",
+                "skill": "pronunciation",
+                "pronunciation_result": " ",
+            },
+        ),
+        (
+            {
+                "source_kind": "audio_sample",
+                "sample_id": "audio-2",
+                "skill": "pronunciation",
+                "score": float("nan"),
+            },
+        ),
+        (
+            {
+                "source_kind": ["acoustic_assessment"],
+                "assessment_id": "assessment-1",
+                "skill": "pronunciation",
+            },
+        ),
+        {},
+        None,
+    ),
+)
+def test_skill_separation_pronunciation_provenance_removal_and_malformed_records_fail_closed(evidence):
+    """Removing assessment provenance or malformed assessment fields cannot add support."""
+    separated = separate_skill_evidence(evidence=(evidence,))
+
+    assert separated["pronunciation_assessed"] is False
+    assert separated["by_skill"]["pronunciation"]["status"] == "insufficient_evidence"
+    assert separated["by_skill"]["pronunciation"]["evidence_count"] == 0
+    json.dumps(separated, allow_nan=False)
+
+
+def test_skill_separation_pronunciation_filter_preserves_other_skills_json_and_inputs():
+    """Pronunciation hardening is local, JSON-safe, and does not mutate evidence."""
+    evidence = [
+        {
+            "source_kind": "sample",
+            "sample_id": "pronunciation-claim",
+            "skill": "pronunciation",
+            "observed": "B2",
+        },
+        {"skill": "reading", "observed": "B2"},
+        {"skill": "grammar", "observed": "85%"},
+    ]
+    before = deepcopy(evidence)
+
+    separated = separate_skill_evidence(evidence=evidence)
+
+    assert separated["by_skill"]["pronunciation"]["status"] == "insufficient_evidence"
+    assert separated["by_skill"]["reading"]["status"] == "evidenced"
+    assert separated["by_skill"]["grammar"]["status"] == "evidenced"
+    assert evidence == before
+    json.dumps(separated, allow_nan=False)
 
 
 def test_framework_mapping_requires_provenance():
