@@ -18,6 +18,7 @@ from cmm.domains.languages.rules import (
     evaluate_framework_mapping,
     evaluate_language_memory_consent,
     evaluate_learning_load,
+    evaluate_level_update,
     evaluate_progression,
     plan_spaced_review,
     prioritize_corrections,
@@ -1802,3 +1803,146 @@ def test_cultural_context_arbitrary_mapping_not_grounded():
     )
     assert res_grounded["has_grounded_evidence"] is True
     assert res_grounded["evidence_status"] == "evidenced"
+
+
+# ── Final Epistemic Invariant Consolidation RED Tests ─────────────────────────
+
+def test_framework_mapping_incomplete_records_rejected():
+    """Mapping evidence missing source_framework, source_value, target_framework, or target_range fails closed."""
+    # 1. Missing source_framework, source_value, target_framework
+    res_minimal = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=({"source_id": "conc-1", "target_range": "B2"},),
+    )
+    assert res_minimal["calibrated"] is False
+    assert res_minimal["target_estimate_range"] is None
+
+    # 2. Missing source_value, target_framework
+    res_no_val = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=({"source_framework": "IELTS", "source_id": "conc-1", "target_range": "B2"},),
+    )
+    assert res_no_val["calibrated"] is False
+
+    # 3. Missing source_framework, target_framework
+    res_no_sfw = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=({"source_value": "6.5", "source_id": "conc-1", "target_range": "B2"},),
+    )
+    assert res_no_sfw["calibrated"] is False
+
+    # 4. Missing source_framework, source_value
+    res_no_sval = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=({"target_framework": "CEFR", "source_id": "conc-1", "target_range": "B2"},),
+    )
+    assert res_no_sval["calibrated"] is False
+
+    # 5. Positive complete record calibrates
+    res_complete = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(
+            {
+                "source_id": "conc-1",
+                "source_framework": "IELTS",
+                "source_value": "6.5",
+                "target_framework": "CEFR",
+                "target_range": "B2",
+            },
+        ),
+    )
+    assert res_complete["calibrated"] is True
+    assert res_complete["target_estimate_range"] == "B2"
+
+
+def test_framework_mapping_textual_source_range_rejected():
+    """Textual source_range without exact structured source_value cannot calibrate in final closure."""
+    res = evaluate_framework_mapping(
+        source_framework="IELTS",
+        source_value="6.5",
+        target_framework="CEFR",
+        mapping_evidence=(
+            {
+                "source_id": "conc-1",
+                "source_framework": "IELTS",
+                "source_range": "6.5-7.5",
+                "target_framework": "CEFR",
+                "target_range": "B2",
+            },
+        ),
+    )
+    assert res["calibrated"] is False
+    assert res["target_estimate_range"] is None
+
+
+def test_evaluate_level_update_cross_framework_leakage_blocked():
+    """Cross-framework evidence cannot update a CEFR level directly via ACTFL identity."""
+    existing = {"kind": "ESTIMATED", "level_or_score": "B2", "skill_scope": "writing", "framework": "CEFR"}
+    actfl_evidence = (
+        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "ACTFL", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "ACTFL", "comparable": True, "comparison_key": "essay"},
+    )
+    res = evaluate_level_update(existing=existing, evidence=actfl_evidence, target_skill="writing")
+    assert res["stable_update_supported"] is False
+    assert res["proposed_level"] == "B2"
+
+
+def test_evaluate_level_update_preserves_framework():
+    """A valid stable level update preserves explicit framework in updated_record."""
+    existing = {"kind": "ESTIMATED", "level_or_score": "B2", "skill_scope": "writing", "framework": "CEFR"}
+    cefr_evidence = (
+        {"provenance_id": "p1", "skill": "writing", "observed": "C1", "framework": "CEFR", "comparable": True, "comparison_key": "essay"},
+        {"provenance_id": "p2", "skill": "writing", "observed": "C1", "framework": "CEFR", "comparable": True, "comparison_key": "essay"},
+    )
+    res = evaluate_level_update(existing=existing, evidence=cefr_evidence, target_skill="writing")
+    assert res["stable_update_supported"] is True
+    assert res["proposed_level"] == "C1"
+    assert res["updated_record"].get("framework") == "CEFR"
+
+
+@pytest.mark.parametrize("occurrence_alias", ("session_id", "sample_id", "assessment_id", "context_id"))
+def test_certification_source_authority_occurrence_aliases_not_authoritative(occurrence_alias):
+    """Generic occurrence identifiers cannot confer certification source authority."""
+    src = {
+        "id": "s1",
+        "source_type": "official",
+        "temporal_state": "current",
+        occurrence_alias: "occurrence-123",
+    }
+    res = evaluate_certification_source(sources=(src,), decision_critical=True)
+    assert res["authority_rank"] != 6
+    assert res["needs_verification"] is True
+
+
+def test_goal_alignment_generic_practice_not_universal():
+    """Generic practice does not automatically align all concurrent goals without semantic relevance."""
+    goals = (
+        {"id": "g_cert", "kind": "certification", "target": "C1 Exam"},
+        {"id": "g_conv", "kind": "conversation", "target": "Daily fluency"},
+    )
+    res = align_activity_to_goals(
+        activity={"type": "practice"},
+        goals=goals,
+    )
+    assert set(res["aligned_goals"]) != {"g_cert", "g_conv"}
+
+
+def test_learning_load_bool_numeric_deadline_days_remaining_rejected():
+    """Boolean days_remaining=True cannot trigger urgent exam practice."""
+    res = evaluate_learning_load(
+        available_time=30,
+        energy="moderate",
+        deadlines=({"id": "d1", "days_remaining": True},),
+    )
+    assert "exam_practice" not in res["recommended_activities"]
+
