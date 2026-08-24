@@ -980,7 +980,7 @@ def test_correction_priority_hierarchy_and_mutation():
         errors=(goal_error, base_error),
         active_goals=(),
     )
-    assert res_without_goal["prioritized_errors"][0]["id"] == "err-3"
+    assert res_without_goal["prioritized_errors"][0]["id"] == "err-4"
     # With active goal:
     res_with_goal = prioritize_corrections(
         errors=(goal_error, base_error),
