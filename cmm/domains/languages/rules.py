@@ -201,6 +201,33 @@ def _is_certifying_evidence(record: Any) -> bool:
     )
 
 
+def _finite_semantic_number(
+    value: Any,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float | None:
+    """Validate and normalize decision-driving numeric inputs.
+
+    Rejects bool, NaN, +Inf, -Inf, non-numeric scalars, and out-of-bounds values.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        val_float = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(val_float):
+        return None
+    if minimum is not None and val_float < minimum:
+        return None
+    if maximum is not None and val_float > maximum:
+        return None
+    return val_float
+
+
 def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
     """Return whether a record can ground an observed proficiency level or score."""
     if _canonical_provenance(record) is None:
@@ -209,12 +236,8 @@ def _is_grounded_proficiency_evidence(record: Mapping[str, Any]) -> bool:
         return False
     if _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance")):
         return True
-    score = record.get("score")
-    return (
-        isinstance(score, (int, float))
-        and not isinstance(score, bool)
-        and math.isfinite(float(score))
-    )
+    score = _finite_semantic_number(record.get("score"))
+    return score is not None
 
 
 def _has_explicit_pronunciation_result(record: Mapping[str, Any]) -> bool:
@@ -224,12 +247,8 @@ def _has_explicit_pronunciation_result(record: Mapping[str, Any]) -> bool:
         if _safe_str(record.get(field)) is not None
     ]) > 0:
         return True
-    score = record.get("score")
-    return (
-        isinstance(score, (int, float))
-        and not isinstance(score, bool)
-        and math.isfinite(float(score))
-    )
+    score = _finite_semantic_number(record.get("score"))
+    return score is not None
 
 
 def _is_grounded_pronunciation_assessment(record: Mapping[str, Any]) -> bool:
@@ -252,15 +271,10 @@ def _clean_proficiency_value(value: Any) -> str | float | None:
     text_value = _safe_str(value)
     if text_value is not None:
         return text_value
-    if (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(float(value))
-    ):
-        return float(value)
+    num = _finite_semantic_number(value)
+    if num is not None:
+        return num
     return None
-
-
 
 
 def _semantic_evidence_key(record: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -295,43 +309,62 @@ def _deduplicate_evidence(evidence: Any) -> list[dict[str, Any]]:
     return deduped
 
 
-def _evidence_matches_proficiency_claim(
+def _proficiency_evidence_supports_claim(
     record: Mapping[str, Any],
     *,
-    skill_scope: str,
-    claimed_value: str | float | None,
     requested_framework: str | None = None,
+    requested_skill: str | None = None,
+    requested_value: Any | None = None,
+    require_comparable: bool = False,
 ) -> bool:
-    """Require direct evidence to support the requested scope, framework, and value exactly."""
-    if not _is_grounded_proficiency_evidence(record) or claimed_value is None:
+    """Consolidated epistemic predicate binding framework, skill, value, provenance, and comparability."""
+    if not isinstance(record, Mapping):
         return False
 
+    if _canonical_provenance(record) is None:
+        return False
+
+    if require_comparable:
+        if record.get("comparable") is not True:
+            return False
+        if _safe_str(record.get("comparison_key")) is None:
+            return False
+
+    ev_fw = _safe_str(record.get("framework"))
     if requested_framework is not None:
         req_fw = requested_framework.strip().upper()
-        ev_fw = _safe_str(record.get("framework"))
-        # If evidence specifies a framework, it must match the claimed framework exactly.
-        # If evidence has no framework, it is treated as framework-neutral task evidence.
         if ev_fw is not None and ev_fw.upper() != req_fw:
             return False
 
-    normalized_scope = skill_scope.casefold()
-    if normalized_scope in CANONICAL_SKILL_DIMENSIONS:
-        evidence_skill = _safe_str(record.get("skill"))
-        if evidence_skill is None or evidence_skill.casefold() != normalized_scope:
+    if requested_skill is not None:
+        clean_req_skill = _safe_str(requested_skill)
+        if clean_req_skill is not None:
+            norm_skill = clean_req_skill.casefold()
+            if norm_skill in CANONICAL_SKILL_DIMENSIONS:
+                ev_skill = _safe_str(record.get("skill"))
+                if ev_skill is None or ev_skill.casefold() != norm_skill:
+                    return False
+    elif "skill" in record and _safe_str(record.get("skill")) is None:
+        return False
+
+    if requested_value is not None:
+        observed_value = _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance"))
+        if observed_value is not None:
+            if isinstance(requested_value, str):
+                return observed_value.casefold() == requested_value.casefold()
             return False
+
+        score = _finite_semantic_number(record.get("score"))
+        req_num = _finite_semantic_number(requested_value)
+        if score is not None and req_num is not None:
+            return score == req_num
+        return False
 
     observed_value = _safe_str(record.get("observed")) or _safe_str(record.get("observed_performance"))
     if observed_value is not None:
-        return isinstance(claimed_value, str) and observed_value.casefold() == claimed_value.casefold()
-
-    score = record.get("score")
-    return (
-        isinstance(claimed_value, float)
-        and isinstance(score, (int, float))
-        and not isinstance(score, bool)
-        and math.isfinite(float(score))
-        and float(score) == claimed_value
-    )
+        return True
+    score = _finite_semantic_number(record.get("score"))
+    return score is not None
 
 
 def classify_proficiency_record(
@@ -361,11 +394,12 @@ def classify_proficiency_record(
         grounded_ev = [
             item
             for item in deduped_ev
-            if _evidence_matches_proficiency_claim(
+            if _proficiency_evidence_supports_claim(
                 item,
-                skill_scope=clean_skill_scope,
-                claimed_value=clean_level_or_score,
                 requested_framework=clean_framework,
+                requested_skill=clean_skill_scope,
+                requested_value=clean_level_or_score,
+                require_comparable=False,
             )
         ]
         grounded_provenance = {_canonical_provenance(item) for item in grounded_ev}
@@ -423,6 +457,7 @@ def evaluate_level_update(
     existing_dict = dict(existing) if isinstance(existing, Mapping) else {}
     existing_kind = existing_dict.get("kind")
     existing_level = existing_dict.get("level_or_score")
+    existing_framework = _safe_str(existing_dict.get("framework")) or "CEFR"
 
     if existing_kind == "CERTIFIED":
         return {
@@ -436,10 +471,13 @@ def evaluate_level_update(
     comparable = [
         item
         for item in deduped_ev
-        if item.get("comparable") is True
-        and _safe_str(item.get("comparison_key")) is not None
-        and _canonical_provenance(item) is not None
-        and (target_skill is None or _safe_str(item.get("skill")) == target_skill)
+        if _proficiency_evidence_supports_claim(
+            item,
+            requested_framework=existing_framework,
+            requested_skill=target_skill or existing_dict.get("skill_scope"),
+            requested_value=None,
+            require_comparable=True,
+        )
     ]
     comparison_keys = {_safe_str(item.get("comparison_key")) for item in comparable}
     provenance_units = {_canonical_provenance(item) for item in comparable}
@@ -451,7 +489,11 @@ def evaluate_level_update(
             "updated_record": existing_dict,
         }
 
-    observed_levels = [e.get("observed") for e in comparable if e.get("observed")]
+    observed_levels = [
+        _safe_str(e.get("observed")) or _safe_str(e.get("observed_performance"))
+        for e in comparable
+        if (_safe_str(e.get("observed")) or _safe_str(e.get("observed_performance"))) is not None
+    ]
     if len(observed_levels) >= 2 and len(set(observed_levels)) == 1:
         new_level = observed_levels[0]
         return {
@@ -460,6 +502,7 @@ def evaluate_level_update(
             "proposed_level": new_level,
             "updated_record": {
                 "kind": "ESTIMATED",
+                "framework": existing_framework,
                 "skill_scope": target_skill or existing_dict.get("skill_scope", "general"),
                 "level_or_score": new_level,
                 "evidence": comparable,
