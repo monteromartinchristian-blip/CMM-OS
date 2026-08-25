@@ -519,6 +519,37 @@ def test_closure_gate_memory_proposal_requires_confirmation() -> None:
     assert prop.requires_confirmation is True
 
 
+def test_closure_gate_strict_memory_confirmation_coercions_rejected() -> None:
+    from cmm.domains.life_plan.memory import validate_life_plan_memory_proposal_content
+
+    non_booleans = ("false", "true", 0, 1, [], {}, None, "1", "0")
+    for val in non_booleans:
+        res = validate_life_plan_memory_proposal_content(
+            {
+                "kind": "decision",
+                "status": "decision",
+                "original_status": "preference",
+                "is_confirmed": val,
+            }
+        )
+        assert res["is_valid"] is False
+
+
+def test_closure_gate_memory_cannot_promote_inference_or_scenario_to_confirmed_state() -> None:
+    from cmm.domains.life_plan.memory import validate_life_plan_memory_proposal_content
+
+    for bad_kind in ("scenario", "inference", "hypothesis"):
+        res = validate_life_plan_memory_proposal_content(
+            {
+                "kind": bad_kind,
+                "status": "decision",
+                "original_status": "idea",
+                "is_confirmed": True,
+            }
+        )
+        assert res["is_valid"] is False
+
+
 # 24. Profile prohibits direct payment and external contracting
 def test_closure_gate_prohibits_payment_and_external_contracting() -> None:
     profile = build_life_plan_profile()

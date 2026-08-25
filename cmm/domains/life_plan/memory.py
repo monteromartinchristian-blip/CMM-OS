@@ -45,23 +45,38 @@ def validate_life_plan_memory_proposal_content(
     content: dict[str, Any],
 ) -> dict[str, Any]:
     """Validate proposal content against Life Plan safety and epistemic boundaries."""
-    kind = content.get("kind", "")
+    kind = str(content.get("kind", "")).lower()
     status = str(content.get("status", "")).lower()
     orig = str(content.get("original_status", "")).lower()
-    is_conf = content.get("is_confirmed", False)
+
+    # Strict boolean check for is_confirmed - reject non-bool types fail-closed
+    is_conf_raw = content.get("is_confirmed", False)
+    if "is_confirmed" in content and type(content["is_confirmed"]) is not bool:
+        return {
+            "is_valid": False,
+            "reason": "invalid_confirmation_evidence_type",
+        }
+    is_conf = (type(is_conf_raw) is bool) and is_conf_raw
 
     # Reject unconfirmed promotion to decision or commitment
     if (
         status in ("decision", "commitment")
         and not is_conf
         and (
-            orig in ("idea", "preference", "hypothesis", "scenario")
-            or kind == "decision"
+            orig in ("idea", "preference", "hypothesis", "scenario", "goal", "inference")
+            or kind in ("decision", "commitment", "preference", "scenario", "inference")
         )
     ):
         return {
             "is_valid": False,
             "reason": "prohibited_unconfirmed_decision_promotion",
+        }
+
+    # Memory cannot promote inference/scenario directly to confirmed decision
+    if kind in ("scenario", "inference", "hypothesis") and status in ("decision", "commitment"):
+        return {
+            "is_valid": False,
+            "reason": "prohibited_epistemic_promotion",
         }
 
     if (

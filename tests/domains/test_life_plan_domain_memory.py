@@ -68,6 +68,31 @@ def test_validate_life_plan_memory_proposal_content_rejects_unconfirmed_promotio
     )
 
 
+def test_validate_life_plan_memory_proposal_content_rejects_truthy_string_coercion() -> None:
+    # Exact V1 reproduction: string "false" is truthy in Python
+    content = {
+        "kind": "decision",
+        "status": "decision",
+        "original_status": "preference",
+        "is_confirmed": "false",
+    }
+    res = validate_life_plan_memory_proposal_content(content)
+    assert res["is_valid"] is False
+
+
+def test_validate_life_plan_memory_proposal_content_coercion_matrix_fails_closed() -> None:
+    non_booleans = ("false", "true", 0, 1, [], {}, None, "1", "0")
+    for val in non_booleans:
+        content = {
+            "kind": "decision",
+            "status": "decision",
+            "original_status": "preference",
+            "is_confirmed": val,
+        }
+        res = validate_life_plan_memory_proposal_content(content)
+        assert res["is_valid"] is False, f"Value {val!r} unexpectedly authorized confirmation"
+
+
 def test_validate_life_plan_memory_proposal_content_rejects_prohibited_clinical_data() -> (
     None
 ):
