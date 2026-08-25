@@ -15,6 +15,7 @@ A terminal ``COMPLETE`` node always transitively depends on a ``VALIDATE`` node.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -367,31 +368,72 @@ def build_life_plan_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
     return tuple(by_id[wf_id] for wf_id in CANONICAL_LIFE_PLAN_WORKFLOW_IDS)
 
 
+def _extract_verified_authorized_contribution(
+    value: object,
+    *,
+    now: datetime | None = None,
+) -> Mapping[str, Any] | None:
+    """Extract and validate verified authorized contribution from direct or wrapped artifact."""
+    artifact: object = value
+    if isinstance(value, Mapping) and "authorized_artifact" in value:
+        artifact = value["authorized_artifact"]
+
+    if not isinstance(artifact, AuthorizedCrossDomainContribution):
+        return None
+
+    if not getattr(artifact, "_is_verified", False):
+        return None
+
+    if artifact.target_domain != "domain:life-plan":
+        return None
+
+    if not artifact.permission_decision_id or not artifact.permission_request_id:
+        return None
+
+    curr_now = now or datetime.now(timezone.utc)
+    if curr_now.tzinfo is None:
+        curr_now = curr_now.replace(tzinfo=timezone.utc)
+
+    if artifact.effective_from is not None:
+        eff_from = artifact.effective_from
+        if eff_from.tzinfo is None:
+            eff_from = eff_from.replace(tzinfo=timezone.utc)
+        if eff_from > curr_now:
+            return None
+
+    if artifact.effective_until is not None:
+        eff_until = artifact.effective_until
+        if eff_until.tzinfo is None:
+            eff_until = eff_until.replace(tzinfo=timezone.utc)
+        if eff_until < curr_now:
+            return None
+
+    if not isinstance(artifact.projection, Mapping):
+        return None
+
+    return artifact.projection
+
+
 def execute_cross_domain_impact_workflow(
     *,
     primary_goal: dict[str, Any] | None = None,
     supporting_domain_contributions: list[Any] | None = None,
     resource_estimates: dict[str, Any] | None = None,
     alternative_routes: list[Any] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Execute cross domain impact review workflow safely (Major Decision Support)."""
     contributions = list(supporting_domain_contributions or [])
     applied_contributions = []
 
     for contrib in contributions:
-        if isinstance(contrib, AuthorizedCrossDomainContribution) and getattr(
-            contrib, "_is_verified", False
-        ):
-            applied_contributions.append(contrib.projection)
-        elif isinstance(contrib, dict):
-            if "authorized_artifact" in contrib and isinstance(
-                contrib["authorized_artifact"], AuthorizedCrossDomainContribution
-            ):
-                applied_contributions.append(contrib["authorized_artifact"].projection)
-            else:
-                eval_res = evaluate_cross_domain_impact(projection=contrib)
-                if eval_res.get("applied"):
-                    applied_contributions.append(eval_res["contribution"])
+        verified_proj = _extract_verified_authorized_contribution(contrib, now=now)
+        if verified_proj is not None:
+            applied_contributions.append(verified_proj)
+        elif isinstance(contrib, Mapping) and "authorized_artifact" not in contrib:
+            eval_res = evaluate_cross_domain_impact(projection=contrib, now=now)
+            if eval_res.get("applied"):
+                applied_contributions.append(eval_res["contribution"])
 
     res_eval = evaluate_resource_constraints(**(resource_estimates or {}))
 

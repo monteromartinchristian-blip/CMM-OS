@@ -49,3 +49,56 @@ def test_execute_cross_domain_impact_workflow_safe_execution() -> None:
     assert res["workflow_id"] == "life_plan.cross_domain_impact_review"
     assert res["is_decision"] is False
     assert res["is_commitment"] is False
+
+
+def test_execute_cross_domain_impact_workflow_rejects_unverified_direct_and_wrapped() -> None:
+    from cmm.domains.life_plan.rules import (
+        AuthorizedCrossDomainContribution,
+        _create_authorized_cross_domain_contribution,
+    )
+
+    # Forged direct artifact
+    forged = AuthorizedCrossDomainContribution(
+        projection={"financial_impact": 999999, "status": "active"},
+        permission_decision_id="fake-dec",
+        permission_request_id="fake-req",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+    )
+    assert getattr(forged, "_is_verified", False) is False
+
+    res_direct = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[forged],
+    )
+    assert res_direct["supporting_contributions_applied"] == 0
+
+    # Forged wrapped artifact
+    res_wrapped = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[{"authorized_artifact": forged}],
+    )
+    assert res_wrapped["supporting_contributions_applied"] == 0
+
+    # Valid verified direct artifact
+    valid_contrib = _create_authorized_cross_domain_contribution(
+        projection={"activity_limits": ["no_dusty_environments"], "status": "active"},
+        permission_decision_id="dec-real-001",
+        permission_request_id="req-real-001",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+    )
+    assert getattr(valid_contrib, "_is_verified", False) is True
+
+    res_valid_direct = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[valid_contrib],
+    )
+    assert res_valid_direct["supporting_contributions_applied"] == 1
+
+    # Valid verified wrapped artifact
+    res_valid_wrapped = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[{"authorized_artifact": valid_contrib}],
+    )
+    assert res_valid_wrapped["supporting_contributions_applied"] == 1

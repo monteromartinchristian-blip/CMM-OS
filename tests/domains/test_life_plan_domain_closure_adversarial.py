@@ -396,6 +396,42 @@ def test_closure_gate_permission_context_mismatch_rejected() -> None:
     assert res1["authorization_verified"] is False
 
 
+def test_closure_gate_manually_constructed_direct_contribution_rejected() -> None:
+    from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
+    from cmm.domains.life_plan.workflows import execute_cross_domain_impact_workflow
+
+    forged = AuthorizedCrossDomainContribution(
+        projection={"financial_impact": 999999, "status": "active"},
+        permission_decision_id="fake-dec",
+        permission_request_id="fake-req",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+    )
+    res = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[forged],
+    )
+    assert res["supporting_contributions_applied"] == 0
+
+
+def test_closure_gate_manually_constructed_wrapped_contribution_rejected() -> None:
+    from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
+    from cmm.domains.life_plan.workflows import execute_cross_domain_impact_workflow
+
+    forged = AuthorizedCrossDomainContribution(
+        projection={"financial_impact": 999999, "status": "active"},
+        permission_decision_id="fake-dec",
+        permission_request_id="fake-req",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+    )
+    res = execute_cross_domain_impact_workflow(
+        primary_goal={"id": "g-001"},
+        supporting_domain_contributions=[{"authorized_artifact": forged}],
+    )
+    assert res["supporting_contributions_applied"] == 0
+
+
 # 19. Cross-domain clinical dossier rejected
 def test_closure_gate_cross_domain_clinical_dossier_rejected() -> None:
     res = evaluate_cross_domain_impact(
