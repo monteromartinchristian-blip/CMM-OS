@@ -34,10 +34,7 @@ def test_cross_domain_impact_review_is_major_decision_support() -> None:
     wfs = {w.workflow_id: w for w in build_life_plan_workflow_definitions()}
     cd_wf = wfs["life_plan.cross_domain_impact_review"]
     assert "cross_domain_impact_review" in cd_wf.workflow_id
-    assert (
-        "Major Decision Support" in cd_wf.metadata.get("purpose", "")
-        or "cross-domain" in cd_wf.description.lower()
-    )
+    assert cd_wf.name == "Major Decision Support"
 
 
 def test_execute_cross_domain_impact_workflow_safe_execution() -> None:

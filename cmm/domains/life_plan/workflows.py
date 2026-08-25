@@ -38,7 +38,7 @@ LIFE_PLAN_WORKFLOW_NAMES_BY_ID: dict[str, str] = {
     "life_plan.quarterly_life_review": "Quarterly Life Review",
     "life_plan.scenario_comparison": "Scenario Comparison",
     "life_plan.goal_dependency_review": "Goal Dependency Review",
-    "life_plan.cross_domain_impact_review": "Cross Domain Impact Review",
+    "life_plan.cross_domain_impact_review": "Major Decision Support",
     "life_plan.plan_drift_review": "Plan Drift Review",
     "life_plan.annual_life_plan_update": "Annual Life Plan Update",
 }

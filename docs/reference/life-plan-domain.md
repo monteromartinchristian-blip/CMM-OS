@@ -1,6 +1,6 @@
 # Life Plan Domain Reference (`domain:life-plan`)
 
-> **Phase 10.29 — Implementation Complete; Ready for Independent Audit**
+> **Phase 10.29 — Remediation Complete; Ready for Independent Audit V2**
 
 The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year life planning, strategic goal coordination, explicit non-collapsible decision lattice tracking, exploratory scenario comparisons, multi-dimensional resource constraint evaluation (time, money, energy, capacity), alternative route preservation, plan drift detection, and fail-closed cross-domain coordination (Health, University, Oppositions, Parenthood, Project).
 
@@ -20,19 +20,27 @@ The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year li
 - **Resources (12):** `life_plan.resource.life_plan`, `life_plan.resource.goal`, `life_plan.resource.decision`, `life_plan.resource.financial_plan`, `life_plan.resource.timeline`, `life_plan.resource.scenario`, `life_plan.resource.calendar_event`, `life_plan.resource.user_message`, `life_plan.resource.note`, `life_plan.resource.memory_entry`, `life_plan.resource.review_record`, `life_plan.resource.health_constraints`.
 - **Rules (8):** `life_plan.rule.goal_dependency`, `life_plan.rule.resource_constraint`, `life_plan.rule.decision_status`, `life_plan.rule.scenario_consistency`, `life_plan.rule.long_term_temporal`, `life_plan.rule.alternative_route`, `life_plan.rule.cross_domain_impact`, `life_plan.rule.plan_drift`.
 - **Operations (10):** `life_plan.build_timeline`, `life_plan.compare_scenarios`, `life_plan.review_goals`, `life_plan.detect_dependencies`, `life_plan.identify_risks`, `life_plan.update_plan`, `life_plan.create_milestones`, `life_plan.generate_periodic_review`, `life_plan.evaluate_feasibility`, `life_plan.track_decisions`.
-- **Workflows (7):** `life_plan.life_plan_setup`, `life_plan.quarterly_life_review`, `life_plan.scenario_comparison`, `life_plan.goal_dependency_review`, `life_plan.cross_domain_impact_review`, `life_plan.plan_drift_review`, `life_plan.annual_life_plan_update`.
+- **Workflows (7):**
+  - `life_plan.life_plan_setup` ("Life Plan Setup")
+  - `life_plan.quarterly_life_review` ("Quarterly Life Review")
+  - `life_plan.scenario_comparison` ("Scenario Comparison")
+  - `life_plan.goal_dependency_review` ("Goal Dependency Review")
+  - `life_plan.cross_domain_impact_review` ("Major Decision Support")
+  - `life_plan.plan_drift_review` ("Plan Drift Review")
+  - `life_plan.annual_life_plan_update` ("Annual Life Plan Update")
 
 ---
 
-## 2. Core Invariants & Boundaries
+## 2. Core Invariants & Boundaries (Audit V1 Hardened)
 
-1. **Explicit Non-Collapsible Decision Lattice:** `preference != decision`, `scenario != decision`, `scenario != commitment`, `inference != confirmed fact`. Epistemic transitions require explicit evidence. Unconfirmed preferences, ideas, hypotheses, and scenarios cannot be promoted to confirmed decisions or commitments without explicit user confirmation. Closed decisions cannot be reopened without explicit new evidence.
-2. **Resource Constraints:** Four dimensions (`time`, `money`, `energy`, `available_capacity`) are evaluated independently without coercing missing evidence to 0. Invalid numeric values (`NaN`, `+Inf`, `-Inf`, booleans) are rejected.
-3. **Alternative Route Preservation:** Switching to an alternative or contingency route does not infer goal abandonment or failure (`alternative route != abandonment`, `fallback != failure`).
-4. **Plan Drift Detection:** Divergence between planned milestones and reality is measured without automatically abandoning goals.
-5. **Fail-Closed Cross-Domain Coordination:** Cross-domain inputs (Health, University, Oppositions, Parenthood, Project) are purpose-minimized and must be authorized by `DomainPermissionGate` / `DomainPermissionResolver`. Unvetted dictionaries, caller booleans, and clinical dossiers are rejected.
-6. **Proposal-Only Memory Persistence:** All state changes produce `requires_confirmation=True` memory proposals. Direct memory writes and silent persistence are strictly prohibited.
-7. **Major Decision Support:** `life_plan.cross_domain_impact_review` coordinates multi-domain impacts preserving uncertainty, alternatives, and disclaimers.
+1. **Explicit Non-Collapsible Decision Lattice:** `preference != decision`, `scenario != decision`, `scenario != commitment`, `inference != confirmed fact`. Epistemic transitions require explicit evidence within canonical vocabulary (`idea`, `preference`, `goal`, `scenario`, `decision`, `commitment`). Non-decision states (`inference`, `hypothesis`, `confirmed_fact`, unknown states) fail closed. Unconfirmed preferences, ideas, hypotheses, and scenarios cannot be promoted to confirmed decisions or commitments without explicit user confirmation. Closed decisions cannot be reopened without explicit new evidence.
+2. **Computed Scenario Consistency:** Internal scenario coherence computes structured conflicts from mutually exclusive assumption pairs, temporal milestone ordering dependencies, and multi-dimensional resource infeasibilities while strictly preserving unknown / uncertain evidence.
+3. **Resource Constraints:** Four dimensions (`time`, `money`, `energy`, `available_capacity`) are evaluated independently without coercing missing evidence to 0. Invalid numeric values (`NaN`, `+Inf`, `-Inf`, booleans) fail closed with `invalid_evidence`.
+4. **Alternative Route Preservation:** Switching to an alternative or contingency route does not infer goal abandonment or failure (`alternative route != abandonment`, `fallback != failure`).
+5. **Plan Drift Detection:** Divergence between planned milestones and reality is measured without automatically abandoning goals.
+6. **Gate-Owned Fail-Closed Cross-Domain Coordination:** Cross-domain inputs (Health, University, Oppositions, Parenthood, Project) are purpose-minimized and validated through gate-owned runtime resolution (`DomainPermissionGate` / `DomainPermissionResolver`). Caller-constructed boolean flags, forged `PermissionGateResult` objects, and context mismatches fail closed. Both direct and wrapped (`{"authorized_artifact": ...}`) contributions require verified internal tokens (`AuthorizedCrossDomainContribution._is_verified is True`). Clinical dossiers (diagnoses, medication lists, clinical histories) are strictly rejected.
+7. **Strict Proposal-Only Memory Persistence:** All state changes produce `requires_confirmation=True` memory proposals. Direct memory writes and silent persistence are strictly prohibited. Confirmation validation requires strict boolean evidence (`type(is_confirmed) is bool and is_confirmed is True`), rejecting string coercions (`"false"`, `"true"`), numeric values, and non-empty collections fail closed.
+8. **Major Decision Support:** `life_plan.cross_domain_impact_review` (publicly named `"Major Decision Support"`) coordinates multi-domain impacts preserving uncertainty, alternatives, and disclaimers.
 
 ---
 
@@ -58,10 +66,17 @@ cmm/domains/life_plan/
 
 ---
 
-## 4. Acceptance Test Entry Point
+## 4. Verification and Acceptance Entry Points
 
-```bash
-.venv/bin/python -m pytest -q tests/domains/test_life_plan_domain_dp029_acceptance.py
-```
-
-AT-DP-029 executes a 45-checkpoint connected state-linked scenario validating domain resolution, profile reuse, catalog parity, decision lattice semantics, scenario comparison, resource constraints, temporal ordering, cross-domain health integration, approval gating, memory proposals, trace provenance, atomic registration, and Major Decision Support.
+- **AT-DP-029 Acceptance Suite (45 Checkpoints):**
+  ```bash
+  .venv/bin/python -m pytest -q tests/domains/test_life_plan_domain_dp029_acceptance.py
+  ```
+- **Permanent Closure Adversarial Gate (30+ Attack Classes):**
+  ```bash
+  .venv/bin/python -m pytest -q tests/domains/test_life_plan_domain_closure_adversarial.py
+  ```
+- **Complete Life Plan Domain Suite (129 Tests):**
+  ```bash
+  .venv/bin/python -m pytest -q tests/domains/test_life_plan*.py
+  ```
