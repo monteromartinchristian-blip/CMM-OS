@@ -104,4 +104,4 @@ Importing `cmm.domains.parenthood` has zero registration side effects; fresh imp
 - `test_parenthood_domain_integration.py`: PASS (atomic registration, rollback)
 - `test_parenthood_domain_bootstrap.py`: PASS (standard bootstrap, General + Parenthood)
 - `test_parenthood_domain_cross_domain.py`: PASS (cross-domain boundaries, sibling invariance)
-- `test_parenthood_domain_dp027_acceptance.py`: PASS (AT-DP-027 10-checkpoint connected suite)
+- `test_parenthood_domain_dp027_acceptance.py`: PASS (AT-DP-027 35-checkpoint connected lifecycle)
