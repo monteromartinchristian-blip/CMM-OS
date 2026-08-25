@@ -1,6 +1,6 @@
 # Sport Domain Reference (`domain:sport`)
 
-> **Phase 10.28 — Implemented; audit V1 findings remediated; re-audit pending**
+> **Phase 10.28 — Implemented; audit V2 findings remediated; re-audit pending**
 
 The **Sport Domain** (`domain:sport`) provides CMM OS with athletic training planning, physical activity goal tracking, progression analysis, volume/intensity/frequency load evaluation, recovery tracking, body measurement trends, injury risk signaling, and controlled Health coordination.
 
