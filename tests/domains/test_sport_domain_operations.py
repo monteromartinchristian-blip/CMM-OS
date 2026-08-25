@@ -159,18 +159,30 @@ def test_identify_risks_emits_non_diagnostic_signals() -> None:
 
 
 def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() -> None:
+    # No approval evidence -> proposal pending approval
     res_no_approval = schedule_sessions_result(
         sessions=[{"day": "Monday", "time": "08:00"}],
-        has_approval=False,
     )
     assert res_no_approval["status"] == "proposal_pending_approval"
     assert res_no_approval["external_calendar_mutated"] is False
+    assert res_no_approval["approval_required"] is True
 
-    res_with_approval = schedule_sessions_result(
+    # Bare boolean has_approval=True without scoped request/decision ID is rejected
+    res_bare_bool = schedule_sessions_result(
         sessions=[{"day": "Monday", "time": "08:00"}],
         has_approval=True,
     )
+    assert res_bare_bool["status"] == "proposal_pending_approval"
+    assert res_bare_bool["approval_required"] is True
+
+    # Real scoped approval evidence
+    res_with_approval = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_request_id="app-req-001",
+        approval_decision_id="app-dec-001",
+    )
     assert res_with_approval["status"] == "ready_for_external_execution"
-    assert (
-        res_with_approval["external_calendar_mutated"] is False
-    )  # actual mutation delegated
+    assert res_with_approval["approval_granted"] is True
+    assert res_with_approval["approval_request_id"] == "app-req-001"
+    assert res_with_approval["approval_decision_id"] == "app-dec-001"
+    assert res_with_approval["external_calendar_mutated"] is False

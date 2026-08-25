@@ -361,16 +361,38 @@ def identify_risks_result(
 def schedule_sessions_result(
     *,
     sessions: list[dict[str, Any]],
+    approval_request_id: str | None = None,
+    approval_decision_id: str | None = None,
+    approval_decision: Any = None,
     has_approval: bool = False,
 ) -> dict[str, Any]:
-    """Propose session schedules; direct external calendar mutation requires approval."""
-    if not has_approval:
+    """Propose session schedules; direct external calendar mutation requires scoped approval evidence."""
+    req_id = approval_request_id
+    dec_id = approval_decision_id
+    is_approved = False
+
+    if approval_decision is not None:
+        status_val = (
+            approval_decision.status.value
+            if hasattr(approval_decision.status, "value")
+            else str(approval_decision.status)
+        )
+        if status_val.lower() == "approved":
+            is_approved = True
+            req_id = req_id or getattr(approval_decision, "request_id", None)
+            dec_id = dec_id or getattr(approval_decision, "id", None)
+    elif approval_request_id and approval_decision_id:
+        is_approved = True
+
+    if not is_approved or not req_id or not dec_id:
         return {
             "status": "proposal_pending_approval",
             "is_proposal": True,
             "sessions": sessions,
             "external_calendar_mutated": False,
             "approval_required": True,
+            "approval_request_id": req_id,
+            "approval_decision_id": dec_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -380,6 +402,8 @@ def schedule_sessions_result(
         "sessions": sessions,
         "external_calendar_mutated": False,
         "approval_granted": True,
+        "approval_request_id": req_id,
+        "approval_decision_id": dec_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
