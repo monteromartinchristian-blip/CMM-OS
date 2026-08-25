@@ -3331,3 +3331,270 @@ def test_red_cert_valid_iso_date_accepted() -> None:
     assert res["certification_evidence_valid"] is True
     assert res["level_or_score"] == "B1"
     assert res["confidence"] == 0.95
+
+
+def test_red_1_frameworkless_estimate_fails_closed() -> None:
+    """Frameworkless ESTIMATED standardization fails closed with level unassessed and confidence 0.0."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
+            {"provenance_id": "p2", "skill": "writing", "observed": "C1"},
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+    assert res["framework"] is None
+
+
+def test_red_2_frameworkless_observed_performance_fails_closed() -> None:
+    """One frameworkless C1 observation requested without framework must not return framework-dependent level."""
+    res = classify_proficiency_record(
+        kind="OBSERVED_PERFORMANCE",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_3_inferred_framework_requires_each_counted_sample_bound() -> None:
+    """Inferred framework must bind every counted evidence unit; 1 ACTFL + 1 frameworkless is not 2 ACTFL samples."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "provenance_id": "p2",
+                "skill": "writing",
+                "observed": "C1",
+            },
+        ),
+    )
+    assert res["kind"] != "ESTIMATED"
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+    # Two grounded ACTFL samples DOES produce ESTIMATED ACTFL C1
+    res_two_actfl = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework=None,
+        level_or_score="C1",
+        skill_scope="writing",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "ACTFL",
+                "skill": "writing",
+                "observed": "C1",
+            },
+        ),
+    )
+    assert res_two_actfl["kind"] == "ESTIMATED"
+    assert res_two_actfl["framework"] == "ACTFL"
+    assert res_two_actfl["level_or_score"] == "C1"
+    assert res_two_actfl["confidence"] == 0.75
+
+
+def test_red_4_absent_scope_general_estimate_rejected() -> None:
+    """Two generic unscoped observations must not establish ESTIMATED CEFR B1 general."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {"provenance_id": "p1", "observed": "B1"},
+            {"provenance_id": "p2", "observed": "B1"},
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_5_absent_scope_general_observed_rejected() -> None:
+    """One generic unscoped observation must not establish OBSERVED_PERFORMANCE CEFR B1 general."""
+    res = classify_proficiency_record(
+        kind="OBSERVED_PERFORMANCE",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {"provenance_id": "p1", "observed": "B1"},
+        ),
+    )
+    assert res["level_or_score"] == "unassessed"
+    assert res["confidence"] == 0.0
+
+
+def test_red_6_absent_scope_general_level_update_rejected() -> None:
+    """Two generic unscoped comparable B2 observations must not update existing CEFR B1 general."""
+    res = evaluate_level_update(
+        existing={
+            "kind": "ESTIMATED",
+            "framework": "CEFR",
+            "level_or_score": "B1",
+            "skill_scope": "general",
+        },
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p2",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+    )
+    assert res["stable_update_supported"] is False
+
+
+def test_red_7_absent_scope_general_progression_rejected() -> None:
+    """Generic unscoped previous/current comparable scores with skill=None must not produce stable general progression."""
+    res = evaluate_progression(
+        previous_evidence=(
+            {
+                "provenance_id": "p1",
+                "score": 0.50,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+        current_evidence=(
+            {
+                "provenance_id": "p2",
+                "score": 0.80,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p3",
+                "score": 0.85,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+        skill=None,
+    )
+    assert res["stable_progression"] is False
+    assert res["progression_outcome"] == "insufficient_evidence"
+
+
+def test_positive_preservation_explicit_general_skill_scope_estimate() -> None:
+    """Explicit skill_scope='general' in evidence is accepted for ESTIMATED general."""
+    res = classify_proficiency_record(
+        kind="ESTIMATED",
+        framework="CEFR",
+        level_or_score="B1",
+        skill_scope="general",
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill_scope": "general",
+                "observed": "B1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill_scope": "general",
+                "observed": "B1",
+            },
+        ),
+    )
+    assert res["kind"] == "ESTIMATED"
+    assert res["level_or_score"] == "B1"
+    assert res["skill_scope"] == "general"
+    assert res["confidence"] == 0.75
+
+
+def test_positive_preservation_explicit_general_level_update() -> None:
+    """Explicit skill='general' in comparable evidence supports general level update."""
+    res = evaluate_level_update(
+        existing={
+            "kind": "ESTIMATED",
+            "framework": "CEFR",
+            "level_or_score": "B1",
+            "skill_scope": "general",
+        },
+        evidence=(
+            {
+                "provenance_id": "p1",
+                "framework": "CEFR",
+                "skill": "general",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p2",
+                "framework": "CEFR",
+                "skill": "general",
+                "observed": "B2",
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+    )
+    assert res["stable_update_supported"] is True
+    assert res["proposed_level"] == "B2"
+
+
+def test_positive_preservation_explicit_general_progression() -> None:
+    """Explicit skill='general' in previous/current comparable evidence supports stable general progression."""
+    res = evaluate_progression(
+        previous_evidence=(
+            {
+                "provenance_id": "p1",
+                "skill": "general",
+                "score": 0.50,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+        current_evidence=(
+            {
+                "provenance_id": "p2",
+                "skill": "general",
+                "score": 0.80,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+            {
+                "provenance_id": "p3",
+                "skill": "general",
+                "score": 0.85,
+                "comparable": True,
+                "comparison_key": "k1",
+            },
+        ),
+        skill="general",
+    )
+    assert res["stable_progression"] is True
+    assert res["progression_outcome"] == "stable_improvement"

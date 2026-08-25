@@ -202,15 +202,107 @@ def _safe_str(val: Any) -> str | None:
     return cleaned if cleaned else None
 
 
-def _canonical_scope(scope: Any) -> str | None:
-    """Validate and normalize a canonical proficiency scope."""
+class ClaimScopeKind:
+    SPECIFIC = "specific"
+    EXPLICIT_GENERAL = "explicit_general"
+    MISSING = "missing"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimScopeContext:
+    kind: str
+    raw: str | None
+    canonical: str | None
+
+
+def _resolve_claim_scope(scope: Any) -> ClaimScopeContext:
+    """Classify a scope into one of four distinct states: specific, explicit_general, missing, invalid."""
     clean = _safe_str(scope)
     if clean is None:
-        return None
+        return ClaimScopeContext(kind=ClaimScopeKind.MISSING, raw=None, canonical=None)
     norm = clean.casefold()
-    if norm in CANONICAL_PROFICIENCY_SCOPES:
-        return norm
+    if norm in CANONICAL_SKILL_DIMENSIONS:
+        return ClaimScopeContext(
+            kind=ClaimScopeKind.SPECIFIC, raw=clean, canonical=norm
+        )
+    if norm == "general":
+        return ClaimScopeContext(
+            kind=ClaimScopeKind.EXPLICIT_GENERAL, raw=clean, canonical="general"
+        )
+    return ClaimScopeContext(
+        kind=ClaimScopeKind.INVALID, raw=clean, canonical=None
+    )
+
+
+def _canonical_scope(scope: Any) -> str | None:
+    """Validate and normalize a canonical proficiency scope."""
+    ctx = _resolve_claim_scope(scope)
+    if ctx.kind in (ClaimScopeKind.SPECIFIC, ClaimScopeKind.EXPLICIT_GENERAL):
+        return ctx.canonical
     return None
+
+
+def _extract_evidence_scope(record: Mapping[str, Any]) -> ClaimScopeContext:
+    """Extract and resolve the scope of an evidence record."""
+    if not isinstance(record, Mapping):
+        return ClaimScopeContext(kind=ClaimScopeKind.MISSING, raw=None, canonical=None)
+    if (
+        "skill" in record
+        and _safe_str(record.get("skill")) is None
+        and _safe_str(record.get("skill_scope")) is None
+    ):
+        return ClaimScopeContext(kind=ClaimScopeKind.MISSING, raw=None, canonical=None)
+    raw = _safe_str(record.get("skill")) or _safe_str(record.get("skill_scope"))
+    return _resolve_claim_scope(raw)
+
+
+class FrameworkContextKind:
+    CALLER_EXPLICIT = "caller_explicit"
+    EVIDENCE_INFERRED = "evidence_inferred"
+    MISSING = "missing"
+    CONFLICTING = "conflicting"
+
+
+@dataclass(frozen=True, slots=True)
+class FrameworkContext:
+    kind: str
+    framework: str | None
+
+
+def _resolve_framework_context(
+    caller_framework: Any,
+    candidate_evidence: list[Mapping[str, Any]],
+) -> FrameworkContext:
+    """Distinguish caller-explicit, evidence-inferred, missing, and conflicting framework context."""
+    clean_caller = _safe_str(caller_framework)
+    if clean_caller is not None:
+        return FrameworkContext(
+            kind=FrameworkContextKind.CALLER_EXPLICIT,
+            framework=clean_caller.upper(),
+        )
+
+    ev_frameworks: set[str] = set()
+    for e in candidate_evidence:
+        if isinstance(e, Mapping):
+            fw = _safe_str(e.get("framework"))
+            if fw is not None:
+                ev_frameworks.add(fw.upper())
+
+    if len(ev_frameworks) == 0:
+        return FrameworkContext(
+            kind=FrameworkContextKind.MISSING,
+            framework=None,
+        )
+    if len(ev_frameworks) == 1:
+        return FrameworkContext(
+            kind=FrameworkContextKind.EVIDENCE_INFERRED,
+            framework=next(iter(ev_frameworks)),
+        )
+    return FrameworkContext(
+        kind=FrameworkContextKind.CONFLICTING,
+        framework=None,
+    )
 
 
 def _is_valid_iso_temporal(val: Any) -> bool:
@@ -473,6 +565,7 @@ def _proficiency_evidence_supports_claim(
     requested_skill: str | None = None,
     requested_value: Any | None = None,
     require_comparable: bool = False,
+    require_explicit_framework: bool = False,
 ) -> bool:
     """Consolidated epistemic predicate binding framework, skill, value, provenance, and comparability."""
     if not isinstance(record, Mapping):
@@ -490,41 +583,30 @@ def _proficiency_evidence_supports_claim(
     ev_fw = _safe_str(record.get("framework"))
     if requested_framework is not None:
         req_fw = requested_framework.strip().upper()
-        if ev_fw is not None and ev_fw.upper() != req_fw:
-            return False
+        if require_explicit_framework:
+            if ev_fw is None or ev_fw.upper() != req_fw:
+                return False
+        else:
+            if ev_fw is not None and ev_fw.upper() != req_fw:
+                return False
 
-    ev_skill_raw = _safe_str(record.get("skill")) or _safe_str(
-        record.get("skill_scope")
-    )
-    if "skill" in record and _safe_str(record.get("skill")) is None:
+    ev_scope = _extract_evidence_scope(record)
+    req_scope = _resolve_claim_scope(requested_skill)
+
+    if req_scope.kind == ClaimScopeKind.INVALID:
         return False
 
-    if requested_skill is not None:
-        clean_req_skill = _safe_str(requested_skill)
-        if clean_req_skill is not None:
-            norm_skill = _canonical_scope(clean_req_skill)
-            if norm_skill is None:
-                return False
-            if norm_skill in CANONICAL_SKILL_DIMENSIONS:
-                if ev_skill_raw is None:
-                    return False
-                ev_norm = _canonical_scope(ev_skill_raw)
-                if ev_norm != norm_skill:
-                    return False
-            elif norm_skill == "general":
-                if ev_skill_raw is not None:
-                    ev_norm = _canonical_scope(ev_skill_raw)
-                    if (
-                        ev_norm is None
-                        or ev_norm in CANONICAL_SKILL_DIMENSIONS
-                        or ev_norm != "general"
-                    ):
-                        return False
-    else:
-        if ev_skill_raw is not None:
-            ev_norm = _canonical_scope(ev_skill_raw)
-            if ev_norm is None:
-                return False
+    if req_scope.kind == ClaimScopeKind.SPECIFIC:
+        if (
+            ev_scope.kind != ClaimScopeKind.SPECIFIC
+            or ev_scope.canonical != req_scope.canonical
+        ):
+            return False
+    elif (
+        req_scope.kind in (ClaimScopeKind.EXPLICIT_GENERAL, ClaimScopeKind.MISSING)
+        and ev_scope.kind != ClaimScopeKind.EXPLICIT_GENERAL
+    ):
+        return False
 
     if requested_value is not None:
         observed_value = _safe_str(record.get("observed")) or _safe_str(
@@ -565,26 +647,42 @@ def classify_proficiency_record(
     if requested_kind not in CANONICAL_PROFICIENCY_KINDS:
         requested_kind = "OBSERVED_PERFORMANCE"
 
-    clean_framework = _safe_str(framework)
-    raw_skill_scope = _safe_str(skill_scope)
-    if raw_skill_scope is None:
-        clean_skill_scope = "general"
-        scope_valid = True
-    else:
-        canonical_s = _canonical_scope(raw_skill_scope)
-        if canonical_s is not None:
-            clean_skill_scope = canonical_s
-            scope_valid = True
-        else:
-            clean_skill_scope = raw_skill_scope
-            scope_valid = False
-
-    clean_level_or_score = _clean_proficiency_value(level_or_score)
-
-    if not scope_valid:
+    scope_ctx = _resolve_claim_scope(skill_scope)
+    if scope_ctx.kind == ClaimScopeKind.INVALID:
         return {
             "kind": "OBSERVED_PERFORMANCE",
-            "framework": clean_framework,
+            "framework": _safe_str(framework),
+            "level_or_score": "unassessed",
+            "skill_scope": scope_ctx.raw,
+            "evidence": deduped_ev,
+            "is_certified": False,
+            "certification_evidence_valid": False,
+            "confidence": 0.0,
+        }
+
+    clean_skill_scope = scope_ctx.canonical or "general"
+    clean_level_or_score = _clean_proficiency_value(level_or_score)
+
+    # Candidate grounded evidence for framework inference
+    candidate_ev = [
+        e
+        for e in deduped_ev
+        if _proficiency_evidence_supports_claim(
+            e,
+            requested_framework=None,
+            requested_skill=clean_skill_scope,
+            requested_value=clean_level_or_score,
+            require_comparable=False,
+            require_explicit_framework=False,
+        )
+    ]
+    framework_ctx = _resolve_framework_context(framework, candidate_ev)
+
+    if framework_ctx.kind == FrameworkContextKind.CONFLICTING:
+        # Mixed grounded frameworks -> fail closed
+        return {
+            "kind": "OBSERVED_PERFORMANCE",
+            "framework": None,
             "level_or_score": "unassessed",
             "skill_scope": clean_skill_scope,
             "evidence": deduped_ev,
@@ -593,38 +691,23 @@ def classify_proficiency_record(
             "confidence": 0.0,
         }
 
-    # Infer framework ONLY from grounded evidence for the relevant claim context
-    if clean_framework is None:
-        grounded_candidates = [
-            e
-            for e in deduped_ev
-            if _proficiency_evidence_supports_claim(
-                e,
-                requested_framework=None,
-                requested_skill=clean_skill_scope,
-                requested_value=clean_level_or_score,
-                require_comparable=False,
-            )
-        ]
-        ev_frameworks = {
-            _safe_str(e.get("framework")).upper()
-            for e in grounded_candidates
-            if _safe_str(e.get("framework")) is not None
+    if (
+        framework_ctx.kind == FrameworkContextKind.MISSING
+        and clean_level_or_score is not None
+    ):
+        # Framework-dependent level requested or observed without a framework -> fail closed
+        return {
+            "kind": "OBSERVED_PERFORMANCE",
+            "framework": None,
+            "level_or_score": "unassessed",
+            "skill_scope": clean_skill_scope,
+            "evidence": deduped_ev,
+            "is_certified": False,
+            "certification_evidence_valid": False,
+            "confidence": 0.0,
         }
-        if len(ev_frameworks) == 1:
-            clean_framework = next(iter(ev_frameworks))
-        elif len(ev_frameworks) > 1:
-            # Mixed grounded frameworks -> fail closed
-            return {
-                "kind": "OBSERVED_PERFORMANCE",
-                "framework": None,
-                "level_or_score": "unassessed",
-                "skill_scope": clean_skill_scope,
-                "evidence": deduped_ev,
-                "is_certified": False,
-                "certification_evidence_valid": False,
-                "confidence": 0.0,
-            }
+
+    clean_framework = framework_ctx.framework
 
     # CERTIFIED requires complete, matching, recognized official credential evidence.
     valid_cert_ev = [
@@ -650,6 +733,9 @@ def classify_proficiency_record(
         has_independent_evidence = False
         has_observed_evidence = False
     else:
+        require_explicit_fw = (
+            framework_ctx.kind == FrameworkContextKind.EVIDENCE_INFERRED
+        )
         grounded_ev = [
             item
             for item in deduped_ev
@@ -659,6 +745,7 @@ def classify_proficiency_record(
                 requested_skill=clean_skill_scope,
                 requested_value=clean_level_or_score,
                 require_comparable=False,
+                require_explicit_framework=require_explicit_fw,
             )
         ]
         grounded_provenance = {_canonical_provenance(item) for item in grounded_ev}
@@ -668,8 +755,6 @@ def classify_proficiency_record(
         if requested_kind == "ESTIMATED" and has_independent_evidence:
             clean_kind = "ESTIMATED"
         else:
-            # An invalid certificate does not invent an estimate; any separately
-            # grounded task/session evidence remains only observed performance.
             clean_kind = "OBSERVED_PERFORMANCE"
 
     evidence_supports_level = (
@@ -729,36 +814,42 @@ def evaluate_level_update(
 
     # Validate target skill / skill scope
     req_skill = target_skill or existing_dict.get("skill_scope")
-    if req_skill is not None:
-        clean_skill = _canonical_scope(req_skill)
-        if clean_skill is None:
-            return {
-                "stable_update_supported": False,
-                "reason": "invalid_skill_scope",
-                "proposed_level": existing_level,
-                "updated_record": existing_dict,
-            }
-        resolved_skill = clean_skill
-    else:
-        resolved_skill = "general"
+    scope_ctx = _resolve_claim_scope(req_skill)
+    if scope_ctx.kind == ClaimScopeKind.INVALID:
+        return {
+            "stable_update_supported": False,
+            "reason": "invalid_skill_scope",
+            "proposed_level": existing_level,
+            "updated_record": existing_dict,
+        }
+    resolved_skill = scope_ctx.canonical or "general"
 
     existing_framework = _safe_str(existing_dict.get("framework"))
     deduped_ev = _deduplicate_evidence(evidence)
 
-    comparable = [
+    candidate_comparable = [
         item
         for item in deduped_ev
         if _proficiency_evidence_supports_claim(
             item,
-            requested_framework=existing_framework,
+            requested_framework=None,
             requested_skill=resolved_skill,
             requested_value=None,
             require_comparable=True,
+            require_explicit_framework=False,
         )
     ]
-    comparison_keys = {_safe_str(item.get("comparison_key")) for item in comparable}
-    provenance_units = {_canonical_provenance(item) for item in comparable}
-    if len(comparable) < 2 or len(provenance_units) < 2 or len(comparison_keys) != 1:
+    comparison_keys = {
+        _safe_str(item.get("comparison_key")) for item in candidate_comparable
+    }
+    provenance_units = {
+        _canonical_provenance(item) for item in candidate_comparable
+    }
+    if (
+        len(candidate_comparable) < 2
+        or len(provenance_units) < 2
+        or len(comparison_keys) != 1
+    ):
         return {
             "stable_update_supported": False,
             "reason": "insufficient_comparable_evidence",
@@ -768,7 +859,7 @@ def evaluate_level_update(
 
     observed_levels = [
         _safe_str(e.get("observed")) or _safe_str(e.get("observed_performance"))
-        for e in comparable
+        for e in candidate_comparable
         if (_safe_str(e.get("observed")) or _safe_str(e.get("observed_performance")))
         is not None
     ]
@@ -780,22 +871,45 @@ def evaluate_level_update(
             "updated_record": existing_dict,
         }
 
-    # If framework is not provided on existing, infer only from unambiguous grounded comparable evidence
-    if existing_framework is None:
-        ev_frameworks = {
-            _safe_str(e.get("framework")).upper()
-            for e in comparable
-            if _safe_str(e.get("framework")) is not None
+    framework_ctx = _resolve_framework_context(
+        existing_framework, candidate_comparable
+    )
+
+    if framework_ctx.kind in (
+        FrameworkContextKind.MISSING,
+        FrameworkContextKind.CONFLICTING,
+    ):
+        return {
+            "stable_update_supported": False,
+            "reason": "missing_framework",
+            "proposed_level": existing_level,
+            "updated_record": existing_dict,
         }
-        if len(ev_frameworks) == 1:
-            existing_framework = next(iter(ev_frameworks))
-        else:
-            return {
-                "stable_update_supported": False,
-                "reason": "missing_framework",
-                "proposed_level": existing_level,
-                "updated_record": existing_dict,
-            }
+
+    resolved_framework = framework_ctx.framework
+    require_explicit_fw = (
+        framework_ctx.kind == FrameworkContextKind.EVIDENCE_INFERRED
+    )
+
+    comparable = [
+        item
+        for item in candidate_comparable
+        if _proficiency_evidence_supports_claim(
+            item,
+            requested_framework=resolved_framework,
+            requested_skill=resolved_skill,
+            requested_value=None,
+            require_comparable=True,
+            require_explicit_framework=require_explicit_fw,
+        )
+    ]
+    if len({_canonical_provenance(item) for item in comparable}) < 2:
+        return {
+            "stable_update_supported": False,
+            "reason": "insufficient_comparable_evidence",
+            "proposed_level": existing_level,
+            "updated_record": existing_dict,
+        }
 
     new_level = observed_levels[0]
     return {
@@ -804,7 +918,7 @@ def evaluate_level_update(
         "proposed_level": new_level,
         "updated_record": {
             "kind": "ESTIMATED",
-            "framework": existing_framework,
+            "framework": resolved_framework,
             "skill_scope": resolved_skill,
             "level_or_score": new_level,
             "evidence": comparable,
@@ -2093,20 +2207,14 @@ def evaluate_progression(
     clean_prev = _deduplicate_evidence(previous_evidence)
     clean_curr = _deduplicate_evidence(current_evidence)
 
-    if skill is not None:
-        clean_skill_str = _safe_str(skill)
-        if clean_skill_str is not None:
-            resolved_skill = _canonical_scope(clean_skill_str)
-            if resolved_skill is None:
-                return {
-                    "progression_outcome": "insufficient_evidence",
-                    "stable_progression": False,
-                    "skill": clean_skill_str,
-                }
-        else:
-            resolved_skill = "general"
-    else:
-        resolved_skill = "general"
+    scope_ctx = _resolve_claim_scope(skill)
+    if scope_ctx.kind == ClaimScopeKind.INVALID:
+        return {
+            "progression_outcome": "insufficient_evidence",
+            "stable_progression": False,
+            "skill": scope_ctx.raw,
+        }
+    resolved_skill = scope_ctx.canonical or "general"
 
     if not clean_prev or not clean_curr:
         return {
@@ -2126,20 +2234,18 @@ def evaluate_progression(
             or score is None
         ):
             return None
-        ev_skill_raw = _safe_str(record.get("skill")) or _safe_str(
-            record.get("skill_scope")
-        )
+        ev_scope = _extract_evidence_scope(record)
         if resolved_skill in CANONICAL_SKILL_DIMENSIONS:
-            if ev_skill_raw is None or ev_skill_raw.casefold() != resolved_skill:
-                return None
-        elif resolved_skill == "general" and ev_skill_raw is not None:
-            ev_norm = _canonical_scope(ev_skill_raw)
             if (
-                ev_norm is None
-                or ev_norm in CANONICAL_SKILL_DIMENSIONS
-                or ev_norm != "general"
+                ev_scope.kind != ClaimScopeKind.SPECIFIC
+                or ev_scope.canonical != resolved_skill
             ):
                 return None
+        elif (
+            resolved_skill == "general"
+            and ev_scope.kind != ClaimScopeKind.EXPLICIT_GENERAL
+        ):
+            return None
         return comparison_key, provenance, score
 
     previous_scores = [
