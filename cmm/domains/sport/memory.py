@@ -165,21 +165,14 @@ def validate_sport_memory_binding(
     binding: Any,
     inventory: Any,
 ) -> DomainMemoryValidationResult:
-    """Validate a proposal binding against a canonical inventory."""
-    try:
-        from cmm.domains.memory_validation import (
-            DefaultDomainMemoryIntegrationValidator,
-        )
+    """Validate a proposal binding against a canonical memory reference inventory."""
+    from cmm.domains.memory_validation import (
+        DefaultDomainMemoryIntegrationValidator,
+    )
 
-        return DefaultDomainMemoryIntegrationValidator().validate_binding(
-            binding, inventory
-        )
-    except Exception:  # noqa: BLE001
-        return DomainMemoryValidationResult(
-            is_valid=True,
-            code=DomainMemoryValidationCode.VALID,
-            codes=(DomainMemoryValidationCode.VALID,),
-        )
+    return DefaultDomainMemoryIntegrationValidator().validate_binding(
+        binding, inventory
+    )
 
 
 __all__ = [
