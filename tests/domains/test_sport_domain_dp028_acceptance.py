@@ -84,6 +84,7 @@ from cmm.domains.sport import (
     build_sport_operation_definitions,
     build_sport_permission_policy,
     build_sport_rules,
+    build_sport_trace_contribution,
     build_sport_trace_reference,
     build_sport_workflow_definitions,
     build_standard_sport_domain_bootstrap,
@@ -107,10 +108,13 @@ from cmm.domains.sport import (
 )
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
+    DomainTrace,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceStatus,
 )
 from cmm.domains.workflow_contracts import DomainWorkflowContext
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
@@ -445,7 +449,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     }
     hc_eval = evaluate_health_constraint(
         health_raw_projection,
+        permission_request=cross_request,
         permission_decision=consumed_cross,
+        permission_gate=gate,
         is_current=True,
     )
     assert hc_eval["applied"] is True
@@ -493,7 +499,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     # 29 reject expired/unauthorized constraint as current
     hc_expired = evaluate_health_constraint(
         hc_eval["constraint"],
+        permission_request=cross_request,
         permission_decision=consumed_cross,
+        permission_gate=gate,
         is_current=False,
     )
     assert hc_expired["applied"] is False
@@ -645,6 +653,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
         approval_request=mismatched_req,
         approval_decision=cal_decision,
+        approval_service=approval_service,
     )
     assert mismatched_sched["status"] == "proposal_pending_approval"
 
@@ -652,6 +661,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
         approval_request=cal_approval,
         approval_decision=cal_decision,
+        approval_service=approval_service,
     )
     assert sched_approved["status"] == "ready_for_external_execution"
     assert sched_approved["approval_granted"] is True
@@ -941,25 +951,51 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             kind=DomainTraceReferenceKind.MEMORY_BINDING,
         ),
     )
-    trace = assemble_sport_trace(
-        request_id=cross_request.request_id,
+    # Precalculate expected canonical trace ID using probe
+    trace_refs = DomainTraceReferences(
         resolution_context_id=resolution_context.id,
         resolution_result_id=resolution.id,
         composition_id=composition.id,
-        domain_result_id=runtime_domain_result_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=cross_request.request_id,
+        goal_id=None,
+        primary_domain=SPORT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_sport_trace_contribution(
+                domain_result_id=runtime_domain_result_id,
+                references=runtime_trace_refs,
+            ),
+        ),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                runtime_domain_result_id,
+                SPORT_DOMAIN_ID,
+                "domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
         started_at=NOW,
         completed_at=NOW,
-        references=runtime_trace_refs,
+        duration_ms=0,
+        metadata={},
     )
-    assert trace.primary_domain == SPORT_DOMAIN_ID
+    expected_trace_id = probe.canonical_id
 
+    # Build reference inventory independently from upstream runtime objects BEFORE trace assembly
     inventory = DomainTraceReferenceInventory(
         references=independent_inventory_refs,
         domain_results=(
             DomainResultTraceReference(
                 result_id=runtime_domain_result_id,
                 domain_id=SPORT_DOMAIN_ID,
-                trace_id=trace.id,
+                trace_id=expected_trace_id,
             ),
         ),
         cross_domain_results=(),
@@ -971,6 +1007,20 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             composition.id, SPORT_DOMAIN_ID, ()
         ),
     )
+
+    # Assemble trace from runtime references
+    trace = assemble_sport_trace(
+        request_id=cross_request.request_id,
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        domain_result_id=runtime_domain_result_id,
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_trace_refs,
+    )
+    assert trace.primary_domain == SPORT_DOMAIN_ID
+    assert trace.id == expected_trace_id
 
     val_trace = validate_sport_trace(trace=trace, inventory=inventory)
     assert val_trace.valid is True

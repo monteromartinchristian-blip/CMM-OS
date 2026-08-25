@@ -64,19 +64,56 @@ def test_sport_trace_validation_against_independent_inventory() -> None:
     )
     result_id_str = str(upstream_domain_result.id)
 
-    # Assemble trace from upstream runtime references
-    trace = assemble_sport_trace(
-        request_id="req-sport-001",
-        resolution_context_id="ctx-001",
-        resolution_result_id="res-001",
-        composition_id="comp-001",
-        domain_result_id=result_id_str,
-        started_at=now,
-        completed_at=now,
-        references=(ref1, ref2),
+    from cmm.domains.sport.trace import build_sport_trace_contribution
+    from cmm.domains.trace_contracts import (
+        DomainTrace,
+        DomainTraceReferences,
+        DomainTraceStatus,
     )
 
-    # Build inventory independently from upstream objects and pairing
+    req_id = "req-sport-001"
+    ctx_id = "ctx-001"
+    res_id = "res-001"
+    comp_id = "comp-001"
+
+    # Precompute expected trace canonical ID via probe
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=req_id,
+        goal_id=None,
+        primary_domain="domain:sport",
+        supporting_domains=(),
+        contributions=(
+            build_sport_trace_contribution(
+                domain_result_id=result_id_str,
+                references=(ref1, ref2),
+            ),
+        ),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id_str,
+                "domain:sport",
+                "domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        duration_ms=0,
+        metadata={},
+    )
+    expected_trace_id = probe.canonical_id
+
+    # Build inventory independently BEFORE trace assembly
     inventory = DomainTraceReferenceInventory(
         references=(
             DomainTraceReference(
@@ -91,29 +128,40 @@ def test_sport_trace_validation_against_independent_inventory() -> None:
                 "rule-001", DomainTraceReferenceKind.RULE_RESULT, "domain:sport"
             ),
             DomainTraceReference(
-                "ctx-001", DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
             ),
             DomainTraceReference(
-                "res-001", DomainTraceReferenceKind.RESOLUTION_RESULT, None
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
             ),
-            DomainTraceReference(
-                "comp-001", DomainTraceReferenceKind.COMPOSITION, None
-            ),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
         ),
         domain_results=(
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id="domain:sport",
-                trace_id=trace.id,
+                trace_id=expected_trace_id,
             ),
         ),
         cross_domain_results=(),
         expected_primary_domain="domain:sport",
         resolution_result_domains=DomainTraceDomainSelection(
-            "res-001", "domain:sport", ()
+            res_id, "domain:sport", ()
         ),
-        composition_domains=DomainTraceDomainSelection("comp-001", "domain:sport", ()),
+        composition_domains=DomainTraceDomainSelection(comp_id, "domain:sport", ()),
     )
+
+    # Assemble trace from upstream runtime references
+    trace = assemble_sport_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        started_at=now,
+        completed_at=now,
+        references=(ref1, ref2),
+    )
+    assert trace.id == expected_trace_id
 
     val = validate_sport_trace(trace=trace, inventory=inventory)
     assert val.valid is True
