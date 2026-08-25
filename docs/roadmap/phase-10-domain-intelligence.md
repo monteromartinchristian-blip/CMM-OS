@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; the remaining work proceeds from 10.28 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; Phase 10.28 — Sport Domain is implemented with audit V1 findings remediated and re-audit pending; the remaining work proceeds from 10.29 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -4488,6 +4488,25 @@ Permissions
 * without high-risk recommendations;
 * without automatic modification of treatment;
 * calendars under authorisation.
+
+Status: implemented; audit V1 findings remediated; re-audit pending.
+
+Audit V1 Remediation Summary:
+* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v1-remediation.md`
+* Audit V1 Report: `docs/audits/phase-10.28-sport-independent-audit-v1.md`
+* Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (candidate PASS, 44 connected checkpoints)
+
+| Finding | Severity | Description | Remediation Status |
+|---|---|---|---|
+| B1 | BLOCKER | Enforce minimized authorized Health -> Sport boundary | CLOSED (strictly strips clinical extras and verifies authorization reference) |
+| B2 | BLOCKER | Fail-closed memory validation | CLOSED (delegates to DefaultDomainMemoryIntegrationValidator without fail-open exception catching) |
+| M1 | MAJOR | Temporal trend evidence correctness | CLOSED (requires valid ISO timestamps and performs chronological sorting) |
+| M2 | MAJOR | Finite numeric progressive overload | CLOSED (enforces math.isfinite and rejects non-finite / boolean values) |
+| M3 | MAJOR | Dynamic training load reduction semantics | CLOSED (applies actual reduction_pct / max_load from constraints) |
+| M4 | MAJOR | Scoped approval evidence for calendar scheduling | CLOSED (requires ApprovalRequest and ApprovalDecision IDs from ApprovalService) |
+| M5 | MAJOR | Rebuild AT-DP-028 connected shared lifecycle | CLOSED (connects real permission gates, approval service, memory bindings, trace inventory) |
+| m1 | MINOR | Documentation alignment | CLOSED (updated sport-domain.md, matrix, and roadmap) |
+
 
 ⸻
 

@@ -1,6 +1,6 @@
 # Sport Domain Reference (`domain:sport`)
 
-> **Phase 10.28 — Implemented, pending independent audit**
+> **Phase 10.28 — Implemented; audit V1 findings remediated; re-audit pending**
 
 The **Sport Domain** (`domain:sport`) provides CMM OS with athletic training planning, physical activity goal tracking, progression analysis, volume/intensity/frequency load evaluation, recovery tracking, body measurement trends, injury risk signaling, and controlled Health coordination.
 
@@ -26,14 +26,14 @@ The **Sport Domain** (`domain:sport`) provides CMM OS with athletic training pla
 
 ## 2. Core Invariants & Boundaries
 
-1. **Sport / Health Boundary:** Sport may receive from Health only an authorized, purpose-bound `health_constraint` projection. Sport does not ingest raw Health memory or clinical history, cannot diagnose injuries, and cannot modify medical treatments or claim clinical clearance.
-2. **Training Load:** Preserves volume, intensity, and frequency distinctly. Rejects invalid numeric values (Boolean-as-number, NaN, Inf, negative values) and treats missing inputs as `unknown`.
-3. **Progressive Overload:** Compares baseline and proposed loads against explicit policy/configuration thresholds. Does not hard-code a universal "10% rule" as absolute domain truth; preserves uncertainty when no threshold exists.
+1. **Sport / Health Boundary:** Sport receives from Health strictly authorized, purpose-bound, and minimized `health_constraint` projections containing only functional limits (`activity_limits`, `load_limits`, `duration_limits`, `heart_rate_limits`, `environmental_limits`, `monitoring_requirements`, `reassessment_date`). Prohibited clinical details (`diagnosis`, `treatment_plan`, `clinical_notes`, medical histories) are dropped. Unvetted raw dictionaries lacking authorization evidence are rejected. Sport cannot diagnose injuries, modify medical treatments, or claim clinical clearance.
+2. **Training Load:** Preserves volume, intensity, and frequency distinctly. Rejects invalid numeric values (Boolean-as-number, NaN, Inf, negative values) and treats missing inputs as `unknown`. Dynamic load adjustments respect actual constraint values (`reduction_pct`, `max_load`) without hardcoding arbitrary percentages.
+3. **Progressive Overload:** Compares baseline and proposed loads against explicit finite policy thresholds. Rejects non-finite values (NaN, Inf, booleans). Does not hard-code a universal "10% rule" as absolute domain truth; preserves uncertainty (`certainty=False`) when no threshold exists.
 4. **Mutable Recovery & Readiness:** Recovery states (`ready`, `limited`, `hold`, `unknown`) are time-bound evidence, not permanent identity traits. Newer evidence updates operational readiness.
 5. **Injury Risk Signals:** Identifies athletic risk signals requiring load reduction, holding, or checking, but never produces named clinical injury diagnoses.
-6. **Measurement Trends:** Requires at least two temporally ordered, comparable observations (same metric/unit/method). Rejects single observations as trends and keeps punctual outliers visible.
-7. **Approval-Gated Scheduling:** `sport.schedule_sessions` produces schedule proposals; direct external calendar mutation requires explicit user approval.
-8. **Memory Proposals:** State updates produce `requires_confirmation=True` Domain Memory proposals/bindings. Silent or direct memory mutation is prohibited.
+6. **Measurement Trends:** Requires at least two temporally ordered, comparable observations (same metric/unit/method) with valid ISO timestamps. Observations are sorted chronologically before trend evaluation to prevent caller order from fabricating trends. Punctual outliers remain visible.
+7. **Approval-Gated Scheduling:** `sport.schedule_sessions` produces schedule proposals; readiness for execution requires scoped `ApprovalRequest` and `ApprovalDecision` identifiers from `ApprovalService`. Bare Boolean flags without scoped approval evidence are rejected. Direct calendar mutation is delegated to the shared external boundary.
+8. **Fail-Closed Memory Integration:** State updates produce `requires_confirmation=True` Domain Memory proposals and bindings. Memory validation delegates to `DefaultDomainMemoryIntegrationValidator` and fails closed on validator faults or malformed inventories.
 
 ---
 

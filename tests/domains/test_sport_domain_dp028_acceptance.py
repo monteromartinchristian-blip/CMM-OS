@@ -15,21 +15,18 @@ from typing import Any
 
 import pytest
 
-from cmm.agent_runtime.approval_contracts import ApprovalDecision, ApprovalRequest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionApprovalRequirement,
     PermissionCapability,
 )
-from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.enums import (
-    DomainOperationType,
     DomainRuleSelectionStatus,
     DomainRuleSource,
 )
@@ -48,7 +45,6 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
 )
-from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_contracts import CrossDomainPermissionRequest
 from cmm.domains.permission_gate import (
@@ -416,9 +412,11 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     )
     approval_service.approve(cross_approval.id, "sports-physician")
     cross_decision = approval_service.repository.list_decisions(cross_approval.id)[0]
+    assert cross_decision.id is not None
     consumed_cross = gate.evaluate_cross_domain(
         cross_request, approval_request_id=cross_approval.id
     )
+
     assert consumed_cross.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
     assert consumed_cross.allowed is True
     assert consumed_cross.decision_id is not None

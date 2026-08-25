@@ -21,7 +21,6 @@ from cmm.domains.memory_contracts import (
     DomainMemoryProposalBinding,
     DomainMemoryProposalKind,
     DomainMemoryProposalSnapshot,
-    DomainMemoryValidationCode,
     DomainMemoryValidationResult,
     DomainMemoryView,
     DomainMemoryViewRequest,

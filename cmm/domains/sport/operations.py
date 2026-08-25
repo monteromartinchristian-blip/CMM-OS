@@ -17,6 +17,7 @@ medical diagnoses/prescriptions.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -220,11 +221,7 @@ def adjust_training_load_result(
                 if not isinstance(red_pct, bool):
                     try:
                         red_f = float(red_pct)
-                        if (
-                            red_f == red_f
-                            and not float("inf") == abs(red_f)
-                            and 0.0 <= red_f <= 100.0
-                        ):
+                        if math.isfinite(red_f) and 0.0 <= red_f <= 100.0:
                             adjusted = current_load * (1.0 - (red_f / 100.0))
                             constraint_applied = True
                     except (ValueError, TypeError):
@@ -234,15 +231,12 @@ def adjust_training_load_result(
                 if not isinstance(max_l, bool):
                     try:
                         max_f = float(max_l)
-                        if (
-                            max_f == max_f
-                            and not float("inf") == abs(max_f)
-                            and max_f >= 0.0
-                        ):
+                        if math.isfinite(max_f) and max_f >= 0.0:
                             adjusted = min(adjusted, max_f)
                             constraint_applied = True
                     except (ValueError, TypeError):
                         pass
+
             elif "max_intensity" in load_limits:
                 constraint_applied = True
 
