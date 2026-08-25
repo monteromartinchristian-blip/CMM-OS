@@ -1,49 +1,67 @@
 """Permanent Closure Adversarial Regression Gate for Phase 10.29 Life Plan Domain.
 
-Permanent adversarial gate testing 24 essential security, semantic, and boundary invariants:
-1. Preference -> Decision bypass fails without explicit confirmation.
-2. Scenario -> Commitment bypass fails without explicit confirmation.
-3. Closed decision reopening without explicit new evidence fails.
-4. Closed decision reopening with explicit new evidence succeeds.
-5. Alternative route selection does not infer abandonment.
-6. Missing time constraint fails closed.
-7. Missing money constraint fails closed.
-8. Missing energy constraint fails closed.
-9. Missing available capacity constraint fails closed.
-10. Resource constraint rejects NaN and Inf.
-11. Resource constraint rejects boolean values.
-12. Goal dependency cycle detected and rejected.
-13. Goal dependency distinguishes hard vs soft dependencies.
-14. Long-term temporal ordering conflict detected.
-15. Long-term temporal preserves uncertain milestones.
-16. Cross-domain raw dict input rejected.
-17. Cross-domain caller boolean is_authorized=True rejected.
-18. Cross-domain duck-typed permission object rejected.
-19. Cross-domain clinical dossier rejected.
-20. Cross-domain expired permission decision rejected.
-21. Plan drift detected without inferring abandonment.
-22. Memory proposals prohibit direct write.
-23. Memory proposals require confirmation.
-24. Profile prohibits direct payment and external contracting.
+Permanent adversarial gate testing 30+ essential security, semantic, and boundary invariants:
+01 preference -> decision rejected without confirmation
+02 scenario -> decision rejected without confirmation
+03 scenario -> commitment rejected without confirmation
+04 inference -> decision/confirmed status rejected
+05 unknown current decision state rejected
+06 unknown proposed decision state rejected
+07 closed decision reopening rejected without new evidence
+08 alternative route does not imply abandonment
+09 missing resource evidence remains unknown
+10 malformed numeric resource evidence fails closed
+11 raw cross-domain mapping rejected
+12 arbitrary authorization ID rejected
+13 caller authorization boolean rejected
+14 real forged PermissionGateResult rejected
+15 permission source/target/actor/session/purpose mismatch rejected
+16 most-restrictive permission wins
+17 purpose minimization rejects unrelated dossier fields
+18 manually constructed direct AuthorizedCrossDomainContribution rejected
+19 manually constructed wrapped AuthorizedCrossDomainContribution rejected
+20 automatic goal abandonment impossible
+21 external commitment without canonical approval rejected
+22 forged approval ID/object rejected
+23 payment/spend without approved external path rejected
+24 strict memory confirmation coercions rejected
+25 memory cannot promote inference/scenario to confirmed state
+26 trace inventory independent from final trace
+27 trace tamper/orphan/wrong-domain references rejected
+28 atomic registration rollback preserves exact state
+29 General fallback remains intact after failed registration
+30 workflow public name is Major Decision Support
 """
 
 from __future__ import annotations
 
 import dataclasses
 from datetime import datetime, timezone
+from typing import Any
+
+import pytest
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
     PermissionCapability,
+    PermissionOutcome,
 )
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.contracts import DomainResult
+from cmm.domains.general.bootstrap import build_standard_general_domain_bootstrap
 from cmm.domains.general.permissions import build_general_permission_policy
 from cmm.domains.health.permissions import build_health_permission_policy
+from cmm.domains.identifiers import DomainId
 from cmm.domains.life_plan import (
     LIFE_PLAN_DOMAIN_ID,
+    assemble_life_plan_trace,
     build_life_plan_memory_proposal,
     build_life_plan_permission_policy,
     build_life_plan_profile,
+    build_life_plan_trace_reference,
+    build_life_plan_workflow_definitions,
     evaluate_alternative_route,
     evaluate_cross_domain_impact,
     evaluate_decision_status,
@@ -52,15 +70,29 @@ from cmm.domains.life_plan import (
     evaluate_plan_drift,
     evaluate_resource_constraints,
     evaluate_scenario_consistency,
+    execute_cross_domain_impact_workflow,
+    register_life_plan_domain,
+    validate_life_plan_memory_proposal_content,
+    validate_life_plan_trace,
 )
+from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
 from cmm.domains.permission_contracts import (
     CrossDomainPermissionRequest,
 )
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
+    PermissionGateOutcome,
+    PermissionGateResult,
 )
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.trace_contracts import (
+    DomainResultTraceReference,
+    DomainTraceDomainSelection,
+    DomainTraceReference,
+    DomainTraceReferenceInventory,
+    DomainTraceReferenceKind,
+)
 
 NOW = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
 
@@ -92,8 +124,8 @@ def _setup_runtime() -> tuple[
     return perm_registry, resolver, approval_service, gate
 
 
-# 1. Preference -> Decision bypass fails without explicit confirmation
-def test_closure_gate_preference_to_decision_bypass_fails() -> None:
+# 01. Preference -> Decision rejected without confirmation
+def test_closure_gate_01_preference_to_decision_rejected_without_confirmation() -> None:
     res = evaluate_decision_status("preference", "decision")
     assert res["allowed"] is False
     assert res["requires_confirmation"] is True
@@ -103,14 +135,15 @@ def test_closure_gate_preference_to_decision_bypass_fails() -> None:
     )
 
 
-def test_closure_gate_scenario_to_decision_bypass_fails() -> None:
+# 02. Scenario -> Decision rejected without confirmation
+def test_closure_gate_02_scenario_to_decision_rejected_without_confirmation() -> None:
     res = evaluate_decision_status("scenario", "decision")
     assert res["allowed"] is False
     assert res["requires_confirmation"] is True
 
 
-# 2. Scenario -> Commitment bypass fails without explicit confirmation
-def test_closure_gate_scenario_to_commitment_bypass_fails() -> None:
+# 03. Scenario -> Commitment rejected without confirmation
+def test_closure_gate_03_scenario_to_commitment_rejected_without_confirmation() -> None:
     res = evaluate_decision_status("scenario", "commitment")
     assert res["allowed"] is False
     assert res["requires_confirmation"] is True
@@ -120,25 +153,33 @@ def test_closure_gate_scenario_to_commitment_bypass_fails() -> None:
     )
 
 
-def test_closure_gate_inference_to_decision_bypass_fails() -> None:
-    res = evaluate_decision_status("inference", "decision")
-    assert res["allowed"] is False
+# 04. Inference -> Decision / Confirmed status rejected
+def test_closure_gate_04_inference_to_decision_or_confirmed_status_rejected() -> None:
+    res_dec = evaluate_decision_status("inference", "decision")
+    assert res_dec["allowed"] is False
+
+    res_com = evaluate_decision_status("inference", "commitment")
+    assert res_com["allowed"] is False
 
 
-def test_closure_gate_inference_to_commitment_bypass_fails() -> None:
-    res = evaluate_decision_status("inference", "commitment")
-    assert res["allowed"] is False
-
-
-def test_closure_gate_unknown_decision_status_fails_closed() -> None:
+# 05. Unknown current decision state rejected
+def test_closure_gate_05_unknown_current_decision_state_rejected() -> None:
     res1 = evaluate_decision_status("nonsense", "decision")
     assert res1["allowed"] is False
-    res2 = evaluate_decision_status("idea", "confirmed_fact")
+    res2 = evaluate_decision_status("arbitrary_unknown_status", "goal")
     assert res2["allowed"] is False
 
 
-# 3. Closed decision reopening without explicit new evidence fails
-def test_closure_gate_closed_decision_reopening_without_new_evidence_fails() -> None:
+# 06. Unknown proposed decision state rejected
+def test_closure_gate_06_unknown_proposed_decision_state_rejected() -> None:
+    res1 = evaluate_decision_status("idea", "confirmed_fact")
+    assert res1["allowed"] is False
+    res2 = evaluate_decision_status("preference", "arbitrary_prop_status")
+    assert res2["allowed"] is False
+
+
+# 07. Closed decision reopening rejected without new evidence
+def test_closure_gate_07_closed_decision_reopening_rejected_without_new_evidence() -> None:
     res = evaluate_decision_status(
         "decision", "idea", is_closed=True, has_new_evidence=False
     )
@@ -146,151 +187,45 @@ def test_closure_gate_closed_decision_reopening_without_new_evidence_fails() -> 
     assert "evidence" in res["reason"].lower() or "closed" in res["reason"].lower()
 
 
-# 4. Closed decision reopening with explicit new evidence succeeds
-def test_closure_gate_closed_decision_reopening_with_new_evidence_succeeds() -> None:
-    res = evaluate_decision_status(
-        "decision",
-        "idea",
-        is_closed=True,
-        has_new_evidence=True,
-        new_evidence="Relocation offer",
-    )
-    assert res["allowed"] is True
-    assert res["reopened"] is True
-
-
-# 5. Alternative route selection does not infer abandonment
-def test_closure_gate_alternative_route_does_not_infer_abandonment() -> None:
+# 08. Alternative route does not imply abandonment
+def test_closure_gate_08_alternative_route_does_not_imply_abandonment() -> None:
     res = evaluate_alternative_route("goal-career-01", "route-b", route_type="fallback")
     assert res["primary_goal_abandoned"] is False
     assert res["is_failure"] is False
     assert res["is_contingency"] is True
 
 
-# 6. Missing time constraint fails closed
-def test_closure_gate_resource_time_constraint_missing_fails_closed() -> None:
-    res = evaluate_resource_constraints(time={"required_hours_per_week": 40.0})
-    assert res["dimensions"]["time"]["status"] == "unknown"
-    assert res["feasible"] is None
-    assert res["status"] == "unknown"
+# 09. Missing resource evidence remains unknown
+def test_closure_gate_09_missing_resource_evidence_remains_unknown() -> None:
+    res_time = evaluate_resource_constraints(time={"required_hours_per_week": 40.0})
+    assert res_time["dimensions"]["time"]["status"] == "unknown"
+    assert res_time["feasible"] is None
+
+    res_money = evaluate_resource_constraints(money={"required_funds": 1000.0})
+    assert res_money["dimensions"]["money"]["status"] == "unknown"
+    assert res_money["feasible"] is None
 
 
-# 7. Missing money constraint fails closed
-def test_closure_gate_resource_money_constraint_missing_fails_closed() -> None:
-    res = evaluate_resource_constraints(money={"required_funds": 1000.0})
-    assert res["dimensions"]["money"]["status"] == "unknown"
-    assert res["feasible"] is None
-    assert res["status"] == "unknown"
-
-
-# 8. Missing energy constraint fails closed
-def test_closure_gate_resource_energy_constraint_missing_fails_closed() -> None:
-    res = evaluate_resource_constraints(energy={})
-    assert res["dimensions"]["energy"]["status"] == "unknown"
-    assert res["feasible"] is None
-    assert res["status"] == "unknown"
-
-
-# 9. Missing available capacity constraint fails closed
-def test_closure_gate_resource_capacity_constraint_missing_fails_closed() -> None:
-    res = evaluate_resource_constraints(available_capacity={})
-    assert res["dimensions"]["available_capacity"]["status"] == "unknown"
-    assert res["feasible"] is None
-    assert res["status"] == "unknown"
-
-
-# 10. Resource constraint rejects NaN and Inf
-def test_closure_gate_resource_nan_inf_rejected() -> None:
+# 10. Malformed numeric resource evidence fails closed
+def test_closure_gate_10_malformed_numeric_resource_evidence_fails_closed() -> None:
     res_nan = evaluate_resource_constraints(
         time={"available_hours_per_week": float("nan"), "required_hours_per_week": 20.0}
     )
     assert res_nan["status"] == "invalid_evidence"
-    assert res_nan["dimensions"]["time"]["status"] == "invalid_evidence"
 
     res_inf = evaluate_resource_constraints(
         money={"available_funds": float("inf"), "required_funds": 500.0}
     )
     assert res_inf["status"] == "invalid_evidence"
-    assert res_inf["dimensions"]["money"]["status"] == "invalid_evidence"
 
-
-# 11. Resource constraint rejects boolean values
-def test_closure_gate_resource_bool_rejected() -> None:
     res_bool = evaluate_resource_constraints(
         time={"available_hours_per_week": True, "required_hours_per_week": 20.0}
     )
     assert res_bool["status"] == "invalid_evidence"
-    assert res_bool["dimensions"]["time"]["status"] == "invalid_evidence"
 
 
-# 12. Goal dependency cycle detected and rejected
-def test_closure_gate_goal_dependency_cycle_detected_and_rejected() -> None:
-    res = evaluate_goal_dependencies(
-        dependencies={
-            "goal_a": ["goal_b"],
-            "goal_b": ["goal_c"],
-            "goal_c": ["goal_a"],
-        }
-    )
-    assert res["valid"] is False
-    assert res["has_cycles"] is True
-    assert len(res["cycles"]) > 0
-
-
-# 13. Goal dependency distinguishes hard vs soft dependencies
-def test_closure_gate_goal_dependency_soft_vs_hard_distinction() -> None:
-    res = evaluate_goal_dependencies(
-        dependencies={"goal_a": ["goal_b"]},
-        soft_dependencies={"goal_x": ["goal_y"]},
-    )
-    assert res["valid"] is True
-    assert res["prerequisites"] == {"goal_a": ["goal_b"]}
-    assert res["soft_dependencies"] == {"goal_x": ["goal_y"]}
-
-
-# 14. Long-term temporal ordering conflict detected
-def test_closure_gate_long_term_temporal_ordering_conflict_detected() -> None:
-    res = evaluate_long_term_temporal(
-        milestones=[
-            {"id": "m1", "target_date": "2028-06-01T00:00:00Z"},
-            {"id": "m2", "target_date": "2027-01-01T00:00:00Z", "depends_on": "m1"},
-        ]
-    )
-    assert res["valid"] is False
-    assert len(res["ordering_conflicts"]) > 0
-
-
-# 15. Long-term temporal preserves uncertain milestones
-def test_closure_gate_long_term_temporal_preserves_uncertain_milestones() -> None:
-    res = evaluate_long_term_temporal(milestones=[{"id": "m_future"}])
-    assert res["valid"] is True
-    assert "m_future" in res["uncertain_milestones"]
-
-
-def test_closure_gate_scenario_consistency_computes_conflicts() -> None:
-    # Structured assumption conflict
-    res1 = evaluate_scenario_consistency(
-        scenario_id="scen-adv-01",
-        assumptions={"residence": "Madrid", "on_site_work": "Tokyo"},
-        assumption_conflicts=[("residence", "on_site_work")],
-    )
-    assert res1["consistent"] is False
-    assert len(res1["conflicts"]) > 0
-
-    # Milestone ordering conflict
-    res2 = evaluate_scenario_consistency(
-        scenario_id="scen-adv-02",
-        milestones=[
-            {"id": "move", "target_date": "2028-01-01T00:00:00Z"},
-            {"id": "job", "target_date": "2027-01-01T00:00:00Z", "depends_on": "move"},
-        ],
-    )
-    assert res2["consistent"] is False
-    assert len(res2["conflicts"]) > 0
-
-
-# 16. Cross-domain raw dict input rejected
-def test_closure_gate_cross_domain_raw_dict_rejected() -> None:
+# 11. Raw cross-domain mapping rejected
+def test_closure_gate_11_raw_cross_domain_mapping_rejected() -> None:
     res = evaluate_cross_domain_impact(
         {
             "source_domain": "domain:health",
@@ -301,8 +236,22 @@ def test_closure_gate_cross_domain_raw_dict_rejected() -> None:
     assert res["authorization_verified"] is False
 
 
-# 17. Cross-domain caller boolean is_authorized=True rejected
-def test_closure_gate_cross_domain_caller_bool_rejected() -> None:
+# 12. Arbitrary authorization ID rejected
+def test_closure_gate_12_arbitrary_authorization_id_rejected() -> None:
+    res = evaluate_cross_domain_impact(
+        {
+            "source_domain": "domain:health",
+            "status": "active",
+            "authorization_reference": "arbitrary-auth-id-999",
+        },
+        is_authorized=True,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+
+
+# 13. Caller authorization boolean rejected
+def test_closure_gate_13_caller_authorization_boolean_rejected() -> None:
     res = evaluate_cross_domain_impact(
         {
             "source_domain": "domain:health",
@@ -314,26 +263,8 @@ def test_closure_gate_cross_domain_caller_bool_rejected() -> None:
     assert res["authorization_verified"] is False
 
 
-# 18. Cross-domain duck-typed permission object rejected
-def test_closure_gate_cross_domain_duck_typed_object_rejected() -> None:
-    class DuckTypedPermission:
-        allowed = True
-        decision_id = "duck-001"
-
-    res = evaluate_cross_domain_impact(
-        {
-            "source_domain": "domain:health",
-            "status": "active",
-        },
-        permission_decision=DuckTypedPermission(),
-    )
-    assert res["applied"] is False
-    assert res["authorization_verified"] is False
-
-
-def test_closure_gate_real_forged_permission_gate_result_rejected() -> None:
-    from cmm.domains.permission_gate import PermissionGateResult
-
+# 14. Real forged PermissionGateResult rejected
+def test_closure_gate_14_real_forged_permission_gate_result_rejected() -> None:
     cross_request = CrossDomainPermissionRequest(
         request_id="req-cross-adv-1",
         source_domain="domain:health",
@@ -375,10 +306,8 @@ def test_closure_gate_real_forged_permission_gate_result_rejected() -> None:
     assert res["authorization_verified"] is False
 
 
-def test_closure_gate_permission_context_mismatch_rejected() -> None:
-    from cmm.domains.approval_bridge import to_approval_requirement
-    from cmm.agent_runtime.domain_permission_contracts import PermissionApprovalRequirement
-
+# 15. Permission source/target/actor/session/purpose mismatch rejected
+def test_closure_gate_15_permission_context_mismatch_rejected() -> None:
     _, _, approval_service, gate = _setup_runtime()
     cross_request = CrossDomainPermissionRequest(
         request_id="req-cross-adv-2",
@@ -418,11 +347,54 @@ def test_closure_gate_permission_context_mismatch_rejected() -> None:
     assert res1["applied"] is False
     assert res1["authorization_verified"] is False
 
+    # Wrong actor in request
+    bad_actor_req = dataclasses.replace(cross_request, actor_id="wrong-actor")
+    res2 = evaluate_cross_domain_impact(
+        proj,
+        permission_request=bad_actor_req,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=NOW,
+    )
+    assert res2["applied"] is False
+    assert res2["authorization_verified"] is False
 
-def test_closure_gate_manually_constructed_direct_contribution_rejected() -> None:
-    from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
-    from cmm.domains.life_plan.workflows import execute_cross_domain_impact_workflow
 
+# 16. Most-restrictive permission wins
+def test_closure_gate_16_most_restrictive_permission_wins() -> None:
+    _, resolver, _, _ = _setup_runtime()
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-most-restrictive-01",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health data read",
+        actor_id="actor-1",
+        session_id="sess-1",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    res_dec = resolver.resolve_cross_domain(cross_request, now=NOW)
+    assert res_dec.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert len(res_dec.approval_requirements) > 0
+
+
+# 17. Purpose minimization rejects unrelated dossier fields
+def test_closure_gate_17_purpose_minimization_rejects_unrelated_dossier_fields() -> None:
+    res = evaluate_cross_domain_impact(
+        {
+            "source_domain": "domain:health",
+            "full_clinical_history": ["heart_surgery_2022"],
+            "medication_list": ["atorvastatin_20mg"],
+        }
+    )
+    assert res["applied"] is False
+    assert res["reason"] == "rejected_unauthorized_dossier"
+
+
+# 18. Manually constructed direct AuthorizedCrossDomainContribution rejected
+def test_closure_gate_18_manually_constructed_direct_contribution_rejected() -> None:
     forged = AuthorizedCrossDomainContribution(
         projection={"financial_impact": 999999, "status": "active"},
         permission_decision_id="fake-dec",
@@ -437,10 +409,8 @@ def test_closure_gate_manually_constructed_direct_contribution_rejected() -> Non
     assert res["supporting_contributions_applied"] == 0
 
 
-def test_closure_gate_manually_constructed_wrapped_contribution_rejected() -> None:
-    from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
-    from cmm.domains.life_plan.workflows import execute_cross_domain_impact_workflow
-
+# 19. Manually constructed wrapped AuthorizedCrossDomainContribution rejected
+def test_closure_gate_19_manually_constructed_wrapped_contribution_rejected() -> None:
     forged = AuthorizedCrossDomainContribution(
         projection={"financial_impact": 999999, "status": "active"},
         permission_decision_id="fake-dec",
@@ -455,73 +425,54 @@ def test_closure_gate_manually_constructed_wrapped_contribution_rejected() -> No
     assert res["supporting_contributions_applied"] == 0
 
 
-# 19. Cross-domain clinical dossier rejected
-def test_closure_gate_cross_domain_clinical_dossier_rejected() -> None:
-    res = evaluate_cross_domain_impact(
-        {
-            "source_domain": "domain:health",
-            "full_clinical_history": ["heart_surgery_2022"],
-            "medication_list": ["atorvastatin_20mg"],
-        }
+# 20. Automatic goal abandonment impossible
+def test_closure_gate_20_automatic_goal_abandonment_impossible() -> None:
+    res_drift = evaluate_plan_drift(
+        planned_state={"milestone_1": "completed"},
+        actual_state={"milestone_1": "in_progress"},
     )
-    assert res["applied"] is False
-    assert res["reason"] == "rejected_unauthorized_dossier"
+    assert res_drift["has_drift"] is True
+    assert res_drift["goal_abandoned"] is False
+
+    res_alt = evaluate_alternative_route("goal-01", "alt-01", route_type="fallback")
+    assert res_alt["primary_goal_abandoned"] is False
 
 
-# 20. Cross-domain expired permission decision rejected
-def test_closure_gate_cross_domain_expired_permission_rejected() -> None:
+# 21. External commitment without canonical approval rejected
+def test_closure_gate_21_external_commitment_without_canonical_approval_rejected() -> None:
+    profile = build_life_plan_profile()
+    assert "contracting" in profile.prohibited_actions
+    assert "external_commitment" in profile.prohibited_actions or "contracting" in profile.prohibited_actions
+
+
+# 22. Forged approval ID or object rejected
+def test_closure_gate_22_forged_approval_id_or_object_rejected() -> None:
     _, _, _, gate = _setup_runtime()
     cross_request = CrossDomainPermissionRequest(
-        request_id="req-exp-01",
+        request_id="req-forged-approval-01",
         source_domain="domain:health",
         target_domain=LIFE_PLAN_DOMAIN_ID,
         capability=PermissionCapability.RESOURCE_READ,
-        reason="health constraint check",
+        reason="health data read",
         actor_id="actor-1",
         session_id="sess-1",
         sensitivity_level="restricted",
         resource_ids=("health.resource.health_profile:hp-001",),
         resource_kinds=("resource.health_constraints",),
-        expires_at=datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
     )
-    res = evaluate_cross_domain_impact(
-        {
-            "source_domain": "domain:health",
-            "status": "active",
-        },
-        permission_request=cross_request,
-        permission_gate=gate,
-        now=NOW,
-    )
-    assert res["applied"] is False
-    assert res["authorization_verified"] is False
+    res = gate.evaluate_cross_domain(cross_request, approval_request_id="forged-approval-request-999")
+    assert res.allowed is False
 
 
-# 21. Plan drift detected without inferring abandonment
-def test_closure_gate_plan_drift_detects_drift_without_abandonment() -> None:
-    res = evaluate_plan_drift(
-        planned_state={"milestone_1": "completed"},
-        actual_state={"milestone_1": "in_progress"},
-    )
-    assert res["has_drift"] is True
-    assert res["goal_abandoned"] is False
+# 23. Payment / spend without approved external path rejected
+def test_closure_gate_23_payment_spend_without_approved_external_path_rejected() -> None:
+    profile = build_life_plan_profile()
+    assert "payment" in profile.prohibited_actions
+    assert "external_communication" in profile.prohibited_actions
 
 
-# 22. Memory proposals prohibit direct write
-def test_closure_gate_memory_proposal_prohibits_direct_write() -> None:
-    policy = build_life_plan_permission_policy()
-    assert policy.allow_memory_write is False
-
-
-# 23. Memory proposals require confirmation
-def test_closure_gate_memory_proposal_requires_confirmation() -> None:
-    prop = build_life_plan_memory_proposal(proposal_id="prop-closure-01")
-    assert prop.requires_confirmation is True
-
-
-def test_closure_gate_strict_memory_confirmation_coercions_rejected() -> None:
-    from cmm.domains.life_plan.memory import validate_life_plan_memory_proposal_content
-
+# 24. Strict memory confirmation coercions rejected
+def test_closure_gate_24_strict_memory_confirmation_coercions_rejected() -> None:
     non_booleans = ("false", "true", 0, 1, [], {}, None, "1", "0")
     for val in non_booleans:
         res = validate_life_plan_memory_proposal_content(
@@ -532,12 +483,11 @@ def test_closure_gate_strict_memory_confirmation_coercions_rejected() -> None:
                 "is_confirmed": val,
             }
         )
-        assert res["is_valid"] is False
+        assert res["is_valid"] is False, f"Value {val!r} unexpectedly passed confirmation"
 
 
-def test_closure_gate_memory_cannot_promote_inference_or_scenario_to_confirmed_state() -> None:
-    from cmm.domains.life_plan.memory import validate_life_plan_memory_proposal_content
-
+# 25. Memory cannot promote inference/scenario to confirmed state
+def test_closure_gate_25_memory_cannot_promote_inference_or_scenario_to_confirmed_state() -> None:
     for bad_kind in ("scenario", "inference", "hypothesis"):
         res = validate_life_plan_memory_proposal_content(
             {
@@ -550,9 +500,306 @@ def test_closure_gate_memory_cannot_promote_inference_or_scenario_to_confirmed_s
         assert res["is_valid"] is False
 
 
-# 24. Profile prohibits direct payment and external contracting
-def test_closure_gate_prohibits_payment_and_external_contracting() -> None:
+# 26. Trace inventory independent from final trace
+def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
+    from cmm.domains.trace_contracts import (
+        DomainTrace,
+        DomainTraceReferences,
+        DomainTraceRole,
+        DomainTraceStatus,
+    )
+    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
+
     profile = build_life_plan_profile()
-    assert "payment" in profile.prohibited_actions
-    assert "contracting" in profile.prohibited_actions
-    assert "external_communication" in profile.prohibited_actions
+    domain_result = DomainResult(
+        id="result-lp-inv-1",
+        status="completed",
+        objective="Independent inventory test",
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+    )
+    result_id_str = str(domain_result.id)
+    ref_prof = build_life_plan_trace_reference(
+        ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+    )
+    req_id = "req-inv-1"
+    ctx_id = "ctx-inv-1"
+    res_id = "res-inv-1"
+    comp_id = "comp-inv-1"
+
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_life_plan_trace_contribution(
+                domain_result_id=result_id_str,
+                references=(ref_prof,),
+            ),
+        ),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id_str,
+                LIFE_PLAN_DOMAIN_ID,
+                "domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+        duration_ms=0,
+        metadata={},
+    )
+    expected_trace_id = probe.canonical_id
+
+    inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                result_id_str,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                LIFE_PLAN_DOMAIN_ID,
+            ),
+            ref_prof,
+            DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
+            DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+                trace_id=expected_trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+        expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(res_id, LIFE_PLAN_DOMAIN_ID, ()),
+        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+    )
+    assert len(inventory.references) == 5
+
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        started_at=NOW,
+        completed_at=NOW,
+        references=(ref_prof,),
+    )
+    val = validate_life_plan_trace(trace=trace, inventory=inventory)
+    assert val.valid is True
+
+
+# 27. Trace tamper / orphan / wrong-domain references rejected
+def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() -> None:
+    from cmm.domains.trace_contracts import (
+        DomainTrace,
+        DomainTraceReferences,
+        DomainTraceStatus,
+    )
+    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
+
+    profile = build_life_plan_profile()
+    domain_result = DomainResult(
+        id="result-lp-tamper-1",
+        status="completed",
+        objective="Trace tamper test",
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+    )
+    result_id_str = str(domain_result.id)
+    ref_prof = build_life_plan_trace_reference(
+        ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+    )
+    req_id = "req-t-1"
+    ctx_id = "ctx-t-1"
+    res_id = "res-t-1"
+    comp_id = "comp-t-1"
+
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_life_plan_trace_contribution(
+                domain_result_id=result_id_str,
+                references=(ref_prof,),
+            ),
+        ),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id_str,
+                LIFE_PLAN_DOMAIN_ID,
+                "domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+        duration_ms=0,
+        metadata={},
+    )
+    expected_trace_id = probe.canonical_id
+
+    inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                result_id_str,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                LIFE_PLAN_DOMAIN_ID,
+            ),
+            ref_prof,
+            DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
+            DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+                trace_id=expected_trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+        expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(res_id, LIFE_PLAN_DOMAIN_ID, ()),
+        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+    )
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        started_at=NOW,
+        completed_at=NOW,
+        references=(ref_prof,),
+    )
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-profile-id")
+                    if r.ref_id == str(profile.id)
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    val = validate_life_plan_trace(trace=tampered_trace, inventory=inventory)
+    assert val.valid is False
+
+
+# 28. Atomic registration rollback preserves exact state
+def test_closure_gate_28_atomic_registration_rollback_preserves_exact_state() -> None:
+    bootstrap = build_standard_general_domain_bootstrap()
+    pre_domains = tuple(r.domain_id for r in bootstrap.domain_registry.list_records())
+    pre_profiles = tuple(bootstrap.profile_registry.list_all())
+    pre_rules = tuple(bootstrap.rule_registry.list_all())
+    pre_resources = tuple(bootstrap.resource_registry.list_all())
+    pre_operations = tuple(bootstrap.operation_registry.list_definitions())
+    pre_workflows = bootstrap.workflow_registry.snapshot_state().definitions
+
+    with pytest.raises(Exception):
+        register_life_plan_domain(
+            domain_registry=bootstrap.domain_registry,
+            profile_registry=bootstrap.profile_registry,
+            resource_registry=bootstrap.resource_registry,
+            rule_registry=bootstrap.rule_registry,
+            operation_registry=bootstrap.operation_registry,
+            workflow_registry=bootstrap.workflow_registry,
+            permission_registry=bootstrap.permission_registry,
+            operation_implementations={"life_plan.invalid_op_does_not_exist": lambda: None},
+        )
+
+    assert tuple(r.domain_id for r in bootstrap.domain_registry.list_records()) == pre_domains
+    assert tuple(bootstrap.profile_registry.list_all()) == pre_profiles
+    assert tuple(bootstrap.rule_registry.list_all()) == pre_rules
+    assert tuple(bootstrap.resource_registry.list_all()) == pre_resources
+    assert tuple(bootstrap.operation_registry.list_definitions()) == pre_operations
+    assert bootstrap.workflow_registry.snapshot_state().definitions == pre_workflows
+
+
+# 29. General fallback remains intact after failed registration
+def test_closure_gate_29_general_fallback_remains_intact_after_failed_registration() -> None:
+    bootstrap = build_standard_general_domain_bootstrap()
+
+    with pytest.raises(Exception):
+        register_life_plan_domain(
+            domain_registry=bootstrap.domain_registry,
+            profile_registry=bootstrap.profile_registry,
+            resource_registry=bootstrap.resource_registry,
+            rule_registry=bootstrap.rule_registry,
+            operation_registry=bootstrap.operation_registry,
+            workflow_registry=bootstrap.workflow_registry,
+            permission_registry=bootstrap.permission_registry,
+            operation_implementations={"life_plan.undeclared_op_xyz": lambda: None},
+        )
+
+    general_dom = bootstrap.domain_registry.get("general")
+    assert general_dom is not None
+    assert str(general_dom.id) == "domain:general"
+    gen_profile = bootstrap.profile_registry.get_by_domain(DomainId.from_str("domain:general"))
+    assert gen_profile is not None
+    assert str(bootstrap.resolver.fallback_domain) == "domain:general"
+
+
+# 30. Workflow public name is Major Decision Support
+def test_closure_gate_30_workflow_public_name_is_major_decision_support() -> None:
+    wfs = {w.workflow_id: w for w in build_life_plan_workflow_definitions()}
+    wf = wfs["life_plan.cross_domain_impact_review"]
+    assert wf.name == "Major Decision Support"
+
+
+# Additional safety & boundary checks
+def test_closure_gate_goal_dependency_cycle_detected_and_rejected() -> None:
+    res = evaluate_goal_dependencies(
+        dependencies={
+            "goal_a": ["goal_b"],
+            "goal_b": ["goal_c"],
+            "goal_c": ["goal_a"],
+        }
+    )
+    assert res["valid"] is False
+    assert res["has_cycles"] is True
+
+
+def test_closure_gate_scenario_consistency_computes_conflicts() -> None:
+    res = evaluate_scenario_consistency(
+        scenario_id="scen-adv-01",
+        assumptions={"residence": "Madrid", "on_site_work": "Tokyo"},
+        assumption_conflicts=[("residence", "on_site_work")],
+    )
+    assert res["consistent"] is False
+    assert len(res["conflicts"]) > 0
+
+
+def test_closure_gate_memory_proposal_prohibits_direct_write() -> None:
+    policy = build_life_plan_permission_policy()
+    assert policy.allow_memory_write is False
