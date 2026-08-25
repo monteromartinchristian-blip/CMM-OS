@@ -1,0 +1,195 @@
+"""Phase 10.29 — Life Plan Domain package.
+
+Domain Pack for life planning, multi-year horizon strategy, goal dependency analysis,
+scenario comparison, resource constraints, periodic reviews, and Major Decision Support.
+
+Public package surface only; no import-time registration or side effects.
+"""
+
+from __future__ import annotations
+
+from cmm.domains.life_plan.bootstrap import (
+    LIFE_PLAN_BOOTSTRAP_NAME,
+    LifePlanDomainBootstrap,
+    build_standard_life_plan_domain_bootstrap,
+)
+from cmm.domains.life_plan.catalog import (
+    CANONICAL_LIFE_PLAN_ENTITY_IDS,
+    CANONICAL_LIFE_PLAN_ENTITY_TYPES,
+    CANONICAL_LIFE_PLAN_OPERATION_IDS,
+    CANONICAL_LIFE_PLAN_RESOURCE_IDS,
+    CANONICAL_LIFE_PLAN_RULE_IDS,
+    CANONICAL_LIFE_PLAN_RULE_NAMES,
+    CANONICAL_LIFE_PLAN_WORKFLOW_IDS,
+    LIFE_PLAN_DOMAIN_ID,
+    LIFE_PLAN_ENTITY_IDS,
+    LIFE_PLAN_OPERATION_IDS,
+    LIFE_PLAN_RESOURCE_IDS,
+    LIFE_PLAN_RESOURCE_KINDS,
+    LIFE_PLAN_RULE_IDS,
+    LIFE_PLAN_WORKFLOW_IDS,
+)
+from cmm.domains.life_plan.definition import (
+    LIFE_PLAN_DOMAIN_VERSION,
+    LIFE_PLAN_MANIFEST_ID,
+    LIFE_PLAN_PERMISSION_IDS,
+    LIFE_PLAN_PROFILE_NAME,
+    build_life_plan_domain_definition,
+)
+from cmm.domains.life_plan.integration import (
+    LifePlanDomainIntegrationResult,
+    register_life_plan_domain,
+)
+from cmm.domains.life_plan.memory import (
+    CANDIDATE_LIFE_PLAN_LONGITUDINAL_KINDS,
+    build_life_plan_memory_binding,
+    build_life_plan_memory_proposal,
+    build_life_plan_memory_view,
+    build_life_plan_memory_view_request,
+    validate_life_plan_memory_binding,
+    validate_life_plan_memory_proposal_content,
+)
+from cmm.domains.life_plan.operations import (
+    build_life_plan_operation_definitions,
+    build_timeline_result,
+    compare_scenarios_result,
+    create_milestones_result,
+    detect_dependencies_result,
+    evaluate_feasibility_result,
+    generate_periodic_review_result,
+    identify_risks_result,
+    review_goals_result,
+    track_decisions_result,
+    update_plan_result,
+)
+from cmm.domains.life_plan.permissions import (
+    LIFE_PLAN_PERMISSION_POLICY_ID,
+    LIFE_PLAN_PROHIBITED_CAPABILITIES,
+    build_life_plan_permission_policy,
+    permission_authorization_allows,
+)
+from cmm.domains.life_plan.presentation import (
+    build_life_plan_presentation_policy,
+    present_life_plan_result,
+)
+from cmm.domains.life_plan.profile import (
+    LIFE_PLAN_PROFILE_ID,
+    LIFE_PLAN_PROHIBITED_ACTIONS,
+    build_life_plan_profile,
+)
+from cmm.domains.life_plan.resources import (
+    build_life_plan_resource_definitions,
+)
+from cmm.domains.life_plan.rules import (
+    AlternativeRouteRule,
+    AuthorizedCrossDomainContribution,
+    CrossDomainImpactRule,
+    DecisionStatusRule,
+    GoalDependencyRule,
+    LongTermTemporalRule,
+    PlanDriftRule,
+    ResourceConstraintRule,
+    ScenarioConsistencyRule,
+    build_life_plan_rules,
+    evaluate_alternative_route,
+    evaluate_cross_domain_impact,
+    evaluate_decision_status,
+    evaluate_goal_dependencies,
+    evaluate_long_term_temporal,
+    evaluate_plan_drift,
+    evaluate_resource_constraints,
+    evaluate_scenario_consistency,
+)
+from cmm.domains.life_plan.trace import (
+    assemble_life_plan_trace,
+    build_life_plan_trace_contribution,
+    build_life_plan_trace_reference,
+    build_supporting_trace_contribution,
+    validate_life_plan_trace,
+)
+from cmm.domains.life_plan.workflows import (
+    LIFE_PLAN_WORKFLOW_NAMES_BY_ID,
+    build_life_plan_workflow_definitions,
+    execute_cross_domain_impact_workflow,
+)
+
+__all__ = [
+    "AlternativeRouteRule",
+    "AuthorizedCrossDomainContribution",
+    "CANDIDATE_LIFE_PLAN_LONGITUDINAL_KINDS",
+    "CANONICAL_LIFE_PLAN_ENTITY_IDS",
+    "CANONICAL_LIFE_PLAN_ENTITY_TYPES",
+    "CANONICAL_LIFE_PLAN_OPERATION_IDS",
+    "CANONICAL_LIFE_PLAN_RESOURCE_IDS",
+    "CANONICAL_LIFE_PLAN_RULE_IDS",
+    "CANONICAL_LIFE_PLAN_RULE_NAMES",
+    "CANONICAL_LIFE_PLAN_WORKFLOW_IDS",
+    "CrossDomainImpactRule",
+    "DecisionStatusRule",
+    "GoalDependencyRule",
+    "LIFE_PLAN_BOOTSTRAP_NAME",
+    "LIFE_PLAN_DOMAIN_ID",
+    "LIFE_PLAN_DOMAIN_VERSION",
+    "LIFE_PLAN_ENTITY_IDS",
+    "LIFE_PLAN_MANIFEST_ID",
+    "LIFE_PLAN_OPERATION_IDS",
+    "LIFE_PLAN_PERMISSION_IDS",
+    "LIFE_PLAN_PERMISSION_POLICY_ID",
+    "LIFE_PLAN_PROFILE_ID",
+    "LIFE_PLAN_PROFILE_NAME",
+    "LIFE_PLAN_PROHIBITED_ACTIONS",
+    "LIFE_PLAN_PROHIBITED_CAPABILITIES",
+    "LIFE_PLAN_RESOURCE_IDS",
+    "LIFE_PLAN_RESOURCE_KINDS",
+    "LIFE_PLAN_RULE_IDS",
+    "LIFE_PLAN_WORKFLOW_IDS",
+    "LIFE_PLAN_WORKFLOW_NAMES_BY_ID",
+    "LifePlanDomainBootstrap",
+    "LifePlanDomainIntegrationResult",
+    "LongTermTemporalRule",
+    "PlanDriftRule",
+    "ResourceConstraintRule",
+    "ScenarioConsistencyRule",
+    "assemble_life_plan_trace",
+    "build_life_plan_domain_definition",
+    "build_life_plan_memory_binding",
+    "build_life_plan_memory_proposal",
+    "build_life_plan_memory_view",
+    "build_life_plan_memory_view_request",
+    "build_life_plan_operation_definitions",
+    "build_life_plan_permission_policy",
+    "build_life_plan_presentation_policy",
+    "build_life_plan_profile",
+    "build_life_plan_resource_definitions",
+    "build_life_plan_rules",
+    "build_life_plan_trace_contribution",
+    "build_life_plan_trace_reference",
+    "build_life_plan_workflow_definitions",
+    "build_standard_life_plan_domain_bootstrap",
+    "build_supporting_trace_contribution",
+    "build_timeline_result",
+    "compare_scenarios_result",
+    "create_milestones_result",
+    "detect_dependencies_result",
+    "evaluate_alternative_route",
+    "evaluate_cross_domain_impact",
+    "evaluate_decision_status",
+    "evaluate_feasibility_result",
+    "evaluate_goal_dependencies",
+    "evaluate_long_term_temporal",
+    "evaluate_plan_drift",
+    "evaluate_resource_constraints",
+    "evaluate_scenario_consistency",
+    "execute_cross_domain_impact_workflow",
+    "generate_periodic_review_result",
+    "identify_risks_result",
+    "permission_authorization_allows",
+    "present_life_plan_result",
+    "register_life_plan_domain",
+    "review_goals_result",
+    "track_decisions_result",
+    "update_plan_result",
+    "validate_life_plan_memory_binding",
+    "validate_life_plan_memory_proposal_content",
+    "validate_life_plan_trace",
+]
