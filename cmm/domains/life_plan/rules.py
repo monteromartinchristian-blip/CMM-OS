@@ -289,8 +289,7 @@ def evaluate_resource_constraints(
     ) -> dict[str, Any]:
         nonlocal is_invalid, is_unknown
         if data is None:
-            is_unknown = True
-            return {"status": "unknown", "available": None, "required": None}
+            return {"status": "not_specified", "available": None, "required": None}
 
         raw_avail = data.get(avail_key)
         raw_req = data.get(req_key)
@@ -326,8 +325,7 @@ def evaluate_resource_constraints(
 
     # Energy dimension
     if energy is None:
-        dims["energy"] = {"status": "unknown", "level": None}
-        is_unknown = True
+        dims["energy"] = {"status": "not_specified", "level": None}
     else:
         lvl = energy.get("current_energy_level")
         min_lvl = energy.get("minimum_required")
@@ -342,8 +340,7 @@ def evaluate_resource_constraints(
 
     # Available capacity dimension
     if available_capacity is None:
-        dims["available_capacity"] = {"status": "unknown", "slots": None}
-        is_unknown = True
+        dims["available_capacity"] = {"status": "not_specified", "slots": None}
     else:
         slots = available_capacity.get("slots")
         req_slots = available_capacity.get("required_slots", 1)

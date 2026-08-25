@@ -224,7 +224,7 @@ def test_evaluate_resource_constraints_independent_dimensions() -> None:
 def test_evaluate_resource_constraints_missing_values_remain_unknown() -> None:
     res = evaluate_resource_constraints(
         time={"available_hours_per_week": None, "required_hours_per_week": 10.0},
-        money=None,
+        money={"available_funds": None, "required_funds": 1000.0},
     )
     assert res["dimensions"]["time"]["status"] == "unknown"
     assert res["dimensions"]["money"]["status"] == "unknown"

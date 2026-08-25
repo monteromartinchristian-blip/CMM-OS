@@ -259,7 +259,7 @@ class DomainOperationDefinition:
                 "domain_id must be canonical", field="domain_id"
             )
         slug = domain_id.removeprefix("domain:")
-        if operation_id.split(".", 1)[0] != slug:
+        if operation_id.split(".", 1)[0] not in (slug, slug.replace("-", "_")):
             raise DomainOperationContractError(
                 "operation_id domain prefix must match domain_id", field="operation_id"
             )
