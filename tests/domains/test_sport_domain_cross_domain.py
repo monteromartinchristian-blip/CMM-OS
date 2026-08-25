@@ -181,9 +181,7 @@ def test_cross_domain_return_to_training_safety_invariant() -> None:
         "load_limits": {"max_intensity": 0.5},
         "authorization_reference": "auth.002",
     }
-    vetted = evaluate_health_constraint(
-        health_projection, permission_decision=perm_dec
-    )
+    vetted = evaluate_health_constraint(health_projection, permission_decision=perm_dec)
 
     wf_res = execute_return_to_training_workflow(
         rest_hours=8.0,

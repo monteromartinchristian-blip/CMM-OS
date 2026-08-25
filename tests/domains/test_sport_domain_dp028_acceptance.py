@@ -26,6 +26,7 @@ from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.contracts import DomainResult
 from cmm.domains.enums import (
     DomainRuleSelectionStatus,
     DomainRuleSource,
@@ -104,7 +105,6 @@ from cmm.domains.sport import (
     validate_sport_memory_proposal_content,
     validate_sport_trace,
 )
-from cmm.domains.contracts import DomainResult
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
     DomainTraceDomainSelection,
@@ -569,9 +569,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         workflow_run.common_run.workflow_id
         == "sport.return_to_training_with_health_constraints"
     )
-    complete_node_output = (
-        workflow_run.execution_result.node_results["complete"].output
-    )
+    complete_node_output = workflow_run.execution_result.node_results["complete"].output
     state["30_rtt_workflow_run"] = workflow_run
 
     # 31 apply restrictive current constraint to Sport recommendation (from workflow runtime)

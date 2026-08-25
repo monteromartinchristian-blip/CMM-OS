@@ -416,9 +416,9 @@ def schedule_sessions_result(
         ):
             act = approval_evidence.action
             op_id = approval_evidence.metadata.get("operation_id")
-            if (
-                act in ("sport.schedule_sessions", "schedule.modification")
-                or op_id in ("sport.schedule_sessions", "schedule_sessions")
+            if act in ("sport.schedule_sessions", "schedule.modification") or op_id in (
+                "sport.schedule_sessions",
+                "schedule_sessions",
             ):
                 req_id = approval_evidence.decision_id
                 dec_id = approval_evidence.decision_id
@@ -431,28 +431,28 @@ def schedule_sessions_result(
             or getattr(approval_request, "id", None)
             or approval_request_id
         )
-        target_dec_id = (
-            getattr(approval_decision, "id", None)
-            or approval_decision_id
-        )
+        target_dec_id = getattr(approval_decision, "id", None) or approval_decision_id
         if target_req_id and target_dec_id:
             try:
                 stored_req = approval_service.repository.get_request(target_req_id)
                 stored_decs = approval_service.repository.list_decisions(target_req_id)
-                matching_dec = next((d for d in stored_decs if d.id == target_dec_id), None)
+                matching_dec = next(
+                    (d for d in stored_decs if d.id == target_dec_id), None
+                )
                 if (
                     isinstance(stored_req, ApprovalRequest)
                     and isinstance(matching_dec, ApprovalDecision)
+                    and stored_req.operation_id
+                    in ("sport.schedule_sessions", "schedule_sessions")
+                    and matching_dec.decision
+                    in (
+                        ApprovalDecisionType.APPROVE,
+                        ApprovalDecisionType.APPROVE_WITH_CHANGES,
+                    )
                 ):
-                    op_id = stored_req.operation_id
-                    if op_id in ("sport.schedule_sessions", "schedule_sessions"):
-                        if matching_dec.decision in (
-                            ApprovalDecisionType.APPROVE,
-                            ApprovalDecisionType.APPROVE_WITH_CHANGES,
-                        ):
-                            is_approved = True
-                            req_id = stored_req.id
-                            dec_id = matching_dec.id
+                    is_approved = True
+                    req_id = stored_req.id
+                    dec_id = matching_dec.id
             except (AttributeError, KeyError, TypeError, ValueError):
                 is_approved = False
 
@@ -460,16 +460,18 @@ def schedule_sessions_result(
     elif (
         isinstance(approval_decision, ApprovalDecision)
         and isinstance(approval_request, ApprovalRequest)
+        and approval_decision.request_id == approval_request.id
+        and approval_request.operation_id
+        in ("sport.schedule_sessions", "schedule_sessions")
+        and approval_decision.decision
+        in (
+            ApprovalDecisionType.APPROVE,
+            ApprovalDecisionType.APPROVE_WITH_CHANGES,
+        )
     ):
-        if approval_decision.request_id == approval_request.id:
-            if approval_request.operation_id in ("sport.schedule_sessions", "schedule_sessions"):
-                if approval_decision.decision in (
-                    ApprovalDecisionType.APPROVE,
-                    ApprovalDecisionType.APPROVE_WITH_CHANGES,
-                ):
-                    is_approved = True
-                    req_id = approval_request.id
-                    dec_id = approval_decision.id
+        is_approved = True
+        req_id = approval_request.id
+        dec_id = approval_decision.id
 
     if not is_approved or not req_id or not dec_id:
         return {

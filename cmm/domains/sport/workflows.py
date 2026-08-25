@@ -290,6 +290,7 @@ def execute_return_to_training_workflow(
 ) -> dict[str, Any]:
     """Execute return to training workflow with Health constraints."""
     from collections.abc import Mapping
+
     from cmm.domains.permission_contracts import CrossDomainPermissionDecision
     from cmm.domains.permission_gate import PermissionGateResult
     from cmm.domains.sport.rules import AuthorizedHealthConstraint

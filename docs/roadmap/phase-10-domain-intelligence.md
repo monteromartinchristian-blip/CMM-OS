@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; Phase 10.28 — Sport Domain is implemented with audit V2 findings remediated and re-audit pending; the remaining work proceeds from 10.29 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; Phase 10.28 — Sport Domain is implemented with audit V3 findings remediated and re-audit pending; the remaining work proceeds from 10.29 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -4489,20 +4489,20 @@ Permissions
 * without automatic modification of treatment;
 * calendars under authorisation.
 
-Status: implemented; audit V2 findings remediated; re-audit pending.
+Status: implemented; audit V3 findings remediated; re-audit pending.
 
-Audit V2 Remediation Summary:
-* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v2-remediation.md`
-* Audit V2 Report: `docs/audits/phase-10.28-sport-independent-reaudit-v2.md`
+Audit V3 Remediation Summary:
+* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v3-remediation.md`
+* Audit V3 Report: `docs/audits/phase-10.28-sport-independent-reaudit-v3.md`
 * Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (candidate PASS, 44 connected checkpoints)
 
 | Finding | Severity | Description | Remediation Status |
 |---|---|---|---|
-| B1 | BLOCKER | Health authorization non-forgeable in production | CLOSED (strictly verifies permission evidence / vetted envelopes; caller-passed raw dicts and Booleans rejected) |
-| M3 | MAJOR | Preserve explicit Health load limits | CLOSED (tracks constraint_pending_application and preserves max_intensity and other limits in effective_constraints) |
-| M4 | MAJOR | Verify scoped Calendar approval evidence | CLOSED (verifies matching ApprovalDecision and ApprovalRequest objects and sport.schedule_sessions scope) |
-| M5-A | MAJOR | Return to Training shared workflow execution | CLOSED (executes via DomainWorkflowExecutor and preserves runtime run_id) |
-| M5-B | MAJOR | Independent trace reference inventory | CLOSED (constructs inventory independently from runtime artifacts and validates against tampering and fabrication) |
+| B1 | BLOCKER | Health authorization forgeability | CLOSED (non-forgeable concrete `AuthorizedHealthConstraint` value object, temporal validity verification vs UTC `now`, clinical dossier rejection) |
+| M4 | MAJOR | Calendar approval forgeability | CLOSED (strict single trust path via `ApprovalService`/concrete `ApprovalRequest`/`ApprovalDecision`/`PermissionGateResult`; fake duck typing rejected) |
+| M5-A | MAJOR | Return-to-training workflow outcome non-authoritative | CLOSED (shared `DomainWorkflowExecutor` complete node outcome authoritative for recommendations, constraints, and clearance non-claims) |
+| M5-B | MAJOR | Acceptance trace inventory referenced fabricated/non-runtime IDs | CLOSED (trace inventory constructed from upstream runtime objects and real `DomainResult`; fake IDs and `or` fallbacks eliminated) |
+| m1 | MINOR | `is_authorized=True` boolean bypass | CLOSED (removed caller boolean trust; requires concrete `PermissionGateResult` or `CrossDomainPermissionDecision`) |
 
 
 ⸻

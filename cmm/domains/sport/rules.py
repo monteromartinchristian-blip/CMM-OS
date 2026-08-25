@@ -431,16 +431,18 @@ def evaluate_health_constraint(
     auth_source = "evaluate_health_constraint"
 
     if isinstance(permission_decision, PermissionGateResult):
-        if (
-            permission_decision.allowed is True
-            or permission_decision.outcome
-            in (PermissionGateOutcome.ALLOW, PermissionGateOutcome.APPROVAL_CONSUMED)
+        if permission_decision.allowed is True or permission_decision.outcome in (
+            PermissionGateOutcome.ALLOW,
+            PermissionGateOutcome.APPROVAL_CONSUMED,
         ):
             target = permission_decision.metadata.get("target_domain")
             source = permission_decision.metadata.get("source_domain")
-            if target and target != "domain:sport":
-                auth_verified = False
-            elif source and source != "domain:health":
+            if (
+                target
+                and target != "domain:sport"
+                or source
+                and source != "domain:health"
+            ):
                 auth_verified = False
             else:
                 auth_verified = True
@@ -450,13 +452,14 @@ def evaluate_health_constraint(
                     or permission_decision.decision_id
                     or "permission_request"
                 )
-                auth_source = "PermissionGateResult"
-    elif isinstance(permission_decision, CrossDomainPermissionDecision):
-        if permission_decision.decision is PermissionOutcome.ALLOW:
-            auth_verified = True
-            auth_ref = permission_decision.request_id
-            req_id = permission_decision.request_id
-            auth_source = "CrossDomainPermissionDecision"
+    elif (
+        isinstance(permission_decision, CrossDomainPermissionDecision)
+        and permission_decision.decision is PermissionOutcome.ALLOW
+    ):
+        auth_verified = True
+        auth_ref = permission_decision.request_id
+        req_id = permission_decision.request_id
+        auth_source = "CrossDomainPermissionDecision"
 
     if not auth_verified or not auth_ref or not req_id:
         return {
@@ -473,7 +476,7 @@ def evaluate_health_constraint(
         curr_now = curr_now.replace(tzinfo=timezone.utc)
 
     eff_from_dt: datetime | None = None
-    if "effective_from" in projection and projection["effective_from"]:
+    if projection.get("effective_from"):
         raw_from = projection["effective_from"]
         if isinstance(raw_from, datetime):
             eff_from_dt = (
@@ -503,7 +506,7 @@ def evaluate_health_constraint(
             }
 
     eff_until_dt: datetime | None = None
-    if "effective_until" in projection and projection["effective_until"]:
+    if projection.get("effective_until"):
         raw_until = projection["effective_until"]
         if isinstance(raw_until, datetime):
             eff_until_dt = (

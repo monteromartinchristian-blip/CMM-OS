@@ -44,9 +44,7 @@ def test_return_to_training_with_health_constraints_workflow_execution() -> None
         "load_limits": {"max_intensity": 0.5},
         "authorization_reference": "auth.scope.100",
     }
-    vetted = evaluate_health_constraint(
-        health_projection, permission_decision=perm_dec
-    )
+    vetted = evaluate_health_constraint(health_projection, permission_decision=perm_dec)
     res = execute_return_to_training_workflow(
         rest_hours=7.5,
         fatigue_score=4,
