@@ -28,7 +28,7 @@ Semantic invariants enforced:
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -122,11 +122,13 @@ def _result(
 
 @dataclass(frozen=True, slots=True)
 class ParenthoodDecisionExplicitRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.parenthood_decision_explicit",
-        "ParenthoodDecisionExplicitRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        700,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.parenthood_decision_explicit",
+            "ParenthoodDecisionExplicitRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            700,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -173,11 +175,13 @@ class ParenthoodDecisionExplicitRule:
 
 @dataclass(frozen=True, slots=True)
 class LegalTemporalValidityRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.legal_temporal_validity",
-        "LegalTemporalValidityRule",
-        ReasoningRuleCategory.TEMPORALITY.value,
-        710,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.legal_temporal_validity",
+            "LegalTemporalValidityRule",
+            ReasoningRuleCategory.TEMPORALITY.value,
+            710,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -185,17 +189,18 @@ class LegalTemporalValidityRule:
         legal_reqs = context.metadata.get("legal_requirements", ())
         if isinstance(legal_reqs, (Sequence, list, tuple)):
             for req in legal_reqs:
-                if isinstance(req, (Mapping, dict)):
-                    if not req.get("verified_current", False):
-                        findings.append(
-                            ReasoningFinding(
-                                code="LEGAL_TEMPORAL_VERIFICATION_REQUIRED",
-                                message=f"Legal requirement requires current temporal verification: {req.get('id')}",
-                                severity=ReasoningSeverity.WARNING,
-                                rule_id=self.definition.id,
-                                domain_id=self.definition.domain_id,
-                            )
+                if isinstance(req, (Mapping, dict)) and not req.get(
+                    "verified_current", False
+                ):
+                    findings.append(
+                        ReasoningFinding(
+                            code="LEGAL_TEMPORAL_VERIFICATION_REQUIRED",
+                            message=f"Legal requirement requires current temporal verification: {req.get('id')}",
+                            severity=ReasoningSeverity.WARNING,
+                            rule_id=self.definition.id,
+                            domain_id=self.definition.domain_id,
                         )
+                    )
 
         return _result(
             self.definition,
@@ -212,11 +217,13 @@ class LegalTemporalValidityRule:
 
 @dataclass(frozen=True, slots=True)
 class MedicalLegalSeparationRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.medical_legal_separation",
-        "MedicalLegalSeparationRule",
-        ReasoningRuleCategory.CONSISTENCY.value,
-        720,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.medical_legal_separation",
+            "MedicalLegalSeparationRule",
+            ReasoningRuleCategory.CONSISTENCY.value,
+            720,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -244,11 +251,13 @@ class MedicalLegalSeparationRule:
 
 @dataclass(frozen=True, slots=True)
 class EthicalConstraintRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.ethical_constraint",
-        "EthicalConstraintRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        730,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.ethical_constraint",
+            "EthicalConstraintRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            730,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -276,11 +285,13 @@ class EthicalConstraintRule:
 
 @dataclass(frozen=True, slots=True)
 class CostUncertaintyRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.cost_uncertainty",
-        "CostUncertaintyRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        740,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.cost_uncertainty",
+            "CostUncertaintyRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            740,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -314,11 +325,13 @@ class CostUncertaintyRule:
 
 @dataclass(frozen=True, slots=True)
 class JourneyDependencyRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.journey_dependency",
-        "JourneyDependencyRule",
-        ReasoningRuleCategory.INFERENCE.value,
-        750,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.journey_dependency",
+            "JourneyDependencyRule",
+            ReasoningRuleCategory.INFERENCE.value,
+            750,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -346,11 +359,13 @@ class JourneyDependencyRule:
 
 @dataclass(frozen=True, slots=True)
 class JourneyToChildBoundaryRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.journey_to_child_boundary",
-        "JourneyToChildBoundaryRule",
-        ReasoningRuleCategory.SAFETY.value,
-        760,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.journey_to_child_boundary",
+            "JourneyToChildBoundaryRule",
+            ReasoningRuleCategory.SAFETY.value,
+            760,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -378,11 +393,13 @@ class JourneyToChildBoundaryRule:
 
 @dataclass(frozen=True, slots=True)
 class ChildInterestAndWellbeingRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.child_interest_and_wellbeing",
-        "ChildInterestAndWellbeingRule",
-        ReasoningRuleCategory.SAFETY.value,
-        770,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.child_interest_and_wellbeing",
+            "ChildInterestAndWellbeingRule",
+            ReasoningRuleCategory.SAFETY.value,
+            770,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -410,11 +427,13 @@ class ChildInterestAndWellbeingRule:
 
 @dataclass(frozen=True, slots=True)
 class DevelopmentalContextRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.developmental_context",
-        "DevelopmentalContextRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        780,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.developmental_context",
+            "DevelopmentalContextRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            780,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -451,11 +470,13 @@ class DevelopmentalContextRule:
 
 @dataclass(frozen=True, slots=True)
 class AgeAppropriateGuidanceRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.age_appropriate_guidance",
-        "AgeAppropriateGuidanceRule",
-        ReasoningRuleCategory.INFERENCE.value,
-        790,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.age_appropriate_guidance",
+            "AgeAppropriateGuidanceRule",
+            ReasoningRuleCategory.INFERENCE.value,
+            790,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -483,11 +504,13 @@ class AgeAppropriateGuidanceRule:
 
 @dataclass(frozen=True, slots=True)
 class ParentChildBoundaryRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.parent_child_boundary",
-        "ParentChildBoundaryRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        800,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.parent_child_boundary",
+            "ParentChildBoundaryRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            800,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -515,12 +538,14 @@ class ParentChildBoundaryRule:
 
 @dataclass(frozen=True, slots=True)
 class HealthBoundaryRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.health_boundary",
-        "HealthBoundaryRule",
-        ReasoningRuleCategory.SAFETY.value,
-        810,
-        risk_level=ReasoningRiskLevel.HIGH,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.health_boundary",
+            "HealthBoundaryRule",
+            ReasoningRuleCategory.SAFETY.value,
+            810,
+            risk_level=ReasoningRiskLevel.HIGH,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -548,11 +573,13 @@ class HealthBoundaryRule:
 
 @dataclass(frozen=True, slots=True)
 class EducationBoundaryRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.education_boundary",
-        "EducationBoundaryRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        820,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.education_boundary",
+            "EducationBoundaryRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            820,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -580,18 +607,22 @@ class EducationBoundaryRule:
 
 @dataclass(frozen=True, slots=True)
 class MinorPrivacyRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.minor_privacy",
-        "MinorPrivacyRule",
-        ReasoningRuleCategory.SAFETY.value,
-        830,
-        risk_level=ReasoningRiskLevel.HIGH,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.minor_privacy",
+            "MinorPrivacyRule",
+            ReasoningRuleCategory.SAFETY.value,
+            830,
+            risk_level=ReasoningRiskLevel.HIGH,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
         findings: list[ReasoningFinding] = []
         action = context.metadata.get("action_proposed")
-        if action and any(kw in str(action) for kw in ("external", "export", "share", "transmit")):
+        if action and any(
+            kw in str(action) for kw in ("external", "export", "share", "transmit")
+        ):
             findings.append(
                 ReasoningFinding(
                     code="MINOR_PRIVACY_RESTRICTION",
@@ -617,11 +648,13 @@ class MinorPrivacyRule:
 
 @dataclass(frozen=True, slots=True)
 class LongTermContinuityRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.long_term_continuity",
-        "LongTermContinuityRule",
-        ReasoningRuleCategory.INFERENCE.value,
-        840,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.long_term_continuity",
+            "LongTermContinuityRule",
+            ReasoningRuleCategory.INFERENCE.value,
+            840,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -649,11 +682,13 @@ class LongTermContinuityRule:
 
 @dataclass(frozen=True, slots=True)
 class ParentalUncertaintyRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.parental_uncertainty",
-        "ParentalUncertaintyRule",
-        ReasoningRuleCategory.EPISTEMIC.value,
-        850,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.parental_uncertainty",
+            "ParentalUncertaintyRule",
+            ReasoningRuleCategory.EPISTEMIC.value,
+            850,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -681,12 +716,14 @@ class ParentalUncertaintyRule:
 
 @dataclass(frozen=True, slots=True)
 class SiblingIdentityIsolationRule:
-    definition: DomainReasoningRuleDefinition = _definition(
-        "parenthood.rule.sibling_identity_isolation",
-        "SiblingIdentityIsolationRule",
-        ReasoningRuleCategory.SAFETY.value,
-        860,
-        risk_level=ReasoningRiskLevel.HIGH,
+    definition: DomainReasoningRuleDefinition = field(
+        default_factory=lambda: _definition(
+            "parenthood.rule.sibling_identity_isolation",
+            "SiblingIdentityIsolationRule",
+            ReasoningRuleCategory.SAFETY.value,
+            860,
+            risk_level=ReasoningRiskLevel.HIGH,
+        )
     )
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
@@ -699,7 +736,11 @@ class SiblingIdentityIsolationRule:
                 if isinstance(rec, (Mapping, dict)):
                     rec_child_id = rec.get("child_id")
                     is_shared = rec.get("is_shared", False)
-                    if not is_shared and rec_child_id and rec_child_id != active_child_id:
+                    if (
+                        not is_shared
+                        and rec_child_id
+                        and rec_child_id != active_child_id
+                    ):
                         findings.append(
                             ReasoningFinding(
                                 code="SIBLING_CONTAMINATION_BLOCKED",
@@ -752,6 +793,8 @@ def build_parenthood_rules() -> tuple[Any, ...]:
 
 
 __all__ = [
+    "PARENTHOOD_RULE_IDS",
+    "PARENTHOOD_RULE_NAMES",
     "AgeAppropriateGuidanceRule",
     "ChildInterestAndWellbeingRule",
     "CostUncertaintyRule",
@@ -765,8 +808,6 @@ __all__ = [
     "LongTermContinuityRule",
     "MedicalLegalSeparationRule",
     "MinorPrivacyRule",
-    "PARENTHOOD_RULE_IDS",
-    "PARENTHOOD_RULE_NAMES",
     "ParentChildBoundaryRule",
     "ParentalUncertaintyRule",
     "ParenthoodDecisionExplicitRule",

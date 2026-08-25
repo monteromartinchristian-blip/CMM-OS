@@ -30,9 +30,7 @@ def _registries() -> dict:
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -44,12 +42,19 @@ def test_register_parenthood_domain_atomic_success() -> None:
 
     assert isinstance(result, ParenthoodDomainIntegrationResult)
     assert registries["domain_registry"].get("domain:parenthood") is not None
-    assert registries["profile_registry"].get_by_domain(DomainId("parenthood")) is not None
+    assert (
+        registries["profile_registry"].get_by_domain(DomainId("parenthood")) is not None
+    )
     assert len(registries["resource_registry"].list_all()) == 19
     assert len(registries["rule_registry"].list_all()) == 17
     assert len(registries["operation_registry"].list_definitions()) == 20
-    assert len(registries["workflow_registry"].list_for_domain("domain:parenthood")) == 16
-    assert registries["permission_registry"].get("domain-permission:parenthood:1.0.0") is not None
+    assert (
+        len(registries["workflow_registry"].list_for_domain("domain:parenthood")) == 16
+    )
+    assert (
+        registries["permission_registry"].get("domain-permission:parenthood:1.0.0")
+        is not None
+    )
 
 
 def test_register_parenthood_domain_duplicate_raises_and_rolls_back() -> None:

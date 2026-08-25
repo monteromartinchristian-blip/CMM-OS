@@ -8,7 +8,6 @@ from cmm.domains.parenthood.trace import (
     assemble_parenthood_trace,
     build_parenthood_trace_contribution,
     build_parenthood_trace_reference,
-    build_supporting_trace_contribution,
 )
 from cmm.domains.trace_contracts import (
     DomainTraceReferenceKind,

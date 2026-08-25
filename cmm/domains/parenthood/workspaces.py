@@ -1,10 +1,10 @@
-"""Phase 10.27 — Parenthood Workspaces and Functional Scope Isolation.
+"""Phase 10.27 — Parenthood Workspaces, Functional Scopes, and Sibling Isolation Contracts.
 
-Contracts and helpers for managing:
-1. Functional scopes: ``parenthood.journey`` and isolated ``parenthood.child:<child_id>``.
-2. Isolated child parenting workspaces with stable internal identities.
-3. Sibling identity isolation (no cross-sibling record contamination).
-4. Selective, provenance-preserving journey-to-child context transfer.
+Provides:
+- Functional scope model: ``parenthood.journey`` vs ``parenthood.child:<child_id>``
+- Child workspace contracts (presentation display names separated from stable internal IDs)
+- Sibling identity isolation verification
+- Selective, non-bulk journey-to-child context transfer contracts
 """
 
 from __future__ import annotations
@@ -13,34 +13,39 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
-PARENTHOOD_DOMAIN_ID = "domain:parenthood"
-
-ALLOWED_TRANSFER_CATEGORIES: frozenset[str] = frozenset(
-    {
-        "identity_civil_documentation",
-        "birth_information",
-        "medical_history",
-        "health_summary",
-        "genetic_family_history",
-        "milestone",
-        "family_context",
-        "parenting_decision",
-    }
-)
+from cmm.domains.parenthood.definition import PARENTHOOD_DOMAIN_ID
 
 
 @dataclass(frozen=True, slots=True)
 class ParenthoodScope:
-    """Represents a functional scope in the Parenthood domain."""
+    """Represents an active functional scope within the Parenthood Domain."""
 
-    kind: Literal["journey", "child"]
+    kind: str  # "journey" | "child"
     child_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("journey", "child"):
+            raise ValueError(
+                f"Invalid scope kind: {self.kind!r}; must be 'journey' or 'child'"
+            )
+        if self.kind == "child" and not self.child_id:
+            raise ValueError("child_id is required when scope kind is 'child'")
+        if self.kind == "journey" and self.child_id is not None:
+            raise ValueError("child_id must be None when scope kind is 'journey'")
+
+    @property
+    def is_child(self) -> bool:
+        return self.kind == "child"
+
+    @property
+    def is_journey(self) -> bool:
+        return self.kind == "journey"
 
     @property
     def scope_id(self) -> str:
-        if self.kind == "journey":
+        if self.is_journey:
             return "parenthood.journey"
         return f"parenthood.child:{self.child_id}"
 
@@ -48,7 +53,7 @@ class ParenthoodScope:
 def parse_parenthood_scope(scope_str: str) -> ParenthoodScope:
     """Parse a functional scope string into a ``ParenthoodScope``."""
     if not isinstance(scope_str, str):
-        raise ValueError(f"Scope must be a string, got {type(scope_str)}")
+        raise TypeError(f"Scope must be a string, got {type(scope_str)}")
 
     if scope_str == "parenthood.journey":
         return ParenthoodScope(kind="journey", child_id=None)
@@ -110,9 +115,7 @@ def validate_child_workspace(workspace: ChildParentingWorkspace) -> bool:
         return False
     if not workspace.id or not workspace.display_name:
         return False
-    if workspace.domain_id != PARENTHOOD_DOMAIN_ID:
-        return False
-    return True
+    return workspace.domain_id == PARENTHOOD_DOMAIN_ID
 
 
 def ensure_sibling_identity_isolation(
@@ -179,8 +182,8 @@ def select_journey_transfer_candidates(
             "provenance": {
                 "origin_domain": PARENTHOOD_DOMAIN_ID,
                 "origin_scope": "parenthood.journey",
-                "transfer_approved": True,
-                "transfer_timestamp": now_iso,
+                "transfer_authorized": True,
+                "target_child_id": target_child_id,
             },
         }
         candidates.append(item)
@@ -189,9 +192,7 @@ def select_journey_transfer_candidates(
 
 
 __all__ = [
-    "ALLOWED_TRANSFER_CATEGORIES",
     "ChildParentingWorkspace",
-    "PARENTHOOD_DOMAIN_ID",
     "ParenthoodScope",
     "build_child_workspace",
     "ensure_sibling_identity_isolation",

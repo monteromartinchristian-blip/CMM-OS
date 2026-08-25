@@ -26,9 +26,7 @@ PARENTHOOD_RULE_IDS: tuple[str, ...] = CANONICAL_PARENTHOOD_RULE_IDS
 PARENTHOOD_OPERATION_IDS: tuple[str, ...] = CANONICAL_PARENTHOOD_OPERATION_IDS
 PARENTHOOD_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_PARENTHOOD_WORKFLOW_IDS
 
-PARENTHOOD_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:parenthood:1.0.0",
-)
+PARENTHOOD_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:parenthood:1.0.0",)
 
 
 def build_parenthood_domain_definition() -> DomainDefinition:

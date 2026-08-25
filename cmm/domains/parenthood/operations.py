@@ -17,8 +17,6 @@ from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.parenthood.catalog import (
-    CANONICAL_PARENTHOOD_CHILD_OPERATION_IDS,
-    CANONICAL_PARENTHOOD_JOURNEY_OPERATION_IDS,
     CANONICAL_PARENTHOOD_OPERATION_IDS,
 )
 
@@ -50,26 +48,59 @@ _OPERATION_TYPES: dict[str, DomainOperationType] = {
 _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
     # Journey
     "parenthood.journey.build_timeline": ("parenthood.resource.life_plan",),
-    "parenthood.journey.compare_pathways": ("parenthood.resource.life_plan", "parenthood.resource.jurisdiction_information"),
-    "parenthood.journey.review_requirements": ("parenthood.resource.legal_document", "parenthood.resource.jurisdiction_information"),
-    "parenthood.journey.review_financial_scenarios": ("parenthood.resource.financial_plan",),
-    "parenthood.journey.prepare_questions": ("parenthood.resource.provider_information",),
+    "parenthood.journey.compare_pathways": (
+        "parenthood.resource.life_plan",
+        "parenthood.resource.jurisdiction_information",
+    ),
+    "parenthood.journey.review_requirements": (
+        "parenthood.resource.legal_document",
+        "parenthood.resource.jurisdiction_information",
+    ),
+    "parenthood.journey.review_financial_scenarios": (
+        "parenthood.resource.financial_plan",
+    ),
+    "parenthood.journey.prepare_questions": (
+        "parenthood.resource.provider_information",
+    ),
     "parenthood.journey.track_decisions": ("parenthood.resource.decision",),
     "parenthood.journey.update_plan": ("parenthood.resource.life_plan",),
-    "parenthood.journey.generate_documentation_checklist": ("parenthood.resource.legal_document",),
+    "parenthood.journey.generate_documentation_checklist": (
+        "parenthood.resource.legal_document",
+    ),
     "parenthood.journey.review_risks": ("parenthood.resource.life_plan",),
     # Child
-    "parenthood.child.review_needs": ("parenthood.resource.parenting_note", "parenthood.resource.child_development_resource"),
-    "parenthood.child.review_developmental_stage": ("parenthood.resource.child_development_resource",),
-    "parenthood.child.plan_routines": ("parenthood.resource.schedule", "parenthood.resource.parenting_note"),
-    "parenthood.child.prepare_parental_decision": ("parenthood.resource.parental_decision",),
-    "parenthood.child.review_education_plan": ("parenthood.resource.education_document", "parenthood.resource.school_information"),
+    "parenthood.child.review_needs": (
+        "parenthood.resource.parenting_note",
+        "parenthood.resource.child_development_resource",
+    ),
+    "parenthood.child.review_developmental_stage": (
+        "parenthood.resource.child_development_resource",
+    ),
+    "parenthood.child.plan_routines": (
+        "parenthood.resource.schedule",
+        "parenthood.resource.parenting_note",
+    ),
+    "parenthood.child.prepare_parental_decision": (
+        "parenthood.resource.parental_decision",
+    ),
+    "parenthood.child.review_education_plan": (
+        "parenthood.resource.education_document",
+        "parenthood.resource.school_information",
+    ),
     "parenthood.child.review_family_context": ("parenthood.resource.parenting_note",),
-    "parenthood.child.track_milestones": ("parenthood.resource.child_development_resource",),
+    "parenthood.child.track_milestones": (
+        "parenthood.resource.child_development_resource",
+    ),
     "parenthood.child.prepare_questions": ("parenthood.resource.parenting_note",),
     "parenthood.child.track_decisions": ("parenthood.resource.parental_decision",),
-    "parenthood.child.update_parenting_plan": ("parenthood.resource.parenting_note", "parenthood.resource.schedule"),
-    "parenthood.child.review_risks_and_needs": ("parenthood.resource.parenting_note", "parenthood.resource.health_summary"),
+    "parenthood.child.update_parenting_plan": (
+        "parenthood.resource.parenting_note",
+        "parenthood.resource.schedule",
+    ),
+    "parenthood.child.review_risks_and_needs": (
+        "parenthood.resource.parenting_note",
+        "parenthood.resource.health_summary",
+    ),
 }
 
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -146,7 +177,10 @@ def compare_pathways_result(
         "cost_uncertainty_preserved": True,
         "has_autonomous_decision": False,
         "comparison_matrix": {
-            p: {"feasibility": "exploratory", "cost_range": criteria_dict.get("budget_range", (50000, 100000))}
+            p: {
+                "feasibility": "exploratory",
+                "cost_range": criteria_dict.get("budget_range", (50000, 100000)),
+            }
             for p in pathways
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -167,9 +201,18 @@ def build_timeline_result(
         "milestones": [
             {"milestone": "Medical preparation & testing", "estimated_month": 1},
             {"milestone": "Legal & agency matching", "estimated_month": 3},
-            {"milestone": "Embryo transfer / matching confirmation", "estimated_month": 6},
-            {"milestone": "Pregnancy / final administrative steps", "estimated_month": 9},
-            {"milestone": "Birth transition & civil registration", "estimated_month": 15},
+            {
+                "milestone": "Embryo transfer / matching confirmation",
+                "estimated_month": 6,
+            },
+            {
+                "milestone": "Pregnancy / final administrative steps",
+                "estimated_month": 9,
+            },
+            {
+                "milestone": "Birth transition & civil registration",
+                "estimated_month": 15,
+            },
         ],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

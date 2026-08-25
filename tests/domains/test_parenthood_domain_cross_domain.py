@@ -11,14 +11,10 @@ from cmm.domains.parenthood.bootstrap import build_standard_parenthood_domain_bo
 from cmm.domains.parenthood.rules import (
     DevelopmentalContextRule,
     HealthBoundaryRule,
-    JourneyToChildBoundaryRule,
     MinorPrivacyRule,
     SiblingIdentityIsolationRule,
 )
 from cmm.domains.parenthood.workspaces import (
-    build_child_workspace,
-    ensure_sibling_identity_isolation,
-    parse_parenthood_scope,
     select_journey_transfer_candidates,
 )
 
@@ -61,8 +57,18 @@ def test_cross_domain_sibling_isolation_invariance() -> None:
         metadata={
             "active_child_id": "child:001",
             "context_records": [
-                {"child_id": "child:001", "type": "routine", "bedtime": "20:00", "is_shared": False},
-                {"child_id": "child:002", "type": "pediatric_note", "allergy": "penicillin", "is_shared": False},
+                {
+                    "child_id": "child:001",
+                    "type": "routine",
+                    "bedtime": "20:00",
+                    "is_shared": False,
+                },
+                {
+                    "child_id": "child:002",
+                    "type": "pediatric_note",
+                    "allergy": "penicillin",
+                    "is_shared": False,
+                },
             ],
         },
     )
@@ -84,7 +90,11 @@ def test_cross_domain_health_boundary_invariance() -> None:
         active_domains=("domain:parenthood", "domain:health"),
         metadata={
             "child_observations": [
-                {"behavior": "restlessness in seat", "stage": "school_age", "proposed_diagnosis": "ADHD_combined_type"},
+                {
+                    "behavior": "restlessness in seat",
+                    "stage": "school_age",
+                    "proposed_diagnosis": "ADHD_combined_type",
+                },
             ]
         },
     )
@@ -113,10 +123,26 @@ def test_cross_domain_minor_privacy_fail_closed() -> None:
 def test_journey_to_child_selective_transfer_invariance() -> None:
     """Verify pre-parenthood journey records are never bulk-copied into a child workspace."""
     journey_dossier = {
-        "doc-1": {"topic": "surrogacy_contract", "category": "legal_contract", "is_child_facing": False},
-        "doc-2": {"topic": "clinic_medical_history", "category": "medical_history", "is_child_facing": False},
-        "doc-3": {"topic": "selected_pediatrician", "category": "pediatric_contact", "is_child_facing": True},
-        "doc-4": {"topic": "family_origin_story", "category": "narrative", "is_child_facing": True},
+        "doc-1": {
+            "topic": "surrogacy_contract",
+            "category": "legal_contract",
+            "is_child_facing": False,
+        },
+        "doc-2": {
+            "topic": "clinic_medical_history",
+            "category": "medical_history",
+            "is_child_facing": False,
+        },
+        "doc-3": {
+            "topic": "selected_pediatrician",
+            "category": "pediatric_contact",
+            "is_child_facing": True,
+        },
+        "doc-4": {
+            "topic": "family_origin_story",
+            "category": "narrative",
+            "is_child_facing": True,
+        },
     }
 
     # Bulk copy without selection raises ValueError

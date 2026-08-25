@@ -19,8 +19,18 @@ def test_parenthood_workflow_definitions_count_and_ids() -> None:
     wf_ids = tuple(wf.workflow_id for wf in workflows)
     assert wf_ids == CANONICAL_PARENTHOOD_WORKFLOW_IDS
 
-    journey_ids = [wf.workflow_id for wf in workflows if "journey" in wf.workflow_id or wf.workflow_id in CANONICAL_PARENTHOOD_JOURNEY_WORKFLOW_IDS]
-    child_ids = [wf.workflow_id for wf in workflows if "child" in wf.workflow_id or wf.workflow_id in CANONICAL_PARENTHOOD_CHILD_WORKFLOW_IDS]
+    journey_ids = [
+        wf.workflow_id
+        for wf in workflows
+        if "journey" in wf.workflow_id
+        or wf.workflow_id in CANONICAL_PARENTHOOD_JOURNEY_WORKFLOW_IDS
+    ]
+    child_ids = [
+        wf.workflow_id
+        for wf in workflows
+        if "child" in wf.workflow_id
+        or wf.workflow_id in CANONICAL_PARENTHOOD_CHILD_WORKFLOW_IDS
+    ]
     assert tuple(journey_ids) == CANONICAL_PARENTHOOD_JOURNEY_WORKFLOW_IDS
     assert tuple(child_ids) == CANONICAL_PARENTHOOD_CHILD_WORKFLOW_IDS
 

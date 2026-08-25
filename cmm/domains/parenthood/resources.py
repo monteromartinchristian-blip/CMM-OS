@@ -220,4 +220,6 @@ def build_parenthood_resource_definitions() -> tuple[DomainResourceDefinition, .
         ),
     }
 
-    return tuple(by_id[resource_id] for resource_id in CANONICAL_PARENTHOOD_RESOURCE_IDS)
+    return tuple(
+        by_id[resource_id] for resource_id in CANONICAL_PARENTHOOD_RESOURCE_IDS
+    )

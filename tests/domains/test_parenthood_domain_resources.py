@@ -33,11 +33,26 @@ def test_parenthood_resource_definitions_sensitivities() -> None:
     defs_by_id = {d.id: d for d in build_parenthood_resource_definitions()}
 
     # Medical, legal, parenting notes, health summaries, and memory entries must be SENSITIVE
-    assert defs_by_id["parenthood.resource.medical_report"].default_sensitivity == SensitivityLevel.SENSITIVE
-    assert defs_by_id["parenthood.resource.legal_document"].default_sensitivity == SensitivityLevel.SENSITIVE
-    assert defs_by_id["parenthood.resource.parenting_note"].default_sensitivity == SensitivityLevel.SENSITIVE
-    assert defs_by_id["parenthood.resource.health_summary"].default_sensitivity == SensitivityLevel.SENSITIVE
-    assert defs_by_id["parenthood.resource.memory_entry"].default_sensitivity == SensitivityLevel.SENSITIVE
+    assert (
+        defs_by_id["parenthood.resource.medical_report"].default_sensitivity
+        == SensitivityLevel.SENSITIVE
+    )
+    assert (
+        defs_by_id["parenthood.resource.legal_document"].default_sensitivity
+        == SensitivityLevel.SENSITIVE
+    )
+    assert (
+        defs_by_id["parenthood.resource.parenting_note"].default_sensitivity
+        == SensitivityLevel.SENSITIVE
+    )
+    assert (
+        defs_by_id["parenthood.resource.health_summary"].default_sensitivity
+        == SensitivityLevel.SENSITIVE
+    )
+    assert (
+        defs_by_id["parenthood.resource.memory_entry"].default_sensitivity
+        == SensitivityLevel.SENSITIVE
+    )
 
 
 def test_parenthood_resource_temporal_policies() -> None:

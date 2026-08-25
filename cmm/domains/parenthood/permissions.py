@@ -93,15 +93,14 @@ def persistence_confirmation_accepted(
             child_id=child_id,
         )
         record["chain_valid"] = bool(validation.is_valid)
-    except Exception:
+    except Exception:  # noqa: BLE001
         record["chain_valid"] = False
         record["authorization_malformed"] = True
         return record
 
-    binding_matches = (
-        proposal_id is not None
-        and tuple(getattr(confirmation_binding, "memory_proposal_ids", ())) == (proposal_id,)
-    )
+    binding_matches = proposal_id is not None and tuple(
+        getattr(confirmation_binding, "memory_proposal_ids", ())
+    ) == (proposal_id,)
     approvals = getattr(confirmation_inventory, "approval_requests", ())
     decisions = getattr(confirmation_inventory, "approval_decisions", ())
     linked = any(

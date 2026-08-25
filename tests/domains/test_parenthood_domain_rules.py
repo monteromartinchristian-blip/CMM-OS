@@ -51,8 +51,18 @@ def test_parenthood_decision_explicit_rule_rejects_inferred_adoption() -> None:
     ctx = _ctx(
         metadata={
             "decisions": [
-                {"id": "dec-1", "topic": "surrogacy_pathway", "status": "proposed", "explicitly_adopted": False},
-                {"id": "dec-2", "topic": "selected_clinic", "status": "adopted", "explicitly_adopted": True},
+                {
+                    "id": "dec-1",
+                    "topic": "surrogacy_pathway",
+                    "status": "proposed",
+                    "explicitly_adopted": False,
+                },
+                {
+                    "id": "dec-2",
+                    "topic": "selected_clinic",
+                    "status": "adopted",
+                    "explicitly_adopted": True,
+                },
             ]
         }
     )
@@ -71,7 +81,11 @@ def test_cost_uncertainty_rule_preserves_ranges() -> None:
     ctx = _ctx(
         metadata={
             "financial_scenarios": [
-                {"item": "total_cost", "exact_fixed_cost": 85000, "is_guaranteed": True},
+                {
+                    "item": "total_cost",
+                    "exact_fixed_cost": 85000,
+                    "is_guaranteed": True,
+                },
             ]
         }
     )
@@ -87,7 +101,11 @@ def test_developmental_context_rule_non_diagnostic() -> None:
     ctx = _ctx(
         metadata={
             "child_observations": [
-                {"behavior": "shyness_around_strangers", "stage": "toddler", "proposed_diagnosis": "social_anxiety_disorder"},
+                {
+                    "behavior": "shyness_around_strangers",
+                    "stage": "toddler",
+                    "proposed_diagnosis": "social_anxiety_disorder",
+                },
             ]
         }
     )
@@ -104,7 +122,12 @@ def test_sibling_identity_isolation_rule() -> None:
         metadata={
             "active_child_id": "child:001",
             "context_records": [
-                {"child_id": "child:002", "record_type": "allergy", "data": "peanuts", "is_shared": False},
+                {
+                    "child_id": "child:002",
+                    "record_type": "allergy",
+                    "data": "peanuts",
+                    "is_shared": False,
+                },
             ],
         }
     )

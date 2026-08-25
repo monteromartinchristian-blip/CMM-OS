@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from cmm.domains.memory_contracts import (
     DomainMemoryCapability,
     DomainMemoryProposalKind,
@@ -9,7 +11,6 @@ from cmm.domains.memory_contracts import (
 )
 from cmm.domains.parenthood.memory import (
     CANDIDATE_LONGITUDINAL_KINDS,
-    build_parenthood_memory_binding,
     build_parenthood_memory_proposal,
     build_parenthood_memory_view_request,
     validate_parenthood_memory_binding,
@@ -48,12 +49,13 @@ def test_build_parenthood_memory_view_request() -> None:
 
 def test_validate_parenthood_memory_binding_child_scope_mismatch() -> None:
     """Verify memory binding validation rejects sibling child_id mismatch."""
+
     class MockBinding:
         domain_id = "domain:parenthood"
         memory_proposal_ids = ("prop-001",)
         trace_id = "trace-001"
         view_id = "view-001"
-        metadata = {"child_id": "child:001"}
+        metadata: ClassVar[dict[str, str]] = {"child_id": "child:001"}
 
     class MockInventory:
         approval_requests = ()

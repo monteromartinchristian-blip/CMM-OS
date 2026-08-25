@@ -44,16 +44,12 @@ def present_parenthood_result(
     is_child = "child" in scope or "child_id" in data
     non_diag_badge = "Normal developmental variation" if is_child else None
 
-    # Distinction flags
-    has_proposals = "decisions" in data or data.get("is_proposal", False) or data.get("decision_status") == "proposed"
-    has_uncertainty = "cost_range" in data or "uncertainties" in data or data.get("cost_uncertainty_preserved", False)
-
     projected: dict[str, Any] = {
         **data,
         "domain_display_name": "Paternidad",
         "scope_display_name": scope_display_name,
-        "uncertainty_preserved": bool(has_uncertainty or True),
-        "proposals_distinguished": bool(has_proposals or True),
+        "uncertainty_preserved": True,
+        "proposals_distinguished": True,
         "non_diagnostic_badge": non_diag_badge,
         "presentation_format": "standard_parenthood",
     }

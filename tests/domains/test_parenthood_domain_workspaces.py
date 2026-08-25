@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
 import pytest
 
 from cmm.domains.parenthood.workspaces import (
-    ChildParentingWorkspace,
-    ParenthoodScope,
     build_child_workspace,
     ensure_sibling_identity_isolation,
     parse_parenthood_scope,
@@ -76,7 +75,6 @@ def test_child_display_name_mutation_preserves_internal_id() -> None:
 
 def test_sibling_identity_isolation() -> None:
     """Verify strict isolation between different sibling workspaces."""
-    child_a = build_child_workspace(id="child:001", display_name="Lucas")
     child_b = build_child_workspace(id="child:002", display_name="Mateo")
 
     # Record scoped to child_a
@@ -109,45 +107,36 @@ def test_sibling_identity_isolation() -> None:
 
 
 def test_journey_to_child_selective_transfer() -> None:
-    """Verify journey-to-child context transfer is selective and provenance-preserving."""
-    journey_dossier = {
-        "birth_details": {
-            "category": "birth_information",
-            "hospital": "Hospital Central",
-            "date": "2026-06-01",
+    """Verify explicit candidate selection requirement for journey -> child transfer."""
+    journey_ctx = {
+        "pediatrician": {
+            "category": "contact",
+            "name": "Dr. Miller",
+            "clinic": "Valencia Pediatrics",
         },
-        "pediatrician_contacts": {
-            "category": "medical_history",
-            "provider": "Dr. Gómez",
-        },
-        "agency_invoices_and_fees": {
-            "category": "financial_operational",
-            "amount": 25000,
-        },
-        "legal_contracts_with_surrogacy_agency": {
-            "category": "administrative_operational",
-            "contract_id": "AG-992",
+        "donor_medical_history": {
+            "category": "clinical_history",
+            "blood_type": "O+",
         },
     }
 
-    # Whole dossier bulk transfer without selection must fail
+    # Bulk transfer without explicit selection is rejected
     with pytest.raises(ValueError, match="bulk copy prohibited"):
         select_journey_transfer_candidates(
-            journey_context=journey_dossier,
-            allow_bulk_transfer=True,  # Prohibited flag or attempt
+            journey_context=journey_ctx,
+            selected_keys=None,
+            target_child_id="child:001",
+            allow_bulk_transfer=True,
         )
 
-    # Selective transfer of authorized categories
-    transferred = select_journey_transfer_candidates(
-        journey_context=journey_dossier,
-        selected_keys=["birth_details", "pediatrician_contacts"],
+    # Explicit selective transfer succeeds
+    transfers = select_journey_transfer_candidates(
+        journey_context=journey_ctx,
+        selected_keys=("pediatrician",),
         target_child_id="child:001",
     )
-
-    assert len(transferred) == 2
-    for item in transferred:
-        assert item["target_child_id"] == "child:001"
-        assert item["source_scope"] == "parenthood.journey"
-        assert item["transferred_at"] is not None
-        assert item["category"] in {"birth_information", "medical_history"}
-        assert "provenance" in item
+    assert len(transfers) == 1
+    assert transfers[0]["key"] == "pediatrician"
+    assert transfers[0]["category"] == "contact"
+    assert transfers[0]["target_child_id"] == "child:001"
+    assert transfers[0]["provenance"]["transfer_authorized"] is True

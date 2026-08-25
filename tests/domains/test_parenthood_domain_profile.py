@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from cmm.cognitive.enums import SensitivityLevel
 from cmm.domains.enums import DomainReasoningDepth
-from cmm.domains.parenthood.catalog import CANONICAL_PARENTHOOD_RULE_IDS, PARENTHOOD_RESOURCE_KINDS
+from cmm.domains.parenthood.catalog import (
+    CANONICAL_PARENTHOOD_RULE_IDS,
+    PARENTHOOD_RESOURCE_KINDS,
+)
 from cmm.domains.parenthood.profile import (
     PARENTHOOD_FUNCTIONAL_SCOPES,
     PARENTHOOD_PROFILE_ID,
@@ -67,7 +70,9 @@ def test_parenthood_profile_inferences() -> None:
     assert "inferred_parental_decision_as_adopted" in profile.prohibited_inferences
     assert "cross_sibling_identity_merge" in profile.prohibited_inferences
     assert "medical_diagnosis_from_parenting_context" in profile.prohibited_inferences
-    assert "legal_conclusion_without_current_verification" in profile.prohibited_inferences
+    assert (
+        "legal_conclusion_without_current_verification" in profile.prohibited_inferences
+    )
     assert "journey_history_auto_transfer" in profile.prohibited_inferences
     assert "silent_memory_persistence" in profile.prohibited_inferences
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from cmm.agent_runtime.enums import PolicyRiskLevel
-from cmm.domains.enums import DomainOperationType
 from cmm.domains.parenthood.catalog import (
     CANONICAL_PARENTHOOD_CHILD_OPERATION_IDS,
     CANONICAL_PARENTHOOD_JOURNEY_OPERATION_IDS,
@@ -13,7 +12,6 @@ from cmm.domains.parenthood.operations import (
     build_parenthood_operation_definitions,
     build_timeline_result,
     compare_pathways_result,
-    plan_routines_result,
     prepare_parental_decision_result,
     review_developmental_stage_result,
 )
@@ -27,8 +25,14 @@ def test_parenthood_operation_definitions_count_and_ids() -> None:
     assert op_ids == CANONICAL_PARENTHOOD_OPERATION_IDS
 
     # Verify 9 journey and 11 child operations
-    journey_ids = [op.operation_id for op in ops if op.operation_id.startswith("parenthood.journey.")]
-    child_ids = [op.operation_id for op in ops if op.operation_id.startswith("parenthood.child.")]
+    journey_ids = [
+        op.operation_id
+        for op in ops
+        if op.operation_id.startswith("parenthood.journey.")
+    ]
+    child_ids = [
+        op.operation_id for op in ops if op.operation_id.startswith("parenthood.child.")
+    ]
     assert tuple(journey_ids) == CANONICAL_PARENTHOOD_JOURNEY_OPERATION_IDS
     assert tuple(child_ids) == CANONICAL_PARENTHOOD_CHILD_OPERATION_IDS
 

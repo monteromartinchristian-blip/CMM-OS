@@ -16,7 +16,10 @@ def test_parenthood_permission_constants() -> None:
     """Verify permission policy ID and prohibited capabilities."""
     assert PARENTHOOD_PERMISSION_POLICY_ID == "domain-permission:parenthood:1.0.0"
     assert PermissionCapability.MEMORY_WRITE in PARENTHOOD_PROHIBITED_CAPABILITIES
-    assert PermissionCapability.COMMUNICATION_EXTERNAL in PARENTHOOD_PROHIBITED_CAPABILITIES
+    assert (
+        PermissionCapability.COMMUNICATION_EXTERNAL
+        in PARENTHOOD_PROHIBITED_CAPABILITIES
+    )
     assert PermissionCapability.MEDICAL_DECISION in PARENTHOOD_PROHIBITED_CAPABILITIES
     assert PermissionCapability.MEDICAL_ACTION in PARENTHOOD_PROHIBITED_CAPABILITIES
     assert PermissionCapability.LEGAL_DECISION in PARENTHOOD_PROHIBITED_CAPABILITIES

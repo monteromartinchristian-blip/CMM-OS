@@ -85,8 +85,12 @@ class TestParenthoodDomainDP027Acceptance:
 
         assert bootstrap.domain_registry.get(PARENTHOOD_DOMAIN_ID) is not None
         assert bootstrap.domain_registry.get("domain:general") is not None
-        assert bootstrap.profile_registry.get_by_domain(DomainId("parenthood")) is not None
-        assert len(bootstrap.workflow_registry.list_for_domain(PARENTHOOD_DOMAIN_ID)) == 16
+        assert (
+            bootstrap.profile_registry.get_by_domain(DomainId("parenthood")) is not None
+        )
+        assert (
+            len(bootstrap.workflow_registry.list_for_domain(PARENTHOOD_DOMAIN_ID)) == 16
+        )
         assert len(bootstrap.operation_registry.list_definitions()) >= 20
 
     def test_cp02_profile_and_permission_boundaries(self) -> None:
@@ -132,7 +136,11 @@ class TestParenthoodDomainDP027Acceptance:
         ctx = _ctx(
             metadata={
                 "decisions": [
-                    {"topic": "chosen_pathway", "status": "proposed", "explicitly_adopted": False},
+                    {
+                        "topic": "chosen_pathway",
+                        "status": "proposed",
+                        "explicitly_adopted": False,
+                    },
                 ],
                 "financial_scenarios": [
                     {"item": "clinic_fees", "is_guaranteed": True},
@@ -157,9 +165,18 @@ class TestParenthoodDomainDP027Acceptance:
     def test_cp05_selective_journey_to_child_context_transfer(self) -> None:
         """CP5: Transfer selective child-facing records without bulk copy."""
         journey_dossier = {
-            "legal_contract_01": {"topic": "surrogacy_agreement", "category": "legal_contract"},
-            "pediatrician_contact": {"topic": "Dr. Miller", "category": "pediatric_contact"},
-            "child_origin_narrative": {"topic": "family_story", "category": "narrative"},
+            "legal_contract_01": {
+                "topic": "surrogacy_agreement",
+                "category": "legal_contract",
+            },
+            "pediatrician_contact": {
+                "topic": "Dr. Miller",
+                "category": "pediatric_contact",
+            },
+            "child_origin_narrative": {
+                "topic": "family_story",
+                "category": "narrative",
+            },
         }
 
         # Bulk copy fails
@@ -177,7 +194,10 @@ class TestParenthoodDomainDP027Acceptance:
             target_child_id="child:lucas-001",
         )
         assert len(transfers) == 2
-        assert {t["key"] for t in transfers} == {"pediatrician_contact", "child_origin_narrative"}
+        assert {t["key"] for t in transfers} == {
+            "pediatrician_contact",
+            "child_origin_narrative",
+        }
 
     def test_cp06_child_workspace_initialization_and_scope(self) -> None:
         """CP6: Initialize child workspace with stable ID and display name."""
@@ -205,7 +225,11 @@ class TestParenthoodDomainDP027Acceptance:
             metadata={
                 "active_child_id": "child:lucas-001",
                 "child_observations": [
-                    {"behavior": "waking at night", "stage": "infant", "proposed_diagnosis": "infant_insomnia_disorder"},
+                    {
+                        "behavior": "waking at night",
+                        "stage": "infant",
+                        "proposed_diagnosis": "infant_insomnia_disorder",
+                    },
                 ],
             }
         )
@@ -243,7 +267,10 @@ class TestParenthoodDomainDP027Acceptance:
         )
 
         record_lucas = {"child_id": "child:lucas-001", "data": "Lucas allergy to dairy"}
-        record_shared = {"is_shared_family_context": True, "data": "Grandparents visit on Sundays"}
+        record_shared = {
+            "is_shared_family_context": True,
+            "data": "Grandparents visit on Sundays",
+        }
 
         # Lucas accessing Lucas record -> allowed
         res1 = ensure_sibling_identity_isolation(

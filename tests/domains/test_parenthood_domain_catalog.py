@@ -66,11 +66,21 @@ def test_canonical_catalog_uniqueness() -> None:
 
 def test_canonical_catalog_prefixes() -> None:
     """Verify namespaces and prefixes for resources, rules, operations, workflows."""
-    assert all(v.startswith("parenthood.resource.") for v in CANONICAL_PARENTHOOD_RESOURCE_IDS)
+    assert all(
+        v.startswith("parenthood.resource.") for v in CANONICAL_PARENTHOOD_RESOURCE_IDS
+    )
     assert all(v.startswith("parenthood.rule.") for v in CANONICAL_PARENTHOOD_RULE_IDS)
-    assert all(v.startswith("parenthood.journey.") for v in CANONICAL_PARENTHOOD_JOURNEY_OPERATION_IDS)
-    assert all(v.startswith("parenthood.child.") for v in CANONICAL_PARENTHOOD_CHILD_OPERATION_IDS)
-    assert all(v.startswith("parenthood.workflow.") for v in CANONICAL_PARENTHOOD_WORKFLOW_IDS)
+    assert all(
+        v.startswith("parenthood.journey.")
+        for v in CANONICAL_PARENTHOOD_JOURNEY_OPERATION_IDS
+    )
+    assert all(
+        v.startswith("parenthood.child.")
+        for v in CANONICAL_PARENTHOOD_CHILD_OPERATION_IDS
+    )
+    assert all(
+        v.startswith("parenthood.workflow.") for v in CANONICAL_PARENTHOOD_WORKFLOW_IDS
+    )
 
 
 def test_canonical_entities_exact() -> None:
@@ -142,7 +152,9 @@ def test_canonical_resources_and_kinds() -> None:
         "parenthood.resource.memory_entry",
     )
     assert CANONICAL_PARENTHOOD_RESOURCE_IDS == expected_resources
-    assert PARENTHOOD_RESOURCE_KINDS == tuple(r.split(".", 1)[1] for r in expected_resources)
+    assert PARENTHOOD_RESOURCE_KINDS == tuple(
+        r.split(".", 1)[1] for r in expected_resources
+    )
 
 
 def test_canonical_rules_and_class_names() -> None:
@@ -171,7 +183,9 @@ def test_canonical_rules_and_class_names() -> None:
         "parenthood.rule.sibling_identity_isolation",
     )
     assert CANONICAL_PARENTHOOD_CHILD_RULE_IDS == expected_child_rules
-    assert CANONICAL_PARENTHOOD_RULE_IDS == expected_journey_rules + expected_child_rules
+    assert (
+        CANONICAL_PARENTHOOD_RULE_IDS == expected_journey_rules + expected_child_rules
+    )
 
     expected_rule_names = (
         "ParenthoodDecisionExplicitRule",
@@ -220,7 +234,10 @@ def test_canonical_workflows_and_names() -> None:
         "parenthood.workflow.annual_parenting_plan_review",
     )
     assert CANONICAL_PARENTHOOD_CHILD_WORKFLOW_IDS == expected_child_workflows
-    assert CANONICAL_PARENTHOOD_WORKFLOW_IDS == expected_journey_workflows + expected_child_workflows
+    assert (
+        CANONICAL_PARENTHOOD_WORKFLOW_IDS
+        == expected_journey_workflows + expected_child_workflows
+    )
 
     expected_names_by_id = {
         "parenthood.workflow.path_to_parenthood_review": "Path to Parenthood Review",

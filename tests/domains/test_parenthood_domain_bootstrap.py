@@ -34,7 +34,7 @@ def test_build_standard_parenthood_domain_bootstrap() -> None:
 
 def test_package_exports() -> None:
     """Verify __init__.py exports all domain symbols cleanly without import-time side effects."""
-    import cmm.domains.parenthood as parenthood
+    from cmm.domains import parenthood
 
     assert hasattr(parenthood, "build_parenthood_domain_definition")
     assert hasattr(parenthood, "build_parenthood_profile")

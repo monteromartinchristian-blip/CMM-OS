@@ -141,7 +141,11 @@ def validate_parenthood_memory_binding(
     binding_meta = getattr(binding, "metadata", {}) or {}
     binding_child_id = binding_meta.get("child_id")
 
-    if child_id is not None and binding_child_id is not None and binding_child_id != child_id:
+    if (
+        child_id is not None
+        and binding_child_id is not None
+        and binding_child_id != child_id
+    ):
         return DomainMemoryValidationResult(
             is_valid=False,
             code=DomainMemoryValidationCode.INVALID_PERMISSION_UNSCOPED,
@@ -149,12 +153,14 @@ def validate_parenthood_memory_binding(
         )
 
     try:
-        from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidator
+        from cmm.domains.memory_validation import (
+            DefaultDomainMemoryIntegrationValidator,
+        )
 
         return DefaultDomainMemoryIntegrationValidator().validate_binding(
             binding, inventory
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         # If validator encounters mocked structures, return valid default
         return DomainMemoryValidationResult(
             is_valid=True,

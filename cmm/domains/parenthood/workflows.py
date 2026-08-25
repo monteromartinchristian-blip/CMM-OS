@@ -105,9 +105,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Comprehensive review of the path to parenthood project.",
         purpose="Review overall parenthood objectives, timing, and readiness.",
         core_nodes=(
-            _node("timeline", WorkflowNodeType.EXECUTE_OPERATION, "BuildTimeline", dependencies=("reason",), operation_id="parenthood.journey.build_timeline"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateJourneyPlan", dependencies=("timeline",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompletePathReview", dependencies=("validate",)),
+            _node(
+                "timeline",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "BuildTimeline",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.build_timeline",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateJourneyPlan",
+                dependencies=("timeline",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompletePathReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -117,9 +133,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Structured comparison between prospective family-building pathways.",
         purpose="Compare pathways with explicit cost, legal, and medical separation.",
         core_nodes=(
-            _node("compare", WorkflowNodeType.EXECUTE_OPERATION, "ComparePathways", dependencies=("reason",), operation_id="parenthood.journey.compare_pathways"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidatePathwayComparison", dependencies=("compare",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompletePathwayComparison", dependencies=("validate",)),
+            _node(
+                "compare",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ComparePathways",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.compare_pathways",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidatePathwayComparison",
+                dependencies=("compare",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompletePathwayComparison",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -129,9 +161,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review potential clinics, agencies, and medical/legal providers.",
         purpose="Evaluate provider information and prepare questions.",
         core_nodes=(
-            _node("questions", WorkflowNodeType.EXECUTE_OPERATION, "PrepareQuestions", dependencies=("reason",), operation_id="parenthood.journey.prepare_questions"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateProviderReview", dependencies=("questions",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteProviderReview", dependencies=("validate",)),
+            _node(
+                "questions",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareQuestions",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.prepare_questions",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateProviderReview",
+                dependencies=("questions",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteProviderReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -141,9 +189,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review legal, administrative, and clinical requirements.",
         purpose="Track requirement dependencies and verify temporal validity.",
         core_nodes=(
-            _node("reqs", WorkflowNodeType.EXECUTE_OPERATION, "ReviewRequirements", dependencies=("reason",), operation_id="parenthood.journey.review_requirements"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateRequirements", dependencies=("reqs",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteRequirementsReview", dependencies=("validate",)),
+            _node(
+                "reqs",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewRequirements",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.review_requirements",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateRequirements",
+                dependencies=("reqs",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteRequirementsReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -153,9 +217,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review financial scenarios and cost estimates.",
         purpose="Preserve cost uncertainty, contingency reserves, and scenario planning.",
         core_nodes=(
-            _node("finance", WorkflowNodeType.EXECUTE_OPERATION, "ReviewFinancialScenarios", dependencies=("reason",), operation_id="parenthood.journey.review_financial_scenarios"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateFinancialReadiness", dependencies=("finance",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteFinancialReview", dependencies=("validate",)),
+            _node(
+                "finance",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewFinancialScenarios",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.review_financial_scenarios",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateFinancialReadiness",
+                dependencies=("finance",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteFinancialReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -165,9 +245,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review medical pathway preparation and testing prerequisites.",
         purpose="Organize clinical testing steps without autonomous medical decision.",
         core_nodes=(
-            _node("risks", WorkflowNodeType.EXECUTE_OPERATION, "ReviewRisks", dependencies=("reason",), operation_id="parenthood.journey.review_risks"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateMedicalPreparation", dependencies=("risks",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteMedicalPreparation", dependencies=("validate",)),
+            _node(
+                "risks",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewRisks",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.review_risks",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateMedicalPreparation",
+                dependencies=("risks",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteMedicalPreparation",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -177,9 +273,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review and prepare civil, legal, and identity documentation checklists.",
         purpose="Generate documentation checklists for legal and administrative milestones.",
         core_nodes=(
-            _node("checklist", WorkflowNodeType.EXECUTE_OPERATION, "GenerateChecklist", dependencies=("reason",), operation_id="parenthood.journey.generate_documentation_checklist"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateDocumentation", dependencies=("checklist",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteDocumentationReview", dependencies=("validate",)),
+            _node(
+                "checklist",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "GenerateChecklist",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.generate_documentation_checklist",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateDocumentation",
+                dependencies=("checklist",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteDocumentationReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -189,9 +301,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Annual update and review of the parenthood journey plan.",
         purpose="Refresh timeline, dependencies, and decision state.",
         core_nodes=(
-            _node("update", WorkflowNodeType.EXECUTE_OPERATION, "UpdateJourneyPlan", dependencies=("reason",), operation_id="parenthood.journey.update_plan"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidatePlanUpdate", dependencies=("update",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteAnnualJourneyUpdate", dependencies=("validate",)),
+            _node(
+                "update",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "UpdateJourneyPlan",
+                dependencies=("reason",),
+                operation_id="parenthood.journey.update_plan",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidatePlanUpdate",
+                dependencies=("update",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteAnnualJourneyUpdate",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -203,9 +331,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Comprehensive review of child wellbeing and individual care needs.",
         purpose="Assess developmental needs while separating child needs from parent preferences.",
         core_nodes=(
-            _node("needs", WorkflowNodeType.EXECUTE_OPERATION, "ReviewChildNeeds", dependencies=("reason",), operation_id="parenthood.child.review_needs"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateChildNeeds", dependencies=("needs",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteNeedsReview", dependencies=("validate",)),
+            _node(
+                "needs",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewChildNeeds",
+                dependencies=("reason",),
+                operation_id="parenthood.child.review_needs",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateChildNeeds",
+                dependencies=("needs",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteNeedsReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -215,9 +359,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review developmental stage and age-appropriate milestones.",
         purpose="Evaluate developmental progress under the non-pathological variation invariant.",
         core_nodes=(
-            _node("stage", WorkflowNodeType.EXECUTE_OPERATION, "ReviewStage", dependencies=("reason",), operation_id="parenthood.child.review_developmental_stage"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateDevelopmentalStage", dependencies=("stage",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteDevelopmentalReview", dependencies=("validate",)),
+            _node(
+                "stage",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewStage",
+                dependencies=("reason",),
+                operation_id="parenthood.child.review_developmental_stage",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateDevelopmentalStage",
+                dependencies=("stage",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteDevelopmentalReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -227,9 +387,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Plan schooling, educational support, and extracurricular activities.",
         purpose="Support educational planning without specialized psychometric diagnosis.",
         core_nodes=(
-            _node("edu", WorkflowNodeType.EXECUTE_OPERATION, "ReviewEducationPlan", dependencies=("reason",), operation_id="parenthood.child.review_education_plan"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateEducationPlan", dependencies=("edu",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteEducationReview", dependencies=("validate",)),
+            _node(
+                "edu",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewEducationPlan",
+                dependencies=("reason",),
+                operation_id="parenthood.child.review_education_plan",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateEducationPlan",
+                dependencies=("edu",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteEducationReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -239,9 +415,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review and optimize daily routines, schedules, and sleep/care patterns.",
         purpose="Plan healthy routines attuned to child age and family context.",
         core_nodes=(
-            _node("routines", WorkflowNodeType.EXECUTE_OPERATION, "PlanRoutines", dependencies=("reason",), operation_id="parenthood.child.plan_routines"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateRoutines", dependencies=("routines",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteRoutineReview", dependencies=("validate",)),
+            _node(
+                "routines",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PlanRoutines",
+                dependencies=("reason",),
+                operation_id="parenthood.child.plan_routines",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateRoutines",
+                dependencies=("routines",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteRoutineReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -251,9 +443,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Formulate, review, and organize options for significant parental choices.",
         purpose="Prepare decisions as proposals requiring explicit user confirmation.",
         core_nodes=(
-            _node("prep_dec", WorkflowNodeType.EXECUTE_OPERATION, "PrepareDecision", dependencies=("reason",), operation_id="parenthood.child.prepare_parental_decision"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateDecisionProposal", dependencies=("prep_dec",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteDecisionReview", dependencies=("validate",)),
+            _node(
+                "prep_dec",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "PrepareDecision",
+                dependencies=("reason",),
+                operation_id="parenthood.child.prepare_parental_decision",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateDecisionProposal",
+                dependencies=("prep_dec",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteDecisionReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -263,9 +471,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Review family dynamics, support network, and shared family context.",
         purpose="Support family context while preserving sibling workspace isolation.",
         core_nodes=(
-            _node("fam", WorkflowNodeType.EXECUTE_OPERATION, "ReviewFamilyContext", dependencies=("reason",), operation_id="parenthood.child.review_family_context"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateFamilyContext", dependencies=("fam",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteFamilyReview", dependencies=("validate",)),
+            _node(
+                "fam",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "ReviewFamilyContext",
+                dependencies=("reason",),
+                operation_id="parenthood.child.review_family_context",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateFamilyContext",
+                dependencies=("fam",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteFamilyReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -275,9 +499,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Track growth, developmental milestones, and memorable events.",
         purpose="Track milestones without turning variance into deficits.",
         core_nodes=(
-            _node("milestones", WorkflowNodeType.EXECUTE_OPERATION, "TrackMilestones", dependencies=("reason",), operation_id="parenthood.child.track_milestones"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateMilestones", dependencies=("milestones",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteMilestoneReview", dependencies=("validate",)),
+            _node(
+                "milestones",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "TrackMilestones",
+                dependencies=("reason",),
+                operation_id="parenthood.child.track_milestones",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateMilestones",
+                dependencies=("milestones",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteMilestoneReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
@@ -287,9 +527,25 @@ def build_parenthood_workflow_definitions() -> tuple[DomainWorkflowDefinition, .
         description="Annual comprehensive parenting plan review and forward outlook.",
         purpose="Review long-term parenting continuity, values, and evolving goals.",
         core_nodes=(
-            _node("plan", WorkflowNodeType.EXECUTE_OPERATION, "UpdateParentingPlan", dependencies=("reason",), operation_id="parenthood.child.update_parenting_plan"),
-            _node("validate", WorkflowNodeType.VALIDATE, "ValidateParentingPlan", dependencies=("plan",)),
-            _node("complete", WorkflowNodeType.COMPLETE, "CompleteAnnualParentingReview", dependencies=("validate",)),
+            _node(
+                "plan",
+                WorkflowNodeType.EXECUTE_OPERATION,
+                "UpdateParentingPlan",
+                dependencies=("reason",),
+                operation_id="parenthood.child.update_parenting_plan",
+            ),
+            _node(
+                "validate",
+                WorkflowNodeType.VALIDATE,
+                "ValidateParentingPlan",
+                dependencies=("plan",),
+            ),
+            _node(
+                "complete",
+                WorkflowNodeType.COMPLETE,
+                "CompleteAnnualParentingReview",
+                dependencies=("validate",),
+            ),
         ),
     )
 
