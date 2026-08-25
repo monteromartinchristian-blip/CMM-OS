@@ -3357,9 +3357,7 @@ def test_red_2_frameworkless_observed_performance_fails_closed() -> None:
         framework=None,
         level_or_score="C1",
         skill_scope="writing",
-        evidence=(
-            {"provenance_id": "p1", "skill": "writing", "observed": "C1"},
-        ),
+        evidence=({"provenance_id": "p1", "skill": "writing", "observed": "C1"},),
     )
     assert res["level_or_score"] == "unassessed"
     assert res["confidence"] == 0.0
@@ -3440,9 +3438,7 @@ def test_red_5_absent_scope_general_observed_rejected() -> None:
         framework="CEFR",
         level_or_score="B1",
         skill_scope="general",
-        evidence=(
-            {"provenance_id": "p1", "observed": "B1"},
-        ),
+        evidence=({"provenance_id": "p1", "observed": "B1"},),
     )
     assert res["level_or_score"] == "unassessed"
     assert res["confidence"] == 0.0

@@ -230,9 +230,7 @@ def _resolve_claim_scope(scope: Any) -> ClaimScopeContext:
         return ClaimScopeContext(
             kind=ClaimScopeKind.EXPLICIT_GENERAL, raw=clean, canonical="general"
         )
-    return ClaimScopeContext(
-        kind=ClaimScopeKind.INVALID, raw=clean, canonical=None
-    )
+    return ClaimScopeContext(kind=ClaimScopeKind.INVALID, raw=clean, canonical=None)
 
 
 def _canonical_scope(scope: Any) -> str | None:
@@ -842,9 +840,7 @@ def evaluate_level_update(
     comparison_keys = {
         _safe_str(item.get("comparison_key")) for item in candidate_comparable
     }
-    provenance_units = {
-        _canonical_provenance(item) for item in candidate_comparable
-    }
+    provenance_units = {_canonical_provenance(item) for item in candidate_comparable}
     if (
         len(candidate_comparable) < 2
         or len(provenance_units) < 2
@@ -871,9 +867,7 @@ def evaluate_level_update(
             "updated_record": existing_dict,
         }
 
-    framework_ctx = _resolve_framework_context(
-        existing_framework, candidate_comparable
-    )
+    framework_ctx = _resolve_framework_context(existing_framework, candidate_comparable)
 
     if framework_ctx.kind in (
         FrameworkContextKind.MISSING,
@@ -887,9 +881,7 @@ def evaluate_level_update(
         }
 
     resolved_framework = framework_ctx.framework
-    require_explicit_fw = (
-        framework_ctx.kind == FrameworkContextKind.EVIDENCE_INFERRED
-    )
+    require_explicit_fw = framework_ctx.kind == FrameworkContextKind.EVIDENCE_INFERRED
 
     comparable = [
         item
