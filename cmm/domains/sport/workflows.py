@@ -283,7 +283,10 @@ def execute_return_to_training_workflow(
     fatigue_score: int = 2,
     pain_score: int = 0,
     health_constraint: Any = None,
+    permission_request: Any = None,
     permission_decision: Any = None,
+    permission_gate: Any = None,
+    permission_resolver: Any = None,
     is_authorized: bool | None = None,
     is_current: bool = True,
     now: datetime | None = None,
@@ -291,8 +294,6 @@ def execute_return_to_training_workflow(
     """Execute return to training workflow with Health constraints."""
     from collections.abc import Mapping
 
-    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
-    from cmm.domains.permission_gate import PermissionGateResult
     from cmm.domains.sport.rules import AuthorizedHealthConstraint
 
     rec_res = evaluate_recovery(
@@ -303,23 +304,32 @@ def execute_return_to_training_workflow(
     inj_res = evaluate_injury_signal(pain_score=pain_score, fatigue_score=fatigue_score)
     signal_action = inj_res["action"]
 
-    # Must be an AuthorizedHealthConstraint, or evaluation containing it, or backed by concrete canonical permission_decision
-    if isinstance(health_constraint, AuthorizedHealthConstraint):
+    # Must be a verified AuthorizedHealthConstraint, or evaluation containing it, or backed by runtime resolver/gate flow
+    if isinstance(health_constraint, AuthorizedHealthConstraint) and getattr(
+        health_constraint, "_is_verified", False
+    ):
         hc_res = {
             "applied": True,
             "constraint": health_constraint.constraint,
             "authorized_artifact": health_constraint,
         }
-    elif isinstance(health_constraint, Mapping) and isinstance(
-        health_constraint.get("authorized_artifact"), AuthorizedHealthConstraint
+    elif (
+        isinstance(health_constraint, Mapping)
+        and isinstance(
+            health_constraint.get("authorized_artifact"), AuthorizedHealthConstraint
+        )
+        and getattr(health_constraint["authorized_artifact"], "_is_verified", False)
     ):
         hc_res = health_constraint
-    elif permission_decision is not None and isinstance(
-        permission_decision, (PermissionGateResult, CrossDomainPermissionDecision)
+    elif permission_request is not None and (
+        permission_gate is not None or permission_resolver is not None
     ):
         hc_res = evaluate_health_constraint(
             projection=health_constraint,
+            permission_request=permission_request,
             permission_decision=permission_decision,
+            permission_gate=permission_gate,
+            permission_resolver=permission_resolver,
             is_current=is_current,
             now=now,
         )
