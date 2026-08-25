@@ -63,7 +63,8 @@ def validate_life_plan_memory_proposal_content(
         status in ("decision", "commitment")
         and not is_conf
         and (
-            orig in ("idea", "preference", "hypothesis", "scenario", "goal", "inference")
+            orig
+            in ("idea", "preference", "hypothesis", "scenario", "goal", "inference")
             or kind in ("decision", "commitment", "preference", "scenario", "inference")
         )
     ):
@@ -73,7 +74,10 @@ def validate_life_plan_memory_proposal_content(
         }
 
     # Memory cannot promote inference/scenario directly to confirmed decision
-    if kind in ("scenario", "inference", "hypothesis") and status in ("decision", "commitment"):
+    if kind in ("scenario", "inference", "hypothesis") and status in (
+        "decision",
+        "commitment",
+    ):
         return {
             "is_valid": False,
             "reason": "prohibited_epistemic_promotion",

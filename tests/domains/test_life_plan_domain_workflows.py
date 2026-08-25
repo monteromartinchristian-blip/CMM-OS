@@ -48,7 +48,9 @@ def test_execute_cross_domain_impact_workflow_safe_execution() -> None:
     assert res["is_commitment"] is False
 
 
-def test_execute_cross_domain_impact_workflow_rejects_unverified_direct_and_wrapped() -> None:
+def test_execute_cross_domain_impact_workflow_rejects_unverified_direct_and_wrapped() -> (
+    None
+):
     from cmm.domains.life_plan.rules import (
         AuthorizedCrossDomainContribution,
         _create_authorized_cross_domain_contribution,

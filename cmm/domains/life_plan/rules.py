@@ -251,7 +251,11 @@ def evaluate_scenario_consistency(
                 k1 = str(conf_item.get("left_id") or conf_item.get("left") or "")
                 k2 = str(conf_item.get("right_id") or conf_item.get("right") or "")
                 rel = conf_item.get("relation", "mutually_exclusive")
-                if k1 in assump and k2 in assump and rel in ("mutually_exclusive", "incompatible"):
+                if (
+                    k1 in assump
+                    and k2 in assump
+                    and rel in ("mutually_exclusive", "incompatible")
+                ):
                     v1, v2 = assump[k1], assump[k2]
                     if (
                         v1 is not None
@@ -828,14 +832,21 @@ def evaluate_cross_domain_impact(
                         == PermissionGateOutcome.APPROVAL_CONSUMED
                     ):
                         app_ev = getattr(permission_decision, "approval_evidence", None)
-                        if isinstance(app_ev, Mapping) and app_ev.get("granted") is True:
-                            app_svc = getattr(permission_gate, "_approval_service", None)
+                        if (
+                            isinstance(app_ev, Mapping)
+                            and app_ev.get("granted") is True
+                        ):
+                            app_svc = getattr(
+                                permission_gate, "_approval_service", None
+                            )
                             if app_svc is not None and hasattr(app_svc, "get_request"):
                                 req_rec = app_svc.get_request(app_ev.get("request_id"))
                                 if (
                                     req_rec is not None
                                     and req_rec.actor_id == permission_request.actor_id
-                                    and str(getattr(req_rec.status, "value", req_rec.status))
+                                    and str(
+                                        getattr(req_rec.status, "value", req_rec.status)
+                                    )
                                     in ("approved", "consumed")
                                 ):
                                     auth_verified = True
@@ -876,8 +887,8 @@ def evaluate_cross_domain_impact(
                     auth_verified = True
                     auth_ref = gate_res.decision_id or "permission_gate"
                     auth_source = "DomainPermissionGate"
-            except Exception:
-                pass
+            except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+                auth_verified = False
 
     elif (
         permission_resolver is not None
@@ -1052,9 +1063,9 @@ class ScenarioConsistencyRule:
         milestones = context.metadata.get("milestones")
         contra = context.metadata.get("contradictions")
         assump_conf = context.metadata.get("assumption_conflicts")
-        res_const = context.metadata.get("resource_constraints") or context.metadata.get(
-            "constraints"
-        )
+        res_const = context.metadata.get(
+            "resource_constraints"
+        ) or context.metadata.get("constraints")
 
         res = evaluate_scenario_consistency(
             scenario_id=scen_id,

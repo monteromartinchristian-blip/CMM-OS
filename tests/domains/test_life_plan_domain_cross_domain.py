@@ -252,8 +252,6 @@ def test_forged_permission_gate_result_rejected() -> None:
 
 
 def test_permission_context_mismatch_rejected() -> None:
-    from cmm.domains.permission_gate import PermissionGateResult
-
     _, _, approval_service, gate, cross_request = _setup_runtime()
     consumed = _get_approved_gate_result(gate, approval_service, cross_request)
 

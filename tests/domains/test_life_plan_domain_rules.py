@@ -177,7 +177,11 @@ def test_evaluate_scenario_consistency_computes_milestone_ordering_conflict() ->
         scenario_id="scen-temporal-01",
         milestones=[
             {"id": "move", "target_date": "2028-01-01T00:00:00Z"},
-            {"id": "start_job", "target_date": "2027-01-01T00:00:00Z", "depends_on": "move"},
+            {
+                "id": "start_job",
+                "target_date": "2027-01-01T00:00:00Z",
+                "depends_on": "move",
+            },
         ],
     )
     assert res["consistent"] is False

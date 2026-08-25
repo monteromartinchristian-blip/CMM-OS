@@ -727,16 +727,22 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         approval_request_ids=(cross_approval.id,),
         approval_decision_ids=(cross_decision.id,),
     )
-    assert validate_life_plan_memory_binding(
-        binding=tampered_decision_binding, inventory=mem_full_inventory
-    ).is_valid is False
+    assert (
+        validate_life_plan_memory_binding(
+            binding=tampered_decision_binding, inventory=mem_full_inventory
+        ).is_valid
+        is False
+    )
 
     tampered_inventory = dataclasses.replace(
         mem_full_inventory, permission_decisions=()
     )
-    assert validate_life_plan_memory_binding(
-        binding=mem_binding, inventory=tampered_inventory
-    ).is_valid is False
+    assert (
+        validate_life_plan_memory_binding(
+            binding=mem_binding, inventory=tampered_inventory
+        ).is_valid
+        is False
+    )
 
     state["42_mem_val"] = mem_val
 
@@ -869,7 +875,10 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             ),
         ),
     )
-    assert validate_life_plan_trace(trace=tampered_ref_trace, inventory=inventory).valid is False
+    assert (
+        validate_life_plan_trace(trace=tampered_ref_trace, inventory=inventory).valid
+        is False
+    )
 
     bad_inv_val = validate_life_plan_trace(
         trace=trace,

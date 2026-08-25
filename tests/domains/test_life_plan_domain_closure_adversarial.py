@@ -57,7 +57,6 @@ from cmm.domains.identifiers import DomainId
 from cmm.domains.life_plan import (
     LIFE_PLAN_DOMAIN_ID,
     assemble_life_plan_trace,
-    build_life_plan_memory_proposal,
     build_life_plan_permission_policy,
     build_life_plan_profile,
     build_life_plan_trace_reference,
@@ -66,7 +65,6 @@ from cmm.domains.life_plan import (
     evaluate_cross_domain_impact,
     evaluate_decision_status,
     evaluate_goal_dependencies,
-    evaluate_long_term_temporal,
     evaluate_plan_drift,
     evaluate_resource_constraints,
     evaluate_scenario_consistency,
@@ -81,7 +79,6 @@ from cmm.domains.permission_contracts import (
 )
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
-    PermissionGateOutcome,
     PermissionGateResult,
 )
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -179,7 +176,9 @@ def test_closure_gate_06_unknown_proposed_decision_state_rejected() -> None:
 
 
 # 07. Closed decision reopening rejected without new evidence
-def test_closure_gate_07_closed_decision_reopening_rejected_without_new_evidence() -> None:
+def test_closure_gate_07_closed_decision_reopening_rejected_without_new_evidence() -> (
+    None
+):
     res = evaluate_decision_status(
         "decision", "idea", is_closed=True, has_new_evidence=False
     )
@@ -381,7 +380,9 @@ def test_closure_gate_16_most_restrictive_permission_wins() -> None:
 
 
 # 17. Purpose minimization rejects unrelated dossier fields
-def test_closure_gate_17_purpose_minimization_rejects_unrelated_dossier_fields() -> None:
+def test_closure_gate_17_purpose_minimization_rejects_unrelated_dossier_fields() -> (
+    None
+):
     res = evaluate_cross_domain_impact(
         {
             "source_domain": "domain:health",
@@ -439,10 +440,15 @@ def test_closure_gate_20_automatic_goal_abandonment_impossible() -> None:
 
 
 # 21. External commitment without canonical approval rejected
-def test_closure_gate_21_external_commitment_without_canonical_approval_rejected() -> None:
+def test_closure_gate_21_external_commitment_without_canonical_approval_rejected() -> (
+    None
+):
     profile = build_life_plan_profile()
     assert "contracting" in profile.prohibited_actions
-    assert "external_commitment" in profile.prohibited_actions or "contracting" in profile.prohibited_actions
+    assert (
+        "external_commitment" in profile.prohibited_actions
+        or "contracting" in profile.prohibited_actions
+    )
 
 
 # 22. Forged approval ID or object rejected
@@ -460,12 +466,16 @@ def test_closure_gate_22_forged_approval_id_or_object_rejected() -> None:
         resource_ids=("health.resource.health_profile:hp-001",),
         resource_kinds=("resource.health_constraints",),
     )
-    res = gate.evaluate_cross_domain(cross_request, approval_request_id="forged-approval-request-999")
+    res = gate.evaluate_cross_domain(
+        cross_request, approval_request_id="forged-approval-request-999"
+    )
     assert res.allowed is False
 
 
 # 23. Payment / spend without approved external path rejected
-def test_closure_gate_23_payment_spend_without_approved_external_path_rejected() -> None:
+def test_closure_gate_23_payment_spend_without_approved_external_path_rejected() -> (
+    None
+):
     profile = build_life_plan_profile()
     assert "payment" in profile.prohibited_actions
     assert "external_communication" in profile.prohibited_actions
@@ -483,11 +493,15 @@ def test_closure_gate_24_strict_memory_confirmation_coercions_rejected() -> None
                 "is_confirmed": val,
             }
         )
-        assert res["is_valid"] is False, f"Value {val!r} unexpectedly passed confirmation"
+        assert res["is_valid"] is False, (
+            f"Value {val!r} unexpectedly passed confirmation"
+        )
 
 
 # 25. Memory cannot promote inference/scenario to confirmed state
-def test_closure_gate_25_memory_cannot_promote_inference_or_scenario_to_confirmed_state() -> None:
+def test_closure_gate_25_memory_cannot_promote_inference_or_scenario_to_confirmed_state() -> (
+    None
+):
     for bad_kind in ("scenario", "inference", "hypothesis"):
         res = validate_life_plan_memory_proposal_content(
             {
@@ -502,13 +516,12 @@ def test_closure_gate_25_memory_cannot_promote_inference_or_scenario_to_confirme
 
 # 26. Trace inventory independent from final trace
 def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
+    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
     from cmm.domains.trace_contracts import (
         DomainTrace,
         DomainTraceReferences,
-        DomainTraceRole,
         DomainTraceStatus,
     )
-    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
 
     profile = build_life_plan_profile()
     domain_result = DomainResult(
@@ -570,8 +583,12 @@ def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
                 LIFE_PLAN_DOMAIN_ID,
             ),
             ref_prof,
-            DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
-            DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
             DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
         ),
         domain_results=(
@@ -583,8 +600,12 @@ def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
         ),
         cross_domain_results=(),
         expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
-        resolution_result_domains=DomainTraceDomainSelection(res_id, LIFE_PLAN_DOMAIN_ID, ()),
-        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
     )
     assert len(inventory.references) == 5
 
@@ -604,12 +625,12 @@ def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
 
 # 27. Trace tamper / orphan / wrong-domain references rejected
 def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() -> None:
+    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
     from cmm.domains.trace_contracts import (
         DomainTrace,
         DomainTraceReferences,
         DomainTraceStatus,
     )
-    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
 
     profile = build_life_plan_profile()
     domain_result = DomainResult(
@@ -671,8 +692,12 @@ def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() 
                 LIFE_PLAN_DOMAIN_ID,
             ),
             ref_prof,
-            DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
-            DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
             DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
         ),
         domain_results=(
@@ -684,8 +709,12 @@ def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() 
         ),
         cross_domain_results=(),
         expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
-        resolution_result_domains=DomainTraceDomainSelection(res_id, LIFE_PLAN_DOMAIN_ID, ()),
-        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
     )
     trace = assemble_life_plan_trace(
         request_id=req_id,
@@ -726,7 +755,7 @@ def test_closure_gate_28_atomic_registration_rollback_preserves_exact_state() ->
     pre_operations = tuple(bootstrap.operation_registry.list_definitions())
     pre_workflows = bootstrap.workflow_registry.snapshot_state().definitions
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         register_life_plan_domain(
             domain_registry=bootstrap.domain_registry,
             profile_registry=bootstrap.profile_registry,
@@ -735,10 +764,15 @@ def test_closure_gate_28_atomic_registration_rollback_preserves_exact_state() ->
             operation_registry=bootstrap.operation_registry,
             workflow_registry=bootstrap.workflow_registry,
             permission_registry=bootstrap.permission_registry,
-            operation_implementations={"life_plan.invalid_op_does_not_exist": lambda: None},
+            operation_implementations={
+                "life_plan.invalid_op_does_not_exist": lambda: None
+            },
         )
 
-    assert tuple(r.domain_id for r in bootstrap.domain_registry.list_records()) == pre_domains
+    assert (
+        tuple(r.domain_id for r in bootstrap.domain_registry.list_records())
+        == pre_domains
+    )
     assert tuple(bootstrap.profile_registry.list_all()) == pre_profiles
     assert tuple(bootstrap.rule_registry.list_all()) == pre_rules
     assert tuple(bootstrap.resource_registry.list_all()) == pre_resources
@@ -747,10 +781,12 @@ def test_closure_gate_28_atomic_registration_rollback_preserves_exact_state() ->
 
 
 # 29. General fallback remains intact after failed registration
-def test_closure_gate_29_general_fallback_remains_intact_after_failed_registration() -> None:
+def test_closure_gate_29_general_fallback_remains_intact_after_failed_registration() -> (
+    None
+):
     bootstrap = build_standard_general_domain_bootstrap()
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         register_life_plan_domain(
             domain_registry=bootstrap.domain_registry,
             profile_registry=bootstrap.profile_registry,
@@ -765,7 +801,9 @@ def test_closure_gate_29_general_fallback_remains_intact_after_failed_registrati
     general_dom = bootstrap.domain_registry.get("general")
     assert general_dom is not None
     assert str(general_dom.id) == "domain:general"
-    gen_profile = bootstrap.profile_registry.get_by_domain(DomainId.from_str("domain:general"))
+    gen_profile = bootstrap.profile_registry.get_by_domain(
+        DomainId.from_str("domain:general")
+    )
     assert gen_profile is not None
     assert str(bootstrap.resolver.fallback_domain) == "domain:general"
 
