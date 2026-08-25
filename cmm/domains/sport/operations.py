@@ -27,7 +27,6 @@ from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_OPERATION_IDS,
 )
 from cmm.domains.sport.rules import (
-    evaluate_health_constraint,
     evaluate_injury_signal,
     evaluate_recovery,
 )
@@ -45,13 +44,25 @@ _OPERATION_TYPES: dict[str, DomainOperationType] = {
 
 _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
     "sport.create_training_plan": ("sport.resource.training_plan",),
-    "sport.review_progress": ("sport.resource.workout_log", "sport.resource.wearable_data"),
-    "sport.adjust_training_load": ("sport.resource.training_plan", "sport.resource.wearable_data"),
+    "sport.review_progress": (
+        "sport.resource.workout_log",
+        "sport.resource.wearable_data",
+    ),
+    "sport.adjust_training_load": (
+        "sport.resource.training_plan",
+        "sport.resource.wearable_data",
+    ),
     "sport.generate_workout": ("sport.resource.training_plan",),
     "sport.track_measurements": ("sport.resource.body_measurement",),
     "sport.review_recovery": ("sport.resource.wearable_data", "sport.resource.note"),
-    "sport.identify_risks": ("sport.resource.workout_log", "sport.resource.wearable_data"),
-    "sport.schedule_sessions": ("sport.resource.calendar_event", "sport.resource.training_plan"),
+    "sport.identify_risks": (
+        "sport.resource.workout_log",
+        "sport.resource.wearable_data",
+    ),
+    "sport.schedule_sessions": (
+        "sport.resource.calendar_event",
+        "sport.resource.training_plan",
+    ),
 }
 
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -106,6 +117,7 @@ def build_sport_operation_definitions() -> tuple[DomainOperationDefinition, ...]
 
 
 # ── Operational Result Helpers ────────────────────────────────────────────────
+
 
 def create_training_plan_result(
     *,

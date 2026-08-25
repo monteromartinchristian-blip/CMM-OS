@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cmm.domains.sport.rules import (
     evaluate_health_constraint,
-    evaluate_injury_signal,
 )
 from cmm.domains.sport.workflows import execute_return_to_training_workflow
 
@@ -20,9 +17,14 @@ def test_cross_domain_authorized_minimal_projection_only() -> None:
         "source_reference": "health.ref.404",
         "authorization_reference": "auth.scope.sport_return_to_training",
     }
-    res = evaluate_health_constraint(authorized_projection, is_authorized=True, is_current=True)
+    res = evaluate_health_constraint(
+        authorized_projection, is_authorized=True, is_current=True
+    )
     assert res["applied"] is True
-    assert res["provenance"]["authorization_reference"] == "auth.scope.sport_return_to_training"
+    assert (
+        res["provenance"]["authorization_reference"]
+        == "auth.scope.sport_return_to_training"
+    )
     assert res["treatment_modification_allowed"] is False
 
 
@@ -46,11 +48,15 @@ def test_cross_domain_stale_or_unauthorized_constraint_rejected() -> None:
     }
 
     # Unauthorized -> rejected
-    res_unauth = evaluate_health_constraint(valid_projection, is_authorized=False, is_current=True)
+    res_unauth = evaluate_health_constraint(
+        valid_projection, is_authorized=False, is_current=True
+    )
     assert res_unauth["applied"] is False
 
     # Expired -> rejected
-    res_expired = evaluate_health_constraint(valid_projection, is_authorized=True, is_current=False)
+    res_expired = evaluate_health_constraint(
+        valid_projection, is_authorized=True, is_current=False
+    )
     assert res_expired["applied"] is False
 
 

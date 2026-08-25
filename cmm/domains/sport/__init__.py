@@ -33,12 +33,8 @@ from cmm.domains.sport.definition import (
     SPORT_DOMAIN_ID,
     SPORT_DOMAIN_VERSION,
     SPORT_MANIFEST_ID,
-    SPORT_OPERATION_IDS as DEF_SPORT_OPERATION_IDS,
     SPORT_PERMISSION_IDS,
     SPORT_PROFILE_NAME,
-    SPORT_RESOURCE_IDS as DEF_SPORT_RESOURCE_IDS,
-    SPORT_RULE_IDS as DEF_SPORT_RULE_IDS,
-    SPORT_WORKFLOW_IDS as DEF_SPORT_WORKFLOW_IDS,
     build_sport_domain_definition,
 )
 from cmm.domains.sport.integration import (
@@ -77,7 +73,6 @@ from cmm.domains.sport.presentation import (
 )
 from cmm.domains.sport.profile import (
     SPORT_PROFILE_ID,
-    SPORT_PROFILE_NAME as PROF_SPORT_PROFILE_NAME,
     SPORT_PROHIBITED_ACTIONS,
     build_sport_profile,
 )
@@ -121,11 +116,6 @@ __all__ = [
     "CANONICAL_SPORT_RULE_IDS",
     "CANONICAL_SPORT_RULE_NAMES",
     "CANONICAL_SPORT_WORKFLOW_IDS",
-    "HealthConstraintRule",
-    "InjurySignalRule",
-    "MeasurementTrendRule",
-    "ProgressiveOverloadRule",
-    "RecoveryRule",
     "SPORT_BOOTSTRAP_NAME",
     "SPORT_DOMAIN_ID",
     "SPORT_DOMAIN_VERSION",
@@ -143,6 +133,11 @@ __all__ = [
     "SPORT_RULE_IDS",
     "SPORT_WORKFLOW_IDS",
     "SPORT_WORKFLOW_NAMES_BY_ID",
+    "HealthConstraintRule",
+    "InjurySignalRule",
+    "MeasurementTrendRule",
+    "ProgressiveOverloadRule",
+    "RecoveryRule",
     "SportDomainBootstrap",
     "SportDomainIntegrationResult",
     "TrainingLoadRule",

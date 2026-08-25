@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+
 import pytest
 
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
@@ -15,7 +16,6 @@ from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
 from cmm.domains.sport.catalog import (
-    SPORT_ENTITY_IDS,
     SPORT_OPERATION_IDS,
     SPORT_RESOURCE_IDS,
     SPORT_RULE_IDS,

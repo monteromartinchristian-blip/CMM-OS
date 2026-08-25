@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+
 import pytest
 
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
-from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.identifiers import DomainId
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
@@ -21,25 +21,14 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
 from cmm.domains.sport import (
     SPORT_DOMAIN_ID,
-    SPORT_DOMAIN_VERSION,
     SPORT_ENTITY_IDS,
     SPORT_OPERATION_IDS,
-    SPORT_PERMISSION_POLICY_ID,
     SPORT_PROFILE_ID,
     SPORT_RESOURCE_IDS,
     SPORT_RULE_IDS,
     SPORT_WORKFLOW_IDS,
-    adjust_training_load_result,
     assemble_sport_trace,
-    build_sport_domain_definition,
-    build_sport_memory_binding,
     build_sport_memory_proposal,
-    build_sport_memory_view_request,
-    build_sport_permission_policy,
-    build_sport_presentation_policy,
-    build_sport_profile,
-    build_sport_rules,
-    build_sport_trace_reference,
     build_standard_sport_domain_bootstrap,
     create_training_plan_result,
     evaluate_health_constraint,
@@ -50,11 +39,8 @@ from cmm.domains.sport import (
     evaluate_training_load,
     execute_return_to_training_workflow,
     generate_workout_result,
-    identify_risks_result,
     present_sport_result,
     register_sport_domain,
-    review_progress_result,
-    review_recovery_result,
     schedule_sessions_result,
     track_measurements_result,
     validate_sport_memory_proposal_content,
@@ -90,7 +76,11 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["03_catalog_verified"] = True
 
     # 04 create explicit sport goal
-    goal = {"goal_id": "goal-marathon-001", "name": "Run marathon in under 4 hours", "type": "endurance"}
+    goal = {
+        "goal_id": "goal-marathon-001",
+        "name": "Run marathon in under 4 hours",
+        "type": "endurance",
+    }
     state["04_goal"] = goal
 
     # 05 create training plan proposal
@@ -103,7 +93,11 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     baseline_volume = 100.0
     baseline_intensity = 0.7
     baseline_frequency = 3
-    base_load_res = evaluate_training_load(volume=baseline_volume, intensity=baseline_intensity, frequency=baseline_frequency)
+    base_load_res = evaluate_training_load(
+        volume=baseline_volume,
+        intensity=baseline_intensity,
+        frequency=baseline_frequency,
+    )
     assert base_load_res["status"] == "evaluated"
     assert base_load_res["load_value"] == 210.0
     state["06_baseline_load"] = base_load_res
@@ -126,13 +120,17 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["10_missing_load"] = missing_load
 
     # 11 compare progressive overload
-    overload_res = evaluate_progressive_overload(baseline_load=210.0, proposed_load=226.8, threshold_percentage=10.0)
+    overload_res = evaluate_progressive_overload(
+        baseline_load=210.0, proposed_load=226.8, threshold_percentage=10.0
+    )
     assert overload_res["status"] == "accepted"
     assert overload_res["increase_percentage"] == pytest.approx(8.0)
     state["11_overload"] = overload_res
 
     # 12 use explicit progression policy rather than universal percentage
-    no_thresh_res = evaluate_progressive_overload(baseline_load=210.0, proposed_load=250.0, threshold_percentage=None)
+    no_thresh_res = evaluate_progressive_overload(
+        baseline_load=210.0, proposed_load=250.0, threshold_percentage=None
+    )
     assert no_thresh_res["status"] == "proposal"
     assert no_thresh_res["certainty"] is False
     state["12_no_universal_percentage"] = no_thresh_res
@@ -143,7 +141,12 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["13_generated_workout"] = gen_workout
 
     # 14 record completed session evidence
-    session = {"session_id": "sess-101", "workout": "tempo_run_45min", "duration": 45, "distance_km": 8.5}
+    session = {
+        "session_id": "sess-101",
+        "workout": "tempo_run_45min",
+        "duration": 45,
+        "distance_km": 8.5,
+    }
     state["14_session"] = session
 
     # 15 ingest relevant wearable observation
@@ -151,20 +154,39 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["15_wearable"] = wearable
 
     # 16 track body measurement with timestamp/unit
-    meas1 = track_measurements_result(metric="body_weight", value=72.0, unit="kg", timestamp="2026-08-20T07:00:00Z")
+    meas1 = track_measurements_result(
+        metric="body_weight", value=72.0, unit="kg", timestamp="2026-08-20T07:00:00Z"
+    )
     assert meas1["measurement"]["unit"] == "kg"
     state["16_measurement_1"] = meas1
 
     # 17 reject one observation as a trend
-    single_obs_res = evaluate_measurement_trend([meas1["measurement"]], metric="body_weight")
+    single_obs_res = evaluate_measurement_trend(
+        [meas1["measurement"]], metric="body_weight"
+    )
     assert single_obs_res["status"] == "insufficient_data"
     state["17_single_obs_trend_rejected"] = single_obs_res
 
     # 18 derive trend only from comparable ordered observations
     multi_obs = [
-        {"timestamp": "2026-08-10T07:00:00Z", "value": 73.0, "unit": "kg", "method": "scale"},
-        {"timestamp": "2026-08-17T07:00:00Z", "value": 72.5, "unit": "kg", "method": "scale"},
-        {"timestamp": "2026-08-24T07:00:00Z", "value": 72.0, "unit": "kg", "method": "scale"},
+        {
+            "timestamp": "2026-08-10T07:00:00Z",
+            "value": 73.0,
+            "unit": "kg",
+            "method": "scale",
+        },
+        {
+            "timestamp": "2026-08-17T07:00:00Z",
+            "value": 72.5,
+            "unit": "kg",
+            "method": "scale",
+        },
+        {
+            "timestamp": "2026-08-24T07:00:00Z",
+            "value": 72.0,
+            "unit": "kg",
+            "method": "scale",
+        },
     ]
     trend_res = evaluate_measurement_trend(multi_obs, metric="body_weight")
     assert trend_res["status"] == "evaluated"
@@ -173,21 +195,40 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
 
     # 19 preserve punctual variation/outlier
     outlier_obs = [
-        {"timestamp": "2026-08-10T07:00:00Z", "value": 73.0, "unit": "kg", "method": "scale"},
-        {"timestamp": "2026-08-11T07:00:00Z", "value": 85.0, "unit": "kg", "method": "scale"},  # spike
-        {"timestamp": "2026-08-24T07:00:00Z", "value": 72.0, "unit": "kg", "method": "scale"},
+        {
+            "timestamp": "2026-08-10T07:00:00Z",
+            "value": 73.0,
+            "unit": "kg",
+            "method": "scale",
+        },
+        {
+            "timestamp": "2026-08-11T07:00:00Z",
+            "value": 85.0,
+            "unit": "kg",
+            "method": "scale",
+        },  # spike
+        {
+            "timestamp": "2026-08-24T07:00:00Z",
+            "value": 72.0,
+            "unit": "kg",
+            "method": "scale",
+        },
     ]
     outlier_res = evaluate_measurement_trend(outlier_obs, metric="body_weight")
     assert len(outlier_res["outliers"]) == 1
     state["19_outlier_preserved"] = outlier_res
 
     # 20 review current recovery
-    rec_res = evaluate_recovery(rest_hours=8.0, fatigue_score=2, pain_score=0, workload_score=4)
+    rec_res = evaluate_recovery(
+        rest_hours=8.0, fatigue_score=2, pain_score=0, workload_score=4
+    )
     assert rec_res["readiness_state"] == "ready"
     state["20_recovery"] = rec_res
 
     # 21 combine rest/fatigue/pain/workload without diagnosis
-    rec_limited = evaluate_recovery(rest_hours=5.5, fatigue_score=7, pain_score=3, workload_score=8)
+    rec_limited = evaluate_recovery(
+        rest_hours=5.5, fatigue_score=7, pain_score=3, workload_score=8
+    )
     assert rec_limited["readiness_state"] == "limited"
     state["21_recovery_combined"] = rec_limited
 
@@ -197,7 +238,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["22_readiness_mutable"] = True
 
     # 23 identify injury signal
-    sig_res = evaluate_injury_signal(pain_score=6, pain_location="knee", load_spike=True)
+    sig_res = evaluate_injury_signal(
+        pain_score=6, pain_location="knee", load_spike=True
+    )
     assert sig_res["action"] in ("stop_and_check", "reduce_load")
     assert sig_res["is_diagnosis"] is False
     state["23_injury_signal"] = sig_res
@@ -218,14 +261,21 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["25_health_contribution_request"] = health_projection
 
     # 26 authorize only health_constraint projection
-    hc_eval = evaluate_health_constraint(health_projection, is_authorized=True, is_current=True)
+    hc_eval = evaluate_health_constraint(
+        health_projection, is_authorized=True, is_current=True
+    )
     assert hc_eval["applied"] is True
     assert "activity_limits" in hc_eval["applied_fields"]
     state["26_authorized_projection"] = hc_eval
 
     # 27 deny full medical report/Health dossier
-    full_dossier = {"full_clinical_history": ["surgery_2024"], "medication_list": ["med1"]}
-    hc_dossier = evaluate_health_constraint(full_dossier, is_authorized=True, is_current=True)
+    full_dossier = {
+        "full_clinical_history": ["surgery_2024"],
+        "medication_list": ["med1"],
+    }
+    hc_dossier = evaluate_health_constraint(
+        full_dossier, is_authorized=True, is_current=True
+    )
     assert hc_dossier["applied"] is False
     state["27_full_dossier_denied"] = True
 
@@ -234,7 +284,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["28_provenance_preserved"] = True
 
     # 29 reject expired/unauthorized constraint as current
-    hc_expired = evaluate_health_constraint(health_projection, is_authorized=True, is_current=False)
+    hc_expired = evaluate_health_constraint(
+        health_projection, is_authorized=True, is_current=False
+    )
     assert hc_expired["applied"] is False
     state["29_expired_rejected"] = True
 
@@ -290,12 +342,18 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     state["37_memory_proposal_produced"] = mem_prop
 
     # 38 prevent clinical/sensitive Health detail from Sport memory proposal
-    diag_validation = validate_sport_memory_proposal_content({"kind": "injury_diagnosis", "clinical_diagnosis": "fracture"})
+    diag_validation = validate_sport_memory_proposal_content(
+        {"kind": "injury_diagnosis", "clinical_diagnosis": "fracture"}
+    )
     assert diag_validation["is_valid"] is False
     state["38_sensitive_health_detail_prevented"] = True
 
     # 39 render trend/readiness/risk with uncertainty
-    raw_res = {"readiness_state": "limited", "recommendation": "reduce_load", "trend": "decreasing"}
+    raw_res = {
+        "readiness_state": "limited",
+        "recommendation": "reduce_load",
+        "trend": "decreasing",
+    }
     presented = present_sport_result(raw_res)
     assert presented["domain_display_name"] == "Sport"
     assert presented["uncertainty_preserved"] is True
@@ -323,7 +381,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         "profile_registry": InMemoryDomainProfileRegistry(),
         "resource_registry": InMemoryDomainResourceRegistry(),
         "rule_registry": InMemoryReasoningRuleRegistry(),
-        "operation_registry": InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry()),
+        "operation_registry": InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
         "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
@@ -337,7 +397,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         "profile_registry": InMemoryDomainProfileRegistry(),
         "resource_registry": InMemoryDomainResourceRegistry(),
         "rule_registry": InMemoryReasoningRuleRegistry(),
-        "operation_registry": InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry()),
+        "operation_registry": InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
         "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
@@ -354,6 +416,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
 
     # 43 prove no parallel Sport runtime/planner/memory/workflow engine
     import cmm.domains.sport
+
     assert not hasattr(cmm.domains.sport, "SportRuntime")
     assert not hasattr(cmm.domains.sport, "SportPlanner")
     assert not hasattr(cmm.domains.sport, "SportMemoryStore")

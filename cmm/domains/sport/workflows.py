@@ -287,20 +287,22 @@ def execute_return_to_training_workflow(
     is_current: bool = True,
 ) -> dict[str, Any]:
     """Execute return to training workflow with Health constraints."""
-    rec_res = evaluate_recovery(rest_hours=rest_hours, fatigue_score=fatigue_score, pain_score=pain_score)
+    rec_res = evaluate_recovery(
+        rest_hours=rest_hours, fatigue_score=fatigue_score, pain_score=pain_score
+    )
     readiness = rec_res["readiness_state"]
 
     inj_res = evaluate_injury_signal(pain_score=pain_score, fatigue_score=fatigue_score)
     signal_action = inj_res["action"]
 
-    hc_res = evaluate_health_constraint(projection=health_constraint, is_authorized=is_authorized, is_current=is_current)
+    hc_res = evaluate_health_constraint(
+        projection=health_constraint, is_authorized=is_authorized, is_current=is_current
+    )
 
     rec = "continue"
     if signal_action == "stop_and_check" or readiness == "hold":
         rec = "stop_and_check"
-    elif hc_res["applied"]:
-        rec = "reduce_load"
-    elif signal_action == "reduce_load" or readiness == "limited":
+    elif hc_res["applied"] or signal_action == "reduce_load" or readiness == "limited":
         rec = "reduce_load"
 
     return {

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_OPERATION_IDS,
-    SPORT_OPERATION_IDS,
 )
 from cmm.domains.sport.operations import (
     adjust_training_load_result,
@@ -84,7 +83,11 @@ def test_review_recovery_uses_current_evidence() -> None:
 def test_identify_risks_emits_non_diagnostic_signals() -> None:
     res = identify_risks_result(pain_score=6, load_spike=True)
     assert res["is_diagnosis"] is False
-    assert res["risk_signal"] in ("stop_and_check", "reduce_load", "request_health_review")
+    assert res["risk_signal"] in (
+        "stop_and_check",
+        "reduce_load",
+        "request_health_review",
+    )
 
 
 def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() -> None:
@@ -100,4 +103,6 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         has_approval=True,
     )
     assert res_with_approval["status"] == "ready_for_external_execution"
-    assert res_with_approval["external_calendar_mutated"] is False  # actual mutation delegated
+    assert (
+        res_with_approval["external_calendar_mutated"] is False
+    )  # actual mutation delegated

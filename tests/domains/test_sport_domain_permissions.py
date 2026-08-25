@@ -5,7 +5,6 @@ from __future__ import annotations
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.domains.sport.permissions import (
     SPORT_PERMISSION_POLICY_ID,
-    SPORT_PROHIBITED_CAPABILITIES,
     build_sport_permission_policy,
 )
 

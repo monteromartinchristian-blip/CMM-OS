@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cmm.domains.sport.catalog import (
-    CANONICAL_SPORT_ENTITY_IDS,
     CANONICAL_SPORT_ENTITY_TYPES,
-    CANONICAL_SPORT_OPERATION_IDS,
-    CANONICAL_SPORT_RESOURCE_IDS,
-    CANONICAL_SPORT_RULE_IDS,
     CANONICAL_SPORT_RULE_NAMES,
-    CANONICAL_SPORT_WORKFLOW_IDS,
     SPORT_ENTITY_IDS,
     SPORT_OPERATION_IDS,
     SPORT_RESOURCE_IDS,
@@ -19,11 +12,6 @@ from cmm.domains.sport.catalog import (
     SPORT_WORKFLOW_IDS,
 )
 from cmm.domains.sport.definition import (
-    SPORT_DOMAIN_ID,
-    SPORT_DOMAIN_VERSION,
-    SPORT_MANIFEST_ID,
-    SPORT_PERMISSION_IDS,
-    SPORT_PROFILE_NAME,
     build_sport_domain_definition,
 )
 

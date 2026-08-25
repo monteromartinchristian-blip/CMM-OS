@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_RESOURCE_IDS,
-    SPORT_RESOURCE_KINDS,
 )
 from cmm.domains.sport.resources import (
     build_sport_resource_definitions,

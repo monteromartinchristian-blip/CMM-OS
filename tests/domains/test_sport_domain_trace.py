@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cmm.domains.trace_contracts import DomainTraceReferenceKind
 from cmm.domains.sport.trace import (
     assemble_sport_trace,
-    build_sport_trace_contribution,
     build_sport_trace_reference,
 )
+from cmm.domains.trace_contracts import DomainTraceReferenceKind
 
 
 def test_sport_trace_reference_creation() -> None:

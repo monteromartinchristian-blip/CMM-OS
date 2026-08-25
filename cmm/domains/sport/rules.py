@@ -9,7 +9,7 @@ return deterministic JSON-safe structures.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -101,6 +101,7 @@ def _result(
 
 # ── Pure Evaluators ───────────────────────────────────────────────────────────
 
+
 def evaluate_training_load(
     volume: Any = None,
     intensity: Any = None,
@@ -111,7 +112,11 @@ def evaluate_training_load(
         return {
             "status": "unknown",
             "load_value": None,
-            "components": {"volume": volume, "intensity": intensity, "frequency": frequency},
+            "components": {
+                "volume": volume,
+                "intensity": intensity,
+                "frequency": frequency,
+            },
         }
 
     # Reject boolean as number
@@ -137,7 +142,14 @@ def evaluate_training_load(
             "components": {"volume": None, "intensity": None, "frequency": None},
         }
 
-    if math.isnan(vol) or math.isinf(vol) or math.isnan(inte) or math.isinf(inte) or math.isnan(freq) or math.isinf(freq):
+    if (
+        math.isnan(vol)
+        or math.isinf(vol)
+        or math.isnan(inte)
+        or math.isinf(inte)
+        or math.isnan(freq)
+        or math.isinf(freq)
+    ):
         return {
             "status": "invalid_evidence",
             "load_value": None,
@@ -303,7 +315,13 @@ def evaluate_injury_signal(
     """Identify athletic risk signals without diagnosing an injury."""
     if pain_score >= 7 or fatigue_score >= 8 or (pain_score >= 5 and load_spike):
         action = "stop_and_check"
-    elif pain_score >= 4 or performance_drop >= 0.2 or wearable_anomaly or load_spike or fatigue_score >= 6:
+    elif (
+        pain_score >= 4
+        or performance_drop >= 0.2
+        or wearable_anomaly
+        or load_spike
+        or fatigue_score >= 6
+    ):
         action = "reduce_load"
     else:
         action = "continue"
@@ -391,11 +409,21 @@ def evaluate_measurement_trend(
         return {
             "status": "insufficient_data",
             "metric": metric,
-            "observations_count": len(observations) if isinstance(observations, (Sequence, list, tuple)) else 0,
+            "observations_count": len(observations)
+            if isinstance(observations, (Sequence, list, tuple))
+            else 0,
         }
 
-    units = {obs.get("unit") for obs in observations if isinstance(obs, dict) and "unit" in obs}
-    methods = {obs.get("method") for obs in observations if isinstance(obs, dict) and "method" in obs}
+    units = {
+        obs.get("unit")
+        for obs in observations
+        if isinstance(obs, dict) and "unit" in obs
+    }
+    methods = {
+        obs.get("method")
+        for obs in observations
+        if isinstance(obs, dict) and "method" in obs
+    }
 
     if len(units) > 1 or len(methods) > 1:
         return {
@@ -426,7 +454,9 @@ def evaluate_measurement_trend(
     # Detect punctual outliers (> 10% deviation from mean)
     values = [float(o["value"]) for o in valid_obs]
     mean_val = sum(values) / len(values)
-    outliers = [o for o in valid_obs if abs(float(o["value"]) - mean_val) > mean_val * 0.10]
+    outliers = [
+        o for o in valid_obs if abs(float(o["value"]) - mean_val) > mean_val * 0.10
+    ]
 
     # Calculate trend direction
     first_val = values[0]
@@ -449,6 +479,7 @@ def evaluate_measurement_trend(
 
 
 # ── Declarative Rule Classes ──────────────────────────────────────────────────
+
 
 @dataclass(frozen=True, slots=True)
 class TrainingLoadRule:
@@ -501,7 +532,9 @@ class ProgressiveOverloadRule:
         base = context.metadata.get("baseline_load")
         prop = context.metadata.get("proposed_load")
         thresh = context.metadata.get("threshold_percentage")
-        res = evaluate_progressive_overload(baseline_load=base, proposed_load=prop, threshold_percentage=thresh)
+        res = evaluate_progressive_overload(
+            baseline_load=base, proposed_load=prop, threshold_percentage=thresh
+        )
 
         findings = [
             ReasoningFinding(
@@ -538,7 +571,12 @@ class RecoveryRule:
         fatigue = context.metadata.get("fatigue_score")
         pain = context.metadata.get("pain_score")
         workload = context.metadata.get("workload_score")
-        res = evaluate_recovery(rest_hours=rest, fatigue_score=fatigue, pain_score=pain, workload_score=workload)
+        res = evaluate_recovery(
+            rest_hours=rest,
+            fatigue_score=fatigue,
+            pain_score=pain,
+            workload_score=workload,
+        )
 
         findings = [
             ReasoningFinding(
@@ -592,7 +630,9 @@ class InjurySignalRule:
             ReasoningFinding(
                 code="INJURY_SIGNAL_DETECTED",
                 message=f"Injury signal evaluated action={res['action']}, is_diagnosis={res['is_diagnosis']}",
-                severity=ReasoningSeverity.WARNING if res["action"] != "continue" else ReasoningSeverity.INFO,
+                severity=ReasoningSeverity.WARNING
+                if res["action"] != "continue"
+                else ReasoningSeverity.INFO,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -623,7 +663,9 @@ class HealthConstraintRule:
         auth = context.metadata.get("is_authorized", False)
         curr = context.metadata.get("is_current", True)
 
-        res = evaluate_health_constraint(projection=proj, is_authorized=auth, is_current=curr)
+        res = evaluate_health_constraint(
+            projection=proj, is_authorized=auth, is_current=curr
+        )
 
         findings = [
             ReasoningFinding(
@@ -681,6 +723,7 @@ class MeasurementTrendRule:
 
 
 # ── Build Function ────────────────────────────────────────────────────────────
+
 
 def build_sport_rules() -> tuple[Any, ...]:
     """Build the six Sport Domain rules deterministically in canonical order."""

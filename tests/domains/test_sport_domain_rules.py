@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-import math
 import pytest
 
-from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_RULE_IDS,
     CANONICAL_SPORT_RULE_NAMES,
 )
 from cmm.domains.sport.rules import (
-    HealthConstraintRule,
-    InjurySignalRule,
-    MeasurementTrendRule,
-    ProgressiveOverloadRule,
-    RecoveryRule,
-    TrainingLoadRule,
     build_sport_rules,
     evaluate_health_constraint,
     evaluate_injury_signal,
@@ -35,6 +27,7 @@ def test_build_sport_rules_exact_canonical_parity() -> None:
 
 
 # ── Training Load Rule Tests ──────────────────────────────────────────────────
+
 
 def test_training_load_preserves_components() -> None:
     res = evaluate_training_load(volume=120.0, intensity=0.7, frequency=3)
@@ -69,6 +62,7 @@ def test_training_load_rejects_invalid_numeric_evidence() -> None:
 
 
 # ── Progressive Overload Rule Tests ───────────────────────────────────────────
+
 
 def test_progressive_overload_comparison() -> None:
     res = evaluate_progressive_overload(
@@ -105,22 +99,30 @@ def test_progressive_overload_exceeding_threshold() -> None:
 
 # ── Recovery Rule Tests ───────────────────────────────────────────────────────
 
+
 def test_recovery_evaluation_mutable_state() -> None:
-    res1 = evaluate_recovery(rest_hours=8.0, fatigue_score=3, pain_score=1, workload_score=5)
+    res1 = evaluate_recovery(
+        rest_hours=8.0, fatigue_score=3, pain_score=1, workload_score=5
+    )
     assert res1["readiness_state"] in ("ready", "optimal")
 
     # Newer evidence updates readiness
-    res2 = evaluate_recovery(rest_hours=4.0, fatigue_score=8, pain_score=5, workload_score=9)
+    res2 = evaluate_recovery(
+        rest_hours=4.0, fatigue_score=8, pain_score=5, workload_score=9
+    )
     assert res2["readiness_state"] in ("limited", "hold")
     assert res2["is_mutable"] is True
 
 
 def test_recovery_missing_data_returns_unknown() -> None:
-    res = evaluate_recovery(rest_hours=None, fatigue_score=None, pain_score=0, workload_score=5)
+    res = evaluate_recovery(
+        rest_hours=None, fatigue_score=None, pain_score=0, workload_score=5
+    )
     assert res["readiness_state"] == "unknown"
 
 
 # ── Injury Signal Rule Tests ─────────────────────────────────────────────────
+
 
 def test_injury_signal_produces_non_diagnostic_signals() -> None:
     res = evaluate_injury_signal(
@@ -129,7 +131,12 @@ def test_injury_signal_produces_non_diagnostic_signals() -> None:
         wearable_anomaly=True,
         load_spike=True,
     )
-    assert res["action"] in ("stop_and_check", "request_health_review", "reduce_load", "hold")
+    assert res["action"] in (
+        "stop_and_check",
+        "request_health_review",
+        "reduce_load",
+        "hold",
+    )
     assert res["is_diagnosis"] is False
     assert "diagnosis" not in res
     assert "clinical_label" not in res
@@ -143,6 +150,7 @@ def test_injury_signal_prevents_diagnosis_creation() -> None:
 
 
 # ── Health Constraint Rule Tests ──────────────────────────────────────────────
+
 
 def test_health_constraint_accepts_authorized_projection() -> None:
     projection = {
@@ -167,10 +175,14 @@ def test_health_constraint_rejects_expired_or_unauthorized() -> None:
         "constraint_id": "const-123",
         "status": "active",
     }
-    res_unauth = evaluate_health_constraint(projection, is_authorized=False, is_current=True)
+    res_unauth = evaluate_health_constraint(
+        projection, is_authorized=False, is_current=True
+    )
     assert res_unauth["applied"] is False
 
-    res_expired = evaluate_health_constraint(projection, is_authorized=True, is_current=False)
+    res_expired = evaluate_health_constraint(
+        projection, is_authorized=True, is_current=False
+    )
     assert res_expired["applied"] is False
 
 
@@ -180,15 +192,20 @@ def test_health_constraint_rejects_raw_medical_report() -> None:
         "medication_list": ["medA", "medB"],
         "raw_health_memory": True,
     }
-    res = evaluate_health_constraint(medical_dossier, is_authorized=True, is_current=True)
+    res = evaluate_health_constraint(
+        medical_dossier, is_authorized=True, is_current=True
+    )
     assert res["applied"] is False
     assert res["reason"] == "rejected_unauthorized_dossier"
 
 
 # ── Measurement Trend Rule Tests ──────────────────────────────────────────────
 
+
 def test_measurement_trend_requires_sufficient_observations() -> None:
-    single_obs = [{"timestamp": "2026-08-01", "value": 70.0, "unit": "kg", "method": "scale"}]
+    single_obs = [
+        {"timestamp": "2026-08-01", "value": 70.0, "unit": "kg", "method": "scale"}
+    ]
     res_single = evaluate_measurement_trend(single_obs, metric="weight")
     assert res_single["status"] == "insufficient_data"
 
@@ -214,7 +231,12 @@ def test_measurement_trend_rejects_incomparable_units_or_methods() -> None:
 def test_measurement_trend_preserves_punctual_outlier() -> None:
     obs = [
         {"timestamp": "2026-08-01", "value": 70.0, "unit": "kg", "method": "scale"},
-        {"timestamp": "2026-08-02", "value": 85.0, "unit": "kg", "method": "scale"},  # outlier
+        {
+            "timestamp": "2026-08-02",
+            "value": 85.0,
+            "unit": "kg",
+            "method": "scale",
+        },  # outlier
         {"timestamp": "2026-08-08", "value": 70.2, "unit": "kg", "method": "scale"},
     ]
     res = evaluate_measurement_trend(obs, metric="weight")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from cmm.domains.sport.memory import (
     CANDIDATE_SPORT_LONGITUDINAL_KINDS,
-    build_sport_memory_binding,
     build_sport_memory_proposal,
     build_sport_memory_view_request,
     validate_sport_memory_proposal_content,

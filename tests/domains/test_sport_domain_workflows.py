@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_WORKFLOW_IDS,
-    SPORT_WORKFLOW_IDS,
 )
 from cmm.domains.sport.workflows import (
     build_sport_workflow_definitions,
@@ -46,7 +45,12 @@ def test_return_to_training_with_health_constraints_workflow_execution() -> None
         is_current=True,
     )
     assert res["status"] == "completed"
-    assert res["recommendation"] in ("reduce_load", "continue", "hold", "stop_and_check")
+    assert res["recommendation"] in (
+        "reduce_load",
+        "continue",
+        "hold",
+        "stop_and_check",
+    )
     assert res["health_constraint_applied"] is True
     assert res["is_diagnosis"] is False
     assert res["treatment_modified"] is False

@@ -5,7 +5,6 @@ from __future__ import annotations
 from cmm.domains.sport.profile import (
     SPORT_PROFILE_ID,
     SPORT_PROFILE_NAME,
-    SPORT_PROHIBITED_ACTIONS,
     build_sport_profile,
 )
 

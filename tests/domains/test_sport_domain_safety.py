@@ -9,7 +9,9 @@ from cmm.domains.sport.rules import (
 
 
 def test_safety_no_medical_diagnosis() -> None:
-    res = evaluate_injury_signal(pain_score=9, pain_location="shoulder", fatigue_score=9)
+    res = evaluate_injury_signal(
+        pain_score=9, pain_location="shoulder", fatigue_score=9
+    )
     assert res["is_diagnosis"] is False
     assert "diagnosis" not in res
     assert res["action"] in ("stop_and_check", "request_health_review", "hold")

@@ -49,7 +49,11 @@ def validate_sport_memory_proposal_content(content: dict[str, Any]) -> dict[str,
             "reason": "prohibited_clinical_diagnosis",
         }
 
-    if "medication_change" in content or "treatment_instructions" in content or kind == "treatment_instruction":
+    if (
+        "medication_change" in content
+        or "treatment_instructions" in content
+        or kind == "treatment_instruction"
+    ):
         return {
             "is_valid": False,
             "reason": "prohibited_treatment_advice",
