@@ -125,14 +125,30 @@ def evaluate_decision_status(
     """Evaluate decision status transition according to non-collapsible lattice.
 
     Enforces:
+    - canonical decision-state vocabulary: idea, preference, goal, scenario, decision, commitment
     - preference != decision
     - scenario != decision
     - scenario != commitment
-    - inference != confirmed fact
+    - inference != confirmed fact / decision / commitment
+    - unknown or noncanonical statuses fail closed
     - closed decision cannot reopen without explicit new evidence.
     """
     curr = str(current_status).lower().strip()
     prop = str(proposed_status).lower().strip()
+
+    # Fail closed for any unknown/non-canonical decision states
+    if curr not in DECISION_STATUS_VOCABULARY or prop not in DECISION_STATUS_VOCABULARY:
+        return {
+            "allowed": False,
+            "current_status": curr,
+            "proposed_status": prop,
+            "requires_confirmation": False,
+            "reopened": False,
+            "reason": (
+                f"Unknown or noncanonical decision state: current='{curr}', proposed='{prop}'. "
+                f"Valid states are: {', '.join(DECISION_STATUS_VOCABULARY)}."
+            ),
+        }
 
     # Closed decision reopening check
     if is_closed and not has_new_evidence and not new_evidence:
@@ -146,7 +162,7 @@ def evaluate_decision_status(
         }
 
     # If proposing transition to decision or commitment from unconfirmed state, confirmation is mandatory
-    unconfirmed_states = ("idea", "preference", "hypothesis", "scenario")
+    unconfirmed_states = ("idea", "preference", "goal", "scenario")
     if (
         curr in unconfirmed_states
         and prop in ("decision", "commitment")

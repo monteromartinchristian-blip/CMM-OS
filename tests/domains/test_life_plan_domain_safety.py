@@ -13,10 +13,27 @@ from cmm.domains.life_plan.rules import (
 
 
 def test_safety_no_silent_preference_to_decision() -> None:
-    for pref in ("preference", "idea", "hypothesis"):
+    for pref in ("preference", "idea", "goal", "scenario"):
         res = evaluate_decision_status(
             current_status=pref,
             proposed_status="decision",
+            confirmation_evidence=None,
+        )
+        assert res["allowed"] is False
+
+
+def test_safety_inference_and_unknown_status_fails_closed() -> None:
+    for bad_curr in ("inference", "hypothesis", "nonsense", "confirmed_fact"):
+        res = evaluate_decision_status(
+            current_status=bad_curr,
+            proposed_status="decision",
+            confirmation_evidence=None,
+        )
+        assert res["allowed"] is False
+    for bad_prop in ("inference", "hypothesis", "nonsense", "confirmed_fact"):
+        res = evaluate_decision_status(
+            current_status="idea",
+            proposed_status=bad_prop,
             confirmation_evidence=None,
         )
         assert res["allowed"] is False

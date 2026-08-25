@@ -74,12 +74,38 @@ def test_evaluate_decision_status_scenario_not_commitment_without_confirmation()
 
 def test_evaluate_decision_status_inference_not_confirmed_fact() -> None:
     res = evaluate_decision_status(
-        current_status="idea",
+        current_status="inference",
         proposed_status="decision",
         confirmation_evidence=None,
     )
     assert res["allowed"] is False
-    assert res["requires_confirmation"] is True
+
+
+def test_evaluate_decision_status_inference_cannot_become_commitment() -> None:
+    res = evaluate_decision_status(
+        current_status="inference",
+        proposed_status="commitment",
+        confirmation_evidence=None,
+    )
+    assert res["allowed"] is False
+
+
+def test_evaluate_decision_status_unknown_current_status_fails_closed() -> None:
+    res = evaluate_decision_status(
+        current_status="nonsense",
+        proposed_status="decision",
+        confirmation_evidence=None,
+    )
+    assert res["allowed"] is False
+
+
+def test_evaluate_decision_status_unknown_proposed_status_fails_closed() -> None:
+    res = evaluate_decision_status(
+        current_status="idea",
+        proposed_status="confirmed_fact",
+        confirmation_evidence=None,
+    )
+    assert res["allowed"] is False
 
 
 def test_evaluate_decision_status_valid_confirmed_transition() -> None:

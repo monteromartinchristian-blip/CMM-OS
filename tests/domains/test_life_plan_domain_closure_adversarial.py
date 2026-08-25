@@ -102,6 +102,12 @@ def test_closure_gate_preference_to_decision_bypass_fails() -> None:
     )
 
 
+def test_closure_gate_scenario_to_decision_bypass_fails() -> None:
+    res = evaluate_decision_status("scenario", "decision")
+    assert res["allowed"] is False
+    assert res["requires_confirmation"] is True
+
+
 # 2. Scenario -> Commitment bypass fails without explicit confirmation
 def test_closure_gate_scenario_to_commitment_bypass_fails() -> None:
     res = evaluate_decision_status("scenario", "commitment")
@@ -111,6 +117,23 @@ def test_closure_gate_scenario_to_commitment_bypass_fails() -> None:
         "confirmation" in res["reason"].lower()
         or "unconfirmed" in res["reason"].lower()
     )
+
+
+def test_closure_gate_inference_to_decision_bypass_fails() -> None:
+    res = evaluate_decision_status("inference", "decision")
+    assert res["allowed"] is False
+
+
+def test_closure_gate_inference_to_commitment_bypass_fails() -> None:
+    res = evaluate_decision_status("inference", "commitment")
+    assert res["allowed"] is False
+
+
+def test_closure_gate_unknown_decision_status_fails_closed() -> None:
+    res1 = evaluate_decision_status("nonsense", "decision")
+    assert res1["allowed"] is False
+    res2 = evaluate_decision_status("idea", "confirmed_fact")
+    assert res2["allowed"] is False
 
 
 # 3. Closed decision reopening without explicit new evidence fails
