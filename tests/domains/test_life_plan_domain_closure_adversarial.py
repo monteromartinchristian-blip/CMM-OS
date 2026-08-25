@@ -51,6 +51,7 @@ from cmm.domains.life_plan import (
     evaluate_long_term_temporal,
     evaluate_plan_drift,
     evaluate_resource_constraints,
+    evaluate_scenario_consistency,
 )
 from cmm.domains.permission_contracts import (
     CrossDomainPermissionRequest,
@@ -264,6 +265,28 @@ def test_closure_gate_long_term_temporal_preserves_uncertain_milestones() -> Non
     res = evaluate_long_term_temporal(milestones=[{"id": "m_future"}])
     assert res["valid"] is True
     assert "m_future" in res["uncertain_milestones"]
+
+
+def test_closure_gate_scenario_consistency_computes_conflicts() -> None:
+    # Structured assumption conflict
+    res1 = evaluate_scenario_consistency(
+        scenario_id="scen-adv-01",
+        assumptions={"residence": "Madrid", "on_site_work": "Tokyo"},
+        assumption_conflicts=[("residence", "on_site_work")],
+    )
+    assert res1["consistent"] is False
+    assert len(res1["conflicts"]) > 0
+
+    # Milestone ordering conflict
+    res2 = evaluate_scenario_consistency(
+        scenario_id="scen-adv-02",
+        milestones=[
+            {"id": "move", "target_date": "2028-01-01T00:00:00Z"},
+            {"id": "job", "target_date": "2027-01-01T00:00:00Z", "depends_on": "move"},
+        ],
+    )
+    assert res2["consistent"] is False
+    assert len(res2["conflicts"]) > 0
 
 
 # 16. Cross-domain raw dict input rejected

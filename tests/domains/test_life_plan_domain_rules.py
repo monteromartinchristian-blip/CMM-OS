@@ -164,14 +164,35 @@ def test_evaluate_scenario_consistency_detects_contradiction() -> None:
     res = evaluate_scenario_consistency(
         scenario_id="scen-002",
         assumptions={"residence": "Madrid", "on_site_work": "Tokyo"},
-        contradictions=[
-            "residence Madrid is incompatible with daily on_site_work in Tokyo"
-        ],
+        assumption_conflicts=[("residence", "on_site_work")],
     )
     assert res["consistent"] is False
     assert len(res["conflicts"]) > 0
     assert res["is_decision"] is False
     assert res["is_commitment"] is False
+
+
+def test_evaluate_scenario_consistency_computes_milestone_ordering_conflict() -> None:
+    res = evaluate_scenario_consistency(
+        scenario_id="scen-temporal-01",
+        milestones=[
+            {"id": "move", "target_date": "2028-01-01T00:00:00Z"},
+            {"id": "start_job", "target_date": "2027-01-01T00:00:00Z", "depends_on": "move"},
+        ],
+    )
+    assert res["consistent"] is False
+    assert len(res["conflicts"]) > 0
+
+
+def test_evaluate_scenario_consistency_computes_resource_incompatibility() -> None:
+    res = evaluate_scenario_consistency(
+        scenario_id="scen-res-01",
+        resource_constraints={
+            "time": {"available_hours_per_week": 10.0, "required_hours_per_week": 40.0}
+        },
+    )
+    assert res["consistent"] is False
+    assert len(res["conflicts"]) > 0
 
 
 def test_evaluate_scenario_consistency_preserves_uncertainty() -> None:

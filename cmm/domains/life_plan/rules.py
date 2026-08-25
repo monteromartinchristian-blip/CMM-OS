@@ -203,10 +203,19 @@ def evaluate_scenario_consistency(
     assumptions: dict[str, Any] | None = None,
     milestones: list[dict[str, Any]] | None = None,
     contradictions: list[str] | None = None,
+    *,
+    assumption_conflicts: list[tuple[str, str]] | list[dict[str, Any]] | None = None,
+    resource_constraints: dict[str, Any] | None = None,
+    constraints: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate internal scenario coherence while preserving uncertainty.
 
     Scenario viability != decision; scenario viability != commitment.
+    Computes consistency from:
+    - structured mutually exclusive assumption relations
+    - temporal milestone dependency and chronology ordering
+    - structured resource / constraint incompatibilities
+    - preserving unknown / uncertain evidence.
     """
     assump = dict(assumptions or {})
     conflicts: list[str] = list(contradictions or [])
@@ -219,6 +228,65 @@ def evaluate_scenario_consistency(
             or (isinstance(v, str) and "uncertain" in v.lower())
         ):
             uncertainties.append(k)
+
+    # 1. Evaluate structured assumption conflicts
+    if assumption_conflicts:
+        for conf_item in assumption_conflicts:
+            if isinstance(conf_item, (tuple, list)) and len(conf_item) >= 2:
+                k1, k2 = str(conf_item[0]), str(conf_item[1])
+                if k1 in assump and k2 in assump:
+                    v1, v2 = assump[k1], assump[k2]
+                    if (
+                        v1 is not None
+                        and v2 is not None
+                        and v1 != "unknown"
+                        and v2 != "unknown"
+                        and not (isinstance(v1, str) and "uncertain" in v1.lower())
+                        and not (isinstance(v2, str) and "uncertain" in v2.lower())
+                    ):
+                        conflicts.append(
+                            f"Mutually exclusive assumptions: '{k1}' ({v1}) and '{k2}' ({v2})"
+                        )
+            elif isinstance(conf_item, dict):
+                k1 = str(conf_item.get("left_id") or conf_item.get("left") or "")
+                k2 = str(conf_item.get("right_id") or conf_item.get("right") or "")
+                rel = conf_item.get("relation", "mutually_exclusive")
+                if k1 in assump and k2 in assump and rel in ("mutually_exclusive", "incompatible"):
+                    v1, v2 = assump[k1], assump[k2]
+                    if (
+                        v1 is not None
+                        and v2 is not None
+                        and v1 != "unknown"
+                        and v2 != "unknown"
+                        and not (isinstance(v1, str) and "uncertain" in v1.lower())
+                        and not (isinstance(v2, str) and "uncertain" in v2.lower())
+                    ):
+                        conflicts.append(
+                            f"Mutually exclusive assumptions: '{k1}' and '{k2}'"
+                        )
+
+    # 2. Evaluate milestone temporal consistency via evaluate_long_term_temporal
+    if milestones:
+        temp_eval = evaluate_long_term_temporal(milestones=milestones)
+        if not temp_eval["valid"] or len(temp_eval["ordering_conflicts"]) > 0:
+            for oc in temp_eval["ordering_conflicts"]:
+                conflicts.append(f"Temporal milestone ordering conflict: {oc}")
+        for unc_ms in temp_eval.get("uncertain_milestones", []):
+            if unc_ms not in uncertainties:
+                uncertainties.append(f"milestone:{unc_ms}")
+
+    # 3. Evaluate resource/constraint incompatibilities
+    res_data = resource_constraints or constraints
+    if res_data:
+        res_eval = evaluate_resource_constraints(**res_data)
+        if res_eval.get("feasible") is False:
+            conflicts.append(
+                f"Resource constraint infeasibility: {res_eval.get('summary', 'infeasible')}"
+            )
+        elif res_eval.get("feasible") is None:
+            for dim_name, dim_val in res_eval.get("dimensions", {}).items():
+                if dim_val.get("status") == "unknown":
+                    uncertainties.append(f"resource:{dim_name}")
 
     consistent = len(conflicts) == 0
 
@@ -983,12 +1051,18 @@ class ScenarioConsistencyRule:
         assump = context.metadata.get("assumptions")
         milestones = context.metadata.get("milestones")
         contra = context.metadata.get("contradictions")
+        assump_conf = context.metadata.get("assumption_conflicts")
+        res_const = context.metadata.get("resource_constraints") or context.metadata.get(
+            "constraints"
+        )
 
         res = evaluate_scenario_consistency(
             scenario_id=scen_id,
             assumptions=assump,
             milestones=milestones,
             contradictions=contra,
+            assumption_conflicts=assump_conf,
+            resource_constraints=res_const,
         )
 
         findings = [
