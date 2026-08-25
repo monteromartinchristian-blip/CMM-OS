@@ -104,7 +104,9 @@ from cmm.domains.sport import (
     validate_sport_memory_proposal_content,
     validate_sport_trace,
 )
+from cmm.domains.contracts import DomainResult
 from cmm.domains.trace_contracts import (
+    DomainResultTraceReference,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
@@ -444,7 +446,6 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     hc_eval = evaluate_health_constraint(
         health_raw_projection,
         permission_decision=consumed_cross,
-        is_authorized=consumed_cross.allowed,
         is_current=True,
     )
     assert hc_eval["applied"] is True
@@ -491,7 +492,9 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
 
     # 29 reject expired/unauthorized constraint as current
     hc_expired = evaluate_health_constraint(
-        hc_eval["constraint"], is_authorized=True, is_current=False
+        hc_eval["constraint"],
+        permission_decision=consumed_cross,
+        is_current=False,
     )
     assert hc_expired["applied"] is False
     state["29_expired_rejected"] = True
@@ -526,7 +529,14 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         elif node.node_type == WorkflowNodeType.VALIDATE:
             return NodeExecution.complete({"validated": True})
         elif node.node_type == WorkflowNodeType.COMPLETE:
-            return NodeExecution.complete({"completed": True})
+            res = execute_return_to_training_workflow(
+                rest_hours=7.5,
+                fatigue_score=4,
+                pain_score=2,
+                health_constraint=hc_eval,
+                is_current=True,
+            )
+            return NodeExecution.complete(res)
         return NodeExecution.complete({"status": "ok"})
 
     wf_ctx = DomainWorkflowContext(
@@ -552,7 +562,6 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             "rest_hours": 7.5,
             "fatigue_score": 4,
             "pain_score": 2,
-            "health_constraint": hc_eval,
         },
     )
     assert workflow_run.common_run.status.value == "completed"
@@ -560,26 +569,22 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         workflow_run.common_run.workflow_id
         == "sport.return_to_training_with_health_constraints"
     )
+    complete_node_output = (
+        workflow_run.execution_result.node_results["complete"].output
+    )
     state["30_rtt_workflow_run"] = workflow_run
 
-    # 31 apply restrictive current constraint to Sport recommendation
-    wf_res = execute_return_to_training_workflow(
-        rest_hours=7.5,
-        fatigue_score=4,
-        pain_score=2,
-        health_constraint=hc_eval,
-        is_current=True,
-    )
-    assert wf_res["recommendation"] == "reduce_load"
-    assert wf_res["health_constraint_applied"] is True
+    # 31 apply restrictive current constraint to Sport recommendation (from workflow runtime)
+    assert complete_node_output["recommendation"] == "reduce_load"
+    assert complete_node_output["health_constraint_applied"] is True
     state["31_restrictive_constraint_applied"] = True
 
     # 32 deny treatment modification
-    assert wf_res["treatment_modified"] is False
+    assert complete_node_output["treatment_modified"] is False
     state["32_treatment_modification_denied"] = True
 
     # 33 deny clinical-clearance claim
-    assert wf_res["clinical_clearance_claimed"] is False
+    assert complete_node_output["clinical_clearance_claimed"] is False
     state["33_clinical_clearance_denied"] = True
 
     # 34 produce schedule proposal
@@ -605,6 +610,21 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         approval_decision_id="fake-decision-id",
     )
     assert fake_sched["status"] == "proposal_pending_approval"
+
+    # Duck-typed fake approval evidence fails
+    class FakeApprovalEvidence:
+        granted = True
+        action = "sport.schedule_sessions"
+        request_id = "fake-req"
+
+    assert (
+        schedule_sessions_result(
+            sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
+            approval_evidence=FakeApprovalEvidence(),
+        )["status"]
+        == "proposal_pending_approval"
+    )
+
     state["35_direct_calendar_mutation_denied"] = True
 
     # 36 preserve scoped approval for calendar path
@@ -671,7 +691,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     assert diag_validation["is_valid"] is False
 
     mem_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
-        decision_id=consumed_cross.decision_id or "perm-dec-001",
+        decision_id=consumed_cross.decision_id,
         allowed=consumed_cross.allowed,
         capabilities=(DomainMemoryCapability.PROPOSE,),
         source_domain_id=SPORT_DOMAIN_ID,
@@ -683,7 +703,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         trace_id=mem_trace_id,
         requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
         candidates=(mem_reference,),
-        permission_decision_ids=(consumed_cross.decision_id or "perm-dec-001",),
+        permission_decision_ids=(consumed_cross.decision_id,),
     )
     mem_base_inventory = DomainMemoryReferenceInventory(
         references=(mem_reference,),
@@ -701,7 +721,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         proposal=mem_proposal,
         view=mem_view,
         trace_id=mem_trace_id,
-        permission_decision_ids=(consumed_cross.decision_id or "perm-dec-001",),
+        permission_decision_ids=(consumed_cross.decision_id,),
         approval_request_ids=(cal_approval.id,),
         approval_decision_ids=(cal_decision.id,),
     )
@@ -808,7 +828,18 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         registry=rule_reg,
     )
 
-    runtime_domain_result_id = id_factory()
+    # 40 preserve real runtime trace IDs and cross-domain provenance with reference inventory
+    runtime_domain_result = DomainResult(
+        id=f"result-{id_factory()}",
+        status="completed",
+        objective="Sport return-to-training with Health constraints",
+        primary_domain=SPORT_DOMAIN_ID,
+        supporting_domains=("domain:health",),
+        reasoning_result_id=rule_exec.id,
+        workflow_result_id=workflow_run.common_run.run_id,
+        approval_ids=(cal_approval.id,),
+    )
+    runtime_domain_result_id = str(runtime_domain_result.id)
 
     # Build reference inventory independently from upstream runtime objects
     independent_inventory_refs = (
@@ -833,7 +864,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             domain_id=SPORT_DOMAIN_ID,
         ),
         DomainTraceReference(
-            ref_id=consumed_cross.decision_id or "dec-001",
+            ref_id=consumed_cross.decision_id,
             kind=DomainTraceReferenceKind.PERMISSION_DECISION,
             domain_id=SPORT_DOMAIN_ID,
         ),
@@ -890,7 +921,7 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             ref_id=rule_exec.id, kind=DomainTraceReferenceKind.RULE_RESULT
         ),
         build_sport_trace_reference(
-            ref_id=consumed_cross.decision_id or "dec-001",
+            ref_id=consumed_cross.decision_id,
             kind=DomainTraceReferenceKind.PERMISSION_DECISION,
         ),
         build_sport_trace_reference(
@@ -926,7 +957,13 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
 
     inventory = DomainTraceReferenceInventory(
         references=independent_inventory_refs,
-        domain_results=trace.domain_results,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=runtime_domain_result_id,
+                domain_id=SPORT_DOMAIN_ID,
+                trace_id=trace.id,
+            ),
+        ),
         cross_domain_results=(),
         expected_primary_domain=SPORT_DOMAIN_ID,
         resolution_result_domains=DomainTraceDomainSelection(
@@ -982,6 +1019,21 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     bad_trace_val = validate_sport_trace(trace=tampered_trace, inventory=inventory)
     assert bad_trace_val.valid is False
     assert rule_exec.id in bad_trace_val.missing_references
+
+    # Negative 3: Fabricated domain result ID without inventory backing fails
+    fake_res_trace = assemble_sport_trace(
+        request_id=cross_request.request_id,
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        domain_result_id="fabricated-domain-result-999",
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_trace_refs,
+    )
+    bad_fake_res_val = validate_sport_trace(trace=fake_res_trace, inventory=inventory)
+    assert bad_fake_res_val.valid is False
+
     state["40_real_trace_preserved"] = trace
 
     # 41 prove atomic Sport registration
