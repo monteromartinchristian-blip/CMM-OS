@@ -9,9 +9,10 @@ return deterministic JSON-safe structures.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from cmm.cognitive.enums import (
@@ -359,65 +360,46 @@ def evaluate_injury_signal(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorizedHealthConstraint:
+    """Immutable value object representing a vetted, authorized Health constraint."""
+
+    constraint: Mapping[str, Any]
+    permission_decision_id: str
+    permission_request_id: str
+    source_domain: str
+    target_domain: str
+    effective_from: datetime | None = None
+    effective_until: datetime | None = None
+
+
 def evaluate_health_constraint(
     projection: Any = None,
-    is_authorized: bool = False,
-    is_current: bool = True,
+    *,
     permission_decision: Any = None,
+    is_authorized: bool | None = None,
+    is_current: bool | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Incorporate authorized Health functional constraint into Sport reasoning."""
-    if not is_current:
-        return {
-            "applied": False,
-            "reason": "unauthorized_or_expired",
-            "constraint": None,
-            "authorization_verified": False,
-        }
+    """Incorporate authorized Health functional constraint into Sport reasoning.
 
-    auth_verified = False
-    auth_ref: str | None = None
-    auth_source = "evaluate_health_constraint"
+    Requires concrete canonical permission evidence (PermissionGateResult or CrossDomainPermissionDecision).
+    Plain mappings, duck-typed objects, and caller booleans are never trusted.
+    """
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+    from cmm.domains.permission_gate import (
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
 
-    if permission_decision is not None:
-        if getattr(permission_decision, "allowed", False) is True:
-            auth_verified = True
-            auth_ref = (
-                getattr(permission_decision, "decision_id", None)
-                or getattr(permission_decision, "request_id", None)
-                or getattr(permission_decision, "id", None)
-            )
-            auth_source = permission_decision.__class__.__name__
-        elif hasattr(permission_decision, "decision"):
-            dec_val = (
-                permission_decision.decision.value
-                if hasattr(permission_decision.decision, "value")
-                else str(permission_decision.decision)
-            )
-            if dec_val.lower() in ("allow", "approved", "approval_consumed"):
-                auth_verified = True
-                auth_ref = getattr(permission_decision, "request_id", None) or getattr(
-                    permission_decision, "id", None
-                )
-                auth_source = permission_decision.__class__.__name__
-    elif is_authorized:
-        auth_verified = True
-        if isinstance(projection, dict) and projection.get("authorization_reference"):
-            auth_ref = str(projection.get("authorization_reference"))
-
-    if not auth_verified:
-        return {
-            "applied": False,
-            "reason": "unauthorized_or_expired",
-            "constraint": None,
-            "authorization_verified": False,
-        }
-
-    if not isinstance(projection, dict):
+    if not isinstance(projection, Mapping):
         return {
             "applied": False,
             "reason": "invalid_projection",
             "constraint": None,
             "authorization_verified": False,
+            "authorized_artifact": None,
         }
 
     # Reject clinical dossier or raw health memory
@@ -431,7 +413,126 @@ def evaluate_health_constraint(
             "reason": "rejected_unauthorized_dossier",
             "constraint": None,
             "authorization_verified": False,
+            "authorized_artifact": None,
         }
+
+    if is_current is False:
+        return {
+            "applied": False,
+            "reason": "unauthorized_or_expired",
+            "constraint": None,
+            "authorization_verified": False,
+            "authorized_artifact": None,
+        }
+
+    auth_verified = False
+    auth_ref: str | None = None
+    req_id: str | None = None
+    auth_source = "evaluate_health_constraint"
+
+    if isinstance(permission_decision, PermissionGateResult):
+        if (
+            permission_decision.allowed is True
+            or permission_decision.outcome
+            in (PermissionGateOutcome.ALLOW, PermissionGateOutcome.APPROVAL_CONSUMED)
+        ):
+            target = permission_decision.metadata.get("target_domain")
+            source = permission_decision.metadata.get("source_domain")
+            if target and target != "domain:sport":
+                auth_verified = False
+            elif source and source != "domain:health":
+                auth_verified = False
+            else:
+                auth_verified = True
+                auth_ref = permission_decision.decision_id or "permission_gate"
+                req_id = (
+                    permission_decision.metadata.get("request_id")
+                    or permission_decision.decision_id
+                    or "permission_request"
+                )
+                auth_source = "PermissionGateResult"
+    elif isinstance(permission_decision, CrossDomainPermissionDecision):
+        if permission_decision.decision is PermissionOutcome.ALLOW:
+            auth_verified = True
+            auth_ref = permission_decision.request_id
+            req_id = permission_decision.request_id
+            auth_source = "CrossDomainPermissionDecision"
+
+    if not auth_verified or not auth_ref or not req_id:
+        return {
+            "applied": False,
+            "reason": "unauthorized_or_expired",
+            "constraint": None,
+            "authorization_verified": False,
+            "authorized_artifact": None,
+        }
+
+    # Validate temporal currentness against evidence timestamps
+    curr_now = now or datetime.now(timezone.utc)
+    if curr_now.tzinfo is None:
+        curr_now = curr_now.replace(tzinfo=timezone.utc)
+
+    eff_from_dt: datetime | None = None
+    if "effective_from" in projection and projection["effective_from"]:
+        raw_from = projection["effective_from"]
+        if isinstance(raw_from, datetime):
+            eff_from_dt = (
+                raw_from if raw_from.tzinfo else raw_from.replace(tzinfo=timezone.utc)
+            )
+        elif isinstance(raw_from, str):
+            try:
+                parsed_from = datetime.fromisoformat(
+                    raw_from.replace("Z", "+00:00")
+                    if raw_from.endswith("Z")
+                    else raw_from
+                )
+                eff_from_dt = (
+                    parsed_from
+                    if parsed_from.tzinfo
+                    else parsed_from.replace(tzinfo=timezone.utc)
+                )
+            except (ValueError, TypeError):
+                pass
+        if eff_from_dt and eff_from_dt > curr_now:
+            return {
+                "applied": False,
+                "reason": "unauthorized_or_expired",
+                "constraint": None,
+                "authorization_verified": False,
+                "authorized_artifact": None,
+            }
+
+    eff_until_dt: datetime | None = None
+    if "effective_until" in projection and projection["effective_until"]:
+        raw_until = projection["effective_until"]
+        if isinstance(raw_until, datetime):
+            eff_until_dt = (
+                raw_until
+                if raw_until.tzinfo
+                else raw_until.replace(tzinfo=timezone.utc)
+            )
+        elif isinstance(raw_until, str):
+            try:
+                parsed_until = datetime.fromisoformat(
+                    raw_until.replace("Z", "+00:00")
+                    if raw_until.endswith("Z")
+                    else raw_until
+                )
+                eff_until_dt = (
+                    parsed_until
+                    if parsed_until.tzinfo
+                    else parsed_until.replace(tzinfo=timezone.utc)
+                )
+            except (ValueError, TypeError):
+                pass
+        if eff_until_dt and eff_until_dt < curr_now:
+            return {
+                "applied": False,
+                "reason": "unauthorized_or_expired",
+                "constraint": None,
+                "authorization_verified": False,
+                "authorized_artifact": None,
+            }
 
     allowed_fields = (
         "constraint_id",
@@ -451,6 +552,16 @@ def evaluate_health_constraint(
     if auth_ref and "authorization_reference" not in minimized_constraint:
         minimized_constraint["authorization_reference"] = auth_ref
 
+    artifact = AuthorizedHealthConstraint(
+        constraint=MappingProxyType(dict(minimized_constraint)),
+        permission_decision_id=auth_ref,
+        permission_request_id=req_id,
+        source_domain="domain:health",
+        target_domain="domain:sport",
+        effective_from=eff_from_dt,
+        effective_until=eff_until_dt,
+    )
+
     return {
         "applied": True,
         "constraint": minimized_constraint,
@@ -458,6 +569,7 @@ def evaluate_health_constraint(
         "treatment_modification_allowed": False,
         "authorization_verified": True,
         "authorization_source": auth_source,
+        "authorized_artifact": artifact,
         "provenance": {
             "authorization_reference": minimized_constraint.get(
                 "authorization_reference"
@@ -829,6 +941,7 @@ def build_sport_rules() -> tuple[Any, ...]:
 __all__ = [
     "SPORT_RULE_IDS",
     "SPORT_RULE_NAMES",
+    "AuthorizedHealthConstraint",
     "HealthConstraintRule",
     "InjurySignalRule",
     "MeasurementTrendRule",

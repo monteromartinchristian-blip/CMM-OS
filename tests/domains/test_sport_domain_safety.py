@@ -18,12 +18,19 @@ def test_safety_no_medical_diagnosis() -> None:
 
 
 def test_safety_no_treatment_modification() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth-001",
+        decision=PermissionOutcome.ALLOW,
+    )
     health_data = {
         "constraint_id": "const-1",
         "status": "active",
         "treatment_instructions": "change medication X to 20mg",
     }
-    res = evaluate_health_constraint(health_data, is_authorized=True, is_current=True)
+    res = evaluate_health_constraint(health_data, permission_decision=perm_dec)
     assert res.get("treatment_modification_allowed") is not True
     assert "treatment_instructions" not in res.get("applied_fields", ())
 

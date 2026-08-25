@@ -153,6 +153,13 @@ def test_injury_signal_prevents_diagnosis_creation() -> None:
 
 
 def test_health_constraint_accepts_authorized_projection() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth.scope.001",
+        decision=PermissionOutcome.ALLOW,
+    )
     projection = {
         "constraint_id": "const-123",
         "status": "active",
@@ -164,13 +171,20 @@ def test_health_constraint_accepts_authorized_projection() -> None:
         "provenance": {"domain": "health"},
         "authorization_reference": "auth.scope.001",
     }
-    res = evaluate_health_constraint(projection, is_authorized=True, is_current=True)
+    res = evaluate_health_constraint(projection, permission_decision=perm_dec)
     assert res["applied"] is True
     assert res["constraint"]["constraint_id"] == "const-123"
     assert res["provenance"]["authorization_reference"] == "auth.scope.001"
 
 
 def test_health_constraint_rejects_expired_or_unauthorized() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth.scope.001",
+        decision=PermissionOutcome.ALLOW,
+    )
     projection = {
         "constraint_id": "const-123",
         "status": "active",
@@ -181,7 +195,7 @@ def test_health_constraint_rejects_expired_or_unauthorized() -> None:
     assert res_unauth["applied"] is False
 
     res_expired = evaluate_health_constraint(
-        projection, is_authorized=True, is_current=False
+        projection, permission_decision=perm_dec, is_current=False
     )
     assert res_expired["applied"] is False
 

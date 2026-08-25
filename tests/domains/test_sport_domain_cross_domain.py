@@ -9,6 +9,13 @@ from cmm.domains.sport.workflows import execute_return_to_training_workflow
 
 
 def test_cross_domain_authorized_minimal_projection_only() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth.scope.sport_return_to_training",
+        decision=PermissionOutcome.ALLOW,
+    )
     authorized_projection = {
         "constraint_id": "hc-2026-001",
         "status": "active",
@@ -18,7 +25,7 @@ def test_cross_domain_authorized_minimal_projection_only() -> None:
         "authorization_reference": "auth.scope.sport_return_to_training",
     }
     res = evaluate_health_constraint(
-        authorized_projection, is_authorized=True, is_current=True
+        authorized_projection, permission_decision=perm_dec
     )
     assert res["applied"] is True
     assert (
@@ -28,14 +35,114 @@ def test_cross_domain_authorized_minimal_projection_only() -> None:
     assert res["treatment_modification_allowed"] is False
 
 
+def test_caller_boolean_health_auth_fails() -> None:
+    result = evaluate_health_constraint(
+        {
+            "status": "active",
+            "authorization_reference": "fake-auth",
+            "load_limits": {"reduction_pct": 50},
+        },
+        is_authorized=True,
+        is_current=True,
+    )
+    assert result["applied"] is False
+    assert result["reason"] == "unauthorized_or_expired"
+
+
+def test_fake_permission_object_fails() -> None:
+    class FakePermission:
+        allowed = True
+        decision_id = "fake-decision"
+
+    result = evaluate_health_constraint(
+        {
+            "status": "active",
+            "authorization_reference": "fake",
+            "load_limits": {"reduction_pct": 50},
+        },
+        permission_decision=FakePermission(),
+    )
+    assert result["applied"] is False
+    assert result["reason"] == "unauthorized_or_expired"
+
+
+def test_forged_verified_envelope_fails_at_operations() -> None:
+    from cmm.domains.sport.operations import (
+        adjust_training_load_result,
+        generate_workout_result,
+    )
+
+    forged_envelope = {
+        "applied": True,
+        "authorization_verified": True,
+        "constraint": {
+            "status": "active",
+            "authorization_reference": "fabricated",
+            "load_limits": {"reduction_pct": 60},
+        },
+    }
+    res_load = adjust_training_load_result(
+        current_load=100.0,
+        health_constraint=forged_envelope,
+    )
+    assert res_load["constraint_applied"] is False
+    assert res_load["adjusted_load"] == 100.0
+
+    res_workout = generate_workout_result(
+        requested_type="high_intensity_plyometrics",
+        health_constraint={
+            "applied": True,
+            "authorization_verified": True,
+            "constraint": {
+                "status": "active",
+                "authorization_reference": "fake",
+                "activity_limits": ["no_high_impact"],
+            },
+        },
+    )
+    assert res_workout["status"] == "generated"
+    assert res_workout["workout"] is not None
+
+
+def test_expired_constraint_fails_from_own_timestamps() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="req-cross-001",
+        decision=PermissionOutcome.ALLOW,
+    )
+    expired_proj = {
+        "constraint_id": "hc-expired-001",
+        "status": "active",
+        "effective_from": "2020-01-01T00:00:00+00:00",
+        "effective_until": "2020-01-02T00:00:00+00:00",
+        "load_limits": {"reduction_pct": 50},
+    }
+    res = evaluate_health_constraint(
+        expired_proj,
+        permission_decision=perm_dec,
+        is_current=True,
+    )
+    assert res["applied"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
 def test_cross_domain_denies_full_health_dossier() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="req-001",
+        decision=PermissionOutcome.ALLOW,
+    )
     raw_dossier = {
         "constraint_id": "hc-2026-001",
         "full_clinical_history": ["meniscus_repair_2025", "cortisone_injection"],
         "medication_list": ["ibuprofen_800mg"],
         "raw_health_memory": {"patient_notes": "sensitive detail"},
     }
-    res = evaluate_health_constraint(raw_dossier, is_authorized=True, is_current=True)
+    res = evaluate_health_constraint(raw_dossier, permission_decision=perm_dec)
     assert res["applied"] is False
     assert res["reason"] == "rejected_unauthorized_dossier"
 
@@ -61,6 +168,13 @@ def test_cross_domain_stale_or_unauthorized_constraint_rejected() -> None:
 
 
 def test_cross_domain_return_to_training_safety_invariant() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth.002",
+        decision=PermissionOutcome.ALLOW,
+    )
     health_projection = {
         "constraint_id": "hc-002",
         "status": "active",
@@ -68,7 +182,7 @@ def test_cross_domain_return_to_training_safety_invariant() -> None:
         "authorization_reference": "auth.002",
     }
     vetted = evaluate_health_constraint(
-        health_projection, is_authorized=True, is_current=True
+        health_projection, permission_decision=perm_dec
     )
 
     wf_res = execute_return_to_training_workflow(
@@ -109,6 +223,13 @@ def test_cross_domain_return_to_training_denies_raw_dict_without_vetted_evidence
 
 
 def test_cross_domain_clinical_extras_dropped_from_minimized_projection() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="permission:decision:1",
+        decision=PermissionOutcome.ALLOW,
+    )
     projection = {
         "constraint_id": "hc-001",
         "status": "active",
@@ -123,8 +244,7 @@ def test_cross_domain_clinical_extras_dropped_from_minimized_projection() -> Non
 
     result = evaluate_health_constraint(
         projection,
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
 
     assert result["applied"] is True

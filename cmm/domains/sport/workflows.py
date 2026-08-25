@@ -282,12 +282,18 @@ def execute_return_to_training_workflow(
     rest_hours: float = 8.0,
     fatigue_score: int = 2,
     pain_score: int = 0,
-    health_constraint: dict[str, Any] | None = None,
+    health_constraint: Any = None,
     permission_decision: Any = None,
-    is_authorized: bool = False,
+    is_authorized: bool | None = None,
     is_current: bool = True,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Execute return to training workflow with Health constraints."""
+    from collections.abc import Mapping
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+    from cmm.domains.permission_gate import PermissionGateResult
+    from cmm.domains.sport.rules import AuthorizedHealthConstraint
+
     rec_res = evaluate_recovery(
         rest_hours=rest_hours, fatigue_score=fatigue_score, pain_score=pain_score
     )
@@ -296,18 +302,25 @@ def execute_return_to_training_workflow(
     inj_res = evaluate_injury_signal(pain_score=pain_score, fatigue_score=fatigue_score)
     signal_action = inj_res["action"]
 
-    # Must be an already vetted constraint or carry a valid permission_decision
-    if (
-        isinstance(health_constraint, dict)
-        and health_constraint.get("applied") is True
-        and health_constraint.get("authorization_verified") is True
+    # Must be an AuthorizedHealthConstraint, or evaluation containing it, or backed by concrete canonical permission_decision
+    if isinstance(health_constraint, AuthorizedHealthConstraint):
+        hc_res = {
+            "applied": True,
+            "constraint": health_constraint.constraint,
+            "authorized_artifact": health_constraint,
+        }
+    elif isinstance(health_constraint, Mapping) and isinstance(
+        health_constraint.get("authorized_artifact"), AuthorizedHealthConstraint
     ):
         hc_res = health_constraint
-    elif permission_decision is not None:
+    elif permission_decision is not None and isinstance(
+        permission_decision, (PermissionGateResult, CrossDomainPermissionDecision)
+    ):
         hc_res = evaluate_health_constraint(
             projection=health_constraint,
             permission_decision=permission_decision,
             is_current=is_current,
+            now=now,
         )
     else:
         hc_res = {
@@ -315,6 +328,7 @@ def execute_return_to_training_workflow(
             "reason": "unauthorized_or_expired",
             "constraint": None,
             "authorization_verified": False,
+            "authorized_artifact": None,
         }
 
     rec = "continue"
