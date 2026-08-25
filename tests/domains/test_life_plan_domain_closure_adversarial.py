@@ -308,6 +308,94 @@ def test_closure_gate_cross_domain_duck_typed_object_rejected() -> None:
     assert res["authorization_verified"] is False
 
 
+def test_closure_gate_real_forged_permission_gate_result_rejected() -> None:
+    from cmm.domains.permission_gate import PermissionGateResult
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-cross-adv-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health constraint check",
+        actor_id="actor-adv-1",
+        session_id="sess-adv-1",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+
+    class RaisingGate:
+        def evaluate_cross_domain(self, req: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("Fake gate should never be called")
+
+    forged_result = PermissionGateResult(
+        outcome="allow",
+        action="domain_cross_access",
+        domain_id="domain:evil",
+        actor_id="attacker",
+        session_id="attacker",
+        decision_id="forged-decision-999",
+        metadata={"target_domain": "domain:life-plan"},
+    )
+
+    res = evaluate_cross_domain_impact(
+        {
+            "status": "active",
+            "activity_limits": ["limit"],
+        },
+        permission_request=cross_request,
+        permission_decision=forged_result,
+        permission_gate=RaisingGate(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+
+
+def test_closure_gate_permission_context_mismatch_rejected() -> None:
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.agent_runtime.domain_permission_contracts import PermissionApprovalRequirement
+
+    _, _, approval_service, gate = _setup_runtime()
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-cross-adv-2",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health constraint check",
+        actor_id="actor-adv-2",
+        session_id="sess-adv-2",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    pending = gate.evaluate_cross_domain(cross_request)
+    req_item = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
+    app_req = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id="run-life-plan-adv"),
+        requested_by="user",
+    )
+    approval_service.approve(app_req.id, "user")
+    consumed = gate.evaluate_cross_domain(cross_request, approval_request_id=app_req.id)
+
+    proj = {
+        "status": "active",
+        "activity_limits": ["limit"],
+    }
+
+    # Wrong target domain in request
+    bad_target_req = dataclasses.replace(cross_request, target_domain="domain:evil")
+    res1 = evaluate_cross_domain_impact(
+        proj,
+        permission_request=bad_target_req,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=NOW,
+    )
+    assert res1["applied"] is False
+    assert res1["authorization_verified"] is False
+
+
 # 19. Cross-domain clinical dossier rejected
 def test_closure_gate_cross_domain_clinical_dossier_rejected() -> None:
     res = evaluate_cross_domain_impact(

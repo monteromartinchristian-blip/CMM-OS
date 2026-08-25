@@ -214,3 +214,74 @@ def test_cross_domain_drops_unallowed_extra_keys() -> None:
     }
     assert "clinical_diagnosis" not in result["contribution"]
     assert "prescriptions" not in result["contribution"]
+
+
+def test_forged_permission_gate_result_rejected() -> None:
+    from cmm.domains.permission_gate import PermissionGateResult
+
+    _, _, _, _, cross_request = _setup_runtime()
+
+    class RaisingGate:
+        def evaluate_cross_domain(self, req: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("Should never be called if forged result were trusted")
+
+    forged_result = PermissionGateResult(
+        outcome="allow",
+        action="domain_cross_access",
+        domain_id="domain:evil",
+        actor_id="attacker",
+        session_id="attacker",
+        decision_id="forged-decision-123",
+        metadata={"target_domain": "domain:life-plan"},
+    )
+
+    proj = {
+        "status": "active",
+        "activity_limits": ["limit"],
+    }
+
+    res = evaluate_cross_domain_impact(
+        proj,
+        permission_request=cross_request,
+        permission_decision=forged_result,
+        permission_gate=RaisingGate(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+
+
+def test_permission_context_mismatch_rejected() -> None:
+    from cmm.domains.permission_gate import PermissionGateResult
+
+    _, _, approval_service, gate, cross_request = _setup_runtime()
+    consumed = _get_approved_gate_result(gate, approval_service, cross_request)
+
+    proj = {
+        "status": "active",
+        "activity_limits": ["limit"],
+    }
+
+    # Wrong target domain
+    bad_target_req = dataclasses.replace(cross_request, target_domain="domain:evil")
+    res1 = evaluate_cross_domain_impact(
+        proj,
+        permission_request=bad_target_req,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=NOW,
+    )
+    assert res1["applied"] is False
+    assert res1["authorization_verified"] is False
+
+    # Mismatched forged decision ID in caller decision object
+    tampered_decision = dataclasses.replace(consumed, decision_id="forged-id-999")
+    res2 = evaluate_cross_domain_impact(
+        proj,
+        permission_request=cross_request,
+        permission_decision=tampered_decision,
+        permission_gate=gate,
+        now=NOW,
+    )
+    assert res2["applied"] is False
+    assert res2["authorization_verified"] is False

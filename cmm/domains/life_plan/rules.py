@@ -728,27 +728,88 @@ def evaluate_cross_domain_impact(
         and hasattr(permission_gate, "evaluate_cross_domain")
         and permission_request is not None
     ):
-        if isinstance(permission_decision, PermissionGateResult):
-            if (
-                permission_decision.allowed is True
-                and permission_decision.outcome
-                in (
-                    PermissionGateOutcome.ALLOW,
-                    PermissionGateOutcome.APPROVAL_CONSUMED,
+        if permission_decision is not None:
+            if isinstance(permission_decision, PermissionGateResult):
+                issued_ids = getattr(permission_gate, "_issued_decision_ids", None)
+                decision_id_valid = (
+                    isinstance(issued_ids, set)
+                    and permission_decision.decision_id in issued_ids
                 )
-                and permission_decision.metadata.get("target_domain")
-                == "domain:life-plan"
-                and permission_decision.decision_id is not None
-            ):
-                auth_verified = True
-                auth_ref = permission_decision.decision_id
-                auth_source = "DomainPermissionGate"
+                gate_meta = getattr(permission_decision, "metadata", {}) or {}
+                target_dom_meta = gate_meta.get("target_domain", "domain:life-plan")
+                source_dom_meta = gate_meta.get(
+                    "source_domain", permission_request.source_domain
+                )
+
+                if (
+                    permission_decision.allowed is True
+                    and decision_id_valid
+                    and permission_decision.domain_id
+                    in (
+                        permission_request.source_domain,
+                        permission_request.target_domain,
+                    )
+                    and permission_decision.actor_id == permission_request.actor_id
+                    and permission_decision.session_id == permission_request.session_id
+                    and target_dom_meta == "domain:life-plan"
+                    and source_dom_meta == permission_request.source_domain
+                    and permission_request.target_domain == "domain:life-plan"
+                ):
+                    if (
+                        permission_decision.outcome
+                        == PermissionGateOutcome.APPROVAL_CONSUMED
+                    ):
+                        app_ev = getattr(permission_decision, "approval_evidence", None)
+                        if isinstance(app_ev, Mapping) and app_ev.get("granted") is True:
+                            app_svc = getattr(permission_gate, "_approval_service", None)
+                            if app_svc is not None and hasattr(app_svc, "get_request"):
+                                req_rec = app_svc.get_request(app_ev.get("request_id"))
+                                if (
+                                    req_rec is not None
+                                    and req_rec.actor_id == permission_request.actor_id
+                                    and str(getattr(req_rec.status, "value", req_rec.status))
+                                    in ("approved", "consumed")
+                                ):
+                                    auth_verified = True
+                                    auth_ref = permission_decision.decision_id
+                                    auth_source = "DomainPermissionGate"
+                            else:
+                                auth_verified = True
+                                auth_ref = permission_decision.decision_id
+                                auth_source = "DomainPermissionGate"
+                    elif permission_decision.outcome == PermissionGateOutcome.ALLOW:
+                        resolver = getattr(permission_gate, "_resolver", None)
+                        if resolver is not None and hasattr(
+                            resolver, "resolve_cross_domain"
+                        ):
+                            res_check = resolver.resolve_cross_domain(
+                                permission_request, now=curr_now
+                            )
+                            if res_check.decision is PermissionOutcome.ALLOW:
+                                auth_verified = True
+                                auth_ref = permission_decision.decision_id
+                                auth_source = "DomainPermissionGate"
+                        else:
+                            auth_verified = True
+                            auth_ref = permission_decision.decision_id
+                            auth_source = "DomainPermissionGate"
         else:
-            gate_res = permission_gate.evaluate_cross_domain(permission_request)
-            if gate_res.allowed is True:
-                auth_verified = True
-                auth_ref = gate_res.decision_id or "permission_gate"
-                auth_source = "DomainPermissionGate"
+            try:
+                gate_res = permission_gate.evaluate_cross_domain(permission_request)
+                if (
+                    gate_res is not None
+                    and getattr(gate_res, "allowed", False) is True
+                    and getattr(gate_res, "outcome", None)
+                    in (
+                        PermissionGateOutcome.ALLOW,
+                        PermissionGateOutcome.APPROVAL_CONSUMED,
+                    )
+                ):
+                    auth_verified = True
+                    auth_ref = gate_res.decision_id or "permission_gate"
+                    auth_source = "DomainPermissionGate"
+            except Exception:
+                pass
 
     elif (
         permission_resolver is not None
@@ -758,7 +819,17 @@ def evaluate_cross_domain_impact(
         res_dec = permission_resolver.resolve_cross_domain(
             permission_request, now=curr_now
         )
-        if res_dec.decision is PermissionOutcome.ALLOW:
+        if (
+            res_dec.decision is PermissionOutcome.ALLOW
+            and getattr(res_dec, "target_domain_id", "domain:life-plan")
+            == "domain:life-plan"
+            and getattr(res_dec, "source_domain_id", permission_request.source_domain)
+            == permission_request.source_domain
+            and getattr(res_dec, "actor_id", permission_request.actor_id)
+            == permission_request.actor_id
+            and getattr(res_dec, "session_id", permission_request.session_id)
+            == permission_request.session_id
+        ):
             auth_verified = True
             auth_ref = res_dec.request_id
             auth_source = "DomainPermissionResolver"
