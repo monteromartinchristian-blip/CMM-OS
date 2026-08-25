@@ -81,3 +81,36 @@ def test_cross_domain_return_to_training_safety_invariant() -> None:
     assert wf_res["is_diagnosis"] is False
     assert wf_res["treatment_modified"] is False
     assert wf_res["clinical_clearance_claimed"] is False
+
+
+def test_cross_domain_clinical_extras_dropped_from_minimized_projection() -> None:
+    projection = {
+        "constraint_id": "hc-001",
+        "status": "active",
+        "activity_limits": ["no_running"],
+        "load_limits": {"reduction_pct": 10},
+        "source_reference": "health:source:1",
+        "authorization_reference": "permission:decision:1",
+        "diagnosis": "ACL tear",
+        "treatment_plan": "surgery",
+        "clinical_notes": "secret",
+    }
+
+    result = evaluate_health_constraint(
+        projection,
+        is_authorized=True,
+        is_current=True,
+    )
+
+    assert result["applied"] is True
+    assert result["constraint"] == {
+        "constraint_id": "hc-001",
+        "status": "active",
+        "activity_limits": ["no_running"],
+        "load_limits": {"reduction_pct": 10},
+        "source_reference": "health:source:1",
+        "authorization_reference": "permission:decision:1",
+    }
+    assert "diagnosis" not in result["constraint"]
+    assert "treatment_plan" not in result["constraint"]
+    assert "clinical_notes" not in result["constraint"]

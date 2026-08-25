@@ -386,16 +386,18 @@ def evaluate_health_constraint(
         "authorization_reference",
     )
 
-    applied_fields = tuple(k for k in projection if k in allowed_fields)
+    minimized_constraint = {k: projection[k] for k in allowed_fields if k in projection}
 
     return {
         "applied": True,
-        "constraint": projection,
-        "applied_fields": applied_fields,
+        "constraint": minimized_constraint,
+        "applied_fields": tuple(minimized_constraint.keys()),
         "treatment_modification_allowed": False,
         "provenance": {
-            "authorization_reference": projection.get("authorization_reference"),
-            "source_reference": projection.get("source_reference"),
+            "authorization_reference": minimized_constraint.get(
+                "authorization_reference"
+            ),
+            "source_reference": minimized_constraint.get("source_reference"),
         },
     }
 

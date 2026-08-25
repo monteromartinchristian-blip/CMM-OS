@@ -166,6 +166,41 @@ def review_progress_result(
     }
 
 
+def _extract_authorized_health_constraint(
+    health_constraint: Any,
+) -> dict[str, Any] | None:
+    """Extract and validate that a health constraint has current authorization evidence."""
+    if not isinstance(health_constraint, dict):
+        return None
+    if health_constraint.get("applied") is True and isinstance(
+        health_constraint.get("constraint"), dict
+    ):
+        hc = health_constraint["constraint"]
+    else:
+        hc = health_constraint
+
+    if not isinstance(hc, dict):
+        return None
+
+    if hc.get("status") != "active":
+        return None
+    if not hc.get("authorization_reference"):
+        return None
+
+    prohibited = (
+        "diagnosis",
+        "treatment_plan",
+        "clinical_notes",
+        "full_clinical_history",
+        "medication_list",
+        "raw_health_memory",
+    )
+    if any(k in hc for k in prohibited):
+        return None
+
+    return hc
+
+
 def adjust_training_load_result(
     *,
     current_load: float = 100.0,
@@ -176,11 +211,40 @@ def adjust_training_load_result(
     adjusted = current_load
     constraint_applied = False
 
-    if health_constraint and health_constraint.get("status") == "active":
-        load_limits = health_constraint.get("load_limits", {})
-        if "max_intensity" in load_limits or "reduction_pct" in load_limits:
-            adjusted = current_load * 0.7
-            constraint_applied = True
+    hc = _extract_authorized_health_constraint(health_constraint)
+    if hc is not None:
+        load_limits = hc.get("load_limits", {})
+        if isinstance(load_limits, dict):
+            if "reduction_pct" in load_limits:
+                red_pct = load_limits["reduction_pct"]
+                if not isinstance(red_pct, bool):
+                    try:
+                        red_f = float(red_pct)
+                        if (
+                            red_f == red_f
+                            and not float("inf") == abs(red_f)
+                            and 0.0 <= red_f <= 100.0
+                        ):
+                            adjusted = current_load * (1.0 - (red_f / 100.0))
+                            constraint_applied = True
+                    except (ValueError, TypeError):
+                        pass
+            elif "max_load" in load_limits:
+                max_l = load_limits["max_load"]
+                if not isinstance(max_l, bool):
+                    try:
+                        max_f = float(max_l)
+                        if (
+                            max_f == max_f
+                            and not float("inf") == abs(max_f)
+                            and max_f >= 0.0
+                        ):
+                            adjusted = min(adjusted, max_f)
+                            constraint_applied = True
+                    except (ValueError, TypeError):
+                        pass
+            elif "max_intensity" in load_limits:
+                constraint_applied = True
 
     if readiness_state in ("limited", "hold") and not constraint_applied:
         adjusted = current_load * 0.8
@@ -204,8 +268,9 @@ def generate_workout_result(
     health_constraint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a workout proposal without bypassing active blocking constraints."""
-    if health_constraint and health_constraint.get("status") == "active":
-        activity_limits = health_constraint.get("activity_limits", [])
+    hc = _extract_authorized_health_constraint(health_constraint)
+    if hc is not None:
+        activity_limits = hc.get("activity_limits", [])
         if "no_high_impact" in activity_limits and "high_intensity" in requested_type:
             return {
                 "status": "blocked_by_constraint",
