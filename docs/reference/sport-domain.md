@@ -1,6 +1,6 @@
 # Sport Domain Reference (`domain:sport`)
 
-> **Phase 10.28 — Implemented; final remediation complete; final independent re-audit pending**
+> **Phase 10.28 — Complete; independently audited and closed**
 
 The **Sport Domain** (`domain:sport`) provides CMM OS with athletic training planning, physical activity goal tracking, progression analysis, volume/intensity/frequency load evaluation, recovery tracking, body measurement trends, injury risk signaling, and controlled Health coordination.
 
@@ -66,3 +66,5 @@ cmm/domains/sport/
 ```
 
 AT-DP-028 executes a 44-checkpoint connected state-linked scenario validating domain resolution, profile reuse, catalog parity, load evaluation, overload policy, recovery mutability, injury signal non-diagnosis, Health constraint projection, measurement trend evidence, calendar approval gating, memory proposals, trace provenance, atomic registration, and General fallback.
+
+Final independent closure audit: `PASS` — `docs/audits/phase-10.28-sport-final-independent-closure-audit.md`; `DP-028=VERIFIED_EXISTING`; `AT-DP-028=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
