@@ -42,12 +42,19 @@ def test_review_progress_preserves_insufficient_evidence() -> None:
 
 
 def test_adjust_training_load_respects_health_constraint_and_readiness() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth-001",
+        decision=PermissionOutcome.ALLOW,
+    )
     raw_hc = {
         "status": "active",
         "authorization_reference": "auth-001",
         "load_limits": {"reduction_pct": 20},
     }
-    vetted_hc = evaluate_health_constraint(raw_hc, is_authorized=True, is_current=True)
+    vetted_hc = evaluate_health_constraint(raw_hc, permission_decision=perm_dec)
     res = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
@@ -66,8 +73,7 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
             "authorization_reference": "auth-001",
             "load_limits": {"reduction_pct": 0},
         },
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
     res_zero = adjust_training_load_result(
         current_load=150.0,
@@ -84,8 +90,7 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
             "authorization_reference": "auth-001",
             "load_limits": {"max_load": 80},
         },
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
     res_max = adjust_training_load_result(
         current_load=150.0,
@@ -103,8 +108,7 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
             "authorization_reference": "auth-001",
             "load_limits": {"reduction_pct": -10},
         },
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
     res_invalid = adjust_training_load_result(
         current_load=150.0,
@@ -121,8 +125,7 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
             "authorization_reference": "auth-001",
             "load_limits": {"max_intensity": 0.5},
         },
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
     res_intensity = adjust_training_load_result(
         current_load=150.0,
@@ -175,14 +178,20 @@ def test_adjust_training_load_rejects_unvetted_raw_dict_without_authorization() 
 
 
 def test_generate_workout_cannot_bypass_blocking_constraint() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth-002",
+        decision=PermissionOutcome.ALLOW,
+    )
     blocking_constraint = evaluate_health_constraint(
         {
             "status": "active",
             "authorization_reference": "auth-002",
             "activity_limits": ["no_high_impact"],
         },
-        is_authorized=True,
-        is_current=True,
+        permission_decision=perm_dec,
     )
     res = generate_workout_result(
         requested_type="high_intensity_plyometrics",
@@ -297,6 +306,38 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
     )
     assert res_wrong_scope["status"] == "proposal_pending_approval"
     assert res_wrong_scope.get("approval_granted") is not True
+
+    # Fake duck-typed approval evidence fails
+    class FakeEvidence:
+        granted = True
+        action = "sport.schedule_sessions"
+        request_id = "fake-req"
+
+    res_fake_ev = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_evidence=FakeEvidence(),
+        approval_decision_id="fake-dec",
+    )
+    assert res_fake_ev["status"] == "proposal_pending_approval"
+    assert res_fake_ev.get("approval_granted") is not True
+
+    # Fake duck-typed request/decision objects fail
+    class FakeReq:
+        id = "req-fake-x"
+        operation_id = "sport.schedule_sessions"
+
+    class FakeDec:
+        id = "dec-fake-x"
+        request_id = "req-fake-x"
+        decision = "approve"
+
+    res_fake_objs = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_request=FakeReq(),
+        approval_decision=FakeDec(),
+    )
+    assert res_fake_objs["status"] == "proposal_pending_approval"
+    assert res_fake_objs.get("approval_granted") is not True
 
     # Real scoped approval evidence succeeds
     res_with_approval = schedule_sessions_result(

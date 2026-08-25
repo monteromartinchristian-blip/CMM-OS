@@ -18,16 +18,29 @@ medical diagnoses/prescriptions.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from cmm.agent_runtime.enums import PolicyRiskLevel
+from cmm.agent_runtime.approval_contracts import (
+    ApprovalDecision,
+    ApprovalRequest,
+)
+from cmm.agent_runtime.enums import (
+    ApprovalDecisionType,
+    PolicyRiskLevel,
+)
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.permission_gate import (
+    PermissionGateOutcome,
+    PermissionGateResult,
+)
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_OPERATION_IDS,
 )
 from cmm.domains.sport.rules import (
+    AuthorizedHealthConstraint,
     evaluate_injury_signal,
     evaluate_recovery,
 )
@@ -169,20 +182,30 @@ def review_progress_result(
 
 def _extract_authorized_health_constraint(
     health_constraint: Any,
-) -> dict[str, Any] | None:
+    now: datetime | None = None,
+) -> Mapping[str, Any] | None:
     """Extract and validate that a health constraint has verified authorization evidence."""
-    if not isinstance(health_constraint, dict):
-        return None
-    if (
-        health_constraint.get("applied") is True
-        and health_constraint.get("authorization_verified") is True
-        and isinstance(health_constraint.get("constraint"), dict)
+    artifact: AuthorizedHealthConstraint | None = None
+    if isinstance(health_constraint, AuthorizedHealthConstraint):
+        artifact = health_constraint
+    elif isinstance(health_constraint, Mapping) and isinstance(
+        health_constraint.get("authorized_artifact"), AuthorizedHealthConstraint
     ):
-        hc = health_constraint["constraint"]
+        artifact = health_constraint["authorized_artifact"]
     else:
         return None
 
-    if not isinstance(hc, dict):
+    curr_now = now or datetime.now(timezone.utc)
+    if curr_now.tzinfo is None:
+        curr_now = curr_now.replace(tzinfo=timezone.utc)
+
+    if artifact.effective_until is not None and artifact.effective_until < curr_now:
+        return None
+    if artifact.effective_from is not None and artifact.effective_from > curr_now:
+        return None
+
+    hc = artifact.constraint
+    if not isinstance(hc, Mapping):
         return None
 
     if hc.get("status") != "active":
@@ -208,7 +231,8 @@ def adjust_training_load_result(
     *,
     current_load: float = 100.0,
     readiness_state: str = "ready",
-    health_constraint: dict[str, Any] | None = None,
+    health_constraint: Any = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Adjust training load taking readiness and Health constraints into account."""
     adjusted = current_load
@@ -216,7 +240,7 @@ def adjust_training_load_result(
     constraint_pending_application = False
     effective_constraints: dict[str, Any] = {}
 
-    hc = _extract_authorized_health_constraint(health_constraint)
+    hc = _extract_authorized_health_constraint(health_constraint, now=now)
     if hc is not None:
         load_limits = hc.get("load_limits", {})
         if isinstance(load_limits, dict):
@@ -274,10 +298,11 @@ def adjust_training_load_result(
 def generate_workout_result(
     *,
     requested_type: str = "general_workout",
-    health_constraint: dict[str, Any] | None = None,
+    health_constraint: Any = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Generate a workout proposal without bypassing active blocking constraints."""
-    hc = _extract_authorized_health_constraint(health_constraint)
+    hc = _extract_authorized_health_constraint(health_constraint, now=now)
     if hc is not None:
         activity_limits = hc.get("activity_limits", [])
         if "no_high_impact" in activity_limits and "high_intensity" in requested_type:
@@ -379,67 +404,73 @@ def schedule_sessions_result(
     has_approval: bool = False,
 ) -> dict[str, Any]:
     """Propose session schedules; direct external calendar mutation requires scoped approval evidence."""
-    req_id = approval_request_id
-    dec_id = approval_decision_id
+    req_id: str | None = None
+    dec_id: str | None = None
     is_approved = False
 
-    # 1. Direct consumption evidence (e.g. from PermissionGate or ApprovalService)
-    if (
-        approval_evidence is not None
-        and getattr(approval_evidence, "granted", False) is True
-    ):
-        act = getattr(approval_evidence, "action", "")
-        if act in (
-            "sport.schedule_sessions",
-            "schedule.modification",
-            "operation.execute",
-            "",
+    # 1. Direct consumption evidence from PermissionGate (PermissionGateResult with APPROVAL_CONSUMED)
+    if isinstance(approval_evidence, PermissionGateResult):
+        if (
+            approval_evidence.outcome == PermissionGateOutcome.APPROVAL_CONSUMED
+            and approval_evidence.allowed is True
         ):
-            req_id = req_id or getattr(approval_evidence, "request_id", None)
-            is_approved = True
+            act = approval_evidence.action
+            op_id = approval_evidence.metadata.get("operation_id")
+            if (
+                act in ("sport.schedule_sessions", "schedule.modification")
+                or op_id in ("sport.schedule_sessions", "schedule_sessions")
+            ):
+                req_id = approval_evidence.decision_id
+                dec_id = approval_evidence.decision_id
+                is_approved = True
 
-    # 2. Validated via ApprovalService
-    if approval_service is not None and (
-        approval_decision is not None or (approval_request_id and approval_decision_id)
-    ):
+    # 2. Validated via ApprovalService instance / repository lookup
+    elif approval_service is not None and hasattr(approval_service, "repository"):
         target_req_id = (
-            getattr(approval_decision, "request_id", None) or approval_request_id
+            getattr(approval_decision, "request_id", None)
+            or getattr(approval_request, "id", None)
+            or approval_request_id
         )
-        target_dec_id = getattr(approval_decision, "id", None) or approval_decision_id
-        try:
-            stored_req = approval_service.repository.get_request(target_req_id)
-            stored_decs = approval_service.repository.list_decisions(target_req_id)
-            matching_dec = next((d for d in stored_decs if d.id == target_dec_id), None)
-            if stored_req is not None and matching_dec is not None:
-                op_id = getattr(stored_req, "operation_id", None)
-                if op_id in ("sport.schedule_sessions", "schedule_sessions"):
-                    dec_type = getattr(matching_dec, "decision", None)
-                    dec_str = (
-                        dec_type.value if hasattr(dec_type, "value") else str(dec_type)
-                    )
-                    if dec_str.lower() in ("approve", "approved"):
-                        is_approved = True
-                        req_id = stored_req.id
-                        dec_id = matching_dec.id
-        except (AttributeError, KeyError, TypeError, ValueError):
-            is_approved = False
+        target_dec_id = (
+            getattr(approval_decision, "id", None)
+            or approval_decision_id
+        )
+        if target_req_id and target_dec_id:
+            try:
+                stored_req = approval_service.repository.get_request(target_req_id)
+                stored_decs = approval_service.repository.list_decisions(target_req_id)
+                matching_dec = next((d for d in stored_decs if d.id == target_dec_id), None)
+                if (
+                    isinstance(stored_req, ApprovalRequest)
+                    and isinstance(matching_dec, ApprovalDecision)
+                ):
+                    op_id = stored_req.operation_id
+                    if op_id in ("sport.schedule_sessions", "schedule_sessions"):
+                        if matching_dec.decision in (
+                            ApprovalDecisionType.APPROVE,
+                            ApprovalDecisionType.APPROVE_WITH_CHANGES,
+                        ):
+                            is_approved = True
+                            req_id = stored_req.id
+                            dec_id = matching_dec.id
+            except (AttributeError, KeyError, TypeError, ValueError):
+                is_approved = False
 
-    # 3. Validated via matching ApprovalDecision and ApprovalRequest objects
-    elif approval_decision is not None and approval_request is not None:
-        dec_req_id = getattr(approval_decision, "request_id", None)
-        if dec_req_id == getattr(approval_request, "id", None):
-            op_id = getattr(approval_request, "operation_id", None)
-            if op_id in ("sport.schedule_sessions", "schedule_sessions"):
-                dec_type = getattr(approval_decision, "decision", None)
-                dec_str = (
-                    dec_type.value if hasattr(dec_type, "value") else str(dec_type)
-                )
-                if dec_str.lower() in ("approve", "approved"):
+    # 3. Validated via concrete matching canonical ApprovalDecision and ApprovalRequest instances
+    elif (
+        isinstance(approval_decision, ApprovalDecision)
+        and isinstance(approval_request, ApprovalRequest)
+    ):
+        if approval_decision.request_id == approval_request.id:
+            if approval_request.operation_id in ("sport.schedule_sessions", "schedule_sessions"):
+                if approval_decision.decision in (
+                    ApprovalDecisionType.APPROVE,
+                    ApprovalDecisionType.APPROVE_WITH_CHANGES,
+                ):
                     is_approved = True
                     req_id = approval_request.id
-                    dec_id = getattr(approval_decision, "id", None)
+                    dec_id = approval_decision.id
 
-    # Standalone string IDs or unverified decisions remain unapproved
     if not is_approved or not req_id or not dec_id:
         return {
             "status": "proposal_pending_approval",
