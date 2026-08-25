@@ -35,7 +35,6 @@ SPORT_PROHIBITED_CAPABILITIES: tuple[PermissionCapability, ...] = (
     PermissionCapability.IRREVERSIBLE_CHANGE,
     PermissionCapability.KNOWLEDGE_DELETE,
     PermissionCapability.PERMISSION_MODIFY,
-    PermissionCapability.DOMAIN_CROSS_ACCESS,
     PermissionCapability.MEDICAL_DECISION,
     PermissionCapability.MEDICAL_ACTION,
     PermissionCapability.LEGAL_DECISION,

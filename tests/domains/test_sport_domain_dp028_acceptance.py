@@ -1,24 +1,74 @@
 """Phase 10.28 — Sport Domain AT-DP-028 Acceptance Scenario.
 
 A single connected state-linked deterministic scenario covering all 44 semantic
-checkpoints for domain:sport.
+checkpoints for domain:sport using real shared contracts for resolver, profile,
+rules, operations, workflows, cross-domain permission requests/gates, approval
+lifecycle, memory proposal/view/binding validation, and trace inventory validation.
 """
 
 from __future__ import annotations
 
+import dataclasses
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
+from cmm.agent_runtime.approval_contracts import ApprovalDecision, ApprovalRequest
+from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+)
+from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.enums import (
+    DomainOperationType,
+    DomainRuleSelectionStatus,
+    DomainRuleSource,
+)
+from cmm.domains.general.permissions import build_general_permission_policy
+from cmm.domains.health.permissions import build_health_permission_policy
 from cmm.domains.identifiers import DomainId
+from cmm.domains.memory_contracts import (
+    DomainMemoryApprovalDecisionSnapshot,
+    DomainMemoryApprovalRequestSnapshot,
+    DomainMemoryCapability,
+    DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryReference,
+    DomainMemoryReferenceInventory,
+    DomainMemoryReferenceKind,
+    DomainMemorySensitivityLevel,
+    DomainMemoryTraceSnapshot,
+    DomainMemoryViewSnapshot,
+)
+from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.permission_gate import (
+    DomainPermissionGate,
+    PermissionGateOutcome,
+)
 from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
 from cmm.domains.registry import DomainRegistry
+from cmm.domains.resolution_builder import DomainResolutionContextBuilder
+from cmm.domains.resolution_contracts import DomainResolutionSignal
+from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
+from cmm.domains.rule_contracts import (
+    DomainRuleExecutionPlan,
+    DomainRuleSourceRecord,
+    SelectedReasoningRule,
+)
+from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 from cmm.domains.sport import (
     SPORT_DOMAIN_ID,
     SPORT_ENTITY_IDS,
@@ -28,7 +78,14 @@ from cmm.domains.sport import (
     SPORT_RULE_IDS,
     SPORT_WORKFLOW_IDS,
     assemble_sport_trace,
+    build_sport_domain_definition,
+    build_sport_memory_binding,
     build_sport_memory_proposal,
+    build_sport_memory_view,
+    build_sport_memory_view_request,
+    build_sport_permission_policy,
+    build_sport_rules,
+    build_sport_trace_reference,
     build_standard_sport_domain_bootstrap,
     create_training_plan_result,
     evaluate_health_constraint,
@@ -43,21 +100,75 @@ from cmm.domains.sport import (
     register_sport_domain,
     schedule_sessions_result,
     track_measurements_result,
+    validate_sport_memory_binding,
     validate_sport_memory_proposal_content,
+    validate_sport_trace,
+)
+from cmm.domains.trace_contracts import (
+    DomainTraceDomainSelection,
+    DomainTraceReferenceInventory,
+    DomainTraceReferenceKind,
 )
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 from cmm.workflows.registry import InMemoryWorkflowRegistry
 
+NOW = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+
+
+class DeterministicIdFactory:
+    def __init__(self) -> None:
+        self._counter = 0
+
+    def __call__(self) -> str:
+        self._counter += 1
+        return f"at-dp028-id-{self._counter}"
+
 
 def test_at_dp028_connected_acceptance_scenario() -> None:
     """Execute the full 44-checkpoint connected AT-DP-028 acceptance scenario."""
+    id_factory = DeterministicIdFactory()
     state: dict[str, Any] = {}
 
-    # 01 resolve domain:sport
+    # 01 resolve domain:sport through canonical resolver
     bootstrap = build_standard_sport_domain_bootstrap()
+    resolution_signals = (
+        DomainResolutionSignal(
+            kind="intent",
+            source="user",
+            value="train for marathon",
+            domain_ids=("domain:sport",),
+        ),
+        DomainResolutionSignal(
+            kind="entity",
+            source="user",
+            value="running schedule",
+            domain_ids=("domain:sport",),
+        ),
+    )
+    resolution_context = DomainResolutionContextBuilder(
+        id_factory=id_factory, clock=lambda: NOW
+    ).build(
+        registry_snapshot=bootstrap.domain_registry.snapshot(),
+        user_input="Help me set up a 12-week marathon training plan.",
+        authorized_domains=("domain:general", SPORT_DOMAIN_ID),
+        signals=resolution_signals,
+    )
+    resolver = DefaultDomainResolver(
+        scoring_policy=bootstrap.resolver.scoring_policy,
+        fallback_domain=bootstrap.resolver.fallback_domain,
+        id_factory=id_factory,
+        clock=lambda: NOW,
+    )
+    resolution = resolver.resolve(resolution_context)
+    composition = DefaultDomainComposer(
+        id_factory=id_factory, clock=lambda: NOW
+    ).compose(resolution, (build_sport_domain_definition(),))
     domain_def = bootstrap.domain_registry.get(SPORT_DOMAIN_ID)
+
     assert domain_def is not None
     assert str(domain_def.id) == "domain:sport"
+    assert str(resolution.primary_domain) == SPORT_DOMAIN_ID
+    assert str(composition.primary_domain) == SPORT_DOMAIN_ID
     state["01_resolved_domain"] = domain_def
 
     # 02 load/reuse SportProfile
@@ -170,22 +281,25 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     # 18 derive trend only from comparable ordered observations
     multi_obs = [
         {
+            "timestamp": "2026-08-24T07:00:00Z",
+            "value": 72.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "body_weight",
+        },
+        {
             "timestamp": "2026-08-10T07:00:00Z",
             "value": 73.0,
             "unit": "kg",
             "method": "scale",
+            "metric": "body_weight",
         },
         {
             "timestamp": "2026-08-17T07:00:00Z",
             "value": 72.5,
             "unit": "kg",
             "method": "scale",
-        },
-        {
-            "timestamp": "2026-08-24T07:00:00Z",
-            "value": 72.0,
-            "unit": "kg",
-            "method": "scale",
+            "metric": "body_weight",
         },
     ]
     trend_res = evaluate_measurement_trend(multi_obs, metric="body_weight")
@@ -200,18 +314,21 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
             "value": 73.0,
             "unit": "kg",
             "method": "scale",
+            "metric": "body_weight",
         },
         {
             "timestamp": "2026-08-11T07:00:00Z",
             "value": 85.0,
             "unit": "kg",
             "method": "scale",
+            "metric": "body_weight",
         },  # spike
         {
             "timestamp": "2026-08-24T07:00:00Z",
             "value": 72.0,
             "unit": "kg",
             "method": "scale",
+            "metric": "body_weight",
         },
     ]
     outlier_res = evaluate_measurement_trend(outlier_obs, metric="body_weight")
@@ -249,26 +366,101 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     assert sig_res["is_diagnosis"] is False
     state["24_stop_check_no_diagnosis"] = True
 
-    # 25 request Health contribution for return-to-training
-    health_projection = {
+    # ── Permission & Approval Shared Setup ──────────────────────────────────────
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_sport_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+    health_policy = dataclasses.replace(
+        build_health_permission_policy(),
+        allow_cross_domain_access=True,
+        allowed_target_domains=("domain:sport",),
+        allowed_capabilities=(
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ),
+        allowed_resource_kinds=("resource.health_resource",),
+        allowed_sensitivity_levels=("restricted",),
+    )
+    perm_registry.register(health_policy)
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    permission_resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(
+        permission_resolver, approval_service, clock=lambda: NOW
+    )
+
+    # 25 request Health contribution for return-to-training via typed request
+    cross_request = CrossDomainPermissionRequest(
+        request_id=id_factory(),
+        source_domain="domain:health",
+        target_domain=SPORT_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="return-to-training functional constraint",
+        actor_id="actor-at-dp028",
+        session_id="sess-at-dp028",
+        sensitivity_level="restricted",
+        resource_ids=("sport.resource.health_resource:rtt-001",),
+        resource_kinds=("resource.health_resource",),
+    )
+    state["25_health_contribution_request"] = cross_request
+
+    # 26 authorize only health_constraint projection through permission resolution + gate
+    pending_cross = gate.evaluate_cross_domain(cross_request)
+
+    assert pending_cross.outcome is PermissionGateOutcome.APPROVAL_REQUIRED
+    req_item = PermissionApprovalRequirement.from_dict(
+        pending_cross.approval_requirements[0]
+    )
+    cross_approval = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id=id_factory()),
+        requested_by="sports-physician-review",
+    )
+    approval_service.approve(cross_approval.id, "sports-physician")
+    cross_decision = approval_service.repository.list_decisions(cross_approval.id)[0]
+    consumed_cross = gate.evaluate_cross_domain(
+        cross_request, approval_request_id=cross_approval.id
+    )
+    assert consumed_cross.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+    assert consumed_cross.allowed is True
+    assert consumed_cross.decision_id is not None
+
+    health_raw_projection = {
         "constraint_id": "const-rtt-001",
         "status": "active",
         "activity_limits": ["no_plyometrics"],
-        "load_limits": {"max_intensity": 0.5},
-        "authorization_reference": "auth.scope.rtt_001",
+        "load_limits": {"reduction_pct": 30},
+        "authorization_reference": consumed_cross.decision_id,
         "source_reference": "health.ref.99",
+        "diagnosis": "patellar tendinopathy",
+        "treatment_plan": "physiotherapy",
+        "clinical_notes": "restricted",
     }
-    state["25_health_contribution_request"] = health_projection
-
-    # 26 authorize only health_constraint projection
     hc_eval = evaluate_health_constraint(
-        health_projection, is_authorized=True, is_current=True
+        health_raw_projection, is_authorized=consumed_cross.allowed, is_current=True
     )
     assert hc_eval["applied"] is True
     assert "activity_limits" in hc_eval["applied_fields"]
+    assert "diagnosis" not in hc_eval["constraint"]
+    assert "treatment_plan" not in hc_eval["constraint"]
+    assert "clinical_notes" not in hc_eval["constraint"]
     state["26_authorized_projection"] = hc_eval
 
-    # 27 deny full medical report/Health dossier
+    # 27 deny full medical report/Health dossier through permission gate & rule
+    dossier_req = CrossDomainPermissionRequest(
+        request_id=id_factory(),
+        source_domain="domain:health",
+        target_domain=SPORT_DOMAIN_ID,
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="unauthorized clinical dossier request",
+        actor_id="actor-at-dp028",
+        session_id="sess-at-dp028",
+        sensitivity_level="restricted",
+        resource_ids=("health.dossier:001",),
+        resource_kinds=("medical_report", "full_clinical_history"),
+    )
+    dossier_gate = gate.evaluate_cross_domain(dossier_req)
+    assert dossier_gate.outcome is PermissionGateOutcome.DENY
+    assert not dossier_gate.allowed
+
     full_dossier = {
         "full_clinical_history": ["surgery_2024"],
         "medication_list": ["med1"],
@@ -277,15 +469,19 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         full_dossier, is_authorized=True, is_current=True
     )
     assert hc_dossier["applied"] is False
+    assert hc_dossier["reason"] == "rejected_unauthorized_dossier"
     state["27_full_dossier_denied"] = True
 
     # 28 preserve Health constraint provenance and authorization
-    assert hc_eval["provenance"]["authorization_reference"] == "auth.scope.rtt_001"
+    assert (
+        hc_eval["provenance"]["authorization_reference"] == consumed_cross.decision_id
+    )
+    assert hc_eval["provenance"]["source_reference"] == "health.ref.99"
     state["28_provenance_preserved"] = True
 
     # 29 reject expired/unauthorized constraint as current
     hc_expired = evaluate_health_constraint(
-        health_projection, is_authorized=True, is_current=False
+        hc_eval["constraint"], is_authorized=True, is_current=False
     )
     assert hc_expired["applied"] is False
     state["29_expired_rejected"] = True
@@ -295,8 +491,8 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
         rest_hours=7.5,
         fatigue_score=4,
         pain_score=2,
-        health_constraint=health_projection,
-        is_authorized=True,
+        health_constraint=hc_eval["constraint"],
+        is_authorized=consumed_cross.allowed,
         is_current=True,
     )
     assert wf_res["status"] == "completed"
@@ -319,33 +515,147 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     # 34 produce schedule proposal
     sched_prop = schedule_sessions_result(
         sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
-        has_approval=False,
     )
     assert sched_prop["status"] == "proposal_pending_approval"
     state["34_schedule_proposal"] = sched_prop
 
     # 35 deny direct calendar mutation without approval
     assert sched_prop["external_calendar_mutated"] is False
-    state["35_direct_calendar_mutation_denied"] = True
-
-    # 36 preserve scoped approval for calendar path
-    sched_approved = schedule_sessions_result(
+    assert sched_prop["approval_required"] is True
+    bare_sched = schedule_sessions_result(
         sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
         has_approval=True,
     )
+    assert bare_sched["status"] == "proposal_pending_approval"
+    state["35_direct_calendar_mutation_denied"] = True
+
+    # 36 preserve scoped approval for calendar path
+    cal_approval = approval_service.create_request(
+        title="Approve weekly running schedule",
+        description="Schedule 3 weekly training sessions on athlete calendar",
+        requested_by="athlete-scheduler",
+        operation_id="sport.schedule_sessions",
+    )
+    approval_service.approve(cal_approval.id, "athlete")
+    cal_decision = approval_service.repository.list_decisions(cal_approval.id)[0]
+
+    sched_approved = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00", "type": "easy_run"}],
+        approval_request_id=cal_approval.id,
+        approval_decision_id=cal_decision.id,
+    )
     assert sched_approved["status"] == "ready_for_external_execution"
-    state["36_scoped_approval_preserved"] = True
+    assert sched_approved["approval_granted"] is True
+    assert sched_approved["approval_request_id"] == cal_approval.id
+    assert sched_approved["approval_decision_id"] == cal_decision.id
+    assert sched_approved["external_calendar_mutated"] is False
+    state["36_scoped_approval_preserved"] = sched_approved
 
     # 37 produce memory proposal rather than direct write
-    mem_prop = build_sport_memory_proposal(proposal_id="sprop-100")
-    assert mem_prop.requires_confirmation is True
-    state["37_memory_proposal_produced"] = mem_prop
+    mem_proposal_id = id_factory()
+    mem_ref_id = id_factory()
+    mem_canon_id = id_factory()
+    mem_ev_id = id_factory()
+    mem_reference = DomainMemoryReference(
+        reference_id=mem_ref_id,
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id=mem_canon_id,
+        domain_id=SPORT_DOMAIN_ID,
+        applicable_domains=(SPORT_DOMAIN_ID,),
+        evidence_ids=(mem_ev_id,),
+    )
 
-    # 38 prevent clinical/sensitive Health detail from Sport memory proposal
+    mem_trace_id = id_factory()
+    mem_proposal = build_sport_memory_proposal(
+        proposal_id=mem_proposal_id,
+        affected_reference_ids=(mem_ref_id,),
+    )
+    assert mem_proposal.requires_confirmation is True
+    state["37_memory_proposal_produced"] = mem_proposal
+
+    # 38 prevent clinical/sensitive Health detail from Sport memory proposal and validate binding
     diag_validation = validate_sport_memory_proposal_content(
         {"kind": "injury_diagnosis", "clinical_diagnosis": "fracture"}
     )
     assert diag_validation["is_valid"] is False
+
+    mem_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=consumed_cross.decision_id or "perm-dec-001",
+        allowed=consumed_cross.allowed,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=SPORT_DOMAIN_ID,
+        target_domain_id=SPORT_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    mem_view_req = build_sport_memory_view_request(
+        request_id=id_factory(),
+        trace_id=mem_trace_id,
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(mem_reference,),
+        permission_decision_ids=(consumed_cross.decision_id or "perm-dec-001",),
+    )
+    mem_base_inventory = DomainMemoryReferenceInventory(
+        references=(mem_reference,),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=mem_trace_id, primary_domain=SPORT_DOMAIN_ID
+            ),
+        ),
+        permission_decisions=(mem_perm_snapshot,),
+    )
+    mem_view = build_sport_memory_view(
+        request=mem_view_req, inventory=mem_base_inventory
+    )
+    mem_binding = build_sport_memory_binding(
+        proposal=mem_proposal,
+        view=mem_view,
+        trace_id=mem_trace_id,
+        permission_decision_ids=(consumed_cross.decision_id or "perm-dec-001",),
+        approval_request_ids=(cal_approval.id,),
+        approval_decision_ids=(cal_decision.id,),
+    )
+
+    mem_full_inventory = DomainMemoryReferenceInventory(
+        references=(mem_reference,),
+        proposals=(mem_proposal,),
+        permission_decisions=(mem_perm_snapshot,),
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=cal_approval.id, proposal_id=mem_proposal_id
+            ),
+        ),
+        approval_decisions=(
+            DomainMemoryApprovalDecisionSnapshot(
+                decision_id=cal_decision.id,
+                request_id=cal_approval.id,
+                approved=True,
+            ),
+        ),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=mem_trace_id, primary_domain=SPORT_DOMAIN_ID
+            ),
+        ),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=mem_view.view_id,
+                request_id=mem_view.request_id,
+                primary_domain=mem_view.primary_domain,
+                trace_id=mem_view.trace_id,
+                view_digest=mem_view.content_digest,
+            ),
+        ),
+    )
+    mem_val = validate_sport_memory_binding(
+        binding=mem_binding, inventory=mem_full_inventory
+    )
+    assert mem_val.is_valid is True
+
+    # Malformed / empty inventory fails validation
+    bad_mem_val = validate_sport_memory_binding(
+        binding=mem_binding, inventory=DomainMemoryReferenceInventory()
+    )
+    assert bad_mem_val.is_valid is False
     state["38_sensitive_health_detail_prevented"] = True
 
     # 39 render trend/readiness/risk with uncertainty
@@ -360,19 +670,129 @@ def test_at_dp028_connected_acceptance_scenario() -> None:
     assert presented["is_diagnosis"] is False
     state["39_presentation_rendered"] = presented
 
-    # 40 preserve real runtime trace IDs and cross-domain provenance
-    now = datetime.now(timezone.utc)
-    trace = assemble_sport_trace(
-        request_id="req-acceptance-040",
-        resolution_context_id="ctx-040",
-        resolution_result_id="res-040",
-        composition_id="comp-040",
-        domain_result_id="dres-040",
-        started_at=now,
-        completed_at=now,
+    # 40 preserve real runtime trace IDs and cross-domain provenance with reference inventory
+    rule_plan_id = id_factory()
+    rules = {rule.definition.id: rule for rule in build_sport_rules()}
+    rule_plan = DomainRuleExecutionPlan(
+        id=rule_plan_id,
+        status=DomainRuleSelectionStatus.READY,
+        created_at=NOW,
+        selected_rules=(
+            SelectedReasoningRule(
+                definition=rules["sport.rule.progressive_overload"].definition,
+                sources=(
+                    DomainRuleSourceRecord(
+                        source=DomainRuleSource.PROFILE,
+                        reference="sport.rule.progressive_overload",
+                        required=True,
+                        domain_id=SPORT_DOMAIN_ID,
+                        profile_name=profile.profile_name,
+                    ),
+                ),
+                group=DomainRuleSource.PRIMARY_DOMAIN,
+                required=True,
+            ),
+        ),
+        contributing_profiles=(profile.profile_name,),
+        contributing_domains=(SPORT_DOMAIN_ID,),
     )
-    assert trace.primary_domain == "domain:sport"
-    assert trace.request_id == "req-acceptance-040"
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(rules["sport.rule.progressive_overload"])
+    rule_exec = DefaultDomainRuleExecutor(
+        clock=lambda: NOW, id_factory=id_factory
+    ).execute(
+        plan=rule_plan,
+        context=ReasoningRuleContext(
+            reasoning_id=id_factory(),
+            timestamp=NOW,
+            session_id="sess-at-dp028",
+            active_domains=(SPORT_DOMAIN_ID,),
+            primary_domain=SPORT_DOMAIN_ID,
+            metadata={
+                "baseline_load": 210.0,
+                "proposed_load": 226.8,
+                "threshold_percentage": 10.0,
+            },
+        ),
+        registry=rule_reg,
+    )
+
+    runtime_domain_result_id = id_factory()
+    runtime_trace_refs = (
+        build_sport_trace_reference(
+            ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+        ),
+        build_sport_trace_reference(
+            ref_id=rule_plan.id, kind=DomainTraceReferenceKind.RULE_PLAN
+        ),
+        build_sport_trace_reference(
+            ref_id=rule_exec.id, kind=DomainTraceReferenceKind.RULE_RESULT
+        ),
+        build_sport_trace_reference(
+            ref_id=consumed_cross.decision_id or "dec-001",
+            kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+        ),
+        build_sport_trace_reference(
+            ref_id=cal_approval.id, kind=DomainTraceReferenceKind.APPROVAL_REQUEST
+        ),
+        build_sport_trace_reference(
+            ref_id=cal_decision.id, kind=DomainTraceReferenceKind.APPROVAL_DECISION
+        ),
+        build_sport_trace_reference(
+            ref_id=mem_proposal.proposal_id,
+            kind=DomainTraceReferenceKind.MEMORY_PROPOSAL,
+        ),
+        build_sport_trace_reference(
+            ref_id=mem_binding.binding_id,
+            kind=DomainTraceReferenceKind.MEMORY_BINDING,
+        ),
+    )
+    trace = assemble_sport_trace(
+        request_id=cross_request.request_id,
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        domain_result_id=runtime_domain_result_id,
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_trace_refs,
+    )
+    assert trace.primary_domain == SPORT_DOMAIN_ID
+
+    inventory = DomainTraceReferenceInventory(
+        references=trace.all_references(),
+        domain_results=trace.domain_results,
+        cross_domain_results=trace.references.cross_domain_results,
+        expected_primary_domain=SPORT_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(
+            resolution.id, SPORT_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            composition.id, SPORT_DOMAIN_ID, ()
+        ),
+    )
+    val_trace = validate_sport_trace(trace=trace, inventory=inventory)
+    assert val_trace.valid is True
+
+    # Tampered reference fails validation
+    primary_contrib = trace.contributions[0]
+    tampered_trace = replace(
+        trace,
+        contributions=(
+            replace(
+                primary_contrib,
+                references=tuple(
+                    replace(ref, ref_id="ghost-tampered-id")
+                    if ref.ref_id == rule_exec.id
+                    else ref
+                    for ref in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    bad_trace_val = validate_sport_trace(trace=tampered_trace, inventory=inventory)
+    assert bad_trace_val.valid is False
+    assert rule_exec.id in bad_trace_val.missing_references
     state["40_real_trace_preserved"] = trace
 
     # 41 prove atomic Sport registration

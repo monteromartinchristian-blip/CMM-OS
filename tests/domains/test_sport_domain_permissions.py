@@ -27,7 +27,6 @@ def test_sport_permission_policy_capabilities() -> None:
     assert PermissionCapability.COMMUNICATION_EXTERNAL in policy.prohibited_capabilities
     assert PermissionCapability.MEDICAL_DECISION in policy.prohibited_capabilities
     assert PermissionCapability.MEDICAL_ACTION in policy.prohibited_capabilities
-    assert PermissionCapability.DOMAIN_CROSS_ACCESS in policy.prohibited_capabilities
 
 
 def test_sport_permission_policy_flags() -> None:
@@ -36,4 +35,5 @@ def test_sport_permission_policy_flags() -> None:
     assert policy.allow_memory_write is False
     assert policy.allow_schedule_modification is False
     assert policy.allow_cross_domain_access is False
+    assert policy.allow_inbound_cross_domain_access is True
     assert policy.autonomy_limits.maximum_autonomy_level == 0
