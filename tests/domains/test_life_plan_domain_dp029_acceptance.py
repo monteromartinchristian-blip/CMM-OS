@@ -640,7 +640,7 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     assert mem_proposal.requires_confirmation is True
     state["41_mem_proposal"] = mem_proposal
 
-    # 42 validate memory view and binding
+    # 42 validate memory view, binding, and tamper rejection
     mem_trace_id = id_factory()
     mem_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
         decision_id=consumed_gate.decision_id,
@@ -712,6 +712,32 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         binding=mem_binding, inventory=mem_full_inventory
     )
     assert mem_val.is_valid is True
+
+    # Memory Tamper Rejection Checks
+    bad_mem_val = validate_life_plan_memory_binding(
+        binding=mem_binding, inventory=DomainMemoryReferenceInventory()
+    )
+    assert bad_mem_val.is_valid is False
+
+    tampered_decision_binding = build_life_plan_memory_binding(
+        proposal=mem_proposal,
+        view=mem_view,
+        trace_id=mem_trace_id,
+        permission_decision_ids=("fake-decision-999",),
+        approval_request_ids=(cross_approval.id,),
+        approval_decision_ids=(cross_decision.id,),
+    )
+    assert validate_life_plan_memory_binding(
+        binding=tampered_decision_binding, inventory=mem_full_inventory
+    ).is_valid is False
+
+    tampered_inventory = dataclasses.replace(
+        mem_full_inventory, permission_decisions=()
+    )
+    assert validate_life_plan_memory_binding(
+        binding=mem_binding, inventory=tampered_inventory
+    ).is_valid is False
+
     state["42_mem_val"] = mem_val
 
     # 43 present life plan result
@@ -725,7 +751,7 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     assert presented["decision_lattice_preserved"] is True
     state["43_presented"] = presented
 
-    # 44 assemble and validate provenance trace
+    # 44 assemble, validate provenance trace, and test tamper rejection
     domain_result = DomainResult(
         id=id_factory(),
         status="completed",
@@ -826,6 +852,31 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
 
     trace_val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert trace_val.valid is True
+
+    # Trace Tamper Rejection Checks
+    primary_contrib = trace.contributions[0]
+    tampered_ref_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-profile-id")
+                    if r.ref_id == str(profile.id)
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert validate_life_plan_trace(trace=tampered_ref_trace, inventory=inventory).valid is False
+
+    bad_inv_val = validate_life_plan_trace(
+        trace=trace,
+        inventory=dataclasses.replace(inventory, references=()),
+    )
+    assert bad_inv_val.valid is False
+
     state["44_trace_validated"] = trace_val
 
     # 45 end-to-end audit integrity
