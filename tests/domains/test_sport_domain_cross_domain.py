@@ -67,6 +67,33 @@ def test_cross_domain_return_to_training_safety_invariant() -> None:
         "load_limits": {"max_intensity": 0.5},
         "authorization_reference": "auth.002",
     }
+    vetted = evaluate_health_constraint(
+        health_projection, is_authorized=True, is_current=True
+    )
+
+    wf_res = execute_return_to_training_workflow(
+        rest_hours=8.0,
+        fatigue_score=2,
+        pain_score=0,
+        health_constraint=vetted,
+        is_current=True,
+    )
+    assert wf_res["status"] == "completed"
+    assert wf_res["health_constraint_applied"] is True
+    assert wf_res["is_diagnosis"] is False
+    assert wf_res["treatment_modified"] is False
+    assert wf_res["clinical_clearance_claimed"] is False
+
+
+def test_cross_domain_return_to_training_denies_raw_dict_without_vetted_evidence() -> (
+    None
+):
+    health_projection = {
+        "constraint_id": "hc-002",
+        "status": "active",
+        "load_limits": {"reduction_pct": 50},
+        "authorization_reference": "auth.fake.999",
+    }
 
     wf_res = execute_return_to_training_workflow(
         rest_hours=8.0,
@@ -77,10 +104,8 @@ def test_cross_domain_return_to_training_safety_invariant() -> None:
         is_current=True,
     )
     assert wf_res["status"] == "completed"
-    assert wf_res["health_constraint_applied"] is True
-    assert wf_res["is_diagnosis"] is False
-    assert wf_res["treatment_modified"] is False
-    assert wf_res["clinical_clearance_claimed"] is False
+    assert wf_res["health_constraint_applied"] is False
+    assert wf_res["recommendation"] == "continue"
 
 
 def test_cross_domain_clinical_extras_dropped_from_minimized_projection() -> None:

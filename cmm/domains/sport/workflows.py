@@ -283,6 +283,7 @@ def execute_return_to_training_workflow(
     fatigue_score: int = 2,
     pain_score: int = 0,
     health_constraint: dict[str, Any] | None = None,
+    permission_decision: Any = None,
     is_authorized: bool = False,
     is_current: bool = True,
 ) -> dict[str, Any]:
@@ -295,14 +296,35 @@ def execute_return_to_training_workflow(
     inj_res = evaluate_injury_signal(pain_score=pain_score, fatigue_score=fatigue_score)
     signal_action = inj_res["action"]
 
-    hc_res = evaluate_health_constraint(
-        projection=health_constraint, is_authorized=is_authorized, is_current=is_current
-    )
+    # Must be an already vetted constraint or carry a valid permission_decision
+    if (
+        isinstance(health_constraint, dict)
+        and health_constraint.get("applied") is True
+        and health_constraint.get("authorization_verified") is True
+    ):
+        hc_res = health_constraint
+    elif permission_decision is not None:
+        hc_res = evaluate_health_constraint(
+            projection=health_constraint,
+            permission_decision=permission_decision,
+            is_current=is_current,
+        )
+    else:
+        hc_res = {
+            "applied": False,
+            "reason": "unauthorized_or_expired",
+            "constraint": None,
+            "authorization_verified": False,
+        }
 
     rec = "continue"
     if signal_action == "stop_and_check" or readiness == "hold":
         rec = "stop_and_check"
-    elif hc_res["applied"] or signal_action == "reduce_load" or readiness == "limited":
+    elif (
+        hc_res.get("applied")
+        or signal_action == "reduce_load"
+        or readiness == "limited"
+    ):
         rec = "reduce_load"
 
     return {
@@ -311,7 +333,7 @@ def execute_return_to_training_workflow(
         "recommendation": rec,
         "readiness_state": readiness,
         "injury_signal_action": signal_action,
-        "health_constraint_applied": hc_res["applied"],
+        "health_constraint_applied": bool(hc_res.get("applied")),
         "is_diagnosis": False,
         "treatment_modified": False,
         "clinical_clearance_claimed": False,

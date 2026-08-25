@@ -5,6 +5,7 @@ from __future__ import annotations
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_WORKFLOW_IDS,
 )
+from cmm.domains.sport.rules import evaluate_health_constraint
 from cmm.domains.sport.workflows import (
     build_sport_workflow_definitions,
     execute_return_to_training_workflow,
@@ -36,12 +37,14 @@ def test_return_to_training_with_health_constraints_workflow_execution() -> None
         "load_limits": {"max_intensity": 0.5},
         "authorization_reference": "auth.scope.100",
     }
+    vetted = evaluate_health_constraint(
+        health_projection, is_authorized=True, is_current=True
+    )
     res = execute_return_to_training_workflow(
         rest_hours=7.5,
         fatigue_score=4,
         pain_score=3,
-        health_constraint=health_projection,
-        is_authorized=True,
+        health_constraint=vetted,
         is_current=True,
     )
     assert res["status"] == "completed"
@@ -68,3 +71,20 @@ def test_return_to_training_rejects_unauthorized_health_context() -> None:
     )
     assert res["status"] == "completed"
     assert res["health_constraint_applied"] is False
+
+
+def test_workflow_caller_boolean_cannot_authorize_health_constraint() -> None:
+    res = execute_return_to_training_workflow(
+        rest_hours=8.0,
+        fatigue_score=2,
+        pain_score=0,
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "fake-auth-ref",
+            "load_limits": {"reduction_pct": 50},
+        },
+        is_authorized=True,
+        is_current=True,
+    )
+    assert res["health_constraint_applied"] is False
+    assert res["recommendation"] == "continue"

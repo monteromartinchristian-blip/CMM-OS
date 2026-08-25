@@ -363,13 +363,53 @@ def evaluate_health_constraint(
     projection: Any = None,
     is_authorized: bool = False,
     is_current: bool = True,
+    permission_decision: Any = None,
 ) -> dict[str, Any]:
     """Incorporate authorized Health functional constraint into Sport reasoning."""
-    if not is_authorized or not is_current:
+    if not is_current:
         return {
             "applied": False,
             "reason": "unauthorized_or_expired",
             "constraint": None,
+            "authorization_verified": False,
+        }
+
+    auth_verified = False
+    auth_ref: str | None = None
+    auth_source = "evaluate_health_constraint"
+
+    if permission_decision is not None:
+        if getattr(permission_decision, "allowed", False) is True:
+            auth_verified = True
+            auth_ref = (
+                getattr(permission_decision, "decision_id", None)
+                or getattr(permission_decision, "request_id", None)
+                or getattr(permission_decision, "id", None)
+            )
+            auth_source = permission_decision.__class__.__name__
+        elif hasattr(permission_decision, "decision"):
+            dec_val = (
+                permission_decision.decision.value
+                if hasattr(permission_decision.decision, "value")
+                else str(permission_decision.decision)
+            )
+            if dec_val.lower() in ("allow", "approved", "approval_consumed"):
+                auth_verified = True
+                auth_ref = getattr(permission_decision, "request_id", None) or getattr(
+                    permission_decision, "id", None
+                )
+                auth_source = permission_decision.__class__.__name__
+    elif is_authorized:
+        auth_verified = True
+        if isinstance(projection, dict) and projection.get("authorization_reference"):
+            auth_ref = str(projection.get("authorization_reference"))
+
+    if not auth_verified:
+        return {
+            "applied": False,
+            "reason": "unauthorized_or_expired",
+            "constraint": None,
+            "authorization_verified": False,
         }
 
     if not isinstance(projection, dict):
@@ -377,6 +417,7 @@ def evaluate_health_constraint(
             "applied": False,
             "reason": "invalid_projection",
             "constraint": None,
+            "authorization_verified": False,
         }
 
     # Reject clinical dossier or raw health memory
@@ -389,6 +430,7 @@ def evaluate_health_constraint(
             "applied": False,
             "reason": "rejected_unauthorized_dossier",
             "constraint": None,
+            "authorization_verified": False,
         }
 
     allowed_fields = (
@@ -406,12 +448,16 @@ def evaluate_health_constraint(
     )
 
     minimized_constraint = {k: projection[k] for k in allowed_fields if k in projection}
+    if auth_ref and "authorization_reference" not in minimized_constraint:
+        minimized_constraint["authorization_reference"] = auth_ref
 
     return {
         "applied": True,
         "constraint": minimized_constraint,
         "applied_fields": tuple(minimized_constraint.keys()),
         "treatment_modification_allowed": False,
+        "authorization_verified": True,
+        "authorization_source": auth_source,
         "provenance": {
             "authorization_reference": minimized_constraint.get(
                 "authorization_reference"
@@ -698,11 +744,15 @@ class HealthConstraintRule:
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
         proj = context.metadata.get("health_constraint")
+        dec = context.metadata.get("permission_decision")
         auth = context.metadata.get("is_authorized", False)
         curr = context.metadata.get("is_current", True)
 
         res = evaluate_health_constraint(
-            projection=proj, is_authorized=auth, is_current=curr
+            projection=proj,
+            permission_decision=dec,
+            is_authorized=auth,
+            is_current=curr,
         )
 
         findings = [
