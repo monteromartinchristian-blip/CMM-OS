@@ -8,6 +8,8 @@ Counts:
 
 from __future__ import annotations
 
+LIFE_PLAN_DOMAIN_ID: str = "domain:life-plan"
+
 CANONICAL_LIFE_PLAN_ENTITY_TYPES: tuple[str, ...] = (
     "life_goal",
     "milestone",
@@ -122,6 +124,7 @@ __all__ = [
     "CANONICAL_LIFE_PLAN_RULE_IDS",
     "CANONICAL_LIFE_PLAN_RULE_NAMES",
     "CANONICAL_LIFE_PLAN_WORKFLOW_IDS",
+    "LIFE_PLAN_DOMAIN_ID",
     "LIFE_PLAN_ENTITY_IDS",
     "LIFE_PLAN_OPERATION_IDS",
     "LIFE_PLAN_RESOURCE_IDS",
