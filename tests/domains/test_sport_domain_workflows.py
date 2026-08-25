@@ -29,6 +29,13 @@ def test_sport_workflow_structure_safety_prefix() -> None:
 
 
 def test_return_to_training_with_health_constraints_workflow_execution() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    perm_dec = CrossDomainPermissionDecision(
+        request_id="auth.scope.100",
+        decision=PermissionOutcome.ALLOW,
+    )
     # 1. With active Health constraint requiring reduced load
     health_projection = {
         "constraint_id": "c-001",
@@ -38,7 +45,7 @@ def test_return_to_training_with_health_constraints_workflow_execution() -> None
         "authorization_reference": "auth.scope.100",
     }
     vetted = evaluate_health_constraint(
-        health_projection, is_authorized=True, is_current=True
+        health_projection, permission_decision=perm_dec
     )
     res = execute_return_to_training_workflow(
         rest_hours=7.5,
