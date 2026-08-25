@@ -50,16 +50,46 @@ _OPERATION_TYPES: dict[str, DomainOperationType] = {
 }
 
 _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
-    "life_plan.build_timeline": ("life_plan.resource.life_plan", "life_plan.resource.calendar_event"),
-    "life_plan.compare_scenarios": ("life_plan.resource.life_plan", "life_plan.resource.decision"),
-    "life_plan.review_goals": ("life_plan.resource.goal", "life_plan.resource.life_plan"),
-    "life_plan.detect_dependencies": ("life_plan.resource.goal", "life_plan.resource.life_plan"),
-    "life_plan.identify_risks": ("life_plan.resource.life_plan", "life_plan.resource.financial_plan"),
-    "life_plan.update_plan": ("life_plan.resource.life_plan", "life_plan.resource.goal"),
-    "life_plan.create_milestones": ("life_plan.resource.life_plan", "life_plan.resource.goal"),
-    "life_plan.generate_periodic_review": ("life_plan.resource.life_plan", "life_plan.resource.decision"),
-    "life_plan.evaluate_feasibility": ("life_plan.resource.financial_plan", "life_plan.resource.life_plan"),
-    "life_plan.track_decisions": ("life_plan.resource.decision", "life_plan.resource.life_plan"),
+    "life_plan.build_timeline": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.calendar_event",
+    ),
+    "life_plan.compare_scenarios": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.decision",
+    ),
+    "life_plan.review_goals": (
+        "life_plan.resource.goal",
+        "life_plan.resource.life_plan",
+    ),
+    "life_plan.detect_dependencies": (
+        "life_plan.resource.goal",
+        "life_plan.resource.life_plan",
+    ),
+    "life_plan.identify_risks": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.financial_plan",
+    ),
+    "life_plan.update_plan": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.goal",
+    ),
+    "life_plan.create_milestones": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.goal",
+    ),
+    "life_plan.generate_periodic_review": (
+        "life_plan.resource.life_plan",
+        "life_plan.resource.decision",
+    ),
+    "life_plan.evaluate_feasibility": (
+        "life_plan.resource.financial_plan",
+        "life_plan.resource.life_plan",
+    ),
+    "life_plan.track_decisions": (
+        "life_plan.resource.decision",
+        "life_plan.resource.life_plan",
+    ),
 }
 
 _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -158,13 +188,15 @@ def compare_scenarios_result(
             milestones=milestones,
             contradictions=contra,
         )
-        evaluations.append({
-            "scenario_id": sid,
-            "consistent": c_res["consistent"],
-            "status": c_res["status"],
-            "conflicts": c_res["conflicts"],
-            "uncertainties": c_res["uncertainties"],
-        })
+        evaluations.append(
+            {
+                "scenario_id": sid,
+                "consistent": c_res["consistent"],
+                "status": c_res["status"],
+                "conflicts": c_res["conflicts"],
+                "uncertainties": c_res["uncertainties"],
+            }
+        )
 
     return {
         "status": "completed",

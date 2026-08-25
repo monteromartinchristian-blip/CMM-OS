@@ -96,7 +96,10 @@ def test_closure_gate_preference_to_decision_bypass_fails() -> None:
     res = evaluate_decision_status("preference", "decision")
     assert res["allowed"] is False
     assert res["requires_confirmation"] is True
-    assert "confirmation" in res["reason"].lower() or "unconfirmed" in res["reason"].lower()
+    assert (
+        "confirmation" in res["reason"].lower()
+        or "unconfirmed" in res["reason"].lower()
+    )
 
 
 # 2. Scenario -> Commitment bypass fails without explicit confirmation
@@ -104,12 +107,17 @@ def test_closure_gate_scenario_to_commitment_bypass_fails() -> None:
     res = evaluate_decision_status("scenario", "commitment")
     assert res["allowed"] is False
     assert res["requires_confirmation"] is True
-    assert "confirmation" in res["reason"].lower() or "unconfirmed" in res["reason"].lower()
+    assert (
+        "confirmation" in res["reason"].lower()
+        or "unconfirmed" in res["reason"].lower()
+    )
 
 
 # 3. Closed decision reopening without explicit new evidence fails
 def test_closure_gate_closed_decision_reopening_without_new_evidence_fails() -> None:
-    res = evaluate_decision_status("decision", "idea", is_closed=True, has_new_evidence=False)
+    res = evaluate_decision_status(
+        "decision", "idea", is_closed=True, has_new_evidence=False
+    )
     assert res["allowed"] is False
     assert "evidence" in res["reason"].lower() or "closed" in res["reason"].lower()
 

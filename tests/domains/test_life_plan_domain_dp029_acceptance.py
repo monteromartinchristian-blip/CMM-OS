@@ -9,11 +9,8 @@ lifecycle, memory proposal/view/binding validation, and trace inventory validati
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
-
-import pytest
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
@@ -21,24 +18,13 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionApprovalRequirement,
     PermissionCapability,
 )
-from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
-from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainResult
-from cmm.domains.enums import (
-    DomainRuleSelectionStatus,
-    DomainRuleSource,
-)
 from cmm.domains.general.permissions import build_general_permission_policy
 from cmm.domains.health.permissions import build_health_permission_policy
 from cmm.domains.identifiers import DomainId
 from cmm.domains.life_plan import (
-    CANONICAL_LIFE_PLAN_ENTITY_IDS,
-    CANONICAL_LIFE_PLAN_OPERATION_IDS,
-    CANONICAL_LIFE_PLAN_RESOURCE_IDS,
-    CANONICAL_LIFE_PLAN_RULE_IDS,
-    CANONICAL_LIFE_PLAN_WORKFLOW_IDS,
     LIFE_PLAN_DOMAIN_ID,
     LIFE_PLAN_ENTITY_IDS,
     LIFE_PLAN_OPERATION_IDS,
@@ -54,15 +40,12 @@ from cmm.domains.life_plan import (
     build_life_plan_memory_view_request,
     build_life_plan_operation_definitions,
     build_life_plan_permission_policy,
-    build_life_plan_rules,
     build_life_plan_trace_contribution,
     build_life_plan_trace_reference,
     build_life_plan_workflow_definitions,
     build_standard_life_plan_domain_bootstrap,
-    build_timeline_result,
     compare_scenarios_result,
     create_milestones_result,
-    detect_dependencies_result,
     evaluate_alternative_route,
     evaluate_cross_domain_impact,
     evaluate_decision_status,
@@ -76,11 +59,7 @@ from cmm.domains.life_plan import (
     generate_periodic_review_result,
     identify_risks_result,
     present_life_plan_result,
-    review_goals_result,
-    track_decisions_result,
-    update_plan_result,
     validate_life_plan_memory_binding,
-    validate_life_plan_memory_proposal_content,
     validate_life_plan_trace,
 )
 from cmm.domains.memory_contracts import (
@@ -105,12 +84,6 @@ from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolution_contracts import DomainResolutionSignal
 from cmm.domains.resolver import DefaultDomainResolver
-from cmm.domains.rule_contracts import (
-    DomainRuleExecutionPlan,
-    DomainRuleSourceRecord,
-    SelectedReasoningRule,
-)
-from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
     DomainTrace,
@@ -206,9 +179,23 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     # 05 create milestones
     milestones_op = create_milestones_result(
         milestones=[
-            {"id": "ms-01", "title": "Obtain C1 Language Certification", "target_date": "2027-06-01"},
-            {"id": "ms-02", "title": "Secure Offer in Target Country", "target_date": "2028-03-01", "depends_on": "ms-01"},
-            {"id": "ms-03", "title": "Complete Relocation", "target_date": "2028-09-01", "depends_on": "ms-02"},
+            {
+                "id": "ms-01",
+                "title": "Obtain C1 Language Certification",
+                "target_date": "2027-06-01",
+            },
+            {
+                "id": "ms-02",
+                "title": "Secure Offer in Target Country",
+                "target_date": "2028-03-01",
+                "depends_on": "ms-01",
+            },
+            {
+                "id": "ms-03",
+                "title": "Complete Relocation",
+                "target_date": "2028-09-01",
+                "depends_on": "ms-02",
+            },
         ],
     )
     assert milestones_op["status"] == "created"
@@ -327,7 +314,11 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
 
     # 19 evaluate goal dependencies clean
     deps_clean = evaluate_goal_dependencies(
-        dependencies={"goal-lang": [], "goal-offer": ["goal-lang"], "goal-reloc": ["goal-offer"]}
+        dependencies={
+            "goal-lang": [],
+            "goal-offer": ["goal-lang"],
+            "goal-reloc": ["goal-offer"],
+        }
     )
     assert deps_clean["valid"] is True
     assert deps_clean["has_cycles"] is False
@@ -396,9 +387,13 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     state["25_resource_capacity"] = res_cap
 
     # 26 reject NaN, Inf, booleans in resource constraints
-    res_nan = evaluate_resource_constraints(time={"available_hours_per_week": float("nan"), "required_hours_per_week": 10.0})
+    res_nan = evaluate_resource_constraints(
+        time={"available_hours_per_week": float("nan"), "required_hours_per_week": 10.0}
+    )
     assert res_nan["status"] == "invalid_evidence"
-    res_bool = evaluate_resource_constraints(time={"available_hours_per_week": True, "required_hours_per_week": 10.0})
+    res_bool = evaluate_resource_constraints(
+        time={"available_hours_per_week": True, "required_hours_per_week": 10.0}
+    )
     assert res_bool["status"] == "invalid_evidence"
     state["26_nan_bool_rejected"] = True
 
@@ -546,7 +541,10 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     def wf_op_adapter(node: Any, run: Any) -> NodeExecution:
         if node.operation_id == "life_plan.evaluate_feasibility":
             res = evaluate_feasibility_result(
-                time={"available_hours_per_week": 15.0, "required_hours_per_week": 10.0},
+                time={
+                    "available_hours_per_week": 15.0,
+                    "required_hours_per_week": 10.0,
+                },
                 money={"available_funds": 20000.0, "required_funds": 15000.0},
             )
             return NodeExecution.complete(res)
@@ -554,7 +552,9 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             res = identify_risks_result(risks=[{"id": "r1", "severity": "medium"}])
             return NodeExecution.complete(res)
         elif node.node_type == WorkflowNodeType.LOAD_RESOURCE:
-            return NodeExecution.complete({"loaded": True, "sources": ("life_plan", "health_constraints")})
+            return NodeExecution.complete(
+                {"loaded": True, "sources": ("life_plan", "health_constraints")}
+            )
         elif node.node_type == WorkflowNodeType.APPLY_PROFILE:
             return NodeExecution.complete({"applied_profile": profile.profile_name})
         elif node.node_type == WorkflowNodeType.REASON:
@@ -572,10 +572,14 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
 
     wf_ctx = DomainWorkflowContext(
         primary_domain_id=LIFE_PLAN_DOMAIN_ID,
-        known_domain_ids=frozenset({LIFE_PLAN_DOMAIN_ID, "domain:general", "domain:health"}),
+        known_domain_ids=frozenset(
+            {LIFE_PLAN_DOMAIN_ID, "domain:general", "domain:health"}
+        ),
         authorized_domain_ids=frozenset({LIFE_PLAN_DOMAIN_ID}),
         available_resources=frozenset(cdir_def.required_resources),
-        available_operations=frozenset(op.operation_id for op in build_life_plan_operation_definitions()),
+        available_operations=frozenset(
+            op.operation_id for op in build_life_plan_operation_definitions()
+        ),
     )
     wf_exec = DomainWorkflowExecutor(
         id_factory=id_factory,
@@ -655,10 +659,16 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     )
     mem_base_inventory = DomainMemoryReferenceInventory(
         references=(mem_reference,),
-        traces=(DomainMemoryTraceSnapshot(trace_id=mem_trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID),),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=mem_trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID
+            ),
+        ),
         permission_decisions=(mem_perm_snapshot,),
     )
-    mem_view = build_life_plan_memory_view(request=mem_view_req, inventory=mem_base_inventory)
+    mem_view = build_life_plan_memory_view(
+        request=mem_view_req, inventory=mem_base_inventory
+    )
     mem_binding = build_life_plan_memory_binding(
         proposal=mem_proposal,
         view=mem_view,
@@ -671,12 +681,36 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         references=(mem_reference,),
         proposals=(mem_proposal,),
         permission_decisions=(mem_perm_snapshot,),
-        approval_requests=(DomainMemoryApprovalRequestSnapshot(request_id=cross_approval.id, proposal_id=mem_proposal_id),),
-        approval_decisions=(DomainMemoryApprovalDecisionSnapshot(decision_id=cross_decision.id, request_id=cross_approval.id, approved=True),),
-        traces=(DomainMemoryTraceSnapshot(trace_id=mem_trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID),),
-        views=(DomainMemoryViewSnapshot(view_id=mem_view.view_id, request_id=mem_view.request_id, primary_domain=mem_view.primary_domain, trace_id=mem_view.trace_id, view_digest=mem_view.content_digest),),
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=cross_approval.id, proposal_id=mem_proposal_id
+            ),
+        ),
+        approval_decisions=(
+            DomainMemoryApprovalDecisionSnapshot(
+                decision_id=cross_decision.id,
+                request_id=cross_approval.id,
+                approved=True,
+            ),
+        ),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=mem_trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID
+            ),
+        ),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=mem_view.view_id,
+                request_id=mem_view.request_id,
+                primary_domain=mem_view.primary_domain,
+                trace_id=mem_view.trace_id,
+                view_digest=mem_view.content_digest,
+            ),
+        ),
     )
-    mem_val = validate_life_plan_memory_binding(binding=mem_binding, inventory=mem_full_inventory)
+    mem_val = validate_life_plan_memory_binding(
+        binding=mem_binding, inventory=mem_full_inventory
+    )
     assert mem_val.is_valid is True
     state["42_mem_val"] = mem_val
 
@@ -711,8 +745,12 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     runtime_refs = (ref1,)
 
     expected_refs = (
-        DomainTraceReference(result_id_str, DomainTraceReferenceKind.DOMAIN_RESULT, LIFE_PLAN_DOMAIN_ID),
-        DomainTraceReference(str(profile.id), DomainTraceReferenceKind.PROFILE, LIFE_PLAN_DOMAIN_ID),
+        DomainTraceReference(
+            result_id_str, DomainTraceReferenceKind.DOMAIN_RESULT, LIFE_PLAN_DOMAIN_ID
+        ),
+        DomainTraceReference(
+            str(profile.id), DomainTraceReferenceKind.PROFILE, LIFE_PLAN_DOMAIN_ID
+        ),
         DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
         DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
         DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
@@ -765,8 +803,12 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         ),
         cross_domain_results=(),
         expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
-        resolution_result_domains=DomainTraceDomainSelection(res_id, LIFE_PLAN_DOMAIN_ID, ()),
-        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
     )
 
     trace = assemble_life_plan_trace(

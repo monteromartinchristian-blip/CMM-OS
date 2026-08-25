@@ -114,8 +114,6 @@ from cmm.domains.life_plan.workflows import (
 )
 
 __all__ = [
-    "AlternativeRouteRule",
-    "AuthorizedCrossDomainContribution",
     "CANDIDATE_LIFE_PLAN_LONGITUDINAL_KINDS",
     "CANONICAL_LIFE_PLAN_ENTITY_IDS",
     "CANONICAL_LIFE_PLAN_ENTITY_TYPES",
@@ -124,9 +122,6 @@ __all__ = [
     "CANONICAL_LIFE_PLAN_RULE_IDS",
     "CANONICAL_LIFE_PLAN_RULE_NAMES",
     "CANONICAL_LIFE_PLAN_WORKFLOW_IDS",
-    "CrossDomainImpactRule",
-    "DecisionStatusRule",
-    "GoalDependencyRule",
     "LIFE_PLAN_BOOTSTRAP_NAME",
     "LIFE_PLAN_DOMAIN_ID",
     "LIFE_PLAN_DOMAIN_VERSION",
@@ -144,6 +139,11 @@ __all__ = [
     "LIFE_PLAN_RULE_IDS",
     "LIFE_PLAN_WORKFLOW_IDS",
     "LIFE_PLAN_WORKFLOW_NAMES_BY_ID",
+    "AlternativeRouteRule",
+    "AuthorizedCrossDomainContribution",
+    "CrossDomainImpactRule",
+    "DecisionStatusRule",
+    "GoalDependencyRule",
     "LifePlanDomainBootstrap",
     "LifePlanDomainIntegrationResult",
     "LongTermTemporalRule",

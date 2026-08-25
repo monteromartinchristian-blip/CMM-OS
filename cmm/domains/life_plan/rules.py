@@ -9,7 +9,7 @@ return deterministic JSON-safe structures.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -135,41 +135,42 @@ def evaluate_decision_status(
     prop = str(proposed_status).lower().strip()
 
     # Closed decision reopening check
-    if is_closed:
-        if not has_new_evidence and not new_evidence:
-            return {
-                "allowed": False,
-                "current_status": curr,
-                "proposed_status": prop,
-                "requires_confirmation": True,
-                "reopened": False,
-                "reason": "Closed decision cannot be reopened or modified without explicit new evidence.",
-            }
+    if is_closed and not has_new_evidence and not new_evidence:
+        return {
+            "allowed": False,
+            "current_status": curr,
+            "proposed_status": prop,
+            "requires_confirmation": True,
+            "reopened": False,
+            "reason": "Closed decision cannot be reopened or modified without explicit new evidence.",
+        }
 
     # If proposing transition to decision or commitment from unconfirmed state, confirmation is mandatory
     unconfirmed_states = ("idea", "preference", "hypothesis", "scenario")
-    if curr in unconfirmed_states and prop in ("decision", "commitment"):
-        if not confirmation_evidence:
-            return {
-                "allowed": False,
-                "current_status": curr,
-                "proposed_status": prop,
-                "requires_confirmation": True,
-                "reopened": False,
-                "reason": f"Cannot promote unconfirmed {curr} to {prop} without explicit user confirmation evidence.",
-            }
+    if (
+        curr in unconfirmed_states
+        and prop in ("decision", "commitment")
+        and not confirmation_evidence
+    ):
+        return {
+            "allowed": False,
+            "current_status": curr,
+            "proposed_status": prop,
+            "requires_confirmation": True,
+            "reopened": False,
+            "reason": f"Cannot promote unconfirmed {curr} to {prop} without explicit user confirmation evidence.",
+        }
 
     # Proposing transition from decision to commitment also requires confirmation/commitment evidence
-    if curr == "decision" and prop == "commitment":
-        if not confirmation_evidence:
-            return {
-                "allowed": False,
-                "current_status": curr,
-                "proposed_status": prop,
-                "requires_confirmation": True,
-                "reopened": False,
-                "reason": "Cannot promote decision to commitment without explicit commitment evidence.",
-            }
+    if curr == "decision" and prop == "commitment" and not confirmation_evidence:
+        return {
+            "allowed": False,
+            "current_status": curr,
+            "proposed_status": prop,
+            "requires_confirmation": True,
+            "reopened": False,
+            "reason": "Cannot promote decision to commitment without explicit commitment evidence.",
+        }
 
     return {
         "allowed": True,
@@ -196,7 +197,11 @@ def evaluate_scenario_consistency(
     uncertainties: list[str] = []
 
     for k, v in assump.items():
-        if v is None or v == "unknown" or (isinstance(v, str) and "uncertain" in v.lower()):
+        if (
+            v is None
+            or v == "unknown"
+            or (isinstance(v, str) and "uncertain" in v.lower())
+        ):
             uncertainties.append(k)
 
     consistent = len(conflicts) == 0
@@ -316,12 +321,26 @@ def evaluate_resource_constraints(
 
         if avail < req:
             blocking.append(f"{name}_deficit")
-            return {"status": "constrained", "available": avail, "required": req, "sufficient": False}
+            return {
+                "status": "constrained",
+                "available": avail,
+                "required": req,
+                "sufficient": False,
+            }
 
-        return {"status": "sufficient", "available": avail, "required": req, "sufficient": True}
+        return {
+            "status": "sufficient",
+            "available": avail,
+            "required": req,
+            "sufficient": True,
+        }
 
-    dims["time"] = _eval_numeric_dimension("time", time, "available_hours_per_week", "required_hours_per_week")
-    dims["money"] = _eval_numeric_dimension("money", money, "available_funds", "required_funds")
+    dims["time"] = _eval_numeric_dimension(
+        "time", time, "available_hours_per_week", "required_hours_per_week"
+    )
+    dims["money"] = _eval_numeric_dimension(
+        "money", money, "available_funds", "required_funds"
+    )
 
     # Energy dimension
     if energy is None:
@@ -332,8 +351,15 @@ def evaluate_resource_constraints(
         if lvl is None:
             dims["energy"] = {"status": "unknown", "level": None}
             is_unknown = True
-        elif lvl in ("exhausted", "depleted", "low") and min_lvl in ("high", "moderate"):
-            dims["energy"] = {"status": "constrained", "level": lvl, "sufficient": False}
+        elif lvl in ("exhausted", "depleted", "low") and min_lvl in (
+            "high",
+            "moderate",
+        ):
+            dims["energy"] = {
+                "status": "constrained",
+                "level": lvl,
+                "sufficient": False,
+            }
             blocking.append("energy_deficit")
         else:
             dims["energy"] = {"status": "sufficient", "level": lvl, "sufficient": True}
@@ -355,12 +381,25 @@ def evaluate_resource_constraints(
                 s = int(slots)
                 rs = int(req_slots)
                 if s < rs:
-                    dims["available_capacity"] = {"status": "constrained", "slots": s, "required": rs, "sufficient": False}
+                    dims["available_capacity"] = {
+                        "status": "constrained",
+                        "slots": s,
+                        "required": rs,
+                        "sufficient": False,
+                    }
                     blocking.append("capacity_deficit")
                 else:
-                    dims["available_capacity"] = {"status": "sufficient", "slots": s, "required": rs, "sufficient": True}
+                    dims["available_capacity"] = {
+                        "status": "sufficient",
+                        "slots": s,
+                        "required": rs,
+                        "sufficient": True,
+                    }
             except (ValueError, TypeError):
-                dims["available_capacity"] = {"status": "invalid_evidence", "slots": None}
+                dims["available_capacity"] = {
+                    "status": "invalid_evidence",
+                    "slots": None,
+                }
                 is_invalid = True
 
     if is_invalid:
@@ -375,7 +414,9 @@ def evaluate_resource_constraints(
     return {
         "status": status,
         "dimensions": dims,
-        "feasible": True if status == "feasible" else (False if status == "constrained" else None),
+        "feasible": True
+        if status == "feasible"
+        else (False if status == "constrained" else None),
         "blocking_constraints": blocking,
     }
 
@@ -536,13 +577,21 @@ def evaluate_cross_domain_impact(
     if "effective_from" in projection and projection["effective_from"] is not None:
         raw_from = projection["effective_from"]
         if isinstance(raw_from, datetime):
-            eff_from_dt = raw_from if raw_from.tzinfo else raw_from.replace(tzinfo=timezone.utc)
+            eff_from_dt = (
+                raw_from if raw_from.tzinfo else raw_from.replace(tzinfo=timezone.utc)
+            )
         elif isinstance(raw_from, str):
             try:
                 parsed_from = datetime.fromisoformat(
-                    raw_from.replace("Z", "+00:00") if raw_from.endswith("Z") else raw_from
+                    raw_from.replace("Z", "+00:00")
+                    if raw_from.endswith("Z")
+                    else raw_from
                 )
-                eff_from_dt = parsed_from if parsed_from.tzinfo else parsed_from.replace(tzinfo=timezone.utc)
+                eff_from_dt = (
+                    parsed_from
+                    if parsed_from.tzinfo
+                    else parsed_from.replace(tzinfo=timezone.utc)
+                )
             except (ValueError, TypeError):
                 return {
                     "applied": False,
@@ -572,13 +621,23 @@ def evaluate_cross_domain_impact(
     if "effective_until" in projection and projection["effective_until"] is not None:
         raw_until = projection["effective_until"]
         if isinstance(raw_until, datetime):
-            eff_until_dt = raw_until if raw_until.tzinfo else raw_until.replace(tzinfo=timezone.utc)
+            eff_until_dt = (
+                raw_until
+                if raw_until.tzinfo
+                else raw_until.replace(tzinfo=timezone.utc)
+            )
         elif isinstance(raw_until, str):
             try:
                 parsed_until = datetime.fromisoformat(
-                    raw_until.replace("Z", "+00:00") if raw_until.endswith("Z") else raw_until
+                    raw_until.replace("Z", "+00:00")
+                    if raw_until.endswith("Z")
+                    else raw_until
                 )
-                eff_until_dt = parsed_until if parsed_until.tzinfo else parsed_until.replace(tzinfo=timezone.utc)
+                eff_until_dt = (
+                    parsed_until
+                    if parsed_until.tzinfo
+                    else parsed_until.replace(tzinfo=timezone.utc)
+                )
             except (ValueError, TypeError):
                 return {
                     "applied": False,
@@ -661,7 +720,8 @@ def evaluate_cross_domain_impact(
                     PermissionGateOutcome.ALLOW,
                     PermissionGateOutcome.APPROVAL_CONSUMED,
                 )
-                and permission_decision.metadata.get("target_domain") == "domain:life-plan"
+                and permission_decision.metadata.get("target_domain")
+                == "domain:life-plan"
                 and permission_decision.decision_id is not None
             ):
                 auth_verified = True
@@ -713,7 +773,9 @@ def evaluate_cross_domain_impact(
         "authorization_reference",
     )
 
-    minimized_contribution = {k: projection[k] for k in allowed_fields if k in projection}
+    minimized_contribution = {
+        k: projection[k] for k in allowed_fields if k in projection
+    }
     if auth_ref and "authorization_reference" not in minimized_contribution:
         minimized_contribution["authorization_reference"] = auth_ref
 
@@ -736,7 +798,9 @@ def evaluate_cross_domain_impact(
         "authorization_source": auth_source,
         "authorized_artifact": artifact,
         "provenance": {
-            "authorization_reference": minimized_contribution.get("authorization_reference"),
+            "authorization_reference": minimized_contribution.get(
+                "authorization_reference"
+            ),
             "source_reference": minimized_contribution.get("source_reference"),
             "permission_request_id": req_id,
             "permission_decision_id": auth_ref,
@@ -758,7 +822,9 @@ def evaluate_plan_drift(
     drift_items: list[str] = []
     for k, planned_val in plan.items():
         if k in act and act[k] != planned_val:
-            drift_items.append(f"Discrepancy in {k}: planned={planned_val}, actual={act[k]}")
+            drift_items.append(
+                f"Discrepancy in {k}: planned={planned_val}, actual={act[k]}"
+            )
 
     has_drift = len(drift_items) > 0
 
@@ -797,7 +863,9 @@ class GoalDependencyRule:
             ReasoningFinding(
                 code="GOAL_DEPENDENCIES_EVALUATED",
                 message=f"Goal dependencies evaluated: valid={res['valid']}, has_cycles={res['has_cycles']}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.ERROR,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.ERROR,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -840,7 +908,9 @@ class ScenarioConsistencyRule:
             ReasoningFinding(
                 code="SCENARIO_CONSISTENCY_EVALUATED",
                 message=f"Scenario consistency evaluated: consistent={res['consistent']}, conflicts={len(res['conflicts'])}",
-                severity=ReasoningSeverity.INFO if res["consistent"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["consistent"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -872,13 +942,17 @@ class ResourceConstraintRule:
         e = context.metadata.get("energy")
         c = context.metadata.get("available_capacity")
 
-        res = evaluate_resource_constraints(time=t, money=m, energy=e, available_capacity=c)
+        res = evaluate_resource_constraints(
+            time=t, money=m, energy=e, available_capacity=c
+        )
 
         findings = [
             ReasoningFinding(
                 code="RESOURCE_CONSTRAINTS_EVALUATED",
                 message=f"Resource constraints evaluated: status={res['status']}, blocking={len(res['blocking_constraints'])}",
-                severity=ReasoningSeverity.INFO if res["status"] == "feasible" else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["status"] == "feasible"
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -926,7 +1000,9 @@ class DecisionStatusRule:
             ReasoningFinding(
                 code="DECISION_STATUS_EVALUATED",
                 message=f"Decision status transition evaluated: allowed={res['allowed']}, reason={res['reason']}",
-                severity=ReasoningSeverity.INFO if res["allowed"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["allowed"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -962,7 +1038,9 @@ class LongTermTemporalRule:
             ReasoningFinding(
                 code="LONG_TERM_TEMPORAL_EVALUATED",
                 message=f"Long term temporal evaluated: valid={res['valid']}, conflicts={len(res['ordering_conflicts'])}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.ERROR,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.ERROR,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -1054,7 +1132,9 @@ class CrossDomainImpactRule:
             ReasoningFinding(
                 code="CROSS_DOMAIN_IMPACT_EVALUATED",
                 message=f"Cross domain impact applied={res['applied']}",
-                severity=ReasoningSeverity.INFO if res["applied"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["applied"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -1095,7 +1175,9 @@ class PlanDriftRule:
             ReasoningFinding(
                 code="PLAN_DRIFT_EVALUATED",
                 message=f"Plan drift evaluated: has_drift={res['has_drift']}",
-                severity=ReasoningSeverity.INFO if not res["has_drift"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if not res["has_drift"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )

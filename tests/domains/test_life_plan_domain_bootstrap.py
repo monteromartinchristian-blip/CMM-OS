@@ -34,5 +34,9 @@ def test_build_standard_life_plan_domain_bootstrap() -> None:
     # Verify counts
     assert len(bootstrap.resource_registry.list_all()) >= len(LIFE_PLAN_RESOURCE_IDS)
     assert len(bootstrap.rule_registry.list_all()) >= len(LIFE_PLAN_RULE_IDS)
-    assert len(bootstrap.operation_registry.list_definitions()) >= len(LIFE_PLAN_OPERATION_IDS)
-    assert len(bootstrap.workflow_registry.list_for_domain(LIFE_PLAN_DOMAIN_ID)) == len(LIFE_PLAN_WORKFLOW_IDS)
+    assert len(bootstrap.operation_registry.list_definitions()) >= len(
+        LIFE_PLAN_OPERATION_IDS
+    )
+    assert len(bootstrap.workflow_registry.list_for_domain(LIFE_PLAN_DOMAIN_ID)) == len(
+        LIFE_PLAN_WORKFLOW_IDS
+    )

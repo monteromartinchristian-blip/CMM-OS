@@ -6,8 +6,6 @@ from cmm.domains.life_plan.rules import (
     evaluate_alternative_route,
     evaluate_cross_domain_impact,
     evaluate_decision_status,
-    evaluate_goal_dependencies,
-    evaluate_long_term_temporal,
     evaluate_plan_drift,
     evaluate_resource_constraints,
     evaluate_scenario_consistency,

@@ -384,7 +384,9 @@ def execute_cross_domain_impact_workflow(
         ):
             applied_contributions.append(contrib.projection)
         elif isinstance(contrib, dict):
-            if "authorized_artifact" in contrib and isinstance(contrib["authorized_artifact"], AuthorizedCrossDomainContribution):
+            if "authorized_artifact" in contrib and isinstance(
+                contrib["authorized_artifact"], AuthorizedCrossDomainContribution
+            ):
                 applied_contributions.append(contrib["authorized_artifact"].projection)
             else:
                 eval_res = evaluate_cross_domain_impact(projection=contrib)

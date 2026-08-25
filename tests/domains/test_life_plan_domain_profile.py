@@ -45,7 +45,10 @@ def test_life_plan_profile_prohibitions_and_invariants() -> None:
     assert profile.presentation_policy.allow_speculation is False
 
     assert profile.memory_policy.allow_read is True
-    assert profile.memory_policy.allow_write is None or profile.memory_policy.allow_write is False
+    assert (
+        profile.memory_policy.allow_write is None
+        or profile.memory_policy.allow_write is False
+    )
     assert profile.production_policy.allow_external_action is False
 
 

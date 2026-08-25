@@ -41,7 +41,9 @@ CANDIDATE_LIFE_PLAN_LONGITUDINAL_KINDS: tuple[str, ...] = (
 )
 
 
-def validate_life_plan_memory_proposal_content(content: dict[str, Any]) -> dict[str, Any]:
+def validate_life_plan_memory_proposal_content(
+    content: dict[str, Any],
+) -> dict[str, Any]:
     """Validate proposal content against Life Plan safety and epistemic boundaries."""
     kind = content.get("kind", "")
     status = str(content.get("status", "")).lower()
@@ -49,12 +51,18 @@ def validate_life_plan_memory_proposal_content(content: dict[str, Any]) -> dict[
     is_conf = content.get("is_confirmed", False)
 
     # Reject unconfirmed promotion to decision or commitment
-    if status in ("decision", "commitment") and not is_conf:
-        if orig in ("idea", "preference", "hypothesis", "scenario") or kind == "decision":
-            return {
-                "is_valid": False,
-                "reason": "prohibited_unconfirmed_decision_promotion",
-            }
+    if (
+        status in ("decision", "commitment")
+        and not is_conf
+        and (
+            orig in ("idea", "preference", "hypothesis", "scenario")
+            or kind == "decision"
+        )
+    ):
+        return {
+            "is_valid": False,
+            "reason": "prohibited_unconfirmed_decision_promotion",
+        }
 
     if (
         "clinical_diagnosis" in content

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, timezone
 
 from cmm.domains.contracts import DomainResult
@@ -148,7 +147,9 @@ def test_assemble_and_validate_life_plan_trace() -> None:
         resolution_result_domains=DomainTraceDomainSelection(
             res_id, LIFE_PLAN_DOMAIN_ID, ()
         ),
-        composition_domains=DomainTraceDomainSelection(comp_id, LIFE_PLAN_DOMAIN_ID, ()),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, LIFE_PLAN_DOMAIN_ID, ()
+        ),
     )
 
     trace = assemble_life_plan_trace(

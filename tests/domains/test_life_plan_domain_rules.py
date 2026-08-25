@@ -5,9 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from cmm.cognitive.enums import (
-    ReasoningRuleCategory,
     ReasoningRuleResultStatus,
-    ReasoningSeverity,
 )
 from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 from cmm.domains.life_plan.catalog import (
@@ -15,14 +13,6 @@ from cmm.domains.life_plan.catalog import (
     CANONICAL_LIFE_PLAN_RULE_NAMES,
 )
 from cmm.domains.life_plan.rules import (
-    AlternativeRouteRule,
-    CrossDomainImpactRule,
-    DecisionStatusRule,
-    GoalDependencyRule,
-    LongTermTemporalRule,
-    PlanDriftRule,
-    ResourceConstraintRule,
-    ScenarioConsistencyRule,
     build_life_plan_rules,
     evaluate_alternative_route,
     evaluate_cross_domain_impact,
@@ -47,7 +37,9 @@ def test_build_life_plan_rules_exact_canonical_parity() -> None:
 # ── Decision Status Evaluator Tests ──────────────────────────────────────────
 
 
-def test_evaluate_decision_status_preference_not_decision_without_confirmation() -> None:
+def test_evaluate_decision_status_preference_not_decision_without_confirmation() -> (
+    None
+):
     res = evaluate_decision_status(
         current_status="preference",
         proposed_status="decision",
@@ -68,7 +60,9 @@ def test_evaluate_decision_status_scenario_not_decision_without_confirmation() -
     assert res["requires_confirmation"] is True
 
 
-def test_evaluate_decision_status_scenario_not_commitment_without_confirmation() -> None:
+def test_evaluate_decision_status_scenario_not_commitment_without_confirmation() -> (
+    None
+):
     res = evaluate_decision_status(
         current_status="scenario",
         proposed_status="commitment",
@@ -92,7 +86,10 @@ def test_evaluate_decision_status_valid_confirmed_transition() -> None:
     res = evaluate_decision_status(
         current_status="preference",
         proposed_status="decision",
-        confirmation_evidence={"confirmed_by": "user", "timestamp": "2026-08-26T00:00:00Z"},
+        confirmation_evidence={
+            "confirmed_by": "user",
+            "timestamp": "2026-08-26T00:00:00Z",
+        },
     )
     assert res["allowed"] is True
     assert res["current_status"] == "preference"
@@ -107,7 +104,10 @@ def test_evaluate_decision_status_closed_decision_reopening_protection() -> None
         has_new_evidence=False,
     )
     assert res_no_evidence["allowed"] is False
-    assert "closed" in res_no_evidence["reason"].lower() or "reopen" in res_no_evidence["reason"].lower()
+    assert (
+        "closed" in res_no_evidence["reason"].lower()
+        or "reopen" in res_no_evidence["reason"].lower()
+    )
 
     res_with_evidence = evaluate_decision_status(
         current_status="decision",
@@ -138,7 +138,9 @@ def test_evaluate_scenario_consistency_detects_contradiction() -> None:
     res = evaluate_scenario_consistency(
         scenario_id="scen-002",
         assumptions={"residence": "Madrid", "on_site_work": "Tokyo"},
-        contradictions=["residence Madrid is incompatible with daily on_site_work in Tokyo"],
+        contradictions=[
+            "residence Madrid is incompatible with daily on_site_work in Tokyo"
+        ],
     )
     assert res["consistent"] is False
     assert len(res["conflicts"]) > 0
@@ -232,7 +234,14 @@ def test_evaluate_resource_constraints_missing_values_remain_unknown() -> None:
 
 
 def test_evaluate_resource_constraints_rejects_malformed_values() -> None:
-    for bad_val in (True, False, float("nan"), float("inf"), float("-inf"), "not_a_num"):
+    for bad_val in (
+        True,
+        False,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        "not_a_num",
+    ):
         res = evaluate_resource_constraints(
             time={"available_hours_per_week": bad_val, "required_hours_per_week": 10.0},
         )
@@ -281,7 +290,9 @@ def test_evaluate_long_term_temporal_preserves_uncertainty() -> None:
 def test_evaluate_cross_domain_impact_requires_authorized_contribution() -> None:
     # Raw unverified mapping fails
     raw_payload = {"source_domain": "domain:health", "activity_limits": ["no_travel"]}
-    res_unauth = evaluate_cross_domain_impact(projection=raw_payload, is_authorized=False)
+    res_unauth = evaluate_cross_domain_impact(
+        projection=raw_payload, is_authorized=False
+    )
     assert res_unauth["applied"] is False
 
     # Prohibited clinical dossier fields are rejected

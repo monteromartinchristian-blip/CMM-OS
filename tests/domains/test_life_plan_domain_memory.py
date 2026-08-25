@@ -51,7 +51,9 @@ def test_validate_life_plan_memory_proposal_content_valid() -> None:
     assert res["is_valid"] is True
 
 
-def test_validate_life_plan_memory_proposal_content_rejects_unconfirmed_promotion() -> None:
+def test_validate_life_plan_memory_proposal_content_rejects_unconfirmed_promotion() -> (
+    None
+):
     content = {
         "kind": "decision",
         "status": "decision",
@@ -60,10 +62,15 @@ def test_validate_life_plan_memory_proposal_content_rejects_unconfirmed_promotio
     }
     res = validate_life_plan_memory_proposal_content(content)
     assert res["is_valid"] is False
-    assert "unconfirmed" in res["reason"].lower() or "confirmation" in res["reason"].lower()
+    assert (
+        "unconfirmed" in res["reason"].lower()
+        or "confirmation" in res["reason"].lower()
+    )
 
 
-def test_validate_life_plan_memory_proposal_content_rejects_prohibited_clinical_data() -> None:
+def test_validate_life_plan_memory_proposal_content_rejects_prohibited_clinical_data() -> (
+    None
+):
     content = {
         "kind": "health_constraint",
         "full_clinical_history": ["surgery_2024"],
@@ -73,7 +80,9 @@ def test_validate_life_plan_memory_proposal_content_rejects_prohibited_clinical_
 
 
 def test_life_plan_memory_view_request() -> None:
-    req = build_life_plan_memory_view_request(request_id="req-view-01", trace_id="tr-view-01")
+    req = build_life_plan_memory_view_request(
+        request_id="req-view-01", trace_id="tr-view-01"
+    )
     assert req.request_id == "req-view-01"
     assert str(req.primary_domain) == "domain:life-plan"
 
