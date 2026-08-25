@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; Phase 10.28 — Sport Domain is implemented with audit V3 findings remediated and re-audit pending; the remaining work proceeds from 10.29 through 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, and Phase 10.27 — Paternidad Domain are complete; Phase 10.28 — Sport Domain is implemented with final closure remediation complete and final independent re-audit pending; the remaining work proceeds from 10.29 through 10.30.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -4489,20 +4489,21 @@ Permissions
 * without automatic modification of treatment;
 * calendars under authorisation.
 
-Status: implemented; audit V3 findings remediated; re-audit pending.
+Status: implemented; final remediation complete; final independent re-audit pending.
 
-Audit V3 Remediation Summary:
-* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v3-remediation.md`
-* Audit V3 Report: `docs/audits/phase-10.28-sport-independent-reaudit-v3.md`
+Audit V4 Remediation Summary:
+* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v4-final-remediation.md`
+* Audit V4 Report: `docs/audits/phase-10.28-sport-independent-reaudit-v4.md`
 * Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (candidate PASS, 44 connected checkpoints)
+* Closure Adversarial Gate: `tests/domains/test_sport_domain_closure_adversarial.py` (PASS, 30 regression checks across Audits V1–V4)
 
 | Finding | Severity | Description | Remediation Status |
 |---|---|---|---|
-| B1 | BLOCKER | Health authorization forgeability | CLOSED (non-forgeable concrete `AuthorizedHealthConstraint` value object, temporal validity verification vs UTC `now`, clinical dossier rejection) |
-| M4 | MAJOR | Calendar approval forgeability | CLOSED (strict single trust path via `ApprovalService`/concrete `ApprovalRequest`/`ApprovalDecision`/`PermissionGateResult`; fake duck typing rejected) |
+| B1 | BLOCKER | Health authorization forgeability & standalone dataclass trust | REMEDIATED — pending independent re-audit (trust is runtime resolver/gate-owned; internal verification token enforced; temporal bounds fail closed; clinical dossiers rejected) |
+| M4 | MAJOR | Calendar approval bypass via unverified gate results or forged objects | REMEDIATED — pending independent re-audit (`ApprovalService.repository` is single trust root; bare gate results and unverified objects rejected; request/decision ID pairing enforced) |
 | M5-A | MAJOR | Return-to-training workflow outcome non-authoritative | CLOSED (shared `DomainWorkflowExecutor` complete node outcome authoritative for recommendations, constraints, and clearance non-claims) |
-| M5-B | MAJOR | Acceptance trace inventory referenced fabricated/non-runtime IDs | CLOSED (trace inventory constructed from upstream runtime objects and real `DomainResult`; fake IDs and `or` fallbacks eliminated) |
-| m1 | MINOR | `is_authorized=True` boolean bypass | CLOSED (removed caller boolean trust; requires concrete `PermissionGateResult` or `CrossDomainPermissionDecision`) |
+| M5-B | MAJOR | Acceptance & trace inventory constructed after trace instead of independently | REMEDIATED — pending independent re-audit (trace inventory constructed independently prior to trace assembly using precalculated probe canonical ID) |
+| m1 | MINOR | `is_authorized=True` boolean bypass | CLOSED (removed caller boolean trust; requires concrete runtime resolver/gate resolution) |
 
 
 ⸻
