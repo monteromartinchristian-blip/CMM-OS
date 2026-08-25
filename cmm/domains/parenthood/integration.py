@@ -1,0 +1,469 @@
+"""Phase 10.27 — Parenthood Domain Integration.
+
+Provides atomic, deterministic registration of the complete Parenthood Domain
+across all relevant registries. Registration is **validation-first** and
+**rollback-capable**: all inputs are validated against every registry before
+the first mutation, and snapshots of every registry are captured before any
+mutation. If any registration raises after a mutation, all registries are
+restored to their exact prior state via public ``restore_state()`` APIs.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from cmm.domains.errors import DomainPermissionRegistryError
+from cmm.domains.operation_registry import validate_domain_operation_implementation
+from cmm.domains.parenthood.definition import (
+    PARENTHOOD_DOMAIN_ID,
+    build_parenthood_domain_definition,
+)
+from cmm.domains.parenthood.operations import (
+    build_parenthood_operation_definitions,
+)
+from cmm.domains.parenthood.permissions import build_parenthood_permission_policy
+from cmm.domains.parenthood.profile import build_parenthood_profile
+from cmm.domains.parenthood.resources import (
+    build_parenthood_resource_definitions,
+)
+from cmm.domains.parenthood.rules import build_parenthood_rules
+from cmm.domains.parenthood.workflows import (
+    build_parenthood_workflow_definitions,
+)
+
+
+class ParenthoodDomainIntegrationResult:
+    """Compact result container for a Parenthood Domain registration."""
+
+    __slots__ = (
+        "definition",
+        "operations",
+        "permission_policy",
+        "profile",
+        "resources",
+        "rules",
+        "workflows",
+    )
+
+    def __init__(
+        self,
+        *,
+        definition: Any,
+        profile: Any,
+        resources: Any,
+        rules: Any,
+        operations: Any,
+        workflows: Any,
+        permission_policy: Any,
+    ) -> None:
+        self.definition = definition
+        self.profile = profile
+        self.resources = resources
+        self.rules = rules
+        self.operations = operations
+        self.workflows = workflows
+        self.permission_policy = permission_policy
+
+
+def _validate_operation_implementations(
+    operations: Any,
+    operation_implementations: dict[str, Any] | None,
+) -> None:
+    """Validate that every provided implementation matches a declared operation."""
+    implementations = operation_implementations or {}
+    operations_by_id = {operation.operation_id: operation for operation in operations}
+    unknown = tuple(
+        operation_id
+        for operation_id in implementations
+        if operation_id not in operations_by_id
+    )
+    if unknown:
+        raise ValueError(
+            "Operation implementations reference undeclared operations: "
+            + ", ".join(sorted(unknown))
+        )
+    for operation_id, implementation in implementations.items():
+        validate_domain_operation_implementation(
+            operations_by_id[operation_id], implementation
+        )
+
+
+def _validate_no_duplicate_operations(operation_registry: Any, operations: Any) -> None:
+    """Validate that no operation key is already registered in the domain or nested common registry."""
+    existing_ids = {
+        definition.operation_id
+        for definition in operation_registry.list_definitions()
+    }
+    duplicates = tuple(
+        operation.operation_id
+        for operation in operations
+        if operation.operation_id in existing_ids
+    )
+    if duplicates:
+        from cmm.domains.errors import DomainOperationRegistryError
+
+        raise DomainOperationRegistryError(
+            "Operation already registered: " + ", ".join(sorted(duplicates)),
+            details={"operation_ids": sorted(duplicates)},
+        )
+
+    common_collisions = tuple(
+        operation.operation_id
+        for operation in operations
+        if operation_registry.common_registry.contains(
+            operation.operation_id,
+            operation.version,
+        )
+    )
+    if common_collisions:
+        from cmm.domains.errors import DomainOperationRegistryError
+
+        raise DomainOperationRegistryError(
+            "Operation already registered in the common registry: "
+            + ", ".join(sorted(common_collisions)),
+            details={"operation_ids": sorted(common_collisions)},
+        )
+
+
+def _validate_no_duplicate_workflows(workflow_registry: Any, workflows: Any) -> None:
+    """Validate that no workflow key is already registered, before any mutation."""
+    existing_ids = {
+        definition.workflow_id
+        for definition in workflow_registry.list_for_domain(PARENTHOOD_DOMAIN_ID)
+    }
+    duplicates = tuple(
+        workflow.workflow_id
+        for workflow in workflows
+        if workflow.workflow_id in existing_ids
+    )
+    if duplicates:
+        from cmm.workflows.errors import WorkflowRegistryError
+
+        raise WorkflowRegistryError(
+            "Workflow already registered: " + ", ".join(sorted(duplicates))
+        )
+
+    existing_common_keys = {
+        (definition.workflow_id, definition.version)
+        for definition in workflow_registry.common_registry.list_definitions()
+    }
+    common_collisions = tuple(
+        workflow.workflow_id
+        for workflow in workflows
+        if (workflow.workflow_id, workflow.version) in existing_common_keys
+    )
+    if common_collisions:
+        from cmm.workflows.errors import WorkflowRegistryError
+
+        raise WorkflowRegistryError(
+            "Workflow already registered in the common registry: "
+            + ", ".join(sorted(common_collisions))
+        )
+
+
+def _validate_all(
+    *,
+    definition: Any,
+    profile: Any,
+    resources: Any,
+    rules: Any,
+    operations: Any,
+    workflows: Any,
+    permission_policy: Any,
+    domain_registry: Any,
+    profile_registry: Any,
+    resource_registry: Any,
+    rule_registry: Any,
+    operation_registry: Any,
+    workflow_registry: Any,
+    permission_registry: Any,
+    operation_implementations: dict[str, Any] | None,
+) -> None:
+    """Validate all inputs against every registry before any mutation."""
+    if domain_registry is not None:
+        existing = domain_registry.get(str(definition.id))
+        if existing is not None:
+            from cmm.domains.errors import DomainRegistryConflict
+
+            raise DomainRegistryConflict(
+                f"Domain {definition.id} is already registered",
+                field="domain_id",
+                details={"domain_id": str(definition.id)},
+            )
+
+    if profile_registry is not None:
+        existing = profile_registry.get(profile.id)
+        if existing is not None:
+            from cmm.domains.errors import DomainProfileRegistryError
+
+            raise DomainProfileRegistryError(
+                f"Profile {profile.id!r} is already registered",
+                field="id",
+                details={"id": profile.id},
+            )
+        existing_for_domain = profile_registry.get_by_domain(profile.domain_id)
+        if existing_for_domain is not None:
+            from cmm.domains.errors import DomainProfileRegistryError
+
+            raise DomainProfileRegistryError(
+                f"Domain {str(profile.domain_id)!r} already has an active base profile",
+                field="domain_id",
+                details={
+                    "domain_id": str(profile.domain_id),
+                    "profile_id": profile.id,
+                    "existing_profile_id": existing_for_domain.id,
+                },
+            )
+
+    if resource_registry is not None:
+        existing_ids = {r.id for r in resource_registry.list_all()}
+        duplicates = tuple(
+            resource.id for resource in resources if resource.id in existing_ids
+        )
+        if duplicates:
+            from cmm.domains.errors import DomainResourceRegistryError
+
+            raise DomainResourceRegistryError(
+                "Resource already registered: " + ", ".join(sorted(duplicates)),
+                field="id",
+                details={"ids": sorted(duplicates)},
+            )
+        pack_ids = {resource.id for resource in resources}
+        if len(pack_ids) != len(tuple(resources)):
+            from cmm.domains.errors import DomainResourceRegistryError
+
+            raise DomainResourceRegistryError(
+                "Resource pack contains duplicate members",
+                field="id",
+                details={
+                    "duplicate_ids": sorted(
+                        resource.id
+                        for resource in resources
+                        if resource.id in pack_ids
+                        and list(resources).count(resource) > 1
+                    )
+                },
+            )
+
+    if rule_registry is not None:
+        existing_rule_ids = {rule.definition.id for rule in rule_registry.list_all()}
+        duplicates = tuple(
+            rule.definition.id
+            for rule in rules
+            if rule.definition.id in existing_rule_ids
+        )
+        if duplicates:
+            from cmm.cognitive.errors import ReasoningRuleRegistryError
+
+            raise ReasoningRuleRegistryError(
+                "Rule already registered: " + ", ".join(sorted(duplicates)),
+                field="id",
+                details={"ids": sorted(duplicates)},
+            )
+
+    if operation_registry is not None:
+        _validate_operation_implementations(operations, operation_implementations)
+        _validate_no_duplicate_operations(operation_registry, operations)
+
+    if workflow_registry is not None:
+        _validate_no_duplicate_workflows(workflow_registry, workflows)
+
+    if permission_registry is not None:
+        try:
+            permission_registry.get(permission_policy.policy_id)
+        except DomainPermissionRegistryError:
+            pass
+        else:
+            raise DomainPermissionRegistryError(
+                "Permission policy already registered",
+                details={"policy_id": permission_policy.policy_id},
+            )
+
+
+def _capture_snapshots(
+    *,
+    domain_registry: Any,
+    profile_registry: Any,
+    resource_registry: Any,
+    rule_registry: Any,
+    operation_registry: Any,
+    workflow_registry: Any,
+    permission_registry: Any,
+) -> dict[str, Any]:
+    """Capture snapshots of all registries before the first mutation."""
+    snapshots: dict[str, Any] = {}
+    if domain_registry is not None:
+        snapshots["domain_registry"] = domain_registry.snapshot_state()
+    if profile_registry is not None:
+        snapshots["profile_registry"] = profile_registry.snapshot_state()
+    if resource_registry is not None:
+        snapshots["resource_registry"] = resource_registry.snapshot_state()
+    if rule_registry is not None:
+        snapshots["rule_registry"] = rule_registry.snapshot_state()
+    if operation_registry is not None:
+        snapshots["operation_registry"] = operation_registry.snapshot_state()
+    if workflow_registry is not None:
+        snapshots["workflow_registry"] = workflow_registry.snapshot_state()
+    if permission_registry is not None:
+        snapshots["permission_registry"] = permission_registry.snapshot_state()
+    return snapshots
+
+
+def _rollback(
+    snapshots: dict[str, Any],
+    *,
+    domain_registry: Any,
+    profile_registry: Any,
+    resource_registry: Any,
+    rule_registry: Any,
+    operation_registry: Any,
+    workflow_registry: Any,
+    permission_registry: Any,
+    original_error: Exception,
+) -> None:
+    """Restore all registries in reverse order (reverse dependency order)."""
+    rollback_errors: list[str] = []
+
+    if permission_registry is not None and "permission_registry" in snapshots:
+        try:
+            permission_registry.restore_state(snapshots["permission_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"permission_registry: {type(exc).__name__}")
+    if workflow_registry is not None and "workflow_registry" in snapshots:
+        try:
+            workflow_registry.restore_state(snapshots["workflow_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"workflow_registry: {type(exc).__name__}")
+    if operation_registry is not None and "operation_registry" in snapshots:
+        try:
+            operation_registry.restore_state(snapshots["operation_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"operation_registry: {type(exc).__name__}")
+    if rule_registry is not None and "rule_registry" in snapshots:
+        try:
+            rule_registry.restore_state(snapshots["rule_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"rule_registry: {type(exc).__name__}")
+    if resource_registry is not None and "resource_registry" in snapshots:
+        try:
+            resource_registry.restore_state(snapshots["resource_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"resource_registry: {type(exc).__name__}")
+    if profile_registry is not None and "profile_registry" in snapshots:
+        try:
+            profile_registry.restore_state(snapshots["profile_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"profile_registry: {type(exc).__name__}")
+    if domain_registry is not None and "domain_registry" in snapshots:
+        try:
+            domain_registry.restore_state(snapshots["domain_registry"])
+        except Exception as exc:  # noqa: BLE001
+            rollback_errors.append(f"domain_registry: {type(exc).__name__}")
+
+    if rollback_errors:
+        from cmm.domains.errors import DomainError
+
+        raise DomainError(
+            "Parenthood Domain registration failed and rollback was incomplete: "
+            + "; ".join(rollback_errors)
+        ) from original_error
+
+
+def register_parenthood_domain(
+    *,
+    domain_registry: Any = None,
+    profile_registry: Any = None,
+    resource_registry: Any = None,
+    rule_registry: Any = None,
+    operation_registry: Any = None,
+    workflow_registry: Any = None,
+    permission_registry: Any = None,
+    operation_implementations: dict[str, Any] | None = None,
+) -> ParenthoodDomainIntegrationResult:
+    """Register the complete Parenthood Domain atomically."""
+    definition = build_parenthood_domain_definition()
+    profile = build_parenthood_profile()
+    resources = build_parenthood_resource_definitions()
+    rules = build_parenthood_rules()
+    operations = build_parenthood_operation_definitions()
+    workflows = build_parenthood_workflow_definitions()
+    permission_policy = build_parenthood_permission_policy()
+
+    _validate_all(
+        definition=definition,
+        profile=profile,
+        resources=resources,
+        rules=rules,
+        operations=operations,
+        workflows=workflows,
+        permission_policy=permission_policy,
+        domain_registry=domain_registry,
+        profile_registry=profile_registry,
+        resource_registry=resource_registry,
+        rule_registry=rule_registry,
+        operation_registry=operation_registry,
+        workflow_registry=workflow_registry,
+        permission_registry=permission_registry,
+        operation_implementations=operation_implementations,
+    )
+
+    snapshots = _capture_snapshots(
+        domain_registry=domain_registry,
+        profile_registry=profile_registry,
+        resource_registry=resource_registry,
+        rule_registry=rule_registry,
+        operation_registry=operation_registry,
+        workflow_registry=workflow_registry,
+        permission_registry=permission_registry,
+    )
+
+    try:
+        if domain_registry is not None:
+            domain_registry.register(definition)
+        if profile_registry is not None:
+            profile_registry.register(profile)
+        if resource_registry is not None:
+            for resource in resources:
+                resource_registry.register(resource)
+        if rule_registry is not None:
+            for rule in rules:
+                rule_registry.register(rule)
+        if operation_registry is not None:
+            implementations = operation_implementations or {}
+            for operation in operations:
+                implementation = implementations.get(operation.operation_id)
+                operation_registry.register(operation, implementation)
+        if workflow_registry is not None:
+            for workflow in workflows:
+                workflow_registry.register(workflow)
+        if permission_registry is not None:
+            permission_registry.register(permission_policy)
+    except Exception as exc:
+        _rollback(
+            snapshots,
+            domain_registry=domain_registry,
+            profile_registry=profile_registry,
+            resource_registry=resource_registry,
+            rule_registry=rule_registry,
+            operation_registry=operation_registry,
+            workflow_registry=workflow_registry,
+            permission_registry=permission_registry,
+            original_error=exc,
+        )
+        raise
+
+    return ParenthoodDomainIntegrationResult(
+        definition=definition,
+        profile=profile,
+        resources=resources,
+        rules=rules,
+        operations=operations,
+        workflows=workflows,
+        permission_policy=permission_policy,
+    )
+
+
+__all__ = [
+    "ParenthoodDomainIntegrationResult",
+    "register_parenthood_domain",
+]
