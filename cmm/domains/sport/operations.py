@@ -170,15 +170,17 @@ def review_progress_result(
 def _extract_authorized_health_constraint(
     health_constraint: Any,
 ) -> dict[str, Any] | None:
-    """Extract and validate that a health constraint has current authorization evidence."""
+    """Extract and validate that a health constraint has verified authorization evidence."""
     if not isinstance(health_constraint, dict):
         return None
-    if health_constraint.get("applied") is True and isinstance(
-        health_constraint.get("constraint"), dict
+    if (
+        health_constraint.get("applied") is True
+        and health_constraint.get("authorization_verified") is True
+        and isinstance(health_constraint.get("constraint"), dict)
     ):
         hc = health_constraint["constraint"]
     else:
-        hc = health_constraint
+        return None
 
     if not isinstance(hc, dict):
         return None
@@ -211,11 +213,14 @@ def adjust_training_load_result(
     """Adjust training load taking readiness and Health constraints into account."""
     adjusted = current_load
     constraint_applied = False
+    constraint_pending_application = False
+    effective_constraints: dict[str, Any] = {}
 
     hc = _extract_authorized_health_constraint(health_constraint)
     if hc is not None:
         load_limits = hc.get("load_limits", {})
         if isinstance(load_limits, dict):
+            effective_constraints.update(load_limits)
             if "reduction_pct" in load_limits:
                 red_pct = load_limits["reduction_pct"]
                 if not isinstance(red_pct, bool):
@@ -238,7 +243,15 @@ def adjust_training_load_result(
                         pass
 
             elif "max_intensity" in load_limits:
-                constraint_applied = True
+                max_int = load_limits["max_intensity"]
+                if not isinstance(max_int, bool):
+                    try:
+                        max_int_f = float(max_int)
+                        if math.isfinite(max_int_f) and max_int_f >= 0.0:
+                            constraint_applied = False
+                            constraint_pending_application = True
+                    except (ValueError, TypeError):
+                        pass
 
     if readiness_state in ("limited", "hold") and not constraint_applied:
         adjusted = current_load * 0.8
@@ -252,6 +265,8 @@ def adjust_training_load_result(
         "adjusted_load": adjusted,
         "readiness_state": readiness_state,
         "constraint_applied": constraint_applied,
+        "constraint_pending_application": constraint_pending_application,
+        "effective_constraints": effective_constraints,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -358,6 +373,9 @@ def schedule_sessions_result(
     approval_request_id: str | None = None,
     approval_decision_id: str | None = None,
     approval_decision: Any = None,
+    approval_request: Any = None,
+    approval_service: Any = None,
+    approval_evidence: Any = None,
     has_approval: bool = False,
 ) -> dict[str, Any]:
     """Propose session schedules; direct external calendar mutation requires scoped approval evidence."""
@@ -365,19 +383,63 @@ def schedule_sessions_result(
     dec_id = approval_decision_id
     is_approved = False
 
-    if approval_decision is not None:
-        status_val = (
-            approval_decision.status.value
-            if hasattr(approval_decision.status, "value")
-            else str(approval_decision.status)
-        )
-        if status_val.lower() == "approved":
+    # 1. Direct consumption evidence (e.g. from PermissionGate or ApprovalService)
+    if (
+        approval_evidence is not None
+        and getattr(approval_evidence, "granted", False) is True
+    ):
+        act = getattr(approval_evidence, "action", "")
+        if act in (
+            "sport.schedule_sessions",
+            "schedule.modification",
+            "operation.execute",
+            "",
+        ):
+            req_id = req_id or getattr(approval_evidence, "request_id", None)
             is_approved = True
-            req_id = req_id or getattr(approval_decision, "request_id", None)
-            dec_id = dec_id or getattr(approval_decision, "id", None)
-    elif approval_request_id and approval_decision_id:
-        is_approved = True
 
+    # 2. Validated via ApprovalService
+    if approval_service is not None and (
+        approval_decision is not None or (approval_request_id and approval_decision_id)
+    ):
+        target_req_id = (
+            getattr(approval_decision, "request_id", None) or approval_request_id
+        )
+        target_dec_id = getattr(approval_decision, "id", None) or approval_decision_id
+        try:
+            stored_req = approval_service.repository.get_request(target_req_id)
+            stored_decs = approval_service.repository.list_decisions(target_req_id)
+            matching_dec = next((d for d in stored_decs if d.id == target_dec_id), None)
+            if stored_req is not None and matching_dec is not None:
+                op_id = getattr(stored_req, "operation_id", None)
+                if op_id in ("sport.schedule_sessions", "schedule_sessions"):
+                    dec_type = getattr(matching_dec, "decision", None)
+                    dec_str = (
+                        dec_type.value if hasattr(dec_type, "value") else str(dec_type)
+                    )
+                    if dec_str.lower() in ("approve", "approved"):
+                        is_approved = True
+                        req_id = stored_req.id
+                        dec_id = matching_dec.id
+        except (AttributeError, KeyError, TypeError, ValueError):
+            is_approved = False
+
+    # 3. Validated via matching ApprovalDecision and ApprovalRequest objects
+    elif approval_decision is not None and approval_request is not None:
+        dec_req_id = getattr(approval_decision, "request_id", None)
+        if dec_req_id == getattr(approval_request, "id", None):
+            op_id = getattr(approval_request, "operation_id", None)
+            if op_id in ("sport.schedule_sessions", "schedule_sessions"):
+                dec_type = getattr(approval_decision, "decision", None)
+                dec_str = (
+                    dec_type.value if hasattr(dec_type, "value") else str(dec_type)
+                )
+                if dec_str.lower() in ("approve", "approved"):
+                    is_approved = True
+                    req_id = approval_request.id
+                    dec_id = getattr(approval_decision, "id", None)
+
+    # Standalone string IDs or unverified decisions remain unapproved
     if not is_approved or not req_id or not dec_id:
         return {
             "status": "proposal_pending_approval",

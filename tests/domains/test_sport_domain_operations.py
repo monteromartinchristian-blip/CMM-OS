@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_OPERATION_IDS,
 )
@@ -16,6 +17,7 @@ from cmm.domains.sport.operations import (
     schedule_sessions_result,
     track_measurements_result,
 )
+from cmm.domains.sport.rules import evaluate_health_constraint
 
 
 def test_sport_operation_definitions_canonical_parity() -> None:
@@ -40,58 +42,125 @@ def test_review_progress_preserves_insufficient_evidence() -> None:
 
 
 def test_adjust_training_load_respects_health_constraint_and_readiness() -> None:
-    health_constraint = {
+    raw_hc = {
         "status": "active",
         "authorization_reference": "auth-001",
         "load_limits": {"reduction_pct": 20},
     }
+    vetted_hc = evaluate_health_constraint(raw_hc, is_authorized=True, is_current=True)
     res = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
-        health_constraint=health_constraint,
+        health_constraint=vetted_hc,
     )
     assert res["status"] == "load_reduced"
     assert res["adjusted_load"] == 120.0
     assert res["constraint_applied"] is True
+    assert res["constraint_pending_application"] is False
+    assert res["effective_constraints"]["reduction_pct"] == 20
 
     # 0% reduction -> 150.0
-    res_zero = adjust_training_load_result(
-        current_load=150.0,
-        readiness_state="ready",
-        health_constraint={
+    vetted_zero = evaluate_health_constraint(
+        {
             "status": "active",
             "authorization_reference": "auth-001",
             "load_limits": {"reduction_pct": 0},
         },
+        is_authorized=True,
+        is_current=True,
+    )
+    res_zero = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint=vetted_zero,
     )
     assert res_zero["adjusted_load"] == 150.0
     assert res_zero["constraint_applied"] is True
 
-    # Invalid reduction percentage -> not applied
-    res_invalid = adjust_training_load_result(
+    # max_load constraint
+    vetted_max = evaluate_health_constraint(
+        {
+            "status": "active",
+            "authorization_reference": "auth-001",
+            "load_limits": {"max_load": 80},
+        },
+        is_authorized=True,
+        is_current=True,
+    )
+    res_max = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
-        health_constraint={
+        health_constraint=vetted_max,
+    )
+    assert res_max["adjusted_load"] == 80.0
+    assert res_max["constraint_applied"] is True
+    assert res_max["effective_constraints"]["max_load"] == 80
+
+    # Invalid reduction percentage -> not applied
+    vetted_invalid = evaluate_health_constraint(
+        {
             "status": "active",
             "authorization_reference": "auth-001",
             "load_limits": {"reduction_pct": -10},
         },
+        is_authorized=True,
+        is_current=True,
+    )
+    res_invalid = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint=vetted_invalid,
     )
     assert res_invalid["constraint_applied"] is False
     assert res_invalid["adjusted_load"] == 150.0
 
-    # max_intensity does not invent 30% reduction
-    res_intensity = adjust_training_load_result(
-        current_load=150.0,
-        readiness_state="ready",
-        health_constraint={
+    # max_intensity does not invent reduction; marks constraint_pending_application=True and preserves value
+    vetted_intensity = evaluate_health_constraint(
+        {
             "status": "active",
             "authorization_reference": "auth-001",
             "load_limits": {"max_intensity": 0.5},
         },
+        is_authorized=True,
+        is_current=True,
     )
-    assert res_intensity["constraint_applied"] is True
+    res_intensity = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint=vetted_intensity,
+    )
+    assert res_intensity["constraint_applied"] is False
+    assert res_intensity["constraint_pending_application"] is True
     assert res_intensity["adjusted_load"] == 150.0
+    assert res_intensity["effective_constraints"]["max_intensity"] == 0.5
+
+
+def test_raw_health_constraint_with_fabricated_authorization_is_not_applied() -> None:
+    result = adjust_training_load_result(
+        current_load=100.0,
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "totally-fabricated",
+            "load_limits": {"reduction_pct": 50},
+        },
+    )
+    assert result["constraint_applied"] is False
+    assert result["adjusted_load"] == 100.0
+
+
+def test_raw_health_constraint_with_fabricated_authorization_cannot_block_workout() -> (
+    None
+):
+    result = generate_workout_result(
+        requested_type="high_intensity_plyometrics",
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "fake",
+            "activity_limits": ["no_high_impact"],
+        },
+    )
+    assert result["status"] == "generated"
+    assert result["workout"] is not None
 
 
 def test_adjust_training_load_rejects_unvetted_raw_dict_without_authorization() -> None:
@@ -106,11 +175,15 @@ def test_adjust_training_load_rejects_unvetted_raw_dict_without_authorization() 
 
 
 def test_generate_workout_cannot_bypass_blocking_constraint() -> None:
-    blocking_constraint = {
-        "status": "active",
-        "authorization_reference": "auth-002",
-        "activity_limits": ["no_high_impact"],
-    }
+    blocking_constraint = evaluate_health_constraint(
+        {
+            "status": "active",
+            "authorization_reference": "auth-002",
+            "activity_limits": ["no_high_impact"],
+        },
+        is_authorized=True,
+        is_current=True,
+    )
     res = generate_workout_result(
         requested_type="high_intensity_plyometrics",
         health_constraint=blocking_constraint,
@@ -175,14 +248,64 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
     assert res_bare_bool["status"] == "proposal_pending_approval"
     assert res_bare_bool["approval_required"] is True
 
-    # Real scoped approval evidence
+    # Fabricated string IDs without canonical approval service/decision are rejected
+    res_fake_ids = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_request_id="fake-req-001",
+        approval_decision_id="fake-dec-001",
+    )
+    assert res_fake_ids["status"] == "proposal_pending_approval"
+    assert res_fake_ids.get("approval_granted") is not True
+
+    # Mismatched approval request and decision IDs fail
+    approval_svc = ApprovalService()
+    req_a = approval_svc.create_request(
+        title="Approve Monday Run",
+        description="Schedule Monday run",
+        operation_id="sport.schedule_sessions",
+    )
+    approval_svc.approve(req_a.id, "athlete")
+    dec_a = approval_svc.repository.list_decisions(req_a.id)[0]
+
+    req_b = approval_svc.create_request(
+        title="Approve Tuesday Run",
+        description="Schedule Tuesday run",
+        operation_id="sport.schedule_sessions",
+    )
+
+    res_mismatched = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_request=req_b,
+        approval_decision=dec_a,
+    )
+    assert res_mismatched["status"] == "proposal_pending_approval"
+    assert res_mismatched.get("approval_granted") is not True
+
+    # Wrong operation scope fails
+    req_wrong_scope = approval_svc.create_request(
+        title="Approve unrelated operation",
+        description="Unrelated operation approval",
+        operation_id="sport.create_training_plan",
+    )
+    approval_svc.approve(req_wrong_scope.id, "athlete")
+    dec_wrong_scope = approval_svc.repository.list_decisions(req_wrong_scope.id)[0]
+
+    res_wrong_scope = schedule_sessions_result(
+        sessions=[{"day": "Monday", "time": "08:00"}],
+        approval_request=req_wrong_scope,
+        approval_decision=dec_wrong_scope,
+    )
+    assert res_wrong_scope["status"] == "proposal_pending_approval"
+    assert res_wrong_scope.get("approval_granted") is not True
+
+    # Real scoped approval evidence succeeds
     res_with_approval = schedule_sessions_result(
         sessions=[{"day": "Monday", "time": "08:00"}],
-        approval_request_id="app-req-001",
-        approval_decision_id="app-dec-001",
+        approval_request=req_a,
+        approval_decision=dec_a,
     )
     assert res_with_approval["status"] == "ready_for_external_execution"
     assert res_with_approval["approval_granted"] is True
-    assert res_with_approval["approval_request_id"] == "app-req-001"
-    assert res_with_approval["approval_decision_id"] == "app-dec-001"
+    assert res_with_approval["approval_request_id"] == req_a.id
+    assert res_with_approval["approval_decision_id"] == dec_a.id
     assert res_with_approval["external_calendar_mutated"] is False
