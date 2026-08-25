@@ -42,23 +42,85 @@ def test_review_progress_preserves_insufficient_evidence() -> None:
 
 
 def test_adjust_training_load_respects_health_constraint_and_readiness() -> None:
-    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
-    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+    import dataclasses
+    from datetime import datetime, timezone
 
-    perm_dec = CrossDomainPermissionDecision(
-        request_id="auth-001",
-        decision=PermissionOutcome.ALLOW,
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
     )
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.general.permissions import build_general_permission_policy
+    from cmm.domains.health.permissions import build_health_permission_policy
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.sport import SPORT_DOMAIN_ID, build_sport_permission_policy
+
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_sport_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+    health_policy = dataclasses.replace(
+        build_health_permission_policy(),
+        allow_cross_domain_access=True,
+        allowed_target_domains=("domain:sport",),
+        allowed_capabilities=(
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ),
+        allowed_resource_kinds=("resource.health_resource",),
+        allowed_sensitivity_levels=("restricted",),
+    )
+    perm_registry.register(health_policy)
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: now)
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="auth-001",
+        source_domain="domain:health",
+        target_domain=SPORT_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="return-to-training functional constraint",
+        actor_id="actor-test",
+        session_id="sess-test",
+        sensitivity_level="restricted",
+        resource_ids=("sport.resource.health_resource:rtt-001",),
+        resource_kinds=("resource.health_resource",),
+    )
+    pending = gate.evaluate_cross_domain(cross_request)
+    req_item = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
+    app_req = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id="run-1"),
+        requested_by="sports-physician",
+    )
+    approval_service.approve(app_req.id, "sports-physician")
+    consumed = gate.evaluate_cross_domain(cross_request, approval_request_id=app_req.id)
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+
     raw_hc = {
         "status": "active",
-        "authorization_reference": "auth-001",
+        "authorization_reference": consumed.decision_id,
         "load_limits": {"reduction_pct": 20},
     }
-    vetted_hc = evaluate_health_constraint(raw_hc, permission_decision=perm_dec)
+    vetted_hc = evaluate_health_constraint(
+        raw_hc,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
+    )
     res = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
         health_constraint=vetted_hc,
+        now=now,
     )
     assert res["status"] == "load_reduced"
     assert res["adjusted_load"] == 120.0
@@ -70,15 +132,19 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
     vetted_zero = evaluate_health_constraint(
         {
             "status": "active",
-            "authorization_reference": "auth-001",
+            "authorization_reference": consumed.decision_id,
             "load_limits": {"reduction_pct": 0},
         },
-        permission_decision=perm_dec,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
     )
     res_zero = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
         health_constraint=vetted_zero,
+        now=now,
     )
     assert res_zero["adjusted_load"] == 150.0
     assert res_zero["constraint_applied"] is True
@@ -87,15 +153,19 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
     vetted_max = evaluate_health_constraint(
         {
             "status": "active",
-            "authorization_reference": "auth-001",
+            "authorization_reference": consumed.decision_id,
             "load_limits": {"max_load": 80},
         },
-        permission_decision=perm_dec,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
     )
     res_max = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
         health_constraint=vetted_max,
+        now=now,
     )
     assert res_max["adjusted_load"] == 80.0
     assert res_max["constraint_applied"] is True
@@ -105,15 +175,19 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
     vetted_invalid = evaluate_health_constraint(
         {
             "status": "active",
-            "authorization_reference": "auth-001",
+            "authorization_reference": consumed.decision_id,
             "load_limits": {"reduction_pct": -10},
         },
-        permission_decision=perm_dec,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
     )
     res_invalid = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
         health_constraint=vetted_invalid,
+        now=now,
     )
     assert res_invalid["constraint_applied"] is False
     assert res_invalid["adjusted_load"] == 150.0
@@ -122,15 +196,19 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
     vetted_intensity = evaluate_health_constraint(
         {
             "status": "active",
-            "authorization_reference": "auth-001",
+            "authorization_reference": consumed.decision_id,
             "load_limits": {"max_intensity": 0.5},
         },
-        permission_decision=perm_dec,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
     )
     res_intensity = adjust_training_load_result(
         current_load=150.0,
         readiness_state="ready",
         health_constraint=vetted_intensity,
+        now=now,
     )
     assert res_intensity["constraint_applied"] is False
     assert res_intensity["constraint_pending_application"] is True
@@ -178,20 +256,78 @@ def test_adjust_training_load_rejects_unvetted_raw_dict_without_authorization() 
 
 
 def test_generate_workout_cannot_bypass_blocking_constraint() -> None:
-    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
-    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+    import dataclasses
+    from datetime import datetime, timezone
 
-    perm_dec = CrossDomainPermissionDecision(
-        request_id="auth-002",
-        decision=PermissionOutcome.ALLOW,
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
     )
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.general.permissions import build_general_permission_policy
+    from cmm.domains.health.permissions import build_health_permission_policy
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.sport import SPORT_DOMAIN_ID, build_sport_permission_policy
+
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_sport_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+    health_policy = dataclasses.replace(
+        build_health_permission_policy(),
+        allow_cross_domain_access=True,
+        allowed_target_domains=("domain:sport",),
+        allowed_capabilities=(
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ),
+        allowed_resource_kinds=("resource.health_resource",),
+        allowed_sensitivity_levels=("restricted",),
+    )
+    perm_registry.register(health_policy)
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: now)
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="auth-002",
+        source_domain="domain:health",
+        target_domain=SPORT_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="return-to-training functional constraint",
+        actor_id="actor-test",
+        session_id="sess-test",
+        sensitivity_level="restricted",
+        resource_ids=("sport.resource.health_resource:rtt-001",),
+        resource_kinds=("resource.health_resource",),
+    )
+    pending = gate.evaluate_cross_domain(cross_request)
+    req_item = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
+    app_req = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id="run-1"),
+        requested_by="sports-physician",
+    )
+    approval_service.approve(app_req.id, "sports-physician")
+    consumed = gate.evaluate_cross_domain(cross_request, approval_request_id=app_req.id)
+    assert consumed.outcome is PermissionGateOutcome.APPROVAL_CONSUMED
+
     blocking_constraint = evaluate_health_constraint(
         {
             "status": "active",
-            "authorization_reference": "auth-002",
+            "authorization_reference": consumed.decision_id,
             "activity_limits": ["no_high_impact"],
         },
-        permission_decision=perm_dec,
+        permission_request=cross_request,
+        permission_decision=consumed,
+        permission_gate=gate,
+        now=now,
     )
     res = generate_workout_result(
         requested_type="high_intensity_plyometrics",
@@ -286,6 +422,7 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         sessions=[{"day": "Monday", "time": "08:00"}],
         approval_request=req_b,
         approval_decision=dec_a,
+        approval_service=approval_svc,
     )
     assert res_mismatched["status"] == "proposal_pending_approval"
     assert res_mismatched.get("approval_granted") is not True
@@ -303,6 +440,7 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         sessions=[{"day": "Monday", "time": "08:00"}],
         approval_request=req_wrong_scope,
         approval_decision=dec_wrong_scope,
+        approval_service=approval_svc,
     )
     assert res_wrong_scope["status"] == "proposal_pending_approval"
     assert res_wrong_scope.get("approval_granted") is not True
@@ -317,6 +455,7 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         sessions=[{"day": "Monday", "time": "08:00"}],
         approval_evidence=FakeEvidence(),
         approval_decision_id="fake-dec",
+        approval_service=approval_svc,
     )
     assert res_fake_ev["status"] == "proposal_pending_approval"
     assert res_fake_ev.get("approval_granted") is not True
@@ -335,6 +474,7 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         sessions=[{"day": "Monday", "time": "08:00"}],
         approval_request=FakeReq(),
         approval_decision=FakeDec(),
+        approval_service=approval_svc,
     )
     assert res_fake_objs["status"] == "proposal_pending_approval"
     assert res_fake_objs.get("approval_granted") is not True
@@ -344,6 +484,7 @@ def test_schedule_sessions_creates_proposal_denies_direct_calendar_mutation() ->
         sessions=[{"day": "Monday", "time": "08:00"}],
         approval_request=req_a,
         approval_decision=dec_a,
+        approval_service=approval_svc,
     )
     assert res_with_approval["status"] == "ready_for_external_execution"
     assert res_with_approval["approval_granted"] is True

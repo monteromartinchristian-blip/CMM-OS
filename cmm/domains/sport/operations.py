@@ -33,7 +33,6 @@ from cmm.agent_runtime.enums import (
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.permission_gate import (
-    PermissionGateOutcome,
     PermissionGateResult,
 )
 from cmm.domains.sport.catalog import (
@@ -193,6 +192,18 @@ def _extract_authorized_health_constraint(
     ):
         artifact = health_constraint["authorized_artifact"]
     else:
+        return None
+
+    # Prove runtime verification token is present and valid
+    if not getattr(artifact, "_is_verified", False):
+        return None
+
+    if (
+        artifact.source_domain != "domain:health"
+        or artifact.target_domain != "domain:sport"
+        or not artifact.permission_decision_id
+        or not artifact.permission_request_id
+    ):
         return None
 
     curr_now = now or datetime.now(timezone.utc)
@@ -408,30 +419,35 @@ def schedule_sessions_result(
     dec_id: str | None = None
     is_approved = False
 
-    # 1. Direct consumption evidence from PermissionGate (PermissionGateResult with APPROVAL_CONSUMED)
-    if isinstance(approval_evidence, PermissionGateResult):
+    # Validated strictly via ApprovalService instance / repository lookup
+    if approval_service is not None and hasattr(approval_service, "repository"):
+        req_from_dec = getattr(approval_decision, "request_id", None)
+        req_from_req = getattr(approval_request, "id", None)
         if (
-            approval_evidence.outcome == PermissionGateOutcome.APPROVAL_CONSUMED
-            and approval_evidence.allowed is True
-        ):
-            act = approval_evidence.action
-            op_id = approval_evidence.metadata.get("operation_id")
-            if act in ("sport.schedule_sessions", "schedule.modification") or op_id in (
-                "sport.schedule_sessions",
-                "schedule_sessions",
-            ):
-                req_id = approval_evidence.decision_id
-                dec_id = approval_evidence.decision_id
-                is_approved = True
-
-    # 2. Validated via ApprovalService instance / repository lookup
-    elif approval_service is not None and hasattr(approval_service, "repository"):
-        target_req_id = (
-            getattr(approval_decision, "request_id", None)
-            or getattr(approval_request, "id", None)
+            req_from_dec
+            and req_from_req
+            and req_from_dec != req_from_req
             or approval_request_id
-        )
+            and req_from_dec
+            and approval_request_id != req_from_dec
+            or approval_request_id
+            and req_from_req
+            and approval_request_id != req_from_req
+        ):
+            target_req_id = None
+        else:
+            target_req_id = req_from_req or req_from_dec or approval_request_id
         target_dec_id = getattr(approval_decision, "id", None) or approval_decision_id
+
+        # If approval_evidence is a PermissionGateResult, check for IDs in it
+        if target_req_id is None and isinstance(
+            approval_evidence, PermissionGateResult
+        ):
+            target_req_id = approval_evidence.metadata.get(
+                "approval_request_id"
+            ) or approval_evidence.metadata.get("request_id")
+            target_dec_id = approval_evidence.decision_id
+
         if target_req_id and target_dec_id:
             try:
                 stored_req = approval_service.repository.get_request(target_req_id)
@@ -442,6 +458,7 @@ def schedule_sessions_result(
                 if (
                     isinstance(stored_req, ApprovalRequest)
                     and isinstance(matching_dec, ApprovalDecision)
+                    and matching_dec.request_id == stored_req.id
                     and stored_req.operation_id
                     in ("sport.schedule_sessions", "schedule_sessions")
                     and matching_dec.decision
@@ -455,23 +472,6 @@ def schedule_sessions_result(
                     dec_id = matching_dec.id
             except (AttributeError, KeyError, TypeError, ValueError):
                 is_approved = False
-
-    # 3. Validated via concrete matching canonical ApprovalDecision and ApprovalRequest instances
-    elif (
-        isinstance(approval_decision, ApprovalDecision)
-        and isinstance(approval_request, ApprovalRequest)
-        and approval_decision.request_id == approval_request.id
-        and approval_request.operation_id
-        in ("sport.schedule_sessions", "schedule_sessions")
-        and approval_decision.decision
-        in (
-            ApprovalDecisionType.APPROVE,
-            ApprovalDecisionType.APPROVE_WITH_CHANGES,
-        )
-    ):
-        is_approved = True
-        req_id = approval_request.id
-        dec_id = approval_decision.id
 
     if not is_approved or not req_id or not dec_id:
         return {
