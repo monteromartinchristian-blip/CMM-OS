@@ -230,16 +230,121 @@ def test_measurement_trend_rejects_incomparable_units_or_methods() -> None:
 
 def test_measurement_trend_preserves_punctual_outlier() -> None:
     obs = [
-        {"timestamp": "2026-08-01", "value": 70.0, "unit": "kg", "method": "scale"},
         {
-            "timestamp": "2026-08-02",
+            "timestamp": "2026-08-01T07:00:00Z",
+            "value": 70.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "weight",
+        },
+        {
+            "timestamp": "2026-08-02T07:00:00Z",
             "value": 85.0,
             "unit": "kg",
             "method": "scale",
+            "metric": "weight",
         },  # outlier
-        {"timestamp": "2026-08-08", "value": 70.2, "unit": "kg", "method": "scale"},
+        {
+            "timestamp": "2026-08-08T07:00:00Z",
+            "value": 70.2,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "weight",
+        },
     ]
     res = evaluate_measurement_trend(obs, metric="weight")
     assert res["status"] == "evaluated"
     assert len(res["outliers"]) == 1
     assert res["outliers"][0]["value"] == 85.0
+
+
+def test_measurement_trend_requires_valid_timestamps_and_deterministic_sorting() -> (
+    None
+):
+    # Missing timestamp in observations
+    missing_ts = [
+        {"value": 70.0, "unit": "kg", "method": "scale", "metric": "weight"},
+        {"value": 69.0, "unit": "kg", "method": "scale", "metric": "weight"},
+    ]
+    res_missing = evaluate_measurement_trend(missing_ts, metric="weight")
+    assert res_missing["status"] == "invalid_evidence"
+
+    # Unsorted input timestamps: earlier date is second in list
+    unsorted_obs = [
+        {
+            "timestamp": "2026-08-15T00:00:00Z",
+            "value": 68.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "weight",
+        },
+        {
+            "timestamp": "2026-08-01T00:00:00Z",
+            "value": 70.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "weight",
+        },
+    ]
+    # Chronologically: 70.0 (Aug 1) -> 68.0 (Aug 15) = decreasing
+    res_sorted = evaluate_measurement_trend(unsorted_obs, metric="weight")
+    assert res_sorted["status"] == "evaluated"
+    assert res_sorted["direction"] == "decreasing"
+
+    # Mismatched metric in observation
+    mismatched_metric = [
+        {
+            "timestamp": "2026-08-01T00:00:00Z",
+            "value": 70.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "weight",
+        },
+        {
+            "timestamp": "2026-08-15T00:00:00Z",
+            "value": 68.0,
+            "unit": "kg",
+            "method": "scale",
+            "metric": "height",
+        },
+    ]
+    res_mismatch = evaluate_measurement_trend(mismatched_metric, metric="weight")
+    assert res_mismatch["status"] == "invalid_evidence"
+
+
+def test_progressive_overload_rejects_non_finite_and_boolean() -> None:
+    # NaN proposed load
+    res_nan_prop = evaluate_progressive_overload(
+        baseline_load=100.0,
+        proposed_load=float("nan"),
+        threshold_percentage=10.0,
+    )
+    assert res_nan_prop["status"] == "invalid_evidence"
+    assert res_nan_prop["certainty"] is False
+
+    # Inf proposed load
+    res_inf_prop = evaluate_progressive_overload(
+        baseline_load=100.0,
+        proposed_load=float("inf"),
+        threshold_percentage=10.0,
+    )
+    assert res_inf_prop["status"] == "invalid_evidence"
+    assert res_inf_prop["certainty"] is False
+
+    # NaN threshold
+    res_nan_thresh = evaluate_progressive_overload(
+        baseline_load=100.0,
+        proposed_load=105.0,
+        threshold_percentage=float("nan"),
+    )
+    assert res_nan_thresh["status"] == "invalid_evidence"
+    assert res_nan_thresh["certainty"] is False
+
+    # Boolean threshold
+    res_bool_thresh = evaluate_progressive_overload(
+        baseline_load=100.0,
+        proposed_load=105.0,
+        threshold_percentage=True,
+    )
+    assert res_bool_thresh["status"] == "invalid_evidence"
+    assert res_bool_thresh["certainty"] is False

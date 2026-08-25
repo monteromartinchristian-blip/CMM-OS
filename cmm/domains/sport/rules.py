@@ -11,7 +11,9 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+
 
 from cmm.cognitive.enums import (
     ReasoningRiskLevel,
@@ -201,6 +203,13 @@ def evaluate_progressive_overload(
             "rationale": "Invalid load numbers",
         }
 
+    if not math.isfinite(base) or not math.isfinite(prop):
+        return {
+            "status": "invalid_evidence",
+            "certainty": False,
+            "rationale": "Non-finite load numbers",
+        }
+
     if base <= 0:
         return {
             "status": "unknown",
@@ -220,16 +229,27 @@ def evaluate_progressive_overload(
             "rationale": "No explicit overload threshold configured",
         }
 
+    if isinstance(threshold_percentage, bool):
+        return {
+            "status": "invalid_evidence",
+            "certainty": False,
+            "rationale": "Invalid threshold data type",
+        }
+
     try:
         thresh = float(threshold_percentage)
     except (ValueError, TypeError):
         return {
-            "status": "proposal",
+            "status": "invalid_evidence",
             "certainty": False,
-            "baseline_load": base,
-            "proposed_load": prop,
-            "increase_percentage": inc_pct,
             "rationale": "Invalid threshold configuration",
+        }
+
+    if not math.isfinite(thresh) or thresh < 0:
+        return {
+            "status": "invalid_evidence",
+            "certainty": False,
+            "rationale": "Invalid non-finite or negative threshold",
         }
 
     if inc_pct > thresh:
@@ -416,16 +436,44 @@ def evaluate_measurement_trend(
             else 0,
         }
 
-    units = {
-        obs.get("unit")
-        for obs in observations
-        if isinstance(obs, dict) and "unit" in obs
-    }
-    methods = {
-        obs.get("method")
-        for obs in observations
-        if isinstance(obs, dict) and "method" in obs
-    }
+    parsed_obs: list[tuple[datetime, dict[str, Any]]] = []
+    units: set[str] = set()
+    methods: set[str] = set()
+
+    for obs in observations:
+        if not isinstance(obs, dict):
+            return {"status": "invalid_evidence", "metric": metric}
+
+        obs_metric = obs.get("metric")
+        if obs_metric is not None and obs_metric != metric:
+            return {"status": "invalid_evidence", "metric": metric}
+
+        ts_val = obs.get("timestamp")
+        if not ts_val or not isinstance(ts_val, str):
+            return {"status": "invalid_evidence", "metric": metric}
+
+        try:
+            ts_str = ts_val.replace("Z", "+00:00") if ts_val.endswith("Z") else ts_val
+            dt = datetime.fromisoformat(ts_str)
+        except (ValueError, TypeError):
+            return {"status": "invalid_evidence", "metric": metric}
+
+        val = obs.get("value")
+        if isinstance(val, bool) or val is None:
+            return {"status": "invalid_evidence", "metric": metric}
+        try:
+            val_f = float(val)
+            if not math.isfinite(val_f):
+                return {"status": "invalid_evidence", "metric": metric}
+        except (ValueError, TypeError):
+            return {"status": "invalid_evidence", "metric": metric}
+
+        if "unit" in obs:
+            units.add(obs["unit"])
+        if "method" in obs:
+            methods.add(obs["method"])
+
+        parsed_obs.append((dt, obs))
 
     if len(units) > 1 or len(methods) > 1:
         return {
@@ -435,36 +483,25 @@ def evaluate_measurement_trend(
             "methods": tuple(methods),
         }
 
-    valid_obs: list[dict[str, Any]] = []
-    for obs in observations:
-        if not isinstance(obs, dict):
-            continue
-        val = obs.get("value")
-        if isinstance(val, bool) or val is None:
-            return {"status": "invalid_evidence", "metric": metric}
-        try:
-            val_f = float(val)
-            if math.isnan(val_f) or math.isinf(val_f):
-                return {"status": "invalid_evidence", "metric": metric}
-        except (ValueError, TypeError):
-            return {"status": "invalid_evidence", "metric": metric}
-        valid_obs.append(obs)
-
-    if len(valid_obs) < 2:
+    if len(parsed_obs) < 2:
         return {"status": "insufficient_data", "metric": metric}
 
+    # Deterministically sort observations chronologically by timestamp
+    parsed_obs.sort(key=lambda item: item[0])
+    sorted_obs = [item[1] for item in parsed_obs]
+
     # Detect punctual outliers (> 10% deviation from mean)
-    values = [float(o["value"]) for o in valid_obs]
+    values = [float(o["value"]) for o in sorted_obs]
     mean_val = sum(values) / len(values)
     outliers = [
-        o for o in valid_obs if abs(float(o["value"]) - mean_val) > mean_val * 0.10
+        o for o in sorted_obs if abs(float(o["value"]) - mean_val) > mean_val * 0.10
     ]
 
-    # Calculate trend direction
+    # Calculate trend direction based on chronologically sorted observations
     first_val = values[0]
     last_val = values[-1]
     diff = last_val - first_val
-    if abs(diff) < 0.01 * first_val:
+    if abs(diff) < 0.01 * first_val if first_val != 0 else abs(diff) < 1e-6:
         direction = "stable"
     elif diff > 0:
         direction = "increasing"
@@ -475,7 +512,7 @@ def evaluate_measurement_trend(
         "status": "evaluated",
         "metric": metric,
         "direction": direction,
-        "observations_count": len(valid_obs),
+        "observations_count": len(sorted_obs),
         "outliers": outliers,
     }
 

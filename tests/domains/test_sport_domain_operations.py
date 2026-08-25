@@ -54,6 +54,45 @@ def test_adjust_training_load_respects_health_constraint_and_readiness() -> None
     assert res["adjusted_load"] == 120.0
     assert res["constraint_applied"] is True
 
+    # 0% reduction -> 150.0
+    res_zero = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "auth-001",
+            "load_limits": {"reduction_pct": 0},
+        },
+    )
+    assert res_zero["adjusted_load"] == 150.0
+    assert res_zero["constraint_applied"] is True
+
+    # Invalid reduction percentage -> not applied
+    res_invalid = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "auth-001",
+            "load_limits": {"reduction_pct": -10},
+        },
+    )
+    assert res_invalid["constraint_applied"] is False
+    assert res_invalid["adjusted_load"] == 150.0
+
+    # max_intensity does not invent 30% reduction
+    res_intensity = adjust_training_load_result(
+        current_load=150.0,
+        readiness_state="ready",
+        health_constraint={
+            "status": "active",
+            "authorization_reference": "auth-001",
+            "load_limits": {"max_intensity": 0.5},
+        },
+    )
+    assert res_intensity["constraint_applied"] is True
+    assert res_intensity["adjusted_load"] == 150.0
+
 
 def test_adjust_training_load_rejects_unvetted_raw_dict_without_authorization() -> None:
     raw_unauthorized = {"status": "active", "load_limits": {"reduction_pct": 20}}
