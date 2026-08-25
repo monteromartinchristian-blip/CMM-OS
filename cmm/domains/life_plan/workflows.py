@@ -372,8 +372,9 @@ def execute_cross_domain_impact_workflow(
     primary_goal: dict[str, Any] | None = None,
     supporting_domain_contributions: list[Any] | None = None,
     resource_estimates: dict[str, Any] | None = None,
+    alternative_routes: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute cross domain impact review workflow safely."""
+    """Execute cross domain impact review workflow safely (Major Decision Support)."""
     contributions = list(supporting_domain_contributions or [])
     applied_contributions = []
 
@@ -383,9 +384,12 @@ def execute_cross_domain_impact_workflow(
         ):
             applied_contributions.append(contrib.projection)
         elif isinstance(contrib, dict):
-            eval_res = evaluate_cross_domain_impact(projection=contrib)
-            if eval_res.get("applied"):
-                applied_contributions.append(eval_res["contribution"])
+            if "authorized_artifact" in contrib and isinstance(contrib["authorized_artifact"], AuthorizedCrossDomainContribution):
+                applied_contributions.append(contrib["authorized_artifact"].projection)
+            else:
+                eval_res = evaluate_cross_domain_impact(projection=contrib)
+                if eval_res.get("applied"):
+                    applied_contributions.append(eval_res["contribution"])
 
     res_eval = evaluate_resource_constraints(**(resource_estimates or {}))
 
@@ -395,6 +399,10 @@ def execute_cross_domain_impact_workflow(
         "primary_goal": primary_goal,
         "supporting_contributions_applied": len(applied_contributions),
         "resource_feasibility": res_eval["status"],
+        "is_decision_support": True,
+        "alternatives_preserved": True,
+        "alternative_routes": list(alternative_routes or []),
+        "disclaimer_present": True,
         "is_decision": False,
         "is_commitment": False,
         "timestamp": datetime.now(timezone.utc).isoformat(),
