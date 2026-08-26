@@ -11,6 +11,8 @@ A structured ``DomainProfileDefinition`` for Project:
 
 from __future__ import annotations
 
+from typing import Any
+
 from cmm.cognitive.enums import SensitivityLevel
 from cmm.domains.enums import DomainReasoningDepth
 from cmm.domains.profile_contracts import (
@@ -102,25 +104,36 @@ PROJECT_PROHIBITED_ACTIONS: tuple[str, ...] = (
 )
 
 
+CANONICAL_SOFTWARE_RESOURCE_IDS: frozenset[str] = frozenset(
+    f"project.resource.{kind}" for kind in SOFTWARE_RESOURCE_KINDS
+)
+
+
 def project_software_capability_active(
     *,
     workflow_id: str | None = None,
     operation_id: str | None = None,
-    resource_ids: tuple[str, ...] = (),
-    capabilities: tuple[str, ...] = (),
+    resource_ids: tuple[str, ...] | list[str] = (),
+    capabilities: tuple[str, ...] | list[str] = (),
+    repository_context: Any = None,
     repository_backed: bool = False,
 ) -> bool:
-    """Determine whether the conditional software capability is active."""
-    if repository_backed:
+    """Determine whether the conditional software capability is active fail-closed.
+
+    Software capability activation requires grounded canonical evidence:
+    - exact registered software workflow ID
+    - exact registered software operation ID
+    - resolved canonical Project software resource ID or kind
+    - resolved canonical capability name
+    - verified repository context object
+
+    Prefix matches, suffix collisions, arbitrary booleans, or ungrounded caller
+    strings are rejected fail-closed.
+    """
+    if workflow_id is not None and workflow_id in SOFTWARE_WORKFLOW_IDS:
         return True
 
-    if workflow_id and (
-        workflow_id in SOFTWARE_WORKFLOW_IDS
-        or workflow_id.startswith("project.software")
-    ):
-        return True
-
-    if operation_id and operation_id in SOFTWARE_OPERATION_IDS:
+    if operation_id is not None and operation_id in SOFTWARE_OPERATION_IDS:
         return True
 
     for cap in capabilities:
@@ -128,9 +141,20 @@ def project_software_capability_active(
             return True
 
     for r_id in resource_ids:
-        # e.g. "project.resource.source_code" or "source_code"
-        r_name = r_id.split(".")[-1]
-        if r_name in SOFTWARE_RESOURCE_KINDS or r_id in SOFTWARE_RESOURCE_KINDS:
+        base = r_id.split(":", 1)[0]
+        if base in CANONICAL_SOFTWARE_RESOURCE_IDS or base in SOFTWARE_RESOURCE_KINDS:
+            return True
+
+    if repository_context is not None:
+        if (
+            hasattr(repository_context, "repo_path")
+            or hasattr(repository_context, "root")
+            or hasattr(repository_context, "repository_id")
+        ):
+            return True
+        if isinstance(repository_context, dict) and (
+            "repo_path" in repository_context or "repository_id" in repository_context
+        ):
             return True
 
     return False

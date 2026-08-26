@@ -28,16 +28,39 @@ def test_project_profile_identity_and_rules() -> None:
     assert profile.prohibited_rules == ()
 
 
+def test_fake_software_workflow_prefix_does_not_activate() -> None:
+    assert (
+        project_software_capability_active(workflow_id="project.software_forged")
+        is False
+    )
+
+
+def test_resource_suffix_collision_does_not_activate() -> None:
+    assert (
+        project_software_capability_active(resource_ids=("attacker.source_code",))
+        is False
+    )
+
+
+def test_raw_repository_boolean_is_not_authority() -> None:
+    assert project_software_capability_active(repository_backed=True) is False
+
+
 def test_project_software_capability_activation_matrix() -> None:
     # False conditions:
     assert not project_software_capability_active()
     assert not project_software_capability_active(workflow_id="project.project_setup")
     assert not project_software_capability_active(workflow_id="project.status_review")
+    assert not project_software_capability_active(workflow_id="project.software_forged")
     assert not project_software_capability_active(operation_id="project.review_status")
     assert not project_software_capability_active(
         resource_ids=("project.resource.project_brief",)
     )
+    assert not project_software_capability_active(
+        resource_ids=("attacker.source_code",)
+    )
     assert not project_software_capability_active(capabilities=("project_management",))
+    assert not project_software_capability_active(repository_backed=True)
 
     # True conditions:
     assert project_software_capability_active(workflow_id="project.self_development")
@@ -51,8 +74,13 @@ def test_project_software_capability_activation_matrix() -> None:
     assert project_software_capability_active(
         resource_ids=("project.resource.source_code",)
     )
+    assert project_software_capability_active(
+        resource_ids=("project.resource.source_code:file.py",)
+    )
     assert project_software_capability_active(resource_ids=("source_code",))
     assert project_software_capability_active(
         capabilities=("project_software_development",)
     )
-    assert project_software_capability_active(repository_backed=True)
+    assert project_software_capability_active(
+        repository_context={"repo_path": "/tmp/repo"}
+    )

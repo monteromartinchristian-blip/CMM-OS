@@ -119,13 +119,28 @@ def test_attack_generic_project_not_software_only() -> None:
 
 
 def test_attack_software_capability_not_implicit() -> None:
-    """Software capability is never activated implicitly by domain ID alone."""
+    """Software capability is never activated implicitly by domain ID alone or forged primitives."""
     # Only domain ID without software signals -> False
     assert project_software_capability_active() is False
     assert project_software_capability_active(capabilities=()) is False
     assert (
         project_software_capability_active(workflow_id="project.project_setup") is False
     )
+
+    # M5 Subcase 1: Forged workflow prefix rejected
+    assert (
+        project_software_capability_active(workflow_id="project.software_forged")
+        is False
+    )
+
+    # M5 Subcase 2: Suffix collision resource rejected
+    assert (
+        project_software_capability_active(resource_ids=("attacker.source_code",))
+        is False
+    )
+
+    # M5 Subcase 3: Bare repository boolean is not independent authority
+    assert project_software_capability_active(repository_backed=True) is False
 
     # Grounded software signals activate conditionally
     assert (
@@ -143,7 +158,13 @@ def test_attack_software_capability_not_implicit() -> None:
     )
     assert (
         project_software_capability_active(
-            repository_backed=True, capabilities=("software_development",)
+            capabilities=("project_software_development",)
+        )
+        is True
+    )
+    assert (
+        project_software_capability_active(
+            repository_context={"repo_path": "/path/to/repo"}
         )
         is True
     )
