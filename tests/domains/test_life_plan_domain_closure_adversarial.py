@@ -91,6 +91,7 @@ from cmm.domains.memory_contracts import (
     DomainMemoryViewSnapshot,
 )
 from cmm.domains.permission_contracts import (
+    CrossDomainPermissionDecision,
     CrossDomainPermissionRequest,
     DomainPermissionRequest,
 )
@@ -1501,3 +1502,76 @@ def test_closure_gate_v3_b1_missing_provenance_rejected() -> None:
     assert res["applied"] is False
     assert res["authorization_verified"] is False
     assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_closure_gate_v3_b1_request_id_mismatch_rejected() -> None:
+    """V3-B1: Permission decision with mismatched request_id must fail closed."""
+    registry, _, _, _ = _setup_runtime()
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-mismatch-req-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check",
+        actor_id="actor-adv",
+        session_id="sess-adv",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    mismatched_decision = CrossDomainPermissionDecision(
+        request_id="req-different-999",
+        decision=PermissionOutcome.ALLOW,
+        granted_resources=("health.resource.health_profile:hp-001",),
+        granted_operations=(),
+        granted_workflows=(),
+        constraints=(),
+    )
+
+    class MismatchedResolver(DomainPermissionResolver):
+        def __init__(self) -> None:
+            super().__init__(registry=registry)
+
+        def resolve_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return mismatched_decision
+
+    res = evaluate_cross_domain_impact(
+        {"constraint_id": "hc-mismatch", "status": "active"},
+        permission_request=cross_request,
+        permission_resolver=MismatchedResolver(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_closure_gate_v3_m2_trace_reference_inventory_missing_memory_artifacts_rejected() -> (
+    None
+):
+    """V3-M2: Trace inventory missing memory proposal/binding references must fail validation."""
+    trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    stripped_refs = tuple(
+        r
+        for r in inventory.references
+        if r.kind
+        not in (
+            DomainTraceReferenceKind.MEMORY_PROPOSAL,
+            DomainTraceReferenceKind.MEMORY_BINDING,
+        )
+    )
+    bad_inventory = dataclasses.replace(inventory, references=stripped_refs)
+    val = validate_life_plan_trace(trace=trace, inventory=bad_inventory)
+    assert val.valid is False
+
+
+def test_closure_gate_v3_m2_empty_trace_inventory_rejected() -> None:
+    """V3-M2: Completely empty trace inventory must fail validation against valid trace."""
+    trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    empty_inventory = dataclasses.replace(
+        inventory,
+        references=(),
+        domain_results=(),
+    )
+    val = validate_life_plan_trace(trace=trace, inventory=empty_inventory)
+    assert val.valid is False
