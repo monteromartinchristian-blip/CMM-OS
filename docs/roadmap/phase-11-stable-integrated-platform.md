@@ -310,8 +310,8 @@ Result:
 OrchestrationResult(
     status="completed",
     response={...},
-    domain="medical",
-    profile="MedicalProfile",
+    domain="health",
+    profile="HealthProfile",
     workflow_id=None,
     operations=[],
     approvals=[],
@@ -1035,7 +1035,7 @@ Build a unified temporal view of relevant events across all domains.
 ```python
 TimelineEvent(
     id="event-123",
-    domain="medical",
+    domain="health",
     event_type="appointment",
     title="Pulmonology appointment",
     occurred_at="2026-09-04T10:00:00",
@@ -2536,7 +2536,7 @@ SearchResult(
     snippet="...",
     score=0.91,
     source="...",
-    domain="medical",
+    domain="health",
     timestamp="...",
     references=[...],
 )
@@ -4438,6 +4438,250 @@ Import and export must validate format and schema, preserve provenance and order
 - unit, adapter-contract, memory-integration, and E2E tests;
 - documentation;
 - green global suite.
+
+---
+
+# Phase 10 Domain Integration Addendum — Health, Mental Health and Neurodivergence
+
+## Objective
+
+Integrate the canonical Phase 10 sibling Domain Packs `domain:health`, `domain:mental-health`, and `domain:neurodivergence` through the existing Phase 11 platform services without creating domain-specific platform infrastructure.
+
+Phase 11 must consume the Domain Intelligence contracts generically. It must not introduce a separate Health router, Mental Health router, Neurodivergence router, independent domain memory, domain-specific orchestration runtime, or second Knowledge Model.
+
+## Canonical Domain Identities
+
+```text
+domain:health             -> HealthProfile
+domain:mental-health      -> MentalHealthProfile
+domain:neurodivergence    -> NeurodivergenceProfile
+```
+
+The three domains are siblings.
+
+Health remains authoritative for clinical diagnosis status, medication, treatment, medical tests and specialists, medical risk and red flags, and clinical documentation.
+
+Mental Health remains authoritative for its non-clinical emotional and therapy-continuity specialization.
+
+Neurodivergence remains authoritative for its neurodevelopmental evidence, certainty-state, longitudinal, functional, and differential-overlap specialization.
+
+Supporting domains receive only the minimum authorized projection required for the active purpose.
+
+## Orchestrator, Domain Router and Context Resolver
+
+The existing Orchestrator, Domain Router, and Context Resolver must:
+
+- resolve `health`, `mental-health`, and `neurodivergence` as distinct canonical domain identities;
+- select one primary domain and zero or more supporting domains;
+- preserve primary/supporting identity through orchestration results and Domain Trace references;
+- apply the existing restrictive permission intersection before cross-domain context is exposed;
+- preserve provenance, epistemic kind, temporal validity, uncertainty, sensitivity, and source-domain authority;
+- prohibit a supporting domain from widening permissions;
+- prohibit a supporting domain from promoting a hypothesis or inference to a stronger epistemic status;
+- avoid defaulting Mental Health requests to Health merely because the content is emotionally or psychiatrically adjacent;
+- avoid defaulting Neurodivergence requests to Health merely because medication or clinical evidence may be relevant;
+- route clinical diagnosis, treatment, medication, and medical-risk authority to Health when those semantics are required.
+
+Representative compositions:
+
+```text
+primary=domain:mental-health
+supporting=[domain:relationships, domain:neurodivergence, domain:health]
+```
+
+```text
+primary=domain:neurodivergence
+supporting=[domain:health, domain:mental-health]
+```
+
+```text
+primary=domain:health
+supporting=[domain:mental-health, domain:neurodivergence]
+```
+
+No supporting domain is implied merely because it is listed as a possible composition.
+
+## Configuration and Domain Lifecycle
+
+All installed domains, including Mental Health and Neurodivergence, must be supported by the existing domain configuration and lifecycle surfaces:
+
+- discovery;
+- registration;
+- enablement and disablement;
+- version and compatibility status;
+- health checks;
+- per-domain permissions;
+- per-domain privacy and provider policy;
+- per-domain autonomy constraints;
+- Domain Pack installation and update state.
+
+Disabling one sibling domain must not disable the others.
+
+## Timeline
+
+Timeline events must retain the canonical domain identity that owns the event or derived interpretation.
+
+The Timeline must:
+
+- filter separately by `health`, `mental-health`, and `neurodivergence`;
+- preserve source-domain identity for cross-domain projections;
+- avoid silently reclassifying an existing Health event as Mental Health or Neurodivergence;
+- support authorized multi-domain references without duplicating the underlying event;
+- preserve sensitivity and permission boundaries in every view.
+
+## Search and Knowledge Explorer
+
+Search and Knowledge Explorer must:
+
+- expose canonical domain facets for `health`, `mental-health`, and `neurodivergence`;
+- keep the three result identities distinct;
+- apply authorization before snippets, previews, facets, counts, or related-item expansion are returned;
+- preserve epistemic status and provenance in results;
+- avoid treating absence from an unauthorized domain as confirmed absence;
+- support explicit cross-domain queries only through existing permission-filtered composition.
+
+A `SearchResult.domain` value that refers to the Health Domain must use `health`, not `medical`.
+
+## Memory Workspace and Knowledge
+
+Memory Workspace and Knowledge interfaces must reuse the shared Phase 8 and Phase 10.18 contracts.
+
+They must:
+
+- preserve domain references without creating per-domain copies of the Knowledge Store;
+- show the source domain of claims, hypotheses, decisions, and corrections;
+- keep sensitive Mental Health and Neurodivergence inferences non-persistent unless the applicable memory permission and approval permit persistence;
+- preserve revision, invalidation, temporal succession, contradiction, and provenance history;
+- prohibit silent migration or duplication of existing Health knowledge into either new domain;
+- keep cross-domain projections purpose-limited and revocable.
+
+## Workflows and Operations
+
+Workflow routing and templates must be able to target the two new Domain Packs through the existing Workflow Engine.
+
+Examples include:
+
+- Mental Health therapy-session preparation and post-session processing;
+- Mental Health therapy-transcript review under sensitive-data controls;
+- Neurodivergence longitudinal evidence organization;
+- Neurodivergence assessment-preparation workflows;
+- mixed-domain workflows in which Health supplies authorized medication or diagnosis-state context.
+
+Workflow selection must not change domain authority, permissions, or epistemic status.
+
+## Model Gateway and Routing
+
+Model Gateway and Routing Policy Engine must support all installed domains generically, including the two new domains.
+
+For `domain:mental-health` and `domain:neurodivergence`:
+
+- default domain privacy is `SENSITIVE`;
+- provider/model routing must not weaken the effective privacy policy;
+- remote egress requires the same permission and provider-policy checks as any other sensitive domain;
+- model selection may use domain benchmark and quality evidence from Phase 10;
+- provider selection must not change which domain is authoritative;
+- routing metadata must remain outside private chain-of-thought content.
+
+Health continues to use canonical `domain="health"` in model requests.
+
+## Model Evaluation and Continuous Provider Evaluation
+
+The Model Evaluation Framework and continuous provider evaluation must support evaluation by canonical domain.
+
+The platform must be able to:
+
+- evaluate models separately for Health, Mental Health, and Neurodivergence;
+- consume each Domain Pack's benchmark suites and quality metrics;
+- compare provider/model performance without flattening domain-specific safety or epistemic requirements;
+- block a provider/model combination that violates effective domain privacy or minimum quality policy;
+- preserve evaluator version, model version, provider, benchmark, cost, latency, and blocking-failure evidence.
+
+A strong result in one sibling domain must not be treated as evidence of equivalent quality in another.
+
+## Cost Management and Dashboards
+
+Cost and model-usage dashboards must support canonical by-domain attribution for:
+
+```text
+health
+mental-health
+neurodivergence
+```
+
+The platform must keep domain identity separate when reporting requests, tokens, latency, cache use, provider, model, cost, fallback, validation failures, and blocked egress.
+
+Sensitive content itself must not be copied into cost telemetry.
+
+## Knowledge Package Export and Portability
+
+Knowledge Package export must:
+
+- preserve the canonical source domain;
+- apply the Domain Knowledge Package schema selected by Phase 10;
+- preserve privacy, provenance, epistemic status, contradictions, uncertainty, and temporal validity;
+- exclude unauthorized supporting-domain content;
+- preserve restrictive permission intersection for composed packages;
+- avoid provider-specific domain formats.
+
+Mental Health and Neurodivergence exports remain `SENSITIVE` unless an explicit, authorized policy produces a more restrictive result.
+
+## Audit and Traceability
+
+Phase 11 audit and trace surfaces must make it possible to determine:
+
+- the resolved primary domain;
+- supporting domains;
+- why each domain participated;
+- which permission decisions authorized cross-domain context;
+- which Knowledge Package and domain schema were used;
+- which provider/model routing decision applied;
+- which privacy policy was effective;
+- which domain benchmark/evaluation evidence influenced model selection;
+- which external egress occurred;
+- which persistent updates were proposed, approved, rejected, or applied.
+
+Audit records must retain IDs and safe categorical facts rather than duplicating sensitive source content or private reasoning.
+
+## Required E2E Domain-Integration Scenarios
+
+Phase 11 E2E validation must include at least these scenarios:
+
+1. **Mental Health routing isolation**
+   An ordinary emotional or therapy-continuity request resolves to `domain:mental-health` and does not inherit Health clinical presentation or clinical authority by default.
+
+2. **Neurodivergence minimized Health projection**
+   A Neurodivergence request resolves to `domain:neurodivergence`; Health data is exposed only when authorized and only as the minimum purpose-required projection.
+
+3. **Mixed sibling-domain composition**
+   A request requiring multiple sibling domains selects exactly one primary domain plus explicit supporting domains, applies restrictive permission intersection, and preserves source-domain epistemic authority.
+
+4. **Search, Timeline and dashboard identity**
+   Search results, Timeline views, Knowledge Explorer facets, model-usage records, and cost attribution keep `health`, `mental-health`, and `neurodivergence` distinct without duplicating underlying knowledge.
+
+5. **Sensitive provider-routing enforcement**
+   A provider/model route that would weaken `SENSITIVE` privacy for Mental Health or Neurodivergence is rejected or rerouted according to existing policy, with the decision visible in audit metadata.
+
+These scenarios extend the existing Phase 11 integration test surface. They do not introduce a separate test framework or runtime.
+
+## Completion Constraint
+
+Phase 11 integration is incomplete if either new Domain Pack requires a parallel platform subsystem to function.
+
+The correct integration path is always:
+
+```text
+existing Phase 11 service
+        +
+canonical Phase 10 Domain Pack contracts
+        +
+existing permissions / privacy / validation
+```
+
+not:
+
+```text
+new domain-specific platform stack
+```
 
 ---
 
