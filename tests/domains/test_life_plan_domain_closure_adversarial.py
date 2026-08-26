@@ -1159,3 +1159,92 @@ def test_closure_gate_v2_m1_missing_capability_memory_permission_rejected() -> N
     )
     val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
     assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_cross_permission_cannot_substitute_for_memory_permission() -> (
+    None
+):
+    test_closure_gate_v2_m1_cross_domain_permission_rejected_as_memory_permission()
+
+
+def test_closure_gate_v2_m1_cross_approval_cannot_substitute_for_memory_approval() -> (
+    None
+):
+    test_closure_gate_v2_m1_cross_domain_approval_rejected_as_memory_approval()
+
+
+def test_closure_gate_v2_m1_approval_for_proposal_a_cannot_authorize_proposal_b() -> (
+    None
+):
+    test_closure_gate_v2_m1_mismatched_proposal_approval_rejected()
+
+
+def test_closure_gate_v2_m1_empty_memory_inventory_rejected() -> None:
+    _, _, _, binding, _, _, _ = _setup_valid_memory_fixture()
+    val = validate_life_plan_memory_binding(
+        binding=binding, inventory=DomainMemoryReferenceInventory()
+    )
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_missing_memory_permission_decision_rejected() -> None:
+    _, _, _, binding, full_inv, _, _ = _setup_valid_memory_fixture()
+    bad_inv = dataclasses.replace(full_inv, permission_decisions=())
+    val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_b1_replay_rejected_fresh_evaluation_required() -> None:
+    test_closure_gate_14_real_forged_permission_gate_result_rejected()
+
+
+def test_closure_gate_v2_b1_different_request_replayed_decision_id_rejected() -> None:
+    _, _, _, gate = _setup_runtime()
+    req_a = CrossDomainPermissionRequest(
+        request_id="req-a-01",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check a",
+        actor_id="actor-a",
+        session_id="sess-a",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    res_a = gate.evaluate_cross_domain(req_a)
+    assert res_a.decision_id is not None
+
+    req_b = CrossDomainPermissionRequest(
+        request_id="req-b-01",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check b",
+        actor_id="actor-b",
+        session_id="sess-b",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    forged_result = PermissionGateResult(
+        outcome="granted",
+        action="domain_cross_access",
+        domain_id="domain:health",
+        actor_id=req_b.actor_id,
+        session_id=req_b.session_id,
+        decision_id=res_a.decision_id,
+        metadata={
+            "target_domain": "domain:life-plan",
+            "source_domain": "domain:health",
+        },
+    )
+    res = evaluate_cross_domain_impact(
+        {"status": "active", "activity_limits": ["limit"]},
+        permission_request=req_b,
+        permission_decision=forged_result,
+        permission_gate=gate,
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
