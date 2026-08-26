@@ -62,6 +62,9 @@ from cmm.domains.life_plan import (
     validate_life_plan_memory_binding,
     validate_life_plan_trace,
 )
+from cmm.domains.life_plan.trace import (
+    build_life_plan_trace_contribution,
+)
 from cmm.domains.memory_contracts import (
     DomainMemoryApprovalDecisionSnapshot,
     DomainMemoryApprovalRequestSnapshot,
@@ -89,10 +92,13 @@ from cmm.domains.resolution_contracts import DomainResolutionSignal
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
+    DomainTrace,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceStatus,
 )
 from cmm.domains.workflow_contracts import DomainWorkflowContext
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
@@ -968,6 +974,18 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             kind=DomainTraceReferenceKind.APPROVAL_DECISION,
         ),
         build_life_plan_trace_reference(
+            ref_id=mem_perm_decision_id,
+            kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_app_req.id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_approval_dec.id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        ),
+        build_life_plan_trace_reference(
             ref_id=mem_proposal.proposal_id,
             kind=DomainTraceReferenceKind.MEMORY_PROPOSAL,
         ),
@@ -975,19 +993,6 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             ref_id=mem_binding.binding_id,
             kind=DomainTraceReferenceKind.MEMORY_BINDING,
         ),
-    )
-
-    trace = assemble_life_plan_trace(
-        request_id=req_id,
-        resolution_context_id=resolution_context.id,
-        resolution_result_id=resolution.id,
-        composition_id=composition.id,
-        domain_result_id=result_id_str,
-        presentation_result_ids=(presentation_id,),
-        started_at=NOW,
-        completed_at=NOW,
-        references=runtime_refs,
-        goal_id=life_goal["goal_id"],
     )
 
     expected_refs = (
@@ -1023,6 +1028,21 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             LIFE_PLAN_DOMAIN_ID,
         ),
         DomainTraceReference(
+            mem_perm_decision_id,
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_app_req.id,
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_approval_dec.id,
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
             mem_proposal.proposal_id,
             DomainTraceReferenceKind.MEMORY_PROPOSAL,
             LIFE_PLAN_DOMAIN_ID,
@@ -1054,13 +1074,50 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         ),
     )
 
+    primary_contrib = build_life_plan_trace_contribution(
+        domain_result_id=result_id_str,
+        references=runtime_refs,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+    )
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        cross_domain_results=(),
+        presentation_result_ids=(presentation_id,),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=req_id,
+        goal_id=life_goal["goal_id"],
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(primary_contrib,),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+                trace_id="domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+        duration_ms=0,
+        metadata={},
+    )
+    expected_trace_id = probe.canonical_id
+
+    # Build reference inventory independently from upstream runtime objects BEFORE trace assembly
     inventory = DomainTraceReferenceInventory(
         references=expected_refs,
         domain_results=(
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=trace.id,
+                trace_id=expected_trace_id,
             ),
         ),
         cross_domain_results=(),
@@ -1072,6 +1129,21 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             composition.id, LIFE_PLAN_DOMAIN_ID, ()
         ),
     )
+
+    # Assemble trace from runtime references
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        domain_result_id=result_id_str,
+        presentation_result_ids=(presentation_id,),
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_refs,
+        goal_id=life_goal["goal_id"],
+    )
+    assert trace.id == expected_trace_id
 
     trace_val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert trace_val.valid is True

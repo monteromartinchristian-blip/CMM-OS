@@ -61,6 +61,7 @@ from cmm.domains.life_plan import (
     build_life_plan_memory_view_request,
     build_life_plan_permission_policy,
     build_life_plan_profile,
+    build_life_plan_trace_contribution,
     build_life_plan_trace_reference,
     build_life_plan_workflow_definitions,
     evaluate_alternative_route,
@@ -106,6 +107,8 @@ from cmm.domains.trace_contracts import (
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceStatus,
 )
 
 NOW = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
@@ -582,6 +585,9 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
     perm_dec_id = "perm-dec-trace-01"
     app_req_id = "app-req-trace-01"
     app_dec_id = "app-dec-trace-01"
+    mem_perm_dec_id = "mem-perm-dec-trace-01"
+    mem_app_req_id = "mem-app-req-trace-01"
+    mem_app_dec_id = "mem-app-dec-trace-01"
     mem_prop_id = "mem-prop-trace-01"
     mem_bind_id = "mem-bind-trace-01"
 
@@ -609,6 +615,18 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             kind=DomainTraceReferenceKind.APPROVAL_DECISION,
         ),
         build_life_plan_trace_reference(
+            ref_id=mem_perm_dec_id,
+            kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_app_req_id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_app_dec_id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        ),
+        build_life_plan_trace_reference(
             ref_id=mem_prop_id,
             kind=DomainTraceReferenceKind.MEMORY_PROPOSAL,
         ),
@@ -616,18 +634,6 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             ref_id=mem_bind_id,
             kind=DomainTraceReferenceKind.MEMORY_BINDING,
         ),
-    )
-
-    trace = assemble_life_plan_trace(
-        request_id=req_id,
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        domain_result_id=result_id_str,
-        presentation_result_ids=(pres_id,),
-        started_at=NOW,
-        completed_at=NOW,
-        references=runtime_refs,
     )
 
     expected_refs = (
@@ -665,6 +671,21 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             LIFE_PLAN_DOMAIN_ID,
         ),
         DomainTraceReference(
+            mem_perm_dec_id,
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_app_req_id,
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_app_dec_id,
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
             mem_prop_id,
             DomainTraceReferenceKind.MEMORY_PROPOSAL,
             LIFE_PLAN_DOMAIN_ID,
@@ -696,13 +717,50 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
         ),
     )
 
+    primary_contrib = build_life_plan_trace_contribution(
+        domain_result_id=result_id_str,
+        references=runtime_refs,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+    )
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(pres_id,),
+    )
+    probe = DomainTrace(
+        id="domain-trace:probe",
+        digest="0" * 64,
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(primary_contrib,),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+                trace_id="domain-trace:probe",
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+        duration_ms=0,
+        metadata={},
+    )
+    expected_trace_id = probe.canonical_id
+
+    # Build reference inventory independently BEFORE final trace assembly
     inventory = DomainTraceReferenceInventory(
         references=expected_refs,
         domain_results=(
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=trace.id,
+                trace_id=expected_trace_id,
             ),
         ),
         cross_domain_results=(),
@@ -714,6 +772,21 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             comp_id, LIFE_PLAN_DOMAIN_ID, ()
         ),
     )
+
+    # Assemble trace from runtime references
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        presentation_result_ids=(pres_id,),
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_refs,
+    )
+    assert trace.id == expected_trace_id
+
     return (
         trace,
         inventory,
@@ -728,7 +801,7 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
 # 26. Trace inventory independent from final trace
 def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
     trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
-    assert len(inventory.references) == 13
+    assert len(inventory.references) == 16
     val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert val.valid is True
 
