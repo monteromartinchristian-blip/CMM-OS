@@ -602,15 +602,16 @@ def evaluate_cross_domain_impact(
     permission_decision: Any = None,
     permission_gate: Any = None,
     permission_resolver: Any = None,
+    approval_request_id: str | None = None,
     is_authorized: bool | None = None,
     is_current: bool | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Incorporate authorized, purpose-minimized supporting-domain contribution into Life Plan.
 
-    Requires runtime-owned permission resolution or gate verification.
-    Plain mappings, duck-typed objects, caller booleans, and unverified standalone
-    dataclasses are never trusted.
+    Requires runtime-owned fresh gate evaluation or permission resolution.
+    Caller-supplied PermissionGateResult, plain mappings, duck-typed objects,
+    and caller booleans are never trusted as authorization roots.
     """
     from cmm.agent_runtime.domain_permission_contracts import (
         PermissionCapability,
@@ -619,7 +620,6 @@ def evaluate_cross_domain_impact(
     from cmm.domains.permission_contracts import CrossDomainPermissionRequest
     from cmm.domains.permission_gate import (
         PermissionGateOutcome,
-        PermissionGateResult,
     )
 
     if not isinstance(projection, Mapping):
@@ -800,95 +800,33 @@ def evaluate_cross_domain_impact(
         and hasattr(permission_gate, "evaluate_cross_domain")
         and permission_request is not None
     ):
-        if permission_decision is not None:
-            if isinstance(permission_decision, PermissionGateResult):
-                issued_ids = getattr(permission_gate, "_issued_decision_ids", None)
-                decision_id_valid = (
-                    isinstance(issued_ids, set)
-                    and permission_decision.decision_id in issued_ids
+        try:
+            gate_res = permission_gate.evaluate_cross_domain(
+                permission_request,
+                approval_request_id=approval_request_id,
+            )
+            if (
+                gate_res is not None
+                and getattr(gate_res, "allowed", False) is True
+                and getattr(gate_res, "outcome", None)
+                in (
+                    PermissionGateOutcome.ALLOW,
+                    PermissionGateOutcome.APPROVAL_CONSUMED,
                 )
-                gate_meta = getattr(permission_decision, "metadata", {}) or {}
-                target_dom_meta = gate_meta.get("target_domain", "domain:life-plan")
-                source_dom_meta = gate_meta.get(
-                    "source_domain", permission_request.source_domain
+                and getattr(gate_res, "domain_id", None)
+                in (
+                    permission_request.source_domain,
+                    permission_request.target_domain,
                 )
-
-                if (
-                    permission_decision.allowed is True
-                    and decision_id_valid
-                    and permission_decision.domain_id
-                    in (
-                        permission_request.source_domain,
-                        permission_request.target_domain,
-                    )
-                    and permission_decision.actor_id == permission_request.actor_id
-                    and permission_decision.session_id == permission_request.session_id
-                    and target_dom_meta == "domain:life-plan"
-                    and source_dom_meta == permission_request.source_domain
-                    and permission_request.target_domain == "domain:life-plan"
-                ):
-                    if (
-                        permission_decision.outcome
-                        == PermissionGateOutcome.APPROVAL_CONSUMED
-                    ):
-                        app_ev = getattr(permission_decision, "approval_evidence", None)
-                        if (
-                            isinstance(app_ev, Mapping)
-                            and app_ev.get("granted") is True
-                        ):
-                            app_svc = getattr(
-                                permission_gate, "_approval_service", None
-                            )
-                            if app_svc is not None and hasattr(app_svc, "get_request"):
-                                req_rec = app_svc.get_request(app_ev.get("request_id"))
-                                if (
-                                    req_rec is not None
-                                    and req_rec.actor_id == permission_request.actor_id
-                                    and str(
-                                        getattr(req_rec.status, "value", req_rec.status)
-                                    )
-                                    in ("approved", "consumed")
-                                ):
-                                    auth_verified = True
-                                    auth_ref = permission_decision.decision_id
-                                    auth_source = "DomainPermissionGate"
-                            else:
-                                auth_verified = True
-                                auth_ref = permission_decision.decision_id
-                                auth_source = "DomainPermissionGate"
-                    elif permission_decision.outcome == PermissionGateOutcome.ALLOW:
-                        resolver = getattr(permission_gate, "_resolver", None)
-                        if resolver is not None and hasattr(
-                            resolver, "resolve_cross_domain"
-                        ):
-                            res_check = resolver.resolve_cross_domain(
-                                permission_request, now=curr_now
-                            )
-                            if res_check.decision is PermissionOutcome.ALLOW:
-                                auth_verified = True
-                                auth_ref = permission_decision.decision_id
-                                auth_source = "DomainPermissionGate"
-                        else:
-                            auth_verified = True
-                            auth_ref = permission_decision.decision_id
-                            auth_source = "DomainPermissionGate"
-        else:
-            try:
-                gate_res = permission_gate.evaluate_cross_domain(permission_request)
-                if (
-                    gate_res is not None
-                    and getattr(gate_res, "allowed", False) is True
-                    and getattr(gate_res, "outcome", None)
-                    in (
-                        PermissionGateOutcome.ALLOW,
-                        PermissionGateOutcome.APPROVAL_CONSUMED,
-                    )
-                ):
-                    auth_verified = True
-                    auth_ref = gate_res.decision_id or "permission_gate"
-                    auth_source = "DomainPermissionGate"
-            except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
-                auth_verified = False
+                and getattr(gate_res, "actor_id", None) == permission_request.actor_id
+                and getattr(gate_res, "session_id", None)
+                == permission_request.session_id
+            ):
+                auth_verified = True
+                auth_ref = gate_res.decision_id or "permission_gate"
+                auth_source = "DomainPermissionGate"
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+            auth_verified = False
 
     elif (
         permission_resolver is not None
@@ -1287,6 +1225,7 @@ class CrossDomainImpactRule:
         dec = context.metadata.get("permission_decision")
         gate = context.metadata.get("permission_gate")
         resolver = context.metadata.get("permission_resolver")
+        app_req_id = context.metadata.get("approval_request_id")
         auth = context.metadata.get("is_authorized", False)
         curr = context.metadata.get("is_current", True)
 
@@ -1296,6 +1235,7 @@ class CrossDomainImpactRule:
             permission_decision=dec,
             permission_gate=gate,
             permission_resolver=resolver,
+            approval_request_id=app_req_id,
             is_authorized=auth,
             is_current=curr,
         )

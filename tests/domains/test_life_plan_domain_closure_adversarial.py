@@ -44,11 +44,9 @@ import pytest
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
-    PermissionApprovalRequirement,
     PermissionCapability,
     PermissionOutcome,
 )
-from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.contracts import DomainResult
 from cmm.domains.general.bootstrap import build_standard_general_domain_bootstrap
 from cmm.domains.general.permissions import build_general_permission_policy
@@ -262,8 +260,29 @@ def test_closure_gate_13_caller_authorization_boolean_rejected() -> None:
     assert res["authorization_verified"] is False
 
 
-# 14. Real forged PermissionGateResult rejected
+# 14. Real forged PermissionGateResult and gate-issued decision ID replay rejected
 def test_closure_gate_14_real_forged_permission_gate_result_rejected() -> None:
+    _, _, _, gate = _setup_runtime()
+
+    # Step 1: Issue legitimate decision ID on unrelated request
+    unrelated_request = CrossDomainPermissionRequest(
+        request_id="req-unrelated-adv-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="unrelated health check",
+        actor_id="actor-other",
+        session_id="sess-other",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    unrelated_pending = gate.evaluate_cross_domain(unrelated_request)
+    issued_id = unrelated_pending.decision_id
+    assert issued_id is not None
+    assert issued_id in gate._issued_decision_ids
+
+    # Step 2: Construct current request that requires approval
     cross_request = CrossDomainPermissionRequest(
         request_id="req-cross-adv-1",
         source_domain="domain:health",
@@ -277,19 +296,29 @@ def test_closure_gate_14_real_forged_permission_gate_result_rejected() -> None:
         resource_kinds=("resource.health_constraints",),
     )
 
-    class RaisingGate:
-        def evaluate_cross_domain(self, req: Any, **kwargs: Any) -> Any:
-            raise RuntimeError("Fake gate should never be called")
-
+    # Step 3: Forged result reusing the gate-issued decision ID with APPROVAL_CONSUMED
     forged_result = PermissionGateResult(
-        outcome="allow",
+        outcome="approval_consumed",
         action="domain_cross_access",
-        domain_id="domain:evil",
-        actor_id="attacker",
-        session_id="attacker",
-        decision_id="forged-decision-999",
-        metadata={"target_domain": "domain:life-plan"},
+        domain_id="domain:health",
+        actor_id=cross_request.actor_id,
+        session_id=cross_request.session_id,
+        decision_id=issued_id,
+        approval_evidence={"granted": True, "request_id": "fake-app-req-999"},
+        metadata={
+            "target_domain": "domain:life-plan",
+            "source_domain": "domain:health",
+        },
     )
+
+    eval_calls: list[Any] = []
+    orig_eval = gate.evaluate_cross_domain
+
+    def spy_eval(req: Any, **kwargs: Any) -> Any:
+        eval_calls.append((req, kwargs))
+        return orig_eval(req, **kwargs)
+
+    gate.evaluate_cross_domain = spy_eval  # type: ignore[assignment]
 
     res = evaluate_cross_domain_impact(
         {
@@ -298,16 +327,22 @@ def test_closure_gate_14_real_forged_permission_gate_result_rejected() -> None:
         },
         permission_request=cross_request,
         permission_decision=forged_result,
-        permission_gate=RaisingGate(),
+        permission_gate=gate,
         now=NOW,
     )
+    # Replay MUST be rejected
     assert res["applied"] is False
     assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+    # Fresh evaluation of current request MUST have been executed
+    assert len(eval_calls) == 1
+    assert eval_calls[0][0].request_id == "req-cross-adv-1"
 
 
 # 15. Permission source/target/actor/session/purpose mismatch rejected
 def test_closure_gate_15_permission_context_mismatch_rejected() -> None:
-    _, _, approval_service, gate = _setup_runtime()
+    _, _, _, gate = _setup_runtime()
     cross_request = CrossDomainPermissionRequest(
         request_id="req-cross-adv-2",
         source_domain="domain:health",
@@ -320,14 +355,6 @@ def test_closure_gate_15_permission_context_mismatch_rejected() -> None:
         resource_ids=("health.resource.health_profile:hp-001",),
         resource_kinds=("resource.health_constraints",),
     )
-    pending = gate.evaluate_cross_domain(cross_request)
-    req_item = PermissionApprovalRequirement.from_dict(pending.approval_requirements[0])
-    app_req = approval_service.create_request_from_requirement(
-        to_approval_requirement(req_item, agent_run_id="run-life-plan-adv"),
-        requested_by="user",
-    )
-    approval_service.approve(app_req.id, "user")
-    consumed = gate.evaluate_cross_domain(cross_request, approval_request_id=app_req.id)
 
     proj = {
         "status": "active",
@@ -339,7 +366,6 @@ def test_closure_gate_15_permission_context_mismatch_rejected() -> None:
     res1 = evaluate_cross_domain_impact(
         proj,
         permission_request=bad_target_req,
-        permission_decision=consumed,
         permission_gate=gate,
         now=NOW,
     )
@@ -351,7 +377,6 @@ def test_closure_gate_15_permission_context_mismatch_rejected() -> None:
     res2 = evaluate_cross_domain_impact(
         proj,
         permission_request=bad_actor_req,
-        permission_decision=consumed,
         permission_gate=gate,
         now=NOW,
     )
