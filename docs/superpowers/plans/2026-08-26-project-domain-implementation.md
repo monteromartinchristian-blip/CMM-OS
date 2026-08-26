@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Design baseline: `c520cbb` on `feature/phase-10-domain-intelligence`; implementation execution starts from plan commit `21c51bb`.
+- Design baseline: `c520cbb` on `feature/phase-10-domain-intelligence`; implementation-plan lineage anchor: `21c51bb`. Execution may start from a later documentation-only baseline commit provided both anchors remain ancestors of `HEAD`.
 - Canonical identity: `domain:project`, `ProjectProfile`, `manifest:project:1.0.0`, `domain-permission:project:1.0.0`.
 - Exact production package: **14 Python modules** under `cmm/domains/project/` and no additional production file in that package.
 - Exact canonical inventory: **27 entities, 22 resources, 18 rules, 20 operations, 12 workflows**.
@@ -131,7 +131,7 @@ kernel/
 - Verify: this plan.
 
 **Interfaces:**
-- Consumes frozen design commit `c520cbb` and committed implementation plan `21c51bb`.
+- Consumes frozen design commit `c520cbb` and implementation-plan lineage anchor `21c51bb`; both must be ancestors of the execution `HEAD`.
 - Produces a verified clean implementation baseline and frozen acceptance counts.
 
 - [ ] **Step 1: Verify repository state**
@@ -140,8 +140,8 @@ kernel/
 cd "/Users/chris/CMM OS" || exit 1
 
 test "$(git branch --show-current)" = "feature/phase-10-domain-intelligence"
-test "$(git rev-parse --short HEAD)" = "21c51bb"
 git merge-base --is-ancestor c520cbb HEAD
+git merge-base --is-ancestor 21c51bb HEAD
 test -z "$(git diff --name-only)"
 test -z "$(git diff --cached --name-only)"
 
