@@ -10,7 +10,6 @@ from typing import Any
 
 from kernel.services.python_index import PythonIndex
 
-
 _EXCLUDED_PARTS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
 
@@ -56,8 +55,7 @@ class ProjectContext:
     @property
     def is_analyzer_issued(self) -> bool:
         """Whether this exact context was issued by ``ProjectAnalyzer``."""
-        reference = _ANALYZER_ISSUED_CONTEXTS.get(id(self))
-        return reference is not None and reference() is self
+        return is_analyzer_issued_project_context(self)
 
 
 _ANALYZER_ISSUED_CONTEXTS: dict[int, weakref.ReferenceType[ProjectContext]] = {}
@@ -71,6 +69,14 @@ def _remember_analyzer_issued_context(context: ProjectContext) -> None:
             _ANALYZER_ISSUED_CONTEXTS.pop(context_id, None)
 
     _ANALYZER_ISSUED_CONTEXTS[context_id] = weakref.ref(context, remove)
+
+
+def is_analyzer_issued_project_context(value: object) -> bool:
+    """Verify identity-backed provenance issued by the shared analyzer."""
+    if not isinstance(value, ProjectContext):
+        return False
+    reference = _ANALYZER_ISSUED_CONTEXTS.get(id(value))
+    return reference is not None and reference() is value
 
 
 class ProjectAnalyzer:
