@@ -74,7 +74,10 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
 )
-from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.permission_contracts import (
+    CrossDomainPermissionRequest,
+    DomainPermissionRequest,
+)
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
     PermissionGateOutcome,
@@ -495,11 +498,16 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     state["34_consumed_gate"] = consumed_gate
 
     # 35 apply authorized purpose-minimized health contribution
+    cross_eval_approval = approval_service.create_request_from_requirement(
+        to_approval_requirement(req_item, agent_run_id=id_factory()),
+        requested_by="physician-review",
+    )
+    approval_service.approve(cross_eval_approval.id, "user-or-physician")
+
     health_raw_projection = {
         "constraint_id": "hc-climate-01",
         "status": "active",
         "activity_limits": ["avoid_high_humidity_locations"],
-        "authorization_reference": consumed_gate.decision_id,
         "source_reference": "health.profile.hp01",
         "full_clinical_history": ["asthma_records_2020"],
         "medication_list": ["inhaler_daily"],
@@ -509,14 +517,13 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         "constraint_id": "hc-climate-01",
         "status": "active",
         "activity_limits": ["avoid_high_humidity_locations"],
-        "authorization_reference": consumed_gate.decision_id,
         "source_reference": "health.profile.hp01",
     }
     hc_eval = evaluate_cross_domain_impact(
         health_sanitized,
         permission_request=cross_request,
-        permission_decision=consumed_gate,
         permission_gate=gate,
+        approval_request_id=cross_eval_approval.id,
         is_current=True,
     )
     assert hc_eval["applied"] is True
@@ -642,20 +649,62 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
 
     # 42 validate memory view, binding, and tamper rejection
     mem_trace_id = id_factory()
+
+    # Memory-specific permission request & resolution
+    mem_perm_req_id = id_factory()
+    mem_perm_request = DomainPermissionRequest(
+        request_id=mem_perm_req_id,
+        action=PermissionCapability.MEMORY_WRITE,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        actor_id="actor-lp-user",
+        session_id="sess-lp-user",
+        resource_id="life_plan.resource.memory_entry",
+        purpose="persist-confirmed-life-plan-memory",
+        context={"proposal_id": mem_proposal.proposal_id},
+    )
+    mem_perm_res = permission_resolver.resolve(mem_perm_request, now=NOW)
+    assert mem_perm_res.effective_permissions.decision is not None
+    mem_perm_decision_id = f"memory-permission:{mem_perm_req_id}"
     mem_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
-        decision_id=consumed_gate.decision_id,
-        allowed=consumed_gate.allowed,
+        decision_id=mem_perm_decision_id,
+        allowed=True,
         capabilities=(DomainMemoryCapability.PROPOSE,),
         source_domain_id=LIFE_PLAN_DOMAIN_ID,
         target_domain_id=LIFE_PLAN_DOMAIN_ID,
         sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
     )
+
+    # Memory-specific approval request & decision
+    mem_app_req = approval_service.create_request(
+        title="Life Plan Memory Confirmation",
+        description=f"Confirm memory proposal {mem_proposal_id}",
+        requested_by="life-plan-agent",
+        metadata={
+            "domain_id": LIFE_PLAN_DOMAIN_ID,
+            "proposal_id": mem_proposal.proposal_id,
+            "purpose": "persist-confirmed-life-plan-memory",
+        },
+    )
+    approval_service.approve(mem_app_req.id, "user")
+    mem_approval_dec = approval_service.repository.list_decisions(mem_app_req.id)[0]
+    assert mem_approval_dec.id is not None
+
+    mem_app_req_snapshot = DomainMemoryApprovalRequestSnapshot(
+        request_id=mem_app_req.id,
+        proposal_id=mem_proposal_id,
+    )
+    mem_app_dec_snapshot = DomainMemoryApprovalDecisionSnapshot(
+        decision_id=mem_approval_dec.id,
+        request_id=mem_app_req.id,
+        approved=True,
+    )
+
     mem_view_req = build_life_plan_memory_view_request(
         request_id=id_factory(),
         trace_id=mem_trace_id,
         requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
         candidates=(mem_reference,),
-        permission_decision_ids=(consumed_gate.decision_id,),
+        permission_decision_ids=(mem_perm_decision_id,),
     )
     mem_base_inventory = DomainMemoryReferenceInventory(
         references=(mem_reference,),
@@ -673,26 +722,16 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         proposal=mem_proposal,
         view=mem_view,
         trace_id=mem_trace_id,
-        permission_decision_ids=(consumed_gate.decision_id,),
-        approval_request_ids=(cross_approval.id,),
-        approval_decision_ids=(cross_decision.id,),
+        permission_decision_ids=(mem_perm_decision_id,),
+        approval_request_ids=(mem_app_req.id,),
+        approval_decision_ids=(mem_approval_dec.id,),
     )
     mem_full_inventory = DomainMemoryReferenceInventory(
         references=(mem_reference,),
         proposals=(mem_proposal,),
         permission_decisions=(mem_perm_snapshot,),
-        approval_requests=(
-            DomainMemoryApprovalRequestSnapshot(
-                request_id=cross_approval.id, proposal_id=mem_proposal_id
-            ),
-        ),
-        approval_decisions=(
-            DomainMemoryApprovalDecisionSnapshot(
-                decision_id=cross_decision.id,
-                request_id=cross_approval.id,
-                approved=True,
-            ),
-        ),
+        approval_requests=(mem_app_req_snapshot,),
+        approval_decisions=(mem_app_dec_snapshot,),
         traces=(
             DomainMemoryTraceSnapshot(
                 trace_id=mem_trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID
@@ -713,19 +752,21 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     )
     assert mem_val.is_valid is True
 
-    # Memory Tamper Rejection Checks
+    # Memory Tamper & Substitution Rejection Checks
+    # 1. Empty inventory rejected
     bad_mem_val = validate_life_plan_memory_binding(
         binding=mem_binding, inventory=DomainMemoryReferenceInventory()
     )
     assert bad_mem_val.is_valid is False
 
+    # 2. Fake decision ID rejected
     tampered_decision_binding = build_life_plan_memory_binding(
         proposal=mem_proposal,
         view=mem_view,
         trace_id=mem_trace_id,
         permission_decision_ids=("fake-decision-999",),
-        approval_request_ids=(cross_approval.id,),
-        approval_decision_ids=(cross_decision.id,),
+        approval_request_ids=(mem_app_req.id,),
+        approval_decision_ids=(mem_approval_dec.id,),
     )
     assert (
         validate_life_plan_memory_binding(
@@ -734,12 +775,104 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         is False
     )
 
+    # 3. Missing permission decisions rejected
     tampered_inventory = dataclasses.replace(
         mem_full_inventory, permission_decisions=()
     )
     assert (
         validate_life_plan_memory_binding(
             binding=mem_binding, inventory=tampered_inventory
+        ).is_valid
+        is False
+    )
+
+    # 4. Cross-domain permission reused as memory permission rejected
+    binding_cross_perm = build_life_plan_memory_binding(
+        proposal=mem_proposal,
+        view=mem_view,
+        trace_id=mem_trace_id,
+        permission_decision_ids=(consumed_gate.decision_id,),
+        approval_request_ids=(mem_app_req.id,),
+        approval_decision_ids=(mem_approval_dec.id,),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=binding_cross_perm, inventory=mem_full_inventory
+        ).is_valid
+        is False
+    )
+
+    # 5. Cross-domain approval reused for memory proposal rejected
+    cross_as_mem_app_binding = build_life_plan_memory_binding(
+        proposal=mem_proposal,
+        view=mem_view,
+        trace_id=mem_trace_id,
+        permission_decision_ids=(mem_perm_decision_id,),
+        approval_request_ids=(cross_approval.id,),
+        approval_decision_ids=(cross_decision.id,),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=cross_as_mem_app_binding, inventory=mem_full_inventory
+        ).is_valid
+        is False
+    )
+
+    # 6. Approval for proposal A used for proposal B rejected
+    other_proposal_inventory = dataclasses.replace(
+        mem_full_inventory,
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=mem_app_req.id,
+                proposal_id="other-proposal-id-999",
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=mem_binding, inventory=other_proposal_inventory
+        ).is_valid
+        is False
+    )
+
+    # 7. Memory permission for wrong domain rejected
+    wrong_domain_perm_inventory = dataclasses.replace(
+        mem_full_inventory,
+        permission_decisions=(
+            DomainMemoryPermissionDecisionSnapshot(
+                decision_id=mem_perm_decision_id,
+                allowed=True,
+                capabilities=(DomainMemoryCapability.PROPOSE,),
+                source_domain_id=LIFE_PLAN_DOMAIN_ID,
+                target_domain_id="domain:health",
+                sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=mem_binding, inventory=wrong_domain_perm_inventory
+        ).is_valid
+        is False
+    )
+
+    # 8. Permission without MEMORY_WRITE / PROPOSE capability rejected
+    no_propose_perm_inventory = dataclasses.replace(
+        mem_full_inventory,
+        permission_decisions=(
+            DomainMemoryPermissionDecisionSnapshot(
+                decision_id=mem_perm_decision_id,
+                allowed=True,
+                capabilities=(),
+                source_domain_id=LIFE_PLAN_DOMAIN_ID,
+                target_domain_id=LIFE_PLAN_DOMAIN_ID,
+                sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=mem_binding, inventory=no_propose_perm_inventory
         ).is_valid
         is False
     )

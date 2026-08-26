@@ -55,6 +55,10 @@ from cmm.domains.identifiers import DomainId
 from cmm.domains.life_plan import (
     LIFE_PLAN_DOMAIN_ID,
     assemble_life_plan_trace,
+    build_life_plan_memory_binding,
+    build_life_plan_memory_proposal,
+    build_life_plan_memory_view,
+    build_life_plan_memory_view_request,
     build_life_plan_permission_policy,
     build_life_plan_profile,
     build_life_plan_trace_reference,
@@ -68,12 +72,26 @@ from cmm.domains.life_plan import (
     evaluate_scenario_consistency,
     execute_cross_domain_impact_workflow,
     register_life_plan_domain,
+    validate_life_plan_memory_binding,
     validate_life_plan_memory_proposal_content,
     validate_life_plan_trace,
 )
 from cmm.domains.life_plan.rules import AuthorizedCrossDomainContribution
+from cmm.domains.memory_contracts import (
+    DomainMemoryApprovalDecisionSnapshot,
+    DomainMemoryApprovalRequestSnapshot,
+    DomainMemoryCapability,
+    DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryReference,
+    DomainMemoryReferenceInventory,
+    DomainMemoryReferenceKind,
+    DomainMemorySensitivityLevel,
+    DomainMemoryTraceSnapshot,
+    DomainMemoryViewSnapshot,
+)
 from cmm.domains.permission_contracts import (
     CrossDomainPermissionRequest,
+    DomainPermissionRequest,
 )
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
@@ -866,3 +884,223 @@ def test_closure_gate_scenario_consistency_computes_conflicts() -> None:
 def test_closure_gate_memory_proposal_prohibits_direct_write() -> None:
     policy = build_life_plan_permission_policy()
     assert policy.allow_memory_write is False
+
+
+# ── V2-M1 Memory Permission & Approval Lifecycle Regressions ──────────────────
+
+
+def _setup_valid_memory_fixture() -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    _, resolver, approval_service, _ = _setup_runtime()
+    proposal_id = "prop-mem-v2m1"
+    ref_id = "ref-mem-v2m1"
+    trace_id = "trace-mem-v2m1"
+    ref = DomainMemoryReference(
+        reference_id=ref_id,
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="canon-mem-v2m1",
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        applicable_domains=(LIFE_PLAN_DOMAIN_ID,),
+    )
+    proposal = build_life_plan_memory_proposal(
+        proposal_id=proposal_id,
+        affected_reference_ids=(ref_id,),
+    )
+
+    perm_req = DomainPermissionRequest(
+        request_id="perm-req-mem-v2m1",
+        action=PermissionCapability.MEMORY_WRITE,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        actor_id="actor-lp",
+        session_id="sess-lp",
+        resource_id="life_plan.resource.memory_entry",
+        purpose="persist-confirmed-life-plan-memory",
+        context={"proposal_id": proposal_id},
+    )
+    resolver.resolve(perm_req, now=NOW)
+    mem_perm_decision_id = "memory-permission:perm-req-mem-v2m1"
+    perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=mem_perm_decision_id,
+        allowed=True,
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=LIFE_PLAN_DOMAIN_ID,
+        target_domain_id=LIFE_PLAN_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+
+    app_req = approval_service.create_request(
+        title="Life Plan Memory Confirmation",
+        description="Confirm proposal",
+        requested_by="life-plan-agent",
+        metadata={
+            "domain_id": LIFE_PLAN_DOMAIN_ID,
+            "proposal_id": proposal_id,
+            "purpose": "persist-confirmed-life-plan-memory",
+        },
+    )
+    approval_service.approve(app_req.id, "user")
+    app_dec = approval_service.repository.list_decisions(app_req.id)[0]
+
+    app_req_snapshot = DomainMemoryApprovalRequestSnapshot(
+        request_id=app_req.id,
+        proposal_id=proposal_id,
+    )
+    app_dec_snapshot = DomainMemoryApprovalDecisionSnapshot(
+        decision_id=app_dec.id,
+        request_id=app_req.id,
+        approved=True,
+    )
+
+    view_req = build_life_plan_memory_view_request(
+        request_id="view-req-v2m1",
+        trace_id=trace_id,
+        requested_kinds=(DomainMemoryReferenceKind.KNOWLEDGE_ITEM,),
+        candidates=(ref,),
+        permission_decision_ids=(mem_perm_decision_id,),
+    )
+    base_inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID
+            ),
+        ),
+        permission_decisions=(perm_snapshot,),
+    )
+    view = build_life_plan_memory_view(request=view_req, inventory=base_inv)
+    binding = build_life_plan_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=trace_id,
+        permission_decision_ids=(mem_perm_decision_id,),
+        approval_request_ids=(app_req.id,),
+        approval_decision_ids=(app_dec.id,),
+    )
+    full_inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        proposals=(proposal,),
+        permission_decisions=(perm_snapshot,),
+        approval_requests=(app_req_snapshot,),
+        approval_decisions=(app_dec_snapshot,),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=trace_id, primary_domain=LIFE_PLAN_DOMAIN_ID
+            ),
+        ),
+        views=(
+            DomainMemoryViewSnapshot(
+                view_id=view.view_id,
+                request_id=view.request_id,
+                primary_domain=view.primary_domain,
+                trace_id=view.trace_id,
+                view_digest=view.content_digest,
+            ),
+        ),
+    )
+    return proposal, view, trace_id, binding, full_inv, mem_perm_decision_id, app_req.id
+
+
+def test_closure_gate_v2_m1_valid_memory_binding_passes() -> None:
+    _, _, _, binding, full_inv, _, _ = _setup_valid_memory_fixture()
+    val = validate_life_plan_memory_binding(binding=binding, inventory=full_inv)
+    assert val.is_valid is True
+
+
+def test_closure_gate_v2_m1_cross_domain_permission_rejected_as_memory_permission() -> (
+    None
+):
+    (
+        proposal,
+        view,
+        trace_id,
+        _,
+        full_inv,
+        _,
+        app_req_id,
+    ) = _setup_valid_memory_fixture()
+    cross_decision_id = "cross-domain-decision-999"
+    bad_binding = build_life_plan_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=trace_id,
+        permission_decision_ids=(cross_decision_id,),
+        approval_request_ids=(app_req_id,),
+        approval_decision_ids=(full_inv.approval_decisions[0].decision_id,),
+    )
+    val = validate_life_plan_memory_binding(binding=bad_binding, inventory=full_inv)
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_cross_domain_approval_rejected_as_memory_approval() -> None:
+    (
+        proposal,
+        view,
+        trace_id,
+        _,
+        full_inv,
+        mem_perm_decision_id,
+        _,
+    ) = _setup_valid_memory_fixture()
+    cross_app_id = "cross-domain-approval-req-999"
+    bad_binding = build_life_plan_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=trace_id,
+        permission_decision_ids=(mem_perm_decision_id,),
+        approval_request_ids=(cross_app_id,),
+        approval_decision_ids=(full_inv.approval_decisions[0].decision_id,),
+    )
+    val = validate_life_plan_memory_binding(binding=bad_binding, inventory=full_inv)
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_mismatched_proposal_approval_rejected() -> None:
+    _, _, _, binding, full_inv, _, _ = _setup_valid_memory_fixture()
+    bad_inv = dataclasses.replace(
+        full_inv,
+        approval_requests=(
+            DomainMemoryApprovalRequestSnapshot(
+                request_id=binding.approval_request_ids[0],
+                proposal_id="completely-unrelated-proposal-id",
+            ),
+        ),
+    )
+    val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_wrong_domain_memory_permission_rejected() -> None:
+    _, _, _, binding, full_inv, mem_perm_decision_id, _ = _setup_valid_memory_fixture()
+    bad_inv = dataclasses.replace(
+        full_inv,
+        permission_decisions=(
+            DomainMemoryPermissionDecisionSnapshot(
+                decision_id=mem_perm_decision_id,
+                allowed=True,
+                capabilities=(DomainMemoryCapability.PROPOSE,),
+                source_domain_id=LIFE_PLAN_DOMAIN_ID,
+                target_domain_id="domain:evil",
+                sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+            ),
+        ),
+    )
+    val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
+    assert val.is_valid is False
+
+
+def test_closure_gate_v2_m1_missing_capability_memory_permission_rejected() -> None:
+    _, _, _, binding, full_inv, mem_perm_decision_id, _ = _setup_valid_memory_fixture()
+    bad_inv = dataclasses.replace(
+        full_inv,
+        permission_decisions=(
+            DomainMemoryPermissionDecisionSnapshot(
+                decision_id=mem_perm_decision_id,
+                allowed=True,
+                capabilities=(),
+                source_domain_id=LIFE_PLAN_DOMAIN_ID,
+                target_domain_id=LIFE_PLAN_DOMAIN_ID,
+                sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+            ),
+        ),
+    )
+    val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
+    assert val.is_valid is False
