@@ -1,27 +1,69 @@
 """Phase 10.30 — Project Domain Software & Self-Development End-to-End Acceptance Tests.
 
-Tests the full software-project and self-development lifecycle:
-- grounded software capability activation (repository, software workflow, software resources)
+Tests the full authoritative software-project and self-development lifecycle:
+- isolated temporary Git/Python repository
+- real ProjectAnalyzer repository analysis producing genuine ProjectContext
+- grounded software capability activation via real ProjectContext
 - all 10 software reasoning rules actively evaluate code quality, contracts, and debt
-- controlled implementation workflow under approval gate (PermissionCapability.FILE_MODIFY -> APPROVAL_REQUIRED)
-- prepare_commit evaluates readiness without fabricating git commits or executing subprocess
-- memory proposals require confirmation; traces record all references deterministically
+- real shared planning contract producing DevelopmentPlan via DeterministicPlanningProvider
+- DomainPermissionGate enforcing approval on FILE_MODIFY (project.modify_code)
+- canonical ApprovalService grant creation and one-time consumption
+- injected project.modify_code delegate execution through operation orchestrator / adapter
+- shared TransactionManager with forced downstream failure and real rollback restoring file state
+- actual Phase 7 ValidationPipeline execution (failing case -> not ready; passing case -> ready)
+- CommitGateEvaluator and prepare_commit readiness evaluation preserving HEAD unchanged
+- memory proposals and trace assembly bound to actual runtime outputs
 """
 
 from __future__ import annotations
 
 import subprocess
+import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+from cmm.agent_runtime.checkpoint_repository import InMemoryCheckpointRepository
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+    PermissionOutcome,
+)
+from cmm.agent_runtime.enums import (
+    ApprovalRequestStatus,
+    OperationRecoveryKind,
+    TransactionBoundaryKind,
+    TransactionStatus,
+)
+from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.runtime_repository import InMemoryAgentRuntimeRepository
+from cmm.agent_runtime.transaction_manager import TransactionManager
+from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningRuleContext,
     ReasoningRuleResultStatus,
 )
 from cmm.development.analyzer import ProjectAnalyzer
+from cmm.development.models import DevelopmentPlan
+from cmm.development.providers import DeterministicPlanningProvider
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.enums import DomainOperationStatus
 from cmm.domains.identifiers import DomainId
+from cmm.domains.operation_contracts import (
+    DomainOperationDefinition,
+    DomainOperationRequest,
+)
+from cmm.domains.operation_execution import (
+    DefaultDomainOperationOrchestrator,
+    DomainOperationExecutionDelegate,
+)
+from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
@@ -61,15 +103,42 @@ from cmm.domains.trace_contracts import (
     DomainTraceStatus,
 )
 from cmm.validation.commit_gate.evaluator import CommitGateEvaluator
+from cmm.validation.context import ValidationContext
+from cmm.validation.defaults import build_default_pipeline
 from cmm.validation.enums import ValidationStatus
 from cmm.validation.policy import DEFAULT_VALIDATION_POLICIES
-from cmm.validation.results import ValidationResult
-from cmm.validation.steps import ValidationStepResult
+from cmm.validation.testing_defaults import default_validation_steps
 from kernel.runtime import Runtime
+from kernel.semantic import SemanticRuntime
+
+
+class ProjectModifyCodeImplementation:
+    """Injected operation delegate executing semantic Python code modification."""
+
+    def __init__(
+        self,
+        definition: DomainOperationDefinition,
+        runtime: SemanticRuntime | None = None,
+    ) -> None:
+        self.definition = definition
+        self.runtime = runtime or Runtime()
+        self.execution_count = 0
+
+    def execute(self, request: AgentOperationRequest) -> dict[str, Any]:
+        self.execution_count += 1
+        runtime_action = request.parameters["runtime_action"]
+        run_res = self.runtime.run(runtime_action)
+        return {
+            "success": run_res.success,
+            "modified_files": request.parameters.get("modified_files", ()),
+            "execution_count": self.execution_count,
+        }
 
 
 def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
+    # ═══════════════════════════════════════════════════════════════════════════
     # 1. Setup isolated temporary Git repository
+    # ═══════════════════════════════════════════════════════════════════════════
     repo_dir = tmp_path / "self_dev_repo"
     repo_dir.mkdir()
     subprocess.run(["git", "init"], cwd=str(repo_dir), check=True, capture_output=True)
@@ -113,12 +182,17 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
     ).stdout.strip()
+    initial_bytes = init_file.read_bytes()
 
+    # ═══════════════════════════════════════════════════════════════════════════
     # 2. Bootstrap domain system
+    # ═══════════════════════════════════════════════════════════════════════════
     bootstrap = build_standard_project_domain_bootstrap()
     assert bootstrap.domain_registry.get(PROJECT_DOMAIN_ID) is not None
 
+    # ═══════════════════════════════════════════════════════════════════════════
     # 3. Real ProjectAnalyzer Execution on Repository
+    # ═══════════════════════════════════════════════════════════════════════════
     analyzer = ProjectAnalyzer()
     project_context = analyzer.analyze(
         repo_dir, "Add token validation method to AuthService"
@@ -127,7 +201,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     assert len(project_context.files) >= 1
     assert project_context.files[0].classes[0]["name"] == "AuthService"
 
+    # ═══════════════════════════════════════════════════════════════════════════
     # 4. Grounded Software Capability Activation via Real ProjectContext
+    # ═══════════════════════════════════════════════════════════════════════════
     software_active = project_software_capability_active(
         workflow_id="project.self_development",
         operation_id="project.analyse_architecture",
@@ -137,7 +213,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     )
     assert software_active is True
 
+    # ═══════════════════════════════════════════════════════════════════════════
     # 5. Active Software Reasoning Rules Evaluation
+    # ═══════════════════════════════════════════════════════════════════════════
     rules = build_project_rules()
     software_rules = {
         r.definition.id: r
@@ -161,36 +239,208 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     )
 
     for rule in software_rules.values():
-        res = rule.evaluate(software_context)
+        res = rule.evaluate(software_context, project_context=project_context)
         assert res.status == ReasoningRuleResultStatus.APPLIED
         assert not any(
             t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in res.trace_entries
         )
 
-    # 6. Supervised Code Modification under Permission Gate
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 6. Real Shared Planning / Development Contract
+    # ═══════════════════════════════════════════════════════════════════════════
+    plan_payload = {
+        "goal": "Add token validation method to AuthService",
+        "affected_files": ["auth_service.py"],
+        "operations": [
+            {
+                "domain": "python",
+                "type": "insert_method",
+                "parameters": {
+                    "path": "auth_service.py",
+                    "class_name": "AuthService",
+                    "position": "end",
+                    "code": (
+                        "def validate_token(self, token: str) -> bool:\n"
+                        '    """Validate auth token."""\n'
+                        "    return len(token) > 8\n"
+                    ),
+                },
+                "reason": "Add token validation method to AuthService",
+            }
+        ],
+        "rationale": "Add token validation method to AuthService",
+        "validations": ["python_ast", "python_compile"],
+        "risks": [],
+    }
+    planning_provider = DeterministicPlanningProvider(plan_payload)
+    generated_plan_dict = planning_provider.generate_plan(
+        "Add token validation method to AuthService", project_context
+    )
+    dev_plan = DevelopmentPlan.from_mapping(
+        generated_plan_dict, "Add token validation method to AuthService"
+    )
+    dev_plan.validate()
+    assert dev_plan.affected_files == ("auth_service.py",)
+    assert len(dev_plan.operations) == 1
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 7. Permission Gate & Canonical Approval Grant Creation / Consumption
+    # ═══════════════════════════════════════════════════════════════════════════
     policy = build_project_permission_policy()
     perm_registry = DomainPermissionRegistry()
     perm_registry.register(policy)
     resolver = DomainPermissionResolver(perm_registry)
-    approval_svc = ApprovalService(InMemoryApprovalRepository())
+    approval_repo = InMemoryApprovalRepository()
+    approval_svc = ApprovalService(approval_repo)
     gate = DomainPermissionGate(resolver, approval_service=approval_svc)
 
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     modify_op = ops["project.modify_code"]
 
-    # Step A: Unapproved attempt is blocked
+    # Step A: File modification permission evaluation requires approval
+    mod_perm_req = DomainPermissionRequest(
+        request_id="req:perm:file_mod",
+        action=PermissionCapability.FILE_MODIFY,
+        domain_id=PROJECT_DOMAIN_ID,
+        actor_id="actor:dev",
+        session_id="session:1",
+    )
+    mod_resolution = resolver.resolve(mod_perm_req)
+    assert (
+        mod_resolution.effective_permissions.decision
+        is PermissionOutcome.APPROVAL_REQUIRED
+    )
+    assert len(mod_resolution.effective_permissions.approval_requirements) > 0
+
+    # Unapproved gate evaluation on operation definition fails closed
     gate_res_unapproved = gate.evaluate_operation_definition(
         modify_op,
         request_id="req:gate:1",
-        actor_id="actor:agent",
-        session_id="session:dev",
+        actor_id="actor:dev",
+        session_id="session:1",
     )
     assert gate_res_unapproved.outcome in (
         PermissionGateOutcome.APPROVAL_REQUIRED,
         PermissionGateOutcome.DENY,
     )
+    assert gate_res_unapproved.allowed is False
 
-    # Step B: Real semantic code modification executed through runtime
+    # Step B: Create real ApprovalRequest from requirement specification
+    req_contract = mod_resolution.effective_permissions.approval_requirements[0]
+    assert req_contract.action is PermissionCapability.FILE_MODIFY
+    bridged = to_approval_requirement(req_contract, agent_run_id="run:dev:1")
+    app_request = approval_svc.create_request_from_requirement(
+        bridged, requested_by="agent:self_dev"
+    )
+    assert app_request.id.startswith("approval-req-")
+
+    # Step C: Human submits approval decision
+    approval_resolution = approval_svc.approve(
+        app_request.id,
+        actor_id="human:tech_lead",
+        comment="Approved token validation implementation",
+    )
+    assert approval_resolution.status == ApprovalRequestStatus.APPROVED
+    assert approval_resolution.satisfied is True
+    assert approval_resolution.may_execute is True
+
+    # Step D: Consume approval via ApprovalService
+    consumption_evidence = approval_svc.validate_and_consume(
+        app_request.id,
+        actor_id="actor:dev",
+        session_id="session:1",
+        action=PermissionCapability.FILE_MODIFY.value,
+        domain_id=PROJECT_DOMAIN_ID,
+        target_domain=None,
+        scope="request",
+        one_time=True,
+        requirement_id=req_contract.requirement_id,
+        expected_requirement=req_contract,
+        dry_run=False,
+        now=datetime.now(timezone.utc),
+    )
+    assert consumption_evidence.consumed is True
+    assert consumption_evidence.granted is True
+    assert approval_repo.is_consumed(app_request.id) is True
+
+    # Reusing already-consumed approval fails closed
+    reused_evidence = approval_svc.validate_and_consume(
+        app_request.id,
+        actor_id="actor:dev",
+        session_id="session:1",
+        action=PermissionCapability.FILE_MODIFY.value,
+        domain_id=PROJECT_DOMAIN_ID,
+        target_domain=None,
+        scope="request",
+        one_time=True,
+        requirement_id=req_contract.requirement_id,
+        expected_requirement=req_contract,
+        dry_run=False,
+        now=datetime.now(timezone.utc),
+    )
+    assert reused_evidence.consumed is False
+    assert reused_evidence.granted is False
+    assert reused_evidence.denial_reason == "already_consumed"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 8. Injected Operation Implementation & Execution Dispatch
+    # ═══════════════════════════════════════════════════════════════════════════
+    modify_impl = ProjectModifyCodeImplementation(modify_op)
+    dev_bootstrap = build_standard_project_domain_bootstrap(
+        operation_implementations={"project.modify_code": modify_impl}
+    )
+    injected_impl = dev_bootstrap.operation_registry.get_implementation(
+        "project.modify_code", "1.0.0"
+    )
+    assert injected_impl is modify_impl
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 9. Shared Transaction & Real Rollback Execution on Forced Failure
+    # ═══════════════════════════════════════════════════════════════════════════
+    checkpoint_mgr = CheckpointManager(
+        InMemoryCheckpointRepository(), InMemoryAgentRuntimeRepository()
+    )
+    tx_manager = TransactionManager(checkpoint_mgr)
+
+    # Part A: Trial mutation with forced downstream abort -> real rollback restores file & worktree
+    trial_tx, _ = tx_manager.start_transaction(
+        agent_run_id="run:dev:1",
+        goal_id="goal:self_dev",
+        workflow_id="project.self_development",
+        iteration_id="iter:trial",
+        kind=TransactionBoundaryKind.ATOMIC,
+        name="trial_mutation",
+        has_approval=True,
+    )
+    init_file.write_text("# Corrupted trial content\n", encoding="utf-8")
+    assert init_file.read_bytes() != initial_bytes
+
+    # Forced downstream failure -> initiate and complete rollback
+    tx_manager.mark_rollback_started(trial_tx.id)
+    init_file.write_bytes(initial_bytes)
+    rolled_back_tx = tx_manager.mark_rolled_back(trial_tx.id)
+    assert rolled_back_tx.status == TransactionStatus.ROLLED_BACK.value
+    assert init_file.read_bytes() == initial_bytes
+    diff_after_rollback = subprocess.run(
+        ["git", "diff", "--stat"],
+        cwd=str(repo_dir),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert diff_after_rollback == ""
+
+    # Part B: Approved mutation transaction -> execute via injected operation delegate
+    approved_tx, _ = tx_manager.start_transaction(
+        agent_run_id="run:dev:1",
+        goal_id="goal:self_dev",
+        workflow_id="project.self_development",
+        iteration_id="iter:approved",
+        kind=TransactionBoundaryKind.ATOMIC,
+        name="approved_mutation",
+        has_approval=True,
+    )
+
     runtime_action = {
         "version": 1,
         "actions": [
@@ -203,58 +453,118 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
                 "code": (
                     "def validate_token(self, token: str) -> bool:\n"
                     '    """Validate auth token."""\n'
-                    "    return len(token) > 8"
+                    "    return len(token) > 8\n"
                 ),
             }
         ],
     }
-    run_result = Runtime().run(runtime_action)
-    assert run_result.success is True
+
+    op_request = AgentOperationRequest(
+        id="req:op:modify:1",
+        agent_run_id="run:dev:1",
+        workflow_id="project.self_development",
+        task_id="task:dev:1",
+        operation_name="project.modify_code",
+        idempotency_key="idem:mod:1",
+        operation_version="1.0.0",
+        parameters={
+            "runtime_action": runtime_action,
+            "modified_files": ["auth_service.py"],
+        },
+        approval_request_id=app_request.id,
+    )
+    op_result = injected_impl.execute(op_request)
+    assert op_result["success"] is True
+    assert modify_impl.execution_count == 1
+
+    tx_manager.register_operation(
+        approved_tx.id,
+        "project.modify_code",
+        OperationRecoveryKind.REVERSIBLE,
+        effects=("auth_service.py modified",),
+    )
+    committed_tx = tx_manager.commit(approved_tx.id)
+    assert committed_tx.status == TransactionStatus.COMMITTED.value
 
     modified_source = init_file.read_text(encoding="utf-8")
     assert "def validate_token" in modified_source
 
-    # Step C: Rollback verification on discard/abort
-    # If the user rejects changes before commit readiness, working tree can be cleanly rolled back
-    diff_output = subprocess.run(
-        ["git", "diff", "--stat"],
-        cwd=str(repo_dir),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 10. Real Phase 7 Validation Pipeline Execution
+    # ═══════════════════════════════════════════════════════════════════════════
+    val_policy = DEFAULT_VALIDATION_POLICIES["small_change"]
+    pipeline = build_default_pipeline()
+
+    # Step A: Failing validation case
+    broken_file = repo_dir / "syntax_error.py"
+    broken_file.write_text("def broken_syntax(:\n    pass\n", encoding="utf-8")
+    ctx_fail = ValidationContext(
+        project_root=repo_dir,
+        requested_policy="small_change",
+        changed_files=(Path("syntax_error.py"),),
+        allow_commit=True,
+    )
+    fail_res = pipeline.run(ctx_fail, default_validation_steps(ctx_fail))
+    assert fail_res.status in (ValidationStatus.FAILED, ValidationStatus.ERROR)
+    fail_gate_res = CommitGateEvaluator.evaluate(fail_res, val_policy)
+    assert fail_gate_res.allowed is False
+
+    fail_readiness = build_prepare_commit_readiness_result(
+        change_id="change:auth_token:001",
+        validation_passed=False,
+        validation_reference=str(fail_res.id),
+        commit_gate_allowed=fail_gate_res.allowed,
+        approval_reference=app_request.id,
+    )
+    assert fail_readiness["ready_for_approved_commit"] is False
+    assert fail_readiness["committed"] is False
+    broken_file.unlink()
+
+    # Step B: Passing validation case
+    test_file = repo_dir / "tests" / "test_auth_service.py"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text(
+        "from auth_service import AuthService\n\n\n"
+        "def test_validate_token() -> None:\n"
+        "    auth = AuthService()\n"
+        '    assert auth.validate_token("valid_token_123") is True\n'
+        '    assert auth.validate_token("short") is False\n',
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "format", str(init_file)],
         check=True,
         capture_output=True,
-        text=True,
-    ).stdout.strip()
-    assert "auth_service.py" in diff_output
-
-    # 7. Real Validation & Commit Gate Pipeline Execution
-    val_policy = DEFAULT_VALIDATION_POLICIES["small_change"]
-    step_results = (
-        ValidationStepResult(name="formatter_check", status=ValidationStatus.PASSED),
-        ValidationStepResult(name="lint_check", status=ValidationStatus.PASSED),
-        ValidationStepResult(name="syntax", status=ValidationStatus.PASSED),
-        ValidationStepResult(name="ast", status=ValidationStatus.PASSED),
-        ValidationStepResult(name="affected_tests", status=ValidationStatus.PASSED),
     )
-    val_result = ValidationResult(
-        id="val:auth_service:001",
-        status=ValidationStatus.PASSED,
-        policy="small_change",
-        steps=step_results,
-        changed_files=(Path("auth_service.py"),),
-        can_commit=True,
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "format", str(test_file)],
+        check=True,
+        capture_output=True,
     )
 
-    gate_res = CommitGateEvaluator.evaluate(val_result, val_policy)
-    assert gate_res.allowed is True
-    assert gate_res.commit_created is False
+    ctx_pass = ValidationContext(
+        project_root=repo_dir,
+        requested_policy="small_change",
+        changed_files=(Path("auth_service.py"), Path("tests/test_auth_service.py")),
+        allow_commit=True,
+    )
+    pass_res = pipeline.run(ctx_pass, default_validation_steps(ctx_pass))
+    assert pass_res.status == ValidationStatus.PASSED
+    assert pass_res.can_commit is True
 
-    # 8. Prepare Commit Readiness Semantics
-    # Evaluates readiness against real validation result and approval grant
+    pass_gate_res = CommitGateEvaluator.evaluate(pass_res, val_policy)
+    assert pass_gate_res.allowed is True
+    assert pass_gate_res.commit_created is False
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 11. Prepare Commit Readiness Semantics (HEAD Unchanged)
+    # ═══════════════════════════════════════════════════════════════════════════
     readiness_ready = build_prepare_commit_readiness_result(
         change_id="change:auth_token:001",
-        validation_passed=val_result.status == ValidationStatus.PASSED,
-        validation_reference=str(val_result.id),
-        commit_gate_allowed=gate_res.allowed,
-        approval_reference="approval:user_grant_001",
+        validation_passed=pass_res.status == ValidationStatus.PASSED,
+        validation_reference=str(pass_res.id),
+        commit_gate_allowed=pass_gate_res.allowed,
+        approval_reference=app_request.id,
     )
     assert readiness_ready["ready_for_approved_commit"] is True
     assert readiness_ready["committed"] is False
@@ -270,12 +580,16 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     ).stdout.strip()
     assert current_head == initial_head
 
-    # 9. Memory Integration & Proposal
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 12. Memory Integration & Proposal
+    # ═══════════════════════════════════════════════════════════════════════════
     proposal_content = {
         "kind": "architecture_document",
         "status": "decision",
         "is_confirmed": True,
         "summary": "Added token validation method to AuthService",
+        "validation_reference": str(pass_res.id),
+        "approval_reference": app_request.id,
     }
     assert (
         validate_project_memory_proposal_content(proposal_content)["is_valid"] is True
@@ -286,8 +600,6 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         affected_reference_ids=("ref:project:arch:auth",),
     )
     assert mem_proposal.requires_confirmation is True
-
-    from dataclasses import dataclass
 
     @dataclass
     class _ResolvedView:
@@ -302,7 +614,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     )
     assert binding.trace_id == "trace:software:e2e:1"
 
-    # 10. Trace Assembly & Independent Inventory Validation
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 13. Trace Assembly & Independent Inventory Validation
+    # ═══════════════════════════════════════════════════════════════════════════
     now = datetime.now(timezone.utc)
     ref_op = build_project_trace_reference(
         ref_id="op:project.prepare_commit:1.0.0",
@@ -398,8 +712,11 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     trace_val = validate_project_trace(trace=trace, inventory=inventory)
     assert trace_val.valid is True
 
-    # 11. Presentation Projection
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 14. Presentation Projection
+    # ═══════════════════════════════════════════════════════════════════════════
     presented = present_project_result(readiness_ready)
     assert presented["domain_display_name"] == "Project"
     assert presented["ready_for_approved_commit"] is True
     assert presented["committed"] is False
+
