@@ -326,27 +326,27 @@ def build_prepare_commit_readiness_result(
     approval_reference: str | None = None,
     authoritative_commit_reference: str | None = None,
 ) -> dict[str, Any]:
-    """Evaluate commit readiness without executing external commits or fabricating commit hashes."""
+    """Evaluate commit readiness without executing external commits or fabricating commit hashes.
+
+    project.prepare_commit prepares readiness for an approved commit but never commits
+    directly and never marks committed=True from caller-supplied strings, booleans, or mappings.
+    committed is strictly False for preparation.
+    """
     ready_for_approved_commit = (
         bool(validation_passed)
         and bool(commit_gate_allowed)
         and (approval_reference is not None)
     )
-    committed = authoritative_commit_reference is not None
 
-    result: dict[str, Any] = {
+    return {
         "change_id": change_id,
-        "validation_passed": validation_passed,
+        "validation_passed": bool(validation_passed),
         "validation_reference": validation_reference,
-        "commit_gate_allowed": commit_gate_allowed,
+        "commit_gate_allowed": bool(commit_gate_allowed),
         "approval_reference": approval_reference,
         "ready_for_approved_commit": ready_for_approved_commit,
-        "committed": committed,
+        "committed": False,
     }
-    if authoritative_commit_reference is not None:
-        result["authoritative_commit_reference"] = authoritative_commit_reference
-
-    return result
 
 
 __all__ = [

@@ -649,12 +649,24 @@ def test_attack_prepare_commit_does_not_commit() -> None:
     )
     assert readiness["committed"] is False
 
+    # Caller cannot forge committed state via caller string or boolean
+    forged_ref = build_prepare_commit_readiness_result(
+        change_id="change:1",
+        validation_passed=True,
+        validation_reference="validation:phase7:passed",
+        commit_gate_allowed=True,
+        approval_reference="approval:1",
+        authoritative_commit_reference="caller:fake:commit",
+    )
+    assert forged_ref["committed"] is False
+
 
 # ── Attack Class 25: NO_FAKE_COMMIT_REFERENCE ─────────────────────────────────
 
 
 def test_attack_no_fake_commit_reference() -> None:
-    """project.prepare_commit does not manufacture fake commit hashes."""
+    """project.prepare_commit does not manufacture fake commit hashes or accept unverified commit outcomes."""
+    # Subcase 1: No fabricated commit hash emitted
     readiness = build_prepare_commit_readiness_result(
         change_id="change:1",
         validation_passed=True,
@@ -663,6 +675,42 @@ def test_attack_no_fake_commit_reference() -> None:
     )
     assert "commit_hash" not in readiness
     assert readiness.get("authoritative_commit_reference") is None
+
+    # Subcase 2: Failed validation + fake reference cannot commit
+    res_val_fail = build_prepare_commit_readiness_result(
+        change_id="change:1",
+        validation_passed=False,
+        validation_reference=None,
+        commit_gate_allowed=True,
+        approval_reference="approval:1",
+        authoritative_commit_reference="git:commit:123",
+    )
+    assert res_val_fail["ready_for_approved_commit"] is False
+    assert res_val_fail["committed"] is False
+
+    # Subcase 3: Denied gate + fake reference cannot commit
+    res_gate_deny = build_prepare_commit_readiness_result(
+        change_id="change:1",
+        validation_passed=True,
+        validation_reference="validation:1",
+        commit_gate_allowed=False,
+        approval_reference="approval:1",
+        authoritative_commit_reference="git:commit:123",
+    )
+    assert res_gate_deny["ready_for_approved_commit"] is False
+    assert res_gate_deny["committed"] is False
+
+    # Subcase 4: Missing approval + fake reference cannot commit
+    res_no_appr = build_prepare_commit_readiness_result(
+        change_id="change:1",
+        validation_passed=True,
+        validation_reference="validation:1",
+        commit_gate_allowed=True,
+        approval_reference=None,
+        authoritative_commit_reference="git:commit:123",
+    )
+    assert res_no_appr["ready_for_approved_commit"] is False
+    assert res_no_appr["committed"] is False
 
 
 # ── Attack Class 26: MUTATION_REQUIRES_SHARED_ROLLBACK_PATH ───────────────────

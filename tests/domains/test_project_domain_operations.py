@@ -171,8 +171,8 @@ def test_prepare_commit_readiness_semantics() -> None:
     assert ready["committed"] is False
     assert "commit_hash" not in ready
 
-    # External authoritative commit reference provided
-    committed = build_prepare_commit_readiness_result(
+    # External caller-provided reference NEVER produces committed=True
+    caller_ref = build_prepare_commit_readiness_result(
         change_id="change:1",
         validation_passed=True,
         validation_reference="validation:1",
@@ -180,9 +180,72 @@ def test_prepare_commit_readiness_semantics() -> None:
         approval_reference="approval:1",
         authoritative_commit_reference="git:commit:abcdef123456",
     )
-    assert committed["ready_for_approved_commit"] is True
-    assert committed["committed"] is True
-    assert committed["authoritative_commit_reference"] == "git:commit:abcdef123456"
+    assert caller_ref["ready_for_approved_commit"] is True
+    assert caller_ref["committed"] is False
+
+    # Fake reference with failed validation / gate / approval never commits
+    fake_failed = build_prepare_commit_readiness_result(
+        change_id="change:1",
+        validation_passed=False,
+        validation_reference=None,
+        commit_gate_allowed=False,
+        approval_reference=None,
+        authoritative_commit_reference="caller:fake",
+    )
+    assert fake_failed["ready_for_approved_commit"] is False
+    assert fake_failed["committed"] is False
+
+
+def test_prepare_commit_does_not_mutate_git_head(tmp_path: Path) -> None:
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    (repo / "file.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "file.py"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True
+    )
+
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    result = build_prepare_commit_readiness_result(
+        change_id="change:repo:1",
+        validation_passed=True,
+        validation_reference="validation:p7",
+        commit_gate_allowed=True,
+        approval_reference="appr:1",
+        authoritative_commit_reference="caller:fake",
+    )
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    assert head_after == head_before
+    assert result["ready_for_approved_commit"] is True
+    assert result["committed"] is False
 
 
 def test_no_direct_execution_in_operations_source() -> None:
