@@ -101,6 +101,7 @@ from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
+    DomainTrace,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
@@ -557,88 +558,151 @@ def test_closure_gate_25_memory_cannot_promote_inference_or_scenario_to_confirme
         assert res["is_valid"] is False
 
 
-# 26. Trace inventory independent from final trace
-def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
-    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
-    from cmm.domains.trace_contracts import (
-        DomainTrace,
-        DomainTraceReferences,
-        DomainTraceStatus,
-    )
+# ── Runtime Trace Fixture & Regressions (V2-M2) ──────────────────────────────
 
+
+def _setup_valid_runtime_trace_fixture() -> tuple[
+    DomainTrace, DomainTraceReferenceInventory, str, str, str, str, str
+]:
     profile = build_life_plan_profile()
     domain_result = DomainResult(
-        id="result-lp-inv-1",
+        id="result-lp-trace-1",
         status="completed",
-        objective="Independent inventory test",
+        objective="Strategy Review Trace Test",
         primary_domain=LIFE_PLAN_DOMAIN_ID,
     )
     result_id_str = str(domain_result.id)
-    ref_prof = build_life_plan_trace_reference(
-        ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
-    )
-    req_id = "req-inv-1"
-    ctx_id = "ctx-inv-1"
-    res_id = "res-inv-1"
-    comp_id = "comp-inv-1"
+    req_id = "req-trace-01"
+    ctx_id = "ctx-trace-01"
+    res_id = "res-trace-01"
+    comp_id = "comp-trace-01"
+    pres_id = "pres-trace-01"
+    wf_run_id = "wf-run-trace-01"
+    wf_exec_id = "wf-exec-trace-01"
+    perm_dec_id = "perm-dec-trace-01"
+    app_req_id = "app-req-trace-01"
+    app_dec_id = "app-dec-trace-01"
+    mem_prop_id = "mem-prop-trace-01"
+    mem_bind_id = "mem-bind-trace-01"
 
-    trace_refs = DomainTraceReferences(
+    runtime_refs = (
+        build_life_plan_trace_reference(
+            ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+        ),
+        build_life_plan_trace_reference(
+            ref_id=wf_run_id, kind=DomainTraceReferenceKind.WORKFLOW_RUN
+        ),
+        build_life_plan_trace_reference(
+            ref_id=wf_exec_id,
+            kind=DomainTraceReferenceKind.WORKFLOW_RESULT,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=perm_dec_id,
+            kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=app_req_id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=app_dec_id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_prop_id,
+            kind=DomainTraceReferenceKind.MEMORY_PROPOSAL,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_bind_id,
+            kind=DomainTraceReferenceKind.MEMORY_BINDING,
+        ),
+    )
+
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
         resolution_context_id=ctx_id,
         resolution_result_id=res_id,
         composition_id=comp_id,
-        cross_domain_results=(),
-        presentation_result_ids=(),
-    )
-    probe = DomainTrace(
-        id="domain-trace:probe",
-        digest="0" * 64,
-        request_id=req_id,
-        goal_id=None,
-        primary_domain=LIFE_PLAN_DOMAIN_ID,
-        supporting_domains=(),
-        contributions=(
-            build_life_plan_trace_contribution(
-                domain_result_id=result_id_str,
-                references=(ref_prof,),
-            ),
-        ),
-        references=trace_refs,
-        domain_results=(
-            DomainResultTraceReference(
-                result_id_str,
-                LIFE_PLAN_DOMAIN_ID,
-                "domain-trace:probe",
-            ),
-        ),
-        status=DomainTraceStatus.COMPLETED,
+        domain_result_id=result_id_str,
+        presentation_result_ids=(pres_id,),
         started_at=NOW,
         completed_at=NOW,
-        duration_ms=0,
-        metadata={},
+        references=runtime_refs,
     )
-    expected_trace_id = probe.canonical_id
+
+    expected_refs = (
+        DomainTraceReference(
+            result_id_str,
+            DomainTraceReferenceKind.DOMAIN_RESULT,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            str(profile.id), DomainTraceReferenceKind.PROFILE, LIFE_PLAN_DOMAIN_ID
+        ),
+        DomainTraceReference(
+            wf_run_id,
+            DomainTraceReferenceKind.WORKFLOW_RUN,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            wf_exec_id,
+            DomainTraceReferenceKind.WORKFLOW_RESULT,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            perm_dec_id,
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            app_req_id,
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            app_dec_id,
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_prop_id,
+            DomainTraceReferenceKind.MEMORY_PROPOSAL,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_bind_id,
+            DomainTraceReferenceKind.MEMORY_BINDING,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            ctx_id,
+            DomainTraceReferenceKind.RESOLUTION_CONTEXT,
+            None,
+        ),
+        DomainTraceReference(
+            res_id,
+            DomainTraceReferenceKind.RESOLUTION_RESULT,
+            None,
+        ),
+        DomainTraceReference(
+            comp_id,
+            DomainTraceReferenceKind.COMPOSITION,
+            None,
+        ),
+        DomainTraceReference(
+            pres_id,
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+            None,
+        ),
+    )
 
     inventory = DomainTraceReferenceInventory(
-        references=(
-            DomainTraceReference(
-                result_id_str,
-                DomainTraceReferenceKind.DOMAIN_RESULT,
-                LIFE_PLAN_DOMAIN_ID,
-            ),
-            ref_prof,
-            DomainTraceReference(
-                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
-            ),
-            DomainTraceReference(
-                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
-            ),
-            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
-        ),
+        references=expected_refs,
         domain_results=(
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=expected_trace_id,
+                trace_id=trace.id,
             ),
         ),
         cross_domain_results=(),
@@ -650,125 +714,28 @@ def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
             comp_id, LIFE_PLAN_DOMAIN_ID, ()
         ),
     )
-    assert len(inventory.references) == 5
-
-    trace = assemble_life_plan_trace(
-        request_id=req_id,
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        domain_result_id=result_id_str,
-        started_at=NOW,
-        completed_at=NOW,
-        references=(ref_prof,),
+    return (
+        trace,
+        inventory,
+        perm_dec_id,
+        app_dec_id,
+        mem_bind_id,
+        wf_run_id,
+        str(profile.id),
     )
+
+
+# 26. Trace inventory independent from final trace
+def test_closure_gate_26_trace_inventory_independent_from_final_trace() -> None:
+    trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    assert len(inventory.references) == 13
     val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert val.valid is True
 
 
 # 27. Trace tamper / orphan / wrong-domain references rejected
 def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() -> None:
-    from cmm.domains.life_plan.trace import build_life_plan_trace_contribution
-    from cmm.domains.trace_contracts import (
-        DomainTrace,
-        DomainTraceReferences,
-        DomainTraceStatus,
-    )
-
-    profile = build_life_plan_profile()
-    domain_result = DomainResult(
-        id="result-lp-tamper-1",
-        status="completed",
-        objective="Trace tamper test",
-        primary_domain=LIFE_PLAN_DOMAIN_ID,
-    )
-    result_id_str = str(domain_result.id)
-    ref_prof = build_life_plan_trace_reference(
-        ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
-    )
-    req_id = "req-t-1"
-    ctx_id = "ctx-t-1"
-    res_id = "res-t-1"
-    comp_id = "comp-t-1"
-
-    trace_refs = DomainTraceReferences(
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        cross_domain_results=(),
-        presentation_result_ids=(),
-    )
-    probe = DomainTrace(
-        id="domain-trace:probe",
-        digest="0" * 64,
-        request_id=req_id,
-        goal_id=None,
-        primary_domain=LIFE_PLAN_DOMAIN_ID,
-        supporting_domains=(),
-        contributions=(
-            build_life_plan_trace_contribution(
-                domain_result_id=result_id_str,
-                references=(ref_prof,),
-            ),
-        ),
-        references=trace_refs,
-        domain_results=(
-            DomainResultTraceReference(
-                result_id_str,
-                LIFE_PLAN_DOMAIN_ID,
-                "domain-trace:probe",
-            ),
-        ),
-        status=DomainTraceStatus.COMPLETED,
-        started_at=NOW,
-        completed_at=NOW,
-        duration_ms=0,
-        metadata={},
-    )
-    expected_trace_id = probe.canonical_id
-
-    inventory = DomainTraceReferenceInventory(
-        references=(
-            DomainTraceReference(
-                result_id_str,
-                DomainTraceReferenceKind.DOMAIN_RESULT,
-                LIFE_PLAN_DOMAIN_ID,
-            ),
-            ref_prof,
-            DomainTraceReference(
-                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
-            ),
-            DomainTraceReference(
-                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
-            ),
-            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
-        ),
-        domain_results=(
-            DomainResultTraceReference(
-                result_id=result_id_str,
-                domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=expected_trace_id,
-            ),
-        ),
-        cross_domain_results=(),
-        expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
-        resolution_result_domains=DomainTraceDomainSelection(
-            res_id, LIFE_PLAN_DOMAIN_ID, ()
-        ),
-        composition_domains=DomainTraceDomainSelection(
-            comp_id, LIFE_PLAN_DOMAIN_ID, ()
-        ),
-    )
-    trace = assemble_life_plan_trace(
-        request_id=req_id,
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        domain_result_id=result_id_str,
-        started_at=NOW,
-        completed_at=NOW,
-        references=(ref_prof,),
-    )
+    trace, inventory, _, _, _, _, profile_id = _setup_valid_runtime_trace_fixture()
     primary_contrib = trace.contributions[0]
     tampered_trace = dataclasses.replace(
         trace,
@@ -777,7 +744,95 @@ def test_closure_gate_27_trace_tamper_orphan_wrong_domain_references_rejected() 
                 primary_contrib,
                 references=tuple(
                     dataclasses.replace(r, ref_id="tampered-profile-id")
-                    if r.ref_id == str(profile.id)
+                    if r.ref_id == profile_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    val = validate_life_plan_trace(trace=tampered_trace, inventory=inventory)
+    assert val.valid is False
+
+
+def test_closure_gate_v2_m2_tampered_permission_decision_trace_reference_rejected() -> (
+    None
+):
+    trace, inventory, perm_dec_id, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-perm-dec-id")
+                    if r.ref_id == perm_dec_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    val = validate_life_plan_trace(trace=tampered_trace, inventory=inventory)
+    assert val.valid is False
+
+
+def test_closure_gate_v2_m2_tampered_approval_decision_trace_reference_rejected() -> (
+    None
+):
+    trace, inventory, _, app_dec_id, _, _, _ = _setup_valid_runtime_trace_fixture()
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-app-dec-id")
+                    if r.ref_id == app_dec_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    val = validate_life_plan_trace(trace=tampered_trace, inventory=inventory)
+    assert val.valid is False
+
+
+def test_closure_gate_v2_m2_tampered_memory_binding_trace_reference_rejected() -> None:
+    trace, inventory, _, _, mem_bind_id, _, _ = _setup_valid_runtime_trace_fixture()
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-mem-bind-id")
+                    if r.ref_id == mem_bind_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    val = validate_life_plan_trace(trace=tampered_trace, inventory=inventory)
+    assert val.valid is False
+
+
+def test_closure_gate_v2_m2_tampered_workflow_run_trace_reference_rejected() -> None:
+    trace, inventory, _, _, _, wf_run_id, _ = _setup_valid_runtime_trace_fixture()
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-wf-run-id")
+                    if r.ref_id == wf_run_id
                     else r
                     for r in primary_contrib.references
                 ),

@@ -40,7 +40,6 @@ from cmm.domains.life_plan import (
     build_life_plan_memory_view_request,
     build_life_plan_operation_definitions,
     build_life_plan_permission_policy,
-    build_life_plan_trace_contribution,
     build_life_plan_trace_reference,
     build_life_plan_workflow_definitions,
     build_standard_life_plan_domain_bootstrap,
@@ -89,13 +88,10 @@ from cmm.domains.resolution_contracts import DomainResolutionSignal
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
-    DomainTrace,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
-    DomainTraceReferences,
-    DomainTraceStatus,
 )
 from cmm.domains.workflow_contracts import DomainWorkflowContext
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
@@ -886,6 +882,8 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         "alternatives_count": 2,
     }
     presented = present_life_plan_result(raw_lp_res)
+    presentation_id = id_factory()
+    presented["presentation_id"] = presentation_id
     assert presented["domain_display_name"] == "Life Plan"
     assert presented["decision_lattice_preserved"] is True
     state["43_presented"] = presented
@@ -900,14 +898,53 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     )
     result_id_str = str(domain_result.id)
     req_id = id_factory()
-    ctx_id = id_factory()
-    res_id = id_factory()
-    comp_id = id_factory()
 
-    ref1 = build_life_plan_trace_reference(
-        ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+    runtime_refs = (
+        build_life_plan_trace_reference(
+            ref_id=str(profile.id), kind=DomainTraceReferenceKind.PROFILE
+        ),
+        build_life_plan_trace_reference(
+            ref_id=workflow_run.common_run.run_id,
+            kind=DomainTraceReferenceKind.WORKFLOW_RUN,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=str(workflow_run.common_run.checkpoint_id),
+            kind=DomainTraceReferenceKind.WORKFLOW_RESULT,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=consumed_gate.decision_id,
+            kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=cross_approval.id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=cross_decision.id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_proposal.proposal_id,
+            kind=DomainTraceReferenceKind.MEMORY_PROPOSAL,
+        ),
+        build_life_plan_trace_reference(
+            ref_id=mem_binding.binding_id,
+            kind=DomainTraceReferenceKind.MEMORY_BINDING,
+        ),
     )
-    runtime_refs = (ref1,)
+
+    trace = assemble_life_plan_trace(
+        request_id=req_id,
+        resolution_context_id=resolution_context.id,
+        resolution_result_id=resolution.id,
+        composition_id=composition.id,
+        domain_result_id=result_id_str,
+        presentation_result_ids=(presentation_id,),
+        started_at=NOW,
+        completed_at=NOW,
+        references=runtime_refs,
+        goal_id=life_goal["goal_id"],
+    )
 
     expected_refs = (
         DomainTraceReference(
@@ -916,46 +953,62 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         DomainTraceReference(
             str(profile.id), DomainTraceReferenceKind.PROFILE, LIFE_PLAN_DOMAIN_ID
         ),
-        DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
-        DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
-        DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
-    )
-
-    trace_refs = DomainTraceReferences(
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        cross_domain_results=(),
-        presentation_result_ids=(),
-    )
-    probe = DomainTrace(
-        id="domain-trace:probe",
-        digest="0" * 64,
-        request_id=req_id,
-        goal_id=life_goal["goal_id"],
-        primary_domain=LIFE_PLAN_DOMAIN_ID,
-        supporting_domains=(),
-        contributions=(
-            build_life_plan_trace_contribution(
-                domain_result_id=result_id_str,
-                references=runtime_refs,
-            ),
+        DomainTraceReference(
+            workflow_run.common_run.run_id,
+            DomainTraceReferenceKind.WORKFLOW_RUN,
+            LIFE_PLAN_DOMAIN_ID,
         ),
-        references=trace_refs,
-        domain_results=(
-            DomainResultTraceReference(
-                result_id_str,
-                LIFE_PLAN_DOMAIN_ID,
-                "domain-trace:probe",
-            ),
+        DomainTraceReference(
+            str(workflow_run.common_run.checkpoint_id),
+            DomainTraceReferenceKind.WORKFLOW_RESULT,
+            LIFE_PLAN_DOMAIN_ID,
         ),
-        status=DomainTraceStatus.COMPLETED,
-        started_at=NOW,
-        completed_at=NOW,
-        duration_ms=0,
-        metadata={},
+        DomainTraceReference(
+            consumed_gate.decision_id,
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            cross_approval.id,
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            cross_decision.id,
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_proposal.proposal_id,
+            DomainTraceReferenceKind.MEMORY_PROPOSAL,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            mem_binding.binding_id,
+            DomainTraceReferenceKind.MEMORY_BINDING,
+            LIFE_PLAN_DOMAIN_ID,
+        ),
+        DomainTraceReference(
+            resolution_context.id,
+            DomainTraceReferenceKind.RESOLUTION_CONTEXT,
+            None,
+        ),
+        DomainTraceReference(
+            resolution.id,
+            DomainTraceReferenceKind.RESOLUTION_RESULT,
+            None,
+        ),
+        DomainTraceReference(
+            composition.id,
+            DomainTraceReferenceKind.COMPOSITION,
+            None,
+        ),
+        DomainTraceReference(
+            presentation_id,
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+            None,
+        ),
     )
-    expected_trace_id = probe.canonical_id
 
     inventory = DomainTraceReferenceInventory(
         references=expected_refs,
@@ -963,37 +1016,26 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=expected_trace_id,
+                trace_id=trace.id,
             ),
         ),
         cross_domain_results=(),
         expected_primary_domain=LIFE_PLAN_DOMAIN_ID,
         resolution_result_domains=DomainTraceDomainSelection(
-            res_id, LIFE_PLAN_DOMAIN_ID, ()
+            resolution.id, LIFE_PLAN_DOMAIN_ID, ()
         ),
         composition_domains=DomainTraceDomainSelection(
-            comp_id, LIFE_PLAN_DOMAIN_ID, ()
+            composition.id, LIFE_PLAN_DOMAIN_ID, ()
         ),
     )
-
-    trace = assemble_life_plan_trace(
-        request_id=req_id,
-        resolution_context_id=ctx_id,
-        resolution_result_id=res_id,
-        composition_id=comp_id,
-        domain_result_id=result_id_str,
-        started_at=NOW,
-        completed_at=NOW,
-        references=runtime_refs,
-        goal_id=life_goal["goal_id"],
-    )
-    assert trace.id == expected_trace_id
 
     trace_val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert trace_val.valid is True
 
     # Trace Tamper Rejection Checks
     primary_contrib = trace.contributions[0]
+
+    # 1. Tampered profile reference rejected
     tampered_ref_trace = dataclasses.replace(
         trace,
         contributions=(
@@ -1013,6 +1055,87 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
         is False
     )
 
+    # 2. Tampered permission decision reference rejected
+    tampered_perm_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-permission-id")
+                    if r.ref_id == consumed_gate.decision_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=tampered_perm_trace, inventory=inventory).valid
+        is False
+    )
+
+    # 3. Tampered approval decision reference rejected
+    tampered_app_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-approval-id")
+                    if r.ref_id == cross_decision.id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=tampered_app_trace, inventory=inventory).valid
+        is False
+    )
+
+    # 4. Tampered memory binding reference rejected
+    tampered_mem_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-memory-binding-id")
+                    if r.ref_id == mem_binding.binding_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=tampered_mem_trace, inventory=inventory).valid
+        is False
+    )
+
+    # 5. Tampered workflow run reference rejected
+    tampered_wf_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-workflow-run-id")
+                    if r.ref_id == workflow_run.common_run.run_id
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=tampered_wf_trace, inventory=inventory).valid
+        is False
+    )
+
+    # 6. Empty inventory rejected
     bad_inv_val = validate_life_plan_trace(
         trace=trace,
         inventory=dataclasses.replace(inventory, references=()),
