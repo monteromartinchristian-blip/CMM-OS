@@ -37,8 +37,14 @@ class ProjectFile:
         }
 
 
-@dataclass(frozen=True, slots=True, weakref_slot=True)
-class ProjectContext:
+class _WeakReferenceable:
+    """Python 3.10-compatible weak-reference slot provider."""
+
+    __slots__ = ("__weakref__",)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectContext(_WeakReferenceable):
     root: Path
     files: tuple[ProjectFile, ...]
     total_python_files: int

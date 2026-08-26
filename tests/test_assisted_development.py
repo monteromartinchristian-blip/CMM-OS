@@ -4,11 +4,13 @@ import ast
 import json
 import subprocess
 import sys
+import weakref
 from pathlib import Path
 
 import pytest
 
 import cmm.__main__ as cmm_main
+from cmm.development import analyzer as analyzer_module
 from cmm.development.analyzer import ProjectAnalyzer, ProjectContext
 from cmm.development.models import DevelopmentPlan, PlanValidationError
 from cmm.development.providers import (
@@ -109,6 +111,41 @@ def test_project_context_provenance_is_issued_only_by_analyzer(tmp_path: Path) -
 
     assert caller_context.is_analyzer_issued is False
     assert analyzed_context.is_analyzer_issued is True
+
+
+def test_project_context_dataclass_options_support_python_310() -> None:
+    """Reject decorator arguments unavailable to the supported Python 3.10."""
+    tree = ast.parse(Path(analyzer_module.__file__).read_text(encoding="utf-8"))
+    context_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ProjectContext"
+    )
+    dataclass_call = next(
+        decorator
+        for decorator in context_node.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Name)
+        and decorator.func.id == "dataclass"
+    )
+    python_310_dataclass_keywords = {
+        "init",
+        "repr",
+        "eq",
+        "order",
+        "unsafe_hash",
+        "frozen",
+        "match_args",
+        "kw_only",
+        "slots",
+    }
+
+    assert {
+        keyword.arg for keyword in dataclass_call.keywords
+    } <= python_310_dataclass_keywords
+    assert weakref.ref(
+        ProjectContext(Path("."), (), 0, False)
+    )() is not None
 
 
 def test_ollama_is_optional_and_loaded_lazily(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
