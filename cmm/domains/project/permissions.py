@@ -68,9 +68,7 @@ def build_project_permission_policy() -> DomainPermissionPolicy:
             PermissionCapability.FILE_MODIFY,
         ),
         prohibited_capabilities=PROJECT_PROHIBITED_CAPABILITIES,
-        approval_capabilities=(
-            PermissionCapability.FILE_MODIFY,
-        ),
+        approval_capabilities=(PermissionCapability.FILE_MODIFY,),
         allowed_resource_kinds=CANONICAL_PROJECT_RESOURCE_KINDS,
         allowed_sensitivity_levels=("internal", "confidential", "restricted", "secret"),
         allow_memory_read=True,
@@ -86,9 +84,7 @@ def build_project_permission_policy() -> DomainPermissionPolicy:
         allow_sensitive_inference=True,
         allow_cross_domain_access=False,
         allow_inbound_cross_domain_access=True,
-        approval_requirements=(
-            "file.modification",
-        ),
+        approval_requirements=("file.modification",),
         autonomy_limits=DomainAutonomyLimits(
             maximum_autonomy_level=1,
             allow_reversible_changes=True,

@@ -41,14 +41,21 @@ def test_build_standard_project_domain_bootstrap_composes_with_general() -> None
         assert rule_id in all_rule_ids
 
     # Operations include Project's 20
-    all_op_ids = {op.operation_id for op in bootstrap.operation_registry.list_definitions()}
+    all_op_ids = {
+        op.operation_id for op in bootstrap.operation_registry.list_definitions()
+    }
     for op_id in CANONICAL_PROJECT_OPERATION_IDS:
         assert op_id in all_op_ids
 
     # Workflows include Project's 12
-    project_wfs = {w.workflow_id for w in bootstrap.workflow_registry.list_for_domain(PROJECT_DOMAIN_ID)}
+    project_wfs = {
+        w.workflow_id
+        for w in bootstrap.workflow_registry.list_for_domain(PROJECT_DOMAIN_ID)
+    }
     for wf_id in CANONICAL_PROJECT_WORKFLOW_IDS:
         assert wf_id in project_wfs
 
     # Permission policy
-    assert bootstrap.permission_registry.get("domain-permission:project:1.0.0") is not None
+    assert (
+        bootstrap.permission_registry.get("domain-permission:project:1.0.0") is not None
+    )

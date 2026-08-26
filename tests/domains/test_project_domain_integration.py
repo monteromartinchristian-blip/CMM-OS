@@ -83,15 +83,21 @@ def test_atomic_registration_succeeds_and_populates_all_registries() -> None:
 
     # Rules (18)
     assert len(rule_reg.list_all()) == 18
-    assert {r.definition.id for r in rule_reg.list_all()} == set(CANONICAL_PROJECT_RULE_IDS)
+    assert {r.definition.id for r in rule_reg.list_all()} == set(
+        CANONICAL_PROJECT_RULE_IDS
+    )
 
     # Operations (20)
     assert len(op_reg.list_definitions()) == 20
-    assert {op.operation_id for op in op_reg.list_definitions()} == set(CANONICAL_PROJECT_OPERATION_IDS)
+    assert {op.operation_id for op in op_reg.list_definitions()} == set(
+        CANONICAL_PROJECT_OPERATION_IDS
+    )
 
     # Workflows (12)
     assert len(wf_reg.list_for_domain(PROJECT_DOMAIN_ID)) == 12
-    assert {w.workflow_id for w in wf_reg.list_for_domain(PROJECT_DOMAIN_ID)} == set(CANONICAL_PROJECT_WORKFLOW_IDS)
+    assert {w.workflow_id for w in wf_reg.list_for_domain(PROJECT_DOMAIN_ID)} == set(
+        CANONICAL_PROJECT_WORKFLOW_IDS
+    )
 
     # Permission policy
     assert perm_reg.get("domain-permission:project:1.0.0") is not None

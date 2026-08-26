@@ -40,7 +40,13 @@ def test_evaluate_project_scope_consistency() -> None:
     # In scope
     res = evaluate_project_scope_consistency(
         declared,
-        [{"id": "task_1", "deliverable": "core_module", "description": "core implementation"}],
+        [
+            {
+                "id": "task_1",
+                "deliverable": "core_module",
+                "description": "core implementation",
+            }
+        ],
     )
     assert res["valid"] is True
     assert len(res["in_scope_items"]) == 1
@@ -58,7 +64,12 @@ def test_evaluate_project_scope_consistency() -> None:
 def test_evaluate_milestone_consistency() -> None:
     # Valid completed milestone with evidence
     valid_ms = [
-        {"id": "m1", "title": "Milestone 1", "status": "completed", "evidence": ["commit:123", "test_report:pass"]},
+        {
+            "id": "m1",
+            "title": "Milestone 1",
+            "status": "completed",
+            "evidence": ["commit:123", "test_report:pass"],
+        },
         {"id": "m2", "title": "Milestone 2", "status": "active", "evidence": []},
     ]
     res_valid = evaluate_milestone_consistency(valid_ms)
@@ -110,12 +121,16 @@ def test_evaluate_project_status_transition() -> None:
     assert res["allowed"] is True
 
     # Completed without evidence
-    res_comp_no_ev = evaluate_project_status_transition("active", "completed", evidence=None)
+    res_comp_no_ev = evaluate_project_status_transition(
+        "active", "completed", evidence=None
+    )
     assert res_comp_no_ev["allowed"] is False
     assert res_comp_no_ev["reason"] == "missing_required_evidence"
 
     # Completed with evidence
-    res_comp_ev = evaluate_project_status_transition("active", "completed", evidence={"verified": True})
+    res_comp_ev = evaluate_project_status_transition(
+        "active", "completed", evidence={"verified": True}
+    )
     assert res_comp_ev["allowed"] is True
 
     # Unknown status fails closed
@@ -142,22 +157,30 @@ def test_evaluate_project_resource_constraints() -> None:
     assert "developer_hours" in res_exceeded["bottlenecks"]
 
     # Unknown capacity preserved, not invented
-    res_unknown = evaluate_project_resource_constraints(resources, [{"resource": "server_budget", "required": 500}])
+    res_unknown = evaluate_project_resource_constraints(
+        resources, [{"resource": "server_budget", "required": 500}]
+    )
     assert res_unknown["feasible"] is None
     assert "server_budget" in res_unknown["unknown_capacity"]
 
 
 def test_evaluate_project_decision_state() -> None:
     # proposal != decision
-    res = evaluate_project_decision_state("proposal", "decided", confirmation_evidence=None)
+    res = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence=None
+    )
     assert res["allowed"] is False
     assert res["reason"] == "missing_required_evidence"
 
-    res_dec = evaluate_project_decision_state("proposal", "decided", confirmation_evidence={"confirmed": True})
+    res_dec = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence={"confirmed": True}
+    )
     assert res_dec["allowed"] is True
 
     # approved != applied
-    res_app = evaluate_project_decision_state("proposal", "applied", approval_evidence=None, execution_evidence=None)
+    res_app = evaluate_project_decision_state(
+        "proposal", "applied", approval_evidence=None, execution_evidence=None
+    )
     assert res_app["allowed"] is False
 
     res_applied = evaluate_project_decision_state(
@@ -198,7 +221,9 @@ def test_evaluate_project_temporal_validity() -> None:
 
 def test_evaluate_project_progress_evidence() -> None:
     claims = [{"id": "c1", "claim": "Feature X complete", "deliverable": "feat_x"}]
-    authoritative = [{"deliverable": "feat_x", "status": "verified", "evidence": "test_pass"}]
+    authoritative = [
+        {"deliverable": "feat_x", "status": "verified", "evidence": "test_pass"}
+    ]
 
     res_pass = evaluate_project_progress_evidence(claims, authoritative)
     assert res_pass["supported"] is True
@@ -232,19 +257,27 @@ def test_software_rules_inactive_in_generic_context() -> None:
         assert result.status == ReasoningRuleResultStatus.APPLIED
         # Should not produce blocking findings or errors
         assert all(f.severity.value != "blocking" for f in result.findings)
-        assert any(t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in result.trace_entries)
+        assert any(
+            t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in result.trace_entries
+        )
 
 
 def test_software_rules_active_in_software_context() -> None:
     rules = build_project_rules()
-    software_rules = {r.definition.id: r for r in rules if r.definition.id in SOFTWARE_PROJECT_RULE_IDS}
+    software_rules = {
+        r.definition.id: r
+        for r in rules
+        if r.definition.id in SOFTWARE_PROJECT_RULE_IDS
+    }
 
     software_context = ReasoningRuleContext(
         reasoning_id="reasoning:software:1",
         timestamp=datetime.now(timezone.utc),
         metadata={
             "workflow_id": "project.self_development",
-            "architecture_findings": [{"contract": "api_contract", "status": "violated"}],
+            "architecture_findings": [
+                {"contract": "api_contract", "status": "violated"}
+            ],
             "validation_result": {"passed": False, "errors": ["test_failure"]},
             "technical_debt": [{"issue": "circular_import", "severity": "medium"}],
         },
@@ -253,7 +286,9 @@ def test_software_rules_active_in_software_context() -> None:
     arch_rule = software_rules["project.architecture_contract"]
     arch_res = arch_rule.evaluate(software_context)
     assert arch_res.status == ReasoningRuleResultStatus.APPLIED
-    assert any(t.code == "ARCHITECTURE_CONTRACT_EVALUATED" for t in arch_res.trace_entries)
+    assert any(
+        t.code == "ARCHITECTURE_CONTRACT_EVALUATED" for t in arch_res.trace_entries
+    )
 
     val_rule = software_rules["project.validation_required"]
     val_res = val_rule.evaluate(software_context)
@@ -272,4 +307,6 @@ def test_no_forbidden_engines_in_rules_source() -> None:
         "ExecutionPipeline(",
     )
     for forbidden in forbidden_tokens:
-        assert forbidden not in source, f"Found forbidden token {forbidden!r} in rules.py"
+        assert forbidden not in source, (
+            f"Found forbidden token {forbidden!r} in rules.py"
+        )

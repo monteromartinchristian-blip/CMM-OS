@@ -69,7 +69,11 @@ def test_software_and_self_development_lifecycle_e2e() -> None:
 
     # 3. Active Software Reasoning Rules Evaluation
     rules = build_project_rules()
-    software_rules = {r.definition.id: r for r in rules if r.definition.id in SOFTWARE_PROJECT_RULE_IDS}
+    software_rules = {
+        r.definition.id: r
+        for r in rules
+        if r.definition.id in SOFTWARE_PROJECT_RULE_IDS
+    }
     assert len(software_rules) == 10
 
     software_context = ReasoningRuleContext(
@@ -90,7 +94,9 @@ def test_software_and_self_development_lifecycle_e2e() -> None:
         res = rule.evaluate(software_context)
         assert res.status == ReasoningRuleResultStatus.APPLIED
         # Should not produce inactive markers in active software context
-        assert not any(t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in res.trace_entries)
+        assert not any(
+            t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in res.trace_entries
+        )
 
     # 4. Supervised Code Modification & Permission Gate
     policy = build_project_permission_policy()
@@ -108,7 +114,9 @@ def test_software_and_self_development_lifecycle_e2e() -> None:
         session_id="session:dev",
     )
     resolution = resolver.resolve(perm_req)
-    assert resolution.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert (
+        resolution.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+    )
 
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     modify_op = ops["project.modify_code"]
@@ -161,7 +169,10 @@ def test_software_and_self_development_lifecycle_e2e() -> None:
     )
     assert readiness_committed["ready_for_approved_commit"] is True
     assert readiness_committed["committed"] is True
-    assert readiness_committed["authoritative_commit_reference"] == "git:commit:1a2b3c4d5e6f"
+    assert (
+        readiness_committed["authoritative_commit_reference"]
+        == "git:commit:1a2b3c4d5e6f"
+    )
 
     # 6. Memory Integration
     proposal_content = {
@@ -170,7 +181,9 @@ def test_software_and_self_development_lifecycle_e2e() -> None:
         "is_confirmed": True,
         "summary": "Decided to maintain strict layer isolation",
     }
-    assert validate_project_memory_proposal_content(proposal_content)["is_valid"] is True
+    assert (
+        validate_project_memory_proposal_content(proposal_content)["is_valid"] is True
+    )
 
     mem_proposal = build_project_memory_proposal(
         proposal_id="prop:arch:001",

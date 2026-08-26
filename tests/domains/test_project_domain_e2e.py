@@ -56,7 +56,10 @@ def test_generic_project_full_lifecycle_e2e() -> None:
     software_active = project_software_capability_active(
         workflow_id="project.project_setup",
         operation_id="project.create_project_overview",
-        resource_ids=("project.resource.project_brief", "project.resource.project_plan"),
+        resource_ids=(
+            "project.resource.project_brief",
+            "project.resource.project_plan",
+        ),
         capabilities=(),
         repository_backed=False,
     )
@@ -73,7 +76,9 @@ def test_generic_project_full_lifecycle_e2e() -> None:
         if rule.definition.id in SOFTWARE_PROJECT_RULE_IDS:
             res = rule.evaluate(generic_context)
             assert res.status == ReasoningRuleResultStatus.APPLIED
-            assert any(t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in res.trace_entries)
+            assert any(
+                t.code == "SOFTWARE_CAPABILITY_INACTIVE" for t in res.trace_entries
+            )
 
     # 4. Phase 1: Project Setup
     overview_result = create_project_overview_result(
@@ -94,9 +99,27 @@ def test_generic_project_full_lifecycle_e2e() -> None:
 
     # 5. Phase 2: Milestone & Dependency Planning
     milestones = [
-        {"id": "m1", "title": "Secure Lease", "status": "completed", "evidence": ["lease_contract_signed"], "target_date": "2026-07-01T00:00:00Z"},
-        {"id": "m2", "title": "School Enrollment", "status": "active", "depends_on": "m1", "target_date": "2026-08-01T00:00:00Z"},
-        {"id": "m3", "title": "Moving Day", "status": "planned", "depends_on": "m2", "target_date": "2026-08-15T00:00:00Z"},
+        {
+            "id": "m1",
+            "title": "Secure Lease",
+            "status": "completed",
+            "evidence": ["lease_contract_signed"],
+            "target_date": "2026-07-01T00:00:00Z",
+        },
+        {
+            "id": "m2",
+            "title": "School Enrollment",
+            "status": "active",
+            "depends_on": "m1",
+            "target_date": "2026-08-01T00:00:00Z",
+        },
+        {
+            "id": "m3",
+            "title": "Moving Day",
+            "status": "planned",
+            "depends_on": "m2",
+            "target_date": "2026-08-15T00:00:00Z",
+        },
     ]
     deps = [
         {"source": "m1", "target": "m2"},
@@ -138,7 +161,9 @@ def test_generic_project_full_lifecycle_e2e() -> None:
 
     prog_summary = generate_project_progress_summary_result(
         project_id="proj:relocation:2026",
-        progress_claims=[{"id": "c1", "claim": "Lease secured", "deliverable": "housing"}],
+        progress_claims=[
+            {"id": "c1", "claim": "Lease secured", "deliverable": "housing"}
+        ],
         evidence=[{"deliverable": "housing", "status": "verified"}],
     )
     assert prog_summary["supported"] is True

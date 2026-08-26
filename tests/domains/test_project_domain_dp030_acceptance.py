@@ -128,7 +128,8 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 05 exact 22 resource inventory
     project_resources = [
-        r for r in bootstrap.resource_registry.list_all()
+        r
+        for r in bootstrap.resource_registry.list_all()
         if str(r.domain_id) in (PROJECT_DOMAIN_ID, "project")
     ]
     assert len(project_resources) == 22
@@ -136,7 +137,8 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 06 exact 18 rule inventory
     project_rules = [
-        r for r in bootstrap.rule_registry.list_all()
+        r
+        for r in bootstrap.rule_registry.list_all()
         if str(r.definition.domain_id) in (PROJECT_DOMAIN_ID, "project")
     ]
     assert len(project_rules) == 18
@@ -144,7 +146,8 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 07 exact 20 operation inventory
     project_ops = [
-        op for op in bootstrap.operation_registry.list_definitions()
+        op
+        for op in bootstrap.operation_registry.list_definitions()
         if str(op.domain_id) in (PROJECT_DOMAIN_ID, "project")
     ]
     assert len(project_ops) == 20
@@ -212,8 +215,20 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 13 milestone structure accepted
     milestones = [
-        {"id": "m1", "title": "Bootstrap", "status": "completed", "evidence": ["bootstrap_done"], "target_date": "2026-08-01T00:00:00Z"},
-        {"id": "m2", "title": "Verification", "status": "active", "depends_on": "m1", "target_date": "2026-08-15T00:00:00Z"},
+        {
+            "id": "m1",
+            "title": "Bootstrap",
+            "status": "completed",
+            "evidence": ["bootstrap_done"],
+            "target_date": "2026-08-01T00:00:00Z",
+        },
+        {
+            "id": "m2",
+            "title": "Verification",
+            "status": "active",
+            "depends_on": "m1",
+            "target_date": "2026-08-15T00:00:00Z",
+        },
     ]
     milestone_plan = plan_project_milestones_result(
         project_id="proj:acceptance:1",
@@ -224,7 +239,12 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 14 unsupported milestone completion rejected
     unsupported_m = [
-        {"id": "m_bad", "title": "Fake Completed", "status": "completed", "evidence": []},
+        {
+            "id": "m_bad",
+            "title": "Fake Completed",
+            "status": "completed",
+            "evidence": [],
+        },
     ]
     bad_m_eval = evaluate_milestone_consistency(unsupported_m)
     assert bad_m_eval["valid"] is False
@@ -273,8 +293,13 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 21 decision state evidence enforced
     from cmm.domains.project.rules import evaluate_project_decision_state
-    dec_no_ev = evaluate_project_decision_state("proposal", "decided", confirmation_evidence=None)
-    dec_with_ev = evaluate_project_decision_state("proposal", "decided", confirmation_evidence="ev:confirmed:1")
+
+    dec_no_ev = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence=None
+    )
+    dec_with_ev = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence="ev:confirmed:1"
+    )
     assert dec_no_ev["allowed"] is False
     assert dec_with_ev["allowed"] is True
     checkpoint("21 decision state evidence enforced")
@@ -366,7 +391,9 @@ def test_at_dp_030_connected_acceptance() -> None:
         "is_confirmed": True,
         "summary": "Confirmed Project Acceptance Architecture",
     }
-    assert validate_project_memory_proposal_content(mem_prop_content)["is_valid"] is True
+    assert (
+        validate_project_memory_proposal_content(mem_prop_content)["is_valid"] is True
+    )
     mem_proposal = build_project_memory_proposal(
         proposal_id="prop:acc:1",
         affected_reference_ids=("ref:project:acceptance:1",),
@@ -511,8 +538,12 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 35 generic rules remain present with software layer
     all_rules = build_project_rules()
-    generic_rules = [r for r in all_rules if r.definition.id in GENERIC_PROJECT_RULE_IDS]
-    software_rules = [r for r in all_rules if r.definition.id in SOFTWARE_PROJECT_RULE_IDS]
+    generic_rules = [
+        r for r in all_rules if r.definition.id in GENERIC_PROJECT_RULE_IDS
+    ]
+    software_rules = [
+        r for r in all_rules if r.definition.id in SOFTWARE_PROJECT_RULE_IDS
+    ]
     assert len(generic_rules) == 8
     assert len(software_rules) == 10
     checkpoint("35 generic rules remain present with software layer")
@@ -523,7 +554,9 @@ def test_at_dp_030_connected_acceptance() -> None:
     checkpoint("36 repository observation uses shared infrastructure")
 
     # 37 architecture finding references shared evidence
-    arch_doc_resource = bootstrap.resource_registry.get("project.resource.architecture_document")
+    arch_doc_resource = bootstrap.resource_registry.get(
+        "project.resource.architecture_document"
+    )
     assert arch_doc_resource is not None
     checkpoint("37 architecture finding references shared evidence")
 
@@ -557,7 +590,10 @@ def test_at_dp_030_connected_acceptance() -> None:
     injected_op_registry = InMemoryDomainOperationRegistry(injected_common)
     injected_op_registry.register(modify_op_def, _dummy_modify_impl)
     assert injected_common.resolve("project.modify_code", "1.0.0").enabled is True
-    assert injected_op_registry.get_implementation("project.modify_code", "1.0.0") is not None
+    assert (
+        injected_op_registry.get_implementation("project.modify_code", "1.0.0")
+        is not None
+    )
     checkpoint("40 valid injected implementation accepted")
 
     # 41 file modification permission resolved
@@ -569,7 +605,10 @@ def test_at_dp_030_connected_acceptance() -> None:
         session_id="session:dev_1",
     )
     mod_resolution = perm_resolver.resolve(mod_perm_req)
-    assert mod_resolution.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert (
+        mod_resolution.effective_permissions.decision
+        is PermissionOutcome.APPROVAL_REQUIRED
+    )
     checkpoint("41 file modification permission resolved")
 
     # 42 mutation requires canonical approval
@@ -665,7 +704,9 @@ def test_at_dp_030_connected_acceptance() -> None:
         affected_reference_ids=("ref:project:change:bugfix:1",),
     )
     assert sw_proposal.requires_confirmation is True
-    checkpoint("53 software memory proposal preserves readiness vs committed distinction")
+    checkpoint(
+        "53 software memory proposal preserves readiness vs committed distinction"
+    )
 
     # 54 software trace includes permission/execution/validation refs
     val_ref = build_project_trace_reference(
@@ -703,7 +744,9 @@ def test_at_dp_030_connected_acceptance() -> None:
     # 56 legacy Project catalog remains unmodified and canonical bootstrap isolated
     assert "project.prepare_change_review" not in CANONICAL_PROJECT_OPERATION_IDS
     assert "project.review_change" in CANONICAL_PROJECT_OPERATION_IDS
-    checkpoint("56 legacy Project catalog remains unmodified and canonical bootstrap isolated")
+    checkpoint(
+        "56 legacy Project catalog remains unmodified and canonical bootstrap isolated"
+    )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Total Checkpoint Invariant Assertions

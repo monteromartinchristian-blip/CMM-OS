@@ -37,21 +37,21 @@ def test_project_software_capability_activation_matrix() -> None:
     assert not project_software_capability_active(
         resource_ids=("project.resource.project_brief",)
     )
-    assert not project_software_capability_active(
-        capabilities=("project_management",)
-    )
+    assert not project_software_capability_active(capabilities=("project_management",))
 
     # True conditions:
     assert project_software_capability_active(workflow_id="project.self_development")
-    assert project_software_capability_active(workflow_id="project.feature_implementation")
+    assert project_software_capability_active(
+        workflow_id="project.feature_implementation"
+    )
     assert project_software_capability_active(operation_id="project.modify_code")
-    assert project_software_capability_active(operation_id="project.analyse_architecture")
+    assert project_software_capability_active(
+        operation_id="project.analyse_architecture"
+    )
     assert project_software_capability_active(
         resource_ids=("project.resource.source_code",)
     )
-    assert project_software_capability_active(
-        resource_ids=("source_code",)
-    )
+    assert project_software_capability_active(resource_ids=("source_code",))
     assert project_software_capability_active(
         capabilities=("project_software_development",)
     )

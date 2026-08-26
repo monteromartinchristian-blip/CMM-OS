@@ -97,12 +97,8 @@ _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
         "project.resource.source_code",
         "project.resource.documentation",
     ),
-    "project.detect_dead_code": (
-        "project.resource.source_code",
-    ),
-    "project.detect_duplication": (
-        "project.resource.source_code",
-    ),
+    "project.detect_dead_code": ("project.resource.source_code",),
+    "project.detect_duplication": ("project.resource.source_code",),
     "project.generate_adr": (
         "project.resource.architecture_document",
         "project.resource.decision_record",
@@ -111,9 +107,7 @@ _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
         "project.resource.project_plan",
         "project.resource.source_code",
     ),
-    "project.modify_code": (
-        "project.resource.source_code",
-    ),
+    "project.modify_code": ("project.resource.source_code",),
     "project.run_validation": (
         "project.resource.test_result",
         "project.resource.validation_result",
@@ -167,7 +161,9 @@ def build_project_operation_definitions() -> tuple[DomainOperationDefinition, ..
 
     for op_id in CANONICAL_PROJECT_OPERATION_IDS:
         op_type = _OPERATION_TYPES[op_id]
-        requires_approval = op_id == "project.modify_code" or op_type is DomainOperationType.DESTRUCTIVE
+        requires_approval = (
+            op_id == "project.modify_code" or op_type is DomainOperationType.DESTRUCTIVE
+        )
         risk_level = PolicyRiskLevel.HIGH if requires_approval else PolicyRiskLevel.LOW
         reversible = True
         rollback_policy = f"rollback.{op_id}" if reversible else None
@@ -232,7 +228,9 @@ def review_project_status_result(
     evidence: Any = None,
 ) -> dict[str, Any]:
     """Build structured proposal for project status review."""
-    transition_eval = evaluate_project_status_transition(current_status, status, evidence=evidence)
+    transition_eval = evaluate_project_status_transition(
+        current_status, status, evidence=evidence
+    )
     ms_eval = evaluate_milestone_consistency(milestones)
     return {
         "project_id": project_id,

@@ -88,7 +88,9 @@ def test_permission_resolution_requires_approval_for_file_modify() -> None:
         session_id="session:test",
     )
     resolution = resolver.resolve(request)
-    assert resolution.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert (
+        resolution.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+    )
 
 
 def test_forged_approval_rejected() -> None:

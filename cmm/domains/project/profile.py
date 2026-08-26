@@ -115,7 +115,8 @@ def project_software_capability_active(
         return True
 
     if workflow_id and (
-        workflow_id in SOFTWARE_WORKFLOW_IDS or workflow_id.startswith("project.software")
+        workflow_id in SOFTWARE_WORKFLOW_IDS
+        or workflow_id.startswith("project.software")
     ):
         return True
 

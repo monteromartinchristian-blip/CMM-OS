@@ -48,7 +48,10 @@ def test_operations_unavailable_without_implementation() -> None:
     for op in ops:
         # Register without implementation
         registry.register(op, implementation=None)
-        with pytest.raises(DomainOperationRegistryError, match="has no implementation and is UNAVAILABLE"):
+        with pytest.raises(
+            DomainOperationRegistryError,
+            match="has no implementation and is UNAVAILABLE",
+        ):
             registry.get_implementation(op.operation_id, op.version)
         # Common descriptor is disabled when registered with implementation=None
         desc = common.resolve(op.operation_id, op.version)

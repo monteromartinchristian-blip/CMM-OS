@@ -93,6 +93,7 @@ from cmm.workflows.registry import InMemoryWorkflowRegistry
 
 # ── Attack Class 01: GENERIC_PROJECT_NOT_SOFTWARE_ONLY ────────────────────────
 
+
 def test_attack_generic_project_not_software_only() -> None:
     """Generic project planning and reasoning does not require code or software capability."""
     active = project_software_capability_active(
@@ -115,21 +116,40 @@ def test_attack_generic_project_not_software_only() -> None:
 
 # ── Attack Class 02: SOFTWARE_CAPABILITY_NOT_IMPLICIT ─────────────────────────
 
+
 def test_attack_software_capability_not_implicit() -> None:
     """Software capability is never activated implicitly by domain ID alone."""
     # Only domain ID without software signals -> False
     assert project_software_capability_active() is False
     assert project_software_capability_active(capabilities=()) is False
-    assert project_software_capability_active(workflow_id="project.project_setup") is False
+    assert (
+        project_software_capability_active(workflow_id="project.project_setup") is False
+    )
 
     # Grounded software signals activate conditionally
-    assert project_software_capability_active(workflow_id="project.self_development") is True
-    assert project_software_capability_active(operation_id="project.modify_code") is True
-    assert project_software_capability_active(resource_ids=("project.resource.source_code",)) is True
-    assert project_software_capability_active(repository_backed=True, capabilities=("software_development",)) is True
+    assert (
+        project_software_capability_active(workflow_id="project.self_development")
+        is True
+    )
+    assert (
+        project_software_capability_active(operation_id="project.modify_code") is True
+    )
+    assert (
+        project_software_capability_active(
+            resource_ids=("project.resource.source_code",)
+        )
+        is True
+    )
+    assert (
+        project_software_capability_active(
+            repository_backed=True, capabilities=("software_development",)
+        )
+        is True
+    )
 
 
 # ── Attack Class 03: FORMATION_NOT_ABSORBED ───────────────────────────────────
+
 
 def test_attack_formation_not_absorbed() -> None:
     """Formation domain/overlay is never absorbed into Project catalog."""
@@ -147,9 +167,15 @@ def test_attack_formation_not_absorbed() -> None:
 
 # ── Attack Class 04: UNKNOWN_PROJECT_STATUS_FAILS_CLOSED ──────────────────────
 
+
 def test_attack_unknown_project_status_fails_closed() -> None:
     """Unknown project status values fail closed with validation errors."""
-    for bad_status in ("magic_status", "SUPER_ACTIVE", "done_almost", "cancelled_maybe"):
+    for bad_status in (
+        "magic_status",
+        "SUPER_ACTIVE",
+        "done_almost",
+        "cancelled_maybe",
+    ):
         with pytest.raises(ValueError, match="Invalid project status"):
             validate_project_status(bad_status)
 
@@ -157,25 +183,39 @@ def test_attack_unknown_project_status_fails_closed() -> None:
         assert transition["allowed"] is False
 
     # Known statuses pass
-    for good_status in ("planned", "active", "blocked", "paused", "completed", "cancelled", "failed"):
+    for good_status in (
+        "planned",
+        "active",
+        "blocked",
+        "paused",
+        "completed",
+        "cancelled",
+        "failed",
+    ):
         assert validate_project_status(good_status) == good_status
 
 
 # ── Attack Class 05: PROPOSAL_NOT_DECISION ────────────────────────────────────
 
+
 def test_attack_proposal_not_decision() -> None:
     """Proposal cannot be converted to decided status without confirmation evidence."""
     # No confirmation evidence -> Rejected
-    dec_no_ev = evaluate_project_decision_state("proposal", "decided", confirmation_evidence=None)
+    dec_no_ev = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence=None
+    )
     assert dec_no_ev["allowed"] is False
     assert dec_no_ev["reason"] == "missing_required_evidence"
 
     # With confirmation evidence -> Allowed
-    dec_with_ev = evaluate_project_decision_state("proposal", "decided", confirmation_evidence="ev:confirmed:1")
+    dec_with_ev = evaluate_project_decision_state(
+        "proposal", "decided", confirmation_evidence="ev:confirmed:1"
+    )
     assert dec_with_ev["allowed"] is True
 
 
 # ── Attack Class 06: PLAN_NOT_COMPLETION ──────────────────────────────────────
+
 
 def test_attack_plan_not_completion() -> None:
     """Project plans remain proposals and status cannot jump to completed without evidence."""
@@ -186,16 +226,21 @@ def test_attack_plan_not_completion() -> None:
     assert plan["is_proposal"] is True
 
     # Attempt transition to completed without evidence -> Rejected
-    comp_trans = evaluate_project_status_transition("active", "completed", evidence=None)
+    comp_trans = evaluate_project_status_transition(
+        "active", "completed", evidence=None
+    )
     assert comp_trans["allowed"] is False
     assert comp_trans["requires_evidence"] is True
 
     # With evidence -> Allowed
-    comp_trans_ev = evaluate_project_status_transition("active", "completed", evidence="ev:acceptance_tests_passed")
+    comp_trans_ev = evaluate_project_status_transition(
+        "active", "completed", evidence="ev:acceptance_tests_passed"
+    )
     assert comp_trans_ev["allowed"] is True
 
 
 # ── Attack Class 07: MILESTONE_COMPLETION_REQUIRES_EVIDENCE ───────────────────
+
 
 def test_attack_milestone_completion_requires_evidence() -> None:
     """Milestone marked completed without evidence fails consistency checks."""
@@ -206,13 +251,19 @@ def test_attack_milestone_completion_requires_evidence() -> None:
     assert eval_unsupported["valid"] is False
 
     supported = [
-        {"id": "m1", "title": "Setup", "status": "completed", "evidence": ["ci_run_123"]},
+        {
+            "id": "m1",
+            "title": "Setup",
+            "status": "completed",
+            "evidence": ["ci_run_123"],
+        },
     ]
     eval_supported = evaluate_milestone_consistency(supported)
     assert eval_supported["valid"] is True
 
 
 # ── Attack Class 08: MALFORMED_MILESTONE_FAILS_CLOSED ─────────────────────────
+
 
 def test_attack_malformed_milestone_fails_closed() -> None:
     """Malformed milestone dictionaries fail closed deterministically."""
@@ -227,6 +278,7 @@ def test_attack_malformed_milestone_fails_closed() -> None:
 
 
 # ── Attack Class 09: DEPENDENCY_CYCLE_PRESERVED ───────────────────────────────
+
 
 def test_attack_dependency_cycle_preserved() -> None:
     """Dependency cycles are strictly flagged as blockers and not silently dropped."""
@@ -243,6 +295,7 @@ def test_attack_dependency_cycle_preserved() -> None:
 
 # ── Attack Class 10: MALFORMED_DEPENDENCY_FAILS_CLOSED ────────────────────────
 
+
 def test_attack_malformed_dependency_fails_closed() -> None:
     """Malformed dependency specifications fail closed safely."""
     malformed = [
@@ -257,6 +310,7 @@ def test_attack_malformed_dependency_fails_closed() -> None:
 
 # ── Attack Class 11: RESOURCE_CAPACITY_NOT_INVENTED ───────────────────────────
 
+
 def test_attack_resource_capacity_not_invented() -> None:
     """Resource constraints reject exceeding requirements without inventing capacity."""
     eval_res = evaluate_project_resource_constraints(
@@ -268,6 +322,7 @@ def test_attack_resource_capacity_not_invented() -> None:
 
 
 # ── Attack Class 12: PROGRESS_REQUIRES_EVIDENCE ───────────────────────────────
+
 
 def test_attack_progress_requires_evidence() -> None:
     """Progress claims without authoritative evidence are marked unsupported."""
@@ -288,14 +343,18 @@ def test_attack_progress_requires_evidence() -> None:
 
 # ── Attack Class 13: RAW_CROSS_DOMAIN_REJECTED ────────────────────────────────
 
+
 def test_attack_raw_cross_domain_rejected() -> None:
     """Raw internal Project data is rejected when projecting to Life Plan."""
     for prohibited_field in PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS:
         with pytest.raises(ValueError, match="Prohibited internal field"):
-            build_project_life_plan_projection({prohibited_field: "sensitive_project_data"})
+            build_project_life_plan_projection(
+                {prohibited_field: "sensitive_project_data"}
+            )
 
 
 # ── Attack Class 14: FORGED_CROSS_DOMAIN_PERMISSION_REJECTED ──────────────────
+
 
 def test_attack_forged_cross_domain_permission_rejected() -> None:
     """Unapproved outbound cross-domain requests fail closed."""
@@ -319,6 +378,7 @@ def test_attack_forged_cross_domain_permission_rejected() -> None:
 
 # ── Attack Class 15: PURPOSE_MINIMIZATION_ENFORCED ────────────────────────────
 
+
 def test_attack_purpose_minimization_enforced() -> None:
     """Only approved purpose-minimized fields pass through to Life Plan."""
     raw_payload = {
@@ -336,6 +396,7 @@ def test_attack_purpose_minimization_enforced() -> None:
 
 # ── Attack Class 16: LEGACY_CATALOG_NOT_CANONICAL ─────────────────────────────
 
+
 def test_attack_legacy_catalog_not_canonical() -> None:
     """Legacy operation project.prepare_change_review is not in canonical catalog."""
     assert "project.prepare_change_review" not in CANONICAL_PROJECT_OPERATION_IDS
@@ -343,6 +404,7 @@ def test_attack_legacy_catalog_not_canonical() -> None:
 
 
 # ── Attack Class 17: LEGACY_COLLISION_NO_SILENT_OVERWRITE ─────────────────────
+
 
 def test_attack_legacy_collision_no_silent_overwrite() -> None:
     """Attempting to re-register operations or collide does not silently overwrite."""
@@ -352,6 +414,7 @@ def test_attack_legacy_collision_no_silent_overwrite() -> None:
 
 
 # ── Attack Class 18: OPERATION_UNAVAILABLE_WITHOUT_IMPLEMENTATION ─────────────
+
 
 def test_attack_operation_unavailable_without_implementation() -> None:
     """Operations without injected implementations fail closed as unavailable."""
@@ -367,6 +430,7 @@ def test_attack_operation_unavailable_without_implementation() -> None:
 
 
 # ── Attack Class 19: DIRECT_EXECUTION_BYPASS_REJECTED ─────────────────────────
+
 
 def test_attack_direct_execution_bypass_rejected() -> None:
     """Evaluating unauthorized operations through PermissionGate denies execution."""
@@ -392,6 +456,7 @@ def test_attack_direct_execution_bypass_rejected() -> None:
 
 # ── Attack Class 20: FILE_MODIFY_WITHOUT_APPROVAL_REJECTED ────────────────────
 
+
 def test_attack_file_modify_without_approval_rejected() -> None:
     """File modification capability strictly requires approval."""
     policy = build_project_permission_policy()
@@ -411,6 +476,7 @@ def test_attack_file_modify_without_approval_rejected() -> None:
 
 
 # ── Attack Class 21: FORGED_APPROVAL_REJECTED ─────────────────────────────────
+
 
 def test_attack_forged_approval_rejected() -> None:
     """Forged approval request IDs are rejected by PermissionGate."""
@@ -437,6 +503,7 @@ def test_attack_forged_approval_rejected() -> None:
 
 # ── Attack Class 22: VALIDATION_REQUIRED_BEFORE_COMMIT_READINESS ──────────────
 
+
 def test_attack_validation_required_before_commit_readiness() -> None:
     """Commit readiness cannot be established without validation evidence."""
     readiness = build_prepare_commit_readiness_result(
@@ -449,6 +516,7 @@ def test_attack_validation_required_before_commit_readiness() -> None:
 
 
 # ── Attack Class 23: FAILED_VALIDATION_NOT_COMMIT_READY ───────────────────────
+
 
 def test_attack_failed_validation_not_commit_ready() -> None:
     """Failed validation explicitly blocks commit readiness."""
@@ -465,6 +533,7 @@ def test_attack_failed_validation_not_commit_ready() -> None:
 
 # ── Attack Class 24: PREPARE_COMMIT_DOES_NOT_COMMIT ───────────────────────────
 
+
 def test_attack_prepare_commit_does_not_commit() -> None:
     """project.prepare_commit evaluates readiness only and never performs git commit."""
     readiness = build_prepare_commit_readiness_result(
@@ -478,6 +547,7 @@ def test_attack_prepare_commit_does_not_commit() -> None:
 
 
 # ── Attack Class 25: NO_FAKE_COMMIT_REFERENCE ─────────────────────────────────
+
 
 def test_attack_no_fake_commit_reference() -> None:
     """project.prepare_commit does not manufacture fake commit hashes."""
@@ -493,6 +563,7 @@ def test_attack_no_fake_commit_reference() -> None:
 
 # ── Attack Class 26: MUTATION_REQUIRES_SHARED_ROLLBACK_PATH ───────────────────
 
+
 def test_attack_mutation_requires_shared_rollback_path() -> None:
     """Mutating operations declare reversibility and rollback policy."""
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
@@ -503,6 +574,7 @@ def test_attack_mutation_requires_shared_rollback_path() -> None:
 
 # ── Attack Class 27: MEMORY_WRITE_FAILS_CLOSED ────────────────────────────────
 
+
 def test_attack_memory_write_fails_closed() -> None:
     """Direct memory write is prohibited in Project permission policy."""
     assert PermissionCapability.MEMORY_WRITE in PROJECT_PROHIBITED_CAPABILITIES
@@ -511,6 +583,7 @@ def test_attack_memory_write_fails_closed() -> None:
 
 
 # ── Attack Class 28: MEMORY_DOES_NOT_PROMOTE_PROPOSAL ─────────────────────────
+
 
 def test_attack_memory_does_not_promote_proposal() -> None:
     """Memory proposal requires explicit confirmation and cannot promote state autonomously."""
@@ -522,6 +595,7 @@ def test_attack_memory_does_not_promote_proposal() -> None:
 
 
 # ── Attack Class 29: MEMORY_DOES_NOT_PROMOTE_COMMIT_READINESS ─────────────────
+
 
 def test_attack_memory_does_not_promote_commit_readiness() -> None:
     """Memory integration does not bypass commit readiness or forge commit hashes."""
@@ -537,6 +611,7 @@ def test_attack_memory_does_not_promote_commit_readiness() -> None:
 
 
 # ── Attack Class 30: TRACE_IDENTITY_USES_SHARED_API ───────────────────────────
+
 
 def test_attack_trace_identity_uses_shared_api() -> None:
     """Project traces preserve domain identity and use shared DomainTrace contracts."""
@@ -562,6 +637,7 @@ def test_attack_trace_identity_uses_shared_api() -> None:
 
 # ── Attack Class 31: TRACE_INVENTORY_INDEPENDENT ──────────────────────────────
 
+
 def test_attack_trace_inventory_independent() -> None:
     """Trace references are assembled independently from the execution outcome."""
     ref1 = build_project_trace_reference(
@@ -578,6 +654,7 @@ def test_attack_trace_inventory_independent() -> None:
 
 
 # ── Attack Class 32: TRACE_TAMPER_REJECTED ────────────────────────────────────
+
 
 def test_attack_trace_tamper_rejected() -> None:
     """Tampered or invalid traces fail validation."""
@@ -603,10 +680,18 @@ def test_attack_trace_tamper_rejected() -> None:
     )
 
     expected_refs = (
-        DomainTraceReference("res:project:valid", DomainTraceReferenceKind.DOMAIN_RESULT, PROJECT_DOMAIN_ID),
+        DomainTraceReference(
+            "res:project:valid",
+            DomainTraceReferenceKind.DOMAIN_RESULT,
+            PROJECT_DOMAIN_ID,
+        ),
         ref,
-        DomainTraceReference("ctx:valid", DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
-        DomainTraceReference("res_res:valid", DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+        DomainTraceReference(
+            "ctx:valid", DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+        ),
+        DomainTraceReference(
+            "res_res:valid", DomainTraceReferenceKind.RESOLUTION_RESULT, None
+        ),
         DomainTraceReference("comp:valid", DomainTraceReferenceKind.COMPOSITION, None),
     )
 
@@ -645,6 +730,7 @@ def test_attack_trace_tamper_rejected() -> None:
 
 
 # ── Attack Class 33: ATOMIC_REGISTRATION_ROLLBACK ─────────────────────────────
+
 
 def test_attack_atomic_registration_rollback() -> None:
     """Mid-registration failure cleanly rolls back all registries."""
@@ -685,6 +771,7 @@ def test_attack_atomic_registration_rollback() -> None:
 
 
 # ── Attack Class 34: GENERAL_FALLBACK_PRESERVED ───────────────────────────────
+
 
 def test_attack_general_fallback_preserved() -> None:
     """General fallback remains intact and domain resolution chooses General when no signals match."""

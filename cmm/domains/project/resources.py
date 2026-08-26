@@ -213,7 +213,15 @@ def build_project_resource_definitions() -> tuple[DomainResourceDefinition, ...]
         "project.resource.source_code": _resource(
             "project.resource.source_code",
             adapter="cognitive.source_code",
-            entity_types=("repository", "module", "package", "file", "class", "method", "function"),
+            entity_types=(
+                "repository",
+                "module",
+                "package",
+                "file",
+                "class",
+                "method",
+                "function",
+            ),
             sensitivity=SensitivityLevel.INTERNAL,
             reliability=0.95,
             metadata={"provenance": True, "software": True},

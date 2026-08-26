@@ -39,7 +39,9 @@ def test_life_plan_projection_fails_closed_on_prohibited_internals() -> None:
             "project_status_impact": "on_track",
             prohibited: "internal_data_leak",
         }
-        with pytest.raises(ValueError, match=f"Prohibited internal field '{prohibited}'"):
+        with pytest.raises(
+            ValueError, match=f"Prohibited internal field '{prohibited}'"
+        ):
             build_project_life_plan_projection(payload)
 
 

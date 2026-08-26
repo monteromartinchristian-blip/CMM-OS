@@ -18,10 +18,14 @@ def test_project_workflow_definitions_inventory_and_partition() -> None:
     assert tuple(w.workflow_id for w in wfs) == PROJECT_WORKFLOW_IDS
     assert all(w.domain_id == "domain:project" for w in wfs)
 
-    generic_ids = tuple(w.workflow_id for w in wfs if w.workflow_id in GENERIC_PROJECT_WORKFLOW_IDS)
+    generic_ids = tuple(
+        w.workflow_id for w in wfs if w.workflow_id in GENERIC_PROJECT_WORKFLOW_IDS
+    )
     assert len(generic_ids) == 4
 
-    software_ids = tuple(w.workflow_id for w in wfs if w.workflow_id in SOFTWARE_PROJECT_WORKFLOW_IDS)
+    software_ids = tuple(
+        w.workflow_id for w in wfs if w.workflow_id in SOFTWARE_PROJECT_WORKFLOW_IDS
+    )
     assert len(software_ids) == 8
 
 

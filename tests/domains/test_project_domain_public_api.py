@@ -48,5 +48,7 @@ def test_public_api_symbols_exported() -> None:
     )
 
     for symbol in expected_symbols:
-        assert hasattr(project_pkg, symbol), f"Missing symbol {symbol} in cmm.domains.project"
+        assert hasattr(project_pkg, symbol), (
+            f"Missing symbol {symbol} in cmm.domains.project"
+        )
         assert symbol in project_pkg.__all__, f"Symbol {symbol} not in __all__"

@@ -97,8 +97,18 @@ def _workflow(
     last_core_id = core_nodes[-1].node_id if core_nodes else "reason"
 
     suffix = (
-        _node("validate", WorkflowNodeType.VALIDATE, "ValidateProjectWorkflow", dependencies=(last_core_id,)),
-        _node("complete", WorkflowNodeType.COMPLETE, "CompleteProjectWorkflow", dependencies=("validate",)),
+        _node(
+            "validate",
+            WorkflowNodeType.VALIDATE,
+            "ValidateProjectWorkflow",
+            dependencies=(last_core_id,),
+        ),
+        _node(
+            "complete",
+            WorkflowNodeType.COMPLETE,
+            "CompleteProjectWorkflow",
+            dependencies=("validate",),
+        ),
     )
 
     all_nodes = (*prefix, *core_nodes, *suffix)

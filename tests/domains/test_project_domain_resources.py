@@ -30,10 +30,9 @@ def test_build_project_resource_definitions() -> None:
 def test_generic_and_software_resource_partition() -> None:
     assert len(GENERIC_PROJECT_RESOURCE_KINDS) == 10
     assert len(SOFTWARE_PROJECT_RESOURCE_KINDS) == 12
-    assert (
-        set(GENERIC_PROJECT_RESOURCE_KINDS) | set(SOFTWARE_PROJECT_RESOURCE_KINDS)
-        == set(CANONICAL_PROJECT_RESOURCE_KINDS)
-    )
+    assert set(GENERIC_PROJECT_RESOURCE_KINDS) | set(
+        SOFTWARE_PROJECT_RESOURCE_KINDS
+    ) == set(CANONICAL_PROJECT_RESOURCE_KINDS)
     assert not (
         set(GENERIC_PROJECT_RESOURCE_KINDS) & set(SOFTWARE_PROJECT_RESOURCE_KINDS)
     )
