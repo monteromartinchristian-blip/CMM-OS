@@ -12,7 +12,7 @@ The roadmap distinguishes clearly between:
 > **Implemented:** Phases 0–9<br>
 > **Implemented and audited:** Phases 0–9<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** Implement Phase 10.30 — Project Domain
+> **Next milestone:** Independent audit of Phase 10.30 — Project Domain candidate implementation
 
 ---
 
@@ -462,10 +462,10 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.29 are complete and independently audited. Phase 10.30 (`domain:project`) remains pending. Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) are planned later Domain Packs appended without renumbering existing Phase 10 work.
+**Current progress:** Phase 10.19–10.29 are complete and independently audited. Phase 10.30 (`domain:project`) candidate implementation is complete (`AT_DP_030=PASS`, 34-class adversarial closure gate `PASS`) and pending independent audit. Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) are planned later Domain Packs appended without renumbering existing Phase 10 work.
 
-**Implemented through:** Phase 10.29 — Life Plan Domain, independently audited and closed.
-Phase 10.15 remains closed; Phase 10.30 — Project Domain is next.
+**Implemented through:** Phase 10.29 — Life Plan Domain, independently audited and closed; Phase 10.30 — Project Domain candidate implementation complete.
+Phase 10.15 remains closed; Phase 10.30 independent audit is next.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 

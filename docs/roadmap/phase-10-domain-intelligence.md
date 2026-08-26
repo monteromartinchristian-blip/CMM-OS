@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, and Phase 10.29 — Life Plan Domain are complete; Phase 10.29 is independently audited and closed with final closure audit V5 `PASS`; the remaining work proceeds to 10.30.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, and Phase 10.29 — Life Plan Domain are complete; Phase 10.29 is independently audited and closed with final closure audit V5 `PASS`; Phase 10.30 — Project Domain candidate implementation is complete (AT-DP-030 PASS, 34-class adversarial closure gate PASS) and pending independent audit.
 
 Domain Intelligence will not be a collection of separate assistants.
 
