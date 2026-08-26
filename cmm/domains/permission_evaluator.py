@@ -69,10 +69,16 @@ _SENSITIVITY_RANK = {
 }
 
 
-def _source_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequest) -> str | None:
+def _source_denial(
+    policy: DomainPermissionPolicy, request: DomainPermissionRequest
+) -> str | None:
     requirement = policy.source_requirement
     if request.action is not PermissionCapability.SEARCH_EXTERNAL:
-        return "external_source_capability_required" if request.source_use is not None else None
+        return (
+            "external_source_capability_required"
+            if request.source_use is not None
+            else None
+        )
     if requirement is None:
         return None
     used = request.source_use
@@ -93,13 +99,17 @@ def _not_subset(requested: tuple[str, ...], allowed: tuple[str, ...]) -> bool:
     return bool(set(requested) - set(allowed))
 
 
-def _egress_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequest) -> str | None:
+def _egress_denial(
+    policy: DomainPermissionPolicy, request: DomainPermissionRequest
+) -> str | None:
     egress_actions = {
         PermissionCapability.MODEL_EXTERNAL,
         PermissionCapability.COMMUNICATION_EXTERNAL,
     }
     if request.action not in egress_actions:
-        return "egress_capability_required" if request.egress_request is not None else None
+        return (
+            "egress_capability_required" if request.egress_request is not None else None
+        )
     if (
         request.action is PermissionCapability.COMMUNICATION_EXTERNAL
         and request.egress_request is None
@@ -117,18 +127,32 @@ def _egress_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequ
         return "egress_provider_location_mismatch"
     if _not_subset(actual.source_domains, expected.allowed_source_domains):
         return "egress_source_domain_not_allowed"
-    if _SENSITIVITY_RANK[actual.sensitivity] > _SENSITIVITY_RANK[expected.maximum_sensitivity]:
+    if (
+        _SENSITIVITY_RANK[actual.sensitivity]
+        > _SENSITIVITY_RANK[expected.maximum_sensitivity]
+    ):
         return "egress_sensitivity_exceeded"
     if actual.sensitivity is not request.sensitivity_level:
         return "egress_sensitivity_binding_mismatch"
     for requested, allowed, reason in (
-        (actual.data_categories, expected.allowed_data_categories, "egress_data_category_not_allowed"),
-        (actual.resource_ids, expected.allowed_resource_ids, "egress_resource_not_allowed"),
+        (
+            actual.data_categories,
+            expected.allowed_data_categories,
+            "egress_data_category_not_allowed",
+        ),
+        (
+            actual.resource_ids,
+            expected.allowed_resource_ids,
+            "egress_resource_not_allowed",
+        ),
         (actual.claims, expected.allowed_claims, "egress_claim_not_allowed"),
     ):
         if _not_subset(requested, allowed):
             return reason
-    if actual.purpose not in expected.allowed_purposes or actual.purpose != request.purpose:
+    if (
+        actual.purpose not in expected.allowed_purposes
+        or actual.purpose != request.purpose
+    ):
         return "egress_purpose_mismatch"
     if expected.require_redaction and not actual.redaction_applied:
         return "egress_redaction_required"
@@ -137,9 +161,15 @@ def _egress_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequ
     return None
 
 
-def _export_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequest, now: datetime | None) -> str | None:
+def _export_denial(
+    policy: DomainPermissionPolicy,
+    request: DomainPermissionRequest,
+    now: datetime | None,
+) -> str | None:
     if request.action is not PermissionCapability.EXPORT:
-        return "export_capability_required" if request.export_request is not None else None
+        return (
+            "export_capability_required" if request.export_request is not None else None
+        )
     expected = policy.export_policy
     if expected is None:
         return "export_policy_missing"
@@ -152,8 +182,16 @@ def _export_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequ
         if now.tzinfo is None or now >= expected.expires_at:
             return "export_policy_expired"
     checks = (
-        (actual.recipient_id, expected.allowed_recipients, "export_recipient_not_allowed"),
-        (actual.recipient_class, expected.allowed_recipient_classes, "export_recipient_class_not_allowed"),
+        (
+            actual.recipient_id,
+            expected.allowed_recipients,
+            "export_recipient_not_allowed",
+        ),
+        (
+            actual.recipient_class,
+            expected.allowed_recipient_classes,
+            "export_recipient_class_not_allowed",
+        ),
         (actual.purpose, expected.allowed_purposes, "export_purpose_not_allowed"),
         (actual.format, expected.allowed_formats, "export_format_not_allowed"),
     )
@@ -168,9 +206,15 @@ def _export_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequ
         return "export_identifier_prohibited"
     if _not_subset(actual.identifiers, expected.allowed_identifiers):
         return "export_identifier_not_allowed"
-    if actual.content_kind is ExportContentKind.ORIGINAL_EVIDENCE and not expected.allow_original_evidence:
+    if (
+        actual.content_kind is ExportContentKind.ORIGINAL_EVIDENCE
+        and not expected.allow_original_evidence
+    ):
         return "export_original_evidence_not_allowed"
-    if _SENSITIVITY_RANK[actual.sensitivity] > _SENSITIVITY_RANK[expected.maximum_sensitivity]:
+    if (
+        _SENSITIVITY_RANK[actual.sensitivity]
+        > _SENSITIVITY_RANK[expected.maximum_sensitivity]
+    ):
         return "export_sensitivity_exceeded"
     if actual.sensitivity is not request.sensitivity_level:
         return "export_sensitivity_binding_mismatch"
@@ -182,10 +226,14 @@ def _export_denial(policy: DomainPermissionPolicy, request: DomainPermissionRequ
 
 
 def _allowlist(value: tuple[str, ...] | None, requested: str | None) -> bool:
-    return value is None or (requested is not None and bool(value) and requested in value)
+    return value is None or (
+        requested is not None and bool(value) and requested in value
+    )
 
 
-def _legacy_capability(policy: DomainPermissionPolicy, action: PermissionCapability) -> bool:
+def _legacy_capability(
+    policy: DomainPermissionPolicy, action: PermissionCapability
+) -> bool:
     return {
         PermissionCapability.MEMORY_READ: policy.allow_memory_read,
         PermissionCapability.MEMORY_WRITE: policy.allow_memory_write,
@@ -217,27 +265,37 @@ def _capability_allowed(
     return _legacy_capability(policy, action)
 
 
-def _sensitivity_allowed(policy: DomainPermissionPolicy, request: DomainPermissionRequest) -> bool:
+def _sensitivity_allowed(
+    policy: DomainPermissionPolicy, request: DomainPermissionRequest
+) -> bool:
     if request.sensitivity_level is None:
         return request.action not in _UNKNOWN_SENSITIVITY_DENY
     if request.sensitivity_level in policy.prohibited_sensitivity_levels:
         return False
-    return policy.allowed_sensitivity_levels is None or request.sensitivity_level in policy.allowed_sensitivity_levels
+    return (
+        policy.allowed_sensitivity_levels is None
+        or request.sensitivity_level in policy.allowed_sensitivity_levels
+    )
 
 
 def _approval_requirement(
     policy: DomainPermissionPolicy, request: DomainPermissionRequest
 ) -> PermissionApprovalRequirement:
     action = request.action
-    risk = "critical" if action in {
-        PermissionCapability.MEDICAL_DECISION,
-        PermissionCapability.MEDICAL_ACTION,
-        PermissionCapability.LEGAL_DECISION,
-        PermissionCapability.LEGAL_ACTION,
-        PermissionCapability.FINANCIAL_DECISION,
-        PermissionCapability.FINANCIAL_ACTION,
-        PermissionCapability.FINANCIAL_SPEND,
-    } else "high"
+    risk = (
+        "critical"
+        if action
+        in {
+            PermissionCapability.MEDICAL_DECISION,
+            PermissionCapability.MEDICAL_ACTION,
+            PermissionCapability.LEGAL_DECISION,
+            PermissionCapability.LEGAL_ACTION,
+            PermissionCapability.FINANCIAL_DECISION,
+            PermissionCapability.FINANCIAL_ACTION,
+            PermissionCapability.FINANCIAL_SPEND,
+        }
+        else "high"
+    )
     scope = (
         "operation"
         if action is PermissionCapability.OPERATION_EXECUTE
@@ -265,11 +323,15 @@ def _approval_requirement(
         value
         for value in (
             policy.expires_at,
-            policy.export_policy.expires_at if policy.export_policy is not None else None,
+            policy.export_policy.expires_at
+            if policy.export_policy is not None
+            else None,
         )
         if value is not None
     )
-    expires_at = min(expiration_candidates).isoformat() if expiration_candidates else None
+    expires_at = (
+        min(expiration_candidates).isoformat() if expiration_candidates else None
+    )
     return PermissionApprovalRequirement(
         requirement_id=f"{policy.policy_id}:{policy.version}:{request.request_id}:{action.value}",
         action=action,
@@ -292,7 +354,9 @@ def _approval_requirement(
         one_time=one_time,
         reusable=not one_time,
         constraints=constraints,
-        reason_code=action.value if action.value in policy.approval_requirements else "approval_required",
+        reason_code=action.value
+        if action.value in policy.approval_requirements
+        else "approval_required",
         risk=risk,
     )
 
@@ -321,14 +385,32 @@ def evaluate_domain_policy(
     if cross_domain_direction not in {"outbound", "inbound"}:
         raise ValueError("cross_domain_direction must be outbound or inbound")
     if not policy.enabled:
-        return PermissionLayerEvaluation(PermissionLayer.DOMAIN, PermissionOutcome.DENY, source_id=f"{domain_role}:{policy.policy_id}:{policy.version}", policy_id=policy.policy_id, policy_version=policy.version, domain_role=domain_role, reasons=("policy_disabled",), matched_rules=(policy.policy_id,))
+        return PermissionLayerEvaluation(
+            PermissionLayer.DOMAIN,
+            PermissionOutcome.DENY,
+            source_id=f"{domain_role}:{policy.policy_id}:{policy.version}",
+            policy_id=policy.policy_id,
+            policy_version=policy.version,
+            domain_role=domain_role,
+            reasons=("policy_disabled",),
+            matched_rules=(policy.policy_id,),
+        )
     if policy.expires_at is not None:
         if now is None:
             raise ValueError("now must be injected when evaluating temporal policies")
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
         if now >= policy.expires_at:
-            return PermissionLayerEvaluation(PermissionLayer.DOMAIN, PermissionOutcome.DENY, source_id=f"{domain_role}:{policy.policy_id}:{policy.version}", policy_id=policy.policy_id, policy_version=policy.version, domain_role=domain_role, reasons=("policy_expired",), matched_rules=(policy.policy_id,))
+            return PermissionLayerEvaluation(
+                PermissionLayer.DOMAIN,
+                PermissionOutcome.DENY,
+                source_id=f"{domain_role}:{policy.policy_id}:{policy.version}",
+                policy_id=policy.policy_id,
+                policy_version=policy.version,
+                domain_role=domain_role,
+                reasons=("policy_expired",),
+                matched_rules=(policy.policy_id,),
+            )
     action = request.action
     denied_reason: str | None = None
     if not _capability_allowed(
@@ -341,13 +423,25 @@ def evaluate_domain_policy(
         denied_reason = "sensitivity_not_allowed"
     else:
         if action in _RESOURCE_ACTIONS:
-            if request.resource_id is not None and request.resource_id in policy.prohibited_resources:
+            if (
+                request.resource_id is not None
+                and request.resource_id in policy.prohibited_resources
+            ):
                 denied_reason = "explicit_resource_prohibition"
-            elif policy.allowed_resources is not None and not _allowlist(policy.allowed_resources, request.resource_id):
+            elif policy.allowed_resources is not None and not _allowlist(
+                policy.allowed_resources, request.resource_id
+            ):
                 denied_reason = "resource_allowlist_not_matched"
-            elif request.resource_kind is not None and request.resource_kind in policy.prohibited_resource_kinds:
+            elif (
+                request.resource_kind is not None
+                and request.resource_kind in policy.prohibited_resource_kinds
+            ):
                 denied_reason = "explicit_resource_kind_prohibition"
-            elif policy.allowed_resource_kinds is not None and not _allowlist(policy.allowed_resource_kinds, request.resource_kind):
+            elif (
+                request.resource_kind is not None
+                and policy.allowed_resource_kinds is not None
+                and not _allowlist(policy.allowed_resource_kinds, request.resource_kind)
+            ):
                 denied_reason = "resource_kind_allowlist_not_matched"
         elif action is PermissionCapability.OPERATION_EXECUTE:
             if request.operation_id in policy.prohibited_operations:
@@ -389,14 +483,31 @@ def evaluate_domain_policy(
         and (
             action in policy.approval_capabilities
             or _requires_mandatory_approval(request)
-            or (policy.egress_policy is not None and policy.egress_policy.require_approval)
-            or (policy.egress_policy is not None and policy.egress_policy.require_consent)
-            or (policy.export_policy is not None and policy.export_policy.require_approval)
+            or (
+                policy.egress_policy is not None
+                and policy.egress_policy.require_approval
+            )
+            or (
+                policy.egress_policy is not None
+                and policy.egress_policy.require_consent
+            )
+            or (
+                policy.export_policy is not None
+                and policy.export_policy.require_approval
+            )
         )
         else None
     )
-    effect = PermissionOutcome.DENY if denied_reason else PermissionOutcome.APPROVAL_REQUIRED if requirement else PermissionOutcome.ALLOW
-    reasons = (denied_reason or ("approval_required" if requirement else "policy_allow"),)
+    effect = (
+        PermissionOutcome.DENY
+        if denied_reason
+        else PermissionOutcome.APPROVAL_REQUIRED
+        if requirement
+        else PermissionOutcome.ALLOW
+    )
+    reasons = (
+        denied_reason or ("approval_required" if requirement else "policy_allow"),
+    )
     metadata = {"policy_id": policy.policy_id, "policy_version": policy.version}
     if (
         action is PermissionCapability.EXTERNAL_DOMAIN_ACTIVATE

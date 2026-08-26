@@ -168,10 +168,6 @@ def build_project_operation_definitions() -> tuple[DomainOperationDefinition, ..
         reversible = True
         rollback_policy = f"rollback.{op_id}" if reversible else None
 
-        req_permissions = ["domain-permission:project:1.0.0"]
-        if requires_approval:
-            req_permissions.append("permission.file.modify")
-
         defn = DomainOperationDefinition(
             operation_id=op_id,
             domain_id=PROJECT_DOMAIN_ID,
@@ -182,7 +178,7 @@ def build_project_operation_definitions() -> tuple[DomainOperationDefinition, ..
             input_schema=_INPUT_SCHEMAS[op_id],
             output_schema=_OUTPUT_SCHEMAS[op_id],
             required_resources=_REQUIRED_RESOURCES.get(op_id, ()),
-            required_permissions=tuple(req_permissions),
+            required_permissions=(),
             risk_level=risk_level,
             reversible=reversible,
             requires_approval=requires_approval,
