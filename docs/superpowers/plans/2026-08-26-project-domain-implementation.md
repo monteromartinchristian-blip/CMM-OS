@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Baseline for this implementation plan: design commit `c520cbb` on `feature/phase-10-domain-intelligence`.
+- Design baseline: `c520cbb` on `feature/phase-10-domain-intelligence`; implementation execution starts from plan commit `21c51bb`.
 - Canonical identity: `domain:project`, `ProjectProfile`, `manifest:project:1.0.0`, `domain-permission:project:1.0.0`.
 - Exact production package: **14 Python modules** under `cmm/domains/project/` and no additional production file in that package.
 - Exact canonical inventory: **27 entities, 22 resources, 18 rules, 20 operations, 12 workflows**.
@@ -131,7 +131,7 @@ kernel/
 - Verify: this plan.
 
 **Interfaces:**
-- Consumes design commit `c520cbb`.
+- Consumes frozen design commit `c520cbb` and committed implementation plan `21c51bb`.
 - Produces a verified clean implementation baseline and frozen acceptance counts.
 
 - [ ] **Step 1: Verify repository state**
@@ -140,7 +140,8 @@ kernel/
 cd "/Users/chris/CMM OS" || exit 1
 
 test "$(git branch --show-current)" = "feature/phase-10-domain-intelligence"
-test "$(git rev-parse --short HEAD)" = "c520cbb"
+test "$(git rev-parse --short HEAD)" = "21c51bb"
+git merge-base --is-ancestor c520cbb HEAD
 test -z "$(git diff --name-only)"
 test -z "$(git diff --cached --name-only)"
 
