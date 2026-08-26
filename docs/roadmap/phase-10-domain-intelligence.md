@@ -1485,7 +1485,7 @@ Domain Profile Definition
 
 DomainProfileDefinition(
 domain_id="domain:health",
-profile_name="MedicalProfile",
+profile_name="HealthProfile",
 required_rules=[],
 optional_rules=[],
 prohibited_rules=[],
