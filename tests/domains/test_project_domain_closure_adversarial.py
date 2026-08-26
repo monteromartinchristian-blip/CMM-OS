@@ -75,6 +75,7 @@ from cmm.domains.project.rules import (
 )
 from cmm.domains.project.trace import (
     assemble_project_trace,
+    build_project_trace_contribution,
     build_project_trace_reference,
     validate_project_trace,
 )
@@ -812,7 +813,18 @@ def test_attack_trace_identity_uses_shared_api() -> None:
 
 
 def test_attack_trace_inventory_independent() -> None:
-    """Trace references are assembled independently from the execution outcome."""
+    """Trace references are assembled independently before trace creation and validated against prebuilt inventory."""
+    from cmm.domains.trace_assembler import calculate_domain_trace_identity
+    from cmm.domains.trace_contracts import (
+        DomainResultTraceReference,
+        DomainTraceAssemblyRequest,
+        DomainTraceDomainSelection,
+        DomainTraceReference,
+        DomainTraceReferenceInventory,
+        DomainTraceReferences,
+    )
+
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     ref1 = build_project_trace_reference(
         ref_id="rule:project.dependency_consistency:1.0.0",
         kind=DomainTraceReferenceKind.RULE_RESULT,
@@ -825,81 +837,226 @@ def test_attack_trace_inventory_independent() -> None:
     assert ref2.domain_id == DomainId("project")
     assert ref1 != ref2
 
+    req_id = "req:adv:trace:1"
+    ctx_id = "ctx:adv:1"
+    res_id = "res:adv:1"
+    comp_id = "comp:adv:1"
+    result_id_str = "dres:proj:adv"
+
+    trace_refs = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    assembly_request = DomainTraceAssemblyRequest(
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=PROJECT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_project_trace_contribution(
+                domain_result_id=result_id_str,
+                references=(ref1, ref2),
+            ),
+        ),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id_str,
+                PROJECT_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        metadata={},
+    )
+    predicted_identity = calculate_domain_trace_identity(assembly_request)
+
+    # Prebuilt independent inventory
+    inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                result_id_str,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            ref1,
+            ref2,
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=predicted_identity.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+        expected_primary_domain=PROJECT_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, PROJECT_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(comp_id, PROJECT_DOMAIN_ID, ()),
+    )
+
+    trace = assemble_project_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        started_at=now,
+        completed_at=now,
+        references=(ref1, ref2),
+    )
+
+    val = validate_project_trace(trace=trace, inventory=inventory)
+    assert val.valid is True
+
 
 # ── Attack Class 32: TRACE_TAMPER_REJECTED ────────────────────────────────────
 
 
 def test_attack_trace_tamper_rejected() -> None:
-    """Tampered or invalid traces fail validation."""
-    now = datetime.now(timezone.utc)
+    """Tampered, substituted, or forged traces fail validation."""
+    from cmm.domains.trace_assembler import calculate_domain_trace_identity
+    from cmm.domains.trace_contracts import (
+        DomainResultTraceReference,
+        DomainTraceAssemblyRequest,
+        DomainTraceDomainSelection,
+        DomainTraceReference,
+        DomainTraceReferenceInventory,
+        DomainTraceReferences,
+    )
+
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     ref = build_project_trace_reference(
         ref_id="rule:project.scope_consistency:1.0.0",
         kind=DomainTraceReferenceKind.RULE_RESULT,
     )
-    valid_trace = assemble_project_trace(
-        request_id="req:trace:valid",
-        resolution_context_id="ctx:valid",
-        resolution_result_id="res_res:valid",
-        composition_id="comp:valid",
-        domain_result_id="res:project:valid",
-        references=(ref,),
+    req_id = "req:trace:valid"
+    ctx_id = "ctx:valid"
+    res_id = "res_res:valid"
+    comp_id = "comp:valid"
+    result_id_str = "res:project:valid"
+
+    assembly_request = DomainTraceAssemblyRequest(
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=PROJECT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_project_trace_contribution(
+                domain_result_id=result_id_str,
+                references=(ref,),
+            ),
+        ),
+        references=DomainTraceReferences(
+            resolution_context_id=ctx_id,
+            resolution_result_id=res_id,
+            composition_id=comp_id,
+            cross_domain_results=(),
+            presentation_result_ids=(),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id_str,
+                PROJECT_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
         started_at=now,
         completed_at=now,
+        metadata={},
     )
-    from cmm.domains.trace_contracts import (
-        DomainTraceDomainSelection,
-        DomainTraceReference,
-        DomainTraceReferenceInventory,
-    )
+    predicted = calculate_domain_trace_identity(assembly_request)
 
     expected_refs = (
         DomainTraceReference(
-            "res:project:valid",
+            result_id_str,
             DomainTraceReferenceKind.DOMAIN_RESULT,
             PROJECT_DOMAIN_ID,
         ),
         ref,
-        DomainTraceReference(
-            "ctx:valid", DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
-        ),
-        DomainTraceReference(
-            "res_res:valid", DomainTraceReferenceKind.RESOLUTION_RESULT, None
-        ),
-        DomainTraceReference("comp:valid", DomainTraceReferenceKind.COMPOSITION, None),
+        DomainTraceReference(ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None),
+        DomainTraceReference(res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None),
+        DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
     )
 
     inventory = DomainTraceReferenceInventory(
         references=expected_refs,
         expected_primary_domain=DomainId("project"),
         resolution_result_domains=DomainTraceDomainSelection(
-            "res_res:valid", DomainId("project"), ()
+            res_id, DomainId("project"), ()
         ),
         composition_domains=DomainTraceDomainSelection(
-            "comp:valid", DomainId("project"), ()
+            comp_id, DomainId("project"), ()
         ),
-        domain_results=valid_trace.domain_results,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=predicted.trace_id,
+            ),
+        ),
         cross_domain_results=(),
+    )
+    valid_trace = assemble_project_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        references=(ref,),
+        started_at=now,
+        completed_at=now,
     )
     val = validate_project_trace(trace=valid_trace, inventory=inventory)
     assert val.valid is True
 
-    # Tampered trace with uninventoried reference
+    # Tamper 1: Uninventoried reference in trace
     tampered_ref = build_project_trace_reference(
         ref_id="rule:project.tampered:1.0.0",
         kind=DomainTraceReferenceKind.RULE_RESULT,
     )
     tampered_trace = assemble_project_trace(
         request_id="req:trace:tampered",
-        resolution_context_id="ctx:valid",
-        resolution_result_id="res_res:valid",
-        composition_id="comp:valid",
-        domain_result_id="res:project:valid",
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
         references=(tampered_ref,),
         started_at=now,
         completed_at=now,
     )
-    tampered_val = validate_project_trace(trace=tampered_trace, inventory=inventory)
-    assert tampered_val.valid is False
+    assert (
+        validate_project_trace(trace=tampered_trace, inventory=inventory).valid is False
+    )
+
+    # Tamper 2: Missing expected reference
+    incomplete_trace = assemble_project_trace(
+        request_id=req_id,
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id=result_id_str,
+        references=(),  # Omitted ref
+        started_at=now,
+        completed_at=now,
+    )
+    assert (
+        validate_project_trace(trace=incomplete_trace, inventory=inventory).valid
+        is False
+    )
 
 
 # ── Attack Class 33: ATOMIC_REGISTRATION_ROLLBACK ─────────────────────────────
