@@ -13,9 +13,10 @@ from cmm.domains.life_plan.trace import (
     build_supporting_trace_contribution,
     validate_life_plan_trace,
 )
+from cmm.domains.trace_assembler import calculate_domain_trace_identity
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
-    DomainTrace,
+    DomainTraceAssemblyRequest,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
@@ -85,9 +86,7 @@ def test_assemble_and_validate_life_plan_trace() -> None:
         cross_domain_results=(),
         presentation_result_ids=(),
     )
-    probe = DomainTrace(
-        id="domain-trace:probe",
-        digest="0" * 64,
+    assembly_request = DomainTraceAssemblyRequest(
         request_id=req_id,
         goal_id=None,
         primary_domain=LIFE_PLAN_DOMAIN_ID,
@@ -103,16 +102,14 @@ def test_assemble_and_validate_life_plan_trace() -> None:
             DomainResultTraceReference(
                 result_id_str,
                 LIFE_PLAN_DOMAIN_ID,
-                "domain-trace:probe",
             ),
         ),
         status=DomainTraceStatus.COMPLETED,
         started_at=NOW,
         completed_at=NOW,
-        duration_ms=0,
         metadata={},
     )
-    expected_trace_id = probe.canonical_id
+    predicted_identity = calculate_domain_trace_identity(assembly_request)
 
     inventory = DomainTraceReferenceInventory(
         references=(
@@ -139,7 +136,7 @@ def test_assemble_and_validate_life_plan_trace() -> None:
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=expected_trace_id,
+                trace_id=predicted_identity.trace_id,
             ),
         ),
         cross_domain_results=(),
@@ -162,7 +159,9 @@ def test_assemble_and_validate_life_plan_trace() -> None:
         completed_at=NOW,
         references=(ref1, ref2),
     )
-    assert trace.id == expected_trace_id
+    assert trace.id == predicted_identity.trace_id
+    assert trace.digest == predicted_identity.digest
+    assert trace.status == DomainTraceStatus.COMPLETED
 
     val = validate_life_plan_trace(trace=trace, inventory=inventory)
     assert val.valid is True

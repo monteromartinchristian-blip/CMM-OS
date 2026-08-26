@@ -101,9 +101,14 @@ from cmm.domains.permission_gate import (
 )
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.trace_assembler import (
+    DomainTraceAssembler,
+    calculate_domain_trace_identity,
+)
 from cmm.domains.trace_contracts import (
     DomainResultTraceReference,
     DomainTrace,
+    DomainTraceAssemblyRequest,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
@@ -730,9 +735,7 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
         cross_domain_results=(),
         presentation_result_ids=(pres_id,),
     )
-    probe = DomainTrace(
-        id="domain-trace:probe",
-        digest="0" * 64,
+    assembly_request = DomainTraceAssemblyRequest(
         request_id=req_id,
         goal_id=None,
         primary_domain=LIFE_PLAN_DOMAIN_ID,
@@ -743,16 +746,14 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id="domain-trace:probe",
             ),
         ),
         status=DomainTraceStatus.COMPLETED,
         started_at=NOW,
         completed_at=NOW,
-        duration_ms=0,
         metadata={},
     )
-    expected_trace_id = probe.canonical_id
+    predicted_identity = calculate_domain_trace_identity(assembly_request)
 
     # Build reference inventory independently BEFORE final trace assembly
     inventory = DomainTraceReferenceInventory(
@@ -761,7 +762,7 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
             DomainResultTraceReference(
                 result_id=result_id_str,
                 domain_id=LIFE_PLAN_DOMAIN_ID,
-                trace_id=expected_trace_id,
+                trace_id=predicted_identity.trace_id,
             ),
         ),
         cross_domain_results=(),
@@ -786,7 +787,8 @@ def _setup_valid_runtime_trace_fixture() -> tuple[
         completed_at=NOW,
         references=runtime_refs,
     )
-    assert trace.id == expected_trace_id
+    assert trace.id == predicted_identity.trace_id
+    assert trace.digest == predicted_identity.digest
 
     return (
         trace,
@@ -1575,3 +1577,117 @@ def test_closure_gate_v3_m2_empty_trace_inventory_rejected() -> None:
     )
     val = validate_life_plan_trace(trace=trace, inventory=empty_inventory)
     assert val.valid is False
+
+
+def test_closure_gate_v5_a_shared_identity_matches_final_trace() -> None:
+    """V5-A: Shared pre-assembly trace identity matches final assembled trace id and digest."""
+    trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    assert trace.id == inventory.domain_results[0].trace_id
+    assert trace.id == f"domain-trace:{trace.digest[:24]}"
+    assert trace.id == trace.canonical_id
+    assert validate_life_plan_trace(trace=trace, inventory=inventory).valid is True
+
+
+def test_closure_gate_v5_b_no_local_probe_identity_path() -> None:
+    """V5-B: Pre-assembly trace identity is derived from generic shared API without local synthetic probes."""
+    req_id = "req-v5-probe-free"
+    result_id_str = "result:life-plan.result.v5"
+    primary_contrib = build_life_plan_trace_contribution(
+        domain_result_id=result_id_str,
+        references=(),
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+    )
+    trace_refs = DomainTraceReferences(
+        resolution_context_id="ctx-v5",
+        resolution_result_id="res-v5",
+        composition_id="comp-v5",
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    assembly_request = DomainTraceAssemblyRequest(
+        request_id=req_id,
+        goal_id=None,
+        primary_domain=LIFE_PLAN_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(primary_contrib,),
+        references=trace_refs,
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=result_id_str,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+        metadata={},
+    )
+    shared_id = calculate_domain_trace_identity(assembly_request)
+    cls_id = DomainTraceAssembler.identity_for(assembly_request)
+    assembled = DomainTraceAssembler().assemble(assembly_request)
+
+    assert shared_id == cls_id
+    assert shared_id.trace_id == assembled.id
+    assert shared_id.digest == assembled.digest
+
+
+def test_closure_gate_v5_c_trace_inventory_remains_independent() -> None:
+    """V5-C: Trace inventory remains structurally independent; post-assembly tampering fails validation."""
+    trace, inventory, _, _, _, _, _ = _setup_valid_runtime_trace_fixture()
+    # 1. Tampered inventory reference fails validation
+    tampered_inventory = dataclasses.replace(
+        inventory,
+        references=(
+            *inventory.references,
+            DomainTraceReference(
+                ref_id="rogue-reference-id",
+                kind=DomainTraceReferenceKind.FINDING,
+                domain_id=LIFE_PLAN_DOMAIN_ID,
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=trace, inventory=tampered_inventory).valid
+        is False
+    )
+
+    # 2. Tampered trace reference fails validation against pre-existing inventory
+    primary_contrib = trace.contributions[0]
+    tampered_trace = dataclasses.replace(
+        trace,
+        contributions=(
+            dataclasses.replace(
+                primary_contrib,
+                references=tuple(
+                    dataclasses.replace(r, ref_id="tampered-ref-id")
+                    if r.kind == DomainTraceReferenceKind.WORKFLOW_RUN
+                    else r
+                    for r in primary_contrib.references
+                ),
+            ),
+        ),
+    )
+    assert (
+        validate_life_plan_trace(trace=tampered_trace, inventory=inventory).valid
+        is False
+    )
+
+
+def test_closure_gate_v5_d_memory_lifecycle_refs_preserved() -> None:
+    """V5-D: Memory lifecycle references (permission decision, approval request/decision, proposal, binding) remain traced."""
+    trace, inventory, perm_dec_id, app_dec_id, mem_bind_id, wf_run_id, _ = (
+        _setup_valid_runtime_trace_fixture()
+    )
+    inv_kinds = {r.kind for r in inventory.references}
+    inv_ref_ids = {r.ref_id for r in inventory.references}
+    assert DomainTraceReferenceKind.PERMISSION_DECISION in inv_kinds
+    assert DomainTraceReferenceKind.APPROVAL_REQUEST in inv_kinds
+    assert DomainTraceReferenceKind.APPROVAL_DECISION in inv_kinds
+    assert DomainTraceReferenceKind.MEMORY_PROPOSAL in inv_kinds
+    assert DomainTraceReferenceKind.MEMORY_BINDING in inv_kinds
+    assert perm_dec_id in inv_ref_ids
+    assert app_dec_id in inv_ref_ids
+    assert mem_bind_id in inv_ref_ids
+    assert wf_run_id in inv_ref_ids
+    assert len(inventory.references) == 16
+    assert validate_life_plan_trace(trace=trace, inventory=inventory).valid is True
