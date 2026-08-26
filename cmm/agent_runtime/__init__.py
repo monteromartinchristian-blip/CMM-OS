@@ -43,6 +43,9 @@ from cmm.agent_runtime.checkpoint_repository import (
     InMemoryCheckpointRepository,
 )
 from cmm.agent_runtime.checkpoint_restoration import CheckpointRestorationManager
+from cmm.agent_runtime.checkpoint_rollback_executor import (
+    CheckpointRestorationRollbackExecutor,
+)
 from cmm.agent_runtime.cognitive_adapter import (
     AgentCognitiveService,
     CognitiveRuntimeAdapter,
@@ -1380,6 +1383,7 @@ __all__ += [
     "CheckpointRestorationManager",
     "CheckpointRestorationRequest",
     "CheckpointRestorationResult",
+    "CheckpointRestorationRollbackExecutor",
     "CheckpointRestorationValidationError",
     "CheckpointStatus",
     "CommitGateEvaluation",

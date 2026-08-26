@@ -28,9 +28,11 @@ class Boundary:
 class TransactionManagerSpy:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.start_kwargs: dict[str, object] = {}
 
     def start_transaction(self, **kwargs: object):
         self.calls.append("start")
+        self.start_kwargs = kwargs
         return Boundary(), "checkpoint:1"
 
     def register_operation(self, **kwargs: object) -> None:
@@ -196,6 +198,12 @@ def test_execution_failure_rolls_back_successfully() -> None:
     assert manager.calls == ["start", "rollback_started", "rolled_back"]
     assert rollback.calls == 1
     assert result.rollback_result.succeeded is True
+
+
+def test_reversible_operation_requests_checkpoint_for_real_rollback() -> None:
+    result, manager, _rollback = _execute(success=False)
+    assert result.status is DomainOperationStatus.ROLLED_BACK
+    assert manager.start_kwargs["requires_checkpoint"] is True
 
 
 def test_rollback_failure_preserves_original_and_rollback_errors() -> None:

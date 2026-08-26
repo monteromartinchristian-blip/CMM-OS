@@ -273,7 +273,7 @@ class DefaultDomainOperationOrchestrator:
                 name=f"domain-operation:{definition.operation_id}",
                 resource_keys=definition.required_resources,
                 has_approval=approval_status is ApprovalRequestStatus.APPROVED,
-                requires_checkpoint=False,
+                requires_checkpoint=True,
             )
             transaction_id = boundary.id
 
