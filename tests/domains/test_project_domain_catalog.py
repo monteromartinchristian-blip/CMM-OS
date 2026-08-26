@@ -1,6 +1,7 @@
-"""Phase 10.30 — Project Domain Catalog & Definition Tests."""
-
 from __future__ import annotations
+
+import re
+from pathlib import Path
 
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainKind
@@ -182,3 +183,46 @@ def test_build_project_domain_definition() -> None:
     assert defn.permissions == ("domain-permission:project:1.0.0",)
     assert defn.enabled is True
     assert len(defn.capabilities) > 0
+
+
+def test_reference_documentation_catalog_set_equality() -> None:
+    doc_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "docs"
+        / "reference"
+        / "project-domain.md"
+    )
+    assert doc_path.exists(), f"Reference doc {doc_path} must exist"
+    text = doc_path.read_text(encoding="utf-8")
+
+    inventory_match = re.search(
+        r"### Canonical Inventory Counts\s*(.*?)\s*---", text, re.DOTALL
+    )
+    assert (
+        inventory_match is not None
+    ), "Canonical Inventory Counts section must exist in reference doc"
+    section = inventory_match.group(1)
+
+    def extract_ids(pattern: str) -> set[str]:
+        m = re.search(pattern, section, re.DOTALL)
+        assert m is not None, f"Pattern {pattern} must match in reference doc"
+        return set(re.findall(r"`([a-zA-Z0-9_.:]+)`", m.group(1)))
+
+    doc_entities = extract_ids(r"- \*\*Entities \(\d+\):\*\*(.*?)(?=- \*\*Resources|$)")
+    doc_resources = extract_ids(r"- \*\*Resources \(\d+\):\*\*(.*?)(?=- \*\*Rules|$)")
+    doc_rules = extract_ids(r"- \*\*Rules \(\d+\):\*\*(.*?)(?=- \*\*Operations|$)")
+    doc_operations = extract_ids(r"- \*\*Operations \(\d+\):\*\*(.*?)(?=- \*\*Workflows|$)")
+    doc_workflows = extract_ids(r"- \*\*Workflows \(\d+\):\*\*(.*?)(?=\n\n|$)")
+
+    assert len(doc_entities) == 27
+    assert len(doc_resources) == 22
+    assert len(doc_rules) == 18
+    assert len(doc_operations) == 20
+    assert len(doc_workflows) == 12
+
+    assert doc_entities == set(CANONICAL_PROJECT_ENTITY_IDS)
+    assert doc_resources == set(CANONICAL_PROJECT_RESOURCE_IDS)
+    assert doc_rules == set(CANONICAL_PROJECT_RULE_IDS)
+    assert doc_operations == set(CANONICAL_PROJECT_OPERATION_IDS)
+    assert doc_workflows == set(CANONICAL_PROJECT_WORKFLOW_IDS)
+
