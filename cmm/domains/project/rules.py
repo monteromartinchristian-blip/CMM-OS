@@ -126,10 +126,18 @@ def evaluate_project_scope_consistency(
         item_id = item.get("id", "unnamed")
         if deliv in exclusions or item.get("name") in exclusions:
             out_of_scope.append(item)
-            reasons.append(f"Item {item_id} matches declared exclusion {deliv or item.get('name')}")
-        elif deliverables and deliv not in deliverables and not item.get("in_scope_override"):
+            reasons.append(
+                f"Item {item_id} matches declared exclusion {deliv or item.get('name')}"
+            )
+        elif (
+            deliverables
+            and deliv not in deliverables
+            and not item.get("in_scope_override")
+        ):
             out_of_scope.append(item)
-            reasons.append(f"Item {item_id} deliverable {deliv} not in declared deliverables")
+            reasons.append(
+                f"Item {item_id} deliverable {deliv} not in declared deliverables"
+            )
         else:
             in_scope.append(item)
 
@@ -166,7 +174,11 @@ def evaluate_milestone_consistency(
         if status == "completed" and (evidence is None or len(evidence) == 0):
             unsupported_completed.append(mid)
 
-    valid = len(duplicate_ids) == 0 and len(unsupported_completed) == 0 and len(malformed_milestones) == 0
+    valid = (
+        len(duplicate_ids) == 0
+        and len(unsupported_completed) == 0
+        and len(malformed_milestones) == 0
+    )
     return {
         "valid": valid,
         "unsupported_completed_milestones": unsupported_completed,
@@ -213,7 +225,9 @@ def evaluate_dependency_consistency(
             dfs(node, [])
 
     valid = len(cycles) == 0
-    blockers: list[str] = [f"Dependency cycle detected: {' -> '.join(c)}" for c in cycles]
+    blockers: list[str] = [
+        f"Dependency cycle detected: {' -> '.join(c)}" for c in cycles
+    ]
     return {
         "valid": valid,
         "cycles": cycles,
@@ -285,7 +299,9 @@ def evaluate_project_resource_constraints(
             unknown_capacity.append(kind)
         elif required_amt is not None and float(required_amt) > available_by_kind[kind]:
             bottlenecks.append(kind)
-            exceeded_constraints.append(f"{kind}: required {required_amt} > available {available_by_kind[kind]}")
+            exceeded_constraints.append(
+                f"{kind}: required {required_amt} > available {available_by_kind[kind]}"
+            )
 
     if bottlenecks:
         feasible = False
@@ -318,7 +334,10 @@ def evaluate_project_decision_state(
     curr = str(current_state).lower().strip()
     prop = str(proposed_state).lower().strip()
 
-    if curr not in PROJECT_DECISION_STATE_VALUES or prop not in PROJECT_DECISION_STATE_VALUES:
+    if (
+        curr not in PROJECT_DECISION_STATE_VALUES
+        or prop not in PROJECT_DECISION_STATE_VALUES
+    ):
         return {
             "allowed": False,
             "current_state": curr,
@@ -387,12 +406,19 @@ def evaluate_project_temporal_validity(
     for mid, ms in ms_by_id.items():
         depends_on = ms.get("depends_on")
         target = ms.get("target_date")
-        if depends_on and depends_on in ms_by_id and target and mid not in malformed_dates:
+        if (
+            depends_on
+            and depends_on in ms_by_id
+            and target
+            and mid not in malformed_dates
+        ):
             dep_target = ms_by_id[depends_on].get("target_date")
             if dep_target and depends_on not in malformed_dates:
                 try:
                     dt_curr = datetime.fromisoformat(str(target).replace("Z", "+00:00"))
-                    dt_dep = datetime.fromisoformat(str(dep_target).replace("Z", "+00:00"))
+                    dt_dep = datetime.fromisoformat(
+                        str(dep_target).replace("Z", "+00:00")
+                    )
                     if dt_curr < dt_dep:
                         conflicts.append(
                             f"Milestone {mid} date {target} precedes prerequisite {depends_on} date {dep_target}"
@@ -419,7 +445,9 @@ def evaluate_project_progress_evidence(
     evidence = list(authoritative_evidence or [])
 
     ev_deliverables = {
-        str(e.get("deliverable", "")): e for e in evidence if e.get("status") in ("verified", "completed", "passed")
+        str(e.get("deliverable", "")): e
+        for e in evidence
+        if e.get("status") in ("verified", "completed", "passed")
     }
 
     verified: list[str] = []
@@ -465,7 +493,9 @@ class ProjectScopeConsistencyRule:
             ReasoningFinding(
                 code="PROJECT_SCOPE_EVALUATED",
                 message=f"Project scope evaluated: valid={res['valid']}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -499,7 +529,9 @@ class MilestoneConsistencyRule:
             ReasoningFinding(
                 code="MILESTONE_CONSISTENCY_EVALUATED",
                 message=f"Milestone consistency evaluated: valid={res['valid']}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -533,7 +565,9 @@ class DependencyConsistencyRule:
             ReasoningFinding(
                 code="DEPENDENCY_CONSISTENCY_EVALUATED",
                 message=f"Dependency consistency evaluated: valid={res['valid']}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -569,7 +603,9 @@ class ProjectStatusTransitionRule:
             ReasoningFinding(
                 code="STATUS_TRANSITION_EVALUATED",
                 message=f"Status transition evaluated: allowed={res['allowed']}",
-                severity=ReasoningSeverity.INFO if res["allowed"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["allowed"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -604,7 +640,9 @@ class ProjectResourceConstraintRule:
             ReasoningFinding(
                 code="RESOURCE_CONSTRAINT_EVALUATED",
                 message=f"Resource constraints evaluated: status={res['status']}",
-                severity=ReasoningSeverity.INFO if res["feasible"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["feasible"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -648,7 +686,9 @@ class ProjectDecisionStateRule:
             ReasoningFinding(
                 code="DECISION_STATE_EVALUATED",
                 message=f"Decision state evaluated: allowed={res['allowed']}",
-                severity=ReasoningSeverity.INFO if res["allowed"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["allowed"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -683,7 +723,9 @@ class ProjectTemporalValidityRule:
             ReasoningFinding(
                 code="TEMPORAL_VALIDITY_EVALUATED",
                 message=f"Temporal validity evaluated: valid={res['valid']}",
-                severity=ReasoningSeverity.INFO if res["valid"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["valid"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -718,7 +760,9 @@ class ProjectProgressEvidenceRule:
             ReasoningFinding(
                 code="PROGRESS_EVIDENCE_EVALUATED",
                 message=f"Progress evidence evaluated: supported={res['supported']}",
-                severity=ReasoningSeverity.INFO if res["supported"] else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if res["supported"]
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -859,7 +903,9 @@ class ProjectValidationRequiredRule:
             ReasoningFinding(
                 code="VALIDATION_REQUIRED_EVALUATED",
                 message=f"Validation required evaluated: passed={passed}",
-                severity=ReasoningSeverity.INFO if passed else ReasoningSeverity.WARNING,
+                severity=ReasoningSeverity.INFO
+                if passed
+                else ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
             )
@@ -1149,7 +1195,9 @@ def build_project_life_plan_projection(
     # Prohibit raw Project internals fail-closed
     for prohibited in PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS:
         if prohibited in payload:
-            raise ValueError(f"Prohibited internal field {prohibited!r} cannot be projected to Life Plan")
+            raise ValueError(
+                f"Prohibited internal field {prohibited!r} cannot be projected to Life Plan"
+            )
 
     filtered: dict[str, Any] = {"source_domain": PROJECT_DOMAIN_ID}
     for k, v in payload.items():
@@ -1222,4 +1270,3 @@ __all__ = [
     "evaluate_project_status_transition",
     "evaluate_project_temporal_validity",
 ]
-
