@@ -17,12 +17,24 @@ import pytest
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+from cmm.agent_runtime.checkpoint_repository import InMemoryCheckpointRepository
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
 )
+from cmm.agent_runtime.enums import (
+    OperationRecoveryKind,
+    TransactionBoundaryKind,
+    TransactionStatus,
+)
+from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.runtime_repository import InMemoryAgentRuntimeRepository
+from cmm.agent_runtime.transaction_manager import TransactionManager
 from cmm.development.analyzer import ProjectAnalyzer
+from cmm.development.models import DevelopmentPlan
+from cmm.development.providers import DeterministicPlanningProvider
 from cmm.domains.contracts import DomainResult
 from cmm.domains.errors import DomainOperationRegistryError
 from cmm.domains.identifiers import DomainId
@@ -33,6 +45,11 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
 )
+from cmm.validation.context import ValidationContext
+from cmm.validation.defaults import build_default_pipeline
+from cmm.validation.results import ValidationResult
+from cmm.validation.testing_defaults import default_validation_steps
+from kernel.runtime import Runtime
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
@@ -112,7 +129,7 @@ DP_030_GENERIC_CHECKPOINTS = 32
 DP_030_SOFTWARE_CHECKPOINTS = 24
 
 
-def test_at_dp_030_connected_acceptance() -> None:
+def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
     checkpoints: list[str] = []
 
     def checkpoint(name: str) -> None:
@@ -695,9 +712,26 @@ def test_at_dp_030_connected_acceptance() -> None:
     assert len(software_rules) == 10
     checkpoint("35 generic rules remain present with software layer")
 
+    # Setup temporary repository for acceptance chain
+    acc_repo_dir = tmp_path / "acc_repo"
+    acc_repo_dir.mkdir()
+    acc_file = acc_repo_dir / "service.py"
+    acc_file.write_text(
+        "class InitialService:\n"
+        '    """Initial service."""\n\n'
+        "    def execute(self) -> bool:\n"
+        "        return True\n",
+        encoding="utf-8",
+    )
+    acc_initial_bytes = acc_file.read_bytes()
+
     # 36 repository observation uses shared infrastructure
-    repo_obs_resource = bootstrap.resource_registry.get("project.resource.git_history")
-    assert repo_obs_resource is not None
+    acc_analyzer = ProjectAnalyzer()
+    acc_repo_context = acc_analyzer.analyze(
+        acc_repo_dir, "Add feature method to InitialService"
+    )
+    assert acc_repo_context.total_python_files >= 1
+    assert acc_repo_context.files[0].classes[0]["name"] == "InitialService"
     checkpoint("36 repository observation uses shared infrastructure")
 
     # 37 architecture finding references shared evidence
@@ -711,6 +745,39 @@ def test_at_dp_030_connected_acceptance() -> None:
     self_dev_wf = wfs["project.self_development"]
     assert self_dev_wf.workflow_id in SOFTWARE_PROJECT_WORKFLOW_IDS
     assert any(n.node_id == "arch_analysis" for n in self_dev_wf.nodes)
+    acc_plan_payload = {
+        "goal": "Add feature method to InitialService",
+        "affected_files": ["service.py"],
+        "operations": [
+            {
+                "domain": "python",
+                "type": "insert_method",
+                "parameters": {
+                    "path": "service.py",
+                    "class_name": "InitialService",
+                    "position": "end",
+                    "code": (
+                        "def feature(self) -> str:\n"
+                        '    """Feature docstring."""\n'
+                        "    return 'ok'\n"
+                    ),
+                },
+                "reason": "Add feature method",
+            }
+        ],
+        "rationale": "Plan for InitialService",
+        "validations": ["python_ast", "python_compile"],
+        "risks": [],
+    }
+    acc_provider = DeterministicPlanningProvider(acc_plan_payload)
+    acc_plan_dict = acc_provider.generate_plan(
+        "Add feature method to InitialService", acc_repo_context
+    )
+    acc_dev_plan = DevelopmentPlan.from_mapping(
+        acc_plan_dict, "Add feature method to InitialService"
+    )
+    acc_dev_plan.validate()
+    assert acc_dev_plan.affected_files == ("service.py",)
     checkpoint("38 implementation plan uses shared planning path")
 
     # 39 project.modify_code unavailable before injection
@@ -730,7 +797,12 @@ def test_at_dp_030_connected_acceptance() -> None:
         definition: Any
 
         def execute(self, request: Any) -> dict[str, Any]:
-            return {"status": "success", "modified_files": ["foo.py"]}
+            runtime_action = request.parameters["runtime_action"]
+            run_res = Runtime().run(runtime_action)
+            return {
+                "status": "success" if run_res.success else "failed",
+                "modified_files": request.parameters.get("modified_files", []),
+            }
 
     _dummy_modify_impl = _MockModifyImpl(definition=modify_op_def)
     injected_common = InMemoryAgentOperationRegistry()
@@ -787,19 +859,86 @@ def test_at_dp_030_connected_acceptance() -> None:
     checkpoint("43 forged approval rejected")
 
     # 44 controlled semantic mutation runs in temp repo
-    # Verify pure mutation operation contracts and execution pattern
-    assert modify_op_def.requires_approval is True
-    assert modify_op_def.reversible is True
-    assert modify_op_def.rollback_policy_id == "rollback.project.modify_code"
+    acc_runtime_action = {
+        "version": 1,
+        "actions": [
+            {
+                "tool": "python",
+                "action": "insert_method",
+                "path": str(acc_file),
+                "class_name": "InitialService",
+                "position": "end",
+                "code": (
+                    "def feature(self) -> str:\n"
+                    '    """Feature docstring."""\n'
+                    "    return 'ok'\n"
+                ),
+            }
+        ],
+    }
+    acc_op_req = AgentOperationRequest(
+        id="req:op:acc:mod",
+        agent_run_id="run:acc:1",
+        workflow_id="project.self_development",
+        task_id="task:acc:1",
+        operation_name="project.modify_code",
+        idempotency_key="idem:acc:1",
+        operation_version="1.0.0",
+        parameters={
+            "runtime_action": acc_runtime_action,
+            "modified_files": ["service.py"],
+        },
+        approval_request_id="approval:acc:1",
+    )
+    acc_mod_res = _dummy_modify_impl.execute(acc_op_req)
+    assert acc_mod_res["status"] == "success"
+    assert "def feature" in acc_file.read_text(encoding="utf-8")
     checkpoint("44 controlled semantic mutation runs in temp repo")
 
     # 45 shared rollback/transaction path is present
-    assert callable(register_project_domain)
+    acc_tx_mgr = TransactionManager(
+        CheckpointManager(
+            InMemoryCheckpointRepository(), InMemoryAgentRuntimeRepository()
+        )
+    )
+    acc_tx, _ = acc_tx_mgr.start_transaction(
+        agent_run_id="run:acc:1",
+        goal_id="goal:acc",
+        workflow_id="project.self_development",
+        iteration_id="iter:acc",
+        kind=TransactionBoundaryKind.ATOMIC,
+        name="acc_rollback",
+        has_approval=True,
+    )
+    acc_file.write_text("# Corrupted content\n", encoding="utf-8")
+    acc_tx_mgr.mark_rollback_started(acc_tx.id)
+    acc_file.write_bytes(acc_initial_bytes)
+    acc_rolled_back = acc_tx_mgr.mark_rolled_back(acc_tx.id)
+    assert acc_rolled_back.status == TransactionStatus.ROLLED_BACK.value
+    assert acc_file.read_bytes() == acc_initial_bytes
     checkpoint("45 shared rollback/transaction path is present")
 
     # 46 shared Phase 7 validation executes
-    val_run_op = raw_ops["project.run_validation"]
-    assert val_run_op is not None
+    acc_test_file = acc_repo_dir / "tests" / "test_service.py"
+    acc_test_file.parent.mkdir(parents=True, exist_ok=True)
+    acc_test_file.write_text(
+        "from service import InitialService\n\n\n"
+        "def test_execute() -> None:\n"
+        "    assert InitialService().execute() is True\n",
+        encoding="utf-8",
+    )
+    acc_val_ctx = ValidationContext(
+        project_root=acc_repo_dir,
+        requested_policy="small_change",
+        changed_files=(Path("service.py"), Path("tests/test_service.py")),
+        allow_commit=True,
+    )
+    acc_val_pipeline = build_default_pipeline()
+    acc_val_result = acc_val_pipeline.run(
+        acc_val_ctx, default_validation_steps(acc_val_ctx)
+    )
+    assert isinstance(acc_val_result, ValidationResult)
+    assert acc_val_result.id is not None
     checkpoint("46 shared Phase 7 validation executes")
 
     # 47 failed validation blocks commit readiness
