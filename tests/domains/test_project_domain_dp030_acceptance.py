@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -21,6 +22,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionOutcome,
 )
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.development.analyzer import ProjectAnalyzer
 from cmm.domains.contracts import DomainResult
 from cmm.domains.errors import DomainOperationRegistryError
 from cmm.domains.identifiers import DomainId
@@ -368,9 +370,9 @@ def test_at_dp_030_connected_acceptance() -> None:
     checkpoint("26 DomainResult built")
 
     # 27 real Project→Life Plan permission request resolved
-    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
     from cmm.domains.life_plan.permissions import build_life_plan_permission_policy
     from cmm.domains.life_plan.rules import evaluate_cross_domain_impact
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
 
     perm_reg = DomainPermissionRegistry()
     perm_reg.register(build_life_plan_permission_policy())
@@ -665,13 +667,18 @@ def test_at_dp_030_connected_acceptance() -> None:
     sw_resources = ("project.resource.source_code", "project.resource.git_history")
     checkpoint("33 software context grounded by repository/workflow signal")
 
-    # 34 software capability activates conditionally
+    # 34 software capability activates only from shared analyzed context
+    project_context = ProjectAnalyzer().analyze(
+        Path(__file__).resolve().parents[2],
+        "project software acceptance",
+        max_files=1,
+    )
     sw_active = project_software_capability_active(
         workflow_id=sw_workflow_id,
         operation_id=sw_op_id,
         resource_ids=sw_resources,
         capabilities=("project_software_development",),
-        repository_context={"repo_path": "/path/to/repo"},
+        repository_context=project_context,
     )
     assert sw_active is True
     checkpoint("34 software capability activates conditionally")

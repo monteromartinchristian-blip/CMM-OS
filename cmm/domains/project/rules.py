@@ -31,6 +31,10 @@ from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningRuleResult,
     ReasoningRuleTraceEntry,
 )
+from cmm.development.analyzer import ProjectContext
+from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.permission_gate import DomainPermissionGate
+from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.project.catalog import (
     CANONICAL_PROJECT_RULE_IDS,
     PROJECT_DOMAIN_ID,
@@ -42,9 +46,6 @@ from cmm.domains.project.resources import (
     PROJECT_DECISION_STATE_VALUES,
     PROJECT_STATUS_VALUES,
 )
-from cmm.domains.permission_contracts import CrossDomainPermissionRequest
-from cmm.domains.permission_gate import DomainPermissionGate
-from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.rule_contracts import DomainReasoningRuleDefinition, DomainRuleResult
 
 
@@ -783,13 +784,13 @@ class ProjectProgressEvidenceRule:
 # ── Software Reasoning Rule Classes (9–18) (Task 5) ──────────────────────────
 
 
-def _check_software_active(context: ReasoningRuleContext) -> bool:
+def _check_software_active(
+    context: ReasoningRuleContext,
+    *,
+    project_context: ProjectContext | None = None,
+) -> bool:
     return project_software_capability_active(
-        workflow_id=context.metadata.get("workflow_id"),
-        operation_id=context.metadata.get("operation_id"),
-        resource_ids=tuple(context.metadata.get("resource_ids", ())),
-        capabilities=tuple(context.metadata.get("capabilities", ())),
-        repository_backed=bool(context.metadata.get("repository_backed", False)),
+        repository_context=project_context,
     )
 
 
@@ -827,8 +828,13 @@ class ProjectArchitectureContractRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings_data = context.metadata.get("architecture_findings", [])
@@ -862,8 +868,13 @@ class ProjectCodeDocumentationConsistencyRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -896,8 +907,13 @@ class ProjectValidationRequiredRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         val_res = context.metadata.get("validation_result")
@@ -934,8 +950,13 @@ class ProjectTechnicalDebtRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -968,8 +989,13 @@ class ProjectDeadCodeRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -1002,8 +1028,13 @@ class ProjectPublicApiChangeRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -1036,8 +1067,13 @@ class ProjectBackwardCompatibilityRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -1070,8 +1106,13 @@ class ProjectDependencyBoundaryRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -1104,8 +1145,13 @@ class ProjectTestCoverageImpactRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [
@@ -1138,8 +1184,13 @@ class ProjectSemanticTransformationRule:
         )
     )
 
-    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if not _check_software_active(context):
+    def evaluate(
+        self,
+        context: ReasoningRuleContext,
+        *,
+        project_context: ProjectContext | None = None,
+    ) -> ReasoningRuleResult:
+        if not _check_software_active(context, project_context=project_context):
             return _inactive_software_result(self.definition, context)
 
         findings = [

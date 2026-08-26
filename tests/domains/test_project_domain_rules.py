@@ -9,6 +9,7 @@ from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningRuleContext,
     ReasoningRuleResultStatus,
 )
+from cmm.development.analyzer import ProjectAnalyzer
 from cmm.domains.project.catalog import (
     CANONICAL_PROJECT_RULE_IDS,
 )
@@ -282,16 +283,21 @@ def test_software_rules_active_in_software_context() -> None:
             "technical_debt": [{"issue": "circular_import", "severity": "medium"}],
         },
     )
+    project_context = ProjectAnalyzer().analyze(
+        Path(__file__).resolve().parents[2],
+        "project software rules",
+        max_files=1,
+    )
 
     arch_rule = software_rules["project.architecture_contract"]
-    arch_res = arch_rule.evaluate(software_context)
+    arch_res = arch_rule.evaluate(software_context, project_context=project_context)
     assert arch_res.status == ReasoningRuleResultStatus.APPLIED
     assert any(
         t.code == "ARCHITECTURE_CONTRACT_EVALUATED" for t in arch_res.trace_entries
     )
 
     val_rule = software_rules["project.validation_required"]
-    val_res = val_rule.evaluate(software_context)
+    val_res = val_rule.evaluate(software_context, project_context=project_context)
     assert val_res.status == ReasoningRuleResultStatus.APPLIED
     assert any(t.code == "VALIDATION_REQUIRED_EVALUATED" for t in val_res.trace_entries)
 

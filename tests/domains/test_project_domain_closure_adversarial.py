@@ -7,6 +7,7 @@ Section 29 of docs/superpowers/specs/2026-08-26-project-domain-design.md.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -143,32 +144,62 @@ def test_attack_software_capability_not_implicit() -> None:
     # M5 Subcase 3: Bare repository boolean is not independent authority
     assert project_software_capability_active(repository_backed=True) is False
 
-    # Grounded software signals activate conditionally
+    # M5 Subcase 4: Repository-shaped caller mappings are not shared context.
     assert (
-        project_software_capability_active(workflow_id="project.self_development")
-        is True
+        project_software_capability_active(
+            repository_context={"repo_path": "/path/to/repo"}
+        )
+        is False
     )
     assert (
-        project_software_capability_active(operation_id="project.modify_code") is True
+        project_software_capability_active(
+            repository_context={"repository_id": "repo:forged"}
+        )
+        is False
+    )
+
+    # M5 Subcase 5: Canonical-looking strings remain caller-owned primitives.
+    assert (
+        project_software_capability_active(workflow_id="project.self_development")
+        is False
+    )
+    assert (
+        project_software_capability_active(operation_id="project.modify_code") is False
     )
     assert (
         project_software_capability_active(
             resource_ids=("project.resource.source_code",)
         )
-        is True
+        is False
     )
     assert (
         project_software_capability_active(
             capabilities=("project_software_development",)
         )
-        is True
+        is False
     )
     assert (
-        project_software_capability_active(
-            repository_context={"repo_path": "/path/to/repo"}
-        )
-        is True
+        project_software_capability_active(resource_ids=("source_code",)) is False
     )
+
+    # M5 Subcase 6: A typed-looking caller object is not ProjectContext.
+    class FakeProjectContext:
+        root = Path("/path/to/repo")
+        files = ()
+        total_python_files = 1
+        truncated = False
+
+    assert project_software_capability_active(
+        repository_context=FakeProjectContext()
+    ) is False
+
+    class FakeWorkflowDefinition:
+        workflow_id = "project.self_development"
+        domain_id = PROJECT_DOMAIN_ID
+
+    assert project_software_capability_active(
+        workflow_definition=FakeWorkflowDefinition()
+    ) is False
 
 
 # ── Attack Class 03: FORMATION_NOT_ABSORBED ───────────────────────────────────

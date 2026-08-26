@@ -14,7 +14,9 @@ from __future__ import annotations
 from typing import Any
 
 from cmm.cognitive.enums import SensitivityLevel
+from cmm.development.analyzer import ProjectContext
 from cmm.domains.enums import DomainReasoningDepth
+from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.profile_contracts import (
     DomainMemoryPolicy,
     DomainPresentationPolicy,
@@ -29,6 +31,8 @@ from cmm.domains.project.catalog import (
     PROJECT_DOMAIN_ID,
     PROJECT_PROFILE_NAME,
 )
+from cmm.domains.resource_contracts import DomainResourceDefinition
+from cmm.domains.workflow_contracts import DomainWorkflowDefinition
 
 PROJECT_PROFILE_ID = "project.profile"
 
@@ -111,6 +115,9 @@ CANONICAL_SOFTWARE_RESOURCE_IDS: frozenset[str] = frozenset(
 
 def project_software_capability_active(
     *,
+    workflow_definition: DomainWorkflowDefinition | None = None,
+    operation_definition: DomainOperationDefinition | None = None,
+    resource_definitions: tuple[DomainResourceDefinition, ...] = (),
     workflow_id: str | None = None,
     operation_id: str | None = None,
     resource_ids: tuple[str, ...] | list[str] = (),
@@ -120,44 +127,70 @@ def project_software_capability_active(
 ) -> bool:
     """Determine whether the conditional software capability is active fail-closed.
 
-    Software capability activation requires grounded canonical evidence:
-    - exact registered software workflow ID
-    - exact registered software operation ID
-    - resolved canonical Project software resource ID or kind
-    - resolved canonical capability name
-    - verified repository context object
-
-    Prefix matches, suffix collisions, arbitrary booleans, or ungrounded caller
-    strings are rejected fail-closed.
+    Activation accepts only resolved shared evidence: a ``ProjectContext`` from
+    repository analysis or an exact registered Project software definition.
+    Legacy primitive arguments remain for caller compatibility, but cannot
+    independently activate the capability.
     """
-    if workflow_id is not None and workflow_id in SOFTWARE_WORKFLOW_IDS:
+    if isinstance(repository_context, ProjectContext):
         return True
 
-    if operation_id is not None and operation_id in SOFTWARE_OPERATION_IDS:
+    if _is_registered_software_workflow(workflow_definition):
         return True
 
-    for cap in capabilities:
-        if cap in SOFTWARE_CAPABILITY_NAMES:
-            return True
+    if _is_registered_software_operation(operation_definition):
+        return True
 
-    for r_id in resource_ids:
-        base = r_id.split(":", 1)[0]
-        if base in CANONICAL_SOFTWARE_RESOURCE_IDS or base in SOFTWARE_RESOURCE_KINDS:
-            return True
-
-    if repository_context is not None:
-        if (
-            hasattr(repository_context, "repo_path")
-            or hasattr(repository_context, "root")
-            or hasattr(repository_context, "repository_id")
-        ):
-            return True
-        if isinstance(repository_context, dict) and (
-            "repo_path" in repository_context or "repository_id" in repository_context
-        ):
+    for resource_definition in resource_definitions:
+        if _is_registered_software_resource(resource_definition):
             return True
 
     return False
+
+
+def _is_registered_software_workflow(
+    definition: DomainWorkflowDefinition | None,
+) -> bool:
+    if not isinstance(definition, DomainWorkflowDefinition):
+        return False
+
+    from cmm.domains.project.workflows import build_project_workflow_definitions
+
+    return any(
+        definition == registered
+        and registered.workflow_id in SOFTWARE_WORKFLOW_IDS
+        for registered in build_project_workflow_definitions()
+    )
+
+
+def _is_registered_software_operation(
+    definition: DomainOperationDefinition | None,
+) -> bool:
+    if not isinstance(definition, DomainOperationDefinition):
+        return False
+
+    from dataclasses import replace
+
+    from cmm.domains.project.operations import build_project_operation_definitions
+
+    return any(
+        replace(definition, enabled=True) == registered
+        and registered.operation_id in SOFTWARE_OPERATION_IDS
+        for registered in build_project_operation_definitions()
+    )
+
+
+def _is_registered_software_resource(definition: DomainResourceDefinition) -> bool:
+    if not isinstance(definition, DomainResourceDefinition):
+        return False
+
+    from cmm.domains.project.resources import build_project_resource_definitions
+
+    return any(
+        definition == registered
+        and registered.id in CANONICAL_SOFTWARE_RESOURCE_IDS
+        for registered in build_project_resource_definitions()
+    )
 
 
 def build_project_profile() -> DomainProfileDefinition:
