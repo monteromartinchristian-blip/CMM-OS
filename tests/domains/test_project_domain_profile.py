@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from cmm.development.analyzer import ProjectAnalyzer
+from cmm.development.analyzer import ProjectAnalyzer, ProjectContext
 from cmm.domains.project.bootstrap import build_standard_project_domain_bootstrap
 from cmm.domains.project.catalog import CANONICAL_PROJECT_RULE_IDS, PROJECT_DOMAIN_ID
 from cmm.domains.project.profile import (
@@ -76,7 +77,18 @@ def test_real_project_analyzer_context_activates_software_capability() -> None:
     assert project_software_capability_active(repository_context=context) is True
 
 
-def test_registered_software_definitions_activate_software_capability() -> None:
+def test_manually_constructed_project_context_is_not_authority() -> None:
+    context = ProjectContext(
+        root=Path(__file__).resolve().parents[2],
+        files=(),
+        total_python_files=0,
+        truncated=False,
+    )
+
+    assert project_software_capability_active(repository_context=context) is False
+
+
+def test_caller_cloned_registered_definitions_are_not_authority() -> None:
     bootstrap = build_standard_project_domain_bootstrap()
     workflow = next(
         definition
@@ -94,9 +106,18 @@ def test_registered_software_definitions_activate_software_capability() -> None:
         if definition.id == "project.resource.source_code"
     )
 
-    assert project_software_capability_active(workflow_definition=workflow) is True
-    assert project_software_capability_active(operation_definition=operation) is True
-    assert project_software_capability_active(resource_definitions=(resource,)) is True
+    assert (
+        project_software_capability_active(workflow_definition=replace(workflow))
+        is False
+    )
+    assert (
+        project_software_capability_active(operation_definition=replace(operation))
+        is False
+    )
+    assert (
+        project_software_capability_active(resource_definitions=(replace(resource),))
+        is False
+    )
 
 
 def test_project_software_capability_activation_matrix() -> None:

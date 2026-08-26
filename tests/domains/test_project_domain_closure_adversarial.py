@@ -6,6 +6,7 @@ Section 29 of docs/superpowers/specs/2026-08-26-project-domain-design.md.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
 )
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
+from cmm.development.analyzer import ProjectContext
 from cmm.domains.errors import (
     DomainOperationRegistryError,
     DomainPermissionRegistryError,
@@ -199,6 +201,41 @@ def test_attack_software_capability_not_implicit() -> None:
 
     assert project_software_capability_active(
         workflow_definition=FakeWorkflowDefinition()
+    ) is False
+
+    # M5 Subcase 7: Public typed objects and clones are still caller-owned.
+    assert project_software_capability_active(
+        repository_context=ProjectContext(
+            root=Path(__file__).resolve().parents[2],
+            files=(),
+            total_python_files=0,
+            truncated=False,
+        )
+    ) is False
+    bootstrap = build_standard_project_domain_bootstrap()
+    workflow = next(
+        definition
+        for definition in bootstrap.workflow_registry.list_for_domain(PROJECT_DOMAIN_ID)
+        if definition.workflow_id == "project.self_development"
+    )
+    operation = next(
+        definition
+        for definition in bootstrap.operation_registry.list_definitions()
+        if definition.operation_id == "project.modify_code"
+    )
+    resource = next(
+        definition
+        for definition in bootstrap.resource_registry.list_all()
+        if definition.id == "project.resource.source_code"
+    )
+    assert project_software_capability_active(
+        workflow_definition=replace(workflow)
+    ) is False
+    assert project_software_capability_active(
+        operation_definition=replace(operation)
+    ) is False
+    assert project_software_capability_active(
+        resource_definitions=(replace(resource),)
     ) is False
 
 
