@@ -6011,6 +6011,24 @@ Oppositions:
 * requirement comparison;
 * continuity of prior decisions.
 
+Mental Health:
+
+* ordinary emotional conversation without default medicalization;
+* fact, interpretation, fear, intuition, and uncertainty separation;
+* therapy continuity and session preparation;
+* longitudinal emotional context;
+* proportionate safety escalation;
+* cross-domain minimization and privacy preservation.
+
+Neurodivergence:
+
+* certainty-state preservation;
+* developmental and longitudinal evidence;
+* differential and overlap analysis;
+* executive, sensory, academic, social, and functional context;
+* screening/self-report non-promotion;
+* purpose-minimized Health and Mental Health coordination.
+
 Project:
 
 * code generation;
@@ -6089,6 +6107,9 @@ Examples:
 * University prioritizes dates, constraints, feasibility, and plan quality.
 * Project prioritizes correctness, architecture, validation, and tool calling.
 
+* Mental Health prioritizes emotional fidelity, epistemic separation, contextual continuity, non-pathologizing support, safety proportionality, and privacy.
+* Neurodivergence prioritizes certainty preservation, developmental/longitudinal evidence, differential reasoning, non-promotion of hypotheses, functional relevance, and privacy.
+
 A high aggregate score must not compensate for a failed blocking metric.
 
 Results must preserve:
@@ -6138,6 +6159,8 @@ Reflection Knowledge Package
 Concerns Knowledge Package
 Life Plan Knowledge Package
 Project Knowledge Package
+Mental Health Knowledge Package
+Neurodivergence Knowledge Package
 ```
 
 Every specialization must retain the common fields for:
@@ -6203,6 +6226,8 @@ Relationships      -> SENSITIVE
 Reflection         -> SENSITIVE
 Concerns           -> SENSITIVE
 Paternidad / Parenthood   -> SENSITIVE
+Mental Health      -> SENSITIVE
+Neurodivergence    -> SENSITIVE
 University         -> REMOTE_ALLOWED
 Oppositions        -> REMOTE_ALLOWED
 Languages          -> REMOTE_ALLOWED
@@ -6903,6 +6928,10 @@ The phase should include:
 * Sport Domain;
 * Life Plan Domain;
 * Project Domain;
+
+* Mental Health Domain;
+
+* Neurodivergence Domain;
 * integration with Cognitive Layer;
 * integration with Agent Runtime;
 * integration with Planner;
@@ -7007,6 +7036,10 @@ Closure criteria
 * Minimum Domain languages
 * Paternidad Domain minimum
 * Minimum Sport Domain
+
+* Minimum Mental Health Domain
+
+* Minimum Neurodivergence Domain
 * Domain SDK;
 * scaffold;
 * test harness;
@@ -7094,6 +7127,14 @@ CMM OS may use the same infrastructure to:
 * maintain a personal project;
 * review training;
 * coordinate a life plan;
+
+* sustain emotional and therapy continuity without turning ordinary emotional conversation into clinical output;
+
+* organize longitudinal neurodivergence evidence without promoting hypotheses, screening results, or model inference to diagnosis;
+
+* sustain emotional and therapy continuity without turning ordinary conversation into clinical assessment;
+
+* organize longitudinal neurodivergence evidence without promoting hypotheses, screening results, or model inferences to diagnosis;
 * develop and maintain its own code.
 
 All of this without creating isolated assistants, duplicated memories, or incompatible architecture.
@@ -7105,3 +7146,780 @@ The Agent Runtime will continue to determine how targets and actions are pursued
 Domain Intelligence will determine what specialization should be applied in each context.
 
 From this infrastructure, Phase 11 can integrate UI, goals, workflows, agents, memory, knowledge, permissions, and domains into a complete, extensible, and coherent personal platform.
+
+⸻
+
+10.52 - Mental Health Domain
+
+Objective
+
+Provide a dedicated Domain Pack for emotional wellbeing, personal emotional conversation, therapy continuity, therapy-session analysis, and longitudinal emotional context without turning ordinary conversation into default clinical assessment.
+
+The domain must preserve warmth, humanity, uncertainty, and conversational freedom while remaining compatible with the shared CMM OS epistemic, privacy, permission, memory, validation, and trace contracts.
+
+Canonical identity
+
+```text
+domain:mental-health
+MentalHealthProfile
+DP-052
+AT-DP-052
+privacy = SENSITIVE
+```
+
+Mental Health is a sibling of Health and Neurodivergence.
+
+It is not a child namespace of `domain:health` and does not inherit clinical authority merely because emotional or psychiatric context is present.
+
+Scope
+
+The Mental Health Domain owns specialization for:
+
+* emotional wellbeing;
+* ordinary personal emotional conversation and support;
+* therapy continuity;
+* preparation before therapy sessions;
+* processing after therapy sessions;
+* analysis of therapy-session transcripts and notes;
+* longitudinal emotional context;
+* emotionally relevant decisions;
+* lived meaning of relationships, life events, goals, setbacks, and transitions;
+* distinction between facts, interpretations, fears, intuitions, hypotheses, and uncertainty when relevant;
+* detection of rumination, loops, or repeated analysis without automatically pathologizing repetition;
+* proportionate safety escalation when an actual immediate-risk condition is resolved upstream or by domain rules.
+
+The domain must be able to operate in at least four semantically distinct interaction states:
+
+```text
+ordinary emotional conversation
+therapeutic reflection
+clinical psychiatric information
+actual immediate safety risk
+```
+
+These states may alter reasoning and presentation requirements but do not create separate Domain Packs or runtimes.
+
+Non-goals
+
+Mental Health must not:
+
+* medicalize ordinary distress, uncertainty, sadness, frustration, loneliness, conflict, or reflection by default;
+* diagnose from conversation;
+* infer a stable disorder solely from emotional language;
+* alter treatment or medication doses;
+* override Health on documented diagnosis, treatment, medication, or medical safety;
+* act as a substitute for a qualified clinician where professional assessment is materially required;
+* persist sensitive emotional inferences silently;
+* export sensitive emotional context silently;
+* transfer sensitive emotional context to another domain without purpose and permission;
+* contact clinicians, relatives, institutions, or other third parties autonomously;
+* create an independent Mental Health planner, runtime, memory store, Knowledge Graph, Cognitive Layer, or temporal engine.
+
+Knowledge and epistemic requirements
+
+Mental Health reuses Phase 8 knowledge contracts and must preserve:
+
+* provenance;
+* epistemic kind;
+* temporal validity;
+* confidence;
+* uncertainty;
+* contradiction identity;
+* correction and supersession history;
+* source authority by attribute and purpose;
+* sensitivity;
+* permission state.
+
+Where useful, domain reasoning must distinguish at least:
+
+```text
+FACT
+OBSERVATION
+INTERPRETATION
+HYPOTHESIS
+FEAR
+INTUITION
+PREFERENCE
+DECISION
+UNCERTAINTY
+```
+
+The exact storage representation remains the shared Phase 8 knowledge model; the Domain Pack must not create a competing claim taxonomy or persistence system.
+
+Conversation-derived interpretation must remain revisable and must not be promoted to fact merely because it is repeated, emotionally salient, or consistent with a prior model response.
+
+Resources
+
+Representative resources may include:
+
+* authorized conversation history;
+* therapy-session transcripts;
+* therapy notes;
+* user-authored reflections;
+* prior decisions and goals;
+* authorized relationship context;
+* authorized life-plan context;
+* purpose-minimized Health context;
+* purpose-minimized Neurodivergence context;
+* current safety information when relevant;
+* files or external sources explicitly authorized for the active task.
+
+Resource access is scoped. A resource available to Health or Relationships is not automatically available to Mental Health.
+
+Reasoning profile
+
+```text
+MentalHealthProfile
+```
+
+The profile should support a human, warm, natural conversational mode while preserving epistemic discipline.
+
+It may resolve modes such as:
+
+```text
+conversational
+supportive
+reflective
+therapy-preparation
+therapy-review
+structured-longitudinal-analysis
+safety-focused
+```
+
+Presentation style must remain separate from reasoning truth conditions, permissions, and safety decisions.
+
+Rules
+
+The minimum rule set must cover:
+
+* emotional-context relevance;
+* fact/interpretation/fear/intuition separation when materially useful;
+* non-pathologizing default;
+* proportionate questioning based on material information gaps;
+* continuity with authorized prior emotional context;
+* therapy-transcript source/provenance preservation;
+* separation between therapist statements, user statements, and model interpretation;
+* uncertainty preservation;
+* repeated-loop detection without automatic disorder attribution;
+* Health authority for clinical diagnosis/treatment/medication;
+* purpose-minimized cross-domain imports;
+* sensitive-inference persistence controls;
+* immediate-risk escalation without converting ordinary distress into emergency framing.
+
+Operations
+
+Representative operations may include:
+
+```text
+mental_health.review_emotional_context
+mental_health.prepare_therapy_session
+mental_health.review_therapy_session
+mental_health.analyze_therapy_transcript
+mental_health.compare_emotional_periods
+mental_health.map_fact_interpretation_uncertainty
+mental_health.review_emotional_decision
+mental_health.propose_memory_update
+```
+
+Operations that persist, export, communicate, or mutate external systems require the applicable Phase 10 permission and approval contracts.
+
+Workflows
+
+Minimum workflows should include:
+
+```text
+Emotional Context Review
+Therapy Session Preparation
+Therapy Session Post-Processing
+Therapy Transcript Review
+Longitudinal Emotional Review
+Emotionally Relevant Decision Review
+Sensitive Memory Proposal Review
+Safety Escalation Review
+```
+
+A workflow may pause for missing information or approval and must reuse the shared Agent Runtime and Workflow Engine.
+
+Permissions and approvals
+
+Default sensitivity:
+
+```text
+SENSITIVE
+```
+
+The effective permission policy must separate:
+
+* read;
+* infer;
+* propose persistence;
+* persist;
+* transfer;
+* export;
+* communicate;
+* external mutation.
+
+Permission to discuss an inference does not imply permission to persist it.
+
+Permission to read therapy material does not imply permission to transfer it to Relationships, Health, Neurodivergence, or an external provider.
+
+No autonomous external communication is allowed for sensitive Mental Health content.
+
+Cross-domain coordination
+
+Mental Health may act as primary with supporting domains such as:
+
+```text
+domain:relationships
+domain:neurodivergence
+domain:health
+domain:reflection
+domain:concerns
+domain:life-plan
+domain:general
+```
+
+Examples:
+
+```text
+"Prepare tomorrow's psychologist session"
+primary = domain:mental-health
+supporting = relationships / neurodivergence / health when materially relevant
+```
+
+```text
+"A psychiatrist changed my medication and I feel different emotionally"
+primary = domain:health
+supporting = mental-health / neurodivergence when materially relevant
+```
+
+Any transfer must preserve:
+
+* source-domain authority;
+* provenance;
+* epistemic kind;
+* temporal validity;
+* uncertainty;
+* sensitivity;
+* purpose limitation;
+* restrictive permission intersection.
+
+Supporting domains receive only the minimum authorized projection needed for the active purpose.
+
+Memory
+
+Mental Health uses the shared Domain Memory Integration contracts.
+
+It must not create a private parallel memory store.
+
+Sensitive emotional interpretations are proposal-first and require the applicable confirmation before persistence.
+
+Existing Health knowledge must not be silently moved, duplicated, or reclassified into Mental Health.
+
+Any future reclassification must be explicit, provenance-preserving, auditable, and supervised.
+
+Presentation
+
+Mental Health presentation should be capable of being:
+
+* conversational and human;
+* emotionally attentive;
+* direct when useful;
+* structured when the task requires structure;
+* non-clinical by default for ordinary emotional conversation;
+* explicit about uncertainty when interpretation matters;
+* calm and proportionate around safety.
+
+Presentation must not fabricate therapeutic certainty, diagnostic authority, or crisis framing.
+
+Traceability
+
+Domain Trace must identify:
+
+* Mental Health as primary or supporting domain;
+* selected profile;
+* rule/operation/workflow references;
+* cross-domain projections;
+* permission and approval decisions;
+* memory proposals;
+* safety escalations;
+* Knowledge Package and cognitive trace references.
+
+It must not copy private prompt content, chain of thought, sensitive transcript bodies, or subordinate traces.
+
+Privacy
+
+Initial orientation:
+
+```text
+Mental Health -> SENSITIVE
+```
+
+Remote processing is governed by the effective privacy intersection and must not be inferred from general provider availability.
+
+Sensitive therapy or emotional material must not enter unauthorized caches, exports, providers, or supporting-domain contexts.
+
+Knowledge Package
+
+The Mental Health Knowledge Package specializes the shared Phase 8 `KnowledgePackage` and may require domain-relevant sections for:
+
+* active emotional objective;
+* source-separated conversation/therapy evidence;
+* facts and observations;
+* interpretations and hypotheses;
+* uncertainty and contradictions;
+* relevant longitudinal context;
+* authorized supporting-domain projections;
+* permissions and privacy.
+
+It must retain the common base contract and must not duplicate stored knowledge.
+
+Benchmarks and quality metrics
+
+Representative benchmark areas:
+
+* ordinary emotional conversation without over-clinicalization;
+* fact versus interpretation separation;
+* continuity across therapy sessions;
+* transcript speaker/source fidelity;
+* appropriate questioning;
+* non-pathologizing loop handling;
+* emotionally useful responses;
+* proportionate safety escalation;
+* cross-domain minimization;
+* privacy compliance.
+
+Blocking quality failures include:
+
+* invented diagnosis;
+* treatment or medication change;
+* unsupported promotion of interpretation to fact;
+* unauthorized sensitive transfer;
+* unauthorized persistence;
+* emergency escalation without a resolved material basis;
+* loss of provenance in therapy material.
+
+AT-DP-052 acceptance contract
+
+`AT-DP-052` is a future connected acceptance gate and must remain unpassed until the pack is implemented and independently verified.
+
+At minimum it must test:
+
+* canonical registration of `domain:mental-health`;
+* `MentalHealthProfile` resolution;
+* ordinary emotional conversation without default clinical presentation;
+* therapy-session preparation and review;
+* therapy-transcript provenance;
+* epistemic separation;
+* sensitive inference persistence controls;
+* Health clinical-authority boundary;
+* cross-domain permission intersection;
+* supporting-domain minimization;
+* privacy `SENSITIVE`;
+* no parallel cognitive/runtime/memory engine;
+* regression protection for existing domains;
+* green global suite.
+
+Implementation boundary
+
+Phase 10.52 implements only the Domain Pack specialization required by existing shared infrastructure.
+
+It must not reopen Phases 0–9, 10.15–10.20, or create new platform infrastructure that belongs to Phase 11.
+
+Completion criteria
+
+Phase 10.52 is complete only when:
+
+* `domain:mental-health` is registered;
+* `MentalHealthProfile` is available;
+* resources, rules, operations, workflows, permissions, presentation, trace, memory integration, Knowledge Package schema, privacy, benchmarks, and quality metrics are connected;
+* Health authority boundaries are enforced;
+* cross-domain projections are purpose-minimized and permission-filtered;
+* no sensitive inference is silently persisted or transferred;
+* `AT-DP-052` passes;
+* domain/adversarial tests pass;
+* global regression suite passes;
+* independent closure audit passes.
+
+Until those conditions are met:
+
+```text
+DP-052 = REQUIRES_PHASE_INSPECTION
+AT-DP-052 = PLANNED
+```
+
+⸻
+
+10.53 - Neurodivergence Domain
+
+Objective
+
+Provide a dedicated Domain Pack for longitudinal neurodevelopmental organization and reasoning across confirmed information, evaluations in progress, hypotheses, developmental history, functional impact, and differential/overlap analysis without promoting uncertainty to diagnosis.
+
+Canonical identity
+
+```text
+domain:neurodivergence
+NeurodivergenceProfile
+DP-053
+AT-DP-053
+privacy = SENSITIVE
+```
+
+Neurodivergence is a sibling of Health and Mental Health.
+
+Health retains authority for clinical diagnosis status, medication, treatment, medical tests, and medical safety.
+
+Scope
+
+The Neurodivergence Domain owns specialization for:
+
+* confirmed TDAH information;
+* TEA when documented as confirmed, in evaluation, suspected, hypothesized, ruled out, or insufficiently supported;
+* high intellectual abilities / AACC under the same evidence-status discipline;
+* TERIA/ARFID under the same evidence-status discipline;
+* dysgraphia and related documented learning/writing difficulties;
+* developmental history;
+* executive functioning;
+* sensory functioning;
+* academic and occupational/functional impact;
+* social functioning through a neurodevelopmental lens;
+* neuropsychological and psychometric assessments;
+* longitudinal evidence;
+* differential and overlap analysis;
+* preparation of structured evidence for professional assessment.
+
+The pack may organize several neurodevelopmental questions at once without assuming that they share one cause or one diagnostic status.
+
+Non-goals
+
+Neurodivergence must not:
+
+* promote screening results to diagnosis;
+* promote self-report to diagnosis;
+* promote an isolated trait to a stable diagnostic identity;
+* promote model inference to confirmed diagnosis;
+* assume that every academic, emotional, social, sensory, or executive difficulty is caused by neurodivergence;
+* alter medication or treatment;
+* override Health on documented clinical status or medical safety;
+* erase competing explanations;
+* silently persist inferred labels;
+* silently transfer sensitive developmental or clinical material;
+* create an independent Neurodivergence planner, runtime, memory store, Knowledge Graph, Cognitive Layer, or temporal engine.
+
+Knowledge and epistemic requirements
+
+The domain must preserve a visible certainty hierarchy equivalent to:
+
+```text
+CONFIRMED
+IN EVALUATION
+HYPOTHESIS
+NOT CONFIRMED / RULED OUT / INSUFFICIENTLY SUPPORTED
+```
+
+The exact canonical enums may reuse shared Phase 8 epistemic contracts, but the semantic distinctions above are mandatory.
+
+Every material neurodevelopmental claim should preserve when available:
+
+* source;
+* author/observer;
+* date;
+* assessment context;
+* method or instrument;
+* direct observation versus retrospective report;
+* current versus historical relevance;
+* confidence/uncertainty;
+* contradiction or competing evidence;
+* clinical status authority.
+
+A diagnostic label must not be inferred solely from similarity between user experience and diagnostic criteria.
+
+Resources
+
+Representative resources may include:
+
+* authorized developmental history;
+* school records;
+* academic records;
+* neuropsychological reports;
+* psychometric results;
+* clinical reports;
+* assessment notes;
+* user-authored chronology;
+* authorized conversation history;
+* purpose-minimized Health data;
+* purpose-minimized Mental Health context;
+* purpose-minimized University context;
+* purpose-minimized Relationships context;
+* external clinical or scientific information when explicitly authorized and current verification is required.
+
+Reasoning profile
+
+```text
+NeurodivergenceProfile
+```
+
+The profile should support:
+
+```text
+longitudinal-analysis
+developmental-history
+assessment-preparation
+evidence-comparison
+differential-overlap
+functional-impact
+structured-summary
+```
+
+It must prefer evidence organization and uncertainty preservation over premature categorical conclusions.
+
+Rules
+
+The minimum rule set must cover:
+
+* certainty-state preservation;
+* source authority by attribute and purpose;
+* developmental temporality;
+* direct observation versus retrospective report;
+* screening versus diagnostic assessment;
+* trait versus impairment/function distinction;
+* longitudinal corroboration;
+* contradiction preservation;
+* differential explanations;
+* overlap among TDAH, TEA, AACC, TERIA/ARFID, dysgraphia, Mental Health, and other relevant contexts;
+* Health authority for clinical diagnosis/treatment/medication;
+* purpose-minimized cross-domain imports;
+* prohibition on global attribution of difficulties to neurodivergence;
+* sensitive-label persistence controls.
+
+Operations
+
+Representative operations may include:
+
+```text
+neurodivergence.build_developmental_timeline
+neurodivergence.review_evidence
+neurodivergence.compare_assessment_sources
+neurodivergence.map_certainty_states
+neurodivergence.review_functional_impact
+neurodivergence.analyze_differential_overlap
+neurodivergence.prepare_assessment_summary
+neurodivergence.propose_memory_update
+```
+
+Workflows
+
+Minimum workflows should include:
+
+```text
+Developmental History Review
+Evidence Consolidation Review
+Diagnostic-Status Review
+Neuropsychological Assessment Preparation
+Assessment Result Integration
+Differential and Overlap Review
+Functional Impact Review
+Sensitive Memory Proposal Review
+```
+
+The workflows organize evidence and preparation; they do not perform autonomous diagnosis.
+
+Permissions and approvals
+
+Default sensitivity:
+
+```text
+SENSITIVE
+```
+
+The policy must distinguish read, infer, persist, transfer, export, and communicate permissions.
+
+Sensitive diagnostic hypotheses or developmental interpretations must not be persisted or transferred solely because they are useful during one reasoning session.
+
+No autonomous external communication of assessment material, diagnostic hypotheses, or sensitive developmental history is allowed.
+
+Cross-domain coordination
+
+Typical supporting domains:
+
+```text
+domain:health
+domain:mental-health
+domain:university
+domain:relationships
+domain:general
+```
+
+Examples:
+
+```text
+"Could these social difficulties fit TEA or anxiety?"
+primary = domain:neurodivergence
+supporting = domain:mental-health
+```
+
+```text
+"Concerta seems to increase my anxiety"
+primary = domain:neurodivergence
+supporting = domain:health + domain:mental-health
+```
+
+```text
+"Summarize evidence for an upcoming neuropsychological assessment"
+primary = domain:neurodivergence
+supporting = domain:health / domain:university / domain:mental-health as authorized
+```
+
+Health remains authoritative for medication, treatment, medical contraindications, and documented diagnosis status.
+
+Mental Health remains authoritative for emotional/therapy context when that context is imported as support.
+
+University remains authoritative for academic/institutional context when imported as support.
+
+Relationships remains authoritative for relationship-specific context when imported as support.
+
+Transfers must preserve source-domain authority, provenance, epistemic kind, temporality, uncertainty, sensitivity, purpose limitation, and restrictive permission intersection.
+
+Memory
+
+Neurodivergence uses shared Phase 8/10.18 memory and Knowledge Package contracts.
+
+It must not create a diagnosis registry or independent longitudinal store outside shared knowledge infrastructure.
+
+Existing Health knowledge must not be silently migrated or duplicated into Neurodivergence.
+
+Future reclassification requires explicit supervised transformation with preserved provenance and auditability.
+
+Presentation
+
+Neurodivergence presentation should make uncertainty and status understandable without flattening the evidence.
+
+It should distinguish clearly between:
+
+* confirmed documented information;
+* evaluation in progress;
+* plausible hypothesis;
+* unsupported or contradictory evidence;
+* functional observations;
+* model interpretation.
+
+The system should be able to produce professional structured summaries for assessment preparation while retaining source fidelity.
+
+Traceability
+
+Domain Trace must identify:
+
+* Neurodivergence as primary or supporting domain;
+* profile and rule references;
+* resources and Knowledge Package references;
+* certainty-sensitive operations/workflows;
+* cross-domain projections;
+* permission decisions;
+* memory proposals;
+* cognitive trace references.
+
+It must not store private prompt text, chain of thought, sensitive source bodies, or copied subordinate traces.
+
+Privacy
+
+Initial orientation:
+
+```text
+Neurodivergence -> SENSITIVE
+```
+
+Developmental, clinical, school, assessment, and sensitive personal context must follow the restrictive effective privacy policy.
+
+Provider availability does not grant remote-processing permission.
+
+Knowledge Package
+
+The Neurodivergence Knowledge Package specializes the shared Phase 8 `KnowledgePackage` and may require domain-relevant sections for:
+
+* active assessment/reasoning objective;
+* developmental timeline;
+* evidence by source and period;
+* confirmed information;
+* evaluation-in-progress information;
+* hypotheses;
+* contradictory/insufficient evidence;
+* functional observations;
+* authorized supporting-domain projections;
+* privacy and permissions.
+
+It must not become a second medical record or duplicate stored Health knowledge.
+
+Benchmarks and quality metrics
+
+Representative benchmark areas:
+
+* certainty-state preservation;
+* developmental chronology;
+* source/observer separation;
+* screening versus diagnosis separation;
+* longitudinal corroboration;
+* differential overlap reasoning;
+* functional relevance;
+* competing explanations;
+* cross-domain minimization;
+* privacy compliance.
+
+Blocking quality failures include:
+
+* hypothesis promoted to diagnosis;
+* self-report or screening promoted to diagnosis;
+* model inference presented as clinical fact;
+* all difficulties attributed to neurodivergence without evidence;
+* medication/treatment modification;
+* Health authority violation;
+* unauthorized sensitive transfer or persistence;
+* provenance loss.
+
+AT-DP-053 acceptance contract
+
+`AT-DP-053` is a future connected acceptance gate and must remain unpassed until the pack is implemented and independently verified.
+
+At minimum it must test:
+
+* canonical registration of `domain:neurodivergence`;
+* `NeurodivergenceProfile` resolution;
+* certainty hierarchy preservation;
+* screening/self-report/model-inference non-promotion;
+* developmental chronology;
+* differential and overlap reasoning;
+* Health authority boundary;
+* purpose-minimized Mental Health/University/Relationships projections;
+* sensitive persistence and transfer controls;
+* privacy `SENSITIVE`;
+* no parallel cognitive/runtime/memory engine;
+* regression protection for existing domains;
+* green global suite.
+
+Implementation boundary
+
+Phase 10.53 implements only the Domain Pack specialization required by existing shared infrastructure.
+
+It must not reopen Phases 0–9 or replace Health, Mental Health, University, Relationships, Cognitive Layer, Agent Runtime, or Phase 11 platform responsibilities.
+
+Completion criteria
+
+Phase 10.53 is complete only when:
+
+* `domain:neurodivergence` is registered;
+* `NeurodivergenceProfile` is available;
+* resources, rules, operations, workflows, permissions, presentation, trace, memory integration, Knowledge Package schema, privacy, benchmarks, and quality metrics are connected;
+* certainty states cannot be silently promoted;
+* cross-domain source authority is preserved;
+* sensitive persistence and transfer controls are enforced;
+* `AT-DP-053` passes;
+* domain/adversarial tests pass;
+* global regression suite passes;
+* independent closure audit passes.
+
+Until those conditions are met:
+
+```text
+DP-053 = REQUIRES_PHASE_INSPECTION
+AT-DP-053 = PLANNED
+```
