@@ -65,6 +65,7 @@ from cmm.domains.project.resources import (
 from cmm.domains.project.rules import (
     ALLOWED_LIFE_PLAN_PROJECTION_FIELDS,
     PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS,
+    authorize_project_life_plan_contribution,
     build_project_life_plan_projection,
     evaluate_dependency_consistency,
     evaluate_milestone_consistency,
@@ -357,7 +358,9 @@ def test_attack_raw_cross_domain_rejected() -> None:
 
 
 def test_attack_forged_cross_domain_permission_rejected() -> None:
-    """Unapproved outbound cross-domain requests fail closed."""
+    """Unapproved outbound cross-domain requests fail closed and require real runtime authorization."""
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+
     policy = build_project_permission_policy()
     reg = DomainPermissionRegistry()
     reg.register(policy)
@@ -374,6 +377,107 @@ def test_attack_forged_cross_domain_permission_rejected() -> None:
     )
     res = resolver.resolve(cross_req)
     assert res.effective_permissions.decision is PermissionOutcome.DENY
+
+    # B1 Subcase 1: Missing evidence rejected
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            authorization_evidence=None,
+        )
+
+    # B1 Subcase 2: Caller-created mapping rejected
+    forged_map = {
+        "is_authorized": True,
+        "source_domain": "domain:project",
+        "target_domain": "domain:life-plan",
+        "decision_id": "forged_dec_123",
+    }
+    with pytest.raises((PermissionError, ValueError, TypeError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            authorization_evidence=forged_map,
+        )
+
+    # B1 Subcase 3: Caller-created string/primitive rejected
+    with pytest.raises((PermissionError, ValueError, TypeError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            authorization_evidence="decision:fake:allow",
+        )
+
+    # B1 Subcase 4: Mismatched source domain rejected
+    mismatched_req = CrossDomainPermissionRequest(
+        request_id="req:forged:mismatch_src",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test reason",
+        actor_id="actor:untrusted",
+        session_id="session:untrusted",
+    )
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=mismatched_req,
+            permission_resolver=resolver,
+        )
+
+    # B1 Subcase 5: Mismatched target domain rejected
+    mismatched_target_req = CrossDomainPermissionRequest(
+        request_id="req:forged:mismatch_tgt",
+        source_domain="domain:project",
+        target_domain="domain:university",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test reason",
+        actor_id="actor:untrusted",
+        session_id="session:untrusted",
+    )
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=mismatched_target_req,
+            permission_resolver=resolver,
+        )
+
+    # B1 Subcase 6: Policy DENY rejected
+    typed_req = CrossDomainPermissionRequest(
+        request_id="req:typed:cross_deny",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="test deny reason",
+        actor_id="actor:user",
+        session_id="session:user",
+        resource_ids=("project.resource.status_report:stat-001",),
+        resource_kinds=("project.resource.status_report",),
+    )
+    with pytest.raises(PermissionError):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=typed_req,
+            permission_resolver=resolver,
+        )
+
+    # B1 Subcase 7: Expired request rejected
+    expired_req = CrossDomainPermissionRequest(
+        request_id="req:typed:cross_expired",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="test expired reason",
+        actor_id="actor:user",
+        session_id="session:user",
+        resource_ids=("project.resource.status_report:stat-001",),
+        resource_kinds=("project.resource.status_report",),
+        expires_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
+    with pytest.raises(PermissionError):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=expired_req,
+            permission_resolver=resolver,
+            now=datetime(2026, 8, 26, tzinfo=timezone.utc),
+        )
 
 
 # ── Attack Class 15: PURPOSE_MINIMIZATION_ENFORCED ────────────────────────────

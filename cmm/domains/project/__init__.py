@@ -87,6 +87,7 @@ from cmm.domains.project.resources import (
 from cmm.domains.project.rules import (
     ALLOWED_LIFE_PLAN_PROJECTION_FIELDS,
     PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS,
+    authorize_project_life_plan_contribution,
     build_project_life_plan_projection,
     build_project_rules,
     evaluate_dependency_consistency,
@@ -147,6 +148,7 @@ __all__ = [
     "ProjectDomainBootstrap",
     "ProjectDomainIntegrationResult",
     "assemble_project_trace",
+    "authorize_project_life_plan_contribution",
     "build_prepare_commit_readiness_result",
     "build_project_domain_definition",
     "build_project_life_plan_projection",

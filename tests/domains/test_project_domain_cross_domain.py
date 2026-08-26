@@ -8,6 +8,7 @@ from cmm.domains.project.catalog import PROJECT_DOMAIN_ID
 from cmm.domains.project.rules import (
     ALLOWED_LIFE_PLAN_PROJECTION_FIELDS,
     PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS,
+    authorize_project_life_plan_contribution,
     build_project_life_plan_projection,
 )
 
@@ -51,3 +52,191 @@ def test_formation_overlay_not_absorbed_in_project_domain() -> None:
     # Formation is a General domain overlay, not a Project domain entity
     assert "project.entity.formation" not in CANONICAL_PROJECT_ENTITY_IDS
     assert "project.formation" not in CANONICAL_PROJECT_ENTITY_IDS
+
+
+def test_project_life_plan_contribution_requires_runtime_authorization() -> None:
+    raw = {
+        "project_status_impact": "active",
+        "timeline_impact": "Q4",
+    }
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            raw,
+            authorization_evidence=None,
+        )
+
+
+def test_project_life_plan_contribution_rejects_caller_forged_evidence() -> None:
+    forged = {
+        "is_authorized": True,
+        "source_domain": "domain:project",
+        "target_domain": "domain:life-plan",
+    }
+    with pytest.raises((PermissionError, ValueError, TypeError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            authorization_evidence=forged,
+        )
+
+
+def test_project_life_plan_contribution_rejects_mismatched_target_or_source() -> None:
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+
+    mismatched_source = CrossDomainPermissionRequest(
+        request_id="req:test:mismatch",
+        source_domain="domain:health",
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test reason",
+        actor_id="actor-user",
+        session_id="sess-user",
+    )
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=mismatched_source,
+        )
+
+    mismatched_target = CrossDomainPermissionRequest(
+        request_id="req:test:mismatch2",
+        source_domain="domain:project",
+        target_domain="domain:finance",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test reason",
+        actor_id="actor-user",
+        session_id="sess-user",
+    )
+    with pytest.raises((PermissionError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=mismatched_target,
+        )
+
+
+def test_project_life_plan_contribution_with_runtime_authorized_gate() -> None:
+    import dataclasses
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.general.permissions import build_general_permission_policy
+    from cmm.domains.life_plan.catalog import LIFE_PLAN_DOMAIN_ID
+    from cmm.domains.life_plan.permissions import build_life_plan_permission_policy
+    from cmm.domains.life_plan.rules import evaluate_cross_domain_impact
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.project.permissions import build_project_permission_policy
+
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_life_plan_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+
+    # Configure project policy allowing cross-domain read to life-plan
+    project_policy = dataclasses.replace(
+        build_project_permission_policy(),
+        allow_cross_domain_access=True,
+        allowed_target_domains=("domain:life-plan",),
+        allowed_capabilities=(
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ),
+        allowed_resource_kinds=("project.resource.status_report",),
+        allowed_sensitivity_levels=("internal",),
+    )
+    perm_registry.register(project_policy)
+
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: now)
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="auth.scope.project_impact",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="project milestone impact on life plan schedule",
+        actor_id="actor-user",
+        session_id="sess-user",
+        sensitivity_level="internal",
+        requires_approval=False,
+    )
+
+    raw_payload = {
+        "project_status_impact": "milestone_delivered",
+        "timeline_impact": "on_schedule",
+        "source_reference": "project:proj-101",
+    }
+
+    authorized_proj = authorize_project_life_plan_contribution(
+        raw_payload,
+        permission_request=cross_request,
+        permission_gate=gate,
+        now=now,
+    )
+    assert authorized_proj["source_domain"] == PROJECT_DOMAIN_ID
+    assert authorized_proj["project_status_impact"] == "milestone_delivered"
+    assert authorized_proj["authorization_reference"] is not None
+
+    # Now verify Life Plan's evaluate_cross_domain_impact consumes this authorized projection
+    lp_result = evaluate_cross_domain_impact(
+        authorized_proj,
+        permission_request=cross_request,
+        permission_gate=gate,
+        now=now,
+    )
+    assert lp_result["applied"] is True
+    assert lp_result["authorization_verified"] is True
+    assert lp_result["contribution"]["project_status_impact"] == "milestone_delivered"
+
+
+def test_project_life_plan_contribution_denied_when_policy_denies() -> None:
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.general.permissions import build_general_permission_policy
+    from cmm.domains.life_plan.catalog import LIFE_PLAN_DOMAIN_ID
+    from cmm.domains.life_plan.permissions import build_life_plan_permission_policy
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.project.permissions import build_project_permission_policy
+
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_life_plan_permission_policy())
+    perm_registry.register(build_general_permission_policy())
+    # Default policy has allow_cross_domain_access=False
+    perm_registry.register(build_project_permission_policy())
+
+    approval_service = ApprovalService(InMemoryApprovalRepository())
+    resolver = DomainPermissionResolver(perm_registry)
+    gate = DomainPermissionGate(resolver, approval_service, clock=lambda: now)
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="auth.scope.project_impact_denied",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="project milestone impact without permission",
+        actor_id="actor-user",
+        session_id="sess-user",
+        sensitivity_level="internal",
+        resource_ids=("project.resource.status_report:stat-001",),
+        resource_kinds=("project.resource.status_report",),
+    )
+
+    with pytest.raises(PermissionError, match="Cross-domain access denied"):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "milestone_delivered"},
+            permission_request=cross_request,
+            permission_gate=gate,
+            now=now,
+        )

@@ -1171,6 +1171,7 @@ ALLOWED_LIFE_PLAN_PROJECTION_FIELDS: frozenset[str] = frozenset(
         "provenance",
         "effective_from",
         "effective_until",
+        "authorization_reference",
     }
 )
 
@@ -1205,6 +1206,194 @@ def build_project_life_plan_projection(
             filtered[k] = v
 
     return filtered
+
+
+def authorize_project_life_plan_contribution(
+    raw_payload: Mapping[str, Any] | None,
+    *,
+    permission_request: Any = None,
+    permission_decision: Any = None,
+    permission_gate: Any = None,
+    permission_resolver: Any = None,
+    approval_request_id: str | None = None,
+    authorization_evidence: Any = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Authorize and purpose-minimize Project contribution to Life Plan.
+
+    Requires runtime-owned fresh permission evaluation or resolution.
+    Caller-supplied raw mappings, duck-typed objects, booleans, or unverified
+    sentinels are rejected fail-closed.
+    """
+    from datetime import timezone
+
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionCapability,
+        PermissionOutcome,
+    )
+    from cmm.domains.permission_contracts import (
+        CrossDomainPermissionDecision,
+        CrossDomainPermissionRequest,
+    )
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+
+    if authorization_evidence is not None:
+        if isinstance(authorization_evidence, CrossDomainPermissionRequest):
+            permission_request = authorization_evidence
+        elif isinstance(authorization_evidence, CrossDomainPermissionDecision):
+            permission_decision = authorization_evidence
+        elif (
+            isinstance(authorization_evidence, tuple)
+            and len(authorization_evidence) == 2
+        ):
+            first, second = authorization_evidence
+            if isinstance(first, DomainPermissionGate) and isinstance(
+                second, CrossDomainPermissionRequest
+            ):
+                permission_gate, permission_request = first, second
+            elif isinstance(first, DomainPermissionResolver) and isinstance(
+                second, CrossDomainPermissionRequest
+            ):
+                permission_resolver, permission_request = first, second
+            else:
+                raise PermissionError("Invalid authorization evidence tuple")
+        else:
+            raise PermissionError(
+                f"Caller-created or raw mapping evidence {type(authorization_evidence).__name__} is not authorization authority"
+            )
+
+    if (
+        permission_request is None
+        and permission_decision is None
+        and permission_gate is None
+        and permission_resolver is None
+    ):
+        raise PermissionError("Missing required runtime authorization evidence")
+
+    curr_now = now or datetime.now(timezone.utc)
+    if curr_now.tzinfo is None:
+        curr_now = curr_now.replace(tzinfo=timezone.utc)
+
+    if permission_request is not None:
+        if not isinstance(permission_request, CrossDomainPermissionRequest):
+            raise TypeError(
+                "permission_request must be an instance of CrossDomainPermissionRequest"
+            )
+        if permission_request.source_domain != PROJECT_DOMAIN_ID:
+            raise PermissionError(
+                f"Source domain mismatch: expected {PROJECT_DOMAIN_ID}, got {permission_request.source_domain}"
+            )
+        if permission_request.target_domain != "domain:life-plan":
+            raise PermissionError(
+                f"Target domain mismatch: expected 'domain:life-plan', got {permission_request.target_domain}"
+            )
+        if permission_request.capability not in (
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            PermissionCapability.RESOURCE_READ,
+        ):
+            raise PermissionError(
+                f"Unauthorized capability: {permission_request.capability}"
+            )
+        if (
+            permission_request.expires_at is not None
+            and permission_request.expires_at <= curr_now
+        ):
+            raise PermissionError("Cross-domain permission request is expired")
+
+    auth_verified = False
+    auth_ref: str | None = None
+
+    if permission_gate is not None:
+        if not isinstance(permission_gate, DomainPermissionGate):
+            raise TypeError(
+                "permission_gate must be an instance of DomainPermissionGate"
+            )
+        if permission_request is None:
+            raise ValueError(
+                "permission_request is required when evaluating with permission_gate"
+            )
+        gate_res = permission_gate.evaluate_cross_domain(
+            permission_request,
+            approval_request_id=approval_request_id,
+        )
+        if (
+            isinstance(gate_res, PermissionGateResult)
+            and gate_res.allowed is True
+            and gate_res.outcome
+            in (
+                PermissionGateOutcome.ALLOW,
+                PermissionGateOutcome.APPROVAL_CONSUMED,
+            )
+            and gate_res.domain_id
+            in (
+                permission_request.source_domain,
+                permission_request.target_domain,
+            )
+            and gate_res.actor_id == permission_request.actor_id
+            and gate_res.session_id == permission_request.session_id
+            and isinstance(gate_res.decision_id, str)
+            and gate_res.decision_id.strip()
+        ):
+            auth_verified = True
+            auth_ref = gate_res.decision_id
+        else:
+            raise PermissionError(
+                f"Cross-domain access denied by permission gate (outcome={getattr(gate_res, 'outcome', None)})"
+            )
+
+    elif permission_resolver is not None:
+        if not isinstance(permission_resolver, DomainPermissionResolver):
+            raise TypeError(
+                "permission_resolver must be an instance of DomainPermissionResolver"
+            )
+        if permission_request is None:
+            raise ValueError(
+                "permission_request is required when evaluating with permission_resolver"
+            )
+        res_dec = permission_resolver.resolve_cross_domain(
+            permission_request, now=curr_now
+        )
+        if (
+            isinstance(res_dec, CrossDomainPermissionDecision)
+            and res_dec.decision is PermissionOutcome.ALLOW
+            and res_dec.request_id == permission_request.request_id
+        ):
+            auth_verified = True
+            auth_ref = res_dec.request_id
+        else:
+            raise PermissionError(
+                f"Cross-domain access denied by permission resolver (decision={getattr(res_dec, 'decision', None)})"
+            )
+
+    elif permission_decision is not None:
+        if not isinstance(permission_decision, CrossDomainPermissionDecision):
+            raise TypeError(
+                "permission_decision must be an instance of CrossDomainPermissionDecision"
+            )
+        if permission_decision.decision is not PermissionOutcome.ALLOW:
+            raise PermissionError("Cross-domain permission decision is not ALLOW")
+        if (
+            permission_request is not None
+            and permission_decision.request_id != permission_request.request_id
+        ):
+            raise PermissionError(
+                "Permission decision request_id does not match permission_request"
+            )
+        auth_verified = True
+        auth_ref = permission_decision.request_id
+
+    if not auth_verified or not auth_ref:
+        raise PermissionError("Failed to verify cross-domain runtime authorization")
+
+    # Purpose minimization occurs before contribution
+    projection = build_project_life_plan_projection(raw_payload)
+    projection["authorization_reference"] = auth_ref
+    return projection
 
 
 # ── Build Function ────────────────────────────────────────────────────────────
@@ -1259,6 +1448,7 @@ __all__ = [
     "ProjectTemporalValidityRule",
     "ProjectTestCoverageImpactRule",
     "ProjectValidationRequiredRule",
+    "authorize_project_life_plan_contribution",
     "build_project_life_plan_projection",
     "build_project_rules",
     "evaluate_dependency_consistency",
