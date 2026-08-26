@@ -1,6 +1,6 @@
 # Life Plan Domain Reference (`domain:life-plan`)
 
-> **Phase 10.29 — Remediation Complete; Ready for Independent Audit V2**
+> **Phase 10.29 — V2 Remediation Complete; Ready for Independent Audit V3**
 
 The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year life planning, strategic goal coordination, explicit non-collapsible decision lattice tracking, exploratory scenario comparisons, multi-dimensional resource constraint evaluation (time, money, energy, capacity), alternative route preservation, plan drift detection, and fail-closed cross-domain coordination (Health, University, Oppositions, Parenthood, Project).
 
@@ -11,14 +11,14 @@ The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year li
 - **Canonical Identity:** `domain:life-plan`
 - **Display Name:** `Life Plan`
 - **Version:** `1.0.0`
-- **Manifest ID:** `manifest:life_plan:1.0.0`
+- **Manifest ID:** `manifest:life-plan:1.0.0`
 - **Reasoning Profile:** `LifePlanProfile`
 - **Permission Policy ID:** `domain-permission:life-plan:1.0.0`
 
 ### Inventory Counts
-- **Entities (13):** `life_plan.entity.life_goal`, `life_plan.entity.milestone`, `life_plan.entity.scenario`, `life_plan.entity.dependency`, `life_plan.entity.resource_constraint`, `life_plan.entity.life_domain_state`, `life_plan.entity.decision`, `life_plan.entity.commitment`, `life_plan.entity.alternative_route`, `life_plan.entity.plan_drift`, `life_plan.entity.financial_plan`, `life_plan.entity.timeline`, `life_plan.entity.review_record`.
-- **Resources (12):** `life_plan.resource.life_plan`, `life_plan.resource.goal`, `life_plan.resource.decision`, `life_plan.resource.financial_plan`, `life_plan.resource.timeline`, `life_plan.resource.scenario`, `life_plan.resource.calendar_event`, `life_plan.resource.user_message`, `life_plan.resource.note`, `life_plan.resource.memory_entry`, `life_plan.resource.review_record`, `life_plan.resource.health_constraints`.
-- **Rules (8):** `life_plan.rule.goal_dependency`, `life_plan.rule.resource_constraint`, `life_plan.rule.decision_status`, `life_plan.rule.scenario_consistency`, `life_plan.rule.long_term_temporal`, `life_plan.rule.alternative_route`, `life_plan.rule.cross_domain_impact`, `life_plan.rule.plan_drift`.
+- **Entities (13):** `life_plan.entity.life_goal`, `life_plan.entity.milestone`, `life_plan.entity.scenario`, `life_plan.entity.dependency`, `life_plan.entity.constraint`, `life_plan.entity.risk`, `life_plan.entity.decision`, `life_plan.entity.financial_resource`, `life_plan.entity.career_path`, `life_plan.entity.education_path`, `life_plan.entity.housing_goal`, `life_plan.entity.family_goal`, `life_plan.entity.timeline`.
+- **Resources (12):** `life_plan.resource.life_plan`, `life_plan.resource.financial_plan`, `life_plan.resource.academic_plan`, `life_plan.resource.opposition_plan`, `life_plan.resource.health_constraints`, `life_plan.resource.family_plan`, `life_plan.resource.housing_plan`, `life_plan.resource.goal`, `life_plan.resource.decision`, `life_plan.resource.calendar_event`, `life_plan.resource.memory_entry`, `life_plan.resource.user_message`.
+- **Rules (8):** `life_plan.rule.goal_dependency`, `life_plan.rule.scenario_consistency`, `life_plan.rule.resource_constraint`, `life_plan.rule.decision_status`, `life_plan.rule.long_term_temporal`, `life_plan.rule.alternative_route`, `life_plan.rule.cross_domain_impact`, `life_plan.rule.plan_drift`.
 - **Operations (10):** `life_plan.build_timeline`, `life_plan.compare_scenarios`, `life_plan.review_goals`, `life_plan.detect_dependencies`, `life_plan.identify_risks`, `life_plan.update_plan`, `life_plan.create_milestones`, `life_plan.generate_periodic_review`, `life_plan.evaluate_feasibility`, `life_plan.track_decisions`.
 - **Workflows (7):**
   - `life_plan.life_plan_setup` ("Life Plan Setup")

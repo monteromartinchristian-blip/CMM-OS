@@ -148,3 +148,35 @@ def test_life_plan_domain_identity_contract() -> None:
     assert definition.permissions == LIFE_PLAN_PERMISSION_IDS
     assert definition.metadata.metadata["phase"] == "10.29"
     assert build_life_plan_domain_definition().to_dict() == definition.to_dict()
+
+
+def test_life_plan_reference_doc_parity() -> None:
+    from pathlib import Path
+
+    doc_path = Path("docs/reference/life-plan-domain.md")
+    assert doc_path.exists(), f"Doc file not found at {doc_path}"
+    content = doc_path.read_text(encoding="utf-8")
+
+    # Manifest ID parity
+    assert LIFE_PLAN_MANIFEST_ID in content
+    assert "manifest:life_plan:1.0.0" not in content
+
+    # Entity parity
+    for entity_id in LIFE_PLAN_ENTITY_IDS:
+        assert entity_id in content, f"Entity ID {entity_id} missing from doc"
+
+    # Resource parity
+    for res_id in LIFE_PLAN_RESOURCE_IDS:
+        assert res_id in content, f"Resource ID {res_id} missing from doc"
+
+    # Rule parity
+    for rule_id in LIFE_PLAN_RULE_IDS:
+        assert rule_id in content, f"Rule ID {rule_id} missing from doc"
+
+    # Operation parity
+    for op_id in LIFE_PLAN_OPERATION_IDS:
+        assert op_id in content, f"Operation ID {op_id} missing from doc"
+
+    # Workflow parity
+    for wf_id in LIFE_PLAN_WORKFLOW_IDS:
+        assert wf_id in content, f"Workflow ID {wf_id} missing from doc"
