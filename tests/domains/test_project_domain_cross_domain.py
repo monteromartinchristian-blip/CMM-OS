@@ -224,6 +224,81 @@ def test_project_life_plan_contribution_rejects_runtime_identity_mismatches() ->
         )
 
 
+@pytest.mark.parametrize(
+    "forged_field, forged_value, forged_action",
+    (
+        ("request_id", "req:runtime:other", "domain.cross_access"),
+        ("target_domain", "domain:finance", "domain.cross_access"),
+        ("capability", "operation.execute", "domain.cross_access"),
+        ("resource_ids", ("project.resource.status_report:other",), "domain.cross_access"),
+        ("reason", "unrelated purpose", "domain.cross_access"),
+        ("expires_at", "2026-08-27T12:00:00+00:00", "domain.cross_access"),
+        ("action", None, "resource.read"),
+    ),
+)
+def test_project_life_plan_contribution_rejects_gate_allow_for_mismatched_request_context(
+    forged_field: str,
+    forged_value: object,
+    forged_action: str,
+) -> None:
+    """A gate ALLOW for another request context cannot authorize this contribution."""
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+
+    request = CrossDomainPermissionRequest(
+        request_id="req:runtime:full-context",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.RESOURCE_READ,
+        resource_ids=("project.resource.status_report:stat-001",),
+        resource_kinds=("project.resource.status_report",),
+        reason="project milestone impact on life plan schedule",
+        actor_id="actor-user",
+        session_id="sess-user",
+        sensitivity_level="internal",
+        requires_approval=False,
+        expires_at=datetime(2026, 8, 26, 13, 0, tzinfo=timezone.utc),
+        provenance={"source": "project"},
+        constraints={"scopes": ("request",)},
+        metadata={"purpose": "life-plan-impact"},
+    )
+    forged_context = request.to_dict()
+    if forged_field != "action":
+        forged_context[forged_field] = forged_value
+
+    class _ContextMismatchGate(DomainPermissionGate):
+        def evaluate_cross_domain(
+            self, request: CrossDomainPermissionRequest, **_: object
+        ) -> PermissionGateResult:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.ALLOW,
+                action=forged_action,
+                domain_id=request.source_domain,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                decision_id="runtime:context-mismatch",
+                metadata={"cross_domain_request": forged_context},
+            )
+
+    gate = _ContextMismatchGate(DomainPermissionResolver(DomainPermissionRegistry()))
+    with pytest.raises(PermissionError, match="denied"):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=request,
+            permission_gate=gate,
+            now=datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc),
+        )
+
+
 def test_project_life_plan_contribution_with_runtime_authorized_gate() -> None:
     import dataclasses
     from datetime import datetime, timezone

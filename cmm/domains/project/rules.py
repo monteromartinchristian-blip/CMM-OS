@@ -1281,6 +1281,7 @@ def authorize_project_life_plan_contribution(
                 "permission_gate must be an instance of DomainPermissionGate"
             )
         gate_res = permission_gate.evaluate_cross_domain(permission_request)
+        expected_gate_context = permission_request.to_dict()
         if (
             isinstance(gate_res, PermissionGateResult)
             and gate_res.allowed is True
@@ -1289,11 +1290,15 @@ def authorize_project_life_plan_contribution(
                 PermissionGateOutcome.ALLOW,
                 PermissionGateOutcome.APPROVAL_CONSUMED,
             )
+            and gate_res.action == PermissionCapability.DOMAIN_CROSS_ACCESS.value
             and gate_res.domain_id == permission_request.source_domain
             and gate_res.actor_id == permission_request.actor_id
             and gate_res.session_id == permission_request.session_id
             and isinstance(gate_res.decision_id, str)
             and gate_res.decision_id.strip()
+            and isinstance(gate_res.metadata, Mapping)
+            and gate_res.metadata.get("cross_domain_request")
+            == expected_gate_context
         ):
             auth_ref = gate_res.decision_id
         else:

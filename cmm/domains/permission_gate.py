@@ -754,6 +754,7 @@ class DomainPermissionGate:
         """Compose current cross-domain policy with canonical approval consumption."""
         action = PermissionCapability.DOMAIN_CROSS_ACCESS.value
         metadata = {
+            "cross_domain_request": request.to_dict(),
             "source_domain": request.source_domain,
             "target_domain": request.target_domain,
             "resource_ids": request.resource_ids,
