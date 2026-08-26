@@ -93,7 +93,9 @@ def test_caller_constructed_allow_decision_is_not_authority() -> None:
         )
 
 
-def test_project_life_plan_contribution_requires_exactly_one_runtime_evaluator() -> None:
+def test_project_life_plan_contribution_requires_exactly_one_runtime_evaluator() -> (
+    None
+):
     """Ambiguous gate-plus-resolver calls cannot choose their own trust path."""
     from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
     from cmm.domains.permission_contracts import CrossDomainPermissionRequest
@@ -230,7 +232,11 @@ def test_project_life_plan_contribution_rejects_runtime_identity_mismatches() ->
         ("request_id", "req:runtime:other", "domain.cross_access"),
         ("target_domain", "domain:finance", "domain.cross_access"),
         ("capability", "operation.execute", "domain.cross_access"),
-        ("resource_ids", ("project.resource.status_report:other",), "domain.cross_access"),
+        (
+            "resource_ids",
+            ("project.resource.status_report:other",),
+            "domain.cross_access",
+        ),
         ("reason", "unrelated purpose", "domain.cross_access"),
         ("expires_at", "2026-08-27T12:00:00+00:00", "domain.cross_access"),
         ("action", None, "resource.read"),

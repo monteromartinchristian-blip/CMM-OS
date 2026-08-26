@@ -29,7 +29,6 @@ from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.checkpoint_manager import CheckpointManager
 from cmm.agent_runtime.checkpoint_repository import InMemoryCheckpointRepository
 from cmm.agent_runtime.domain_permission_contracts import (
-    PermissionApprovalRequirement,
     PermissionCapability,
     PermissionOutcome,
 )
@@ -39,12 +38,9 @@ from cmm.agent_runtime.enums import (
     TransactionBoundaryKind,
     TransactionStatus,
 )
-from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
 from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
-from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.agent_runtime.runtime_repository import InMemoryAgentRuntimeRepository
 from cmm.agent_runtime.transaction_manager import TransactionManager
-from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.cognitive.reasoning_rule_contracts import (
     ReasoningRuleContext,
     ReasoningRuleResultStatus,
@@ -53,17 +49,11 @@ from cmm.development.analyzer import ProjectAnalyzer
 from cmm.development.models import DevelopmentPlan
 from cmm.development.providers import DeterministicPlanningProvider
 from cmm.domains.approval_bridge import to_approval_requirement
-from cmm.domains.enums import DomainOperationStatus
 from cmm.domains.identifiers import DomainId
 from cmm.domains.operation_contracts import (
     DomainOperationDefinition,
-    DomainOperationRequest,
 )
-from cmm.domains.operation_execution import (
-    DefaultDomainOperationOrchestrator,
-    DomainOperationExecutionDelegate,
-)
-from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
@@ -719,4 +709,3 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     assert presented["domain_display_name"] == "Project"
     assert presented["ready_for_approved_commit"] is True
     assert presented["committed"] is False
-

@@ -1348,8 +1348,7 @@ def authorize_project_life_plan_contribution(
             and isinstance(gate_res.decision_id, str)
             and gate_res.decision_id.strip()
             and isinstance(gate_res.metadata, Mapping)
-            and gate_res.metadata.get("cross_domain_request")
-            == expected_gate_context
+            and gate_res.metadata.get("cross_domain_request") == expected_gate_context
         ):
             auth_ref = gate_res.decision_id
         else:

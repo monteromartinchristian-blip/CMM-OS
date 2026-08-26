@@ -198,9 +198,9 @@ def test_reference_documentation_catalog_set_equality() -> None:
     inventory_match = re.search(
         r"### Canonical Inventory Counts\s*(.*?)\s*---", text, re.DOTALL
     )
-    assert (
-        inventory_match is not None
-    ), "Canonical Inventory Counts section must exist in reference doc"
+    assert inventory_match is not None, (
+        "Canonical Inventory Counts section must exist in reference doc"
+    )
     section = inventory_match.group(1)
 
     def extract_ids(pattern: str) -> set[str]:
@@ -211,7 +211,9 @@ def test_reference_documentation_catalog_set_equality() -> None:
     doc_entities = extract_ids(r"- \*\*Entities \(\d+\):\*\*(.*?)(?=- \*\*Resources|$)")
     doc_resources = extract_ids(r"- \*\*Resources \(\d+\):\*\*(.*?)(?=- \*\*Rules|$)")
     doc_rules = extract_ids(r"- \*\*Rules \(\d+\):\*\*(.*?)(?=- \*\*Operations|$)")
-    doc_operations = extract_ids(r"- \*\*Operations \(\d+\):\*\*(.*?)(?=- \*\*Workflows|$)")
+    doc_operations = extract_ids(
+        r"- \*\*Operations \(\d+\):\*\*(.*?)(?=- \*\*Workflows|$)"
+    )
     doc_workflows = extract_ids(r"- \*\*Workflows \(\d+\):\*\*(.*?)(?=\n\n|$)")
 
     assert len(doc_entities) == 27
@@ -225,4 +227,3 @@ def test_reference_documentation_catalog_set_equality() -> None:
     assert doc_rules == set(CANONICAL_PROJECT_RULE_IDS)
     assert doc_operations == set(CANONICAL_PROJECT_OPERATION_IDS)
     assert doc_workflows == set(CANONICAL_PROJECT_WORKFLOW_IDS)
-

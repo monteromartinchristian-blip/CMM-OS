@@ -180,9 +180,7 @@ def test_attack_software_capability_not_implicit() -> None:
         )
         is False
     )
-    assert (
-        project_software_capability_active(resource_ids=("source_code",)) is False
-    )
+    assert project_software_capability_active(resource_ids=("source_code",)) is False
 
     # M5 Subcase 6: A typed-looking caller object is not ProjectContext.
     class FakeProjectContext:
@@ -191,27 +189,32 @@ def test_attack_software_capability_not_implicit() -> None:
         total_python_files = 1
         truncated = False
 
-    assert project_software_capability_active(
-        repository_context=FakeProjectContext()
-    ) is False
+    assert (
+        project_software_capability_active(repository_context=FakeProjectContext())
+        is False
+    )
 
     class FakeWorkflowDefinition:
         workflow_id = "project.self_development"
         domain_id = PROJECT_DOMAIN_ID
 
-    assert project_software_capability_active(
-        workflow_definition=FakeWorkflowDefinition()
-    ) is False
+    assert (
+        project_software_capability_active(workflow_definition=FakeWorkflowDefinition())
+        is False
+    )
 
     # M5 Subcase 7: Public typed objects and clones are still caller-owned.
-    assert project_software_capability_active(
-        repository_context=ProjectContext(
-            root=Path(__file__).resolve().parents[2],
-            files=(),
-            total_python_files=0,
-            truncated=False,
+    assert (
+        project_software_capability_active(
+            repository_context=ProjectContext(
+                root=Path(__file__).resolve().parents[2],
+                files=(),
+                total_python_files=0,
+                truncated=False,
+            )
         )
-    ) is False
+        is False
+    )
     bootstrap = build_standard_project_domain_bootstrap()
     workflow = next(
         definition
@@ -228,15 +231,18 @@ def test_attack_software_capability_not_implicit() -> None:
         for definition in bootstrap.resource_registry.list_all()
         if definition.id == "project.resource.source_code"
     )
-    assert project_software_capability_active(
-        workflow_definition=replace(workflow)
-    ) is False
-    assert project_software_capability_active(
-        operation_definition=replace(operation)
-    ) is False
-    assert project_software_capability_active(
-        resource_definitions=(replace(resource),)
-    ) is False
+    assert (
+        project_software_capability_active(workflow_definition=replace(workflow))
+        is False
+    )
+    assert (
+        project_software_capability_active(operation_definition=replace(operation))
+        is False
+    )
+    assert (
+        project_software_capability_active(resource_definitions=(replace(resource),))
+        is False
+    )
 
 
 # ── Attack Class 03: FORMATION_NOT_ABSORBED ───────────────────────────────────

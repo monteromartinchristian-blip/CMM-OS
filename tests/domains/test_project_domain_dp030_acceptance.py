@@ -24,7 +24,6 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionOutcome,
 )
 from cmm.agent_runtime.enums import (
-    OperationRecoveryKind,
     TransactionBoundaryKind,
     TransactionStatus,
 )
@@ -45,11 +44,6 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
 )
-from cmm.validation.context import ValidationContext
-from cmm.validation.defaults import build_default_pipeline
-from cmm.validation.results import ValidationResult
-from cmm.validation.testing_defaults import default_validation_steps
-from kernel.runtime import Runtime
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
@@ -62,7 +56,6 @@ from cmm.domains.project.catalog import (
     CANONICAL_PROJECT_RULE_IDS,
     PROJECT_DOMAIN_ID,
 )
-from cmm.domains.project.integration import register_project_domain
 from cmm.domains.project.memory import (
     build_project_memory_binding,
     build_project_memory_proposal,
@@ -123,6 +116,11 @@ from cmm.domains.trace_contracts import (
     DomainTraceReferences,
     DomainTraceStatus,
 )
+from cmm.validation.context import ValidationContext
+from cmm.validation.defaults import build_default_pipeline
+from cmm.validation.results import ValidationResult
+from cmm.validation.testing_defaults import default_validation_steps
+from kernel.runtime import Runtime
 
 DP_030_CHECKPOINTS = 56
 DP_030_GENERIC_CHECKPOINTS = 32

@@ -52,15 +52,21 @@ def test_raw_repository_boolean_is_not_authority() -> None:
 
 
 def test_repository_mapping_is_not_grounded_context() -> None:
-    assert project_software_capability_active(
-        repository_context={"repo_path": "/tmp/fake"}
-    ) is False
+    assert (
+        project_software_capability_active(
+            repository_context={"repo_path": "/tmp/fake"}
+        )
+        is False
+    )
 
 
 def test_caller_capability_string_is_not_authority() -> None:
-    assert project_software_capability_active(
-        capabilities=("project_software_development",)
-    ) is False
+    assert (
+        project_software_capability_active(
+            capabilities=("project_software_development",)
+        )
+        is False
+    )
 
 
 def test_bare_software_resource_kind_is_not_authority() -> None:
@@ -135,7 +141,9 @@ def test_project_software_capability_activation_matrix() -> None:
     )
     assert not project_software_capability_active(capabilities=("project_management",))
     assert not project_software_capability_active(repository_backed=True)
-    assert not project_software_capability_active(workflow_id="project.self_development")
+    assert not project_software_capability_active(
+        workflow_id="project.self_development"
+    )
     assert not project_software_capability_active(
         workflow_id="project.feature_implementation"
     )
