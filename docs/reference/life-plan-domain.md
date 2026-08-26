@@ -1,6 +1,6 @@
 # Life Plan Domain Reference (`domain:life-plan`)
 
-> **Phase 10.29 — V2 Remediation Complete; Ready for Independent Audit V3**
+> **Phase 10.29 — V3 Remediation Complete; Ready for Independent Audit V4**
 
 The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year life planning, strategic goal coordination, explicit non-collapsible decision lattice tracking, exploratory scenario comparisons, multi-dimensional resource constraint evaluation (time, money, energy, capacity), alternative route preservation, plan drift detection, and fail-closed cross-domain coordination (Health, University, Oppositions, Parenthood, Project).
 
@@ -72,11 +72,11 @@ cmm/domains/life_plan/
   ```bash
   .venv/bin/python -m pytest -q tests/domains/test_life_plan_domain_dp029_acceptance.py
   ```
-- **Permanent Closure Adversarial Gate (30+ Attack Classes):**
+- **Permanent Closure Adversarial Gate (35+ Attack Classes):**
   ```bash
   .venv/bin/python -m pytest -q tests/domains/test_life_plan_domain_closure_adversarial.py
   ```
-- **Complete Life Plan Domain Suite (129 Tests):**
+- **Complete Life Plan Domain Suite (156+ Tests):**
   ```bash
   .venv/bin/python -m pytest -q tests/domains/test_life_plan*.py
   ```
