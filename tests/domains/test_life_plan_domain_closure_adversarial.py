@@ -963,19 +963,21 @@ def _setup_valid_memory_fixture() -> tuple[Any, Any, Any, Any, Any, Any, Any]:
 
     perm_req = DomainPermissionRequest(
         request_id="perm-req-mem-v2m1",
-        action=PermissionCapability.MEMORY_WRITE,
+        action=PermissionCapability.OPERATION_EXECUTE,
         domain_id=LIFE_PLAN_DOMAIN_ID,
         actor_id="actor-lp",
         session_id="sess-lp",
+        operation_id="life_plan.update_plan",
         resource_id="life_plan.resource.memory_entry",
-        purpose="persist-confirmed-life-plan-memory",
+        purpose="propose-confirmed-life-plan-memory",
         context={"proposal_id": proposal_id},
     )
-    resolver.resolve(perm_req, now=NOW)
+    perm_res = resolver.resolve(perm_req, now=NOW)
+    assert perm_res.effective_permissions.decision is PermissionOutcome.ALLOW
     mem_perm_decision_id = "memory-permission:perm-req-mem-v2m1"
     perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
         decision_id=mem_perm_decision_id,
-        allowed=True,
+        allowed=(perm_res.effective_permissions.decision is PermissionOutcome.ALLOW),
         capabilities=(DomainMemoryCapability.PROPOSE,),
         source_domain_id=LIFE_PLAN_DOMAIN_ID,
         target_domain_id=LIFE_PLAN_DOMAIN_ID,
@@ -1192,6 +1194,79 @@ def test_closure_gate_v2_m1_missing_memory_permission_decision_rejected() -> Non
     bad_inv = dataclasses.replace(full_inv, permission_decisions=())
     val = validate_life_plan_memory_binding(binding=binding, inventory=bad_inv)
     assert val.is_valid is False
+
+
+def test_closure_gate_v3_m1_denied_memory_permission_cannot_allow_propose() -> None:
+    """V3-M1: Proving that denied MEMORY_WRITE cannot legitimately generate an allowed PROPOSE snapshot."""
+    _, resolver, _, _ = _setup_runtime()
+    denied_perm_req = DomainPermissionRequest(
+        request_id="perm-req-denied-01",
+        action=PermissionCapability.MEMORY_WRITE,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        actor_id="actor-lp",
+        session_id="sess-lp",
+        resource_id="life_plan.resource.memory_entry",
+        purpose="direct-memory-write-attempt",
+    )
+    denied_res = resolver.resolve(denied_perm_req, now=NOW)
+    assert denied_res.effective_permissions.decision is PermissionOutcome.DENY
+    assert "capability_not_allowed" in denied_res.effective_permissions.reasons or (
+        any(
+            "capability_not_allowed" in e.get("reasons", [])
+            for e in denied_res.trace_entries
+        )
+    )
+
+    proposal, view, trace_id, _, full_inv, _, app_req_id = _setup_valid_memory_fixture()
+    denied_snapshot = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=f"memory-permission:{denied_perm_req.request_id}",
+        allowed=(denied_res.effective_permissions.decision is PermissionOutcome.ALLOW),
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=LIFE_PLAN_DOMAIN_ID,
+        target_domain_id=LIFE_PLAN_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    assert denied_snapshot.allowed is False
+
+    denied_inv = dataclasses.replace(full_inv, permission_decisions=(denied_snapshot,))
+    denied_binding = build_life_plan_memory_binding(
+        proposal=proposal,
+        view=view,
+        trace_id=trace_id,
+        permission_decision_ids=(denied_snapshot.decision_id,),
+        approval_request_ids=(app_req_id,),
+        approval_decision_ids=(full_inv.approval_decisions[0].decision_id,),
+    )
+    val = validate_life_plan_memory_binding(
+        binding=denied_binding, inventory=denied_inv
+    )
+    assert val.is_valid is False
+
+
+def test_closure_gate_v3_m1_memory_permission_outcome_bound() -> None:
+    """V3-M1: Memory permission snapshot allowed state must strictly derive from actual resolver outcome."""
+    _, resolver, _, _ = _setup_runtime()
+    allowed_perm_req = DomainPermissionRequest(
+        request_id="perm-req-allowed-01",
+        action=PermissionCapability.OPERATION_EXECUTE,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        actor_id="actor-lp",
+        session_id="sess-lp",
+        operation_id="life_plan.update_plan",
+        resource_id="life_plan.resource.memory_entry",
+        purpose="propose-confirmed-life-plan-memory",
+    )
+    allowed_res = resolver.resolve(allowed_perm_req, now=NOW)
+    assert allowed_res.effective_permissions.decision is PermissionOutcome.ALLOW
+    allowed_snapshot = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=f"memory-permission:{allowed_perm_req.request_id}",
+        allowed=(allowed_res.effective_permissions.decision is PermissionOutcome.ALLOW),
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=LIFE_PLAN_DOMAIN_ID,
+        target_domain_id=LIFE_PLAN_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    assert allowed_snapshot.allowed is True
 
 
 def test_closure_gate_v2_b1_replay_rejected_fresh_evaluation_required() -> None:

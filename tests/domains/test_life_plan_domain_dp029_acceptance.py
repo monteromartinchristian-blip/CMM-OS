@@ -17,6 +17,7 @@ from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionApprovalRequirement,
     PermissionCapability,
+    PermissionOutcome,
 )
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.composer import DefaultDomainComposer
@@ -650,20 +651,23 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     mem_perm_req_id = id_factory()
     mem_perm_request = DomainPermissionRequest(
         request_id=mem_perm_req_id,
-        action=PermissionCapability.MEMORY_WRITE,
+        action=PermissionCapability.OPERATION_EXECUTE,
         domain_id=LIFE_PLAN_DOMAIN_ID,
         actor_id="actor-lp-user",
         session_id="sess-lp-user",
+        operation_id="life_plan.update_plan",
         resource_id="life_plan.resource.memory_entry",
-        purpose="persist-confirmed-life-plan-memory",
+        purpose="propose-confirmed-life-plan-memory",
         context={"proposal_id": mem_proposal.proposal_id},
     )
     mem_perm_res = permission_resolver.resolve(mem_perm_request, now=NOW)
-    assert mem_perm_res.effective_permissions.decision is not None
+    assert mem_perm_res.effective_permissions.decision is PermissionOutcome.ALLOW
     mem_perm_decision_id = f"memory-permission:{mem_perm_req_id}"
     mem_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
         decision_id=mem_perm_decision_id,
-        allowed=True,
+        allowed=(
+            mem_perm_res.effective_permissions.decision is PermissionOutcome.ALLOW
+        ),
         capabilities=(DomainMemoryCapability.PROPOSE,),
         source_domain_id=LIFE_PLAN_DOMAIN_ID,
         target_domain_id=LIFE_PLAN_DOMAIN_ID,
@@ -869,6 +873,46 @@ def test_at_dp029_connected_acceptance_scenario() -> None:
     assert (
         validate_life_plan_memory_binding(
             binding=mem_binding, inventory=no_propose_perm_inventory
+        ).is_valid
+        is False
+    )
+
+    # 9. Denied shared memory permission (MEMORY_WRITE) cannot produce valid binding
+    denied_perm_req = DomainPermissionRequest(
+        request_id=id_factory(),
+        action=PermissionCapability.MEMORY_WRITE,
+        domain_id=LIFE_PLAN_DOMAIN_ID,
+        actor_id="actor-lp-user",
+        session_id="sess-lp-user",
+        resource_id="life_plan.resource.memory_entry",
+        purpose="direct-write-denied",
+    )
+    denied_perm_res = permission_resolver.resolve(denied_perm_req, now=NOW)
+    assert denied_perm_res.effective_permissions.decision is PermissionOutcome.DENY
+    denied_perm_snapshot = DomainMemoryPermissionDecisionSnapshot(
+        decision_id=f"memory-permission:{denied_perm_req.request_id}",
+        allowed=(
+            denied_perm_res.effective_permissions.decision is PermissionOutcome.ALLOW
+        ),
+        capabilities=(DomainMemoryCapability.PROPOSE,),
+        source_domain_id=LIFE_PLAN_DOMAIN_ID,
+        target_domain_id=LIFE_PLAN_DOMAIN_ID,
+        sensitivity_levels=(DomainMemorySensitivityLevel.NORMAL,),
+    )
+    denied_perm_inventory = dataclasses.replace(
+        mem_full_inventory, permission_decisions=(denied_perm_snapshot,)
+    )
+    denied_perm_binding = build_life_plan_memory_binding(
+        proposal=mem_proposal,
+        view=mem_view,
+        trace_id=mem_trace_id,
+        permission_decision_ids=(denied_perm_snapshot.decision_id,),
+        approval_request_ids=(mem_app_req.id,),
+        approval_decision_ids=(mem_approval_dec.id,),
+    )
+    assert (
+        validate_life_plan_memory_binding(
+            binding=denied_perm_binding, inventory=denied_perm_inventory
         ).is_valid
         is False
     )
