@@ -73,6 +73,7 @@ from cmm.domains.project.resources import (
 from cmm.domains.project.rules import (
     ALLOWED_LIFE_PLAN_PROJECTION_FIELDS,
     PROHIBITED_LIFE_PLAN_PROJECTION_FIELDS,
+    authorize_project_life_plan_contribution,
     build_project_life_plan_projection,
     build_project_rules,
     evaluate_milestone_consistency,
@@ -80,7 +81,9 @@ from cmm.domains.project.rules import (
 )
 from cmm.domains.project.trace import (
     assemble_project_trace,
+    build_project_trace_contribution,
     build_project_trace_reference,
+    validate_project_trace,
 )
 from cmm.domains.project.workflows import (
     GENERIC_PROJECT_WORKFLOW_IDS,
@@ -89,8 +92,15 @@ from cmm.domains.project.workflows import (
 )
 from cmm.domains.resolution_builder import DomainResolutionContextBuilder
 from cmm.domains.resolution_contracts import DomainResolutionSignal
+from cmm.domains.trace_assembler import calculate_domain_trace_identity
 from cmm.domains.trace_contracts import (
+    DomainResultTraceReference,
+    DomainTraceAssemblyRequest,
+    DomainTraceDomainSelection,
+    DomainTraceReference,
+    DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
     DomainTraceStatus,
 )
 
@@ -112,6 +122,11 @@ def test_at_dp_030_connected_acceptance() -> None:
     # 01 baseline bootstrap constructed
     bootstrap = build_standard_project_domain_bootstrap()
     assert bootstrap is not None
+    assert bootstrap.domain_registry.get("domain:general") is not None
+    assert bootstrap.domain_registry.get("domain:life-plan") is not None
+    assert bootstrap.domain_registry.get(PROJECT_DOMAIN_ID) is not None
+    assert bootstrap.domain_registry.get("domain:mental-health") is None
+    assert bootstrap.domain_registry.get("domain:neurodivergence") is None
     checkpoint("01 baseline bootstrap constructed")
 
     # 02 domain:project registered
@@ -196,6 +211,15 @@ def test_at_dp_030_connected_acceptance() -> None:
         repository_backed=False,
     )
     assert generic_sw_active is False
+    assert (
+        project_software_capability_active(workflow_id="project.software_forged")
+        is False
+    )
+    assert (
+        project_software_capability_active(resource_ids=("attacker.source_code",))
+        is False
+    )
+    assert project_software_capability_active(repository_backed=True) is False
     checkpoint("11 generic software capability remains inactive")
 
     # 12 scope/objective grounded
@@ -343,21 +367,32 @@ def test_at_dp_030_connected_acceptance() -> None:
     checkpoint("26 DomainResult built")
 
     # 27 real Project→Life Plan permission request resolved
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+
     perm_policy = build_project_permission_policy()
     perm_reg = DomainPermissionRegistry()
     perm_reg.register(perm_policy)
     perm_resolver = DomainPermissionResolver(perm_reg)
-    cross_req = DomainPermissionRequest(
+    cross_req = CrossDomainPermissionRequest(
         request_id="req:cross:1",
-        action=PermissionCapability.DOMAIN_CROSS_ACCESS,
-        domain_id=PROJECT_DOMAIN_ID,
         source_domain="domain:project",
         target_domain="domain:life-plan",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="Sync project milestone to life plan",
         actor_id="actor:project",
         session_id="session:acc",
     )
-    cross_resolution = perm_resolver.resolve(cross_req)
-    assert cross_resolution.effective_permissions.decision is PermissionOutcome.DENY
+    with pytest.raises(PermissionError):
+        authorize_project_life_plan_contribution(
+            {
+                "project_status_impact": "active",
+                "resource_impact": "10h/week",
+                "timeline_impact": "2026-Q3",
+                "source_reference": "ref:project:acceptance:1",
+            },
+            permission_gate=DomainPermissionGate(perm_resolver),
+            permission_request=cross_req,
+        )
     checkpoint("27 real Project→Life Plan permission request resolved")
 
     # 28 purpose-minimized projection produced
@@ -489,6 +524,7 @@ def test_at_dp_030_connected_acceptance() -> None:
     checkpoint("30 memory proposal/view/binding validated")
 
     # 31 independent trace inventory built before trace
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
     rule_ref = build_project_trace_reference(
         ref_id="rule:project.scope_consistency:1.0.0",
         kind=DomainTraceReferenceKind.RULE_RESULT,
@@ -497,22 +533,97 @@ def test_at_dp_030_connected_acceptance() -> None:
         ref_id="op:project.create_project_overview:1.0.0",
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
+    req_id_31 = "req:trace:acc:1"
+    ctx_id_31 = "ctx:acc:1"
+    res_id_31 = "res_res:acc:1"
+    comp_id_31 = "comp:acc:1"
+    dres_id_31 = "res:project:acc:1"
+
+    trace_refs_31 = DomainTraceReferences(
+        resolution_context_id=ctx_id_31,
+        resolution_result_id=res_id_31,
+        composition_id=comp_id_31,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    assembly_req_31 = DomainTraceAssemblyRequest(
+        request_id=req_id_31,
+        goal_id=None,
+        primary_domain=PROJECT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_project_trace_contribution(
+                domain_result_id=dres_id_31,
+                references=(rule_ref, op_ref),
+            ),
+        ),
+        references=trace_refs_31,
+        domain_results=(
+            DomainResultTraceReference(
+                dres_id_31,
+                PROJECT_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        metadata={},
+    )
+    pred_id_31 = calculate_domain_trace_identity(assembly_req_31)
+
+    inv_31 = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                dres_id_31,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            rule_ref,
+            op_ref,
+            DomainTraceReference(
+                ctx_id_31, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id_31, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(
+                comp_id_31, DomainTraceReferenceKind.COMPOSITION, None
+            ),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=dres_id_31,
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=pred_id_31.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+        expected_primary_domain=PROJECT_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id_31, PROJECT_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id_31, PROJECT_DOMAIN_ID, ()
+        ),
+    )
     checkpoint("31 independent trace inventory built before trace")
 
     # 32 DomainTrace assembled and validated
-    now = datetime.now(timezone.utc)
     assembled_trace = assemble_project_trace(
-        request_id="req:trace:acc:1",
-        resolution_context_id="ctx:acc:1",
-        resolution_result_id="res_res:acc:1",
-        composition_id="comp:acc:1",
-        domain_result_id="res:project:acc:1",
+        request_id=req_id_31,
+        resolution_context_id=ctx_id_31,
+        resolution_result_id=res_id_31,
+        composition_id=comp_id_31,
+        domain_result_id=dres_id_31,
         references=(rule_ref, op_ref),
         started_at=now,
         completed_at=now,
     )
+    assert assembled_trace.id == pred_id_31.trace_id
     assert assembled_trace.status == DomainTraceStatus.COMPLETED
     assert assembled_trace.primary_domain == DomainId("project")
+    val_32 = validate_project_trace(trace=assembled_trace, inventory=inv_31)
+    assert val_32.valid is True
     checkpoint("32 DomainTrace assembled and validated")
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -530,8 +641,8 @@ def test_at_dp_030_connected_acceptance() -> None:
         workflow_id=sw_workflow_id,
         operation_id=sw_op_id,
         resource_ids=sw_resources,
-        capabilities=("software_development",),
-        repository_backed=True,
+        capabilities=("project_software_development",),
+        repository_context={"repo_path": "/path/to/repo"},
     )
     assert sw_active is True
     checkpoint("34 software capability activates conditionally")
@@ -717,17 +828,92 @@ def test_at_dp_030_connected_acceptance() -> None:
         ref_id="op:project.prepare_commit:1.0.0",
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
+    req_id_54 = "req:trace:sw:1"
+    ctx_id_54 = "ctx:sw:1"
+    res_id_54 = "res_res:sw:1"
+    comp_id_54 = "comp:sw:1"
+    dres_id_54 = "res:project:sw:1"
+
+    trace_refs_54 = DomainTraceReferences(
+        resolution_context_id=ctx_id_54,
+        resolution_result_id=res_id_54,
+        composition_id=comp_id_54,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+    assembly_req_54 = DomainTraceAssemblyRequest(
+        request_id=req_id_54,
+        goal_id=None,
+        primary_domain=PROJECT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_project_trace_contribution(
+                domain_result_id=dres_id_54,
+                references=(val_ref, commit_prep_ref),
+            ),
+        ),
+        references=trace_refs_54,
+        domain_results=(
+            DomainResultTraceReference(
+                dres_id_54,
+                PROJECT_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        metadata={},
+    )
+    pred_id_54 = calculate_domain_trace_identity(assembly_req_54)
+
+    inv_54 = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                dres_id_54,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            val_ref,
+            commit_prep_ref,
+            DomainTraceReference(
+                ctx_id_54, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id_54, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(
+                comp_id_54, DomainTraceReferenceKind.COMPOSITION, None
+            ),
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id=dres_id_54,
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=pred_id_54.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+        expected_primary_domain=PROJECT_DOMAIN_ID,
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id_54, PROJECT_DOMAIN_ID, ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id_54, PROJECT_DOMAIN_ID, ()
+        ),
+    )
+
     sw_trace = assemble_project_trace(
-        request_id="req:trace:sw:1",
-        resolution_context_id="ctx:sw:1",
-        resolution_result_id="res_res:sw:1",
-        composition_id="comp:sw:1",
-        domain_result_id="res:project:sw:1",
+        request_id=req_id_54,
+        resolution_context_id=ctx_id_54,
+        resolution_result_id=res_id_54,
+        composition_id=comp_id_54,
+        domain_result_id=dres_id_54,
         references=(val_ref, commit_prep_ref),
         started_at=now,
         completed_at=now,
     )
     assert sw_trace.status == DomainTraceStatus.COMPLETED
+    assert validate_project_trace(trace=sw_trace, inventory=inv_54).valid is True
     checkpoint("54 software trace includes permission/execution/validation refs")
 
     # 55 Formation remains outside Project
