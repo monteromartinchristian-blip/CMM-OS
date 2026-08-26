@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
-from cmm.domains.general.bootstrap import (
-    build_standard_general_domain_bootstrap,
+from cmm.domains.life_plan.bootstrap import (
+    build_standard_life_plan_domain_bootstrap,
 )
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -45,29 +45,29 @@ def build_standard_project_domain_bootstrap(
     *,
     operation_implementations: dict[str, Any] | None = None,
 ) -> ProjectDomainBootstrap:
-    """Build the standard registries with the Project Domain integrated."""
-    general = build_standard_general_domain_bootstrap()
+    """Build the standard registries with the Project Domain integrated extending Life Plan."""
+    prior = build_standard_life_plan_domain_bootstrap()
 
     register_project_domain(
-        domain_registry=general.domain_registry,
-        profile_registry=general.profile_registry,
-        resource_registry=general.resource_registry,
-        rule_registry=general.rule_registry,
-        operation_registry=general.operation_registry,
-        workflow_registry=general.workflow_registry,
-        permission_registry=general.permission_registry,
+        domain_registry=prior.domain_registry,
+        profile_registry=prior.profile_registry,
+        resource_registry=prior.resource_registry,
+        rule_registry=prior.rule_registry,
+        operation_registry=prior.operation_registry,
+        workflow_registry=prior.workflow_registry,
+        permission_registry=prior.permission_registry,
         operation_implementations=operation_implementations,
     )
 
     return ProjectDomainBootstrap(
-        domain_registry=general.domain_registry,
-        profile_registry=general.profile_registry,
-        resource_registry=general.resource_registry,
-        rule_registry=general.rule_registry,
-        operation_registry=general.operation_registry,
-        workflow_registry=general.workflow_registry,
-        permission_registry=general.permission_registry,
-        resolver=general.resolver,
+        domain_registry=prior.domain_registry,
+        profile_registry=prior.profile_registry,
+        resource_registry=prior.resource_registry,
+        rule_registry=prior.rule_registry,
+        operation_registry=prior.operation_registry,
+        workflow_registry=prior.workflow_registry,
+        permission_registry=prior.permission_registry,
+        resolver=prior.resolver,
     )
 
 

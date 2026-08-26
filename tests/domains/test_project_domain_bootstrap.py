@@ -17,17 +17,23 @@ from cmm.domains.project.catalog import (
 )
 
 
-def test_build_standard_project_domain_bootstrap_composes_with_general() -> None:
+def test_build_standard_project_domain_bootstrap_extends_life_plan_chain() -> None:
     bootstrap = build_standard_project_domain_bootstrap()
     assert isinstance(bootstrap, ProjectDomainBootstrap)
     assert PROJECT_BOOTSTRAP_NAME == "ProjectDomainBootstrap"
 
-    # Both General and Project are present in domain_registry
+    # General, Life Plan, and Project are present in domain_registry
     assert bootstrap.domain_registry.get("domain:general") is not None
+    assert bootstrap.domain_registry.get("domain:life-plan") is not None
     assert bootstrap.domain_registry.get(PROJECT_DOMAIN_ID) is not None
+
+    # Future domains are absent
+    assert bootstrap.domain_registry.get("domain:mental-health") is None
+    assert bootstrap.domain_registry.get("domain:neurodivergence") is None
 
     # Profiles
     assert bootstrap.profile_registry.get_by_domain(DomainId("general")) is not None
+    assert bootstrap.profile_registry.get_by_domain(DomainId("life-plan")) is not None
     assert bootstrap.profile_registry.get_by_domain(DomainId("project")) is not None
 
     # Resources include Project's 22
@@ -55,7 +61,26 @@ def test_build_standard_project_domain_bootstrap_composes_with_general() -> None
     for wf_id in CANONICAL_PROJECT_WORKFLOW_IDS:
         assert wf_id in project_wfs
 
-    # Permission policy
+    # Permission policies
+    assert (
+        bootstrap.permission_registry.get("domain-permission:general:1.0.0") is not None
+    )
+    assert (
+        bootstrap.permission_registry.get("domain-permission:life-plan:1.0.0")
+        is not None
+    )
     assert (
         bootstrap.permission_registry.get("domain-permission:project:1.0.0") is not None
     )
+
+    # General fallback preserved in resolver
+    from cmm.domains.resolution_builder import DomainResolutionContextBuilder
+
+    ctx = DomainResolutionContextBuilder().build(
+        registry_snapshot=bootstrap.domain_registry.snapshot(),
+        user_input="General conversational input without domain signals",
+        authorized_domains=("domain:general", "domain:life-plan", PROJECT_DOMAIN_ID),
+        signals=(),
+    )
+    res = bootstrap.resolver.resolve(ctx)
+    assert str(res.primary_domain) in ("domain:general", "general")
