@@ -8,6 +8,7 @@ lifecycle, memory proposal/view/binding validation, and trace inventory validati
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -368,11 +369,29 @@ def test_at_dp_030_connected_acceptance() -> None:
 
     # 27 real Project→Life Plan permission request resolved
     from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.life_plan.permissions import build_life_plan_permission_policy
+    from cmm.domains.life_plan.rules import evaluate_cross_domain_impact
 
-    perm_policy = build_project_permission_policy()
     perm_reg = DomainPermissionRegistry()
-    perm_reg.register(perm_policy)
-    perm_resolver = DomainPermissionResolver(perm_reg)
+    perm_reg.register(build_life_plan_permission_policy())
+    perm_reg.register(
+        replace(
+            build_project_permission_policy(),
+            allow_cross_domain_access=True,
+            allowed_target_domains=("domain:life-plan",),
+            allowed_capabilities=(
+                PermissionCapability.DOMAIN_CROSS_ACCESS,
+                PermissionCapability.RESOURCE_READ,
+            ),
+            allowed_resource_kinds=("project.resource.status_report",),
+            allowed_sensitivity_levels=("internal",),
+        )
+    )
+    cross_domain_resolver = DomainPermissionResolver(perm_reg)
+    permission_now = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+    cross_domain_gate = DomainPermissionGate(
+        cross_domain_resolver, clock=lambda: permission_now
+    )
     cross_req = CrossDomainPermissionRequest(
         request_id="req:cross:1",
         source_domain="domain:project",
@@ -381,21 +400,9 @@ def test_at_dp_030_connected_acceptance() -> None:
         reason="Sync project milestone to life plan",
         actor_id="actor:project",
         session_id="session:acc",
+        sensitivity_level="internal",
+        requires_approval=False,
     )
-    with pytest.raises(PermissionError):
-        authorize_project_life_plan_contribution(
-            {
-                "project_status_impact": "active",
-                "resource_impact": "10h/week",
-                "timeline_impact": "2026-Q3",
-                "source_reference": "ref:project:acceptance:1",
-            },
-            permission_gate=DomainPermissionGate(perm_resolver),
-            permission_request=cross_req,
-        )
-    checkpoint("27 real Project→Life Plan permission request resolved")
-
-    # 28 purpose-minimized projection produced
     raw_project_data = {
         "project_status_impact": "active",
         "resource_impact": "10h/week",
@@ -403,12 +410,34 @@ def test_at_dp_030_connected_acceptance() -> None:
         "source_reference": "ref:project:acceptance:1",
         "unrelated_project_internal": "foo_internal",
     }
-    projection = build_project_life_plan_projection(raw_project_data)
+    projection = authorize_project_life_plan_contribution(
+        raw_project_data,
+        permission_gate=cross_domain_gate,
+        permission_request=cross_req,
+        now=permission_now,
+    )
+    assert projection["authorization_reference"]
+    checkpoint("27 real Project→Life Plan permission request resolved")
+
+    # 28 authorized purpose-minimized contribution consumed by Life Plan
     assert projection["project_status_impact"] == "active"
     assert projection["resource_impact"] == "10h/week"
     assert projection["source_domain"] == PROJECT_DOMAIN_ID
     assert "unrelated_project_internal" not in projection
-    checkpoint("28 purpose-minimized projection produced")
+    life_plan_result = evaluate_cross_domain_impact(
+        projection,
+        permission_request=cross_req,
+        permission_gate=cross_domain_gate,
+        now=permission_now,
+    )
+    assert life_plan_result["applied"] is True
+    assert life_plan_result["contribution"]["project_status_impact"] == "active"
+    checkpoint("28 authorized purpose-minimized contribution consumed")
+
+    # The later operation-approval checkpoints use the default Project policy.
+    perm_reg = DomainPermissionRegistry()
+    perm_reg.register(build_project_permission_policy())
+    perm_resolver = DomainPermissionResolver(perm_reg)
 
     # 29 raw Project internals absent from projection
     with pytest.raises(ValueError, match="Prohibited internal field"):

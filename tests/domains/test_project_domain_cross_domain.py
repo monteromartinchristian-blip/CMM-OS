@@ -59,11 +59,8 @@ def test_project_life_plan_contribution_requires_runtime_authorization() -> None
         "project_status_impact": "active",
         "timeline_impact": "Q4",
     }
-    with pytest.raises((PermissionError, ValueError)):
-        authorize_project_life_plan_contribution(
-            raw,
-            authorization_evidence=None,
-        )
+    with pytest.raises((PermissionError, TypeError, ValueError)):
+        authorize_project_life_plan_contribution(raw)
 
 
 def test_project_life_plan_contribution_rejects_caller_forged_evidence() -> None:
@@ -76,6 +73,52 @@ def test_project_life_plan_contribution_rejects_caller_forged_evidence() -> None
         authorize_project_life_plan_contribution(
             {"project_status_impact": "active"},
             authorization_evidence=forged,
+        )
+
+
+def test_caller_constructed_allow_decision_is_not_authority() -> None:
+    """A typed decision only becomes authoritative when the shared runtime emits it."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    forged = CrossDomainPermissionDecision(
+        request_id="caller:forged",
+        decision=PermissionOutcome.ALLOW,
+    )
+
+    with pytest.raises((PermissionError, TypeError, ValueError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_decision=forged,
+        )
+
+
+def test_project_life_plan_contribution_requires_exactly_one_runtime_evaluator() -> None:
+    """Ambiguous gate-plus-resolver calls cannot choose their own trust path."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+
+    resolver = DomainPermissionResolver(DomainPermissionRegistry())
+    gate = DomainPermissionGate(resolver)
+    request = CrossDomainPermissionRequest(
+        request_id="req:ambiguous:evaluator",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test ambiguous evaluator path",
+        actor_id="actor-user",
+        session_id="sess-user",
+    )
+
+    with pytest.raises(ValueError, match="exactly one"):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=request,
+            permission_gate=gate,
+            permission_resolver=resolver,
         )
 
 
@@ -111,6 +154,73 @@ def test_project_life_plan_contribution_rejects_mismatched_target_or_source() ->
         authorize_project_life_plan_contribution(
             {"project_status_impact": "active"},
             permission_request=mismatched_target,
+        )
+
+
+def test_project_life_plan_contribution_rejects_runtime_identity_mismatches() -> None:
+    """A malformed shared-runtime response cannot detach authorization from its request."""
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionCapability,
+        PermissionOutcome,
+    )
+    from cmm.domains.permission_contracts import (
+        CrossDomainPermissionDecision,
+        CrossDomainPermissionRequest,
+    )
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+
+    request = CrossDomainPermissionRequest(
+        request_id="req:runtime:identity",
+        source_domain=PROJECT_DOMAIN_ID,
+        target_domain="domain:life-plan",
+        capability=PermissionCapability.DOMAIN_CROSS_ACCESS,
+        reason="test runtime identity binding",
+        actor_id="actor-user",
+        session_id="sess-user",
+    )
+
+    class _WrongRequestIdResolver(DomainPermissionResolver):
+        def resolve_cross_domain(
+            self, request: CrossDomainPermissionRequest, *, now: object = None
+        ) -> CrossDomainPermissionDecision:
+            return CrossDomainPermissionDecision(
+                request_id="req:runtime:other",
+                decision=PermissionOutcome.ALLOW,
+            )
+
+    resolver = _WrongRequestIdResolver(DomainPermissionRegistry())
+    with pytest.raises(PermissionError, match="denied"):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=request,
+            permission_resolver=resolver,
+        )
+
+    class _WrongActorSessionGate(DomainPermissionGate):
+        def evaluate_cross_domain(
+            self, request: CrossDomainPermissionRequest, **_: object
+        ) -> PermissionGateResult:
+            return PermissionGateResult(
+                outcome=PermissionGateOutcome.ALLOW,
+                action=PermissionCapability.DOMAIN_CROSS_ACCESS.value,
+                domain_id=request.source_domain,
+                actor_id="actor-other",
+                session_id="sess-other",
+                decision_id="runtime:wrong-actor-session",
+            )
+
+    gate = _WrongActorSessionGate(resolver)
+    with pytest.raises(PermissionError, match="denied"):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_request=request,
+            permission_gate=gate,
         )
 
 

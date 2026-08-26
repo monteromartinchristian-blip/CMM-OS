@@ -401,11 +401,8 @@ def test_attack_forged_cross_domain_permission_rejected() -> None:
     assert res.effective_permissions.decision is PermissionOutcome.DENY
 
     # B1 Subcase 1: Missing evidence rejected
-    with pytest.raises((PermissionError, ValueError)):
-        authorize_project_life_plan_contribution(
-            {"project_status_impact": "active"},
-            authorization_evidence=None,
-        )
+    with pytest.raises((PermissionError, TypeError, ValueError)):
+        authorize_project_life_plan_contribution({"project_status_impact": "active"})
 
     # B1 Subcase 2: Caller-created mapping rejected
     forged_map = {
@@ -418,6 +415,26 @@ def test_attack_forged_cross_domain_permission_rejected() -> None:
         authorize_project_life_plan_contribution(
             {"project_status_impact": "active"},
             authorization_evidence=forged_map,
+        )
+
+    # B1 Subcase 2a: A caller-created typed ALLOW decision is not authority.
+    from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+    forged_decision = CrossDomainPermissionDecision(
+        request_id="caller:forged:allow",
+        decision=PermissionOutcome.ALLOW,
+    )
+    with pytest.raises((PermissionError, ValueError, TypeError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            permission_decision=forged_decision,
+        )
+
+    # B1 Subcase 2b: A mapping cannot wrap a typed decision into authority.
+    with pytest.raises((PermissionError, ValueError, TypeError)):
+        authorize_project_life_plan_contribution(
+            {"project_status_impact": "active"},
+            authorization_evidence={"permission_decision": forged_decision},
         )
 
     # B1 Subcase 3: Caller-created string/primitive rejected
