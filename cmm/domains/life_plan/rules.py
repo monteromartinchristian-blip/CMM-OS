@@ -617,10 +617,16 @@ def evaluate_cross_domain_impact(
         PermissionCapability,
         PermissionOutcome,
     )
-    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
-    from cmm.domains.permission_gate import (
-        PermissionGateOutcome,
+    from cmm.domains.permission_contracts import (
+        CrossDomainPermissionDecision,
+        CrossDomainPermissionRequest,
     )
+    from cmm.domains.permission_gate import (
+        DomainPermissionGate,
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+    from cmm.domains.permission_resolution import DomainPermissionResolver
 
     if not isinstance(projection, Mapping):
         return {
@@ -796,8 +802,7 @@ def evaluate_cross_domain_impact(
         source_dom = permission_request.source_domain
 
     if (
-        permission_gate is not None
-        and hasattr(permission_gate, "evaluate_cross_domain")
+        isinstance(permission_gate, DomainPermissionGate)
         and permission_request is not None
     ):
         try:
@@ -806,50 +811,47 @@ def evaluate_cross_domain_impact(
                 approval_request_id=approval_request_id,
             )
             if (
-                gate_res is not None
-                and getattr(gate_res, "allowed", False) is True
-                and getattr(gate_res, "outcome", None)
+                isinstance(gate_res, PermissionGateResult)
+                and gate_res.allowed is True
+                and gate_res.outcome
                 in (
                     PermissionGateOutcome.ALLOW,
                     PermissionGateOutcome.APPROVAL_CONSUMED,
                 )
-                and getattr(gate_res, "domain_id", None)
+                and gate_res.domain_id
                 in (
                     permission_request.source_domain,
                     permission_request.target_domain,
                 )
-                and getattr(gate_res, "actor_id", None) == permission_request.actor_id
-                and getattr(gate_res, "session_id", None)
-                == permission_request.session_id
+                and gate_res.actor_id == permission_request.actor_id
+                and gate_res.session_id == permission_request.session_id
+                and isinstance(gate_res.decision_id, str)
+                and gate_res.decision_id.strip()
             ):
                 auth_verified = True
-                auth_ref = gate_res.decision_id or "permission_gate"
+                auth_ref = gate_res.decision_id
                 auth_source = "DomainPermissionGate"
         except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
             auth_verified = False
 
     elif (
-        permission_resolver is not None
-        and hasattr(permission_resolver, "resolve_cross_domain")
+        isinstance(permission_resolver, DomainPermissionResolver)
         and permission_request is not None
     ):
-        res_dec = permission_resolver.resolve_cross_domain(
-            permission_request, now=curr_now
-        )
-        if (
-            res_dec.decision is PermissionOutcome.ALLOW
-            and getattr(res_dec, "target_domain_id", "domain:life-plan")
-            == "domain:life-plan"
-            and getattr(res_dec, "source_domain_id", permission_request.source_domain)
-            == permission_request.source_domain
-            and getattr(res_dec, "actor_id", permission_request.actor_id)
-            == permission_request.actor_id
-            and getattr(res_dec, "session_id", permission_request.session_id)
-            == permission_request.session_id
-        ):
-            auth_verified = True
-            auth_ref = res_dec.request_id
-            auth_source = "DomainPermissionResolver"
+        try:
+            res_dec = permission_resolver.resolve_cross_domain(
+                permission_request, now=curr_now
+            )
+            if (
+                isinstance(res_dec, CrossDomainPermissionDecision)
+                and res_dec.decision is PermissionOutcome.ALLOW
+                and res_dec.request_id == permission_request.request_id
+            ):
+                auth_verified = True
+                auth_ref = res_dec.request_id
+                auth_source = "DomainPermissionResolver"
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+            auth_verified = False
 
     if not auth_verified or not auth_ref or not req_id:
         return {

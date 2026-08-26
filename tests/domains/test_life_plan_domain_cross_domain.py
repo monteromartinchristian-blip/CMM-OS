@@ -11,6 +11,7 @@ from cmm.agent_runtime.approval_service import ApprovalService
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionApprovalRequirement,
     PermissionCapability,
+    PermissionOutcome,
 )
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.general.permissions import build_general_permission_policy
@@ -381,3 +382,92 @@ def test_permission_context_mismatch_rejected() -> None:
     )
     assert res1["applied"] is False
     assert res1["authorization_verified"] is False
+
+
+def test_v3_b1_fake_gate_rejected() -> None:
+    """V3-B1 RED: A duck-typed FakeGate must not authorize Life Plan mutation."""
+    _, _, _, _, cross_request = _setup_runtime()
+
+    class FakeGateResult:
+        allowed = True
+        outcome = "allow"
+        domain_id = "domain:health"
+        actor_id = cross_request.actor_id
+        session_id = cross_request.session_id
+        decision_id = "forged-gate-decision-123"
+
+    class FakeGate:
+        def evaluate_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return FakeGateResult()
+
+    proj = {
+        "constraint_id": "hc-life-fake-001",
+        "status": "active",
+        "activity_limits": ["no_high_altitude_relocation"],
+        "source_reference": "health.ref.901",
+    }
+    res = evaluate_cross_domain_impact(
+        proj,
+        permission_request=cross_request,
+        permission_gate=FakeGate(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_v3_b1_fake_resolver_rejected() -> None:
+    """V3-B1 RED: A duck-typed FakeResolver must not authorize Life Plan mutation."""
+    _, _, _, _, cross_request = _setup_runtime()
+
+    class FakeDecision:
+        decision = PermissionOutcome.ALLOW
+        request_id = cross_request.request_id
+
+    class FakeResolver:
+        def resolve_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return FakeDecision()
+
+    proj = {
+        "constraint_id": "hc-life-fake-002",
+        "status": "active",
+        "activity_limits": ["no_high_altitude_relocation"],
+        "source_reference": "health.ref.902",
+    }
+    res = evaluate_cross_domain_impact(
+        proj,
+        permission_request=cross_request,
+        permission_resolver=FakeResolver(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_v3_b1_missing_provenance_rejected() -> None:
+    """V3-B1 RED: A canonical-looking result missing required provenance must fail closed."""
+    _, _, _, _, cross_request = _setup_runtime()
+
+    class IncompleteDecision:
+        decision = PermissionOutcome.ALLOW
+        # Missing request_id attribute or empty request_id
+
+    class IncompleteResolver:
+        def resolve_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return IncompleteDecision()
+
+    proj = {
+        "constraint_id": "hc-life-fake-003",
+        "status": "active",
+    }
+    res = evaluate_cross_domain_impact(
+        proj,
+        permission_request=cross_request,
+        permission_resolver=IncompleteResolver(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"

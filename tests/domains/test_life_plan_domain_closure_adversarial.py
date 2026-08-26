@@ -1248,3 +1248,108 @@ def test_closure_gate_v2_b1_different_request_replayed_decision_id_rejected() ->
     )
     assert res["applied"] is False
     assert res["authorization_verified"] is False
+
+
+def test_closure_gate_v3_b1_fake_gate_rejected() -> None:
+    """V3-B1: Duck-typed FakeGate must never authorize Life Plan mutation."""
+
+    class FakeGateResult:
+        allowed = True
+        outcome = "allow"
+        domain_id = "domain:health"
+        actor_id = "actor-adv"
+        session_id = "sess-adv"
+        decision_id = "forged-decision-123"
+
+    class FakeGate:
+        def evaluate_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return FakeGateResult()
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-fake-gate-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check",
+        actor_id="actor-adv",
+        session_id="sess-adv",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    res = evaluate_cross_domain_impact(
+        {"constraint_id": "hc-1", "status": "active"},
+        permission_request=cross_request,
+        permission_gate=FakeGate(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_closure_gate_v3_b1_fake_resolver_rejected() -> None:
+    """V3-B1: Duck-typed FakeResolver must never authorize Life Plan mutation."""
+
+    class FakeDecision:
+        decision = PermissionOutcome.ALLOW
+        request_id = "req-fake-resolver-1"
+
+    class FakeResolver:
+        def resolve_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return FakeDecision()
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-fake-resolver-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check",
+        actor_id="actor-adv",
+        session_id="sess-adv",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    res = evaluate_cross_domain_impact(
+        {"constraint_id": "hc-2", "status": "active"},
+        permission_request=cross_request,
+        permission_resolver=FakeResolver(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
+
+
+def test_closure_gate_v3_b1_missing_provenance_rejected() -> None:
+    """V3-B1: Incomplete or missing provenance must fail closed."""
+
+    class IncompleteDecision:
+        decision = PermissionOutcome.ALLOW
+
+    class IncompleteResolver:
+        def resolve_cross_domain(self, *args: Any, **kwargs: Any) -> Any:
+            return IncompleteDecision()
+
+    cross_request = CrossDomainPermissionRequest(
+        request_id="req-incomplete-1",
+        source_domain="domain:health",
+        target_domain=LIFE_PLAN_DOMAIN_ID,
+        capability=PermissionCapability.RESOURCE_READ,
+        reason="health check",
+        actor_id="actor-adv",
+        session_id="sess-adv",
+        sensitivity_level="restricted",
+        resource_ids=("health.resource.health_profile:hp-001",),
+        resource_kinds=("resource.health_constraints",),
+    )
+    res = evaluate_cross_domain_impact(
+        {"constraint_id": "hc-3", "status": "active"},
+        permission_request=cross_request,
+        permission_resolver=IncompleteResolver(),
+        now=NOW,
+    )
+    assert res["applied"] is False
+    assert res["authorization_verified"] is False
+    assert res["reason"] == "unauthorized_or_expired"
