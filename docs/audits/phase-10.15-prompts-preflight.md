@@ -380,6 +380,119 @@ Se extrae a secrets/profile store. El prompt o pack conserva únicamente referen
 - secrets y PII;
 - Model Gateway y control de egress.
 
+## Enmienda 2026-08-26 — separación de Salud Mental y Neurodivergencia
+
+Esta enmienda actualiza la asignación de requisitos después de revisar por separado los prompts de Salud Mental y Neurodivergencia.
+
+La decisión original del preflight se conserva como evidencia histórica:
+
+```text
+Neurodivergencia y Salud Mental -> domain:health -> 10.20
+```
+
+Esa asignación queda **superseded para el trabajo futuro**, sin reabrir ni modificar la implementación cerrada de 10.20 Health.
+
+### Asignación canónica vigente
+
+| Prompt | Dominio CMM OS | Destino principal | Estado |
+|---|---|---|---|
+| Salud | `domain:health` | 10.20 | Se conserva; Health sigue siendo autoridad médica/clínica |
+| Organización clínica Notion | `domain:health` | 10.20 + workflows | Se conserva; documentación clínica permanece en Health |
+| Salud Mental | `domain:mental-health` | 10.52 | Nuevo Domain Pack independiente |
+| Neurodivergencia | `domain:neurodivergence` | 10.53 | Nuevo Domain Pack independiente |
+
+Los tres dominios son **hermanos**. `domain:health` no es el contenedor arquitectónico de `domain:mental-health` ni de `domain:neurodivergence`.
+
+### Fronteras vigentes
+
+**Health**
+
+- conserva autoridad sobre diagnóstico clínico documentado;
+- medicación y tratamiento;
+- especialistas, pruebas y seguimiento médico;
+- riesgo médico y documentación clínica.
+
+**Mental Health**
+
+- bienestar emocional;
+- conversación personal y acompañamiento;
+- continuidad terapéutica;
+- preparación y procesamiento de sesiones;
+- análisis de transcripciones de terapia;
+- contexto emocional longitudinal;
+- decisiones emocionalmente relevantes.
+
+No debe medicalizar por defecto la conversación emocional ordinaria ni sustituir la autoridad clínica de Health.
+
+**Neurodivergence**
+
+- TDAH;
+- TEA, AACC y TERIA/ARFID cuando estén en evaluación o como hipótesis;
+- disgrafía;
+- historia evolutiva;
+- funcionamiento ejecutivo, sensorial, académico, social y funcional;
+- evaluaciones neuropsicológicas;
+- análisis diferencial y de solapamientos.
+
+Debe preservar explícitamente:
+
+```text
+CONFIRMED
+IN EVALUATION
+HYPOTHESIS
+NOT CONFIRMED / RULED OUT / INSUFFICIENTLY SUPPORTED
+```
+
+No puede promover cribados, autorrelato, rasgos aislados o inferencias del modelo a diagnóstico confirmado.
+
+### Cross-domain y privacidad
+
+Mental Health y Neurodivergence tienen sensibilidad por defecto:
+
+```text
+SENSITIVE
+```
+
+La coordinación utiliza los contratos cross-domain existentes y aplica:
+
+- minimización por finalidad;
+- intersección de permisos;
+- preservación de provenance;
+- preservación del tipo epistémico;
+- preservación de incertidumbre;
+- validez temporal;
+- autoridad del dominio fuente;
+- ausencia de persistencia o transferencia silenciosa.
+
+Ejemplos:
+
+```text
+Neurodivergence primary
++ Health supporting
++ Mental Health supporting
+```
+
+```text
+Mental Health primary
++ Relationships / Neurodivergence / Health supporting
+```
+
+Health sigue siendo autoritativo para diagnóstico, tratamiento y medicación.
+
+### Impacto sobre fases cerradas
+
+Esta enmienda:
+
+- no reabre Fases 0–9;
+- no reabre 10.20 Health;
+- no modifica Cognitive Layer;
+- no crea otro Knowledge Model;
+- no crea otro Agent Runtime;
+- no modifica Domain Permissions 10.15;
+- añade únicamente dos futuros Domain Packs: 10.52 y 10.53.
+
+La infraestructura ya cerrada se reutiliza sin duplicación.
+
 ## 9. Decisión de avance
 
 **No reabrir commits 10.11–10.14.**

@@ -146,6 +146,8 @@ These requirements define Phase 10.16 scope without designing its implementation
 | `DP-028` | Sport: training load, recovery, injury signals, authorized health constraints, and return-to-training workflow. | `SRC-P02:P02-C05` | 10.28 | shared domain infrastructure; `cmm/domains/sport/` — complete and independently audited; final independent closure audit: PASS; BLOCKERS=0; MAJORS=0; MINORS=0; final remediation plan `docs/superpowers/plans/2026-08-25-sport-domain-audit-v4-final-remediation.md`; final audit `docs/audits/phase-10.28-sport-final-independent-closure-audit.md`; implementation reference `docs/reference/sport-domain.md` | `VERIFIED_EXISTING` | `AT-DP-028` — `PASS` (connected 44-checkpoint acceptance; 30-test closure adversarial gate; independently audited; final closure gate `PASS`) |
 | `DP-029` | Life Plan: dependencies, scenarios, resources, decision states, cross-domain impact, and plan drift. | `SRC-P04:P04-C01` | 10.29 | shared domain infrastructure; `cmm/domains/life_plan/` — complete and independently audited; final independent closure audit V5 `PASS`; final audit `docs/audits/phase-10.29-life-plan-independent-audit-v5.md`; canonical design `docs/superpowers/specs/2026-08-26-life-plan-domain-design.md`; implementation reference `docs/reference/life-plan-domain.md` | `VERIFIED_EXISTING` | `AT-DP-029` — `PASS` (45 connected checkpoints; 62-test closure adversarial gate; final independent closure audit `PASS`) |
 | `DP-030` | Project: generic project resources, milestones, dependencies, status, operations, and workflows. | `SRC-R10:R10-C30` | 10.30 | shared domain infrastructure | `REQUIRES_PHASE_INSPECTION` | `AT-DP-030` |
+| `DP-052` | Mental Health: emotional wellbeing; ordinary emotional conversation and support; therapy continuity; therapy-session analysis; pre- and post-therapy preparation; longitudinal emotional context; emotionally relevant decisions; fact/interpretation/fear/intuition separation; non-pathologizing loop detection; safety escalation; and purpose-minimized cross-domain coordination without default clinical presentation. | `SRC-P07` | 10.52 | shared domain infrastructure; `domain:mental-health` / `MentalHealthProfile`; implementation pending | `REQUIRES_PHASE_INSPECTION` | `AT-DP-052` |
+| `DP-053` | Neurodivergence: confirmed TDAH information; possible or in-evaluation TEA, high intellectual abilities and TERIA/ARFID; dysgraphia; developmental history; executive, sensory, academic, social and functional impact; neuropsychological assessment; differential-overlap analysis; and explicit certainty preservation without promoting screening, self-report, isolated traits or model inference to diagnosis. | `SRC-P07` | 10.53 | shared domain infrastructure; `domain:neurodivergence` / `NeurodivergenceProfile`; implementation pending | `REQUIRES_PHASE_INSPECTION` | `AT-DP-053` |
 
 ### 5.6 Phase 11 requirements (`F11-*`)
 
@@ -281,6 +283,8 @@ Phase 10.18 is expressly prohibited from creating another Claim model, Knowledge
 | 10.28 | Sport | Training load; recovery; injury signals; authorized Health constraints; mutable readiness state; return-to-training workflow. |
 | 10.29 | Life Plan | Goal dependencies; scenario consistency; resource constraints; explicit decision status; cross-domain impact; plan drift. |
 | 10.30 | Project | Generic project resources, milestones, dependencies, status, operations, and workflows. It is not advanced to absorb Formation. |
+| 10.52 | Mental Health | Emotional wellbeing; ordinary emotional conversation without default medicalization; therapy continuity; therapy-session analysis; pre/post-session workflows; longitudinal emotional context; safety escalation; and purpose-minimized coordination with Health, Relationships, Reflection, Neurodivergence, and General. |
+| 10.53 | Neurodivergence | TDAH; TEA/AACC/TERIA in evaluation or as hypotheses; dysgraphia; developmental history; executive, sensory, academic, social and functional context; neuropsychological assessment; certainty hierarchy; differential overlap analysis; and minimized coordination with Health, Mental Health, University, Relationships, and General. |
 
 ## 10. Phase 11 responsibilities
 
@@ -345,7 +349,7 @@ Phase 11 owns:
 | `AT-DATA-03` | Academic and opposition plans retain provenance, validity, and decision status. | 10.18 |
 | `AT-DATA-04` | Parenthood state is restricted, versioned, and absent from static rules. | 10.18 |
 | `AT-DATA-05` | Biographical context and preferences can be corrected without editing a rule definition. | 10.18 |
-| `AT-DP-019` through `AT-DP-030` | Each pack passes its reduced backlog, permission, cross-domain, and epistemic-preservation tests before the next pack starts. | Respective Domain Pack |
+| `AT-DP-019` through `AT-DP-030`, plus `AT-DP-052` and `AT-DP-053` | Each pack passes its reduced backlog, permission, cross-domain, and epistemic-preservation tests before the next applicable Domain Pack starts. | Respective Domain Pack |
 
 ## 12. Discarded or abstracted requirements
 
@@ -390,6 +394,8 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.28 — Sport
 10.29 — Life Plan
 10.30 — Project
+10.52 — Mental Health
+10.53 — Neurodivergence
 Phase 11 — Stable Integrated Platform
 ```
 
