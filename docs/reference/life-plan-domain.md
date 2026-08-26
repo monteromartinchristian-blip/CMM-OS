@@ -1,6 +1,14 @@
 # Life Plan Domain Reference (`domain:life-plan`)
 
-> **Phase 10.29 — V3 Remediation Complete; Ready for Independent Audit V4**
+> **Phase 10.29 — V4 Remediation Complete; Independent Re-Audit V5 Pending**
+>
+> - **Independent Audit V4 Result:** FAIL (0 Blockers, 1 Major, 0 Minors)
+> - **V3-B1 (Duck-Typed Authorization Service):** CLOSED
+> - **V3-M1 (Memory Permission Outcome):** CLOSED
+> - **V3-M2 (Trace Evidence — Shared Pre-Assembly Identity):** Remediated Candidate (V4 Major closed)
+> - **V3-m1 (Documentation Status):** CLOSED
+> - **DP-029 Status:** REQUIRES_PHASE_INSPECTION
+> - **AT-DP-029 Status:** Candidate PASS, pending independent V5 acceptance
 
 The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year life planning, strategic goal coordination, explicit non-collapsible decision lattice tracking, exploratory scenario comparisons, multi-dimensional resource constraint evaluation (time, money, energy, capacity), alternative route preservation, plan drift detection, and fail-closed cross-domain coordination (Health, University, Oppositions, Parenthood, Project).
 
