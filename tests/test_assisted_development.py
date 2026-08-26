@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import cmm.__main__ as cmm_main
-from cmm.development.analyzer import ProjectAnalyzer
+from cmm.development.analyzer import ProjectAnalyzer, ProjectContext
 from cmm.development.models import DevelopmentPlan, PlanValidationError
 from cmm.development.providers import (
     DeterministicPlanningProvider,
@@ -95,6 +95,20 @@ def test_deterministic_provider_and_structured_plan(tmp_path: Path) -> None:
 
     assert plan.affected_files == ("app.py",)
     assert operations[0].type_id == "python.create_class"
+
+
+def test_project_context_provenance_is_issued_only_by_analyzer(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("", encoding="utf-8")
+    caller_context = ProjectContext(
+        root=tmp_path,
+        files=(),
+        total_python_files=0,
+        truncated=False,
+    )
+    analyzed_context = ProjectAnalyzer().analyze(tmp_path, "inspect app")
+
+    assert caller_context.is_analyzer_issued is False
+    assert analyzed_context.is_analyzer_issued is True
 
 
 def test_ollama_is_optional_and_loaded_lazily(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ class ProjectFile:
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class ProjectContext:
     root: Path
     files: tuple[ProjectFile, ...]
@@ -51,6 +52,25 @@ class ProjectContext:
             "truncated": self.truncated,
             "files": [item.serialize() for item in self.files],
         }
+
+    @property
+    def is_analyzer_issued(self) -> bool:
+        """Whether this exact context was issued by ``ProjectAnalyzer``."""
+        reference = _ANALYZER_ISSUED_CONTEXTS.get(id(self))
+        return reference is not None and reference() is self
+
+
+_ANALYZER_ISSUED_CONTEXTS: dict[int, weakref.ReferenceType[ProjectContext]] = {}
+
+
+def _remember_analyzer_issued_context(context: ProjectContext) -> None:
+    context_id = id(context)
+
+    def remove(reference: weakref.ReferenceType[ProjectContext]) -> None:
+        if _ANALYZER_ISSUED_CONTEXTS.get(context_id) is reference:
+            _ANALYZER_ISSUED_CONTEXTS.pop(context_id, None)
+
+    _ANALYZER_ISSUED_CONTEXTS[context_id] = weakref.ref(context, remove)
 
 
 class ProjectAnalyzer:
@@ -74,7 +94,9 @@ class ProjectAnalyzer:
         terms = set(re.findall(r"[A-Za-z_][A-Za-z0-9_.]*", goal.lower()))
         ranked = sorted(indexed, key=lambda item: (-self._score(item, terms), item.path))
         selected = tuple(ranked[:max_files])
-        return ProjectContext(root, selected, len(indexed), len(indexed) > len(selected))
+        context = ProjectContext(root, selected, len(indexed), len(indexed) > len(selected))
+        _remember_analyzer_issued_context(context)
+        return context
 
     def _summarize(self, root: Path, path: Path) -> ProjectFile:
         relative = path.relative_to(root)
