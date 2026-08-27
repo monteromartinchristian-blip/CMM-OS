@@ -597,23 +597,19 @@ class DefaultDomainResolver:
         if policy.explicit_domain_priority and len(explicit_eligible) == 1:
             return explicit_eligible[0]
 
-        # Multiple explicit domains remain owned by existing ambiguity handling.
-        if explicit_eligible:
+        # Multiple explicit domains are special only while explicit priority is on.
+        if policy.explicit_domain_priority and explicit_eligible:
             return None
 
-        session_candidates = list(
-            domain_signal_candidates(
-                context,
-                eligible,
-                kind="session",
-            )
+        session_candidates = (
+            list(domain_signal_candidates(context, eligible, kind="session"))
+            if policy.session_domain_priority
+            else []
         )
-        goal_candidates = list(
-            domain_signal_candidates(
-                context,
-                eligible,
-                kind="goal",
-            )
+        goal_candidates = (
+            list(domain_signal_candidates(context, eligible, kind="goal"))
+            if policy.goal_domain_priority
+            else []
         )
 
         session_slugs = {candidate.domain_id.slug for candidate in session_candidates}
@@ -634,10 +630,10 @@ class DefaultDomainResolver:
         if session_slugs and goal_slugs:
             return None
 
-        if policy.session_domain_priority and len(session_candidates) == 1:
+        if len(session_candidates) == 1:
             return session_candidates[0]
 
-        if policy.goal_domain_priority and len(goal_candidates) == 1:
+        if len(goal_candidates) == 1:
             return goal_candidates[0]
 
         return None
@@ -668,7 +664,10 @@ class DefaultDomainResolver:
 
         p = self._policy
 
-        if len(explicit_eligible) >= 2:
+        if (
+            self._selection_policy.explicit_domain_priority
+            and len(explicit_eligible) >= 2
+        ):
             ambiguous_domains = tuple(
                 sorted(
                     (candidate.domain_id for candidate in explicit_eligible),
@@ -727,7 +726,11 @@ class DefaultDomainResolver:
             and top.score >= p.minimum_resolution_score
             and second.score >= p.minimum_resolution_score
         ):
-            explicit_slugs = {c.domain_id.slug for c in explicit_eligible}
+            explicit_slugs = (
+                {c.domain_id.slug for c in explicit_eligible}
+                if self._selection_policy.explicit_domain_priority
+                else set()
+            )
             if (
                 top.domain_id.slug not in explicit_slugs
                 or second.domain_id.slug in explicit_slugs
@@ -1031,6 +1034,54 @@ class DefaultDomainResolver:
         if "_resolution_registry_versions" in raw_meta:
             registry_versions = raw_meta["_resolution_registry_versions"]
 
+        # Explicit requests are fail-closed even when no redundant signal exists.
+        for domain_id in context.explicit_domains:
+            slug = domain_id.slug
+            if slug == fb_slug:
+                continue
+            domain_statuses = self._get_domain_statuses(slug, registry_versions)
+            checks = (
+                (
+                    slug not in available_slugs,
+                    "DOMAIN_NO_ELIGIBLE_CANDIDATE",
+                    "not available",
+                ),
+                (slug in denied_slugs, "DOMAIN_POLICY_DENIED", "denied by policy"),
+                (
+                    allowed_slugs is not None and slug not in allowed_slugs,
+                    "DOMAIN_POLICY_NOT_ALLOWED",
+                    "not in the allowed domains",
+                ),
+                (
+                    require_auth and slug not in authorized_slugs,
+                    "DOMAIN_UNAUTHORIZED_REJECTED",
+                    "not authorized",
+                ),
+                (
+                    DomainStatus.DISABLED.value in domain_statuses
+                    and not allow_disabled,
+                    "DOMAIN_DISABLED_REJECTED",
+                    "disabled",
+                ),
+                (
+                    DomainStatus.DEGRADED.value in domain_statuses
+                    and not allow_degraded,
+                    "DOMAIN_DEGRADED_REJECTED",
+                    "degraded and disallowed by policy",
+                ),
+            )
+            for blocked, code, description in checks:
+                if blocked:
+                    return DomainResolutionReason(
+                        code=code,
+                        message=(
+                            f"Explicit domain {domain_id} is {description}; "
+                            f"fallback {self._fallback_domain} is not applied."
+                        ),
+                        domain_id=domain_id,
+                        blocking=True,
+                    )
+
         for signal in context.signals:
             for domain_id in signal.domain_ids:
                 slug = domain_id.slug
@@ -1263,6 +1314,42 @@ class DefaultDomainResolver:
         if not required_supporting:
             return None
 
+        confidence_conflicts = tuple(
+            domain_id
+            for domain_id in required_supporting
+            if (
+                (
+                    confidence := candidate_selection_confidence(
+                        context, eligible_by_slug[domain_id.slug]
+                    )
+                )
+                is not None
+                and confidence < self._selection_policy.minimum_supporting_confidence
+            )
+        )
+        if confidence_conflicts:
+            reasons = tuple(
+                DomainResolutionReason(
+                    code="DOMAIN_SELECTION_REQUIRED_SUPPORTING_CONFIDENCE_CONFLICT",
+                    message=(
+                        "Required supporting domain does not satisfy the minimum "
+                        "selection confidence"
+                    ),
+                    domain_id=domain_id,
+                    blocking=True,
+                )
+                for domain_id in confidence_conflicts
+            )
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+                primary=None,
+                rejected_domains=rejected_domains,
+                candidate_scores=tuple(candidates),
+                reasons=global_reasons + reasons,
+                confidence=0.0,
+            )
+
         if self._selection_policy.allow_multi_domain:
             effective_max = min(
                 self._policy.max_supporting_domains,
@@ -1422,6 +1509,99 @@ class DefaultDomainResolver:
             if cs.domain_id.slug in supporting_ids:
                 for rr in cs.reasons:
                     add(rr)
+
+        # Selection-policy decisions not already encoded by candidate scoring.
+        policy = self._selection_policy
+        explicit_eligible = list(explicit_candidates(context, eligible_scores))
+        priority = self._selection_priority_candidate(
+            context, eligible_scores, explicit_eligible
+        )
+        if priority is not None and priority.domain_id.slug == primary.slug:
+            if policy.explicit_domain_priority and len(explicit_eligible) == 1:
+                add(
+                    DomainResolutionReason(
+                        code="DOMAIN_SELECTION_EXPLICIT_PRIORITY",
+                        message="Explicit eligible domain selected by selection policy",
+                        domain_id=primary,
+                    )
+                )
+            else:
+                for kind, enabled, code, message in (
+                    (
+                        "session",
+                        policy.session_domain_priority,
+                        "DOMAIN_SELECTION_SESSION_PRIORITY",
+                        "Session continuity selected by selection policy",
+                    ),
+                    (
+                        "goal",
+                        policy.goal_domain_priority,
+                        "DOMAIN_SELECTION_GOAL_PRIORITY",
+                        "Active goal selected by selection policy",
+                    ),
+                ):
+                    if enabled and any(
+                        candidate.domain_id.slug == primary.slug
+                        for candidate in domain_signal_candidates(
+                            context, eligible_scores, kind=kind
+                        )
+                    ):
+                        add(
+                            DomainResolutionReason(
+                                code=code,
+                                message=message,
+                                domain_id=primary,
+                                signal_kind=kind,
+                            )
+                        )
+
+        non_primary = [
+            candidate
+            for candidate in eligible_scores
+            if candidate.domain_id.slug != primary.slug and not candidate.rejected
+        ]
+        if not policy.allow_multi_domain and non_primary:
+            add(
+                DomainResolutionReason(
+                    code="DOMAIN_SELECTION_MULTI_DOMAIN_DISABLED",
+                    message="Supporting-domain selection disabled by policy",
+                )
+            )
+        elif policy.allow_multi_domain:
+            primary_score = next(
+                candidate.score
+                for candidate in eligible_scores
+                if candidate.domain_id.slug == primary.slug
+            )
+            required_slugs = (
+                {domain_id.slug for domain_id in context.system_policy.required_domains}
+                if context.system_policy is not None
+                else set()
+            )
+            for candidate in non_primary:
+                if candidate.domain_id.slug in supporting_ids | required_slugs:
+                    continue
+                if candidate.score < self._policy.minimum_resolution_score:
+                    continue
+                if (
+                    abs(candidate.score - primary_score)
+                    > self._policy.supporting_margin
+                ):
+                    continue
+                confidence = candidate_selection_confidence(context, candidate)
+                if (
+                    confidence is not None
+                    and confidence < policy.minimum_supporting_confidence
+                ):
+                    add(
+                        DomainResolutionReason(
+                            code="DOMAIN_SELECTION_SUPPORTING_CONFIDENCE_REJECTED",
+                            message=(
+                                "Supporting candidate rejected by minimum selection confidence"
+                            ),
+                            domain_id=candidate.domain_id,
+                        )
+                    )
 
         # Global blocking reasons (not already covered)
         for gr in global_reasons:

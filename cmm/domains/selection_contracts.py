@@ -346,6 +346,36 @@ class DomainSelectionTransition:
                 _validate_strict_bool(getattr(self, field_name), field_name),
             )
 
+        expected_primary_changed = (
+            self.previous_primary_domain != self.new_primary_domain
+        )
+        if self.primary_changed != expected_primary_changed:
+            raise DomainContractValidationError(
+                "primary_changed must match the primary-domain identity change",
+                field="primary_changed",
+            )
+        expected_supporting_changed = (
+            self.previous_supporting_domains != self.new_supporting_domains
+        )
+        if self.supporting_changed != expected_supporting_changed:
+            raise DomainContractValidationError(
+                "supporting_changed must match the supporting-domain composition change",
+                field="supporting_changed",
+            )
+        expected_selection_changed = (
+            expected_primary_changed or expected_supporting_changed
+        )
+        if self.requires_recomposition != expected_selection_changed:
+            raise DomainContractValidationError(
+                "requires_recomposition must match the selection change state",
+                field="requires_recomposition",
+            )
+        if self.requires_session_update != expected_selection_changed:
+            raise DomainContractValidationError(
+                "requires_session_update must match the selection change state",
+                field="requires_session_update",
+            )
+
         object.__setattr__(
             self,
             "reason_codes",
