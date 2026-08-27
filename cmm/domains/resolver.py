@@ -360,6 +360,17 @@ class DefaultDomainResolver:
                     blocked_reason=blocked_reason,
                 )
 
+        required_limit_conflict = self._check_required_supporting_limit_conflict(
+            context=context,
+            eligible=eligible_scores,
+            primary=primary,
+            candidates=candidates,
+            rejected_domains=rejected_domains,
+            global_reasons=all_reasons,
+        )
+        if required_limit_conflict is not None:
+            return required_limit_conflict
+
         supporting = self._select_supporting(
             eligible_scores, primary, primary_score, context, candidates
         )
@@ -793,14 +804,29 @@ class DefaultDomainResolver:
         if not high_impact_slugs:
             return None
 
-        min_conf = (
-            system_policy.minimum_confidence
-            or self._policy.high_impact_minimum_confidence
+        system_min_conf = system_policy.minimum_confidence
+        min_conf = max(
+            self._selection_policy.minimum_primary_confidence,
+            self._policy.high_impact_minimum_confidence,
+            system_min_conf if system_min_conf is not None else 0.0,
         )
 
         if eligible and high_impact_slugs:
             top = eligible[0]
-            if top.domain_id.slug in high_impact_slugs and top.confidence < min_conf:
+            declared_confidence = candidate_selection_confidence(
+                context,
+                top,
+            )
+            effective_confidence = (
+                declared_confidence
+                if declared_confidence is not None
+                else top.confidence
+            )
+
+            if (
+                top.domain_id.slug in high_impact_slugs
+                and effective_confidence < min_conf
+            ):
                 second = eligible[1] if len(eligible) > 1 else None
                 if second:
                     ambiguous_domains = tuple(
@@ -811,7 +837,7 @@ class DefaultDomainResolver:
                             code="DOMAIN_HIGH_IMPACT_LOW_CONFIDENCE",
                             message=(
                                 f"High-impact domain {top.domain_id} has "
-                                f"low confidence ({top.confidence:.2f} < {min_conf:.2f})"
+                                f"low confidence ({effective_confidence:.2f} < {min_conf:.2f})"
                             ),
                             domain_id=top.domain_id,
                             blocking=False,
@@ -821,7 +847,7 @@ class DefaultDomainResolver:
                         context=context,
                         status=DomainResolutionStatus.AMBIGUOUS,
                         ambiguous_domains=ambiguous_domains,
-                        confidence=top.confidence,
+                        confidence=effective_confidence,
                         reasons=reasons,
                         requires_clarification=True,
                         recommended_question=(
@@ -854,7 +880,7 @@ class DefaultDomainResolver:
                             code="DOMAIN_HIGH_IMPACT_LOW_CONFIDENCE",
                             message=(
                                 f"High-impact domain {top.domain_id} has "
-                                f"low confidence ({top.confidence:.2f} < {min_conf:.2f})"
+                                f"low confidence ({effective_confidence:.2f} < {min_conf:.2f})"
                             ),
                             domain_id=top.domain_id,
                             blocking=False,
@@ -864,7 +890,7 @@ class DefaultDomainResolver:
                         context=context,
                         status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
                         primary=fallback_primary,
-                        confidence=top.confidence,
+                        confidence=effective_confidence,
                         reasons=reasons,
                         requires_clarification=True,
                         recommended_question=(
@@ -1199,6 +1225,73 @@ class DefaultDomainResolver:
 
     # ── Supporting domains ────────────────────────────────────────────────────
 
+    def _check_required_supporting_limit_conflict(
+        self,
+        *,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        primary: DomainId,
+        candidates: list[DomainCandidateScore],
+        rejected_domains: tuple[DomainId, ...],
+        global_reasons: tuple[DomainResolutionReason, ...],
+    ) -> DomainResolutionResult | None:
+        """Fail closed when required supporting domains cannot fit policy limits."""
+
+        system_policy = context.system_policy
+        if system_policy is None or not system_policy.required_domains:
+            return None
+
+        eligible_by_slug = {
+            candidate.domain_id.slug: candidate
+            for candidate in eligible
+            if candidate.eligible and not candidate.rejected
+        }
+
+        required_supporting = tuple(
+            sorted(
+                (
+                    eligible_by_slug[required.slug].domain_id
+                    for required in system_policy.required_domains
+                    if required.slug != primary.slug
+                    and required.slug in eligible_by_slug
+                ),
+                key=lambda domain_id: domain_id.slug,
+            )
+        )
+
+        if not required_supporting:
+            return None
+
+        if self._selection_policy.allow_multi_domain:
+            effective_max = min(
+                self._policy.max_supporting_domains,
+                self._selection_policy.maximum_supporting_domains,
+            )
+        else:
+            effective_max = 0
+
+        if len(required_supporting) <= effective_max:
+            return None
+
+        reason = DomainResolutionReason(
+            code="DOMAIN_SELECTION_REQUIRED_DOMAIN_LIMIT_CONFLICT",
+            message=(
+                "Required supporting domains exceed the effective "
+                "domain-selection supporting limit"
+            ),
+            blocking=True,
+        )
+
+        return self._build_result(
+            context=context,
+            status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+            primary=None,
+            rejected_domains=rejected_domains,
+            candidate_scores=tuple(candidates),
+            reasons=global_reasons + (reason,),
+            confidence=0.0,
+        )
+
     def _select_supporting(
         self,
         eligible: list[DomainCandidateScore],
@@ -1208,7 +1301,15 @@ class DefaultDomainResolver:
         candidates: list[DomainCandidateScore],
     ) -> tuple[DomainId, ...]:
         p = self._policy
-        max_supporting = p.max_supporting_domains
+        selection_policy = self._selection_policy
+
+        if not selection_policy.allow_multi_domain:
+            return ()
+
+        max_supporting = min(
+            p.max_supporting_domains,
+            selection_policy.maximum_supporting_domains,
+        )
 
         # Determine required domains from policy
         required_slugs: set[str] = set()
@@ -1254,6 +1355,18 @@ class DefaultDomainResolver:
                 break
             if c.score < p.minimum_resolution_score:
                 continue
+
+            selection_confidence = candidate_selection_confidence(
+                context,
+                c,
+            )
+            if (
+                selection_confidence is not None
+                and selection_confidence
+                < selection_policy.minimum_supporting_confidence
+            ):
+                continue
+
             if abs(c.score - primary_score.score) > p.supporting_margin:
                 continue
             if c.domain_id.slug not in seen:

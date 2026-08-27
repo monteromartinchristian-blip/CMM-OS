@@ -576,7 +576,8 @@ class TestHighImpact:
         assert result.status != DomainResolutionStatus.RESOLVED
         assert result.requires_clarification is True
 
-    def test_high_impact_sufficient_confidence_allowed(self) -> None:
+    def test_high_impact_system_minimum_cannot_lower_scoring_floor(self) -> None:
+        """A system minimum may raise, but never weaken, high-impact protection."""
         resolver = make_resolver()
         ctx = make_context(
             available=(D("health"),),
@@ -585,7 +586,15 @@ class TestHighImpact:
             policy=make_policy(high_impact=(D("health"),), min_confidence=0.5),
         )
         result = resolver.resolve(ctx)
-        assert result.status == DomainResolutionStatus.RESOLVED
+
+        assert result.status in (
+            DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+            DomainResolutionStatus.AMBIGUOUS,
+        )
+        assert any(
+            reason.code == "DOMAIN_HIGH_IMPACT_LOW_CONFIDENCE"
+            for reason in result.reasons
+        )
 
     def test_high_impact_explicit_still_protected(self) -> None:
         """Explicit domain does NOT bypass high-impact protection."""
