@@ -13,24 +13,62 @@ from cmm.domains.permission_evaluator import evaluate_domain_policy
 
 
 def request(action, **kwargs):
-    return DomainPermissionRequest("r", action, "domain:health", "actor", "session", **kwargs)
+    return DomainPermissionRequest(
+        "r", action, "domain:health", "actor", "session", **kwargs
+    )
 
 
 def test_policy_allows_internal_read_but_denies_explicit_prohibition():
-    policy = DomainPermissionPolicy("p", "domain:health", "1.0.0", allowed_capabilities=(PermissionCapability.RESOURCE_READ,), allowed_resource_kinds=("clinical",), prohibited_resource_kinds=("secret",), allowed_sensitivity_levels=("internal",))
-    allowed = evaluate_domain_policy(policy, request(PermissionCapability.RESOURCE_READ, resource_kind="clinical", sensitivity_level="internal"))
-    denied = evaluate_domain_policy(policy, request(PermissionCapability.RESOURCE_READ, resource_kind="secret", sensitivity_level="internal"))
+    policy = DomainPermissionPolicy(
+        "p",
+        "domain:health",
+        "1.0.0",
+        allowed_capabilities=(PermissionCapability.RESOURCE_READ,),
+        allowed_resource_kinds=("clinical",),
+        prohibited_resource_kinds=("secret",),
+        allowed_sensitivity_levels=("internal",),
+    )
+    allowed = evaluate_domain_policy(
+        policy,
+        request(
+            PermissionCapability.RESOURCE_READ,
+            resource_kind="clinical",
+            sensitivity_level="internal",
+        ),
+    )
+    denied = evaluate_domain_policy(
+        policy,
+        request(
+            PermissionCapability.RESOURCE_READ,
+            resource_kind="secret",
+            sensitivity_level="internal",
+        ),
+    )
     assert allowed.effect is PermissionOutcome.ALLOW
     assert denied.effect is PermissionOutcome.DENY
     assert denied.source is PermissionLayer.DOMAIN
 
 
 def test_sensitive_capability_requires_policy_approval_and_disabled_denies():
-    policy = DomainPermissionPolicy("p", "domain:health", "1.0.0", allowed_capabilities=(PermissionCapability.MEDICAL_DECISION,), approval_capabilities=(PermissionCapability.MEDICAL_DECISION,), approval_requirements=("medical-approval",))
-    result = evaluate_domain_policy(policy, request(PermissionCapability.MEDICAL_DECISION))
+    policy = DomainPermissionPolicy(
+        "p",
+        "domain:health",
+        "1.0.0",
+        allowed_capabilities=(PermissionCapability.MEDICAL_DECISION,),
+        approval_capabilities=(PermissionCapability.MEDICAL_DECISION,),
+        approval_requirements=("medical-approval",),
+    )
+    result = evaluate_domain_policy(
+        policy, request(PermissionCapability.MEDICAL_DECISION)
+    )
     assert result.effect is PermissionOutcome.APPROVAL_REQUIRED
     disabled = DomainPermissionPolicy("p2", "domain:health", "1.0.0", enabled=False)
-    assert evaluate_domain_policy(disabled, request(PermissionCapability.MEMORY_READ)).effect is PermissionOutcome.DENY
+    assert (
+        evaluate_domain_policy(
+            disabled, request(PermissionCapability.MEMORY_READ)
+        ).effect
+        is PermissionOutcome.DENY
+    )
 
 
 def test_medical_approval_only_applies_after_explicit_base_capability_allow():
@@ -68,9 +106,13 @@ def test_medical_approval_only_applies_after_explicit_base_capability_allow():
         (PermissionCapability.SENSITIVE_INFERENCE, {}),
     ],
 )
-def test_unknown_sensitivity_is_not_implicitly_allowed_for_sensitive_actions(action, kwargs):
+def test_unknown_sensitivity_is_not_implicitly_allowed_for_sensitive_actions(
+    action, kwargs
+):
     policy = DomainPermissionPolicy(
-        "sensitive", "domain:health", "1.0.0",
+        "sensitive",
+        "domain:health",
+        "1.0.0",
         allowed_capabilities=(action,),
         allowed_resource_kinds=("clinical",),
     )
@@ -97,7 +139,9 @@ def test_unknown_sensitivity_is_not_implicitly_allowed_for_sensitive_actions(act
         PermissionCapability.PERMISSION_MODIFY,
     ],
 )
-def test_roadmap_high_impact_capabilities_require_approval_even_if_policy_omits_it(action):
+def test_roadmap_high_impact_capabilities_require_approval_even_if_policy_omits_it(
+    action,
+):
     policy = DomainPermissionPolicy(
         "p", "domain:health", "1.0.0", allowed_capabilities=(action,)
     )
@@ -110,7 +154,9 @@ def test_roadmap_high_impact_capabilities_require_approval_even_if_policy_omits_
 
 def test_sensitive_cross_domain_and_sensitive_inference_persistence_require_approval():
     policy = DomainPermissionPolicy(
-        "p", "domain:health", "1.0.0",
+        "p",
+        "domain:health",
+        "1.0.0",
         allowed_capabilities=(
             PermissionCapability.DOMAIN_CROSS_ACCESS,
             PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
@@ -121,7 +167,8 @@ def test_sensitive_cross_domain_and_sensitive_inference_persistence_require_appr
     )
     cross = request(
         PermissionCapability.DOMAIN_CROSS_ACCESS,
-        source_domain="domain:health", target_domain="domain:project",
+        source_domain="domain:health",
+        target_domain="domain:project",
         sensitivity_level="confidential",
     )
     persistence = request(
@@ -129,13 +176,21 @@ def test_sensitive_cross_domain_and_sensitive_inference_persistence_require_appr
         sensitivity_level="confidential",
     )
 
-    assert evaluate_domain_policy(policy, cross).effect is PermissionOutcome.APPROVAL_REQUIRED
-    assert evaluate_domain_policy(policy, persistence).effect is PermissionOutcome.APPROVAL_REQUIRED
+    assert (
+        evaluate_domain_policy(policy, cross).effect
+        is PermissionOutcome.APPROVAL_REQUIRED
+    )
+    assert (
+        evaluate_domain_policy(policy, persistence).effect
+        is PermissionOutcome.APPROVAL_REQUIRED
+    )
 
 
 def test_caller_cannot_self_declare_external_domain_trust():
     policy = DomainPermissionPolicy(
-        "p", "domain:health", "1.0.0",
+        "p",
+        "domain:health",
+        "1.0.0",
         allowed_capabilities=(PermissionCapability.EXTERNAL_DOMAIN_ACTIVATE,),
     )
 
@@ -154,3 +209,50 @@ def test_caller_cannot_self_declare_external_domain_trust():
     assert trusted.effect is PermissionOutcome.APPROVAL_REQUIRED
     assert trusted.metadata["legacy_external_domain_trusted_ignored"] is True
     assert "legacy_external_domain_trusted_ignored" in trusted.reasons
+
+
+def test_resource_kind_allowlist_denies_when_kind_is_omitted() -> None:
+    policy = DomainPermissionPolicy(
+        "resource-kind-closed",
+        "domain:health",
+        "1.0.0",
+        allowed_capabilities=(PermissionCapability.RESOURCE_READ,),
+        allowed_resource_kinds=("clinical",),
+        allowed_sensitivity_levels=("internal",),
+    )
+
+    result = evaluate_domain_policy(
+        policy,
+        request(
+            PermissionCapability.RESOURCE_READ,
+            resource_id="resource:any",
+            resource_kind=None,
+            sensitivity_level="internal",
+        ),
+    )
+
+    assert result.effect is PermissionOutcome.DENY
+    assert "resource_kind_allowlist_not_matched" in result.reasons
+
+
+def test_resource_kind_allowlist_allows_explicit_matching_kind() -> None:
+    policy = DomainPermissionPolicy(
+        "resource-kind-match",
+        "domain:health",
+        "1.0.0",
+        allowed_capabilities=(PermissionCapability.RESOURCE_READ,),
+        allowed_resource_kinds=("clinical",),
+        allowed_sensitivity_levels=("internal",),
+    )
+
+    result = evaluate_domain_policy(
+        policy,
+        request(
+            PermissionCapability.RESOURCE_READ,
+            resource_id="resource:any",
+            resource_kind="clinical",
+            sensitivity_level="internal",
+        ),
+    )
+
+    assert result.effect is PermissionOutcome.ALLOW

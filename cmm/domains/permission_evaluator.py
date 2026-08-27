@@ -437,10 +437,8 @@ def evaluate_domain_policy(
                 and request.resource_kind in policy.prohibited_resource_kinds
             ):
                 denied_reason = "explicit_resource_kind_prohibition"
-            elif (
-                request.resource_kind is not None
-                and policy.allowed_resource_kinds is not None
-                and not _allowlist(policy.allowed_resource_kinds, request.resource_kind)
+            elif policy.allowed_resource_kinds is not None and not _allowlist(
+                policy.allowed_resource_kinds, request.resource_kind
             ):
                 denied_reason = "resource_kind_allowlist_not_matched"
         elif action is PermissionCapability.OPERATION_EXECUTE:
