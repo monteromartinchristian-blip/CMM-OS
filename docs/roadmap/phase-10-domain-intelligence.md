@@ -4782,68 +4782,107 @@ Permissions
 
 10.31 - Domain Selection Policies
 
+> **Implementation status:** Complete — independent audit pending
+> **DP-031:** `IMPLEMENTED`
+> **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints
+> **Canonical design:** `docs/superpowers/specs/2026-08-27-domain-selection-policies-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-27-domain-selection-policies-implementation-plan.md`
+> **Focused Phase 10.31 tests:** 84 passed
+> **Domain suite:** 6673 passed
+> **Global suite:** 12213 passed
+> **Phase 10.31 Python delta:** 13 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Repository-wide Ruff:** 826 pre-existing violations outside the Phase 10.31 Python delta; not part of this milestone
+> **Independent audit:** pending full-HEAD audit bundle
+
 Objective
 
-To define explicit policies to solve domains in a predictable and auditable manner.
+Define explicit, immutable policies for selecting primary and supporting domains predictably, safely, and audibly while retaining `DefaultDomainResolver` as the single resolution engine.
 
 Domain Selection Policy
 
+```python
 DomainSelectionPolicy(
-name="default",
-explicit_domain_priority=True,
-session_domain_priority=True,
-goal_domain_priority=True,
-allow_multi_domain=True,
-maximum_supporting_domains=3,
-minimum_primary_confidence=0.7,
-minimum_supporting_confidence=0.55,
-fallback_domain="domain:general",
-ambiguity_strategy="clarify_or_fallback",
-metadata={},
+    name="default",
+    explicit_domain_priority=True,
+    session_domain_priority=True,
+    goal_domain_priority=True,
+    allow_multi_domain=True,
+    maximum_supporting_domains=3,
+    minimum_primary_confidence=0.70,
+    minimum_supporting_confidence=0.55,
+    fallback_domain="domain:general",
+    ambiguity_strategy="clarify_or_fallback",
+    metadata={},
 )
+```
 
-Initial policies
+Canonical precedence
 
-Explicit First
+1. safety, authorization, and availability;
+2. explicit domain selection;
+3. structured session continuity;
+4. structured active-goal domain;
+5. ordinary structured evidence;
+6. primary selection confidence;
+7. supporting-domain confidence and limits;
+8. General fallback.
 
-It respects the domain expressly indicated with the exception of a security conflict.
+Selection invariants
 
-Session Continuity
+* Safety, authorization, and availability always precede selection preferences.
+* One eligible explicit domain wins over ordinary scoring.
+* Multiple eligible explicit domains remain ambiguous regardless of score gap; no arbitrary explicit-domain tie-break is allowed.
+* Session continuity and active-goal priority are explicit structured inputs. They are not inferred from `session_id`, `goal_id`, or registry `ACTIVE` state.
+* A session/goal disagreement may be resolved by sufficiently clear ordinary evidence; otherwise the result remains ambiguous and requires clarification.
+* The default primary confidence floor is `0.70`.
+* The default supporting confidence floor is `0.55`.
+* Missing declared probabilistic confidence does not invalidate historical structured scoring; declared selection confidence is distinct from aggregate candidate-score confidence.
+* Supporting domains are limited by both scoring policy and selection policy.
+* `allow_multi_domain=False` disables ordinary supporting-domain selection.
+* Required supporting domains that cannot fit the effective policy limit fail closed with `DOMAIN_SELECTION_REQUIRED_DOMAIN_LIMIT_CONFLICT`.
+* General fallback cannot widen permissions or bypass an unavailable, denied, or otherwise ineligible General domain.
 
-Maintain session domain as long as it remains relevant.
+High-Impact Conservative
 
-Goal Priority
+High-impact handling is generic and policy-driven. No medical, legal, financial, or other domain slugs are hardcoded into selection logic.
 
-Prioritizes the domain of the active target.
+For a domain declared high-impact by the applicable resolution policy, the resolver uses the most restrictive applicable primary-confidence floor across:
 
-High-Risk Conservative
-
-It requires better confidence for medical, legal or financial domains.
-
-Multi-Domain Limited
-
-It allows several domains with boundaries.
-
-General Fallback
-
-He uses General Domain if there's insufficient evidence.
+* `DomainSelectionPolicy.minimum_primary_confidence`;
+* `DomainScoringPolicy.high_impact_minimum_confidence`;
+* `DomainResolutionPolicy.minimum_confidence`, when declared.
 
 Reevaluation Policy
 
-It allows to change the composition if new information appears during the workflow.
+Reevaluation is represented by the immutable, side-effect-free `DomainSelectionTransition`.
 
-Domain change
+It records:
 
-When changing main domain:
+* exact previous and new resolution IDs;
+* previous and new primary domain;
+* previous and new supporting domains;
+* primary/supporting change flags;
+* declarative reason codes;
+* whether recomposition is required;
+* whether a session update is required.
 
-* The ground for registration should be established.
-* The context should be preserved.
-* permissions should be re-evaluated.
-* profiles have to be re-evaluated.
-* Reevaluating rules
-* Questions have to be re-evaluated.
-* they should not duplicate operations;
-* The sitting should be updated.
+Reevaluation does not:
+
+* replay operations;
+* mutate a session;
+* execute workflows;
+* apply persistence;
+* perform external side effects.
+
+Those actions remain responsibilities of later orchestration layers.
+
+Phase boundaries
+
+* Phase 10.31 owns selection policy and pure selection transitions.
+* Phase 10.32 owns general domain-conflict resolution.
+* Phase 10.33 owns domain events.
+* Phase 10.34 owns persistent domain sessions.
+* The current milestone does not introduce a second resolver or parallel selection engine.
 
 ⸻
 
