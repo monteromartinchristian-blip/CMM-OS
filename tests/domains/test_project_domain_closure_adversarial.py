@@ -1574,6 +1574,216 @@ def test_attack_trace_tamper_rejected() -> None:
         is False
     )
 
+    # Tamper 3: FILE_MODIFY approval authority omitted from inventory
+    perm_dec_ref = build_project_trace_reference(
+        ref_id="permission-gate-decision-adv-1",
+        kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+    )
+    op_app_req_ref = build_project_trace_reference(
+        ref_id="apr-op-exec-1",
+        kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+    )
+    file_app_req_ref = build_project_trace_reference(
+        ref_id="apr-file-modify-1",
+        kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+    )
+    op_app_dec_ref = build_project_trace_reference(
+        ref_id="dec-op-exec-1",
+        kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+    )
+    file_app_dec_ref = build_project_trace_reference(
+        ref_id="dec-file-modify-1",
+        kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+    )
+    op_res_ref = build_project_trace_reference(
+        ref_id="res:op:modify_code:1",
+        kind=DomainTraceReferenceKind.OPERATION_RESULT,
+    )
+
+    auth_trace_refs = (
+        perm_dec_ref,
+        op_app_req_ref,
+        file_app_req_ref,
+        op_app_dec_ref,
+        file_app_dec_ref,
+        op_res_ref,
+    )
+
+    auth_trace_references = DomainTraceReferences(
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        cross_domain_results=(),
+        presentation_result_ids=(),
+    )
+
+    auth_assembly = DomainTraceAssemblyRequest(
+        request_id="req:trace:auth",
+        goal_id=None,
+        primary_domain=PROJECT_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            build_project_trace_contribution(
+                domain_result_id="res:project:auth",
+                references=auth_trace_refs,
+            ),
+        ),
+        references=auth_trace_references,
+        domain_results=(
+            DomainResultTraceReference(
+                "res:project:auth",
+                PROJECT_DOMAIN_ID,
+            ),
+        ),
+        status=DomainTraceStatus.COMPLETED,
+        started_at=now,
+        completed_at=now,
+        metadata={},
+    )
+    predicted_auth = calculate_domain_trace_identity(auth_assembly)
+
+    full_auth_inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                "res:project:auth",
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            *auth_trace_refs,
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        expected_primary_domain=DomainId("project"),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, DomainId("project"), ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, DomainId("project"), ()
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id="res:project:auth",
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=predicted_auth.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+    )
+
+    auth_trace = assemble_project_trace(
+        request_id="req:trace:auth",
+        resolution_context_id=ctx_id,
+        resolution_result_id=res_id,
+        composition_id=comp_id,
+        domain_result_id="res:project:auth",
+        references=auth_trace_refs,
+        started_at=now,
+        completed_at=now,
+    )
+    assert (
+        validate_project_trace(trace=auth_trace, inventory=full_auth_inventory).valid
+        is True
+    )
+
+    # Omit FILE_MODIFY approval request from inventory
+    omitted_file_auth_inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                "res:project:auth",
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            perm_dec_ref,
+            op_app_req_ref,
+            # file_app_req_ref omitted!
+            op_app_dec_ref,
+            file_app_dec_ref,
+            op_res_ref,
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        expected_primary_domain=DomainId("project"),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, DomainId("project"), ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, DomainId("project"), ()
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id="res:project:auth",
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=predicted_auth.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+    )
+    assert (
+        validate_project_trace(
+            trace=auth_trace, inventory=omitted_file_auth_inventory
+        ).valid
+        is False
+    )
+
+    # Tamper 4: Approval decision substitution in inventory
+    substituted_decision_inventory = DomainTraceReferenceInventory(
+        references=(
+            DomainTraceReference(
+                "res:project:auth",
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                PROJECT_DOMAIN_ID,
+            ),
+            perm_dec_ref,
+            op_app_req_ref,
+            file_app_req_ref,
+            op_app_dec_ref,
+            DomainTraceReference(
+                "dec-forged-unrelated-999",
+                DomainTraceReferenceKind.APPROVAL_DECISION,
+                DomainId("project"),
+            ),  # Substituted decision!
+            op_res_ref,
+            DomainTraceReference(
+                ctx_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
+            ),
+            DomainTraceReference(
+                res_id, DomainTraceReferenceKind.RESOLUTION_RESULT, None
+            ),
+            DomainTraceReference(comp_id, DomainTraceReferenceKind.COMPOSITION, None),
+        ),
+        expected_primary_domain=DomainId("project"),
+        resolution_result_domains=DomainTraceDomainSelection(
+            res_id, DomainId("project"), ()
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            comp_id, DomainId("project"), ()
+        ),
+        domain_results=(
+            DomainResultTraceReference(
+                result_id="res:project:auth",
+                domain_id=PROJECT_DOMAIN_ID,
+                trace_id=predicted_auth.trace_id,
+            ),
+        ),
+        cross_domain_results=(),
+    )
+    assert (
+        validate_project_trace(
+            trace=auth_trace, inventory=substituted_decision_inventory
+        ).valid
+        is False
+    )
+
 
 # ── Attack Class 33: ATOMIC_REGISTRATION_ROLLBACK ─────────────────────────────
 
