@@ -30,6 +30,12 @@ from cmm.domains.resolver_contracts import (
     DomainScoringPolicy,
 )
 from cmm.domains.resolver_scoring import DomainCandidateScorer
+from cmm.domains.selection import (
+    candidate_selection_confidence,
+    domain_signal_candidates,
+    explicit_candidates,
+)
+from cmm.domains.selection_contracts import DomainSelectionPolicy
 
 # ── Protocol ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +68,7 @@ class DefaultDomainResolver:
         *,
         scorer: DomainCandidateScorer | None = None,
         scoring_policy: DomainScoringPolicy | None = None,
+        selection_policy: DomainSelectionPolicy | None = None,
         fallback_domain: DomainId | None = None,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
@@ -84,17 +91,48 @@ class DefaultDomainResolver:
             self._scorer = DomainCandidateScorer()
 
         self._policy: DomainScoringPolicy = self._scorer.policy
-        self._fallback_domain: DomainId | None = fallback_domain
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._id_factory = id_factory or (lambda: uuid4().hex)
 
-        if self._fallback_domain is not None and not isinstance(
-            self._fallback_domain, DomainId
+        if selection_policy is not None and not isinstance(
+            selection_policy,
+            DomainSelectionPolicy,
+        ):
+            raise DomainResolverConfigurationError(
+                "selection_policy must be a DomainSelectionPolicy or None",
+                field="selection_policy",
+            )
+
+        if fallback_domain is not None and not isinstance(
+            fallback_domain,
+            DomainId,
         ):
             raise DomainResolverConfigurationError(
                 "fallback_domain must be a DomainId or None",
                 field="fallback_domain",
             )
+
+        if selection_policy is None:
+            if fallback_domain is None:
+                effective_selection_policy = DomainSelectionPolicy()
+            else:
+                effective_selection_policy = DomainSelectionPolicy(
+                    fallback_domain=fallback_domain,
+                )
+        else:
+            if (
+                fallback_domain is not None
+                and fallback_domain != selection_policy.fallback_domain
+            ):
+                raise DomainResolverConfigurationError(
+                    "fallback_domain conflicts with selection_policy.fallback_domain",
+                    field="fallback_domain",
+                )
+
+            effective_selection_policy = selection_policy
+
+        self._selection_policy = effective_selection_policy
+        self._fallback_domain = effective_selection_policy.fallback_domain
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._id_factory = id_factory or (lambda: uuid4().hex)
 
     @property
     def scoring_policy(self) -> DomainScoringPolicy:
@@ -102,8 +140,13 @@ class DefaultDomainResolver:
         return self._policy
 
     @property
-    def fallback_domain(self) -> DomainId | None:
-        """The configured fallback domain, if any."""
+    def selection_policy(self) -> DomainSelectionPolicy:
+        """The effective domain-selection policy in use (immutable)."""
+        return self._selection_policy
+
+    @property
+    def fallback_domain(self) -> DomainId:
+        """The effective fallback domain from the selection policy."""
         return self._fallback_domain
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -158,8 +201,6 @@ class DefaultDomainResolver:
         rejected_domains: tuple[DomainId, ...] = tuple(
             sorted((c.domain_id for c in rejected_list), key=lambda d: d.slug)
         )
-
-        explicit_eligible = self._get_explicit_eligible(context, eligible_scores)
 
         required_slugs: set[str] = set()
         if system_policy is not None:
@@ -216,6 +257,29 @@ class DefaultDomainResolver:
 
         eligible_scores = self._sort_eligible(eligible_scores)
 
+        explicit_eligible = list(
+            explicit_candidates(
+                context,
+                eligible_scores,
+            )
+        )
+
+        priority_candidate = self._selection_priority_candidate(
+            context,
+            eligible_scores,
+            explicit_eligible,
+        )
+
+        if priority_candidate is not None:
+            eligible_scores = [
+                priority_candidate,
+                *[
+                    candidate
+                    for candidate in eligible_scores
+                    if candidate.domain_id.slug != priority_candidate.domain_id.slug
+                ],
+            ]
+
         ambiguity_check = self._check_ambiguity(
             context,
             eligible_scores,
@@ -239,6 +303,49 @@ class DefaultDomainResolver:
 
         primary_score = eligible_scores[0]
         primary = primary_score.domain_id
+
+        explicit_slugs = {domain_id.slug for domain_id in context.explicit_domains}
+
+        if primary.slug not in explicit_slugs:
+            selection_confidence = candidate_selection_confidence(
+                context,
+                primary_score,
+            )
+
+            if (
+                selection_confidence is not None
+                and selection_confidence
+                < self._selection_policy.minimum_primary_confidence
+            ):
+                fallback_result = self._try_fallback(
+                    context,
+                    candidates,
+                    eligible_scores,
+                    rejected_list,
+                )
+
+                if fallback_result is not None:
+                    return fallback_result
+
+                return self._build_result(
+                    context=context,
+                    status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+                    primary=None,
+                    rejected_domains=rejected_domains,
+                    candidate_scores=tuple(candidates),
+                    reasons=all_reasons
+                    + (
+                        DomainResolutionReason(
+                            code=("DOMAIN_SELECTION_PRIMARY_CONFIDENCE_BELOW_MINIMUM"),
+                            message=(
+                                "Selected inferred primary does not satisfy "
+                                "the minimum selection confidence"
+                            ),
+                            domain_id=primary,
+                        ),
+                    ),
+                    confidence=selection_confidence,
+                )
 
         # Central invariant: a configured fallback domain must never become primary
         # through this (normal) RESOLVED path when an explicitly signaled
@@ -463,6 +570,66 @@ class DefaultDomainResolver:
         """Extract status values from builder's version metadata."""
         entries = registry_versions.get(slug, [])
         return {entry["status"] for entry in entries if "status" in entry}
+
+    # ── Selection precedence ──────────────────────────────────────────────────
+
+    def _selection_priority_candidate(
+        self,
+        context: DomainResolutionContext,
+        eligible: list[DomainCandidateScore],
+        explicit_eligible: list[DomainCandidateScore],
+    ) -> DomainCandidateScore | None:
+        """Return a unique policy-priority candidate, if selection is decisive."""
+
+        policy = self._selection_policy
+
+        if policy.explicit_domain_priority and len(explicit_eligible) == 1:
+            return explicit_eligible[0]
+
+        # Multiple explicit domains remain owned by existing ambiguity handling.
+        if explicit_eligible:
+            return None
+
+        session_candidates = list(
+            domain_signal_candidates(
+                context,
+                eligible,
+                kind="session",
+            )
+        )
+        goal_candidates = list(
+            domain_signal_candidates(
+                context,
+                eligible,
+                kind="goal",
+            )
+        )
+
+        session_slugs = {candidate.domain_id.slug for candidate in session_candidates}
+        goal_slugs = {candidate.domain_id.slug for candidate in goal_candidates}
+
+        # When session and goal agree, that shared structured domain is decisive.
+        shared_slugs = session_slugs & goal_slugs
+        if len(shared_slugs) == 1:
+            shared_slug = next(iter(shared_slugs))
+            return next(
+                candidate
+                for candidate in eligible
+                if candidate.domain_id.slug == shared_slug
+            )
+
+        # A session/goal disagreement is intentionally left to the existing
+        # score + ambiguity machinery. Phase 10.32 owns richer conflict policy.
+        if session_slugs and goal_slugs:
+            return None
+
+        if policy.session_domain_priority and len(session_candidates) == 1:
+            return session_candidates[0]
+
+        if policy.goal_domain_priority and len(goal_candidates) == 1:
+            return goal_candidates[0]
+
+        return None
 
     # ── Explicit precedence ───────────────────────────────────────────────────
 
@@ -887,9 +1054,7 @@ class DefaultDomainResolver:
                         blocking=True,
                     )
                 # Disabled (when policy disallows disabled).
-                domain_statuses = self._get_domain_statuses(
-                    slug, registry_versions
-                )
+                domain_statuses = self._get_domain_statuses(slug, registry_versions)
                 if (
                     DomainStatus.DISABLED.value in domain_statuses
                     and not allow_disabled
@@ -948,10 +1113,7 @@ class DefaultDomainResolver:
         if fb_candidate is None:
             return None, None
 
-        if (
-            excluded_slugs is not None
-            and fb_candidate.domain_id.slug in excluded_slugs
-        ):
+        if excluded_slugs is not None and fb_candidate.domain_id.slug in excluded_slugs:
             return None, None
 
         blocked_reason = self._fallback_blocked_reason(context)
