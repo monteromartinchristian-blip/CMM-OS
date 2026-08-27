@@ -669,55 +669,56 @@ class DefaultDomainResolver:
         p = self._policy
 
         if len(explicit_eligible) >= 2:
-            top = explicit_eligible[0]
-            second = explicit_eligible[1]
-            if abs(top.score - second.score) <= p.ambiguity_margin:
-                ambiguous_slugs = sorted({top.domain_id.slug, second.domain_id.slug})
-                ambiguous_domains = tuple(
-                    sorted([top.domain_id, second.domain_id], key=lambda d: d.slug)
+            ambiguous_domains = tuple(
+                sorted(
+                    (candidate.domain_id for candidate in explicit_eligible),
+                    key=lambda domain_id: domain_id.slug,
                 )
-                question = self._build_ambiguity_question(ambiguous_domains)
-                fallback_primary = None
-                fallback_used = False
-                if self._fallback_domain is not None:
-                    fb_candidate, blocked = self._resolve_fallback_primary(
+            )
+            ambiguous_slugs = {domain_id.slug for domain_id in ambiguous_domains}
+            question = self._build_ambiguity_question(ambiguous_domains)
+
+            fallback_primary = None
+            fallback_used = False
+            if self._fallback_domain is not None:
+                fb_candidate, blocked = self._resolve_fallback_primary(
+                    context,
+                    candidates,
+                    excluded_slugs=ambiguous_slugs,
+                )
+                if blocked is not None:
+                    return self._blocked_fallback_result(
                         context,
-                        candidates,
-                        excluded_slugs=set(ambiguous_slugs),
+                        candidates=candidates,
+                        rejected_domains=rejected_domains,
+                        blocked_reason=blocked,
+                        ambiguous_domains=ambiguous_domains,
                     )
-                    if blocked is not None:
-                        return self._blocked_fallback_result(
-                            context,
-                            candidates=candidates,
-                            rejected_domains=rejected_domains,
-                            blocked_reason=blocked,
-                            ambiguous_domains=ambiguous_domains,
-                        )
-                    if fb_candidate is not None:
-                        fallback_primary = fb_candidate.domain_id
-                        fallback_used = True
+                if fb_candidate is not None:
+                    fallback_primary = fb_candidate.domain_id
+                    fallback_used = True
 
-                reasons = (
-                    DomainResolutionReason(
-                        code="DOMAIN_AMBIGUOUS_SCORE",
-                        message=f"Ambiguous: {top.domain_id} vs {second.domain_id}",
-                        blocking=False,
-                    ),
-                ) + global_blocking_reasons
+            reasons = (
+                DomainResolutionReason(
+                    code="DOMAIN_AMBIGUOUS_SCORE",
+                    message="Multiple explicit domains are eligible",
+                    blocking=False,
+                ),
+            ) + global_blocking_reasons
 
-                return self._build_result(
-                    context=context,
-                    status=DomainResolutionStatus.AMBIGUOUS,
-                    primary=fallback_primary,
-                    ambiguous_domains=ambiguous_domains,
-                    confidence=min(top.confidence, second.confidence),
-                    reasons=reasons,
-                    requires_clarification=True,
-                    recommended_question=question,
-                    fallback_used=fallback_used,
-                    candidate_scores=tuple(candidates),
-                    rejected_domains=rejected_domains,
-                )
+            return self._build_result(
+                context=context,
+                status=DomainResolutionStatus.AMBIGUOUS,
+                primary=fallback_primary,
+                ambiguous_domains=ambiguous_domains,
+                confidence=min(candidate.confidence for candidate in explicit_eligible),
+                reasons=reasons,
+                requires_clarification=True,
+                recommended_question=question,
+                fallback_used=fallback_used,
+                candidate_scores=tuple(candidates),
+                rejected_domains=rejected_domains,
+            )
 
         top = eligible[0]
         second = eligible[1]

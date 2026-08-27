@@ -228,7 +228,8 @@ class TestExplicit:
         rejected_slugs = {d.slug for d in result.rejected_domains}
         assert "health" in rejected_slugs
 
-    def test_multiple_explicit_clearly_different(self) -> None:
+    def test_multiple_explicit_remain_ambiguous_despite_score_gap(self) -> None:
+        """Ordinary evidence must not break ambiguity between explicit domains."""
         resolver = make_resolver(
             policy=DomainScoringPolicy(explicit_weight=100.0, ambiguity_margin=5.0)
         )
@@ -246,8 +247,14 @@ class TestExplicit:
             ),
         )
         result = resolver.resolve(ctx)
-        assert result.primary_domain == D("health")
-        assert result.status == DomainResolutionStatus.RESOLVED
+
+        assert result.status == DomainResolutionStatus.AMBIGUOUS
+        assert result.primary_domain is None
+        assert {domain.slug for domain in result.ambiguous_domains} == {
+            "health",
+            "university",
+        }
+        assert result.requires_clarification is True
 
     def test_multiple_explicit_tied_ambiguous(self) -> None:
         resolver = make_resolver(policy=DomainScoringPolicy(ambiguity_margin=5.0))
