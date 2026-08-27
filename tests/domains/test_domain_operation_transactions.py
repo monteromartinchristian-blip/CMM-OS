@@ -47,6 +47,9 @@ class TransactionManagerSpy:
     def mark_rolled_back(self, transaction_id: str) -> None:
         self.calls.append("rolled_back")
 
+    def mark_failed(self, transaction_id: str) -> None:
+        self.calls.append("failed")
+
 
 class RollbackSpy:
     def __init__(self, succeeds: bool = True) -> None:
@@ -56,6 +59,15 @@ class RollbackSpy:
     def rollback(self, transaction_id: str, checkpoint_id: str | None) -> bool:
         self.calls += 1
         return self.succeeds
+
+
+class ErrorRaisingRollbackExecutor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def rollback(self, transaction_id: str, checkpoint_id: str | None) -> bool:
+        self.calls += 1
+        raise TransactionRollbackError("simulated runtime error during rollback")
 
 
 class FailingCloseTransactionManager(TransactionManagerSpy):
@@ -211,7 +223,63 @@ def test_rollback_failure_preserves_original_and_rollback_errors() -> None:
     assert result.status is DomainOperationStatus.FAILED
     assert result.error["code"] == "OPERATION_EXECUTION_FAILED"
     assert result.rollback_result.error["code"] == "DOMAIN_OPERATION_ROLLBACK_ERROR"
-    assert manager.calls == ["start", "rollback_started"]
+    assert manager.calls == ["start", "rollback_started", "failed"]
+
+
+def test_rollback_raising_runtime_error_is_structured_and_marks_failed() -> None:
+    definition = DomainOperationDefinition(
+        operation_id="project.prepare_change_review",
+        domain_id="domain:project",
+        version="1.0.0",
+        name="Prepare review",
+        description="Prepare change review",
+        operation_type=DomainOperationType.PREPARATION,
+        reversible=True,
+        rollback_policy_id="rollback.safe",
+        output_schema={"type": "object"},
+    )
+
+    class FailingImplementation:
+        def __init__(self) -> None:
+            self.definition = definition
+
+        def execute(self, request: AgentOperationRequest) -> dict[str, object]:
+            return {"success": False, "output": {}}
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    registry.register(definition, FailingImplementation())
+    adapter = AgentExecutionAdapter(
+        registry=common, execution_delegate=DomainOperationExecutionDelegate(registry)
+    )
+    manager = TransactionManagerSpy()
+    rollback = ErrorRaisingRollbackExecutor()
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        transaction_manager=manager,
+        rollback_executor=rollback,
+    )
+    request = DomainOperationRequest(
+        request_id="request:tx:err",
+        operation_id=definition.operation_id,
+        operation_version=definition.version,
+        inputs={},
+        agent_run_id="run:1",
+        workflow_id="workflow:1",
+        task_id="task:1",
+        primary_domain_id="domain:project",
+        idempotency_key="idem:tx:err",
+        capabilities=("execute", "transaction", "rollback"),
+    )
+    result = orchestrator.execute(request)
+    assert result.status is DomainOperationStatus.FAILED
+    assert result.error["code"] == "OPERATION_EXECUTION_FAILED"
+    assert result.rollback_result is not None
+    assert result.rollback_result.attempted is True
+    assert result.rollback_result.succeeded is False
+    assert result.rollback_result.error["code"] == "DOMAIN_OPERATION_ROLLBACK_ERROR"
+    assert manager.calls == ["start", "rollback_started", "failed"]
 
 
 def test_cancellation_without_transaction_remains_cancelled() -> None:
@@ -240,7 +308,7 @@ def test_cancellation_rollback_failure_is_structured_and_not_hidden() -> None:
     assert result.status is DomainOperationStatus.FAILED
     assert result.error["code"] == "OPERATION_CANCELLED"
     assert result.rollback_result.error["code"] == "DOMAIN_OPERATION_ROLLBACK_ERROR"
-    assert manager.calls == ["start", "rollback_started"]
+    assert manager.calls == ["start", "rollback_started", "failed"]
     assert rollback.calls == 1
 
 
@@ -251,5 +319,5 @@ def test_cancellation_close_failure_is_structured_and_not_hidden() -> None:
     assert result.status is DomainOperationStatus.FAILED
     assert result.error["code"] == "OPERATION_CANCELLED"
     assert result.rollback_result.error["code"] == "DOMAIN_OPERATION_ROLLBACK_ERROR"
-    assert manager.calls == ["start", "rollback_started", "rolled_back"]
+    assert manager.calls == ["start", "rollback_started", "rolled_back", "failed"]
     assert rollback.calls == 1

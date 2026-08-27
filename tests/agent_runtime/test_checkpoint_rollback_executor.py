@@ -106,3 +106,106 @@ def test_checkpoint_rollback_executor_returns_false_for_none_checkpoint(
         requires_checkpoint=False,
     )
     assert rollback_executor.rollback(boundary.id, None) is False
+
+
+def test_checkpoint_rollback_executor_returns_false_on_unknown_checkpoint() -> None:
+    repo = InMemoryCheckpointRepository()
+    cp_manager = CheckpointManager(repository=repo)
+    tx_manager = TransactionManager(cp_manager)
+    rest_manager = CheckpointRestorationManager(repository=repo)
+    rollback_executor = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_manager,
+        restoration_manager=rest_manager,
+    )
+    boundary, _ = tx_manager.start_transaction(
+        agent_run_id="run:test:3",
+        goal_id="goal:test",
+        workflow_id="workflow:test",
+        iteration_id="task:test",
+        kind="compensable",
+        name="domain-operation:test",
+        requires_checkpoint=False,
+    )
+    assert rollback_executor.rollback(boundary.id, "nonexistent-cp-id") is False
+
+
+def test_checkpoint_rollback_executor_returns_false_on_provider_restore_failure(
+    tmp_path: Path,
+) -> None:
+    test_file = tmp_path / "failing_restore.py"
+    test_file.write_bytes(b"# content\n")
+
+    class FailingRestoreProvider(TempFileResourceVersionProvider):
+        def restore_version(self, resource_key: str, target_version: str) -> bool:
+            return False
+
+    res_provider = FailingRestoreProvider(test_file)
+    repo = InMemoryCheckpointRepository()
+    cp_manager = CheckpointManager(repository=repo, resource_provider=res_provider)
+    tx_manager = TransactionManager(cp_manager)
+    rest_manager = CheckpointRestorationManager(
+        repository=repo, resource_provider=res_provider
+    )
+    rollback_executor = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_manager,
+        restoration_manager=rest_manager,
+    )
+
+    boundary, checkpoint_id = tx_manager.start_transaction(
+        agent_run_id="run:test:4",
+        goal_id="goal:test",
+        workflow_id="workflow:test",
+        iteration_id="task:test",
+        kind="compensable",
+        name="domain-operation:test",
+        resource_keys=("res:test_file",),
+        requires_checkpoint=True,
+    )
+    assert checkpoint_id is not None
+    tx_manager.mark_rollback_started(boundary.id)
+    assert rollback_executor.rollback(boundary.id, checkpoint_id) is False
+
+
+def test_checkpoint_rollback_executor_returns_false_on_validation_failure(
+    tmp_path: Path,
+) -> None:
+    test_file = tmp_path / "failing_validation.py"
+    test_file.write_bytes(b"# content\n")
+
+    class FailingValidationProvider(TempFileResourceVersionProvider):
+        def __init__(self, file_path: Path) -> None:
+            super().__init__(file_path)
+            self.should_fail_verify = False
+
+        def verify_version(self, resource_key: str, expected_version: str) -> bool:
+            if self.should_fail_verify:
+                return False
+            return super().verify_version(resource_key, expected_version)
+
+    res_provider = FailingValidationProvider(test_file)
+    repo = InMemoryCheckpointRepository()
+    cp_manager = CheckpointManager(repository=repo, resource_provider=res_provider)
+    tx_manager = TransactionManager(cp_manager)
+    rest_manager = CheckpointRestorationManager(
+        repository=repo, resource_provider=res_provider
+    )
+    rollback_executor = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_manager,
+        restoration_manager=rest_manager,
+    )
+
+    boundary, checkpoint_id = tx_manager.start_transaction(
+        agent_run_id="run:test:5",
+        goal_id="goal:test",
+        workflow_id="workflow:test",
+        iteration_id="task:test",
+        kind="compensable",
+        name="domain-operation:test",
+        resource_keys=("res:test_file",),
+        requires_checkpoint=True,
+    )
+    assert checkpoint_id is not None
+    tx_manager.mark_rollback_started(boundary.id)
+    # Enable verification failure on post-restoration verify
+    res_provider.should_fail_verify = True
+    assert rollback_executor.rollback(boundary.id, checkpoint_id) is False

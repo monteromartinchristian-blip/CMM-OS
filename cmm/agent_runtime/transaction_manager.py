@@ -336,6 +336,45 @@ class TransactionManager:
             self._boundaries[transaction_boundary_id] = updated_bnd
             return updated_bnd
 
+    def mark_failed(
+        self,
+        transaction_boundary_id: str,
+        now: str | None = None,
+    ) -> TransactionBoundary:
+        """Mark transaction as FAILED."""
+        timestamp = now or _now_iso()
+        with self._rlock:
+            if transaction_boundary_id not in self._boundaries:
+                raise TransactionStateError(
+                    f"Transaction boundary '{transaction_boundary_id}' not found."
+                )
+            bnd = self._boundaries[transaction_boundary_id]
+            st = self._states[transaction_boundary_id]
+
+            final_status = TransactionStatus.FAILED
+
+            updated_bnd = TransactionBoundary(
+                id=bnd.id,
+                agent_run_id=bnd.agent_run_id,
+                kind=bnd.kind,
+                name=bnd.name,
+                checkpoint_id=bnd.checkpoint_id,
+                status=final_status,
+                created_at=bnd.created_at,
+            )
+
+            self._states[transaction_boundary_id] = TransactionExecutionState(
+                transaction_boundary_id=st.transaction_boundary_id,
+                status=final_status,
+                executed_operations=st.executed_operations,
+                active_checkpoint_id=st.active_checkpoint_id,
+                started_at=st.started_at,
+                updated_at=timestamp,
+            )
+
+            self._boundaries[transaction_boundary_id] = updated_bnd
+            return updated_bnd
+
     def get_boundary(self, transaction_boundary_id: str) -> TransactionBoundary:
         with self._rlock:
             if transaction_boundary_id not in self._boundaries:

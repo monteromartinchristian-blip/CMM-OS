@@ -1232,3 +1232,24 @@ def test_restoration_reverse_order_partial_failure():
 
     # 5. Verify locks released
     assert len(lock_repo.find_active_locks(resource_key="res1")) == 0
+
+
+def test_transaction_mark_failed():
+    repo = InMemoryCheckpointRepository()
+    cp_mgr = CheckpointManager(repository=repo)
+    tx_mgr = TransactionManager(cp_mgr)
+
+    boundary, _ = tx_mgr.start_transaction(
+        agent_run_id="run-fail-1",
+        goal_id="g",
+        workflow_id="w",
+        iteration_id="i",
+        kind="compensable",
+        name="test-fail",
+        requires_checkpoint=False,
+    )
+    tx_mgr.mark_rollback_started(boundary.id)
+    failed = tx_mgr.mark_failed(boundary.id)
+    assert failed.status == TransactionStatus.FAILED.value
+    assert tx_mgr.get_state(boundary.id).status == TransactionStatus.FAILED.value
+    assert tx_mgr.get_boundary(boundary.id).status == TransactionStatus.FAILED.value

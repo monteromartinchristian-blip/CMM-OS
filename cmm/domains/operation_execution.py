@@ -449,14 +449,47 @@ class DefaultDomainOperationOrchestrator:
                 transaction_id=transaction_id,
                 error=original_error,
             )
-        self._transaction_manager.mark_rollback_started(transaction_id)
-        succeeded = self._rollback_executor.rollback(transaction_id, checkpoint_id)
+        try:
+            self._transaction_manager.mark_rollback_started(transaction_id)
+            succeeded = bool(
+                self._rollback_executor.rollback(transaction_id, checkpoint_id)
+            )
+        except (AgentRuntimeError, DomainOperationRollbackError) as exc:
+            succeeded = False
+            mark_failed_fn = getattr(self._transaction_manager, "mark_failed", None)
+            if mark_failed_fn is not None:
+                mark_failed_fn(transaction_id)
+            rollback_error = DomainOperationRollbackError(
+                "Operation rollback failed",
+                details={
+                    "transaction_id": transaction_id,
+                    "error_type": type(exc).__name__,
+                },
+            ).to_dict()
+            return self._result(
+                request,
+                domain_id,
+                DomainOperationStatus.FAILED,
+                started_at,
+                transaction_id=transaction_id,
+                error=original_error,
+                rollback_result=DomainOperationRollbackResult(
+                    attempted=True,
+                    succeeded=False,
+                    policy_id=rollback_policy_id,
+                    error=rollback_error,
+                ),
+            )
+
         rollback_error: Mapping[str, Any] | None = None
         status = DomainOperationStatus.FAILED
         if succeeded:
             self._transaction_manager.mark_rolled_back(transaction_id)
             status = DomainOperationStatus.ROLLED_BACK
         else:
+            mark_failed_fn = getattr(self._transaction_manager, "mark_failed", None)
+            if mark_failed_fn is not None:
+                mark_failed_fn(transaction_id)
             rollback_error = DomainOperationRollbackError(
                 "Operation rollback failed",
                 details={"transaction_id": transaction_id},
@@ -521,6 +554,9 @@ class DefaultDomainOperationOrchestrator:
                 self._rollback_executor.rollback(transaction_id, checkpoint_id)
             )
         except (AgentRuntimeError, DomainOperationRollbackError) as exc:
+            mark_failed_fn = getattr(self._transaction_manager, "mark_failed", None)
+            if mark_failed_fn is not None:
+                mark_failed_fn(transaction_id)
             rollback_error = DomainOperationRollbackError(
                 "Cancellation transaction rollback failed",
                 details={"error_type": type(exc).__name__},
@@ -541,6 +577,9 @@ class DefaultDomainOperationOrchestrator:
             )
 
         if not rollback_succeeded:
+            mark_failed_fn = getattr(self._transaction_manager, "mark_failed", None)
+            if mark_failed_fn is not None:
+                mark_failed_fn(transaction_id)
             rollback_error = DomainOperationRollbackError(
                 "Cancellation transaction rollback failed",
                 details={"reason_code": "rollback_executor_rejected"},
@@ -563,6 +602,9 @@ class DefaultDomainOperationOrchestrator:
         try:
             self._transaction_manager.mark_rolled_back(transaction_id)
         except (AgentRuntimeError, DomainOperationRollbackError) as exc:
+            mark_failed_fn = getattr(self._transaction_manager, "mark_failed", None)
+            if mark_failed_fn is not None:
+                mark_failed_fn(transaction_id)
             rollback_error = DomainOperationRollbackError(
                 "Cancellation transaction close failed",
                 details={"error_type": type(exc).__name__},
