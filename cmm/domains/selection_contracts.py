@@ -190,6 +190,240 @@ class DomainSelectionPolicy:
         return cls(**{key: data[key] for key in _SELECTION_POLICY_KNOWN if key in data})
 
 
+_SELECTION_TRANSITION_KNOWN = frozenset(
+    {
+        "previous_resolution_id",
+        "new_resolution_id",
+        "previous_primary_domain",
+        "new_primary_domain",
+        "previous_supporting_domains",
+        "new_supporting_domains",
+        "primary_changed",
+        "supporting_changed",
+        "reason_codes",
+        "requires_recomposition",
+        "requires_session_update",
+        "metadata",
+    }
+)
+
+
+def _coerce_optional_domain_id(
+    value: DomainId | str | None,
+    field_name: str,
+) -> DomainId | None:
+    if value is None:
+        return None
+    return _coerce_domain_id(value, field_name)
+
+
+def _coerce_domain_id_tuple(
+    value: tuple[DomainId | str, ...] | list[DomainId | str],
+    field_name: str,
+) -> tuple[DomainId, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainContractValidationError(
+            f"{field_name} must be a tuple or list",
+            field=field_name,
+        )
+
+    result = tuple(
+        _coerce_domain_id(item, f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    )
+
+    slugs = [str(item) for item in result]
+    if len(slugs) != len(set(slugs)):
+        raise DomainContractValidationError(
+            f"{field_name} must not contain duplicate domains",
+            field=field_name,
+        )
+
+    return result
+
+
+def _coerce_reason_codes(
+    value: tuple[str, ...] | list[str],
+) -> tuple[str, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainContractValidationError(
+            "reason_codes must be a tuple or list",
+            field="reason_codes",
+        )
+
+    result = tuple(
+        _validate_non_empty_str(item, f"reason_codes[{index}]")
+        for index, item in enumerate(value)
+    )
+
+    if len(result) != len(set(result)):
+        raise DomainContractValidationError(
+            "reason_codes must not contain duplicates",
+            field="reason_codes",
+        )
+
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class DomainSelectionTransition:
+    """Pure, auditable comparison between two domain resolutions."""
+
+    previous_resolution_id: str
+    new_resolution_id: str
+    previous_primary_domain: DomainId | None = None
+    new_primary_domain: DomainId | None = None
+    previous_supporting_domains: tuple[DomainId, ...] = ()
+    new_supporting_domains: tuple[DomainId, ...] = ()
+    primary_changed: bool = False
+    supporting_changed: bool = False
+    reason_codes: tuple[str, ...] = ()
+    requires_recomposition: bool = False
+    requires_session_update: bool = False
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "previous_resolution_id",
+            _validate_non_empty_str(
+                self.previous_resolution_id,
+                "previous_resolution_id",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "new_resolution_id",
+            _validate_non_empty_str(
+                self.new_resolution_id,
+                "new_resolution_id",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "previous_primary_domain",
+            _coerce_optional_domain_id(
+                self.previous_primary_domain,
+                "previous_primary_domain",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "new_primary_domain",
+            _coerce_optional_domain_id(
+                self.new_primary_domain,
+                "new_primary_domain",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "previous_supporting_domains",
+            _coerce_domain_id_tuple(
+                self.previous_supporting_domains,
+                "previous_supporting_domains",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "new_supporting_domains",
+            _coerce_domain_id_tuple(
+                self.new_supporting_domains,
+                "new_supporting_domains",
+            ),
+        )
+
+        for field_name in (
+            "primary_changed",
+            "supporting_changed",
+            "requires_recomposition",
+            "requires_session_update",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _validate_strict_bool(getattr(self, field_name), field_name),
+            )
+
+        object.__setattr__(
+            self,
+            "reason_codes",
+            _coerce_reason_codes(self.reason_codes),
+        )
+
+        frozen_metadata = _validate_json_safe_metadata(
+            self.metadata,
+            "metadata",
+        )
+        _reject_credential_keys_deep(frozen_metadata, "metadata")
+        object.__setattr__(self, "metadata", frozen_metadata)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the transition to a JSON-safe dictionary."""
+        return {
+            "previous_resolution_id": self.previous_resolution_id,
+            "new_resolution_id": self.new_resolution_id,
+            "previous_primary_domain": (
+                str(self.previous_primary_domain)
+                if self.previous_primary_domain is not None
+                else None
+            ),
+            "new_primary_domain": (
+                str(self.new_primary_domain)
+                if self.new_primary_domain is not None
+                else None
+            ),
+            "previous_supporting_domains": [
+                str(domain_id) for domain_id in self.previous_supporting_domains
+            ],
+            "new_supporting_domains": [
+                str(domain_id) for domain_id in self.new_supporting_domains
+            ],
+            "primary_changed": self.primary_changed,
+            "supporting_changed": self.supporting_changed,
+            "reason_codes": list(self.reason_codes),
+            "requires_recomposition": self.requires_recomposition,
+            "requires_session_update": self.requires_session_update,
+            "metadata": _deep_unfreeze_value(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+    ) -> DomainSelectionTransition:
+        """Deserialize a transition from a strict mapping."""
+        if not isinstance(data, Mapping):
+            raise DomainContractValidationError(
+                "DomainSelectionTransition.from_dict requires a mapping",
+                field="data",
+            )
+
+        _reject_unknown_fields(
+            data,
+            _SELECTION_TRANSITION_KNOWN,
+            "DomainSelectionTransition",
+        )
+
+        required = {
+            "previous_resolution_id",
+            "new_resolution_id",
+        }
+        missing = required - set(data)
+        if missing:
+            raise DomainContractValidationError(
+                "DomainSelectionTransition.from_dict missing required fields",
+                field="data",
+                details={"missing_fields": sorted(missing)},
+            )
+
+        return cls(
+            **{key: data[key] for key in _SELECTION_TRANSITION_KNOWN if key in data}
+        )
+
+
 __all__ = [
     "DomainSelectionPolicy",
+    "DomainSelectionTransition",
 ]
