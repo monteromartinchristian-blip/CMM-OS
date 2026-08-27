@@ -187,6 +187,8 @@ class TestPublicAPI:
             "DomainResultId",
             "DomainRollbackFailed",
             "DomainScoringPolicy",
+            "DomainSelectionPolicy",
+            "DomainSelectionTransition",
             "DomainSerializationError",
             "DomainSource",
             "DomainSourceKind",
@@ -212,6 +214,7 @@ class TestPublicAPI:
             "PermissionComposition",
             "PipelineDomainValidator",
             "PresentationComposition",
+            "build_domain_selection_transition",
             "build_domain_validation_context",
             "build_domain_validation_result",
             "build_domain_validation_steps",
@@ -500,7 +503,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 428
+        assert len(cmm.domains.__all__) == 431
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

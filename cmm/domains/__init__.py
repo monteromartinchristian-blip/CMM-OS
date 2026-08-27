@@ -339,8 +339,6 @@ from cmm.domains.resolution_contracts import (
     DomainResolutionResource,
     DomainResolutionSignal,
 )
-
-# Phase 10.7 – Domain Resolver
 from cmm.domains.resolver import (
     DefaultDomainResolver,
     DomainResolver,
@@ -406,6 +404,13 @@ from cmm.domains.rule_execution import (
 from cmm.domains.rule_selection import (
     DefaultDomainRuleSelector,
     DomainRuleSelector,
+)
+
+# Phase 10.7 – Domain Resolver
+from cmm.domains.selection import build_domain_selection_transition
+from cmm.domains.selection_contracts import (
+    DomainSelectionPolicy,
+    DomainSelectionTransition,
 )
 
 # Phase 10.5 – Domain Validation
@@ -686,6 +691,8 @@ __all__ = [
     "DomainRuleSource",
     "DomainRuleSourceRecord",
     "DomainScoringPolicy",
+    "DomainSelectionPolicy",
+    "DomainSelectionTransition",
     "DomainSerializationError",
     "DomainSource",
     "DomainSourceKind",
@@ -720,6 +727,7 @@ __all__ = [
     "ResolvedDomainProfile",
     "SelectedReasoningRule",
     "build_domain_operation_approval_requirement",
+    "build_domain_selection_transition",
     "build_domain_validation_context",
     "build_domain_validation_result",
     "build_domain_validation_steps",
