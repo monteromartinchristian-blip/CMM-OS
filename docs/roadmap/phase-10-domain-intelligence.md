@@ -4,7 +4,7 @@ Objective
 
 To build specialized infrastructure that will allow CMM OS to understand, reason, plan and act differently depending on the area of life or work involved, without fragmenting the system or creating independent architecture.
 
-Canonical requirements for Phases 10.16–10.30 are maintained in the
+Canonical requirements already consolidated for Phases 10.16–10.30 are maintained in the
 [Domain Intelligence Requirements Matrix](../reference/domain-intelligence-requirements-matrix.md),
 with source-clause evidence in the
 [Domain Prompt Clause Coverage](../audits/domain-prompt-clause-coverage.md).

@@ -1,6 +1,6 @@
 # Domain Intelligence Requirements Matrix
 
-**Status:** Canonical reference for Phase 10.16 through Phase 10.30
+**Status:** Canonical reference for consolidated Phase 10 requirements. Phase 10.31–10.51 proceed sequentially after 10.30; their implementation and acceptance evidence is added as each milestone is designed and implemented. Phase 10.52–10.53 remain the final planned Domain Packs.
 
 **Coverage evidence:** [Domain prompt clause coverage](../audits/domain-prompt-clause-coverage.md)
 
@@ -37,7 +37,7 @@ Every mapping to a repository symbol uses one of these states:
 7. Mutable personal information is versioned state with provenance and validity, never a stable prompt rule.
 8. Provider-specific instructions and product-specific operations are abstracted into resource, workflow, connector, or provider-adapter requirements.
 9. Phase 10.15 remains closed. No incompatibility with its permission contracts was demonstrated by this analysis.
-10. Implementation remains sequential: 10.16, 10.17, 10.18, 10.19 through 10.30, then Phase 11.
+10. Implementation remains sequential: 10.16, 10.17, 10.18, 10.19 through 10.30, then 10.31 through 10.51, then the final planned Domain Packs 10.52 and 10.53, then Phase 11.
 
 ## 4. Source registry
 
@@ -394,6 +394,7 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.28 — Sport
 10.29 — Life Plan
 10.30 — Project
+10.31–10.51 — Domain Intelligence infrastructure sequence
 10.52 — Mental Health
 10.53 — Neurodivergence
 Phase 11 — Stable Integrated Platform
