@@ -79,6 +79,48 @@ def _validate_positive_int(value: Any, name: str) -> int:
     return value
 
 
+def _append_domain_signal_once(
+    signals: tuple[DomainResolutionSignal, ...],
+    *,
+    kind: str,
+    domain_id: DomainId | None,
+    field_name: str,
+    value: str,
+    provenance_source: str,
+) -> tuple[DomainResolutionSignal, ...]:
+    """Append one canonical structured domain signal when not already present."""
+
+    if domain_id is None:
+        return signals
+
+    canonical_domain = _freeze_domain_ids(
+        (domain_id,),
+        field_name,
+    )[0]
+
+    for signal in signals:
+        if signal.kind != kind:
+            continue
+
+        if any(
+            signal_domain.slug == canonical_domain.slug
+            for signal_domain in signal.domain_ids
+        ):
+            return signals
+
+    return signals + (
+        DomainResolutionSignal(
+            kind=kind,
+            source="domain_resolution_context_builder",
+            value=value,
+            domain_ids=(canonical_domain,),
+            confidence=1.0,
+            weight=10.0,
+            provenance={"source": provenance_source},
+        ),
+    )
+
+
 class DomainResolutionContextBuilder:
     """Builds a ``DomainResolutionContext`` from immutable snapshots.
 
@@ -130,6 +172,8 @@ class DomainResolutionContextBuilder:
         session_id: str | None = None,
         workflow_id: str | None = None,
         explicit_domains: tuple[DomainId, ...] | None = None,
+        session_domain: DomainId | None = None,
+        active_goal_domain: DomainId | None = None,
         authorized_domains: tuple[DomainId, ...] | None = None,
         resources: tuple[DomainResolutionResource, ...] | None = None,
         entities: tuple[DomainResolutionEntity, ...] | None = None,
@@ -218,7 +262,25 @@ class DomainResolutionContextBuilder:
             )
 
         # Signals limit: reject, don't truncate
-        sigs = signals or ()
+        sigs = tuple(signals or ())
+
+        sigs = _append_domain_signal_once(
+            sigs,
+            kind="session",
+            domain_id=session_domain,
+            field_name="session_domain",
+            value="session_domain",
+            provenance_source="explicit_session_domain",
+        )
+
+        sigs = _append_domain_signal_once(
+            sigs,
+            kind="goal",
+            domain_id=active_goal_domain,
+            field_name="active_goal_domain",
+            value="active_goal_domain",
+            provenance_source="explicit_active_goal_domain",
+        )
         if len(sigs) > self._max_signals:
             raise DomainResolutionLimitExceeded(
                 "Signals exceed configured item limit",
