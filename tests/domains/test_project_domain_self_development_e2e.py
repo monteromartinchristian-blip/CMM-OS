@@ -674,6 +674,40 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     for approval_id in approval_request_ids.values():
         assert approval_repo.is_consumed(approval_id) is True
 
+    authority = op_result.metadata["permission_authority"]
+    permission_decision_id = authority["permission_decision_id"]
+    approval_authorities = tuple(authority["approvals"])
+
+    approval_request_ids_from_auth = tuple(
+        sorted(item["approval_request_id"] for item in approval_authorities)
+    )
+    approval_decision_ids_from_auth = tuple(
+        sorted(
+            {
+                decision_id
+                for item in approval_authorities
+                for decision_id in item["approval_decision_ids"]
+            }
+        )
+    )
+
+    assert {item["action"] for item in approval_authorities} == {
+        PermissionCapability.OPERATION_EXECUTE.value,
+        PermissionCapability.FILE_MODIFY.value,
+    }
+
+    file_modify_authority = next(
+        item
+        for item in approval_authorities
+        if item["action"] == PermissionCapability.FILE_MODIFY.value
+    )
+    assert (
+        file_modify_authority["approval_request_id"] in approval_request_ids_from_auth
+    )
+    assert set(file_modify_authority["approval_decision_ids"]).issubset(
+        set(approval_decision_ids_from_auth)
+    )
+
     modified_source = init_file.read_text(encoding="utf-8")
     assert "def validate_token" in modified_source
 
@@ -801,7 +835,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     affected_reference_ids = (
         project_context_ref,
         development_plan_ref,
-        app_request.id,
+        permission_decision_id,
+        *approval_request_ids_from_auth,
+        *approval_decision_ids_from_auth,
         str(op_result.result_id),
         str(op_result.transaction_id),
         rollback_ref,
@@ -843,9 +879,14 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         proposal=mem_proposal,
         view=_ResolvedView(),  # type: ignore[arg-type]
         trace_id="trace:software:e2e:1",
-        approval_request_ids=(app_request.id,),
+        permission_decision_ids=(permission_decision_id,),
+        approval_request_ids=approval_request_ids_from_auth,
+        approval_decision_ids=approval_decision_ids_from_auth,
     )
     assert binding.trace_id == "trace:software:e2e:1"
+    assert binding.permission_decision_ids == (permission_decision_id,)
+    assert binding.approval_request_ids == approval_request_ids_from_auth
+    assert binding.approval_decision_ids == approval_decision_ids_from_auth
     assert binding.affected_reference_ids == tuple(sorted(set(affected_reference_ids)))
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -860,9 +901,23 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         ref_id=development_plan_ref,
         kind=DomainTraceReferenceKind.RULE_PLAN,
     )
-    ref_app_req = build_project_trace_reference(
-        ref_id=app_request.id,
-        kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+    ref_permission = build_project_trace_reference(
+        ref_id=permission_decision_id,
+        kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+    )
+    ref_approval_requests = tuple(
+        build_project_trace_reference(
+            ref_id=req_id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        )
+        for req_id in approval_request_ids_from_auth
+    )
+    ref_approval_decisions = tuple(
+        build_project_trace_reference(
+            ref_id=dec_id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        )
+        for dec_id in approval_decision_ids_from_auth
     )
     ref_op_mutation = build_project_trace_reference(
         ref_id=str(op_result.result_id),
@@ -892,7 +947,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     all_trace_refs = (
         ref_ctx,
         ref_plan,
-        ref_app_req,
+        ref_permission,
+        *ref_approval_requests,
+        *ref_approval_decisions,
         ref_op_mutation,
         ref_tx,
         ref_rollback,
@@ -985,6 +1042,13 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
 
     trace_val = validate_project_trace(trace=trace, inventory=inventory)
     assert trace_val.valid is True
+
+    kinds = {ref.kind for ref in all_trace_refs}
+    assert DomainTraceReferenceKind.PERMISSION_DECISION in kinds
+    assert DomainTraceReferenceKind.APPROVAL_REQUEST in kinds
+    assert DomainTraceReferenceKind.APPROVAL_DECISION in kinds
+    assert DomainTraceReferenceKind.OPERATION_RESULT in kinds
+    assert DomainTraceReferenceKind.EVIDENCE in kinds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # 15. Presentation Projection
