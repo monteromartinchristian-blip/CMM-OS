@@ -1,12 +1,12 @@
 # Project Domain Reference (`domain:project`)
 
-> **Phase 10.30 — Candidate Implementation — Pending Independent Re-Audit V3**
+> **Phase 10.30 — Candidate Implementation — Pending Independent Re-Audit V4**
 >
-> - **Candidate Implementation Status:** CANDIDATE (Remediation V2 implemented)
+> - **Candidate Implementation Status:** CANDIDATE (Targeted M2 Remediation V3 implemented)
 > - **DP-030 Status:** REQUIRES_PHASE_INSPECTION
 > - **AT-DP-030 Status:** PASS (56 connected acceptance checkpoints)
 > - **Closure Adversarial Gate:** PASS (34 attack classes)
-> - **Audit Lineage:** Independent Audit V1 = FAIL recorded; Independent Re-audit V2 = FAIL recorded; Remediation V2 = implemented/candidate; Independent Re-audit V3 = pending
+> - **Audit Lineage:** Independent Audit V1 = FAIL recorded; Independent Re-audit V2 = FAIL recorded; Independent Re-audit V3 = FAIL recorded; Targeted M2 Remediation V3 = implemented/candidate; Independent Re-audit V4 = pending
 
 The **Project Domain** (`domain:project`) provides CMM OS with comprehensive generic project management, milestone planning, dependency tracking, resource constraint checking, risk analysis, progress verification, and conditional software development capabilities (architecture analysis, change review, test validation, commit readiness evaluation, and rollback-protected mutations).
 
