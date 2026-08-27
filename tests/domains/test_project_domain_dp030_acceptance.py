@@ -1251,6 +1251,56 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
     )
 
     # 54 software trace includes permission/execution/validation refs
+    authority_54 = acc_op_res.metadata["permission_authority"]
+    permission_decision_id_54 = authority_54["permission_decision_id"]
+    approval_authorities_54 = tuple(authority_54["approvals"])
+
+    assert {item["action"] for item in approval_authorities_54} == {
+        PermissionCapability.OPERATION_EXECUTE.value,
+        PermissionCapability.FILE_MODIFY.value,
+    }
+
+    approval_request_ids_54 = tuple(
+        sorted(item["approval_request_id"] for item in approval_authorities_54)
+    )
+    approval_decision_ids_54 = tuple(
+        sorted(
+            {
+                decision_id
+                for item in approval_authorities_54
+                for decision_id in item["approval_decision_ids"]
+            }
+        )
+    )
+
+    file_modify_authority_54 = next(
+        item
+        for item in approval_authorities_54
+        if item["action"] == PermissionCapability.FILE_MODIFY.value
+    )
+    assert file_modify_authority_54["approval_request_id"] in approval_request_ids_54
+    assert set(file_modify_authority_54["approval_decision_ids"]).issubset(
+        set(approval_decision_ids_54)
+    )
+
+    perm_ref_54 = build_project_trace_reference(
+        ref_id=permission_decision_id_54,
+        kind=DomainTraceReferenceKind.PERMISSION_DECISION,
+    )
+    app_req_refs_54 = tuple(
+        build_project_trace_reference(
+            ref_id=req_id,
+            kind=DomainTraceReferenceKind.APPROVAL_REQUEST,
+        )
+        for req_id in approval_request_ids_54
+    )
+    app_dec_refs_54 = tuple(
+        build_project_trace_reference(
+            ref_id=dec_id,
+            kind=DomainTraceReferenceKind.APPROVAL_DECISION,
+        )
+        for dec_id in approval_decision_ids_54
+    )
     op_mutation_ref = build_project_trace_reference(
         ref_id=str(acc_op_res.result_id),
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
@@ -1279,6 +1329,9 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
     sw_trace_refs = (
+        perm_ref_54,
+        *app_req_refs_54,
+        *app_dec_refs_54,
         op_mutation_ref,
         tx_ref,
         rollback_ref,
@@ -1370,6 +1423,12 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
     )
     assert sw_trace.status == DomainTraceStatus.COMPLETED
     assert validate_project_trace(trace=sw_trace, inventory=inv_54).valid is True
+    kinds_54 = {ref.kind for ref in sw_trace_refs}
+    assert DomainTraceReferenceKind.PERMISSION_DECISION in kinds_54
+    assert DomainTraceReferenceKind.APPROVAL_REQUEST in kinds_54
+    assert DomainTraceReferenceKind.APPROVAL_DECISION in kinds_54
+    assert DomainTraceReferenceKind.OPERATION_RESULT in kinds_54
+    assert DomainTraceReferenceKind.EVIDENCE in kinds_54
     checkpoint("54 software trace includes permission/execution/validation refs")
 
     # 55 Formation remains outside Project
