@@ -45,6 +45,7 @@ from cmm.domains.memory_contracts import (
     DomainMemoryReferenceKind,
     DomainMemoryTraceSnapshot,
     DomainMemoryViewSnapshot,
+    sha256_digest,
 )
 from cmm.domains.operation_contracts import (
     DomainOperationRequest,
@@ -1250,13 +1251,39 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
     )
 
     # 54 software trace includes permission/execution/validation refs
-    val_ref = build_project_trace_reference(
-        ref_id="op:project.run_validation:1.0.0",
+    op_mutation_ref = build_project_trace_reference(
+        ref_id=str(acc_op_res.result_id),
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
-    commit_prep_ref = build_project_trace_reference(
-        ref_id="op:project.prepare_commit:1.0.0",
+    tx_ref = build_project_trace_reference(
+        ref_id=str(acc_op_res.transaction_id),
+        kind=DomainTraceReferenceKind.EVIDENCE,
+    )
+    assert fail_res.rollback_result is not None
+    rollback_res_ref = "rollback-result:sha256:" + sha256_digest(
+        fail_res.rollback_result.to_dict()
+    )
+    rollback_ref = build_project_trace_reference(
+        ref_id=rollback_res_ref,
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
+    )
+    val_ref = build_project_trace_reference(
+        ref_id=str(acc_val_result.id),
+        kind=DomainTraceReferenceKind.EVIDENCE,
+    )
+    readiness_res_ref = "prepare-commit-readiness:sha256:" + sha256_digest(
+        passed_readiness
+    )
+    commit_prep_ref = build_project_trace_reference(
+        ref_id=readiness_res_ref,
+        kind=DomainTraceReferenceKind.OPERATION_RESULT,
+    )
+    sw_trace_refs = (
+        op_mutation_ref,
+        tx_ref,
+        rollback_ref,
+        val_ref,
+        commit_prep_ref,
     )
     req_id_54 = "req:trace:sw:1"
     ctx_id_54 = "ctx:sw:1"
@@ -1279,7 +1306,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         contributions=(
             build_project_trace_contribution(
                 domain_result_id=dres_id_54,
-                references=(val_ref, commit_prep_ref),
+                references=sw_trace_refs,
             ),
         ),
         references=trace_refs_54,
@@ -1303,8 +1330,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
                 DomainTraceReferenceKind.DOMAIN_RESULT,
                 PROJECT_DOMAIN_ID,
             ),
-            val_ref,
-            commit_prep_ref,
+            *sw_trace_refs,
             DomainTraceReference(
                 ctx_id_54, DomainTraceReferenceKind.RESOLUTION_CONTEXT, None
             ),
@@ -1338,7 +1364,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         resolution_result_id=res_id_54,
         composition_id=comp_id_54,
         domain_result_id=dres_id_54,
-        references=(val_ref, commit_prep_ref),
+        references=sw_trace_refs,
         started_at=now,
         completed_at=now,
     )

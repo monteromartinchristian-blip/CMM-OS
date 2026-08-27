@@ -52,6 +52,7 @@ from cmm.development.models import DevelopmentPlan
 from cmm.development.providers import DeterministicPlanningProvider
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.identifiers import DomainId
+from cmm.domains.memory_contracts import sha256_digest
 from cmm.domains.operation_contracts import (
     DomainOperationDefinition,
     DomainOperationRequest,
@@ -770,18 +771,57 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     # ═══════════════════════════════════════════════════════════════════════════
     # 13. Memory Integration & Proposal Binding Real Runtime Outputs
     # ═══════════════════════════════════════════════════════════════════════════
+    project_context_ref = "project-context:sha256:" + sha256_digest(
+        project_context.serialize()
+    )
+    development_plan_ref = "development-plan:sha256:" + sha256_digest(
+        dev_plan.serialize()
+    )
+    assert trial_result.rollback_result is not None
+    rollback_ref = "rollback-result:sha256:" + sha256_digest(
+        trial_result.rollback_result.to_dict()
+    )
+    readiness_ref = "prepare-commit-readiness:sha256:" + sha256_digest(readiness_ready)
+
+    # Prove artifact identity sensitivity: mutating data changes the digest
+    modified_plan_data = dict(dev_plan.serialize())
+    modified_plan_data["goal"] = "Altered Plan Goal for Sensitivity Test"
+    assert (
+        "development-plan:sha256:" + sha256_digest(modified_plan_data)
+        != development_plan_ref
+    )
+
+    modified_ctx_data = dict(project_context.serialize())
+    modified_ctx_data["summary"] = "Altered Project Context Summary"
+    assert (
+        "project-context:sha256:" + sha256_digest(modified_ctx_data)
+        != project_context_ref
+    )
+
+    affected_reference_ids = (
+        project_context_ref,
+        development_plan_ref,
+        app_request.id,
+        str(op_result.result_id),
+        str(op_result.transaction_id),
+        rollback_ref,
+        str(pass_res.id),
+        readiness_ref,
+    )
+
     proposal_content = {
         "kind": "architecture_document",
         "status": "decision",
         "is_confirmed": True,
         "summary": "Added token validation method to AuthService",
-        "project_context_reference": str(project_context.files[0].path),
-        "plan_reference": str(dev_plan.goal),
+        "project_context_reference": project_context_ref,
+        "plan_reference": development_plan_ref,
         "approval_reference": app_request.id,
         "operation_result_reference": str(op_result.result_id),
         "transaction_reference": str(op_result.transaction_id),
+        "rollback_reference": rollback_ref,
         "validation_reference": str(pass_res.id),
-        "readiness_reference": str(readiness_ready["change_id"]),
+        "readiness_reference": readiness_ref,
     }
     assert (
         validate_project_memory_proposal_content(proposal_content)["is_valid"] is True
@@ -789,7 +829,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
 
     mem_proposal = build_project_memory_proposal(
         proposal_id="prop:arch:001",
-        affected_reference_ids=("ref:project:arch:auth",),
+        affected_reference_ids=affected_reference_ids,
     )
     assert mem_proposal.requires_confirmation is True
 
@@ -806,17 +846,18 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         approval_request_ids=(app_request.id,),
     )
     assert binding.trace_id == "trace:software:e2e:1"
+    assert binding.affected_reference_ids == tuple(sorted(set(affected_reference_ids)))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # 14. Trace Assembly & Independent Inventory Binding Real Runtime Outputs
     # ═══════════════════════════════════════════════════════════════════════════
     now = datetime.now(timezone.utc)
     ref_ctx = build_project_trace_reference(
-        ref_id=f"ctx:project:{project_context.total_python_files}",
+        ref_id=project_context_ref,
         kind=DomainTraceReferenceKind.RESOURCE_RESOLUTION,
     )
     ref_plan = build_project_trace_reference(
-        ref_id="plan:project.self_development:auth_service",
+        ref_id=development_plan_ref,
         kind=DomainTraceReferenceKind.RULE_PLAN,
     )
     ref_app_req = build_project_trace_reference(
@@ -832,7 +873,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         kind=DomainTraceReferenceKind.EVIDENCE,
     )
     ref_rollback = build_project_trace_reference(
-        ref_id=str(trial_result.result_id),
+        ref_id=rollback_ref,
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
     ref_val = build_project_trace_reference(
@@ -840,7 +881,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         kind=DomainTraceReferenceKind.EVIDENCE,
     )
     ref_readiness = build_project_trace_reference(
-        ref_id=f"readiness:{readiness_ready['change_id']}",
+        ref_id=readiness_ref,
         kind=DomainTraceReferenceKind.OPERATION_RESULT,
     )
     ref_rule = build_project_trace_reference(
