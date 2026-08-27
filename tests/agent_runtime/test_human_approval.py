@@ -18,6 +18,7 @@ from cmm.agent_runtime.approval_adapters import (
     create_requirement_from_workflow_plan,
 )
 from cmm.agent_runtime.approval_contracts import (
+    ApprovalConsumptionEvidence,
     ApprovalDecision,
     ApprovalRequest,
     ApprovalRequirement,
@@ -975,3 +976,73 @@ def test_repository_get_resolution() -> None:
     repo.resolve_request(res)
 
     assert repo.get_resolution("r1") == res
+
+
+def test_approval_consumption_evidence_contract_and_decision_ids() -> None:
+    evidence = ApprovalConsumptionEvidence(
+        request_id="apr-1",
+        requirement_id="req:file-modify",
+        actor_id="actor:dev",
+        session_id="session:dev",
+        domain_id="domain:project",
+        action="file.modify",
+        consumed=True,
+        granted=True,
+        approval_decision_ids=("dec-2", "dec-1"),
+    )
+
+    assert evidence.approval_decision_ids == ("dec-1", "dec-2")
+    assert evidence.to_dict()["approval_decision_ids"] == ["dec-1", "dec-2"]
+
+    round_trip = ApprovalConsumptionEvidence.from_dict(evidence.to_dict())
+    assert round_trip == evidence
+
+    # Rejects empty or invalid decision IDs
+    with pytest.raises(InvalidApprovalContractError):
+        ApprovalConsumptionEvidence(
+            request_id="apr-1",
+            granted=True,
+            approval_decision_ids=("",),
+        )
+
+    with pytest.raises(InvalidApprovalContractError):
+        ApprovalConsumptionEvidence(
+            request_id="apr-1",
+            granted=True,
+            approval_decision_ids=("dec-1", "   "),
+        )
+
+
+def test_approval_service_validate_and_consume_carries_decision_ids() -> None:
+    svc = ApprovalService()
+    req = svc.create_request(
+        title="File Modify Approval",
+        description="Permission to modify source file",
+        requested_by="agent:dev",
+    )
+
+    # Submit decision
+    resolution = svc.approve(
+        req.id,
+        actor_id="user:lead",
+        comment="Approved for production",
+    )
+    assert resolution.satisfied is True
+
+    decisions = svc.repository.list_decisions(req.id)
+    assert len(decisions) == 1
+    expected_decision_ids = tuple(sorted(d.id for d in decisions))
+
+    evidence = svc.validate_and_consume(
+        req.id,
+        actor_id="user:lead",
+        session_id="sess:1",
+        action="file.modify",
+        domain_id="domain:project",
+    )
+
+    assert evidence.granted is True
+    assert evidence.consumed is True
+    assert evidence.approval_decision_ids == expected_decision_ids
+    assert len(evidence.approval_decision_ids) == 1
+    assert evidence.approval_decision_ids[0].startswith("dec-")

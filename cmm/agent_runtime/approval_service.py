@@ -671,7 +671,11 @@ class ApprovalService:
                     ("requirement_id", requirement_id, binding.requirement_id),
                 )
                 for field_name, supplied, authoritative in supplied_checks:
-                    if supplied is not None and supplied != "" and supplied != authoritative:
+                    if (
+                        supplied is not None
+                        and supplied != ""
+                        and supplied != authoritative
+                    ):
                         return _deny(f"requirement_mismatch:{field_name}", binding)
 
             meta = dict(request.metadata)
@@ -732,11 +736,16 @@ class ApprovalService:
                 if not consumed:
                     return _deny("already_consumed", binding)
 
+            approval_decision_ids = tuple(
+                decision.id for decision in self._repo.list_decisions(request_id)
+            )
+
             return ApprovalConsumptionEvidence(
                 request_id=request_id,
                 **_evidence_context(binding),
                 consumed=consumed,
                 granted=True,
+                approval_decision_ids=approval_decision_ids,
                 validated_at=current_time,
             )
 

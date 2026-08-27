@@ -313,11 +313,8 @@ class ApprovalRequirement:
                 "permission_requirement",
                 PermissionApprovalRequirement.from_dict(self.permission_requirement),
             )
-        elif (
-            self.permission_requirement is not None
-            and not isinstance(
-                self.permission_requirement, PermissionApprovalRequirement
-            )
+        elif self.permission_requirement is not None and not isinstance(
+            self.permission_requirement, PermissionApprovalRequirement
         ):
             raise InvalidApprovalContractError(
                 "permission_requirement must be a PermissionApprovalRequirement or None"
@@ -496,11 +493,8 @@ class ApprovalRequest:
                 "permission_requirement",
                 PermissionApprovalRequirement.from_dict(self.permission_requirement),
             )
-        elif (
-            self.permission_requirement is not None
-            and not isinstance(
-                self.permission_requirement, PermissionApprovalRequirement
-            )
+        elif self.permission_requirement is not None and not isinstance(
+            self.permission_requirement, PermissionApprovalRequirement
         ):
             raise InvalidApprovalContractError(
                 "permission_requirement must be a PermissionApprovalRequirement or None"
@@ -963,6 +957,7 @@ class ApprovalConsumptionEvidence:
     reusable: bool = False
     consumed: bool = False
     granted: bool = False
+    approval_decision_ids: tuple[str, ...] = ()
     validated_at: datetime = field(default_factory=_now_utc)
     denial_reason: str | None = None
     metadata: MappingProxyType[str, Any] = field(
@@ -997,6 +992,17 @@ class ApprovalConsumptionEvidence:
             raise InvalidApprovalContractError("consumed must be a bool")
         if not isinstance(self.granted, bool):
             raise InvalidApprovalContractError("granted must be a bool")
+        decision_ids = tuple(
+            sorted(
+                {
+                    _validate_non_empty_str(value, "approval_decision_ids")
+                    for value in _freeze_str_tuple(
+                        self.approval_decision_ids, "approval_decision_ids"
+                    )
+                }
+            )
+        )
+        object.__setattr__(self, "approval_decision_ids", decision_ids)
         object.__setattr__(
             self, "validated_at", _parse_dt(self.validated_at, "validated_at")
         )
@@ -1031,6 +1037,7 @@ class ApprovalConsumptionEvidence:
             "reusable": self.reusable,
             "consumed": self.consumed,
             "granted": self.granted,
+            "approval_decision_ids": list(self.approval_decision_ids),
             "validated_at": self.validated_at.isoformat(),
             "denial_reason": self.denial_reason,
             "metadata": dict(self.metadata),
