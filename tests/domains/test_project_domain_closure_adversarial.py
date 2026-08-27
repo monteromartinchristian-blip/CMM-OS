@@ -6,6 +6,7 @@ Section 29 of docs/superpowers/specs/2026-08-26-project-domain-design.md.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,19 +16,38 @@ import pytest
 
 from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
 from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+from cmm.agent_runtime.checkpoint_repository import InMemoryCheckpointRepository
+from cmm.agent_runtime.checkpoint_restoration import CheckpointRestorationManager
+from cmm.agent_runtime.checkpoint_rollback_executor import (
+    CheckpointRestorationRollbackExecutor,
+)
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
 )
+from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.transaction_manager import TransactionManager
+from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.development.analyzer import ProjectContext
+from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.errors import (
     DomainOperationRegistryError,
     DomainPermissionRegistryError,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.operation_contracts import (
+    DomainOperationRequest,
+    DomainOperationStatus,
+)
+from cmm.domains.operation_execution import (
+    DefaultDomainOperationOrchestrator,
+    DomainOperationExecutionDelegate,
+)
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_adapters import evaluate_domain_operation
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.permission_gate import DomainPermissionGate, PermissionGateOutcome
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -650,7 +670,7 @@ def test_attack_operation_unavailable_without_implementation() -> None:
 
 
 def test_attack_direct_execution_bypass_rejected() -> None:
-    """Evaluating unauthorized operations through PermissionGate denies execution."""
+    """Evaluating unauthorized operations through PermissionGate denies execution and orchestrator enforces."""
     policy = build_project_permission_policy()
     perm_reg = DomainPermissionRegistry()
     perm_reg.register(policy)
@@ -662,6 +682,7 @@ def test_attack_direct_execution_bypass_rejected() -> None:
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     modify_op = ops["project.modify_code"]
 
+    # 1. PermissionGate rejects unapproved execution
     eval_res = gate.evaluate_operation_definition(
         modify_op,
         request_id="req:direct:bypass",
@@ -669,6 +690,49 @@ def test_attack_direct_execution_bypass_rejected() -> None:
         session_id="session:attacker",
     )
     assert eval_res.outcome != PermissionGateOutcome.ALLOW
+
+    # 2. Orchestrator fails closed when unapproved request is executed
+    class _DummyImpl:
+        def __init__(self, definition: Any) -> None:
+            self.definition = definition
+
+        def execute(self, request: Any) -> dict[str, Any]:
+            return {"status": "completed", "result": {}}
+
+    common_reg = InMemoryAgentOperationRegistry()
+    domain_op_reg = InMemoryDomainOperationRegistry(common_reg)
+    domain_op_reg.register(modify_op, _DummyImpl(modify_op))
+    adapter = AgentExecutionAdapter(
+        registry=common_reg,
+        execution_delegate=DomainOperationExecutionDelegate(domain_op_reg),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        domain_op_reg,
+        adapter,
+        approval_service=approval_svc,
+        permission_gate=gate,
+    )
+    unapproved_req = DomainOperationRequest(
+        request_id="req:unapproved:1",
+        operation_id=modify_op.operation_id,
+        operation_version=modify_op.version,
+        inputs={"runtime_action": {}, "modified_files": []},
+        agent_run_id="run:atk:1",
+        workflow_id="project.self_development",
+        task_id="task:atk:1",
+        session_id="session:atk",
+        primary_domain_id=PROJECT_DOMAIN_ID,
+        idempotency_key="idem:atk:1",
+        available_resources=modify_op.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={"actor_id": "actor:attacker"},
+    )
+    orch_res = orchestrator.execute(unapproved_req)
+    assert orch_res.status in (
+        DomainOperationStatus.BLOCKED,
+        DomainOperationStatus.WAITING_FOR_APPROVAL,
+        DomainOperationStatus.FAILED,
+    )
 
 
 # ── Attack Class 20: FILE_MODIFY_WITHOUT_APPROVAL_REJECTED ────────────────────
@@ -829,12 +893,155 @@ def test_attack_no_fake_commit_reference() -> None:
 # ── Attack Class 26: MUTATION_REQUIRES_SHARED_ROLLBACK_PATH ───────────────────
 
 
-def test_attack_mutation_requires_shared_rollback_path() -> None:
-    """Mutating operations declare reversibility and rollback policy."""
+def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
+    """Mutating operations declare reversibility, rollback policy, and restore state via shared rollback executor."""
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     modify_op = ops["project.modify_code"]
     assert modify_op.reversible is True
     assert modify_op.rollback_policy_id == "rollback.project.modify_code"
+
+    # Prove actual rollback restoration through shared DefaultDomainOperationOrchestrator and CheckpointRestorationRollbackExecutor
+    test_file = tmp_path / "mod.py"
+    initial_bytes = b"# Original file content\n"
+    test_file.write_bytes(initial_bytes)
+
+    class _SnapshotVersionProvider:
+        def __init__(self, target: Path) -> None:
+            self.target = target
+            self._snaps: dict[str, bytes] = {}
+
+        def capture_version(self, rkey: str) -> str:
+            data = self.target.read_bytes()
+            d = hashlib.sha256(data).hexdigest()
+            self._snaps[d] = data
+            return d
+
+        def verify_version(self, rkey: str, ver: str) -> bool:
+            return self.capture_version(rkey) == ver
+
+        def restore_version(self, rkey: str, ver: str) -> bool:
+            if ver in self._snaps:
+                self.target.write_bytes(self._snaps[ver])
+                return True
+            return False
+
+    res_provider = _SnapshotVersionProvider(test_file)
+    cp_repo = InMemoryCheckpointRepository()
+    cp_mgr = CheckpointManager(repository=cp_repo, resource_provider=res_provider)
+    tx_mgr = TransactionManager(cp_mgr)
+    rest_mgr = CheckpointRestorationManager(
+        repository=cp_repo, resource_provider=res_provider
+    )
+    rollback_exec = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_mgr, restoration_manager=rest_mgr
+    )
+
+    class _FailingModifyImpl:
+        def __init__(self, definition: Any) -> None:
+            self.definition = definition
+
+        def execute(self, request: Any) -> dict[str, Any]:
+            test_file.write_bytes(b"# Corrupted content from failing operation\n")
+            return {
+                "success": False,
+                "error": {
+                    "code": "OPERATION_EXECUTION_FAILED",
+                    "message": "Forced failure",
+                    "details": {},
+                },
+                "output": {
+                    "status": "failed",
+                    "result": {
+                        "modified_files": list(
+                            request.parameters.get("modified_files", [])
+                        )
+                    },
+                },
+                "modified_files": request.parameters.get("modified_files", []),
+            }
+
+    common_reg = InMemoryAgentOperationRegistry()
+    domain_op_reg = InMemoryDomainOperationRegistry(common_reg)
+    domain_op_reg.register(modify_op, _FailingModifyImpl(modify_op))
+
+    policy = build_project_permission_policy()
+    perm_reg = DomainPermissionRegistry()
+    perm_reg.register(policy)
+    resolver = DomainPermissionResolver(perm_reg)
+    approval_repo = InMemoryApprovalRepository()
+    approval_svc = ApprovalService(approval_repo)
+    gate = DomainPermissionGate(resolver, approval_service=approval_svc)
+
+    adapter = AgentExecutionAdapter(
+        registry=common_reg,
+        execution_delegate=DomainOperationExecutionDelegate(domain_op_reg),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        domain_op_reg,
+        adapter,
+        approval_service=approval_svc,
+        permission_gate=gate,
+        transaction_manager=tx_mgr,
+        rollback_executor=rollback_exec,
+    )
+
+    proto_req = DomainOperationRequest(
+        request_id="req:adv:fail:1",
+        operation_id=modify_op.operation_id,
+        operation_version=modify_op.version,
+        inputs={"runtime_action": {}, "modified_files": ["mod.py"]},
+        agent_run_id="run:adv:1",
+        workflow_id="project.self_development",
+        task_id="task:adv:1",
+        session_id="session:adv",
+        primary_domain_id=PROJECT_DOMAIN_ID,
+        idempotency_key="idem:adv:fail",
+        available_resources=modify_op.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={"actor_id": "actor:dev"},
+    )
+    dec = evaluate_domain_operation(
+        modify_op,
+        resolver,
+        request_id=proto_req.request_id,
+        actor_id="actor:dev",
+        session_id="session:adv",
+    )
+    bridged = to_approval_requirement(
+        dec.approval_requirements[0], agent_run_id="run:adv:1"
+    )
+    app_req = approval_svc.create_request_from_requirement(
+        bridged,
+        requested_by="agent:dev",
+        metadata_override={
+            "domain_request_fingerprint": proto_req.calculate_fingerprint()
+        },
+    )
+    approval_svc.approve(app_req.id, actor_id="lead", comment="approve")
+
+    exec_req = DomainOperationRequest(
+        request_id=proto_req.request_id,
+        operation_id=proto_req.operation_id,
+        operation_version=proto_req.operation_version,
+        inputs=proto_req.inputs,
+        agent_run_id=proto_req.agent_run_id,
+        workflow_id=proto_req.workflow_id,
+        task_id=proto_req.task_id,
+        session_id=proto_req.session_id,
+        primary_domain_id=proto_req.primary_domain_id,
+        idempotency_key=proto_req.idempotency_key,
+        available_resources=proto_req.available_resources,
+        capabilities=proto_req.capabilities,
+        approval_request_id=app_req.id,
+        metadata={"actor_id": "actor:dev"},
+    )
+    res = orchestrator.execute(exec_req)
+    assert res.status is DomainOperationStatus.ROLLED_BACK
+    assert res.rollback_result is not None
+    assert res.rollback_result.attempted is True
+    assert res.rollback_result.succeeded is True
+    assert test_file.read_bytes() == initial_bytes
 
 
 # ── Attack Class 27: MEMORY_WRITE_FAILS_CLOSED ────────────────────────────────
