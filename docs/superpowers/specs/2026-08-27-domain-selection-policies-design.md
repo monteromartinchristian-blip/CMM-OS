@@ -422,6 +422,8 @@ It compares the previous resolution/composition with the new one.
 
 The transition records at minimum:
 
+- previous resolution ID (`previous_resolution_id`);
+- new resolution ID (`new_resolution_id`);
 - previous primary domain;
 - new primary domain;
 - previous supporting domains;
