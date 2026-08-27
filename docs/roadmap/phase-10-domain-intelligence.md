@@ -14,7 +14,7 @@ Phase 10.15 remains closed. Phase 10.16 — Domain Presentation, Phase 10.17
 [Domain Presentation](../reference/domain-presentation.md),
 [Domain Trace](../reference/domain-trace.md), and
 [Domain Memory Integration](../reference/domain-memory-integration.md).
-Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is closed by Independent Re-audit V6 `PASS` with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain and Phase 10.53 — Neurodivergence Domain remain planned later Domain Packs.
+Phase 10.19 — General Domain, Phase 10.20 — Health Domain, Phase 10.21 — Relationships Domain, Phase 10.22 — University Domain, Phase 10.23 — Opposition Domain, Phase 10.24 — Reflection Domain, Phase 10.25 — Concerns Domain, Phase 10.26 — Languages Domain, Phase 10.27 — Paternidad Domain, Phase 10.28 — Sport Domain, Phase 10.29 — Life Plan Domain, and Phase 10.30 — Project Domain are complete and independently audited. Phase 10.30 is independently closed with `DP-030=VERIFIED_EXISTING`, `AT-DP-030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`. Phase 10.52 — Mental Health Domain and Phase 10.53 — Neurodivergence Domain remain planned later Domain Packs.
 
 Domain Intelligence will not be a collection of separate assistants.
 
@@ -3837,21 +3837,19 @@ The domain owning the objective is primary. Languages is supporting
 when it supplies specialized linguistic competence to another primary
 domain.
 
-Independent re-audit V2 returned `FAIL` with two blockers and three major
-findings. The V3 independent audit returned `FAIL`; its `1 BLOCKER + 2 MAJOR`
-findings are remediated. The candidate connected 45-checkpoint `AT-DP-026`
-follows the exact frozen semantic
-sequence through the real shared resolver, composer, Workflow Engine, calendar
-permission boundary, memory, projection, presentation, and independently
-inventoried typed trace paths.
+Phase 10.26 completed its independent closure process successfully.
+`AT-DP-026` passes as a connected 45-checkpoint acceptance scenario over the
+real shared resolver, composer, Workflow Engine, calendar permission boundary,
+memory, projection, presentation, and independently inventoried typed trace
+paths.
 
 Current status:
 
-- V3 independent audit: FAIL
-- V3 findings remediated: 1 BLOCKER + 2 MAJOR
-- candidate AT-DP-026: PASS
-- final independent closure audit: PENDING
-- DP-026: REQUIRES_PHASE_INSPECTION
+- Phase 10.26: Complete — independently audited and closed
+- AT-DP-026: PASS
+- DP-026: VERIFIED_EXISTING
+- final independent closure audit: PASS
+- BLOCKERS=0; MAJORS=0; MINORS=0
 
 ⸻
 
@@ -4491,21 +4489,10 @@ Permissions
 
 Status: complete — independently audited and closed.
 
-Final Closure Audit Summary:
-* Plan: `docs/superpowers/plans/2026-08-25-sport-domain-audit-v4-final-remediation.md`
-* Audit V4 Report: `docs/audits/phase-10.28-sport-independent-reaudit-v4.md`
-* Final Independent Closure Audit: `docs/audits/phase-10.28-sport-final-independent-closure-audit.md` — `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`
-* Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (`PASS`, 44 connected checkpoints; independently audited)
-* Closure Adversarial Gate: `tests/domains/test_sport_domain_closure_adversarial.py` (PASS, 30 regression checks across Audits V1–V4)
-
-| Finding | Severity | Description | Remediation Status |
-|---|---|---|---|
-| B1 | BLOCKER | Health authorization forgeability & standalone dataclass trust | CLOSED (final independent closure audit PASS; runtime resolver/gate-owned trust; temporal bounds fail closed; clinical dossiers rejected) |
-| M4 | MAJOR | Calendar approval bypass via unverified gate results or forged objects | CLOSED (final independent closure audit PASS; `ApprovalService.repository` is the calendar trust root; unverified objects rejected; request/decision pairing enforced) |
-| M5-A | MAJOR | Return-to-training workflow outcome non-authoritative | CLOSED (shared `DomainWorkflowExecutor` complete node outcome authoritative for recommendations, constraints, and clearance non-claims) |
-| M5-B | MAJOR | Acceptance & trace inventory constructed after trace instead of independently | CLOSED (final independent closure audit PASS; trace inventory constructed independently prior to final trace assembly) |
-| m1 | MINOR | `is_authorized=True` boolean bypass | CLOSED (removed caller boolean trust; requires concrete runtime resolver/gate resolution) |
-
+Final Closure Evidence:
+* Independent closure: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+* Acceptance Test: `tests/domains/test_sport_domain_dp028_acceptance.py` (`PASS`, 44 connected checkpoints)
+* Closure Adversarial Gate: `tests/domains/test_sport_domain_closure_adversarial.py` (`PASS`, 30 permanent regression checks)
 
 ⸻
 

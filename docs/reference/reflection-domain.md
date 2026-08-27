@@ -8,14 +8,7 @@
 
 Phase 10.24 — Complete — independently audited.
 
-This is the implementation-side status. Independent audit V1 findings were
-remediated (V1-I1..V1-I9, V1-M1). Independent audit V2 findings were
-remediated (V2-I1..V2-I5). Independent audit V3 findings were remediated
-(V3-I1..V3-I4, V3-M1). Independent audit V4 findings were remediated
-(V4-I1, V4-I2, V4-M1). Independent audit V5 identified two findings
-(V5-I1, V5-I2); these have been remediated with normalized compositional
-classifiers and permanently encoded in
-`tests/domains/test_reflection_domain_audit_v5_closure.py`. Independent Audit V6 closed Phase 10.24 with Critical=0, Important=0, Minor=0; `DP-024` remains `VERIFIED_EXISTING` and `AT-DP-024` is `PASS`.
+Final independent closure: `PASS`; `DP-024=VERIFIED_EXISTING`; `AT-DP-024=PASS`.
 
 ## Overview
 
@@ -170,7 +163,7 @@ core of each operation:
   memory mutation, only a valid confirmation authorizes persistence, malformed/
   nonliteral authorization fails closed.
 
-Independent Audit V6 verifies this acceptance surface: `DP-024` is `VERIFIED_EXISTING` and `AT-DP-024` is `PASS`.
+Final independent closure verifies this acceptance surface: `DP-024` is `VERIFIED_EXISTING` and `AT-DP-024` is `PASS`.
 
 ## Permissions
 
@@ -225,41 +218,4 @@ Phase 10.25 Concerns does not exist yet; Reflection has no dependency on
 
 Phase 10.24 — Complete — independently audited.
 
-Independent Audit V6 closed the phase with `DP-024 — VERIFIED_EXISTING` and `AT-DP-024 — PASS`.
-
-## Audit V1 remediation note
-
-Independent audit V1 raised ten findings (V1-I1..V1-I9, V1-M1), now remediated:
-
-- **V1 duplicate/conflict hardening** — same-identity incompatible hypotheses and
-  ambivalence records fail closed to unresolved/conflicting with no clean
-  ranking; counterevidence is never bypassed by supporting-evidence count.
-- **Temporal normalization** — equal-time subgroups stay temporally ambiguous
-  (no directional change inside a tied instant); the personal timeline orders by
-  normalized UTC instant, never raw ISO text.
-- **Source-grounded interest hardening** — the grounded source-kind allowlist
-  governs grounding; synthetic/model/memory-summary/unknown kinds and `memory_entry`
-  fail closed to non-independent provenance; the top-level evidence state reflects
-  actual grounded evidence only.
-- **Shared-confirmation persistence** — a candidate pattern becomes confirmed only
-  via a complete shared confirmation reference (traceable id + literal-`True`
-  `approved`) plus independent grounded provenance; a raw `True` is no longer a
-  complete confirmation; model/memory-summary-only provenance is never independent.
-- **Strict presentation states** — persistence/decision booleans use literal-state
-  normalization (never Python truthiness); `present_state` no longer maps a bare
-  boolean to `confirmed`; interest-candidate fields and labels cannot contradict.
-- **Diagnosis/certainty boundaries** — a narrow deterministic closed-vocabulary
-  boundary flags diagnostic/identity-classifying wording as prohibited/unsafe
-  (`no_diagnosis=False`, never presented verbatim); unsupported-certainty and
-  forced-conclusion language (incl. multilingual) is detected structurally so
-  unresolved reflection cannot be presented as resolved.
-- **Shared executable workflow validation** — the shared runtime now evaluates a
-  `VALIDATE` node's `wait_condition` fail-closed (true completes, false/unknown/
-  missing/malformed fails), making safety gates executable rather than metadata.
-- **Strict JSON / malformed-input hardening** — all public helpers/operations emit
-  strict JSON (`json.dumps(..., allow_nan=False)`), collapse non-finite floats
-  fail-closed, distinguish absent/valid-empty/malformed/grounded, and raise no
-  accidental `TypeError` on malformed inputs.
-
-The permanent regression suite is
-`tests/domains/test_reflection_domain_audit_v1_closure.py`.
+Final independent closure completed with `DP-024 — VERIFIED_EXISTING` and `AT-DP-024 — PASS`.

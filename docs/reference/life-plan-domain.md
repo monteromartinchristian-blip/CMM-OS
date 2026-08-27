@@ -2,14 +2,10 @@
 
 > **Phase 10.29 — Complete — Independently Audited and Closed**
 >
-> - **Final Independent Closure Audit V5:** PASS
+> - **Final Independent Closure:** PASS
 > - **Blockers:** 0
 > - **Majors:** 0
 > - **Minors:** 0
-> - **V3-B1 (Duck-Typed Authorization Service):** CLOSED
-> - **V3-M1 (Memory Permission Outcome):** CLOSED
-> - **V3-M2 (Trace Evidence — Shared Pre-Assembly Identity):** CLOSED
-> - **V3-m1 (Documentation Status):** CLOSED
 > - **DP-029 Status:** VERIFIED_EXISTING
 > - **AT-DP-029 Status:** PASS (45 connected checkpoints)
 > - **Closure Adversarial Gate:** PASS (62 tests)
@@ -43,7 +39,7 @@ The **Life Plan Domain** (`domain:life-plan`) provides CMM OS with multi-year li
 
 ---
 
-## 2. Core Invariants & Boundaries (Audit V1 Hardened)
+## 2. Core Invariants & Boundaries
 
 1. **Explicit Non-Collapsible Decision Lattice:** `preference != decision`, `scenario != decision`, `scenario != commitment`, `inference != confirmed fact`. Epistemic transitions require explicit evidence within canonical vocabulary (`idea`, `preference`, `goal`, `scenario`, `decision`, `commitment`). Non-decision states (`inference`, `hypothesis`, `confirmed_fact`, unknown states) fail closed. Unconfirmed preferences, ideas, hypotheses, and scenarios cannot be promoted to confirmed decisions or commitments without explicit user confirmation. Closed decisions cannot be reopened without explicit new evidence.
 2. **Computed Scenario Consistency:** Internal scenario coherence computes structured conflicts from mutually exclusive assumption pairs, temporal milestone ordering dependencies, and multi-dimensional resource infeasibilities while strictly preserving unknown / uncertain evidence.

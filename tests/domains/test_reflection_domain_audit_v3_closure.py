@@ -1,7 +1,7 @@
 """Phase 10.24 — Reflection Domain Audit V3 remediation closure suite.
 
 This file permanently encodes the adversarial reproductions and closure proofs
-for all findings from ``docs/audits/phase-10.24-reflection-independent-audit-v3.md``:
+for all findings from ``the historical Phase 10.24 independent Audit V3 findings``:
 
 - V3-I1 — Shared VALIDATE reads declared dependency outputs only (not all outputs).
 - V3-I2 — Persistence requires validated shared binding + reference inventory chain.

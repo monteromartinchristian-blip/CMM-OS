@@ -462,7 +462,7 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.30 are complete and independently audited. Phase 10.30 (`domain:project`) is independently closed by Re-audit V6 `PASS` with `DP-030=VERIFIED_EXISTING`, `AT_DP_030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and zero blockers, majors, or minors. Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) are planned later Domain Packs appended without renumbering existing Phase 10 work.
+**Current progress:** Phase 10.19–10.30 are complete and independently audited. Phase 10.30 (`domain:project`) is independently closed with `DP-030=VERIFIED_EXISTING`, `AT_DP_030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and zero blockers, majors, or minors. Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) are planned later Domain Packs appended without renumbering existing Phase 10 work.
 
 **Implemented through:** Phase 10.30 — Project Domain, independently audited and closed.
 Phase 10.15 remains closed; Phase 10.52 — Mental Health Domain is the next applicable Domain Pack.

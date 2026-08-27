@@ -1,7 +1,7 @@
 """Phase 10.24 — Reflection Domain Audit V2 remediation closure suite.
 
 This file permanently encodes the six Important findings from
-``docs/audits/phase-10.24-reflection-independent-audit-v2.md`` and proves each
+``the historical Phase 10.24 independent Audit V2 findings`` and proves each
 is closed through its canonical surface.  Every assertion below is a real
 executable proof; no gate string is hard-coded without a live assertion behind
 it.

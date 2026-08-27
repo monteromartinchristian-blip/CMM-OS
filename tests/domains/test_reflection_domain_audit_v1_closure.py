@@ -1,7 +1,7 @@
 """Phase 10.24 — Reflection Domain Audit V1 remediation closure suite.
 
 This file permanently encodes the adversarial reproductions from
-``docs/audits/phase-10.24-reflection-independent-audit-v1.md`` and proves each
+``the historical Phase 10.24 independent Audit V1 findings`` and proves each
 Important/Minor finding is closed through its canonical surface (helpers,
 operations, presentation, and the shared workflow runtime).
 

@@ -1,7 +1,7 @@
 # Languages Domain (`domain:languages`)
 
 **Phase:** 10.26
-**Status:** V3 independent audit: FAIL; V3 findings remediated: 1 BLOCKER + 2 MAJOR; candidate AT-DP-026: PASS; final independent closure audit: PENDING; DP-026: REQUIRES_PHASE_INSPECTION
+**Status:** Complete — independently audited and closed; final independent closure audit: PASS; AT-DP-026: PASS; DP-026: VERIFIED_EXISTING; BLOCKERS=0; MAJORS=0; MINORS=0
 **Canonical identity:** `domain:languages` · namespace `languages.*` · version `1.0.0`
 **Canonical profile:** `LanguageLearningProfile`
 **Design (frozen):** `docs/superpowers/specs/2026-08-23-languages-domain-design.md`
@@ -85,33 +85,19 @@ All 15 operations are low-risk internal operations (`PolicyRiskLevel.LOW`).
 No operation mutates external calendars, makes payments, submits exam registrations, or alters persistent memory directly.
 All 9 workflows run on the shared Workflow Engine with direct producer-to-gate validation.
 
-## 6. Independent-audit remediation status
+## 6. Verification and closure
 
-The first independent Phase 10.26 audit returned `FAIL` with two blockers and
-five major findings. Independent re-audit V2 also returned `FAIL`, with two
-remaining blockers and three remaining major findings. The V3 independent audit
-returned `FAIL`; its `1 BLOCKER + 2 MAJOR` findings are remediated.
+Phase 10.26 is complete, independently audited, and closed.
 
-`AT-DP-026` now passes as one connected 45-checkpoint scenario over the real
-shared resolver, composer, Workflow Engine, permission gate, memory contracts,
-projection, presentation, and typed trace contracts. Its 45 checkpoints now
-match the frozen semantic sequence exactly, including the real shared calendar
-permission boundary. Its trace inventory is derived from runtime objects before
-assembly, and `WorkflowEvent.event_id` is not represented as a workflow result.
+`AT-DP-026` passes as one connected 45-checkpoint scenario over the real shared
+resolver, composer, Workflow Engine, permission gate, memory contracts,
+projection, presentation, and typed trace contracts.
 
-The remediation includes explicitly authorized minimal shared changes:
-typed `DomainMetadata.metadata` extraction in domain composition; accumulated
-workflow-output visibility at the ready-node adapter boundary; shared Domain
-Trace kinds for evidence, memory proposal/binding and presentation result; and
-the global `presentation_result_ids` carrier. These changes do not alter domain
-scoring/ranking or workflow scheduling/ordering/readiness/status semantics.
-Their serialized contract extensions are additive and preserve backward reads;
-no existing field is removed or reinterpreted.
+Final state:
 
-Current status:
-
-- V3 independent audit: FAIL
-- V3 findings remediated: 1 BLOCKER + 2 MAJOR
-- candidate AT-DP-026: PASS
-- final independent closure audit: PENDING
-- DP-026: REQUIRES_PHASE_INSPECTION
+- `DP-026=VERIFIED_EXISTING`
+- `AT-DP-026=PASS`
+- final independent closure audit: `PASS`
+- `BLOCKERS=0`
+- `MAJORS=0`
+- `MINORS=0`

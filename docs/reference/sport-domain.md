@@ -67,4 +67,4 @@ cmm/domains/sport/
 
 AT-DP-028 executes a 44-checkpoint connected state-linked scenario validating domain resolution, profile reuse, catalog parity, load evaluation, overload policy, recovery mutability, injury signal non-diagnosis, Health constraint projection, measurement trend evidence, calendar approval gating, memory proposals, trace provenance, atomic registration, and General fallback.
 
-Final independent closure audit: `PASS` — `docs/audits/phase-10.28-sport-final-independent-closure-audit.md`; `DP-028=VERIFIED_EXISTING`; `AT-DP-028=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
+Final independent closure audit: `PASS`; `DP-028=VERIFIED_EXISTING`; `AT-DP-028=PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
