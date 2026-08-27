@@ -332,6 +332,7 @@ class DefaultDomainOperationOrchestrator:
                 checkpoint_id,
                 definition.rollback_policy_id,
                 cancellation_error,
+                gate_result=gate_result,
             )
 
         if not common_result.success:
@@ -348,6 +349,7 @@ class DefaultDomainOperationOrchestrator:
                 checkpoint_id,
                 definition.rollback_policy_id,
                 original_error,
+                gate_result=gate_result,
             )
 
         if "memory_write" in (*common_result.effects, *common_result.side_effects):
@@ -363,6 +365,7 @@ class DefaultDomainOperationOrchestrator:
                 checkpoint_id,
                 definition.rollback_policy_id,
                 direct_write_error,
+                gate_result=gate_result,
             )
 
         output_issues = validate_operation_schema(
@@ -382,6 +385,7 @@ class DefaultDomainOperationOrchestrator:
                 checkpoint_id,
                 definition.rollback_policy_id,
                 validation_error,
+                gate_result=gate_result,
             )
 
         if transaction_id is not None:
@@ -397,6 +401,13 @@ class DefaultDomainOperationOrchestrator:
             if gate_result is not None
             else None
         )
+        result_metadata: dict[str, Any] = {}
+        if post_verification is not None:
+            result_metadata["post_verification"] = post_verification
+        if gate_result is not None:
+            result_metadata["permission_authority"] = (
+                gate_result.to_authority_reference_dict()
+            )
         return self._result(
             request,
             definition.domain_id,
@@ -407,9 +418,7 @@ class DefaultDomainOperationOrchestrator:
             output=common_result.output,
             transaction_id=transaction_id,
             approval_request_id=request.approval_request_id,
-            metadata={"post_verification": post_verification}
-            if post_verification is not None
-            else None,
+            metadata=result_metadata or None,
         )
 
     def _non_executed_result(
@@ -439,7 +448,13 @@ class DefaultDomainOperationOrchestrator:
         checkpoint_id: str | None,
         rollback_policy_id: str | None,
         original_error: Mapping[str, Any],
+        gate_result: Any | None = None,
     ) -> DomainOperationResult:
+        meta: dict[str, Any] = {}
+        if gate_result is not None:
+            meta["permission_authority"] = gate_result.to_authority_reference_dict()
+        metadata = meta or None
+
         if transaction_id is None or self._rollback_executor is None:
             return self._result(
                 request,
@@ -448,6 +463,7 @@ class DefaultDomainOperationOrchestrator:
                 started_at,
                 transaction_id=transaction_id,
                 error=original_error,
+                metadata=metadata,
             )
         try:
             self._transaction_manager.mark_rollback_started(transaction_id)
@@ -479,6 +495,7 @@ class DefaultDomainOperationOrchestrator:
                     policy_id=rollback_policy_id,
                     error=rollback_error,
                 ),
+                metadata=metadata,
             )
 
         rollback_error: Mapping[str, Any] | None = None
@@ -508,6 +525,7 @@ class DefaultDomainOperationOrchestrator:
             transaction_id=transaction_id,
             error=original_error,
             rollback_result=rollback_result,
+            metadata=metadata,
         )
 
     def _cancel_with_rollback(
@@ -519,7 +537,13 @@ class DefaultDomainOperationOrchestrator:
         checkpoint_id: str | None,
         rollback_policy_id: str | None,
         original_error: Mapping[str, Any],
+        gate_result: Any | None = None,
     ) -> DomainOperationResult:
+        meta: dict[str, Any] = {}
+        if gate_result is not None:
+            meta["permission_authority"] = gate_result.to_authority_reference_dict()
+        metadata = meta or None
+
         if transaction_id is None:
             return self._result(
                 request,
@@ -527,6 +551,7 @@ class DefaultDomainOperationOrchestrator:
                 DomainOperationStatus.CANCELLED,
                 started_at,
                 error=original_error,
+                metadata=metadata,
             )
 
         if self._rollback_executor is None:
@@ -546,6 +571,7 @@ class DefaultDomainOperationOrchestrator:
                         details={"reason_code": "rollback_executor_missing"},
                     ).to_dict(),
                 ),
+                metadata=metadata,
             )
 
         try:
@@ -574,6 +600,7 @@ class DefaultDomainOperationOrchestrator:
                     policy_id=rollback_policy_id,
                     error=rollback_error,
                 ),
+                metadata=metadata,
             )
 
         if not rollback_succeeded:
@@ -597,6 +624,7 @@ class DefaultDomainOperationOrchestrator:
                     policy_id=rollback_policy_id,
                     error=rollback_error,
                 ),
+                metadata=metadata,
             )
 
         try:
@@ -622,6 +650,7 @@ class DefaultDomainOperationOrchestrator:
                     policy_id=rollback_policy_id,
                     error=rollback_error,
                 ),
+                metadata=metadata,
             )
 
         return self._result(
@@ -637,6 +666,7 @@ class DefaultDomainOperationOrchestrator:
                 policy_id=rollback_policy_id,
                 error=None,
             ),
+            metadata=metadata,
         )
 
     def _result(

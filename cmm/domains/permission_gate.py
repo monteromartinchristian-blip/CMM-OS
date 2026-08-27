@@ -110,11 +110,17 @@ class PermissionGateResult:
 
     @property
     def allowed(self) -> bool:
-        return self.outcome in (PermissionGateOutcome.ALLOW, PermissionGateOutcome.APPROVAL_CONSUMED)
+        return self.outcome in (
+            PermissionGateOutcome.ALLOW,
+            PermissionGateOutcome.APPROVAL_CONSUMED,
+        )
 
     @property
     def denied(self) -> bool:
-        return self.outcome in (PermissionGateOutcome.DENY, PermissionGateOutcome.APPROVAL_DENIED)
+        return self.outcome in (
+            PermissionGateOutcome.DENY,
+            PermissionGateOutcome.APPROVAL_DENIED,
+        )
 
     @property
     def requires_approval(self) -> bool:
@@ -129,7 +135,9 @@ class PermissionGateResult:
             "session_id": self.session_id,
             "reasons": list(self.reasons),
             "effective_constraints": dict(self.effective_constraints),
-            "approval_evidence": dict(self.approval_evidence) if self.approval_evidence else None,
+            "approval_evidence": dict(self.approval_evidence)
+            if self.approval_evidence
+            else None,
             "approval_requirements": [dict(r) for r in self.approval_requirements],
             "metadata": dict(self.metadata),
             "decision_id": self.decision_id,
@@ -142,9 +150,7 @@ class PermissionGateResult:
             raise ValueError(f"unknown PermissionGateResult fields: {sorted(unknown)}")
         values = dict(data)
         values["reasons"] = tuple(values.get("reasons", ()))
-        values["approval_requirements"] = tuple(
-            values.get("approval_requirements", ())
-        )
+        values["approval_requirements"] = tuple(values.get("approval_requirements", ()))
         return cls(**values)
 
     def to_trace_dict(self) -> dict[str, Any]:
@@ -155,7 +161,11 @@ class PermissionGateResult:
             if denial_reason is None:
                 items = self.approval_evidence.get("items", ())
                 denial_reason = next(
-                    (item.get("denial_reason") for item in items if item.get("denial_reason")),
+                    (
+                        item.get("denial_reason")
+                        for item in items
+                        if item.get("denial_reason")
+                    ),
                     None,
                 )
         return {
@@ -168,13 +178,49 @@ class PermissionGateResult:
             else None,
         }
 
+    def to_authority_reference_dict(self) -> dict[str, Any]:
+        """Return reference-only authority metadata (decision IDs and approval refs)."""
+        items: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = ()
+        if self.approval_evidence:
+            raw_items = self.approval_evidence.get("items")
+            if raw_items is not None:
+                items = raw_items
+            elif self.approval_evidence.get("request_id"):
+                items = (self.approval_evidence,)
+
+        approvals = []
+        for item in items:
+            raw_decision_ids = item.get("approval_decision_ids") or ()
+            approvals.append(
+                {
+                    "requirement_id": item.get("requirement_id"),
+                    "action": item.get("action"),
+                    "approval_request_id": item.get("request_id"),
+                    "approval_decision_ids": sorted(
+                        {str(d) for d in raw_decision_ids if d}
+                    ),
+                }
+            )
+
+        return {
+            "permission_decision_id": self.decision_id,
+            "outcome": self.outcome,
+            "approvals": sorted(
+                approvals,
+                key=lambda value: (
+                    value.get("action") or "",
+                    value.get("requirement_id") or "",
+                    value.get("approval_request_id") or "",
+                ),
+            ),
+        }
+
 
 @runtime_checkable
 class PermissionResolverProtocol(Protocol):
     """Minimal protocol for a DomainPermissionResolver."""
 
-    def resolve(self, request: DomainPermissionRequest, **kwargs: Any) -> Any:
-        ...
+    def resolve(self, request: DomainPermissionRequest, **kwargs: Any) -> Any: ...
 
 
 @runtime_checkable
@@ -197,8 +243,7 @@ class ApprovalServiceProtocol(Protocol):
         dry_run: bool,
         now: datetime | None,
         **kwargs: Any,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 class DomainPermissionGate:
@@ -232,7 +277,9 @@ class DomainPermissionGate:
         with self._decision_id_lock:
             decision_id = self._id_factory()
             if not isinstance(decision_id, str) or not decision_id.strip():
-                raise ValueError("permission gate decision ID must be a non-empty string")
+                raise ValueError(
+                    "permission gate decision ID must be a non-empty string"
+                )
             if decision_id in self._issued_decision_ids:
                 raise ValueError("permission gate decision ID must be unique")
             self._issued_decision_ids.add(decision_id)
@@ -244,7 +291,9 @@ class DomainPermissionGate:
         decision_id: str | None = None,
         **values: Any,
     ) -> PermissionGateResult:
-        reserved_id = decision_id if decision_id is not None else self._next_decision_id()
+        reserved_id = (
+            decision_id if decision_id is not None else self._next_decision_id()
+        )
         return PermissionGateResult(decision_id=reserved_id, **values)
 
     def evaluate_operation(
@@ -419,9 +468,7 @@ class DomainPermissionGate:
                     approval_requirements=serialized,
                     metadata=metadata,
                 )
-        batch = tuple(
-            (references[item.requirement_id], item) for item in requirements
-        )
+        batch = tuple((references[item.requirement_id], item) for item in requirements)
         validate_batch = getattr(
             self._approval_service, "validate_and_consume_batch", None
         )
@@ -545,8 +592,10 @@ class DomainPermissionGate:
         request_id: str,
         actor_id: str,
         session_id: str,
-        operations: Mapping[tuple[str, str | None], DomainOperationDefinition] | None = None,
-        workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition] | None = None,
+        operations: Mapping[tuple[str, str | None], DomainOperationDefinition]
+        | None = None,
+        workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition]
+        | None = None,
         approval_request_id: str | None = None,
         approval_request_ids: Mapping[str, str] | None = None,
         dry_run: bool = False,
@@ -624,8 +673,10 @@ class DomainPermissionGate:
         request_id: str,
         actor_id: str,
         session_id: str,
-        operations: Mapping[tuple[str, str | None], DomainOperationDefinition] | None = None,
-        workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition] | None = None,
+        operations: Mapping[tuple[str, str | None], DomainOperationDefinition]
+        | None = None,
+        workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition]
+        | None = None,
         approval_request_ids: Mapping[str, str] | None = None,
         dry_run: bool = False,
     ) -> PermissionGateResult:
@@ -806,7 +857,10 @@ class DomainPermissionGate:
                 domain_id=request.source_domain,
                 actor_id=request.actor_id,
                 session_id=request.session_id,
-                reasons=(*decision.reasons, "exactly_one_approval_requirement_required"),
+                reasons=(
+                    *decision.reasons,
+                    "exactly_one_approval_requirement_required",
+                ),
                 effective_constraints=dict(decision.constraints),
                 approval_requirements=approval_reqs,
                 metadata=metadata,
@@ -821,10 +875,22 @@ class DomainPermissionGate:
             CrossDomainDuration.WORKFLOW_RUN,
             CrossDomainDuration.SESSION,
         }
-        expected_resource_id = request.resource_ids[0] if len(request.resource_ids) == 1 else None
-        expected_resource_kind = request.resource_kinds[0] if len(request.resource_kinds) == 1 else None
-        expected_operation_id = request.requested_operations[0] if len(request.requested_operations) == 1 else None
-        expected_workflow_id = request.requested_workflows[0] if len(request.requested_workflows) == 1 else None
+        expected_resource_id = (
+            request.resource_ids[0] if len(request.resource_ids) == 1 else None
+        )
+        expected_resource_kind = (
+            request.resource_kinds[0] if len(request.resource_kinds) == 1 else None
+        )
+        expected_operation_id = (
+            request.requested_operations[0]
+            if len(request.requested_operations) == 1
+            else None
+        )
+        expected_workflow_id = (
+            request.requested_workflows[0]
+            if len(request.requested_workflows) == 1
+            else None
+        )
         exact_context = (
             requirement.requirement_id == f"cross-domain:{request.request_id}"
             and requirement.action is PermissionCapability.DOMAIN_CROSS_ACCESS
@@ -849,7 +915,11 @@ class DomainPermissionGate:
                 domain_id=request.source_domain,
                 actor_id=request.actor_id,
                 session_id=request.session_id,
-                reasons=(*decision.reasons, "approval_requirement_context_mismatch", PermissionGateReason.BINDING_FAILURE.value),
+                reasons=(
+                    *decision.reasons,
+                    "approval_requirement_context_mismatch",
+                    PermissionGateReason.BINDING_FAILURE.value,
+                ),
                 effective_constraints=dict(decision.constraints),
                 approval_requirements=approval_reqs,
                 metadata=metadata,
@@ -980,7 +1050,10 @@ class DomainPermissionGate:
                 domain_id=domain_id,
                 actor_id=actor_id,
                 session_id=session_id,
-                reasons=(*effective.reasons, "exactly_one_approval_requirement_required"),
+                reasons=(
+                    *effective.reasons,
+                    "exactly_one_approval_requirement_required",
+                ),
                 effective_constraints=dict(effective.effective_constraints),
                 approval_requirements=approval_reqs,
                 metadata=metadata,
