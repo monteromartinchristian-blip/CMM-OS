@@ -8,6 +8,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
 )
+from cmm.domains.permission_adapters import evaluate_domain_operation
 from cmm.domains.permission_contracts import (
     DomainPermissionPolicy,
     DomainPermissionRequest,
@@ -117,4 +118,34 @@ def test_forged_approval_rejected() -> None:
         PermissionGateOutcome.APPROVAL_DENIED,
         PermissionGateOutcome.APPROVAL_REQUIRED,
         PermissionGateOutcome.DENY,
+    )
+
+
+def test_modify_code_permission_decision_contains_file_modify_requirement() -> None:
+    policy = build_project_permission_policy()
+    registry = DomainPermissionRegistry()
+    registry.register(policy)
+    resolver = DomainPermissionResolver(registry)
+
+    modify = next(
+        op
+        for op in build_project_operation_definitions()
+        if op.operation_id == "project.modify_code"
+    )
+    decision = evaluate_domain_operation(
+        modify,
+        resolver,
+        request_id="req:project:modify:capability",
+        actor_id="actor:dev",
+        session_id="session:dev",
+    )
+
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert any(
+        requirement.action is PermissionCapability.FILE_MODIFY
+        for requirement in decision.approval_requirements
+    )
+    assert any(
+        requirement.action is PermissionCapability.OPERATION_EXECUTE
+        for requirement in decision.approval_requirements
     )

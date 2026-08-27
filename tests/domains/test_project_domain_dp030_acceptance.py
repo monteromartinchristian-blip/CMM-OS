@@ -870,6 +870,9 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
     approval_svc = ApprovalService(approval_repo)
     perm_gate = DomainPermissionGate(perm_resolver, approval_service=approval_svc)
 
+    assert modify_op_def.required_permissions == (
+        PermissionCapability.FILE_MODIFY.value,
+    )
     unapproved_eval = perm_gate.evaluate_operation_definition(
         modify_op_def,
         request_id="req:gate:mod:1",
@@ -990,6 +993,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         session_id="session:dev_1",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:acc:1",
+        granted_permissions=modify_op_def.required_permissions,
         available_resources=modify_op_def.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:self_dev"},
@@ -1001,22 +1005,31 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         actor_id="actor:self_dev",
         session_id="session:dev_1",
     )
-    acc_bridged = to_approval_requirement(
-        acc_decision.approval_requirements[0],
-        agent_run_id="run:acc:1",
-    )
-    acc_app_req = approval_svc.create_request_from_requirement(
-        acc_bridged,
-        requested_by="agent:self_dev",
-        metadata_override={
-            "domain_request_fingerprint": acc_op_req_proto.calculate_fingerprint()
-        },
-    )
-    approval_svc.approve(
-        acc_app_req.id,
-        actor_id="human:tech_lead",
-        comment="Approved semantic mutation",
-    )
+    assert acc_decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    acc_approval_ids: dict[str, str] = {}
+    acc_op_exec_approval_id: str | None = None
+    for req in acc_decision.approval_requirements:
+        bridged = to_approval_requirement(
+            req,
+            agent_run_id=acc_op_req_proto.agent_run_id,
+        )
+        app_req = approval_svc.create_request_from_requirement(
+            bridged,
+            requested_by="agent:self_dev",
+            metadata_override={
+                "domain_request_fingerprint": acc_op_req_proto.calculate_fingerprint()
+            },
+        )
+        approval_svc.approve(
+            app_req.id,
+            actor_id="human:tech_lead",
+            comment=f"Approved requirement {req.requirement_id}",
+        )
+        acc_approval_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            acc_op_exec_approval_id = app_req.id
+
+    assert acc_op_exec_approval_id is not None
     acc_op_req = DomainOperationRequest(
         request_id=acc_op_req_proto.request_id,
         operation_id=acc_op_req_proto.operation_id,
@@ -1028,15 +1041,20 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         session_id=acc_op_req_proto.session_id,
         primary_domain_id=acc_op_req_proto.primary_domain_id,
         idempotency_key=acc_op_req_proto.idempotency_key,
+        granted_permissions=acc_op_req_proto.granted_permissions,
         available_resources=acc_op_req_proto.available_resources,
         capabilities=acc_op_req_proto.capabilities,
-        approval_request_id=acc_app_req.id,
-        metadata={"actor_id": "actor:self_dev"},
+        approval_request_id=acc_op_exec_approval_id,
+        metadata={
+            "actor_id": "actor:self_dev",
+            "approval_request_ids": acc_approval_ids,
+        },
     )
     acc_op_res = acc_orchestrator.execute(acc_op_req)
     assert acc_op_res.status is DomainOperationStatus.COMPLETED
     assert acc_op_res.transaction_id is not None
-    assert approval_repo.is_consumed(acc_app_req.id) is True
+    for app_id in acc_approval_ids.values():
+        assert approval_repo.is_consumed(app_id) is True
     assert "def feature" in acc_file.read_text(encoding="utf-8")
     checkpoint("44 controlled semantic mutation runs in temp repo")
 
@@ -1090,6 +1108,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         session_id="session:dev_1",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:acc:fail:1",
+        granted_permissions=modify_op_def.required_permissions,
         available_resources=modify_op_def.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:self_dev"},
@@ -1101,22 +1120,31 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         actor_id="actor:self_dev",
         session_id="session:dev_1",
     )
-    fail_bridged = to_approval_requirement(
-        fail_decision.approval_requirements[0],
-        agent_run_id="run:acc:1",
-    )
-    fail_app_req = approval_svc.create_request_from_requirement(
-        fail_bridged,
-        requested_by="agent:self_dev",
-        metadata_override={
-            "domain_request_fingerprint": fail_op_req_proto.calculate_fingerprint()
-        },
-    )
-    approval_svc.approve(
-        fail_app_req.id,
-        actor_id="human:tech_lead",
-        comment="Approved failing mutation to test rollback",
-    )
+    assert fail_decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    fail_approval_ids: dict[str, str] = {}
+    fail_op_exec_approval_id: str | None = None
+    for req in fail_decision.approval_requirements:
+        bridged = to_approval_requirement(
+            req,
+            agent_run_id=fail_op_req_proto.agent_run_id,
+        )
+        app_req = approval_svc.create_request_from_requirement(
+            bridged,
+            requested_by="agent:self_dev",
+            metadata_override={
+                "domain_request_fingerprint": fail_op_req_proto.calculate_fingerprint()
+            },
+        )
+        approval_svc.approve(
+            app_req.id,
+            actor_id="human:tech_lead",
+            comment=f"Approved requirement {req.requirement_id}",
+        )
+        fail_approval_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            fail_op_exec_approval_id = app_req.id
+
+    assert fail_op_exec_approval_id is not None
     fail_op_req = DomainOperationRequest(
         request_id=fail_op_req_proto.request_id,
         operation_id=fail_op_req_proto.operation_id,
@@ -1128,10 +1156,14 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         session_id=fail_op_req_proto.session_id,
         primary_domain_id=fail_op_req_proto.primary_domain_id,
         idempotency_key=fail_op_req_proto.idempotency_key,
+        granted_permissions=fail_op_req_proto.granted_permissions,
         available_resources=fail_op_req_proto.available_resources,
         capabilities=fail_op_req_proto.capabilities,
-        approval_request_id=fail_app_req.id,
-        metadata={"actor_id": "actor:self_dev"},
+        approval_request_id=fail_op_exec_approval_id,
+        metadata={
+            "actor_id": "actor:self_dev",
+            "approval_request_ids": fail_approval_ids,
+        },
     )
     fail_res = fail_orchestrator.execute(fail_op_req)
     assert fail_res.status is DomainOperationStatus.ROLLED_BACK

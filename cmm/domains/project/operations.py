@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.agent_runtime.enums import PolicyRiskLevel
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
@@ -167,6 +168,11 @@ def build_project_operation_definitions() -> tuple[DomainOperationDefinition, ..
         risk_level = PolicyRiskLevel.HIGH if requires_approval else PolicyRiskLevel.LOW
         reversible = True
         rollback_policy = f"rollback.{op_id}" if reversible else None
+        required_permissions = (
+            (PermissionCapability.FILE_MODIFY.value,)
+            if op_id == "project.modify_code"
+            else ()
+        )
 
         defn = DomainOperationDefinition(
             operation_id=op_id,
@@ -178,7 +184,7 @@ def build_project_operation_definitions() -> tuple[DomainOperationDefinition, ..
             input_schema=_INPUT_SCHEMAS[op_id],
             output_schema=_OUTPUT_SCHEMAS[op_id],
             required_resources=_REQUIRED_RESOURCES.get(op_id, ()),
-            required_permissions=(),
+            required_permissions=required_permissions,
             risk_level=risk_level,
             reversible=reversible,
             requires_approval=requires_approval,

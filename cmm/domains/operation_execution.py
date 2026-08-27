@@ -246,6 +246,7 @@ class DefaultDomainOperationOrchestrator:
                     operation_version=request.operation_version,
                     domain_id=definition.domain_id,
                     status=DomainOperationStatus.WAITING_FOR_APPROVAL,
+                    approval_request_id=request.approval_request_id,
                     started_at=now,
                     completed_at=now,
                     trace_entries=(
@@ -256,7 +257,10 @@ class DefaultDomainOperationOrchestrator:
                             reason_code=PermissionGateReason.APPROVAL_MISSING.value,
                         ),
                     ),
-                    metadata={"permission_gate": gate_result.to_trace_dict()},
+                    metadata={
+                        "permission_gate": gate_result.to_trace_dict(),
+                        "approval_evidence": gate_result.to_trace_dict(),
+                    },
                 )
         # ── End Permission Gate ──────────────────────────────────────────
 

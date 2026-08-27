@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.domains.enums import DomainOperationStatus
 from cmm.domains.errors import DomainOperationRegistryError
@@ -40,6 +41,25 @@ def test_build_project_operation_definitions_inventory() -> None:
     assert "project.prepare_change_review" not in [op.operation_id for op in ops]
 
 
+def test_modify_code_declares_real_file_modify_capability_only() -> None:
+    operations = {op.operation_id: op for op in build_project_operation_definitions()}
+
+    modify = operations["project.modify_code"]
+    assert modify.required_permissions == (PermissionCapability.FILE_MODIFY.value,)
+
+    all_permissions = {
+        permission
+        for operation in operations.values()
+        for permission in operation.required_permissions
+    }
+    assert "permission.file.modify" not in all_permissions
+    assert "domain-permission:project:1.0.0" not in all_permissions
+
+    for op_id, op in operations.items():
+        if op_id != "project.modify_code":
+            assert PermissionCapability.FILE_MODIFY.value not in op.required_permissions
+
+
 def test_operations_unavailable_without_implementation() -> None:
     common = InMemoryAgentOperationRegistry()
     registry = InMemoryDomainOperationRegistry(common)
@@ -62,7 +82,7 @@ def test_operations_unavailable_without_implementation() -> None:
         primary_domain_id="domain:project",
         granted_permissions=(
             "domain-permission:project:1.0.0",
-            "permission.file.modify",
+            PermissionCapability.FILE_MODIFY.value,
             "resource.read",
             "memory.read",
         ),

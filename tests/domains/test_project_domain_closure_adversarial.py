@@ -23,6 +23,7 @@ from cmm.agent_runtime.checkpoint_rollback_executor import (
     CheckpointRestorationRollbackExecutor,
 )
 from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
     PermissionCapability,
     PermissionOutcome,
 )
@@ -739,12 +740,13 @@ def test_attack_direct_execution_bypass_rejected() -> None:
 
 
 def test_attack_file_modify_without_approval_rejected() -> None:
-    """File modification capability strictly requires approval."""
+    """File modification capability strictly requires approval and cannot be executed via generic approval alone."""
     policy = build_project_permission_policy()
     perm_reg = DomainPermissionRegistry()
     perm_reg.register(policy)
     resolver = DomainPermissionResolver(perm_reg)
 
+    # Subcase 1: Direct FILE_MODIFY permission request requires approval
     mod_req = DomainPermissionRequest(
         request_id="req:file:mod",
         action=PermissionCapability.FILE_MODIFY,
@@ -754,6 +756,215 @@ def test_attack_file_modify_without_approval_rejected() -> None:
     )
     res = resolver.resolve(mod_req)
     assert res.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+
+    # Subcase 2: Operation definition declares FILE_MODIFY capability
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    modify_op = ops["project.modify_code"]
+    assert modify_op.required_permissions == (PermissionCapability.FILE_MODIFY.value,)
+
+    class _MockModifyImpl:
+        def __init__(self, definition: Any) -> None:
+            self.definition = definition
+            self.execution_count = 0
+
+        def execute(self, request: Any) -> dict[str, Any]:
+            self.execution_count += 1
+            return {
+                "success": True,
+                "output": {
+                    "status": "completed",
+                    "result": {
+                        "modified_files": list(
+                            request.parameters.get("modified_files", [])
+                        )
+                    },
+                },
+                "modified_files": request.parameters.get("modified_files", []),
+            }
+
+    modify_impl = _MockModifyImpl(modify_op)
+    common_reg = InMemoryAgentOperationRegistry()
+    domain_reg = InMemoryDomainOperationRegistry(common_reg)
+    domain_reg.register(modify_op, modify_impl)
+
+    class _DummyVersionProvider:
+        def capture_version(self, rkey: str) -> str:
+            return "v1"
+
+        def verify_version(self, rkey: str, ver: str) -> bool:
+            return True
+
+        def restore_version(self, rkey: str, ver: str) -> bool:
+            return True
+
+    res_provider = _DummyVersionProvider()
+    cp_repo = InMemoryCheckpointRepository()
+    cp_mgr = CheckpointManager(repository=cp_repo, resource_provider=res_provider)
+    tx_mgr = TransactionManager(cp_mgr)
+    rest_mgr = CheckpointRestorationManager(
+        repository=cp_repo, resource_provider=res_provider
+    )
+    rollback_exec = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_mgr, restoration_manager=rest_mgr
+    )
+
+    approval_repo = InMemoryApprovalRepository()
+    approval_svc = ApprovalService(approval_repo)
+    gate = DomainPermissionGate(resolver, approval_service=approval_svc)
+    adapter = AgentExecutionAdapter(
+        registry=common_reg,
+        execution_delegate=DomainOperationExecutionDelegate(domain_reg),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        domain_reg,
+        adapter,
+        approval_service=approval_svc,
+        permission_gate=gate,
+        transaction_manager=tx_mgr,
+        rollback_executor=rollback_exec,
+    )
+
+    proto_req = DomainOperationRequest(
+        request_id="req:adv:mod:1",
+        operation_id=modify_op.operation_id,
+        operation_version=modify_op.version,
+        inputs={"runtime_action": {}, "modified_files": ["file.py"]},
+        agent_run_id="run:adv:1",
+        workflow_id="project.self_development",
+        task_id="task:adv:1",
+        session_id="session:adv",
+        primary_domain_id=PROJECT_DOMAIN_ID,
+        idempotency_key="idem:adv:1",
+        granted_permissions=modify_op.required_permissions,
+        available_resources=modify_op.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={"actor_id": "actor:dev"},
+    )
+
+    # Subcase 3: Generic OPERATION_EXECUTE approval only -> BLOCKED
+    generic_req = PermissionApprovalRequirement(
+        requirement_id=f"operation:project.modify_code:1.0.0:{proto_req.request_id}:operation_requires_approval",
+        action=PermissionCapability.OPERATION_EXECUTE,
+        actor_id="actor:dev",
+        session_id="session:adv",
+        domain_id=PROJECT_DOMAIN_ID,
+        operation_id="project.modify_code",
+        operation_version="1.0.0",
+        fingerprint=f"{proto_req.request_id}:project.modify_code:1.0.0:actor:dev:session:adv:operation_requires_approval",
+        scope="operation",
+        reason_code="operation_requires_approval",
+        risk="high",
+    )
+    bridged_gen = to_approval_requirement(generic_req, agent_run_id="run:adv:1")
+    app_gen = approval_svc.create_request_from_requirement(
+        bridged_gen,
+        requested_by="agent:dev",
+        metadata_override={
+            "domain_request_fingerprint": proto_req.calculate_fingerprint()
+        },
+    )
+    approval_svc.approve(app_gen.id, actor_id="lead", comment="approve op only")
+
+    req_gen_only = replace(
+        proto_req,
+        approval_request_id=app_gen.id,
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": {generic_req.requirement_id: app_gen.id},
+        },
+    )
+    res_gen_only = orchestrator.execute(req_gen_only)
+    assert res_gen_only.status in (
+        DomainOperationStatus.WAITING_FOR_APPROVAL,
+        DomainOperationStatus.BLOCKED,
+    )
+    assert modify_impl.execution_count == 0
+
+    # Subcase 4: FILE_MODIFY prohibited policy variant -> BLOCKED
+    prohibited_policy = replace(
+        policy,
+        policy_id="policy:project:no_file_modify",
+        prohibited_capabilities=(
+            *policy.prohibited_capabilities,
+            PermissionCapability.FILE_MODIFY,
+        ),
+        allowed_capabilities=tuple(
+            c
+            for c in policy.allowed_capabilities
+            if c is not PermissionCapability.FILE_MODIFY
+        ),
+    )
+    proh_reg = DomainPermissionRegistry()
+    proh_reg.register(prohibited_policy)
+    proh_resolver = DomainPermissionResolver(proh_reg)
+    proh_gate = DomainPermissionGate(proh_resolver, approval_service=approval_svc)
+    proh_orchestrator = DefaultDomainOperationOrchestrator(
+        domain_reg,
+        adapter,
+        approval_service=approval_svc,
+        permission_gate=proh_gate,
+    )
+    res_proh = proh_orchestrator.execute(req_gen_only)
+    assert res_proh.status is DomainOperationStatus.BLOCKED
+    assert modify_impl.execution_count == 0
+
+    # Subcase 5: Forged/mismatched FILE_MODIFY approval -> BLOCKED
+    forged_req = replace(
+        proto_req,
+        approval_request_id=app_gen.id,
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": {
+                generic_req.requirement_id: app_gen.id,
+                f"domain-permission:project:1.0.0:1.0.0:{proto_req.request_id}:file.modify": "FORGED_APP_ID",
+            },
+        },
+    )
+    res_forged = orchestrator.execute(forged_req)
+    assert res_forged.status is DomainOperationStatus.BLOCKED
+    assert modify_impl.execution_count == 0
+
+    # Subcase 6: Valid OPERATION_EXECUTE + valid FILE_MODIFY approvals -> ALLOW / COMPLETED
+    op_decision = evaluate_domain_operation(
+        modify_op,
+        resolver,
+        request_id=proto_req.request_id,
+        actor_id="actor:dev",
+        session_id="session:adv",
+    )
+    assert op_decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    approval_ids: dict[str, str] = {}
+    op_exec_id: str | None = None
+    for req_item in op_decision.approval_requirements:
+        bridged_item = to_approval_requirement(
+            req_item, agent_run_id=proto_req.agent_run_id
+        )
+        created_app = approval_svc.create_request_from_requirement(
+            bridged_item,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": proto_req.calculate_fingerprint()
+            },
+        )
+        approval_svc.approve(
+            created_app.id,
+            actor_id="lead",
+            comment=f"Approved {req_item.requirement_id}",
+        )
+        approval_ids[req_item.requirement_id] = created_app.id
+        if req_item.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_id = created_app.id
+
+    assert op_exec_id is not None
+    valid_dual_req = replace(
+        proto_req,
+        approval_request_id=op_exec_id,
+        metadata={"actor_id": "actor:dev", "approval_request_ids": approval_ids},
+    )
+    res_dual = orchestrator.execute(valid_dual_req)
+    assert res_dual.status is DomainOperationStatus.COMPLETED
+    assert modify_impl.execution_count == 1
 
 
 # ── Attack Class 21: FORGED_APPROVAL_REJECTED ─────────────────────────────────
@@ -997,6 +1208,7 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
         session_id="session:adv",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:adv:fail",
+        granted_permissions=modify_op.required_permissions,
         available_resources=modify_op.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:dev"},
@@ -1008,18 +1220,23 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
         actor_id="actor:dev",
         session_id="session:adv",
     )
-    bridged = to_approval_requirement(
-        dec.approval_requirements[0], agent_run_id="run:adv:1"
-    )
-    app_req = approval_svc.create_request_from_requirement(
-        bridged,
-        requested_by="agent:dev",
-        metadata_override={
-            "domain_request_fingerprint": proto_req.calculate_fingerprint()
-        },
-    )
-    approval_svc.approve(app_req.id, actor_id="lead", comment="approve")
+    app_ids: dict[str, str] = {}
+    op_exec_app_id: str | None = None
+    for req_item in dec.approval_requirements:
+        bridged = to_approval_requirement(req_item, agent_run_id="run:adv:1")
+        app_req = approval_svc.create_request_from_requirement(
+            bridged,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": proto_req.calculate_fingerprint()
+            },
+        )
+        approval_svc.approve(app_req.id, actor_id="lead", comment="approve")
+        app_ids[req_item.requirement_id] = app_req.id
+        if req_item.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_app_id = app_req.id
 
+    assert op_exec_app_id is not None
     exec_req = DomainOperationRequest(
         request_id=proto_req.request_id,
         operation_id=proto_req.operation_id,
@@ -1031,10 +1248,11 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
         session_id=proto_req.session_id,
         primary_domain_id=proto_req.primary_domain_id,
         idempotency_key=proto_req.idempotency_key,
+        granted_permissions=proto_req.granted_permissions,
         available_resources=proto_req.available_resources,
         capabilities=proto_req.capabilities,
-        approval_request_id=app_req.id,
-        metadata={"actor_id": "actor:dev"},
+        approval_request_id=op_exec_app_id,
+        metadata={"actor_id": "actor:dev", "approval_request_ids": app_ids},
     )
     res = orchestrator.execute(exec_req)
     assert res.status is DomainOperationStatus.ROLLED_BACK

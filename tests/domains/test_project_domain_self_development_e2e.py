@@ -20,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,8 +33,10 @@ from cmm.agent_runtime.checkpoint_restoration import CheckpointRestorationManage
 from cmm.agent_runtime.checkpoint_rollback_executor import (
     CheckpointRestorationRollbackExecutor,
 )
-from cmm.agent_runtime.enums import (
-    ApprovalRequestStatus,
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+    PermissionOutcome,
 )
 from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
 from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
@@ -199,6 +201,56 @@ class ProjectModifyCodeImplementation:
             "modified_files": request.parameters.get("modified_files", ()),
             "execution_count": self.execution_count,
         }
+
+
+def _approve_operation_requirements(
+    *,
+    definition: DomainOperationDefinition,
+    proto_request: DomainOperationRequest,
+    resolver: DomainPermissionResolver,
+    approval_service: ApprovalService,
+    requested_by: str,
+    approver_actor_id: str = "human:tech_lead",
+) -> tuple[str, dict[str, str], tuple[PermissionApprovalRequirement, ...]]:
+    actor_id = str(proto_request.metadata.get("actor_id", proto_request.agent_run_id))
+    session_id = proto_request.session_id or proto_request.agent_run_id
+    decision = evaluate_domain_operation(
+        definition,
+        resolver,
+        request_id=proto_request.request_id,
+        actor_id=actor_id,
+        session_id=session_id,
+    )
+    assert decision.decision is PermissionOutcome.APPROVAL_REQUIRED
+    approval_request_ids: dict[str, str] = {}
+    operation_execute_approval_id: str | None = None
+    for req in decision.approval_requirements:
+        bridged = to_approval_requirement(
+            req,
+            agent_run_id=proto_request.agent_run_id,
+        )
+        app_req = approval_service.create_request_from_requirement(
+            bridged,
+            requested_by=requested_by,
+            metadata_override={
+                "domain_request_fingerprint": proto_request.calculate_fingerprint(),
+            },
+        )
+        approval_service.approve(
+            app_req.id,
+            actor_id=approver_actor_id,
+            comment=f"Approved requirement {req.requirement_id}",
+        )
+        approval_request_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            operation_execute_approval_id = app_req.id
+
+    assert operation_execute_approval_id is not None
+    return (
+        operation_execute_approval_id,
+        approval_request_ids,
+        decision.approval_requirements,
+    )
 
 
 def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
@@ -430,6 +482,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         session_id="session:1",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:unapproved:1",
+        granted_permissions=modify_op.required_permissions,
         available_resources=modify_op.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:dev"},
@@ -494,32 +547,22 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         session_id="session:1",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:trial:1",
+        granted_permissions=modify_op.required_permissions,
         available_resources=modify_op.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:dev"},
     )
-    trial_op_decision = evaluate_domain_operation(
-        modify_op,
-        resolver,
-        request_id=trial_op_req_proto.request_id,
-        actor_id="actor:dev",
-        session_id="session:1",
-    )
-    trial_bridged = to_approval_requirement(
-        trial_op_decision.approval_requirements[0],
-        agent_run_id="run:dev:1",
-    )
-    trial_app_req = approval_svc.create_request_from_requirement(
-        trial_bridged,
+    (
+        trial_op_exec_id,
+        trial_approval_ids,
+        _trial_approval_requirements,
+    ) = _approve_operation_requirements(
+        definition=modify_op,
+        proto_request=trial_op_req_proto,
+        resolver=resolver,
+        approval_service=approval_svc,
         requested_by="agent:self_dev",
-        metadata_override={
-            "domain_request_fingerprint": trial_op_req_proto.calculate_fingerprint()
-        },
-    )
-    approval_svc.approve(
-        trial_app_req.id,
-        actor_id="human:tech_lead",
-        comment="Approved trial mutation",
+        approver_actor_id="human:tech_lead",
     )
     trial_op_req = DomainOperationRequest(
         request_id=trial_op_req_proto.request_id,
@@ -532,10 +575,14 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         session_id=trial_op_req_proto.session_id,
         primary_domain_id=trial_op_req_proto.primary_domain_id,
         idempotency_key=trial_op_req_proto.idempotency_key,
+        granted_permissions=trial_op_req_proto.granted_permissions,
         available_resources=trial_op_req_proto.available_resources,
         capabilities=trial_op_req_proto.capabilities,
-        approval_request_id=trial_app_req.id,
-        metadata={"actor_id": "actor:dev"},
+        approval_request_id=trial_op_exec_id,
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": trial_approval_ids,
+        },
     )
 
     trial_result = trial_orchestrator.execute(trial_op_req)
@@ -572,34 +619,31 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         session_id="session:1",
         primary_domain_id=PROJECT_DOMAIN_ID,
         idempotency_key="idem:mod:1",
+        granted_permissions=modify_op.required_permissions,
         available_resources=modify_op.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
         metadata={"actor_id": "actor:dev"},
     )
-    pos_op_decision = evaluate_domain_operation(
-        modify_op,
-        resolver,
-        request_id=positive_op_req_proto.request_id,
-        actor_id="actor:dev",
-        session_id="session:1",
-    )
-    pos_bridged = to_approval_requirement(
-        pos_op_decision.approval_requirements[0],
-        agent_run_id="run:dev:1",
-    )
-    app_request = approval_svc.create_request_from_requirement(
-        pos_bridged,
+    (
+        operation_execute_approval_id,
+        approval_request_ids,
+        approval_requirements,
+    ) = _approve_operation_requirements(
+        definition=modify_op,
+        proto_request=positive_op_req_proto,
+        resolver=resolver,
+        approval_service=approval_svc,
         requested_by="agent:self_dev",
-        metadata_override={
-            "domain_request_fingerprint": positive_op_req_proto.calculate_fingerprint()
-        },
+        approver_actor_id="human:tech_lead",
     )
-    approval_resolution = approval_svc.approve(
-        app_request.id,
-        actor_id="human:tech_lead",
-        comment="Approved token validation implementation",
+    app_request = approval_repo.get_request(operation_execute_approval_id)
+    assert any(
+        req.action is PermissionCapability.FILE_MODIFY for req in approval_requirements
     )
-    assert approval_resolution.status == ApprovalRequestStatus.APPROVED
+    assert any(
+        req.action is PermissionCapability.OPERATION_EXECUTE
+        for req in approval_requirements
+    )
 
     approved_op_req = DomainOperationRequest(
         request_id=positive_op_req_proto.request_id,
@@ -612,17 +656,22 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         session_id=positive_op_req_proto.session_id,
         primary_domain_id=positive_op_req_proto.primary_domain_id,
         idempotency_key=positive_op_req_proto.idempotency_key,
+        granted_permissions=positive_op_req_proto.granted_permissions,
         available_resources=positive_op_req_proto.available_resources,
         capabilities=positive_op_req_proto.capabilities,
-        approval_request_id=app_request.id,
-        metadata={"actor_id": "actor:dev"},
+        approval_request_id=operation_execute_approval_id,
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": approval_request_ids,
+        },
     )
 
     op_result = orchestrator.execute(approved_op_req)
     assert op_result.status is DomainOperationStatus.COMPLETED
     assert modify_impl.execution_count == 1
     assert op_result.transaction_id is not None
-    assert approval_repo.is_consumed(app_request.id) is True
+    for approval_id in approval_request_ids.values():
+        assert approval_repo.is_consumed(approval_id) is True
 
     modified_source = init_file.read_text(encoding="utf-8")
     assert "def validate_token" in modified_source
@@ -903,3 +952,152 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     assert presented["domain_display_name"] == "Project"
     assert presented["ready_for_approved_commit"] is True
     assert presented["committed"] is False
+
+
+def test_generic_operation_approval_alone_cannot_modify_code(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "neg_repo"
+    repo_dir.mkdir()
+    target_file = repo_dir / "target.py"
+    initial_bytes = b"class Target:\n    pass\n"
+    target_file.write_bytes(initial_bytes)
+
+    # Prohibit FILE_MODIFY while OPERATION_EXECUTE remains allowed
+    canonical_policy = build_project_permission_policy()
+    prohibited_file_modify_policy = replace(
+        canonical_policy,
+        policy_id="policy:project:no_file_modify",
+        prohibited_capabilities=(
+            *canonical_policy.prohibited_capabilities,
+            PermissionCapability.FILE_MODIFY,
+        ),
+        allowed_capabilities=tuple(
+            cap
+            for cap in canonical_policy.allowed_capabilities
+            if cap is not PermissionCapability.FILE_MODIFY
+        ),
+    )
+
+    registry = DomainPermissionRegistry()
+    registry.register(prohibited_file_modify_policy)
+    resolver = DomainPermissionResolver(registry)
+
+    approval_repo = InMemoryApprovalRepository()
+    approval_svc = ApprovalService(approval_repo)
+    gate = DomainPermissionGate(resolver, approval_service=approval_svc)
+
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    modify_op = ops["project.modify_code"]
+
+    modify_impl = ProjectModifyCodeImplementation(modify_op)
+    common_registry = InMemoryAgentOperationRegistry()
+    domain_registry = InMemoryDomainOperationRegistry(common_registry)
+    domain_registry.register(modify_op, modify_impl)
+
+    resource_provider = RepoResourceVersionProvider(repo_dir)
+    cp_repo = InMemoryCheckpointRepository()
+    cp_mgr = CheckpointManager(repository=cp_repo, resource_provider=resource_provider)
+    tx_manager = TransactionManager(cp_mgr)
+    rest_manager = CheckpointRestorationManager(
+        repository=cp_repo, resource_provider=resource_provider
+    )
+    rollback_executor = CheckpointRestorationRollbackExecutor(
+        transaction_manager=tx_manager, restoration_manager=rest_manager
+    )
+
+    adapter = AgentExecutionAdapter(
+        registry=common_registry,
+        execution_delegate=DomainOperationExecutionDelegate(domain_registry),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        domain_registry,
+        adapter,
+        approval_service=approval_svc,
+        permission_gate=gate,
+        transaction_manager=tx_manager,
+        rollback_executor=rollback_executor,
+    )
+
+    proto_request = DomainOperationRequest(
+        request_id="req:neg:1",
+        operation_id=modify_op.operation_id,
+        operation_version=modify_op.version,
+        inputs={
+            "runtime_action": {
+                "version": 1,
+                "actions": [
+                    {
+                        "tool": "python",
+                        "action": "insert_method",
+                        "path": str(target_file),
+                        "class_name": "Target",
+                        "position": "end",
+                        "code": "def injected(self) -> None:\n    pass\n",
+                    }
+                ],
+            },
+            "modified_files": ["target.py"],
+        },
+        agent_run_id="run:neg:1",
+        workflow_id="project.self_development",
+        task_id="task:neg:1",
+        session_id="session:neg",
+        primary_domain_id=PROJECT_DOMAIN_ID,
+        idempotency_key="idem:neg:1",
+        granted_permissions=modify_op.required_permissions,
+        available_resources=modify_op.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={"actor_id": "actor:dev"},
+    )
+
+    # Create and approve a generic OPERATION_EXECUTE approval only
+    generic_req = PermissionApprovalRequirement(
+        requirement_id=f"operation:project.modify_code:1.0.0:{proto_request.request_id}:operation_requires_approval",
+        action=PermissionCapability.OPERATION_EXECUTE,
+        actor_id="actor:dev",
+        session_id="session:neg",
+        domain_id=PROJECT_DOMAIN_ID,
+        operation_id="project.modify_code",
+        operation_version="1.0.0",
+        fingerprint=f"{proto_request.request_id}:project.modify_code:1.0.0:actor:dev:session:neg:operation_requires_approval",
+        scope="operation",
+        reason_code="operation_requires_approval",
+        risk="high",
+    )
+    bridged = to_approval_requirement(generic_req, agent_run_id="run:neg:1")
+    app_req = approval_svc.create_request_from_requirement(
+        bridged,
+        requested_by="agent:neg",
+        metadata_override={
+            "domain_request_fingerprint": proto_request.calculate_fingerprint(),
+        },
+    )
+    approval_svc.approve(
+        app_req.id, actor_id="lead", comment="Approved operation execute only"
+    )
+
+    request_with_generic_approval = DomainOperationRequest(
+        request_id=proto_request.request_id,
+        operation_id=proto_request.operation_id,
+        operation_version=proto_request.operation_version,
+        inputs=proto_request.inputs,
+        agent_run_id=proto_request.agent_run_id,
+        workflow_id=proto_request.workflow_id,
+        task_id=proto_request.task_id,
+        session_id=proto_request.session_id,
+        primary_domain_id=proto_request.primary_domain_id,
+        idempotency_key=proto_request.idempotency_key,
+        granted_permissions=proto_request.granted_permissions,
+        available_resources=proto_request.available_resources,
+        capabilities=proto_request.capabilities,
+        approval_request_id=app_req.id,
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": {generic_req.requirement_id: app_req.id},
+        },
+    )
+
+    result = orchestrator.execute(request_with_generic_approval)
+    assert result.status is DomainOperationStatus.BLOCKED
+    assert modify_impl.execution_count == 0
+    assert target_file.read_bytes() == initial_bytes
