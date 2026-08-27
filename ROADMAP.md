@@ -9,10 +9,10 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–9 plus Phase 10 Domain Packs through 10.30<br>
-> **Implemented and audited:** Phases 0–9 plus Phase 10 Domain Packs through 10.30<br>
+> **Implemented:** Phases 0–9 plus Phase 10 through 10.31<br>
+> **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.31<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** Phase 10.31 — Domain Selection Policies
+> **Next milestone:** Phase 10.32 — Domain Conflict Resolution
 
 ---
 
@@ -462,20 +462,20 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.30 are complete and independently audited. Phase 10.30 (`domain:project`) is independently closed with `DP-030=VERIFIED_EXISTING`, `AT_DP_030=PASS` (56 connected checkpoints), 34-class adversarial closure gate `PASS`, and zero blockers, majors, or minors. Phase 10.31–10.51 remain the next Domain Intelligence infrastructure sequence; Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) remain later planned Domain Packs.
+**Current progress:** Phase 10.19–10.31 are complete and independently audited. Phase 10.31 — Domain Selection Policies is independently closed with `DP-031=IMPLEMENTED`, `AT_DP_031=PASS` (22 connected checkpoints), 11 dedicated audit-regression tests, final independent audit V2 `PASS`, and zero blockers, majors, or minors. Phase 10.32–10.51 remain the next Domain Intelligence infrastructure sequence; Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) remain later planned Domain Packs.
 
-**Implemented through:** Phase 10.30 — Project Domain, independently audited and closed.
-Phase 10.15 remains closed; Phase 10.31 — Domain Selection Policies is the next applicable Phase 10 milestone.
+**Implemented through:** Phase 10.31 — Domain Selection Policies, independently audited and closed.
+Phase 10.15 remains closed; Phase 10.32 — Domain Conflict Resolution is the next applicable Phase 10 milestone.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 
-The canonical requirements matrix currently records Phases 10.16–10.30 plus the later 10.52–10.53 Domain Packs. Phases 10.31–10.51 remain canonically specified in the detailed Phase 10 roadmap while their implementation evidence is added sequentially. The matrix is the
+The canonical requirements matrix currently records Phases 10.16–10.31 plus the later 10.52–10.53 Domain Packs. Phases 10.32–10.51 remain canonically specified in the detailed Phase 10 roadmap while their implementation evidence is added sequentially. The matrix is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
 supported by the
 [Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
 The Phase 10.16 implementation boundary is documented in
 [Domain Presentation](docs/reference/domain-presentation.md). Phase 10.15
-remains closed. The remaining Phase 10 sequence is 10.31 → 10.53, with 10.52–10.53 as the final planned Domain Packs.
+remains closed. The remaining Phase 10 sequence is 10.32 → 10.53, with 10.52–10.53 as the final planned Domain Packs.
 
 ### Objective
 
@@ -623,7 +623,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The implementation and audit baseline covers Phases 0–9 plus closed Phase 10 work through 10.30, while Phase 10 continues with 10.31–10.53; 10.52–10.53 are the final planned Domain Packs.
+The current published release is `v0.8.0`. The implementation and audit baseline covers Phases 0–9 plus closed Phase 10 work through 10.31, while Phase 10 continues with 10.32–10.53; 10.52–10.53 are the final planned Domain Packs.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 

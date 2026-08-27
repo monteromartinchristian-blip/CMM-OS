@@ -4782,17 +4782,18 @@ Permissions
 
 10.31 - Domain Selection Policies
 
-> **Implementation status:** Complete — independent audit pending
+> **Implementation status:** Complete — independently audited and closed
 > **DP-031:** `IMPLEMENTED`
-> **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints
+> **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints; independent audit V2 `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-27-domain-selection-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-27-domain-selection-policies-implementation-plan.md`
-> **Focused Phase 10.31 tests:** 84 passed
-> **Domain suite:** 6673 passed
-> **Global suite:** 12213 passed
-> **Phase 10.31 Python delta:** 13 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Focused Phase 10.31 tests:** 95 passed
+> **Domain suite:** 6684 passed
+> **Global suite:** 12224 passed
+> **Phase 10.31 Python delta:** 14 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
 > **Repository-wide Ruff:** 826 pre-existing violations outside the Phase 10.31 Python delta; not part of this milestone
-> **Independent audit:** pending full-HEAD audit bundle
+> **Independent audit:** V2 `PASS` — audited HEAD `76dacf3`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `dfa48d98b154526ce85efe067d7086e3ddde36c9b4c6cf643d097647553d9227`
+> **Audit remediation:** V1 findings remediated by `76dacf3`; 11 dedicated audit-regression tests `PASS`
 
 Objective
 
