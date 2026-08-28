@@ -23,6 +23,24 @@ from cmm.domains.composition_contracts import (
     PermissionComposition,
     PresentationComposition,
 )
+
+# Phase 10.32 – Domain Conflict Resolution
+from cmm.domains.conflict_resolution import (
+    DomainConflictResolver,
+)
+from cmm.domains.conflict_resolution_contracts import (
+    DomainConflictAuthority,
+    DomainConflictCase,
+    DomainConflictKind,
+    DomainConflictReasonCode,
+    DomainConflictReference,
+    DomainConflictResolution,
+    DomainConflictResolutionPolicy,
+    DomainConflictSeverity,
+    DomainConflictSourceKind,
+    DomainConflictStatus,
+    DomainConflictStrategy,
+)
 from cmm.domains.contracts import (
     DomainCapability,
     DomainConflict,
@@ -136,6 +154,8 @@ from cmm.domains.errors import (
     DomainCompositionError,
     DomainCompositionExecutionError,
     DomainCompositionSerializationError,
+    DomainConflictResolutionContractError,
+    DomainConflictResolutionSerializationError,
     DomainContractError,
     DomainContractValidationError,
     DomainDependencyMissing,
@@ -512,7 +532,21 @@ __all__ = [
     "DomainCompositionSerializationError",
     "DomainCompositionStatus",
     "DomainConflict",
+    "DomainConflictAuthority",
+    "DomainConflictCase",
+    "DomainConflictKind",
     "DomainConflictPolicy",
+    "DomainConflictReasonCode",
+    "DomainConflictReference",
+    "DomainConflictResolution",
+    "DomainConflictResolutionContractError",
+    "DomainConflictResolutionPolicy",
+    "DomainConflictResolutionSerializationError",
+    "DomainConflictResolver",
+    "DomainConflictSeverity",
+    "DomainConflictSourceKind",
+    "DomainConflictStatus",
+    "DomainConflictStrategy",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDefinition",

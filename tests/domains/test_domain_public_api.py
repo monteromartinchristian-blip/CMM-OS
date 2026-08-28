@@ -494,6 +494,24 @@ class TestPublicAPI:
                 "DomainMemoryViewSnapshot",
             }
         )
+        expected.update(
+            {
+                "DomainConflictAuthority",
+                "DomainConflictCase",
+                "DomainConflictKind",
+                "DomainConflictReasonCode",
+                "DomainConflictReference",
+                "DomainConflictResolution",
+                "DomainConflictResolutionContractError",
+                "DomainConflictResolutionPolicy",
+                "DomainConflictResolutionSerializationError",
+                "DomainConflictResolver",
+                "DomainConflictSeverity",
+                "DomainConflictSourceKind",
+                "DomainConflictStatus",
+                "DomainConflictStrategy",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -503,7 +521,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 431
+        assert len(cmm.domains.__all__) == 445
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
