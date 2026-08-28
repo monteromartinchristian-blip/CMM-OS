@@ -872,10 +872,10 @@ class DomainConflictCase:
             for ref in self.references:
                 if (
                     ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
-                    and ref.metadata.get("status") == "unresolved"
+                    and ref.metadata.get("status") != "resolved"
                 ):
                     raise DomainConflictResolutionContractError(
-                        "RESOLVED case cannot override an unresolved knowledge contradiction",
+                        "RESOLVED case requires upstream knowledge contradiction status=resolved",
                         field="status",
                     )
                 if ref.source_kind is DomainConflictSourceKind.SELECTION_CONFLICT:
