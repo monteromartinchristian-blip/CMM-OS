@@ -4889,16 +4889,16 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
-> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); audit V5 FAIL (remediated); audit V6 FAIL (remediated); audit V7 FAIL (remediated); audit V8 FAIL (remediated); independent audit V9 pending
+> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); audit V5 FAIL (remediated); audit V6 FAIL (remediated); audit V7 FAIL (remediated); audit V8 FAIL (remediated); audit V9 FAIL (remediated); independent audit V10 pending
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`; 30 dedicated audit V5 regression tests `PASS`; 17 dedicated audit V6 regression tests `PASS`; 10 dedicated audit V7 regression tests `PASS`; 10 dedicated audit V8 regression tests `PASS`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`; 30 dedicated audit V5 regression tests `PASS`; 17 dedicated audit V6 regression tests `PASS`; 10 dedicated audit V7 regression tests `PASS`; 10 dedicated audit V8 regression tests `PASS`; 5 dedicated audit V9 regression tests `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
-> **Focused Phase 10.32 tests:** 211 passed
-> **Domain suite:** 6895 passed
-> **Global suite:** 12435 passed
-> **Phase 10.32 Python delta:** 20 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
-> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — remediated; V5 `FAIL` — remediated; V6 `FAIL` — remediated; V7 `FAIL` — remediated; V8 `FAIL` — M19/M20 remediated by `ee973cc`; independent audit V9 pending
+> **Focused Phase 10.32 tests:** 216 passed
+> **Domain suite:** 6900 passed
+> **Global suite:** 12440 passed
+> **Phase 10.32 Python delta:** 21 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — remediated; V5 `FAIL` — remediated; V6 `FAIL` — remediated; V7 `FAIL` — remediated; V8 `FAIL` — remediated; V9 `FAIL` — M21 remediated by `cd2ad80`; independent audit V10 pending
 
 Objective
 
