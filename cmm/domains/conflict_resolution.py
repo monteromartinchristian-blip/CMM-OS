@@ -51,6 +51,15 @@ _ASK_USER_ALLOWED_KINDS = frozenset(
 )
 
 
+_SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS = frozenset(
+    {
+        DomainConflictKind.PREFERENCE,
+        DomainConflictKind.KNOWLEDGE,
+        DomainConflictKind.SELECTION,
+    }
+)
+
+
 def _validated_scores(
     raw: Mapping[str, float] | None,
     *,
@@ -378,6 +387,16 @@ class DomainConflictResolver:
         decisive_refs: tuple[DomainConflictReference, ...],
         highest_risk_domain: DomainId | None,
     ) -> DomainConflictResolution:
+        if case.kind is DomainConflictKind.KNOWLEDGE:
+            return _preserve(
+                case,
+                strategy=DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE,
+                reason_codes=(
+                    DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.PRESERVED,
+                ),
+            )
+
         if highest_risk_domain is None or case.blocking:
             return _preserve(
                 case,
@@ -496,6 +515,16 @@ class DomainConflictResolver:
         reliability_scores: Mapping[str, float],
         temporal_scores: Mapping[str, float],
     ) -> DomainConflictResolution:
+        if case.kind in _SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS:
+            return _preserve(
+                case,
+                strategy=DomainConflictStrategy.EVIDENCE_WEIGHTED,
+                reason_codes=(
+                    DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.PRESERVED,
+                ),
+            )
+
         if authority is DomainConflictAuthority.RELIABILITY:
             scores = reliability_scores
             reason = DomainConflictReasonCode.RELIABILITY_PRECEDENCE

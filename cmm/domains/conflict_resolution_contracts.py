@@ -925,6 +925,18 @@ class DomainConflictResolution:
                 field="conflict_preserved",
             )
 
+        if self.conflict_preserved and not self.preserved_reference_ids:
+            raise DomainConflictResolutionContractError(
+                "conflict_preserved=True requires preserved_reference_ids",
+                field="preserved_reference_ids",
+            )
+
+        if self.status is DomainConflictStatus.POSTPONED and self.can_proceed:
+            raise DomainConflictResolutionContractError(
+                "POSTPONED status requires can_proceed=False",
+                field="can_proceed",
+            )
+
         if self.status is DomainConflictStatus.BLOCKED and self.can_proceed:
             raise DomainConflictResolutionContractError(
                 "BLOCKED status requires can_proceed=False",
