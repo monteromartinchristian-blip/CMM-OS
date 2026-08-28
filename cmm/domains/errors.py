@@ -817,6 +817,43 @@ class DomainConflictResolutionSerializationError(DomainConflictResolutionContrac
     code = "DOMAIN_CONFLICT_RESOLUTION_SERIALIZATION_ERROR"
 
 
+# Phase 10.33 – Domain Events
+class DomainEventError(DomainError):
+    """Base error for Domain Event operations."""
+
+    code = "DOMAIN_EVENT_ERROR"
+
+
+class DomainEventContractError(DomainEventError, DomainContractValidationError):
+    """Raised when a Domain Event contract is invalid."""
+
+    code = "DOMAIN_EVENT_CONTRACT_ERROR"
+
+
+class DomainEventSerializationError(DomainEventContractError):
+    """Raised when Domain Event serialization or deserialization fails."""
+
+    code = "DOMAIN_EVENT_SERIALIZATION_ERROR"
+
+
+class DomainEventValidationError(DomainEventContractError):
+    """Raised when Domain Event validation fails (e.g. unknown event type)."""
+
+    code = "DOMAIN_EVENT_VALIDATION_ERROR"
+
+
+class DomainEventRegistryError(DomainEventError):
+    """Raised when Domain Event registration fails."""
+
+    code = "DOMAIN_EVENT_REGISTRY_ERROR"
+
+
+class DomainEventPublicationError(DomainEventError):
+    """Raised when Domain Event publication to Kernel fails."""
+
+    code = "DOMAIN_EVENT_PUBLICATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -841,6 +878,12 @@ __all__ = [
     "DomainDiscoveryError",
     "DomainDiscoverySourceError",
     "DomainError",
+    "DomainEventContractError",
+    "DomainEventError",
+    "DomainEventPublicationError",
+    "DomainEventRegistryError",
+    "DomainEventSerializationError",
+    "DomainEventValidationError",
     "DomainLoadFailed",
     "DomainLoadRejected",
     "DomainLoadRollbackFailed",

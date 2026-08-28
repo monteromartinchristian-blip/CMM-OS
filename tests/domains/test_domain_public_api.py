@@ -512,6 +512,51 @@ class TestPublicAPI:
                 "DomainConflictStrategy",
             }
         )
+        expected.update(
+            {
+                "CANONICAL_DOMAIN_EVENTS",
+                "CANONICAL_DOMAIN_EVENTS_SET",
+                "DEFAULT_DOMAIN_EVENT_REGISTRY",
+                "DomainEvent",
+                "DomainEventContractError",
+                "DomainEventDeclaration",
+                "DomainEventError",
+                "DomainEventFactory",
+                "DomainEventPublicationError",
+                "DomainEventReference",
+                "DomainEventRegistry",
+                "DomainEventRegistryError",
+                "DomainEventSerializationError",
+                "DomainEventValidationError",
+                "DomainKernelEventPublisher",
+                "adapt_approval_received",
+                "adapt_approval_requested",
+                "adapt_composition_created",
+                "adapt_composition_updated",
+                "adapt_conflict_detected",
+                "adapt_conflict_resolution",
+                "adapt_execution_completed",
+                "adapt_execution_failed",
+                "adapt_execution_started",
+                "adapt_memory_proposed",
+                "adapt_memory_updated",
+                "adapt_operation_completed",
+                "adapt_operation_failed",
+                "adapt_operation_started",
+                "adapt_permission_denied",
+                "adapt_permission_requested",
+                "adapt_resolution_result",
+                "adapt_resolution_started",
+                "adapt_workflow_completed",
+                "adapt_workflow_paused",
+                "adapt_workflow_resumed",
+                "adapt_workflow_started",
+                "get_canonical_domain_namespace",
+                "is_canonical_general_event",
+                "validate_event_type_syntax",
+                "validate_specialized_event_namespace",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -521,7 +566,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 445
+        assert len(cmm.domains.__all__) == 486
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

@@ -4973,6 +4973,16 @@ No:
 
 10.33 - Domain Events
 
+> **Implementation status:** Implemented, pending independent audit
+> **DP-033:** `IMPLEMENTED`
+> **AT-DP-033:** `PASS` — 33 connected acceptance checkpoints (`tests/domains/test_domain_events_dp033_acceptance.py`)
+> **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-events-implementation-plan.md`
+> **Focused Phase 10.33 tests:** 142 passed
+> **Domain suite:** 7048 passed
+> **Global suite:** 12588 passed
+> **Phase 10.33 Python delta:** 17 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
+
 Objective
 
 To integrate domains with the Kernel through stable events.
