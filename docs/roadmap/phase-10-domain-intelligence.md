@@ -4889,16 +4889,16 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
-> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); audit V5 FAIL (remediated); independent audit V6 pending
+> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); audit V5 FAIL (remediated); audit V6 FAIL (remediated); independent audit V7 pending
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`; 30 dedicated audit V5 regression tests `PASS`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`; 30 dedicated audit V5 regression tests `PASS`; 17 dedicated audit V6 regression tests `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
-> **Focused Phase 10.32 tests:** 174 passed
-> **Domain suite:** 6858 passed
-> **Global suite:** 12398 passed
-> **Phase 10.32 Python delta:** 17 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
-> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — remediated; V5 `FAIL` — M11/M12/M13/m7 remediated by `adfb380`; independent audit V6 pending
+> **Focused Phase 10.32 tests:** 191 passed
+> **Domain suite:** 6875 passed
+> **Global suite:** 12415 passed
+> **Phase 10.32 Python delta:** 18 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — remediated; V5 `FAIL` — remediated; V6 `FAIL` — B5/B6/M14/M15/M16/m8 remediated by `4799c10`; independent audit V7 pending
 
 Objective
 
