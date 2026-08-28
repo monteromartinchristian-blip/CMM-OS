@@ -4782,17 +4782,17 @@ Permissions
 
 10.31 - Domain Selection Policies
 
-> **Implementation status:** Complete — independently audited and closed
+> **Implementation status:** Complete — audit V1 findings remediated; independent re-audit V2 pending
 > **DP-031:** `IMPLEMENTED`
 > **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints; independent audit V2 `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-27-domain-selection-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-27-domain-selection-policies-implementation-plan.md`
 > **Focused Phase 10.31 tests:** 95 passed
-> **Domain suite:** 6684 passed
-> **Global suite:** 12224 passed
+> **Domain suite:** 6793 passed
+> **Global suite:** 12333 passed
 > **Phase 10.31 Python delta:** 14 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
 > **Repository-wide Ruff:** 826 pre-existing violations outside the Phase 10.31 Python delta; not part of this milestone
-> **Independent audit:** V2 `PASS` — audited HEAD `76dacf3`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `dfa48d98b154526ce85efe067d7086e3ddde36c9b4c6cf643d097647553d9227`
+> **Independent audit:** V1 `FAIL` — 1 blocker, 3 majors, 2 minors; B1/M1/M2/M3/m1 remediated by `7d50301`; m2 evidence corrected; independent re-audit V2 pending
 > **Audit remediation:** V1 findings remediated by `76dacf3`; 11 dedicated audit-regression tests `PASS`
 
 Objective
@@ -4891,13 +4891,13 @@ Phase boundaries
 
 > **Implementation status:** Complete — awaiting independent audit
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
-> **Focused Phase 10.32 tests:** 97 passed
+> **Focused Phase 10.32 tests:** 109 passed
 > **Domain suite:** 6781 passed
 > **Global suite:** 12321 passed
-> **Phase 10.32 Python delta:** 11 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Phase 10.32 Python delta:** 13 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
 
 Objective
 
