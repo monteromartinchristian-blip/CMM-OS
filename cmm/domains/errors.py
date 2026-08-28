@@ -202,7 +202,6 @@ class DomainMemoryPrivacyError(DomainMemoryError):
     code = "DOMAIN_MEMORY_PRIVACY_ERROR"
 
 
-
 class DomainPresentationConflictError(DomainPresentationError):
     """Raised when multi-domain presentation constraints remain unresolved."""
 
@@ -805,6 +804,19 @@ class DomainPermissionSerializationError(DomainPermissionError, ValueError):
     code = "DOMAIN_PERMISSION_SERIALIZATION_ERROR"
 
 
+# Phase 10.32 – Domain Conflict Resolution
+class DomainConflictResolutionContractError(DomainContractValidationError):
+    """Raised when a Phase 10.32 conflict-resolution contract is invalid."""
+
+    code = "DOMAIN_CONFLICT_RESOLUTION_CONTRACT_ERROR"
+
+
+class DomainConflictResolutionSerializationError(DomainConflictResolutionContractError):
+    """Raised when serialized Phase 10.32 conflict data is invalid."""
+
+    code = "DOMAIN_CONFLICT_RESOLUTION_SERIALIZATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -821,6 +833,8 @@ __all__ = [
     "DomainCompositionError",
     "DomainCompositionExecutionError",
     "DomainCompositionSerializationError",
+    "DomainConflictResolutionContractError",
+    "DomainConflictResolutionSerializationError",
     "DomainContractError",
     "DomainContractValidationError",
     "DomainDependencyMissing",
