@@ -445,3 +445,804 @@ class DomainConflictReference:
                 exc.message,
                 field=exc.field,
             ) from exc
+
+
+# ── Case, Resolution, and Policy Helpers ──────────────────────────────────────
+
+
+def _coerce_domain_id_tuple(
+    value: tuple[DomainId | str, ...] | list[DomainId | str] | Any,
+    field_name: str,
+) -> tuple[DomainId, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must be a tuple or list",
+            field=field_name,
+        )
+    result: list[DomainId] = []
+    seen: set[str] = set()
+    for i, item in enumerate(value):
+        did = _coerce_optional_domain_id(item, f"{field_name}[{i}]")
+        if did is None:
+            raise DomainConflictResolutionContractError(
+                f"{field_name}[{i}] must not be None",
+                field=field_name,
+            )
+        slug = str(did)
+        if slug not in seen:
+            seen.add(slug)
+            result.append(did)
+    return tuple(result)
+
+
+def _coerce_references_tuple(
+    value: tuple[DomainConflictReference, ...] | list[DomainConflictReference] | Any,
+    field_name: str,
+) -> tuple[DomainConflictReference, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must be a tuple or list",
+            field=field_name,
+        )
+    if len(value) == 0:
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must not be empty",
+            field=field_name,
+        )
+    result: list[DomainConflictReference] = []
+    seen_ids: set[str] = set()
+    for i, item in enumerate(value):
+        if not isinstance(item, DomainConflictReference):
+            raise DomainConflictResolutionContractError(
+                f"{field_name}[{i}] must be a DomainConflictReference",
+                field=field_name,
+            )
+        if item.source_id in seen_ids:
+            raise DomainConflictResolutionContractError(
+                f"Duplicate reference source_id in {field_name}: '{item.source_id}'",
+                field=field_name,
+            )
+        seen_ids.add(item.source_id)
+        result.append(item)
+    return tuple(result)
+
+
+def _coerce_strategy_tuple(
+    value: (
+        tuple[DomainConflictStrategy | str, ...]
+        | list[DomainConflictStrategy | str]
+        | Any
+    ),
+    field_name: str,
+) -> tuple[DomainConflictStrategy, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must be a tuple or list",
+            field=field_name,
+        )
+    result: list[DomainConflictStrategy] = []
+    seen: set[DomainConflictStrategy] = set()
+    for i, item in enumerate(value):
+        st = _coerce_enum(item, DomainConflictStrategy, f"{field_name}[{i}]")
+        if st not in seen:
+            seen.add(st)
+            result.append(st)
+    return tuple(result)
+
+
+def _coerce_reason_codes_tuple(
+    value: (
+        tuple[DomainConflictReasonCode | str, ...]
+        | list[DomainConflictReasonCode | str]
+        | Any
+    ),
+    field_name: str,
+) -> tuple[DomainConflictReasonCode, ...]:
+    if not isinstance(value, (tuple, list)):
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must be a tuple or list",
+            field=field_name,
+        )
+    result: list[DomainConflictReasonCode] = []
+    seen: set[DomainConflictReasonCode] = set()
+    for i, item in enumerate(value):
+        rc = _coerce_enum(item, DomainConflictReasonCode, f"{field_name}[{i}]")
+        if rc not in seen:
+            seen.add(rc)
+            result.append(rc)
+    return tuple(result)
+
+
+# ── DomainConflictCase ─────────────────────────────────────────────────────────
+
+_CASE_KNOWN = frozenset(
+    {
+        "id",
+        "domains",
+        "kind",
+        "severity",
+        "status",
+        "references",
+        "affected_item_refs",
+        "candidate_strategies",
+        "requires_human_review",
+        "blocking",
+        "metadata",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainConflictCase:
+    id: str
+    domains: tuple[DomainId, ...]
+    kind: DomainConflictKind
+    severity: DomainConflictSeverity
+    status: DomainConflictStatus
+    references: tuple[DomainConflictReference, ...]
+    affected_item_refs: tuple[str, ...] = ()
+    candidate_strategies: tuple[DomainConflictStrategy, ...] = ()
+    requires_human_review: bool = False
+    blocking: bool = False
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _validate_non_empty_str(self.id, "id"))
+        object.__setattr__(
+            self,
+            "domains",
+            _coerce_domain_id_tuple(self.domains, "domains"),
+        )
+        object.__setattr__(
+            self,
+            "kind",
+            _coerce_enum(self.kind, DomainConflictKind, "kind"),
+        )
+        object.__setattr__(
+            self,
+            "severity",
+            _coerce_enum(self.severity, DomainConflictSeverity, "severity"),
+        )
+        object.__setattr__(
+            self,
+            "status",
+            _coerce_enum(self.status, DomainConflictStatus, "status"),
+        )
+        object.__setattr__(
+            self,
+            "references",
+            _coerce_references_tuple(self.references, "references"),
+        )
+        object.__setattr__(
+            self,
+            "affected_item_refs",
+            _coerce_unique_str_tuple(self.affected_item_refs, "affected_item_refs"),
+        )
+        object.__setattr__(
+            self,
+            "candidate_strategies",
+            _coerce_strategy_tuple(self.candidate_strategies, "candidate_strategies"),
+        )
+        object.__setattr__(
+            self,
+            "requires_human_review",
+            _validate_strict_bool(self.requires_human_review, "requires_human_review"),
+        )
+        object.__setattr__(
+            self,
+            "blocking",
+            _validate_strict_bool(self.blocking, "blocking"),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            _validate_json_safe_metadata(self.metadata, "metadata"),
+        )
+
+        if self.blocking and self.severity is not DomainConflictSeverity.BLOCKING:
+            raise DomainConflictResolutionContractError(
+                "blocking=True requires severity=BLOCKING",
+                field="blocking",
+            )
+        if not self.blocking and self.severity is DomainConflictSeverity.BLOCKING:
+            raise DomainConflictResolutionContractError(
+                "severity=BLOCKING requires blocking=True",
+                field="severity",
+            )
+
+        if self.status is DomainConflictStatus.RESOLVED and (
+            self.blocking or any(r.blocking for r in self.references)
+        ):
+            raise DomainConflictResolutionContractError(
+                "RESOLVED case cannot have blocking=True or contain blocking references",
+                field="status",
+            )
+
+        if self.status is DomainConflictStatus.BLOCKED and not self.blocking:
+            raise DomainConflictResolutionContractError(
+                "BLOCKED status requires blocking=True",
+                field="status",
+            )
+
+        if (
+            self.status is DomainConflictStatus.AWAITING_HUMAN_REVIEW
+            and not self.requires_human_review
+        ):
+            raise DomainConflictResolutionContractError(
+                "AWAITING_HUMAN_REVIEW status requires requires_human_review=True",
+                field="requires_human_review",
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "domains": [str(d) for d in self.domains],
+            "kind": self.kind.value,
+            "severity": self.severity.value,
+            "status": self.status.value,
+            "references": [r.to_dict() for r in self.references],
+            "affected_item_refs": list(self.affected_item_refs),
+            "candidate_strategies": [s.value for s in self.candidate_strategies],
+            "requires_human_review": self.requires_human_review,
+            "blocking": self.blocking,
+            "metadata": _deep_unfreeze_value(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainConflictCase:
+        mapping = _strict_mapping(data, _CASE_KNOWN, "DomainConflictCase")
+        try:
+            raw_refs = mapping.get("references", ())
+            if not isinstance(raw_refs, (tuple, list)):
+                raise DomainConflictResolutionContractError(
+                    "references must be a tuple or list",
+                    field="references",
+                )
+            references = tuple(
+                DomainConflictReference.from_dict(r) if isinstance(r, Mapping) else r
+                for r in raw_refs
+            )
+            return cls(
+                id=mapping["id"],
+                domains=tuple(mapping.get("domains", ())),
+                kind=mapping["kind"],
+                severity=mapping["severity"],
+                status=mapping["status"],
+                references=references,
+                affected_item_refs=tuple(mapping.get("affected_item_refs", ())),
+                candidate_strategies=tuple(mapping.get("candidate_strategies", ())),
+                requires_human_review=mapping.get("requires_human_review", False),
+                blocking=mapping.get("blocking", False),
+                metadata=mapping.get("metadata", {}),
+            )
+        except DomainConflictResolutionContractError as exc:
+            raise DomainConflictResolutionSerializationError(
+                exc.message,
+                field=exc.field,
+            ) from exc
+
+
+# ── DomainConflictResolution ───────────────────────────────────────────────────
+
+_RESOLUTION_KNOWN = frozenset(
+    {
+        "conflict_id",
+        "status",
+        "strategy",
+        "winning_reference_ids",
+        "preserved_reference_ids",
+        "rejected_reference_ids",
+        "reason_codes",
+        "requires_user_input",
+        "requires_human_review",
+        "action_postponed",
+        "conflict_preserved",
+        "can_proceed",
+        "metadata",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainConflictResolution:
+    conflict_id: str
+    status: DomainConflictStatus
+    strategy: DomainConflictStrategy
+    winning_reference_ids: tuple[str, ...] = ()
+    preserved_reference_ids: tuple[str, ...] = ()
+    rejected_reference_ids: tuple[str, ...] = ()
+    reason_codes: tuple[DomainConflictReasonCode, ...] = ()
+    requires_user_input: bool = False
+    requires_human_review: bool = False
+    action_postponed: bool = False
+    conflict_preserved: bool = False
+    can_proceed: bool = False
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "conflict_id",
+            _validate_non_empty_str(self.conflict_id, "conflict_id"),
+        )
+        object.__setattr__(
+            self,
+            "status",
+            _coerce_enum(self.status, DomainConflictStatus, "status"),
+        )
+        object.__setattr__(
+            self,
+            "strategy",
+            _coerce_enum(self.strategy, DomainConflictStrategy, "strategy"),
+        )
+        object.__setattr__(
+            self,
+            "winning_reference_ids",
+            _coerce_unique_str_tuple(
+                self.winning_reference_ids, "winning_reference_ids"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "preserved_reference_ids",
+            _coerce_unique_str_tuple(
+                self.preserved_reference_ids, "preserved_reference_ids"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "rejected_reference_ids",
+            _coerce_unique_str_tuple(
+                self.rejected_reference_ids, "rejected_reference_ids"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reason_codes",
+            _coerce_reason_codes_tuple(self.reason_codes, "reason_codes"),
+        )
+        object.__setattr__(
+            self,
+            "requires_user_input",
+            _validate_strict_bool(self.requires_user_input, "requires_user_input"),
+        )
+        object.__setattr__(
+            self,
+            "requires_human_review",
+            _validate_strict_bool(self.requires_human_review, "requires_human_review"),
+        )
+        object.__setattr__(
+            self,
+            "action_postponed",
+            _validate_strict_bool(self.action_postponed, "action_postponed"),
+        )
+        object.__setattr__(
+            self,
+            "conflict_preserved",
+            _validate_strict_bool(self.conflict_preserved, "conflict_preserved"),
+        )
+        object.__setattr__(
+            self,
+            "can_proceed",
+            _validate_strict_bool(self.can_proceed, "can_proceed"),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            _validate_json_safe_metadata(self.metadata, "metadata"),
+        )
+
+        if set(self.winning_reference_ids) & set(self.rejected_reference_ids):
+            raise DomainConflictResolutionContractError(
+                "winning_reference_ids and rejected_reference_ids must be disjoint",
+                field="winning_reference_ids",
+            )
+
+        if self.requires_user_input != (
+            self.status is DomainConflictStatus.AWAITING_USER
+        ):
+            raise DomainConflictResolutionContractError(
+                "requires_user_input=True <=> status=AWAITING_USER",
+                field="requires_user_input",
+            )
+
+        if self.requires_human_review != (
+            self.status is DomainConflictStatus.AWAITING_HUMAN_REVIEW
+        ):
+            raise DomainConflictResolutionContractError(
+                "requires_human_review=True <=> status=AWAITING_HUMAN_REVIEW",
+                field="requires_human_review",
+            )
+
+        if self.action_postponed != (self.status is DomainConflictStatus.POSTPONED):
+            raise DomainConflictResolutionContractError(
+                "action_postponed=True <=> status=POSTPONED",
+                field="action_postponed",
+            )
+
+        if self.status is DomainConflictStatus.BLOCKED and self.can_proceed:
+            raise DomainConflictResolutionContractError(
+                "BLOCKED status requires can_proceed=False",
+                field="can_proceed",
+            )
+
+        if (
+            self.strategy is DomainConflictStrategy.MAINTAIN_CONFLICT
+            and not self.conflict_preserved
+        ):
+            raise DomainConflictResolutionContractError(
+                "MAINTAIN_CONFLICT strategy requires conflict_preserved=True",
+                field="conflict_preserved",
+            )
+
+        if (
+            self.strategy is DomainConflictStrategy.POSTPONE_ACTION
+            and not self.conflict_preserved
+        ):
+            raise DomainConflictResolutionContractError(
+                "POSTPONE_ACTION strategy requires conflict_preserved=True",
+                field="conflict_preserved",
+            )
+
+        if (
+            self.strategy is DomainConflictStrategy.ASK_USER
+            and not self.requires_user_input
+        ):
+            raise DomainConflictResolutionContractError(
+                "ASK_USER strategy requires requires_user_input=True",
+                field="requires_user_input",
+            )
+
+        if (
+            self.strategy is DomainConflictStrategy.HUMAN_REVIEW
+            and not self.requires_human_review
+        ):
+            raise DomainConflictResolutionContractError(
+                "HUMAN_REVIEW strategy requires requires_human_review=True",
+                field="requires_human_review",
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "conflict_id": self.conflict_id,
+            "status": self.status.value,
+            "strategy": self.strategy.value,
+            "winning_reference_ids": list(self.winning_reference_ids),
+            "preserved_reference_ids": list(self.preserved_reference_ids),
+            "rejected_reference_ids": list(self.rejected_reference_ids),
+            "reason_codes": [rc.value for rc in self.reason_codes],
+            "requires_user_input": self.requires_user_input,
+            "requires_human_review": self.requires_human_review,
+            "action_postponed": self.action_postponed,
+            "conflict_preserved": self.conflict_preserved,
+            "can_proceed": self.can_proceed,
+            "metadata": _deep_unfreeze_value(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainConflictResolution:
+        mapping = _strict_mapping(data, _RESOLUTION_KNOWN, "DomainConflictResolution")
+        try:
+            return cls(
+                conflict_id=mapping["conflict_id"],
+                status=mapping["status"],
+                strategy=mapping["strategy"],
+                winning_reference_ids=tuple(mapping.get("winning_reference_ids", ())),
+                preserved_reference_ids=tuple(
+                    mapping.get("preserved_reference_ids", ())
+                ),
+                rejected_reference_ids=tuple(mapping.get("rejected_reference_ids", ())),
+                reason_codes=tuple(mapping.get("reason_codes", ())),
+                requires_user_input=mapping.get("requires_user_input", False),
+                requires_human_review=mapping.get("requires_human_review", False),
+                action_postponed=mapping.get("action_postponed", False),
+                conflict_preserved=mapping.get("conflict_preserved", False),
+                can_proceed=mapping.get("can_proceed", False),
+                metadata=mapping.get("metadata", {}),
+            )
+        except DomainConflictResolutionContractError as exc:
+            raise DomainConflictResolutionSerializationError(
+                exc.message,
+                field=exc.field,
+            ) from exc
+
+
+# ── DomainConflictResolutionPolicy ─────────────────────────────────────────────
+
+_POLICY_KNOWN = frozenset(
+    {
+        "default_strategy",
+        "blocking_strategy",
+        "permission_strategy",
+        "mandatory_rule_strategy",
+        "high_risk_strategy",
+        "primary_strategy",
+        "evidence_strategy",
+        "allow_separate_results",
+        "allow_user_confirmation",
+        "allow_human_review",
+        "allow_postpone",
+        "preserve_unresolved_conflicts",
+        "metadata",
+    }
+)
+
+_PERMISSION_ALLOWED = frozenset(
+    {
+        DomainConflictStrategy.MOST_RESTRICTIVE,
+        DomainConflictStrategy.HUMAN_REVIEW,
+        DomainConflictStrategy.MAINTAIN_CONFLICT,
+        DomainConflictStrategy.POSTPONE_ACTION,
+    }
+)
+
+_MANDATORY_ALLOWED = frozenset(
+    {
+        DomainConflictStrategy.MOST_RESTRICTIVE,
+        DomainConflictStrategy.HUMAN_REVIEW,
+        DomainConflictStrategy.MAINTAIN_CONFLICT,
+        DomainConflictStrategy.POSTPONE_ACTION,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainConflictResolutionPolicy:
+    default_strategy: DomainConflictStrategy = DomainConflictStrategy.MAINTAIN_CONFLICT
+    blocking_strategy: DomainConflictStrategy = DomainConflictStrategy.MAINTAIN_CONFLICT
+    permission_strategy: DomainConflictStrategy = (
+        DomainConflictStrategy.MOST_RESTRICTIVE
+    )
+    mandatory_rule_strategy: DomainConflictStrategy = (
+        DomainConflictStrategy.MOST_RESTRICTIVE
+    )
+    high_risk_strategy: DomainConflictStrategy = (
+        DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE
+    )
+    primary_strategy: DomainConflictStrategy = (
+        DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE
+    )
+    evidence_strategy: DomainConflictStrategy = DomainConflictStrategy.EVIDENCE_WEIGHTED
+    allow_separate_results: bool = True
+    allow_user_confirmation: bool = True
+    allow_human_review: bool = True
+    allow_postpone: bool = True
+    preserve_unresolved_conflicts: bool = True
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "default_strategy",
+            _coerce_enum(
+                self.default_strategy,
+                DomainConflictStrategy,
+                "default_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "blocking_strategy",
+            _coerce_enum(
+                self.blocking_strategy,
+                DomainConflictStrategy,
+                "blocking_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "permission_strategy",
+            _coerce_enum(
+                self.permission_strategy,
+                DomainConflictStrategy,
+                "permission_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "mandatory_rule_strategy",
+            _coerce_enum(
+                self.mandatory_rule_strategy,
+                DomainConflictStrategy,
+                "mandatory_rule_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "high_risk_strategy",
+            _coerce_enum(
+                self.high_risk_strategy,
+                DomainConflictStrategy,
+                "high_risk_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "primary_strategy",
+            _coerce_enum(
+                self.primary_strategy,
+                DomainConflictStrategy,
+                "primary_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "evidence_strategy",
+            _coerce_enum(
+                self.evidence_strategy,
+                DomainConflictStrategy,
+                "evidence_strategy",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "allow_separate_results",
+            _validate_strict_bool(
+                self.allow_separate_results, "allow_separate_results"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "allow_user_confirmation",
+            _validate_strict_bool(
+                self.allow_user_confirmation, "allow_user_confirmation"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "allow_human_review",
+            _validate_strict_bool(self.allow_human_review, "allow_human_review"),
+        )
+        object.__setattr__(
+            self,
+            "allow_postpone",
+            _validate_strict_bool(self.allow_postpone, "allow_postpone"),
+        )
+        object.__setattr__(
+            self,
+            "preserve_unresolved_conflicts",
+            _validate_strict_bool(
+                self.preserve_unresolved_conflicts,
+                "preserve_unresolved_conflicts",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "metadata",
+            _validate_json_safe_metadata(self.metadata, "metadata"),
+        )
+
+        if self.permission_strategy not in _PERMISSION_ALLOWED:
+            raise DomainConflictResolutionContractError(
+                f"permission_strategy must be one of {sorted(s.value for s in _PERMISSION_ALLOWED)}, got {self.permission_strategy.value!r}",
+                field="permission_strategy",
+            )
+
+        if self.mandatory_rule_strategy not in _MANDATORY_ALLOWED:
+            raise DomainConflictResolutionContractError(
+                f"mandatory_rule_strategy must be one of {sorted(s.value for s in _MANDATORY_ALLOWED)}, got {self.mandatory_rule_strategy.value!r}",
+                field="mandatory_rule_strategy",
+            )
+
+        configured_strategies = {
+            self.default_strategy,
+            self.blocking_strategy,
+            self.permission_strategy,
+            self.mandatory_rule_strategy,
+            self.high_risk_strategy,
+            self.primary_strategy,
+            self.evidence_strategy,
+        }
+
+        if (
+            DomainConflictStrategy.HUMAN_REVIEW in configured_strategies
+            and not self.allow_human_review
+        ):
+            raise DomainConflictResolutionContractError(
+                "HUMAN_REVIEW configured but allow_human_review is False",
+                field="allow_human_review",
+            )
+
+        if (
+            DomainConflictStrategy.ASK_USER in configured_strategies
+            and not self.allow_user_confirmation
+        ):
+            raise DomainConflictResolutionContractError(
+                "ASK_USER configured but allow_user_confirmation is False",
+                field="allow_user_confirmation",
+            )
+
+        if (
+            DomainConflictStrategy.POSTPONE_ACTION in configured_strategies
+            and not self.allow_postpone
+        ):
+            raise DomainConflictResolutionContractError(
+                "POSTPONE_ACTION configured but allow_postpone is False",
+                field="allow_postpone",
+            )
+
+        if (
+            DomainConflictStrategy.SEPARATE_RESULTS in configured_strategies
+            and not self.allow_separate_results
+        ):
+            raise DomainConflictResolutionContractError(
+                "SEPARATE_RESULTS configured but allow_separate_results is False",
+                field="allow_separate_results",
+            )
+
+        if not self.preserve_unresolved_conflicts:
+            raise DomainConflictResolutionContractError(
+                "preserve_unresolved_conflicts must be True",
+                field="preserve_unresolved_conflicts",
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "default_strategy": self.default_strategy.value,
+            "blocking_strategy": self.blocking_strategy.value,
+            "permission_strategy": self.permission_strategy.value,
+            "mandatory_rule_strategy": self.mandatory_rule_strategy.value,
+            "high_risk_strategy": self.high_risk_strategy.value,
+            "primary_strategy": self.primary_strategy.value,
+            "evidence_strategy": self.evidence_strategy.value,
+            "allow_separate_results": self.allow_separate_results,
+            "allow_user_confirmation": self.allow_user_confirmation,
+            "allow_human_review": self.allow_human_review,
+            "allow_postpone": self.allow_postpone,
+            "preserve_unresolved_conflicts": self.preserve_unresolved_conflicts,
+            "metadata": _deep_unfreeze_value(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainConflictResolutionPolicy:
+        mapping = _strict_mapping(data, _POLICY_KNOWN, "DomainConflictResolutionPolicy")
+        try:
+            return cls(
+                default_strategy=mapping.get(
+                    "default_strategy",
+                    DomainConflictStrategy.MAINTAIN_CONFLICT,
+                ),
+                blocking_strategy=mapping.get(
+                    "blocking_strategy",
+                    DomainConflictStrategy.MAINTAIN_CONFLICT,
+                ),
+                permission_strategy=mapping.get(
+                    "permission_strategy",
+                    DomainConflictStrategy.MOST_RESTRICTIVE,
+                ),
+                mandatory_rule_strategy=mapping.get(
+                    "mandatory_rule_strategy",
+                    DomainConflictStrategy.MOST_RESTRICTIVE,
+                ),
+                high_risk_strategy=mapping.get(
+                    "high_risk_strategy",
+                    DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE,
+                ),
+                primary_strategy=mapping.get(
+                    "primary_strategy",
+                    DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE,
+                ),
+                evidence_strategy=mapping.get(
+                    "evidence_strategy",
+                    DomainConflictStrategy.EVIDENCE_WEIGHTED,
+                ),
+                allow_separate_results=mapping.get("allow_separate_results", True),
+                allow_user_confirmation=mapping.get("allow_user_confirmation", True),
+                allow_human_review=mapping.get("allow_human_review", True),
+                allow_postpone=mapping.get("allow_postpone", True),
+                preserve_unresolved_conflicts=mapping.get(
+                    "preserve_unresolved_conflicts", True
+                ),
+                metadata=mapping.get("metadata", {}),
+            )
+        except DomainConflictResolutionContractError as exc:
+            raise DomainConflictResolutionSerializationError(
+                exc.message,
+                field=exc.field,
+            ) from exc
