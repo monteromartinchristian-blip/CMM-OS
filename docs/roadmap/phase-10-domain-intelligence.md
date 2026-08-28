@@ -4889,6 +4889,16 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
+> **Implementation status:** Complete — awaiting independent audit
+> **DP-032:** `IMPLEMENTED`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints
+> **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
+> **Focused Phase 10.32 tests:** 97 passed
+> **Domain suite:** 6781 passed
+> **Global suite:** 12321 passed
+> **Phase 10.32 Python delta:** 11 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+
 Objective
 
 To resolve conflicts between domains, rules, operations, permissions or recommendations without concealing discrepancies.
