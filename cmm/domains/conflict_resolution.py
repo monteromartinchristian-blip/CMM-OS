@@ -435,7 +435,7 @@ class DomainConflictResolver:
         highest_risk_domain: DomainId | None,
     ) -> DomainConflictResolution:
         if case.kind is DomainConflictKind.KNOWLEDGE or any(
-            ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
+            ref.source_kind in _EXTERNAL_SEMANTIC_OWNER_SOURCE_KINDS
             for ref in case.references
         ):
             return _preserve(
