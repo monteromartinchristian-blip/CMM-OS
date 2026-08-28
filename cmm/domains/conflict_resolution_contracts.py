@@ -414,6 +414,32 @@ class DomainConflictReference:
             _validate_json_safe_metadata(self.metadata, "metadata"),
         )
 
+        severity_is_blocking = self.severity is DomainConflictSeverity.BLOCKING
+        if self.blocking != severity_is_blocking:
+            raise DomainConflictResolutionContractError(
+                "blocking and severity=BLOCKING must agree",
+                field="blocking" if self.blocking else "severity",
+            )
+
+        if self.source_kind is DomainConflictSourceKind.PERMISSION_CONFLICT:
+            if (
+                not self.blocking
+                or self.severity is not DomainConflictSeverity.BLOCKING
+            ):
+                raise DomainConflictResolutionContractError(
+                    "PERMISSION_CONFLICT references must be blocking with severity=BLOCKING",
+                    field="blocking",
+                )
+            if self.authority_kind not in {
+                None,
+                DomainConflictAuthority.GLOBAL_SAFETY,
+                DomainConflictAuthority.PERMISSION,
+            }:
+                raise DomainConflictResolutionContractError(
+                    "PERMISSION_CONFLICT authority cannot be lower than PERMISSION",
+                    field="authority_kind",
+                )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "source_kind": self.source_kind.value,
@@ -698,6 +724,18 @@ class DomainConflictCase:
                 field="requires_human_review",
             )
 
+        if self.status is DomainConflictStatus.AWAITING_USER and (
+            self.kind is DomainConflictKind.KNOWLEDGE
+            or any(
+                ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
+                for ref in self.references
+            )
+        ):
+            raise DomainConflictResolutionContractError(
+                "AWAITING_USER cannot delegate knowledge truth resolution",
+                field="status",
+            )
+
         if self.status is DomainConflictStatus.RESOLVED:
             for ref in self.references:
                 if (
@@ -904,6 +942,12 @@ class DomainConflictResolution:
             raise DomainConflictResolutionContractError(
                 "DomainConflictResolution requires at least one auditable reason_code",
                 field="reason_codes",
+            )
+
+        if self.status is DomainConflictStatus.OPEN:
+            raise DomainConflictResolutionContractError(
+                "DomainConflictResolution output cannot remain OPEN",
+                field="status",
             )
 
         if self.preserved_reference_ids and not self.conflict_preserved:

@@ -117,7 +117,6 @@ def adapt_composition_conflict(
             "code": conflict.code,
             "category": conflict.category,
             "resolved_upstream": conflict.resolved,
-            "resolution": conflict.resolution,
         },
     )
     return ref, conflict.domains

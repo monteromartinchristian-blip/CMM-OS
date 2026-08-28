@@ -111,16 +111,30 @@ def _validated_scores(
     return MappingProxyType(result)
 
 
+def _reference_authority(ref: DomainConflictReference) -> DomainConflictAuthority:
+    """Return trusted effective authority, deriving protected source semantics."""
+    if ref.authority_kind is not None:
+        return ref.authority_kind
+    if ref.source_kind is DomainConflictSourceKind.PERMISSION_CONFLICT:
+        return DomainConflictAuthority.PERMISSION
+    return DomainConflictAuthority.UNCLASSIFIED
+
+
 def _highest_authority(
     references: tuple[DomainConflictReference, ...],
 ) -> DomainConflictAuthority:
     """Determine highest applicable authority among references."""
     return min(
-        (
-            ref.authority_kind or DomainConflictAuthority.UNCLASSIFIED
-            for ref in references
-        ),
+        (_reference_authority(ref) for ref in references),
         key=_AUTHORITY_RANK.__getitem__,
+    )
+
+
+def _selection_requires_clarification(case: DomainConflictCase) -> bool:
+    return any(
+        ref.source_kind is DomainConflictSourceKind.SELECTION_CONFLICT
+        and ref.metadata.get("requires_clarification") is True
+        for ref in case.references
     )
 
 
@@ -212,9 +226,7 @@ class DomainConflictResolver:
 
         authority = _highest_authority(case.references)
         decisive_refs = tuple(
-            ref
-            for ref in case.references
-            if (ref.authority_kind or DomainConflictAuthority.UNCLASSIFIED) is authority
+            ref for ref in case.references if _reference_authority(ref) is authority
         )
 
         strategy = self._route_strategy(authority, case, eff_policy)
@@ -252,11 +264,12 @@ class DomainConflictResolver:
         case: DomainConflictCase,
         policy: DomainConflictResolutionPolicy,
     ) -> DomainConflictStrategy:
-        if (
-            case.requires_human_review
-            and _AUTHORITY_RANK[authority]
-            >= _AUTHORITY_RANK[DomainConflictAuthority.HUMAN_REVIEW]
-        ):
+        if case.requires_human_review and authority not in {
+            DomainConflictAuthority.GLOBAL_SAFETY,
+            DomainConflictAuthority.PERMISSION,
+            DomainConflictAuthority.MANDATORY_RULE,
+            DomainConflictAuthority.HIGH_RISK_DOMAIN,
+        }:
             return DomainConflictStrategy.HUMAN_REVIEW
 
         match authority:
@@ -639,6 +652,7 @@ class DomainConflictResolver:
             not policy.allow_separate_results
             or case.blocking
             or authority in hard_authorities
+            or _selection_requires_clarification(case)
         ):
             return _preserve(
                 case,
