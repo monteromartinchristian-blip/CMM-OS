@@ -196,7 +196,7 @@ class DomainConflictResolver:
         if case.candidate_strategies and strategy not in case.candidate_strategies:
             res = _preserve(
                 case,
-                strategy=strategy,
+                strategy=DomainConflictStrategy.MAINTAIN_CONFLICT,
                 reason_codes=(
                     DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
                     DomainConflictReasonCode.BLOCKING_UNRESOLVED
@@ -226,6 +226,13 @@ class DomainConflictResolver:
         case: DomainConflictCase,
         policy: DomainConflictResolutionPolicy,
     ) -> DomainConflictStrategy:
+        if (
+            case.requires_human_review
+            and _AUTHORITY_RANK[authority]
+            >= _AUTHORITY_RANK[DomainConflictAuthority.HUMAN_REVIEW]
+        ):
+            return DomainConflictStrategy.HUMAN_REVIEW
+
         match authority:
             case DomainConflictAuthority.GLOBAL_SAFETY:
                 return DomainConflictStrategy.MOST_RESTRICTIVE
@@ -309,8 +316,10 @@ class DomainConflictResolver:
             reason = DomainConflictReasonCode.PERMISSION_PRECEDENCE
         elif authority is DomainConflictAuthority.MANDATORY_RULE:
             reason = DomainConflictReasonCode.MANDATORY_RULE_PRECEDENCE
+        elif authority is DomainConflictAuthority.HIGH_RISK_DOMAIN:
+            reason = DomainConflictReasonCode.HIGH_RISK_PRECEDENCE
         else:
-            reason = DomainConflictReasonCode.SAFETY_PRECEDENCE
+            reason = DomainConflictReasonCode.INSUFFICIENT_BASIS
 
         blocking_refs = tuple(r for r in decisive_refs if r.blocking)
         if case.blocking:
@@ -561,7 +570,7 @@ class DomainConflictResolver:
         ):
             return _preserve(
                 case,
-                strategy=DomainConflictStrategy.SEPARATE_RESULTS,
+                strategy=DomainConflictStrategy.MAINTAIN_CONFLICT,
                 reason_codes=(
                     DomainConflictReasonCode.SEPARATE_RESULTS,
                     DomainConflictReasonCode.BLOCKING_UNRESOLVED
@@ -600,7 +609,7 @@ class DomainConflictResolver:
         ):
             return _preserve(
                 case,
-                strategy=DomainConflictStrategy.ASK_USER,
+                strategy=DomainConflictStrategy.MAINTAIN_CONFLICT,
                 reason_codes=(
                     DomainConflictReasonCode.USER_INPUT_REQUIRED,
                     DomainConflictReasonCode.BLOCKING_UNRESOLVED
@@ -628,7 +637,7 @@ class DomainConflictResolver:
         if not policy.allow_human_review:
             return _preserve(
                 case,
-                strategy=DomainConflictStrategy.HUMAN_REVIEW,
+                strategy=DomainConflictStrategy.MAINTAIN_CONFLICT,
                 reason_codes=(
                     DomainConflictReasonCode.HUMAN_REVIEW_REQUIRED,
                     DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
@@ -654,10 +663,10 @@ class DomainConflictResolver:
         if not policy.allow_postpone:
             return _preserve(
                 case,
-                strategy=DomainConflictStrategy.POSTPONE_ACTION,
+                strategy=DomainConflictStrategy.MAINTAIN_CONFLICT,
                 reason_codes=(
-                    DomainConflictReasonCode.ACTION_POSTPONED,
                     DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.PRESERVED,
                 ),
             )
 

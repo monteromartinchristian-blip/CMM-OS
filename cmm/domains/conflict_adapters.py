@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from cmm.cognitive.enums import ContradictionSeverity, ContradictionStatus
 from cmm.cognitive.knowledge import Contradiction
-from cmm.domains.composition_contracts import DomainCompositionConflict
+from cmm.domains.composition_contracts import (
+    DomainCompositionConflict,
+    DomainCompositionPolicy,
+)
 from cmm.domains.conflict_resolution_contracts import (
     DomainConflictAuthority,
     DomainConflictReference,
@@ -50,10 +53,14 @@ def adapt_declared_domain_conflict(
             field="conflict",
         )
     sid = _validate_non_empty_str(source_id, "source_id")
-    is_blocking = conflict.severity.strip().lower() == "blocking"
+    declared_severity = conflict.severity.strip().lower()
+    blocking_severities = frozenset(
+        value.strip().lower() for value in DomainCompositionPolicy().blocking_severities
+    )
+    is_blocking = declared_severity in blocking_severities
     if is_blocking:
         sev = DomainConflictSeverity.BLOCKING
-    elif conflict.severity.strip().lower() in ("advisory", "warning"):
+    elif declared_severity in ("advisory", "warning"):
         sev = DomainConflictSeverity.ADVISORY
     else:
         sev = DomainConflictSeverity.MATERIAL

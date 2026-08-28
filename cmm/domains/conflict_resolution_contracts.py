@@ -689,6 +689,15 @@ class DomainConflictCase:
                 field="requires_human_review",
             )
 
+        if self.requires_human_review and self.status in {
+            DomainConflictStatus.RESOLVED,
+            DomainConflictStatus.AWAITING_USER,
+        }:
+            raise DomainConflictResolutionContractError(
+                "requires_human_review=True is incompatible with RESOLVED or AWAITING_USER",
+                field="requires_human_review",
+            )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -886,6 +895,36 @@ class DomainConflictResolution:
                 field="action_postponed",
             )
 
+        expected_strategy_by_status = {
+            DomainConflictStatus.AWAITING_USER: DomainConflictStrategy.ASK_USER,
+            DomainConflictStatus.AWAITING_HUMAN_REVIEW: DomainConflictStrategy.HUMAN_REVIEW,
+            DomainConflictStatus.POSTPONED: DomainConflictStrategy.POSTPONE_ACTION,
+        }
+        expected_strategy = expected_strategy_by_status.get(self.status)
+        if expected_strategy is not None and self.strategy is not expected_strategy:
+            raise DomainConflictResolutionContractError(
+                f"{self.status.value} status requires strategy={expected_strategy.value}",
+                field="strategy",
+            )
+
+        preserved_statuses = {
+            DomainConflictStatus.UNRESOLVED,
+            DomainConflictStatus.BLOCKED,
+            DomainConflictStatus.AWAITING_USER,
+            DomainConflictStatus.AWAITING_HUMAN_REVIEW,
+            DomainConflictStatus.POSTPONED,
+        }
+        if self.status in preserved_statuses and not self.conflict_preserved:
+            raise DomainConflictResolutionContractError(
+                f"{self.status.value} status requires conflict_preserved=True",
+                field="conflict_preserved",
+            )
+        if self.status is DomainConflictStatus.RESOLVED and self.conflict_preserved:
+            raise DomainConflictResolutionContractError(
+                "RESOLVED status requires conflict_preserved=False",
+                field="conflict_preserved",
+            )
+
         if self.status is DomainConflictStatus.BLOCKED and self.can_proceed:
             raise DomainConflictResolutionContractError(
                 "BLOCKED status requires can_proceed=False",
@@ -930,14 +969,17 @@ class DomainConflictResolution:
                     field="conflict_preserved",
                 )
 
-        if (
-            self.strategy is DomainConflictStrategy.POSTPONE_ACTION
-            and not self.conflict_preserved
-        ):
-            raise DomainConflictResolutionContractError(
-                "POSTPONE_ACTION strategy requires conflict_preserved=True",
-                field="conflict_preserved",
-            )
+        if self.strategy is DomainConflictStrategy.POSTPONE_ACTION:
+            if self.status is not DomainConflictStatus.POSTPONED:
+                raise DomainConflictResolutionContractError(
+                    "POSTPONE_ACTION strategy requires status=POSTPONED",
+                    field="status",
+                )
+            if not self.conflict_preserved:
+                raise DomainConflictResolutionContractError(
+                    "POSTPONE_ACTION strategy requires conflict_preserved=True",
+                    field="conflict_preserved",
+                )
 
         if (
             self.strategy is DomainConflictStrategy.ASK_USER
@@ -1048,6 +1090,15 @@ _HIGH_RISK_ALLOWED = frozenset(
     {
         DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE,
         DomainConflictStrategy.MOST_RESTRICTIVE,
+        DomainConflictStrategy.HUMAN_REVIEW,
+        DomainConflictStrategy.MAINTAIN_CONFLICT,
+        DomainConflictStrategy.POSTPONE_ACTION,
+    }
+)
+
+_PRIMARY_ALLOWED = frozenset(
+    {
+        DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE,
         DomainConflictStrategy.HUMAN_REVIEW,
         DomainConflictStrategy.MAINTAIN_CONFLICT,
         DomainConflictStrategy.POSTPONE_ACTION,
@@ -1199,6 +1250,12 @@ class DomainConflictResolutionPolicy:
             raise DomainConflictResolutionContractError(
                 f"high_risk_strategy must be one of {sorted(s.value for s in _HIGH_RISK_ALLOWED)}, got {self.high_risk_strategy.value!r}",
                 field="high_risk_strategy",
+            )
+
+        if self.primary_strategy not in _PRIMARY_ALLOWED:
+            raise DomainConflictResolutionContractError(
+                f"primary_strategy must be one of {sorted(s.value for s in _PRIMARY_ALLOWED)}, got {self.primary_strategy.value!r}",
+                field="primary_strategy",
             )
 
         configured_strategies = {
