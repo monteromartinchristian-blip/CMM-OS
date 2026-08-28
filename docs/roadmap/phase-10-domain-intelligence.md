@@ -4973,15 +4973,15 @@ No:
 
 10.33 - Domain Events
 
-> **Implementation status:** Implemented, pending independent audit
+> **Implementation status:** Implemented, pending independent re-audit
 > **DP-033:** `IMPLEMENTED`
-> **AT-DP-033:** `PASS` — 33 connected acceptance checkpoints (`tests/domains/test_domain_events_dp033_acceptance.py`)
+> **AT-DP-033:** `PASS` — 58 connected acceptance checkpoints (`tests/domains/test_domain_events_dp033_acceptance.py`)
+> **Audit V1 Remediation:** `COMPLETED` (B1, B2, M1, M2, M3, M4, M5, m1 remediated & regression test suite passing: `tests/domains/test_domain_events_audit_v1_regressions.py`)
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-events-implementation-plan.md`
-> **Focused Phase 10.33 tests:** 142 passed
-> **Domain suite:** 7048 passed
-> **Global suite:** 12588 passed
-> **Phase 10.33 Python delta:** 17 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Focused Phase 10.33 tests:** 221 passed
+> **Domain suite:** 7127 passed
+> **Phase 10.33 Python delta:** 19 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
 
 Objective
 
