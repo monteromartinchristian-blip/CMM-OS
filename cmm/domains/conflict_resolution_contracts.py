@@ -115,6 +115,29 @@ class DomainConflictReasonCode(str, Enum):
     STRATEGY_NOT_APPLICABLE = "DOMAIN_CONFLICT_STRATEGY_NOT_APPLICABLE"
 
 
+_CASE_USER_DELEGABLE_KINDS = frozenset(
+    {
+        DomainConflictKind.PREFERENCE,
+        DomainConflictKind.DOMAIN_PRECEDENCE,
+        DomainConflictKind.RECOMMENDATION,
+        DomainConflictKind.SELECTION,
+    }
+)
+
+_CASE_USER_DELEGATION_ALLOWED_AUTHORITIES = frozenset(
+    {
+        DomainConflictAuthority.USER,
+        DomainConflictAuthority.UNCLASSIFIED,
+    }
+)
+
+_DECLARATIVE_STATUS_STRATEGY = {
+    DomainConflictStatus.AWAITING_USER: DomainConflictStrategy.ASK_USER,
+    DomainConflictStatus.AWAITING_HUMAN_REVIEW: DomainConflictStrategy.HUMAN_REVIEW,
+    DomainConflictStatus.POSTPONED: DomainConflictStrategy.POSTPONE_ACTION,
+}
+
+
 # ── Internal Helpers ──────────────────────────────────────────────────────────
 
 _CREDENTIAL_KEY_SUBSTRINGS = frozenset(
@@ -130,6 +153,17 @@ _CREDENTIAL_KEY_SUBSTRINGS = frozenset(
         "secret_key",
     }
 )
+
+
+def _case_reference_authority(
+    ref: DomainConflictReference,
+) -> DomainConflictAuthority:
+    """Return effective authority needed for declarative case-state validation."""
+    if ref.authority_kind is not None:
+        return ref.authority_kind
+    if ref.source_kind is DomainConflictSourceKind.PERMISSION_CONFLICT:
+        return DomainConflictAuthority.PERMISSION
+    return DomainConflictAuthority.UNCLASSIFIED
 
 
 def _validate_strict_bool(value: Any, field_name: str) -> bool:
@@ -722,6 +756,44 @@ class DomainConflictCase:
             raise DomainConflictResolutionContractError(
                 "requires_human_review=True is incompatible with RESOLVED or AWAITING_USER",
                 field="requires_human_review",
+            )
+
+        required_strategy = _DECLARATIVE_STATUS_STRATEGY.get(self.status)
+        if (
+            required_strategy is not None
+            and self.candidate_strategies
+            and required_strategy not in self.candidate_strategies
+        ):
+            raise DomainConflictResolutionContractError(
+                f"{self.status.value} requires candidate_strategies to allow "
+                f"{required_strategy.value}",
+                field="candidate_strategies",
+            )
+
+        if self.status is DomainConflictStatus.AWAITING_USER:
+            if self.kind not in _CASE_USER_DELEGABLE_KINDS:
+                raise DomainConflictResolutionContractError(
+                    f"AWAITING_USER is not legitimate for conflict kind "
+                    f"{self.kind.value}",
+                    field="status",
+                )
+            if any(
+                _case_reference_authority(ref)
+                not in _CASE_USER_DELEGATION_ALLOWED_AUTHORITIES
+                for ref in self.references
+            ):
+                raise DomainConflictResolutionContractError(
+                    "AWAITING_USER cannot override non-user conflict authority",
+                    field="status",
+                )
+
+        if self.status is DomainConflictStatus.AWAITING_HUMAN_REVIEW and any(
+            _case_reference_authority(ref) is DomainConflictAuthority.GLOBAL_SAFETY
+            for ref in self.references
+        ):
+            raise DomainConflictResolutionContractError(
+                "AWAITING_HUMAN_REVIEW cannot override GLOBAL_SAFETY authority",
+                field="status",
             )
 
         if self.status is DomainConflictStatus.AWAITING_USER and (

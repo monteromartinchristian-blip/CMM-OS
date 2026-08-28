@@ -692,6 +692,10 @@ class DomainConflictResolver:
             or case.requires_human_review
             or authority in hard_authorities
             or case.kind not in _ASK_USER_ALLOWED_KINDS
+            or any(
+                ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
+                for ref in case.references
+            )
         ):
             return _preserve(
                 case,
