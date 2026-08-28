@@ -63,11 +63,11 @@ class DomainKernelEventPublisher:
             timestamp=event.occurred_at,
         )
 
-        # 3. Deliver to listener
+        # 3. Deliver to listener and record only upon successful delivery
         try:
-            self._emitted_events.append(kernel_event)
             if self._listener is not None:
                 self._listener(kernel_event)
+            self._emitted_events.append(kernel_event)
         except Exception as exc:
             raise DomainEventPublicationError(
                 f"Failed to deliver domain event '{event.event_type}' to kernel listener: {exc}",

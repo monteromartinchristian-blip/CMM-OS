@@ -7,6 +7,7 @@ All dataclasses are ``frozen=True``, use ``slots=True``, and never expose mutabl
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -33,28 +34,169 @@ JSONValue = (
     str | int | float | bool | None | Mapping[str, "JSONValue"] | list["JSONValue"]
 )
 
-# ── Credential / Secret key substrings for rejection ─────────────────────────
+# ── Privacy & Secret detection vocabulary ─────────────────────────────────────
 
-_CREDENTIAL_KEY_SUBSTRINGS = frozenset(
+_PRIVATE_MARKERS = frozenset(
     {
-        "password",
+        "prompt",
+        "systemprompt",
+        "developerprompt",
+        "privateprompt",
+        "rawprompt",
+        "usermessage",
+        "objectivetext",
+        "content",
+        "rawcontent",
         "secret",
+        "secrets",
         "token",
+        "tokens",
+        "credential",
+        "credentials",
+        "password",
+        "passwords",
         "apikey",
         "api_key",
         "privatekey",
         "private_key",
-        "credential",
-        "authtoken",
-        "auth_token",
         "accesskey",
         "access_key",
         "secretkey",
         "secret_key",
+        "authtoken",
+        "auth_token",
         "authorization",
+        "authorizationheader",
         "cookie",
+        "chainofthought",
+        "reasoning",
+        "rawreasoning",
+        "reasoningtext",
+        "reasoningcontent",
+        "hiddenreasoning",
+        "toolarguments",
+        "toolresponse",
+        "providerrequest",
+        "providerresponse",
+        "pii",
     }
 )
+
+_PRIVATE_KEY_TOKENS = frozenset(
+    {
+        "prompt",
+        "message",
+        "content",
+        "secret",
+        "token",
+        "credential",
+        "password",
+        "apikey",
+        "pii",
+        "reasoning",
+        "authorization",
+        "cookie",
+        "authtoken",
+        "privatekey",
+        "accesskey",
+        "secretkey",
+    }
+)
+
+_SAFE_REFERENCE_KEYS = frozenset(
+    {
+        "reasoningtraceid",
+        "knowledgepackageid",
+        "providerauditid",
+        "crossdomaintraceid",
+        "contextid",
+        "resultid",
+        "compositionid",
+        "conflictid",
+        "executionid",
+        "workflowid",
+        "operationid",
+        "approvalid",
+        "proposalid",
+        "updateid",
+    }
+)
+
+_PRIVATE_TOKEN_SEQUENCES = (
+    ("prompt",),
+    ("system", "prompt"),
+    ("developer", "prompt"),
+    ("private", "prompt"),
+    ("raw", "prompt"),
+    ("user", "message"),
+    ("objective", "text"),
+    ("content",),
+    ("raw", "content"),
+    ("secret",),
+    ("token",),
+    ("credential",),
+    ("password",),
+    ("api", "key"),
+    ("access", "key"),
+    ("secret", "key"),
+    ("private", "key"),
+    ("auth", "token"),
+    ("authorization",),
+    ("authorization", "header"),
+    ("cookie",),
+    ("chain", "of", "thought"),
+    ("reasoning", "text"),
+    ("reasoning", "content"),
+    ("hidden", "reasoning"),
+    ("raw", "reasoning"),
+    ("raw", "resource"),
+    ("tool", "arguments"),
+    ("tool", "response"),
+    ("provider", "request"),
+    ("provider", "response"),
+    ("pii",),
+)
+
+_SECRET_VALUE_PATTERNS = (
+    re.compile(r"authorization\s*:", re.IGNORECASE),
+    re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]{8,}", re.IGNORECASE),
+    re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
+    re.compile(r"\bkey-[a-zA-Z0-9_\-]{16,}\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:cookie|session[_-]?token|auth[_-]?token)\s*=\s*[^\s;]+", re.IGNORECASE
+    ),
+)
+
+
+def _normalized(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _word_tokens(value: str) -> tuple[str, ...]:
+    separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", value)
+    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", separated)
+    return tuple(item for item in re.split(r"[^A-Za-z0-9]+", separated.lower()) if item)
+
+
+def _contains_private_marker(value: str) -> bool:
+    norm = _normalized(value)
+    if norm in _SAFE_REFERENCE_KEYS:
+        return False
+    tokens = _word_tokens(value)
+    if norm in _PRIVATE_MARKERS or any(item in _PRIVATE_KEY_TOKENS for item in tokens):
+        return True
+    return any(
+        tokens[index : index + len(sequence)] == sequence
+        for sequence in _PRIVATE_TOKEN_SEQUENCES
+        for index in range(len(tokens) - len(sequence) + 1)
+    )
+
+
+def _contains_secret_value(value: str) -> bool:
+    for pattern in _SECRET_VALUE_PATTERNS:
+        if pattern.search(value):
+            return True
+    return False
 
 
 def _reject_unknown_event_fields(
@@ -107,20 +249,22 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
 
 
 def _reject_credential_keys_event(data: Any, field_name: str) -> None:
-    """Recursively scan for credential-like keys in JSON-safe structures."""
+    """Recursively scan for credential-like keys, forbidden private markers, and secret values."""
     if data is None:
         return
-    if isinstance(data, Mapping):
+    if isinstance(data, str):
+        if _contains_secret_value(data):
+            raise DomainContractValidationError(
+                f"Secret-like value detected in {field_name}",
+                field=field_name,
+            )
+    elif isinstance(data, Mapping):
         for key, value in data.items():
-            key_lower = key.lower()
-            norm_key = key_lower.replace("_", "").replace("-", "")
-            if any(
-                ck in key_lower or ck in norm_key for ck in _CREDENTIAL_KEY_SUBSTRINGS
-            ):
+            if _contains_private_marker(key):
                 raise DomainContractValidationError(
-                    f"Credential-like key detected in {field_name}: '{key}'",
+                    f"Forbidden privacy/credential key detected in {field_name}: '{key}'",
                     field=field_name,
-                    details={"credential_key": key},
+                    details={"forbidden_key": key},
                 )
             _reject_credential_keys_event(value, f"{field_name}.{key}")
     elif isinstance(data, (list, tuple)):
@@ -318,6 +462,18 @@ class DomainEventReference:
                 f"DomainEventReference.from_dict missing required fields: {sorted(missing)}",
                 field="data",
             )
+        raw_kind = data["kind"]
+        if not isinstance(raw_kind, str) or not raw_kind.strip():
+            raise DomainEventSerializationError(
+                f"kind must be a non-empty string, got {raw_kind!r}",
+                field="kind",
+            )
+        raw_ref_id = data["reference_id"]
+        if not isinstance(raw_ref_id, str) or not raw_ref_id.strip():
+            raise DomainEventSerializationError(
+                f"reference_id must be a non-empty string, got {raw_ref_id!r}",
+                field="reference_id",
+            )
         raw_domain_id = data.get("domain_id")
         domain_id: DomainId | None = None
         if raw_domain_id is not None:
@@ -333,8 +489,8 @@ class DomainEventReference:
                     field="domain_id",
                 )
         return cls(
-            kind=str(data["kind"]),
-            reference_id=str(data["reference_id"]),
+            kind=raw_kind,
+            reference_id=raw_ref_id,
             domain_id=domain_id,
         )
 
@@ -520,6 +676,42 @@ class DomainEvent:
                 field="data",
             )
 
+        # Strict string validations for required fields
+        raw_id = data["event_id"]
+        if not isinstance(raw_id, str) or not raw_id.strip():
+            raise DomainEventSerializationError(
+                f"event_id must be a non-empty string, got {raw_id!r}",
+                field="event_id",
+            )
+
+        raw_type = data["event_type"]
+        if not isinstance(raw_type, str) or not raw_type.strip():
+            raise DomainEventSerializationError(
+                f"event_type must be a non-empty string, got {raw_type!r}",
+                field="event_type",
+            )
+
+        raw_ver = data["schema_version"]
+        if not isinstance(raw_ver, str) or not raw_ver.strip():
+            raise DomainEventSerializationError(
+                f"schema_version must be a non-empty string, got {raw_ver!r}",
+                field="schema_version",
+            )
+
+        raw_actor = data["actor"]
+        if not isinstance(raw_actor, str) or not raw_actor.strip():
+            raise DomainEventSerializationError(
+                f"actor must be a non-empty string, got {raw_actor!r}",
+                field="actor",
+            )
+
+        raw_sens = data["sensitivity"]
+        if not isinstance(raw_sens, str) or not raw_sens.strip():
+            raise DomainEventSerializationError(
+                f"sensitivity must be a non-empty string, got {raw_sens!r}",
+                field="sensitivity",
+            )
+
         # DomainId
         raw_dom = data["domain_id"]
         if isinstance(raw_dom, Mapping):
@@ -535,7 +727,9 @@ class DomainEvent:
 
         # Related DomainIds
         raw_rel = data.get("related_domain_ids", ())
-        if not isinstance(raw_rel, (list, tuple, Sequence)):
+        if isinstance(raw_rel, (str, bytes)) or not isinstance(
+            raw_rel, (list, tuple, Sequence)
+        ):
             raise DomainEventSerializationError(
                 "related_domain_ids must be a sequence", field="related_domain_ids"
             )
@@ -555,38 +749,71 @@ class DomainEvent:
 
         # Provenance
         raw_prov = data.get("provenance", ())
-        if not isinstance(raw_prov, (list, tuple, Sequence)):
+        if isinstance(raw_prov, (str, bytes)) or not isinstance(
+            raw_prov, (list, tuple, Sequence)
+        ):
             raise DomainEventSerializationError(
                 "provenance must be a sequence", field="provenance"
             )
         prov_list: list[DomainEventReference] = []
-        for p in raw_prov:
+        for i, p in enumerate(raw_prov):
             if isinstance(p, DomainEventReference):
                 prov_list.append(p)
             elif isinstance(p, Mapping):
                 prov_list.append(DomainEventReference.from_dict(dict(p)))
             else:
                 raise DomainEventSerializationError(
-                    f"Invalid provenance item: {p!r}", field="provenance"
+                    f"Invalid provenance item[{i}]: {p!r}", field="provenance"
                 )
+
+        # Permissions
+        raw_perm = data.get("permissions", ())
+        if isinstance(raw_perm, (str, bytes)) or not isinstance(
+            raw_perm, (list, tuple, Sequence)
+        ):
+            raise DomainEventSerializationError(
+                "permissions must be a sequence of strings, not a scalar",
+                field="permissions",
+            )
+        for i, p in enumerate(raw_perm):
+            if not isinstance(p, str) or not p.strip():
+                raise DomainEventSerializationError(
+                    f"permissions[{i}] must be a non-empty string, got {p!r}",
+                    field="permissions",
+                )
+
+        # Payload & Metadata type checks
+        raw_payload = data.get("payload", {})
+        if raw_payload is not None and not isinstance(raw_payload, Mapping):
+            raise DomainEventSerializationError(
+                f"payload must be a mapping, got {type(raw_payload).__name__}",
+                field="payload",
+            )
+
+        raw_meta = data.get("metadata", {})
+        if raw_meta is not None and not isinstance(raw_meta, Mapping):
+            raise DomainEventSerializationError(
+                f"metadata must be a mapping, got {type(raw_meta).__name__}",
+                field="metadata",
+            )
 
         # DateTime
         occurred_at = _parse_datetime_event(data["occurred_at"], "occurred_at")
 
         return cls(
-            event_id=str(data["event_id"]),
-            event_type=str(data["event_type"]),
-            schema_version=str(data["schema_version"]),
+            event_id=raw_id,
+            event_type=raw_type,
+            schema_version=raw_ver,
             domain_id=domain_id,
             related_domain_ids=tuple(rel_list),
-            actor=str(data["actor"]),
+            actor=raw_actor,
             session_id=data.get("session_id"),
             occurred_at=occurred_at,
             provenance=tuple(prov_list),
-            sensitivity=str(data["sensitivity"]),
-            permissions=tuple(data.get("permissions", ())),
+            sensitivity=raw_sens,
+            permissions=tuple(raw_perm),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
-            payload=data.get("payload", {}),
-            metadata=data.get("metadata", {}),
+            payload=raw_payload,
+            metadata=raw_meta,
         )

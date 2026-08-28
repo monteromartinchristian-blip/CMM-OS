@@ -67,6 +67,7 @@ from cmm.domains.event_registry import (
     DomainEventRegistry,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.lifecycle_bridge import DomainLifecycleEventBridge
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from kernel.events.event import Event
 
@@ -665,11 +666,16 @@ def test_cp26_permission_event_adaptation() -> None:
         "domain.project.read", DomainId(slug="project")
     )
     assert evt_req.event_type == "domain.permission.requested"
+    assert evt_req.permissions == ()
+    assert evt_req.payload["capability"] == "domain.project.read"
 
     evt_den = adapt_permission_denied(
         "domain.project.read", DomainId(slug="project"), reason="denied"
     )
     assert evt_den.event_type == "domain.permission.denied"
+    assert evt_den.permissions == ()
+    assert evt_den.payload["capability"] == "domain.project.read"
+    assert evt_den.payload["reason"] == "denied"
 
 
 # CP-27: Approval events cannot decide approvals
@@ -829,3 +835,214 @@ def test_cp33_custom_registry_validator_enforcement() -> None:
         payload={"severity": "mild", "note": "headache"},
     )
     registry.validate_event(good_evt)
+
+
+# CP-34: Privacy marker rejection in payload and metadata (B2)
+def test_cp34_privacy_marker_rejection() -> None:
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cot",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            occurred_at=now,
+            sensitivity="internal",
+            payload={"chain_of_thought": "private thinking"},
+        )
+
+
+# CP-35: Secret-like value rejection (B2)
+def test_cp35_secret_like_value_rejection() -> None:
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-sec",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            occurred_at=now,
+            sensitivity="internal",
+            payload={"error": "Authorization: Bearer fake-secret-token-1234567890"},
+        )
+
+
+# CP-36: Safe failure-event representation (B2)
+def test_cp36_safe_failure_event_representation() -> None:
+    evt = adapt_operation_failed(
+        operation_id="op-safe",
+        domain_id="domain:project",
+        error="Failed with Authorization: Bearer fake-token-1234567890",
+    )
+    assert "fake-token" not in str(evt.payload)
+    assert "Authorization: Bearer" not in str(evt.payload)
+    assert evt.payload["status"] == "failed"
+
+
+# CP-37: Schema-version mismatch rejection (M1)
+def test_cp37_schema_version_mismatch_rejection() -> None:
+    registry = DomainEventRegistry()
+    registry.register_specialized(
+        domain_id="domain:project",
+        event_type="project.release.prepared",
+        schema_version="2.0.0",
+    )
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc)
+    mismatched = DomainEvent(
+        event_id="evt-v1",
+        event_type="project.release.prepared",
+        schema_version="1.0.0",
+        domain_id=DomainId(slug="project"),
+        actor="system",
+        occurred_at=now,
+        sensitivity="internal",
+    )
+    with pytest.raises(DomainEventValidationError):
+        registry.validate_event(mismatched)
+
+
+# CP-38: Strict actor deserialization (M2)
+def test_cp38_strict_actor_deserialization() -> None:
+    data = {
+        "event_id": "evt-act",
+        "event_type": "domain.resolution.started",
+        "schema_version": "1.0.0",
+        "domain_id": {"slug": "project"},
+        "actor": 12345,
+        "occurred_at": "2026-08-28T12:00:00+00:00",
+        "sensitivity": "internal",
+    }
+    with pytest.raises(
+        (DomainEventSerializationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent.from_dict(data)
+
+
+# CP-39: Strict permissions deserialization (M2)
+def test_cp39_strict_permissions_deserialization() -> None:
+    data = {
+        "event_id": "evt-perm",
+        "event_type": "domain.resolution.started",
+        "schema_version": "1.0.0",
+        "domain_id": {"slug": "project"},
+        "actor": "system",
+        "occurred_at": "2026-08-28T12:00:00+00:00",
+        "sensitivity": "internal",
+        "permissions": "read",
+    }
+    with pytest.raises((DomainEventSerializationError, DomainEventContractError)):
+        DomainEvent.from_dict(data)
+
+
+# CP-40: Invalid provenance rejection (M2)
+def test_cp40_invalid_provenance_rejection() -> None:
+    factory = DomainEventFactory()
+    with pytest.raises(
+        (DomainEventContractError, DomainContractValidationError, TypeError)
+    ):
+        factory.create_event(
+            event_type="domain.resolution.started",
+            domain_id="domain:project",
+            actor="system",
+            provenance=(object(),),
+        )
+
+
+# CP-41: Invalid payload rejection (M2)
+def test_cp41_invalid_payload_rejection() -> None:
+    factory = DomainEventFactory()
+    with pytest.raises(
+        (DomainEventContractError, DomainContractValidationError, TypeError)
+    ):
+        factory.create_event(
+            event_type="domain.resolution.started",
+            domain_id="domain:project",
+            actor="system",
+            payload=["invalid_list_payload"],
+        )
+
+
+# CP-42: Explicit empty event_id rejection (M2)
+def test_cp42_explicit_empty_event_id_rejection() -> None:
+    factory = DomainEventFactory()
+    with pytest.raises((DomainEventContractError, DomainContractValidationError)):
+        factory.create_event(
+            event_type="domain.resolution.started",
+            domain_id="domain:project",
+            actor="system",
+            event_id="",
+        )
+
+
+# CP-43: Permission effective-context isolation (M3)
+def test_cp43_permission_effective_context_isolation() -> None:
+    evt = adapt_permission_requested(
+        capability="domain.project.write",
+        domain_id="domain:project",
+        actor="system",
+    )
+    assert evt.permissions == ()
+    assert evt.payload["capability"] == "domain.project.write"
+
+
+# CP-44: Failed-listener non-emission (M4)
+def test_cp44_failed_listener_non_emission() -> None:
+    def failing_listener(evt: Event) -> None:
+        raise RuntimeError("Listener failure")
+
+    publisher = DomainKernelEventPublisher(event_listener=failing_listener)
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc)
+    event = DomainEvent(
+        event_id="evt-pub-fail",
+        event_type="domain.resolution.started",
+        schema_version="1.0.0",
+        domain_id=DomainId(slug="project"),
+        actor="system",
+        occurred_at=now,
+        sensitivity="internal",
+    )
+    with pytest.raises(DomainEventPublicationError):
+        publisher.publish(event)
+    assert len(publisher.emitted_events) == 0
+
+
+# CP-45: Real Kernel lifecycle integration (M5)
+def test_cp45_real_kernel_lifecycle_integration() -> None:
+    bridge = DomainLifecycleEventBridge()
+    res = DomainResolutionResult(
+        id="res-cp45",
+        context_id="ctx-cp45",
+        primary_domain=DomainId(slug="project"),
+        status=DomainResolutionStatus.RESOLVED,
+    )
+    kernel_evt = bridge.emit_resolution_result(res)
+    assert isinstance(kernel_evt, Event)
+    assert kernel_evt.name == "domain.resolution.completed"
+    assert len(bridge.publisher.emitted_events) == 1
+
+
+# CP-46: Pure resolver dependency direction (M5)
+def test_cp46_pure_resolver_dependency_direction() -> None:
+    import cmm.domains.conflict_resolution as cr_mod
+
+    source = Path(cr_mod.__file__).read_text(encoding="utf-8")
+    assert "DomainKernelEventPublisher" not in source
+    assert "DomainEventFactory" not in source
+    assert "kernel.events" not in source
+    assert "DomainLifecycleEventBridge" not in source
+
+
+# CP-47: Implementation plan presence (m1)
+def test_cp47_implementation_plan_presence() -> None:
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    plan_path = (
+        repo_root
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-08-28-domain-events-implementation-plan.md"
+    )
+    assert plan_path.exists(), f"Plan must exist at {plan_path}"
+    assert len(plan_path.read_text(encoding="utf-8").strip()) > 100

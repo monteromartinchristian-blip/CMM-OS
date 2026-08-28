@@ -91,7 +91,7 @@ def test_required_resources_only_where_structurally_valid():
     structurally consumes; not every op is mechanically non-empty."""
     ops = {op.operation_id: op for op in health.build_health_operation_definitions()}
     materialized = {rid for rid in _health_resource_ids()}
-    for op_id, op in ops.items():
+    for op in ops.values():
         for resource_id in op.required_resources:
             assert resource_id in materialized
 

@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from cmm.domains.errors import DomainEventContractError
 from cmm.domains.event_contracts import DomainEvent, DomainEventReference
 from cmm.domains.identifiers import DomainId
 
@@ -59,8 +60,51 @@ class DomainEventFactory:
         event_id: str | None = None,
     ) -> DomainEvent:
         """Create an immutable DomainEvent using injected clock/ID defaults."""
-        final_id = event_id or self._id_factory()
-        final_occurred_at = occurred_at or self._clock()
+        if event_id is not None:
+            if not isinstance(event_id, str) or not event_id.strip():
+                raise DomainEventContractError(
+                    f"event_id must be a non-empty string if provided, got {event_id!r}",
+                    field="event_id",
+                )
+            final_id = event_id
+        else:
+            final_id = self._id_factory()
+
+        if occurred_at is not None:
+            if not isinstance(occurred_at, datetime):
+                raise DomainEventContractError(
+                    f"occurred_at must be datetime if provided, got {type(occurred_at).__name__}",
+                    field="occurred_at",
+                )
+            final_occurred_at = occurred_at
+        else:
+            final_occurred_at = self._clock()
+
+        if not isinstance(actor, str) or not actor.strip():
+            raise DomainEventContractError(
+                f"actor must be a non-empty string, got {actor!r}",
+                field="actor",
+            )
+
+        if isinstance(permissions, (str, bytes)) or not isinstance(
+            permissions, (list, tuple, Sequence)
+        ):
+            raise DomainEventContractError(
+                "permissions must be a sequence of strings, not a scalar",
+                field="permissions",
+            )
+
+        if payload is not None and not isinstance(payload, Mapping):
+            raise DomainEventContractError(
+                f"payload must be a mapping or None, got {type(payload).__name__}",
+                field="payload",
+            )
+
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise DomainEventContractError(
+                f"metadata must be a mapping or None, got {type(metadata).__name__}",
+                field="metadata",
+            )
 
         if isinstance(domain_id, str):
             dom_id = (
@@ -68,26 +112,57 @@ class DomainEventFactory:
                 if domain_id.startswith("domain:")
                 else DomainId(slug=domain_id)
             )
-        else:
+        elif isinstance(domain_id, DomainId):
             dom_id = domain_id
+        else:
+            raise DomainEventContractError(
+                f"domain_id must be DomainId or str, got {type(domain_id).__name__}",
+                field="domain_id",
+            )
+
+        if isinstance(related_domain_ids, (str, bytes)) or not isinstance(
+            related_domain_ids, (list, tuple, Sequence)
+        ):
+            raise DomainEventContractError(
+                "related_domain_ids must be a sequence",
+                field="related_domain_ids",
+            )
 
         rel_ids: list[DomainId] = []
-        for rd in related_domain_ids:
+        for i, rd in enumerate(related_domain_ids):
             if isinstance(rd, str):
                 rel_ids.append(
                     DomainId.from_str(rd)
                     if rd.startswith("domain:")
                     else DomainId(slug=rd)
                 )
-            else:
+            elif isinstance(rd, DomainId):
                 rel_ids.append(rd)
+            else:
+                raise DomainEventContractError(
+                    f"related_domain_ids[{i}] must be DomainId or str, got {type(rd).__name__}",
+                    field="related_domain_ids",
+                )
+
+        if isinstance(provenance, (str, bytes)) or not isinstance(
+            provenance, (list, tuple, Sequence)
+        ):
+            raise DomainEventContractError(
+                "provenance must be a sequence",
+                field="provenance",
+            )
 
         prov_refs: list[DomainEventReference] = []
-        for p in provenance:
+        for i, p in enumerate(provenance):
             if isinstance(p, DomainEventReference):
                 prov_refs.append(p)
             elif isinstance(p, Mapping):
                 prov_refs.append(DomainEventReference.from_dict(dict(p)))
+            else:
+                raise DomainEventContractError(
+                    f"provenance[{i}] must be DomainEventReference or Mapping, got {type(p).__name__}",
+                    field="provenance",
+                )
 
         return DomainEvent(
             event_id=final_id,
@@ -103,6 +178,6 @@ class DomainEventFactory:
             permissions=tuple(permissions),
             correlation_id=correlation_id,
             causation_id=causation_id,
-            payload=payload or {},
-            metadata=metadata or {},
+            payload=payload if payload is not None else {},
+            metadata=metadata if metadata is not None else {},
         )

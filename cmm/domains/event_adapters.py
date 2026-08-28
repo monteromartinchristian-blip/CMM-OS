@@ -6,6 +6,8 @@ into validated DomainEvent contracts. Pure semantic engines remain side-effect f
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from cmm.domains.composition_contracts import DomainComposition
@@ -21,6 +23,28 @@ from cmm.domains.identifiers import DomainId
 from cmm.domains.resolver_contracts import DomainResolutionResult
 
 _DEFAULT_FACTORY = DomainEventFactory()
+
+_AUTHORIZATION_HEADER_RE = re.compile(
+    r"authorization\s*:\s*bearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE
+)
+_BEARER_RE = re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE)
+_API_KEY_RE = re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]+\b", re.IGNORECASE)
+_KEY_PATTERN_RE = re.compile(r"\bkey-[a-zA-Z0-9_\-]+\b", re.IGNORECASE)
+_COOKIE_SESSION_RE = re.compile(
+    r"\b(?:cookie|session[_-]?token|auth[_-]?token)\s*=\s*[^\s;]+", re.IGNORECASE
+)
+
+
+def _sanitize_public_error_message(error: str) -> str:
+    """Sanitize raw exception/error strings to prevent secret leakage across the event boundary."""
+    if not isinstance(error, str):
+        return str(error)
+    sanitized = _AUTHORIZATION_HEADER_RE.sub("[REDACTED_AUTH_HEADER]", error)
+    sanitized = _BEARER_RE.sub("[REDACTED_BEARER]", sanitized)
+    sanitized = _API_KEY_RE.sub("[REDACTED_KEY]", sanitized)
+    sanitized = _KEY_PATTERN_RE.sub("[REDACTED_KEY]", sanitized)
+    sanitized = _COOKIE_SESSION_RE.sub("[REDACTED_TOKEN]", sanitized)
+    return sanitized
 
 
 def _ensure_domain_id(dom: DomainId | str) -> DomainId:
@@ -224,21 +248,33 @@ def adapt_execution_failed(
     error: str,
     actor: str = "system",
     session_id: str | None = None,
+    error_code: str | None = None,
+    error_type: str | None = None,
     factory: DomainEventFactory | None = None,
 ) -> DomainEvent:
-    """Create a domain.execution.failed event."""
+    """Create a domain.execution.failed event with sanitized error information."""
     f = factory or _DEFAULT_FACTORY
     dom = _ensure_domain_id(domain_id)
     ref = DomainEventReference(
         kind="execution", reference_id=execution_id, domain_id=dom
     )
+    safe_error = _sanitize_public_error_message(error)
+    payload: dict[str, Any] = {
+        "execution_id": execution_id,
+        "error": safe_error,
+        "status": "failed",
+    }
+    if error_code is not None:
+        payload["error_code"] = error_code
+    if error_type is not None:
+        payload["error_type"] = error_type
     return f.create_event(
         event_type="domain.execution.failed",
         domain_id=dom,
         actor=actor,
         session_id=session_id,
         provenance=(ref,),
-        payload={"execution_id": execution_id, "error": error, "status": "failed"},
+        payload=payload,
     )
 
 
@@ -315,6 +351,7 @@ def adapt_permission_requested(
     capability: str,
     domain_id: DomainId | str,
     actor: str = "system",
+    effective_permissions: Sequence[str] = (),
     factory: DomainEventFactory | None = None,
 ) -> DomainEvent:
     """Create a domain.permission.requested event."""
@@ -324,7 +361,7 @@ def adapt_permission_requested(
         event_type="domain.permission.requested",
         domain_id=dom,
         actor=actor,
-        permissions=(capability,),
+        permissions=tuple(effective_permissions),
         payload={"capability": capability},
     )
 
@@ -334,6 +371,7 @@ def adapt_permission_denied(
     domain_id: DomainId | str,
     reason: str,
     actor: str = "system",
+    effective_permissions: Sequence[str] = (),
     factory: DomainEventFactory | None = None,
 ) -> DomainEvent:
     """Create a domain.permission.denied event."""
@@ -343,7 +381,7 @@ def adapt_permission_denied(
         event_type="domain.permission.denied",
         domain_id=dom,
         actor=actor,
-        permissions=(capability,),
+        permissions=tuple(effective_permissions),
         payload={"capability": capability, "reason": reason},
     )
 
@@ -578,18 +616,30 @@ def adapt_operation_failed(
     domain_id: DomainId | str,
     error: str,
     actor: str = "system",
+    error_code: str | None = None,
+    error_type: str | None = None,
     factory: DomainEventFactory | None = None,
 ) -> DomainEvent:
-    """Create a domain.operation.failed event."""
+    """Create a domain.operation.failed event with sanitized error information."""
     f = factory or _DEFAULT_FACTORY
     dom = _ensure_domain_id(domain_id)
     ref = DomainEventReference(
         kind="operation_run", reference_id=operation_id, domain_id=dom
     )
+    safe_error = _sanitize_public_error_message(error)
+    payload: dict[str, Any] = {
+        "operation_id": operation_id,
+        "error": safe_error,
+        "status": "failed",
+    }
+    if error_code is not None:
+        payload["error_code"] = error_code
+    if error_type is not None:
+        payload["error_type"] = error_type
     return f.create_event(
         event_type="domain.operation.failed",
         domain_id=dom,
         actor=actor,
         provenance=(ref,),
-        payload={"operation_id": operation_id, "error": error, "status": "failed"},
+        payload=payload,
     )

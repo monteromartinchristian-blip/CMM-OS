@@ -6,8 +6,10 @@ All 23 general events are built-in, immutable, and cannot be overridden.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from cmm.domains.errors import (
     DomainEventRegistryError,
@@ -21,6 +23,21 @@ from cmm.domains.event_catalog import (
 )
 from cmm.domains.event_contracts import DomainEvent
 from cmm.domains.identifiers import DomainId
+
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def _validate_schema_version(version: Any) -> str:
+    if (
+        not isinstance(version, str)
+        or not _SEMVER_RE.fullmatch(version)
+        or version != version.strip()
+    ):
+        raise DomainEventRegistryError(
+            f"Invalid schema_version: {version!r}. Must be a valid semver string (e.g. '1.0.0').",
+            field="schema_version",
+        )
+    return version
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +99,8 @@ class DomainEventRegistry:
                 field="domain_id",
             )
 
+        valid_version = _validate_schema_version(schema_version)
+
         if not validate_event_type_syntax(event_type):
             raise DomainEventRegistryError(
                 f"Invalid event_type syntax: {event_type!r}",
@@ -109,7 +128,7 @@ class DomainEventRegistry:
         self._declarations[event_type] = DomainEventDeclaration(
             event_type=event_type,
             domain_id=domain_id,
-            schema_version=schema_version,
+            schema_version=valid_version,
             is_builtin=False,
             validator=validator,
             description=description,
@@ -122,6 +141,17 @@ class DomainEventRegistry:
             raise DomainEventValidationError(
                 f"Unknown event type: {event.event_type!r}",
                 field="event_type",
+            )
+
+        if event.schema_version != decl.schema_version:
+            raise DomainEventValidationError(
+                f"Event schema version '{event.schema_version}' does not match registered schema version '{decl.schema_version}' for '{event.event_type}'",
+                field="schema_version",
+                details={
+                    "event_type": event.event_type,
+                    "event_schema_version": event.schema_version,
+                    "registered_schema_version": decl.schema_version,
+                },
             )
 
         if (

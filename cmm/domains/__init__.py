@@ -302,6 +302,9 @@ from cmm.domains.identifiers import (
     DomainManifestId,
     DomainResultId,
 )
+from cmm.domains.lifecycle_bridge import (
+    DomainLifecycleEventBridge,
+)
 from cmm.domains.loader import (
     DeclarativeDomainLoader,
     DomainLoader,
@@ -631,6 +634,7 @@ __all__ = [
     "DomainId",
     "DomainKernelEventPublisher",
     "DomainKind",
+    "DomainLifecycleEventBridge",
     "DomainLoadFailed",
     "DomainLoadRejected",
     "DomainLoadResult",

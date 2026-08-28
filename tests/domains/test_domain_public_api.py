@@ -529,6 +529,7 @@ class TestPublicAPI:
                 "DomainEventSerializationError",
                 "DomainEventValidationError",
                 "DomainKernelEventPublisher",
+                "DomainLifecycleEventBridge",
                 "adapt_approval_received",
                 "adapt_approval_requested",
                 "adapt_composition_created",
@@ -566,7 +567,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 486
+        assert len(cmm.domains.__all__) == 487
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
