@@ -4889,16 +4889,16 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
-> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); independent audit V4 pending
+> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); independent audit V5 pending
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
-> **Focused Phase 10.32 tests:** 136 passed
-> **Domain suite:** 6820 passed
-> **Global suite:** 12360 passed
-> **Phase 10.32 Python delta:** 15 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
-> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — B3/M6/M7/M8/m5 remediated by `9a6c11f`; independent audit V4 pending
+> **Focused Phase 10.32 tests:** 144 passed
+> **Domain suite:** 6828 passed
+> **Global suite:** 12368 passed
+> **Phase 10.32 Python delta:** 16 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — B4/M9/M10 remediated by `9d4e5aa`; independent audit V5 pending
 
 Objective
 
