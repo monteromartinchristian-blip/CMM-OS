@@ -131,6 +131,40 @@ _CASE_USER_DELEGATION_ALLOWED_AUTHORITIES = frozenset(
     }
 )
 
+_CASE_AUTHORITY_RANK = {
+    DomainConflictAuthority.GLOBAL_SAFETY: 0,
+    DomainConflictAuthority.PERMISSION: 1,
+    DomainConflictAuthority.MANDATORY_RULE: 2,
+    DomainConflictAuthority.HIGH_RISK_DOMAIN: 3,
+    DomainConflictAuthority.PRIMARY_DOMAIN: 4,
+    DomainConflictAuthority.EVIDENCE: 5,
+    DomainConflictAuthority.RELIABILITY: 6,
+    DomainConflictAuthority.TEMPORAL: 7,
+    DomainConflictAuthority.HUMAN_REVIEW: 8,
+    DomainConflictAuthority.USER: 9,
+    DomainConflictAuthority.UNCLASSIFIED: 10,
+}
+
+_CASE_POSTPONE_ALLOWED_AUTHORITIES = frozenset(
+    {
+        DomainConflictAuthority.PERMISSION,
+        DomainConflictAuthority.MANDATORY_RULE,
+        DomainConflictAuthority.HIGH_RISK_DOMAIN,
+        DomainConflictAuthority.PRIMARY_DOMAIN,
+        DomainConflictAuthority.EVIDENCE,
+        DomainConflictAuthority.UNCLASSIFIED,
+    }
+)
+
+_CASE_HUMAN_REVIEW_BYPASS_AUTHORITIES = frozenset(
+    {
+        DomainConflictAuthority.GLOBAL_SAFETY,
+        DomainConflictAuthority.PERMISSION,
+        DomainConflictAuthority.MANDATORY_RULE,
+        DomainConflictAuthority.HIGH_RISK_DOMAIN,
+    }
+)
+
 _DECLARATIVE_STATUS_STRATEGY = {
     DomainConflictStatus.AWAITING_USER: DomainConflictStrategy.ASK_USER,
     DomainConflictStatus.AWAITING_HUMAN_REVIEW: DomainConflictStrategy.HUMAN_REVIEW,
@@ -164,6 +198,16 @@ def _case_reference_authority(
     if ref.source_kind is DomainConflictSourceKind.PERMISSION_CONFLICT:
         return DomainConflictAuthority.PERMISSION
     return DomainConflictAuthority.UNCLASSIFIED
+
+
+def _case_highest_authority(
+    references: tuple[DomainConflictReference, ...],
+) -> DomainConflictAuthority:
+    """Mirror frozen authority precedence for declarative state validation."""
+    return min(
+        (_case_reference_authority(ref) for ref in references),
+        key=_CASE_AUTHORITY_RANK.__getitem__,
+    )
 
 
 def _validate_strict_bool(value: Any, field_name: str) -> bool:
@@ -769,6 +813,22 @@ class DomainConflictCase:
                 f"{required_strategy.value}",
                 field="candidate_strategies",
             )
+
+        case_authority = _case_highest_authority(self.references)
+        if self.status is DomainConflictStatus.POSTPONED:
+            if case_authority not in _CASE_POSTPONE_ALLOWED_AUTHORITIES:
+                raise DomainConflictResolutionContractError(
+                    "POSTPONED is incompatible with the case's effective authority",
+                    field="status",
+                )
+            if (
+                self.requires_human_review
+                and case_authority not in _CASE_HUMAN_REVIEW_BYPASS_AUTHORITIES
+            ):
+                raise DomainConflictResolutionContractError(
+                    "POSTPONED cannot bypass a required human-review gate",
+                    field="status",
+                )
 
         if self.status is DomainConflictStatus.AWAITING_USER:
             if self.kind not in _CASE_USER_DELEGABLE_KINDS:

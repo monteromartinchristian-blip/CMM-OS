@@ -51,6 +51,13 @@ _ASK_USER_ALLOWED_KINDS = frozenset(
     }
 )
 
+_ASK_USER_ALLOWED_AUTHORITIES = frozenset(
+    {
+        DomainConflictAuthority.USER,
+        DomainConflictAuthority.UNCLASSIFIED,
+    }
+)
+
 
 _SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS = frozenset(
     {
@@ -691,6 +698,7 @@ class DomainConflictResolver:
             or case.blocking
             or case.requires_human_review
             or authority in hard_authorities
+            or authority not in _ASK_USER_ALLOWED_AUTHORITIES
             or case.kind not in _ASK_USER_ALLOWED_KINDS
             or any(
                 ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
