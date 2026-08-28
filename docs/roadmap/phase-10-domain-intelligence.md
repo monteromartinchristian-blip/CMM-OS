@@ -4782,17 +4782,17 @@ Permissions
 
 10.31 - Domain Selection Policies
 
-> **Implementation status:** Complete — audit V1 findings remediated; independent re-audit V2 pending
+> **Implementation status:** Complete — independently audited and closed
 > **DP-031:** `IMPLEMENTED`
 > **AT-DP-031:** `PASS` — 22 connected acceptance checkpoints; independent audit V2 `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-27-domain-selection-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-27-domain-selection-policies-implementation-plan.md`
 > **Focused Phase 10.31 tests:** 95 passed
-> **Domain suite:** 6793 passed
-> **Global suite:** 12333 passed
+> **Domain suite:** 6684 passed
+> **Global suite:** 12224 passed
 > **Phase 10.31 Python delta:** 14 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
 > **Repository-wide Ruff:** 826 pre-existing violations outside the Phase 10.31 Python delta; not part of this milestone
-> **Independent audit:** V1 `FAIL` — 1 blocker, 3 majors, 2 minors; B1/M1/M2/M3/m1 remediated by `7d50301`; m2 evidence corrected; independent re-audit V2 pending
+> **Independent audit:** V2 `PASS` — audited HEAD `76dacf3`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `dfa48d98b154526ce85efe067d7086e3ddde36c9b4c6cf643d097647553d9227`
 > **Audit remediation:** V1 findings remediated by `76dacf3`; 11 dedicated audit-regression tests `PASS`
 
 Objective
@@ -4889,15 +4889,15 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
-> **Implementation status:** Complete — awaiting independent audit
+> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); independent audit V3 pending
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
-> **Focused Phase 10.32 tests:** 109 passed
-> **Domain suite:** 6781 passed
-> **Global suite:** 12321 passed
-> **Phase 10.32 Python delta:** 13 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Focused Phase 10.32 tests:** 119 passed
+> **Domain suite:** 6803 passed
+> **Global suite:** 12343 passed
+> **Phase 10.32 Python delta:** 14 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
 
 Objective
 
