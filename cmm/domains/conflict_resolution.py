@@ -414,6 +414,27 @@ class DomainConflictResolver:
         decisive_refs: tuple[DomainConflictReference, ...],
         primary_domain: DomainId | None,
     ) -> DomainConflictResolution:
+        primary_eligible_kinds = frozenset(
+            {
+                DomainConflictKind.DOMAIN_PRECEDENCE,
+                DomainConflictKind.RECOMMENDATION,
+                DomainConflictKind.PRESENTATION,
+                DomainConflictKind.COMPOSITION,
+                DomainConflictKind.SELECTION,
+            }
+        )
+        if case.kind not in primary_eligible_kinds:
+            return _preserve(
+                case,
+                strategy=DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE,
+                reason_codes=(
+                    DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.BLOCKING_UNRESOLVED
+                    if case.blocking
+                    else DomainConflictReasonCode.INSUFFICIENT_BASIS,
+                ),
+            )
+
         if primary_domain is None or case.blocking:
             return _preserve(
                 case,

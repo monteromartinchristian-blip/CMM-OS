@@ -293,9 +293,6 @@ def _validate_json_safe_metadata(
 ) -> MappingProxyType[str, Any]:
     if raw is None:
         return MappingProxyType({})
-    if isinstance(raw, MappingProxyType):
-        _reject_credential_keys_deep(raw, field_name)
-        return raw
     validated = _validate_json_safe(raw, field_name)
     frozen = _deep_freeze(validated)
     _reject_credential_keys_deep(frozen, field_name)
@@ -440,6 +437,12 @@ class DomainConflictReference:
                 evidence_refs=tuple(mapping.get("evidence_refs", ())),
                 metadata=mapping.get("metadata", {}),
             )
+        except KeyError as exc:
+            field_name = str(exc.args[0])
+            raise DomainConflictResolutionSerializationError(
+                f"DomainConflictReference.from_dict missing required field: {field_name}",
+                field=field_name,
+            ) from exc
         except DomainConflictResolutionContractError as exc:
             raise DomainConflictResolutionSerializationError(
                 exc.message,
@@ -652,6 +655,12 @@ class DomainConflictCase:
                 field="severity",
             )
 
+        if not self.blocking and any(r.blocking for r in self.references):
+            raise DomainConflictResolutionContractError(
+                "blocking references require case blocking=True",
+                field="blocking",
+            )
+
         if self.status is DomainConflictStatus.RESOLVED and (
             self.blocking or any(r.blocking for r in self.references)
         ):
@@ -717,6 +726,12 @@ class DomainConflictCase:
                 blocking=mapping.get("blocking", False),
                 metadata=mapping.get("metadata", {}),
             )
+        except KeyError as exc:
+            field_name = str(exc.args[0])
+            raise DomainConflictResolutionSerializationError(
+                f"DomainConflictCase.from_dict missing required field: {field_name}",
+                field=field_name,
+            ) from exc
         except DomainConflictResolutionContractError as exc:
             raise DomainConflictResolutionSerializationError(
                 exc.message,
@@ -870,14 +885,43 @@ class DomainConflictResolution:
                 field="can_proceed",
             )
 
-        if (
-            self.strategy is DomainConflictStrategy.MAINTAIN_CONFLICT
-            and not self.conflict_preserved
-        ):
+        if self.rejected_reference_ids and not self.reason_codes:
             raise DomainConflictResolutionContractError(
-                "MAINTAIN_CONFLICT strategy requires conflict_preserved=True",
-                field="conflict_preserved",
+                "rejected_reference_ids require at least one auditable reason_code",
+                field="reason_codes",
             )
+
+        if self.strategy is DomainConflictStrategy.MAINTAIN_CONFLICT:
+            if not self.conflict_preserved:
+                raise DomainConflictResolutionContractError(
+                    "MAINTAIN_CONFLICT strategy requires conflict_preserved=True",
+                    field="conflict_preserved",
+                )
+            if self.status not in {
+                DomainConflictStatus.UNRESOLVED,
+                DomainConflictStatus.BLOCKED,
+            }:
+                raise DomainConflictResolutionContractError(
+                    "MAINTAIN_CONFLICT cannot claim semantic resolution",
+                    field="status",
+                )
+            if self.can_proceed:
+                raise DomainConflictResolutionContractError(
+                    "MAINTAIN_CONFLICT requires can_proceed=False",
+                    field="can_proceed",
+                )
+
+        if self.strategy is DomainConflictStrategy.SEPARATE_RESULTS:
+            if self.status is not DomainConflictStatus.UNRESOLVED:
+                raise DomainConflictResolutionContractError(
+                    "SEPARATE_RESULTS preserves semantic disagreement and requires status=UNRESOLVED",
+                    field="status",
+                )
+            if not self.conflict_preserved:
+                raise DomainConflictResolutionContractError(
+                    "SEPARATE_RESULTS requires conflict_preserved=True",
+                    field="conflict_preserved",
+                )
 
         if (
             self.strategy is DomainConflictStrategy.POSTPONE_ACTION
@@ -944,6 +988,12 @@ class DomainConflictResolution:
                 can_proceed=mapping.get("can_proceed", False),
                 metadata=mapping.get("metadata", {}),
             )
+        except KeyError as exc:
+            field_name = str(exc.args[0])
+            raise DomainConflictResolutionSerializationError(
+                f"DomainConflictResolution.from_dict missing required field: {field_name}",
+                field=field_name,
+            ) from exc
         except DomainConflictResolutionContractError as exc:
             raise DomainConflictResolutionSerializationError(
                 exc.message,
