@@ -4889,16 +4889,17 @@ Phase boundaries
 
 10.32 - Domain Conflict Resolution
 
-> **Implementation status:** Implementation complete — audit V1 FAIL (remediated); audit V2 FAIL (remediated); audit V3 FAIL (remediated); audit V4 FAIL (remediated); audit V5 FAIL (remediated); audit V6 FAIL (remediated); audit V7 FAIL (remediated); audit V8 FAIL (remediated); audit V9 FAIL (remediated); audit V10 FAIL (remediated); independent audit V11 pending
+> **Implementation status:** Complete — independently audited and closed
 > **DP-032:** `IMPLEMENTED`
-> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 12 dedicated audit V1 regression tests `PASS`; 10 dedicated audit V2 regression tests `PASS`; 17 dedicated audit V3 regression tests `PASS`; 8 dedicated audit V4 regression tests `PASS`; 30 dedicated audit V5 regression tests `PASS`; 17 dedicated audit V6 regression tests `PASS`; 10 dedicated audit V7 regression tests `PASS`; 10 dedicated audit V8 regression tests `PASS`; 5 dedicated audit V9 regression tests `PASS`; 6 dedicated audit V10 regression tests `PASS`
+> **AT-DP-032:** `PASS` — 32 connected acceptance checkpoints; 125 dedicated audit-regression tests `PASS`; final independent audit V11 `PASS`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-conflict-resolution-policies-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-conflict-resolution-implementation-plan.md`
 > **Focused Phase 10.32 tests:** 222 passed
 > **Domain suite:** 6906 passed
 > **Global suite:** 12446 passed
 > **Phase 10.32 Python delta:** 22 changed files; Ruff 0 violations; format check PASS; syntax compile PASS
-> **Independent audit history:** V1 `FAIL` — remediated; V2 `FAIL` — remediated; V3 `FAIL` — remediated; V4 `FAIL` — remediated; V5 `FAIL` — remediated; V6 `FAIL` — remediated; V7 `FAIL` — remediated; V8 `FAIL` — remediated; V9 `FAIL` — remediated; V10 `FAIL` — M22 remediated by `14f3687`; independent audit V11 pending
+> **Independent audit:** V11 `PASS` — audited HEAD `2fb413d`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `80f80afbe286c959dd00559e9f11f7dd5b2f6bebb9259d42199c1aa7695904cc`
+> **Audit remediation:** V1–V10 findings remediated; 125 dedicated audit-regression tests `PASS`
 
 Objective
 
