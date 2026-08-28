@@ -19,6 +19,7 @@ from cmm.domains.conflict_resolution_contracts import (
     DomainConflictReference,
     DomainConflictResolution,
     DomainConflictResolutionPolicy,
+    DomainConflictSourceKind,
     DomainConflictStatus,
     DomainConflictStrategy,
 )
@@ -58,6 +59,22 @@ _SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS = frozenset(
         DomainConflictKind.SELECTION,
     }
 )
+
+
+_EXTERNAL_SEMANTIC_OWNER_SOURCE_KINDS = frozenset(
+    {
+        DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION,
+        DomainConflictSourceKind.SELECTION_CONFLICT,
+    }
+)
+
+
+def _auto_resolution_forbidden(case: DomainConflictCase) -> bool:
+    """Return True when another layer or the user owns the semantic choice."""
+    return case.kind in _SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS or any(
+        ref.source_kind in _EXTERNAL_SEMANTIC_OWNER_SOURCE_KINDS
+        for ref in case.references
+    )
 
 
 def _validated_scores(
@@ -319,6 +336,16 @@ class DomainConflictResolver:
         decisive_refs: tuple[DomainConflictReference, ...],
         authority: DomainConflictAuthority,
     ) -> DomainConflictResolution:
+        if _auto_resolution_forbidden(case):
+            return _preserve(
+                case,
+                strategy=DomainConflictStrategy.MOST_RESTRICTIVE,
+                reason_codes=(
+                    DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.PRESERVED,
+                ),
+            )
+
         if authority is DomainConflictAuthority.GLOBAL_SAFETY:
             reason = DomainConflictReasonCode.SAFETY_PRECEDENCE
         elif authority is DomainConflictAuthority.PERMISSION:
@@ -387,7 +414,10 @@ class DomainConflictResolver:
         decisive_refs: tuple[DomainConflictReference, ...],
         highest_risk_domain: DomainId | None,
     ) -> DomainConflictResolution:
-        if case.kind is DomainConflictKind.KNOWLEDGE:
+        if case.kind is DomainConflictKind.KNOWLEDGE or any(
+            ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
+            for ref in case.references
+        ):
             return _preserve(
                 case,
                 strategy=DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE,
@@ -444,6 +474,19 @@ class DomainConflictResolver:
         decisive_refs: tuple[DomainConflictReference, ...],
         primary_domain: DomainId | None,
     ) -> DomainConflictResolution:
+        if any(
+            ref.source_kind in _EXTERNAL_SEMANTIC_OWNER_SOURCE_KINDS
+            for ref in case.references
+        ):
+            return _preserve(
+                case,
+                strategy=DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE,
+                reason_codes=(
+                    DomainConflictReasonCode.STRATEGY_NOT_APPLICABLE,
+                    DomainConflictReasonCode.PRESERVED,
+                ),
+            )
+
         primary_eligible_kinds = frozenset(
             {
                 DomainConflictKind.DOMAIN_PRECEDENCE,
@@ -515,7 +558,7 @@ class DomainConflictResolver:
         reliability_scores: Mapping[str, float],
         temporal_scores: Mapping[str, float],
     ) -> DomainConflictResolution:
-        if case.kind in _SCORE_AUTO_RESOLUTION_FORBIDDEN_KINDS:
+        if _auto_resolution_forbidden(case):
             return _preserve(
                 case,
                 strategy=DomainConflictStrategy.EVIDENCE_WEIGHTED,

@@ -698,6 +698,22 @@ class DomainConflictCase:
                 field="requires_human_review",
             )
 
+        if self.status is DomainConflictStatus.RESOLVED:
+            for ref in self.references:
+                if (
+                    ref.source_kind is DomainConflictSourceKind.KNOWLEDGE_CONTRADICTION
+                    and ref.metadata.get("status") == "unresolved"
+                ):
+                    raise DomainConflictResolutionContractError(
+                        "RESOLVED case cannot override an unresolved knowledge contradiction",
+                        field="status",
+                    )
+                if ref.source_kind is DomainConflictSourceKind.SELECTION_CONFLICT:
+                    raise DomainConflictResolutionContractError(
+                        "RESOLVED case cannot override an upstream selection ambiguity",
+                        field="status",
+                    )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -873,6 +889,62 @@ class DomainConflictResolution:
                 field="winning_reference_ids",
             )
 
+        if set(self.winning_reference_ids) & set(self.preserved_reference_ids):
+            raise DomainConflictResolutionContractError(
+                "winning_reference_ids and preserved_reference_ids must be disjoint",
+                field="winning_reference_ids",
+            )
+        if set(self.preserved_reference_ids) & set(self.rejected_reference_ids):
+            raise DomainConflictResolutionContractError(
+                "preserved_reference_ids and rejected_reference_ids must be disjoint",
+                field="preserved_reference_ids",
+            )
+
+        if not self.reason_codes:
+            raise DomainConflictResolutionContractError(
+                "DomainConflictResolution requires at least one auditable reason_code",
+                field="reason_codes",
+            )
+
+        if self.preserved_reference_ids and not self.conflict_preserved:
+            raise DomainConflictResolutionContractError(
+                "preserved_reference_ids require conflict_preserved=True",
+                field="conflict_preserved",
+            )
+
+        pending_statuses = {
+            DomainConflictStatus.UNRESOLVED,
+            DomainConflictStatus.BLOCKED,
+            DomainConflictStatus.AWAITING_USER,
+            DomainConflictStatus.AWAITING_HUMAN_REVIEW,
+            DomainConflictStatus.POSTPONED,
+        }
+        if self.status in pending_statuses and self.winning_reference_ids:
+            raise DomainConflictResolutionContractError(
+                f"{self.status.value} status cannot claim winning_reference_ids",
+                field="winning_reference_ids",
+            )
+        if (
+            self.status is DomainConflictStatus.RESOLVED
+            and not self.winning_reference_ids
+        ):
+            raise DomainConflictResolutionContractError(
+                "RESOLVED status requires winning_reference_ids",
+                field="winning_reference_ids",
+            )
+        if (
+            self.status
+            in {
+                DomainConflictStatus.AWAITING_USER,
+                DomainConflictStatus.AWAITING_HUMAN_REVIEW,
+            }
+            and self.can_proceed
+        ):
+            raise DomainConflictResolutionContractError(
+                f"{self.status.value} status requires can_proceed=False",
+                field="can_proceed",
+            )
+
         if self.requires_user_input != (
             self.status is DomainConflictStatus.AWAITING_USER
         ):
@@ -968,6 +1040,11 @@ class DomainConflictResolution:
                     "MAINTAIN_CONFLICT requires can_proceed=False",
                     field="can_proceed",
                 )
+            if self.winning_reference_ids or self.rejected_reference_ids:
+                raise DomainConflictResolutionContractError(
+                    "MAINTAIN_CONFLICT cannot select or reject references",
+                    field="winning_reference_ids",
+                )
 
         if self.strategy is DomainConflictStrategy.SEPARATE_RESULTS:
             if self.status is not DomainConflictStatus.UNRESOLVED:
@@ -980,6 +1057,21 @@ class DomainConflictResolution:
                     "SEPARATE_RESULTS requires conflict_preserved=True",
                     field="conflict_preserved",
                 )
+            if self.winning_reference_ids or self.rejected_reference_ids:
+                raise DomainConflictResolutionContractError(
+                    "SEPARATE_RESULTS cannot select or reject references",
+                    field="winning_reference_ids",
+                )
+
+        if self.strategy in {
+            DomainConflictStrategy.ASK_USER,
+            DomainConflictStrategy.HUMAN_REVIEW,
+            DomainConflictStrategy.POSTPONE_ACTION,
+        } and (self.winning_reference_ids or self.rejected_reference_ids):
+            raise DomainConflictResolutionContractError(
+                "declarative pending strategies cannot select or reject references",
+                field="winning_reference_ids",
+            )
 
         if self.strategy is DomainConflictStrategy.POSTPONE_ACTION:
             if self.status is not DomainConflictStatus.POSTPONED:

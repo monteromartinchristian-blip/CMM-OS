@@ -376,6 +376,7 @@ def test_cp15_json_roundtrip_serialization() -> None:
         status=DomainConflictStatus.RESOLVED,
         strategy=DomainConflictStrategy.PRIMARY_DOMAIN_PRECEDENCE,
         winning_reference_ids=("ref-cp15",),
+        reason_codes=(DomainConflictReasonCode.PRIMARY_PRECEDENCE,),
         can_proceed=True,
     )
     res_json = json.dumps(res.to_dict())
