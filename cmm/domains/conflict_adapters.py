@@ -72,7 +72,6 @@ def adapt_declared_domain_conflict(
         severity=sev,
         authority_kind=authority_kind,
         metadata={
-            "reason": conflict.reason,
             "declared_severity": conflict.severity,
         },
     )

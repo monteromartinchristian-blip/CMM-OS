@@ -126,7 +126,8 @@ def test_cp02_declared_domain_conflict_normalization() -> None:
     assert ref.blocking is True
     assert ref.severity is DomainConflictSeverity.BLOCKING
     assert domains == (DomainId(slug="project"), DomainId(slug="legacy"))
-    assert ref.metadata["reason"] == "incompatible API version"
+    assert "reason" not in ref.metadata
+    assert ref.metadata["declared_severity"] == "blocking"
 
 
 # CP-03: DomainCompositionConflict normalization preserves multiple domains

@@ -35,9 +35,9 @@ _AUTHORITY_RANK: Mapping[DomainConflictAuthority, int] = MappingProxyType(
         DomainConflictAuthority.EVIDENCE: 5,
         DomainConflictAuthority.RELIABILITY: 6,
         DomainConflictAuthority.TEMPORAL: 7,
-        DomainConflictAuthority.USER: 8,
         DomainConflictAuthority.HUMAN_REVIEW: 8,
-        DomainConflictAuthority.UNCLASSIFIED: 9,
+        DomainConflictAuthority.USER: 9,
+        DomainConflictAuthority.UNCLASSIFIED: 10,
     }
 )
 
@@ -244,6 +244,8 @@ class DomainConflictResolver:
             case DomainConflictAuthority.TEMPORAL:
                 return DomainConflictStrategy.EVIDENCE_WEIGHTED
             case DomainConflictAuthority.USER:
+                if case.requires_human_review:
+                    return DomainConflictStrategy.HUMAN_REVIEW
                 return DomainConflictStrategy.ASK_USER
             case DomainConflictAuthority.HUMAN_REVIEW:
                 return DomainConflictStrategy.HUMAN_REVIEW
@@ -592,6 +594,7 @@ class DomainConflictResolver:
         if (
             not policy.allow_user_confirmation
             or case.blocking
+            or case.requires_human_review
             or authority in hard_authorities
             or case.kind not in _ASK_USER_ALLOWED_KINDS
         ):

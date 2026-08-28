@@ -118,7 +118,8 @@ def test_declared_conflict_adapter() -> None:
     assert ref.blocking is True
     assert ref.severity is DomainConflictSeverity.BLOCKING
     assert domains == (DomainId(slug="project"), DomainId(slug="legacy"))
-    assert "reason" in ref.metadata
+    assert "reason" not in ref.metadata
+    assert ref.metadata["declared_severity"] == "blocking"
 
 
 def test_profile_conflict_adapter_preserves_blocking_and_metadata() -> None:

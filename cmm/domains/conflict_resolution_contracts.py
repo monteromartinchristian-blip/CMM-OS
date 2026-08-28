@@ -293,6 +293,11 @@ def _validate_json_safe_metadata(
 ) -> MappingProxyType[str, Any]:
     if raw is None:
         return MappingProxyType({})
+    if not isinstance(raw, (Mapping, MappingProxyType)):
+        raise DomainConflictResolutionContractError(
+            f"{field_name} must be a mapping, got {type(raw).__name__}: {raw!r}",
+            field=field_name,
+        )
     validated = _validate_json_safe(raw, field_name)
     frozen = _deep_freeze(validated)
     _reject_credential_keys_deep(frozen, field_name)
@@ -434,7 +439,7 @@ class DomainConflictReference:
                 blocking=mapping.get("blocking", False),
                 severity=mapping.get("severity"),
                 authority_kind=mapping.get("authority_kind"),
-                evidence_refs=tuple(mapping.get("evidence_refs", ())),
+                evidence_refs=mapping.get("evidence_refs", ()),
                 metadata=mapping.get("metadata", {}),
             )
         except KeyError as exc:
@@ -703,7 +708,9 @@ class DomainConflictCase:
     def from_dict(cls, data: Mapping[str, Any]) -> DomainConflictCase:
         mapping = _strict_mapping(data, _CASE_KNOWN, "DomainConflictCase")
         try:
-            raw_refs = mapping.get("references", ())
+            if "references" not in mapping:
+                raise KeyError("references")
+            raw_refs = mapping["references"]
             if not isinstance(raw_refs, (tuple, list)):
                 raise DomainConflictResolutionContractError(
                     "references must be a tuple or list",
@@ -715,13 +722,13 @@ class DomainConflictCase:
             )
             return cls(
                 id=mapping["id"],
-                domains=tuple(mapping.get("domains", ())),
+                domains=mapping.get("domains", ()),
                 kind=mapping["kind"],
                 severity=mapping["severity"],
                 status=mapping["status"],
                 references=references,
-                affected_item_refs=tuple(mapping.get("affected_item_refs", ())),
-                candidate_strategies=tuple(mapping.get("candidate_strategies", ())),
+                affected_item_refs=mapping.get("affected_item_refs", ()),
+                candidate_strategies=mapping.get("candidate_strategies", ()),
                 requires_human_review=mapping.get("requires_human_review", False),
                 blocking=mapping.get("blocking", False),
                 metadata=mapping.get("metadata", {}),
@@ -975,12 +982,10 @@ class DomainConflictResolution:
                 conflict_id=mapping["conflict_id"],
                 status=mapping["status"],
                 strategy=mapping["strategy"],
-                winning_reference_ids=tuple(mapping.get("winning_reference_ids", ())),
-                preserved_reference_ids=tuple(
-                    mapping.get("preserved_reference_ids", ())
-                ),
-                rejected_reference_ids=tuple(mapping.get("rejected_reference_ids", ())),
-                reason_codes=tuple(mapping.get("reason_codes", ())),
+                winning_reference_ids=mapping.get("winning_reference_ids", ()),
+                preserved_reference_ids=mapping.get("preserved_reference_ids", ()),
+                rejected_reference_ids=mapping.get("rejected_reference_ids", ()),
+                reason_codes=mapping.get("reason_codes", ()),
                 requires_user_input=mapping.get("requires_user_input", False),
                 requires_human_review=mapping.get("requires_human_review", False),
                 action_postponed=mapping.get("action_postponed", False),
@@ -1032,6 +1037,16 @@ _PERMISSION_ALLOWED = frozenset(
 
 _MANDATORY_ALLOWED = frozenset(
     {
+        DomainConflictStrategy.MOST_RESTRICTIVE,
+        DomainConflictStrategy.HUMAN_REVIEW,
+        DomainConflictStrategy.MAINTAIN_CONFLICT,
+        DomainConflictStrategy.POSTPONE_ACTION,
+    }
+)
+
+_HIGH_RISK_ALLOWED = frozenset(
+    {
+        DomainConflictStrategy.HIGH_RISK_DOMAIN_PRECEDENCE,
         DomainConflictStrategy.MOST_RESTRICTIVE,
         DomainConflictStrategy.HUMAN_REVIEW,
         DomainConflictStrategy.MAINTAIN_CONFLICT,
@@ -1178,6 +1193,12 @@ class DomainConflictResolutionPolicy:
             raise DomainConflictResolutionContractError(
                 f"mandatory_rule_strategy must be one of {sorted(s.value for s in _MANDATORY_ALLOWED)}, got {self.mandatory_rule_strategy.value!r}",
                 field="mandatory_rule_strategy",
+            )
+
+        if self.high_risk_strategy not in _HIGH_RISK_ALLOWED:
+            raise DomainConflictResolutionContractError(
+                f"high_risk_strategy must be one of {sorted(s.value for s in _HIGH_RISK_ALLOWED)}, got {self.high_risk_strategy.value!r}",
+                field="high_risk_strategy",
             )
 
         configured_strategies = {
