@@ -11,8 +11,15 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from cmm.domains.errors import DomainEventContractError
-from cmm.domains.event_contracts import DomainEvent, DomainEventReference
+from cmm.domains.errors import (
+    DomainContractValidationError,
+    DomainEventContractError,
+)
+from cmm.domains.event_contracts import (
+    DomainEvent,
+    DomainEventReference,
+    _validate_event_string_privacy,
+)
 from cmm.domains.identifiers import DomainId
 
 
@@ -66,7 +73,13 @@ class DomainEventFactory:
                     f"event_id must be a non-empty string if provided, got {event_id!r}",
                     field="event_id",
                 )
-            final_id = event_id
+            try:
+                _validate_event_string_privacy(event_id.strip(), "event_id")
+            except DomainContractValidationError as exc:
+                raise DomainEventContractError(
+                    exc.message, field="event_id", details=dict(exc.details)
+                ) from exc
+            final_id = event_id.strip()
         else:
             final_id = self._id_factory()
 

@@ -44,7 +44,6 @@ _PRIVATE_MARKERS = frozenset(
         "rawprompt",
         "usermessage",
         "objectivetext",
-        "content",
         "rawcontent",
         "secret",
         "secrets",
@@ -67,6 +66,8 @@ _PRIVATE_MARKERS = frozenset(
         "authorization",
         "authorizationheader",
         "cookie",
+        "setcookie",
+        "set_cookie",
         "chainofthought",
         "reasoning",
         "rawreasoning",
@@ -78,27 +79,58 @@ _PRIVATE_MARKERS = frozenset(
         "providerrequest",
         "providerresponse",
         "pii",
+        "sessiontoken",
+        "session_token",
+        "sessionid",
+        "session_id",
+        "csrftoken",
+        "csrf_token",
+        "accesstoken",
+        "access_token",
+        "refreshtoken",
+        "refresh_token",
     }
 )
 
-_PRIVATE_KEY_TOKENS = frozenset(
+_SINGLE_WORD_PRIVATE_MARKERS = frozenset(
     {
-        "prompt",
-        "message",
-        "content",
-        "secret",
-        "token",
-        "credential",
-        "password",
-        "apikey",
+        "systemprompt",
+        "developerprompt",
+        "privateprompt",
+        "rawprompt",
+        "usermessage",
+        "objectivetext",
+        "rawcontent",
+        "chainofthought",
+        "hiddenreasoning",
+        "reasoningcontent",
+        "rawreasoning",
+        "rawresource",
+        "toolarguments",
+        "toolresponse",
+        "providerrequest",
+        "providerresponse",
         "pii",
-        "reasoning",
-        "authorization",
-        "cookie",
-        "authtoken",
+        "password",
+        "passwords",
+        "secret",
+        "secrets",
+        "token",
+        "tokens",
+        "credential",
+        "credentials",
+        "apikey",
         "privatekey",
-        "accesskey",
         "secretkey",
+        "accesskey",
+        "authtoken",
+        "sessiontoken",
+        "sessionid",
+        "csrftoken",
+        "cookie",
+        "cookies",
+        "authorization",
+        "prompt",
     }
 )
 
@@ -122,27 +154,19 @@ _SAFE_REFERENCE_KEYS = frozenset(
 )
 
 _PRIVATE_TOKEN_SEQUENCES = (
-    ("prompt",),
     ("system", "prompt"),
     ("developer", "prompt"),
     ("private", "prompt"),
     ("raw", "prompt"),
     ("user", "message"),
     ("objective", "text"),
-    ("content",),
     ("raw", "content"),
-    ("secret",),
-    ("token",),
-    ("credential",),
-    ("password",),
     ("api", "key"),
     ("access", "key"),
     ("secret", "key"),
     ("private", "key"),
     ("auth", "token"),
-    ("authorization",),
     ("authorization", "header"),
-    ("cookie",),
     ("chain", "of", "thought"),
     ("reasoning", "text"),
     ("reasoning", "content"),
@@ -153,7 +177,11 @@ _PRIVATE_TOKEN_SEQUENCES = (
     ("tool", "response"),
     ("provider", "request"),
     ("provider", "response"),
-    ("pii",),
+    ("session", "token"),
+    ("session", "id"),
+    ("access", "token"),
+    ("refresh", "token"),
+    ("csrf", "token"),
 )
 
 _SECRET_VALUE_PATTERNS = (
@@ -163,7 +191,7 @@ _SECRET_VALUE_PATTERNS = (
     re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
     re.compile(r"\bkey-[a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:password|secret|credential|cookie|session[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token)\s*[:=]\s*\S+",
+        r"\b(?:password|secret|credential|cookie|set[_-]?cookie|session[_-]?token|sessionid|session[_-]?id|access[_-]?token|refresh[_-]?token|auth[_-]?token|csrf[_-]?token|csrftoken)\s*[:=]\s*\S+",
         re.IGNORECASE,
     ),
 )
@@ -180,11 +208,14 @@ def _word_tokens(value: str) -> tuple[str, ...]:
 
 
 def _contains_private_marker(value: str) -> bool:
-    norm = _normalized(value)
-    if norm in _SAFE_REFERENCE_KEYS:
+    cleaned = re.sub(r"\[REDACTED_[A-Z0-9_]+\]", " ", value, flags=re.IGNORECASE)
+    norm = _normalized(cleaned)
+    if not norm or norm in _SAFE_REFERENCE_KEYS:
         return False
-    tokens = _word_tokens(value)
-    if norm in _PRIVATE_MARKERS or any(item in _PRIVATE_KEY_TOKENS for item in tokens):
+    if norm in _PRIVATE_MARKERS:
+        return True
+    tokens = _word_tokens(cleaned)
+    if any(item in _SINGLE_WORD_PRIVATE_MARKERS for item in tokens):
         return True
     return any(
         tokens[index : index + len(sequence)] == sequence
@@ -194,8 +225,9 @@ def _contains_private_marker(value: str) -> bool:
 
 
 def _contains_secret_value(value: str) -> bool:
+    cleaned = re.sub(r"\[REDACTED_[A-Z0-9_]+\]", " ", value, flags=re.IGNORECASE)
     for pattern in _SECRET_VALUE_PATTERNS:
-        if pattern.search(value):
+        if pattern.search(cleaned):
             return True
     return False
 
@@ -206,12 +238,13 @@ def _validate_event_string_privacy(value: str, field_name: str) -> str:
         raise DomainContractValidationError(
             f"Secret-like value detected in {field_name}",
             field=field_name,
+            details={"category": "secret_value"},
         )
     if _contains_private_marker(value):
         raise DomainContractValidationError(
-            f"Forbidden privacy/credential marker detected in {field_name}: '{value}'",
+            f"Forbidden privacy/credential marker detected in {field_name}",
             field=field_name,
-            details={"forbidden_value": value},
+            details={"category": "private_marker"},
         )
     return value
 
@@ -307,19 +340,10 @@ def _reject_credential_keys_event(data: Any, field_name: str) -> None:
     if data is None:
         return
     if isinstance(data, str):
-        if _contains_secret_value(data):
-            raise DomainContractValidationError(
-                f"Secret-like value detected in {field_name}",
-                field=field_name,
-            )
+        _validate_event_string_privacy(data, field_name)
     elif isinstance(data, Mapping):
         for key, value in data.items():
-            if _contains_private_marker(key):
-                raise DomainContractValidationError(
-                    f"Forbidden privacy/credential key detected in {field_name}: '{key}'",
-                    field=field_name,
-                    details={"forbidden_key": key},
-                )
+            _validate_event_string_privacy(key, field_name)
             _reject_credential_keys_event(value, f"{field_name}.{key}")
     elif isinstance(data, (list, tuple)):
         for i, item in enumerate(data):
@@ -490,11 +514,7 @@ class DomainEventReference:
         object.__setattr__(self, "kind", kind_val)
 
         ref_id_val = _validate_non_empty_str(self.reference_id, "reference_id")
-        if _contains_secret_value(ref_id_val):
-            raise DomainContractValidationError(
-                "Secret-like value detected in reference_id",
-                field="reference_id",
-            )
+        _validate_event_string_privacy(ref_id_val, "reference_id")
         object.__setattr__(self, "reference_id", ref_id_val)
 
         if self.domain_id is not None:
@@ -552,11 +572,12 @@ class DomainEventReference:
                 f"reference_id must be a non-empty string, got {raw_ref_id!r}",
                 field="reference_id",
             )
-        if _contains_secret_value(raw_ref_id.strip()):
+        try:
+            _validate_event_string_privacy(raw_ref_id.strip(), "reference_id")
+        except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
-                "Secret-like value detected in reference_id",
-                field="reference_id",
-            )
+                exc.message, field="reference_id", details=dict(exc.details)
+            ) from exc
 
         raw_domain_id = data.get("domain_id")
         domain_id: DomainId | None = None
@@ -629,17 +650,17 @@ class DomainEvent:
     )
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "event_id", _validate_non_empty_str(self.event_id, "event_id")
-        )
-        object.__setattr__(
-            self, "event_type", _validate_non_empty_str(self.event_type, "event_type")
-        )
-        object.__setattr__(
-            self,
-            "schema_version",
-            _validate_non_empty_str(self.schema_version, "schema_version"),
-        )
+        event_id_val = _validate_non_empty_str(self.event_id, "event_id")
+        _validate_event_string_privacy(event_id_val, "event_id")
+        object.__setattr__(self, "event_id", event_id_val)
+
+        event_type_val = _validate_non_empty_str(self.event_type, "event_type")
+        _validate_event_string_privacy(event_type_val, "event_type")
+        object.__setattr__(self, "event_type", event_type_val)
+
+        schema_ver_val = _validate_non_empty_str(self.schema_version, "schema_version")
+        _validate_event_string_privacy(schema_ver_val, "schema_version")
+        object.__setattr__(self, "schema_version", schema_ver_val)
         actor_val = _validate_non_empty_str(self.actor, "actor")
         _validate_event_string_privacy(actor_val, "actor")
         object.__setattr__(self, "actor", actor_val)
@@ -779,6 +800,12 @@ class DomainEvent:
                 f"event_id must be a non-empty string, got {raw_id!r}",
                 field="event_id",
             )
+        try:
+            _validate_event_string_privacy(raw_id.strip(), "event_id")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="event_id", details=dict(exc.details)
+            ) from exc
 
         raw_type = data["event_type"]
         if not isinstance(raw_type, str) or not raw_type.strip():
@@ -786,6 +813,12 @@ class DomainEvent:
                 f"event_type must be a non-empty string, got {raw_type!r}",
                 field="event_type",
             )
+        try:
+            _validate_event_string_privacy(raw_type.strip(), "event_type")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="event_type", details=dict(exc.details)
+            ) from exc
 
         raw_ver = data["schema_version"]
         if not isinstance(raw_ver, str) or not raw_ver.strip():
@@ -793,6 +826,12 @@ class DomainEvent:
                 f"schema_version must be a non-empty string, got {raw_ver!r}",
                 field="schema_version",
             )
+        try:
+            _validate_event_string_privacy(raw_ver.strip(), "schema_version")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="schema_version", details=dict(exc.details)
+            ) from exc
 
         raw_actor = data["actor"]
         if not isinstance(raw_actor, str) or not raw_actor.strip():

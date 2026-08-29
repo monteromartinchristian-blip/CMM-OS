@@ -1,6 +1,6 @@
 """Phase 10.33 — AT-DP-033 Acceptance Test Gate.
 
-33 comprehensive end-to-end checkpoints verifying all requirements of
+66 comprehensive end-to-end checkpoints verifying all requirements of
 Phase 10.33: Domain Events.
 """
 
@@ -44,6 +44,7 @@ from cmm.domains.event_adapters import (
     adapt_composition_updated,
     adapt_conflict_detected,
     adapt_conflict_resolution,
+    adapt_execution_failed,
     adapt_memory_proposed,
     adapt_memory_updated,
     adapt_operation_completed,
@@ -1402,3 +1403,122 @@ def test_cp60_deterministic_sequence_ordering_and_set_rejection() -> None:
             occurred_at=now,
             permissions={"read"},  # type: ignore[arg-type]
         )
+
+
+# CP-61: Explicit event_id privacy boundary enforcement (B2)
+def test_cp61_explicit_event_id_privacy_boundary() -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="sk-" + "A" * 40,
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+        )
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="password=supersecret",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+        )
+
+
+# CP-62: Provenance reference_id privacy validation (B2)
+def test_cp62_provenance_reference_id_privacy_validation() -> None:
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEventReference(kind="resolution", reference_id="system_prompt")
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEventReference(
+            kind="resolution", reference_id="raw_prompt: hidden instructions"
+        )
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEventReference(kind="resolution", reference_id="pii:user@example.com")
+
+
+# CP-63: Recursive payload and metadata string value privacy validation (B2)
+def test_cp63_recursive_payload_and_metadata_string_value_privacy() -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp63-1",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            payload={"note": "system_prompt: secret instructions"},
+        )
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp63-2",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            metadata={"deep": {"list": ["safe", "chain_of_thought: reasoning"]}},
+        )
+
+
+# CP-64: Comprehensive multi-part Cookie and Set-Cookie header sanitization (B2)
+def test_cp64_multi_part_cookie_sanitization() -> None:
+    evt_cookie = adapt_operation_failed(
+        operation_id="op-cp64",
+        domain_id="domain:project",
+        error="Cookie: foo=bar; sessionid=SECRET_SESSION_12345",
+    )
+    assert "SECRET_SESSION_12345" not in str(evt_cookie.payload)
+    assert "sessionid" not in str(evt_cookie.payload)
+
+    evt_set_cookie = adapt_execution_failed(
+        execution_id="exec-cp64",
+        domain_id="domain:project",
+        error="Set-Cookie: a=b; csrftoken=SECRET_CSRF_67890",
+    )
+    assert "SECRET_CSRF_67890" not in str(evt_set_cookie.payload)
+    assert "csrftoken" not in str(evt_set_cookie.payload)
+
+
+# CP-65: Validation error non-disclosure invariant (B2)
+def test_cp65_validation_error_nondisclosure_invariant() -> None:
+    secret_text = "ULTRA_CONFIDENTIAL_INSTRUCTIONS_9999"
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError)
+    ) as exc_info:
+        DomainEventReference(
+            kind="resolution",
+            reference_id=f"system_prompt: {secret_text}",
+        )
+    assert secret_text not in str(exc_info.value)
+    assert secret_text not in str(getattr(exc_info.value, "details", {}))
+
+
+# CP-66: Kernel event publication boundary privacy guarantee (B2)
+def test_cp66_kernel_publication_boundary_privacy_guarantee() -> None:
+    publisher = DomainKernelEventPublisher()
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        bad_evt = DomainEvent(
+            event_id="sk-" + "Z" * 40,
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+        )
+        publisher.publish(bad_evt)
+    assert len(publisher.emitted_events) == 0
