@@ -7,9 +7,11 @@ pure deterministic engines.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from cmm.domains.event_adapters import (
+    _ensure_domain_id,
     adapt_conflict_detected,
     adapt_conflict_resolution,
     adapt_resolution_result,
@@ -136,13 +138,27 @@ class DomainLifecycleEventBridge:
         primary_domain: DomainId | str,
         policy: DomainConflictResolutionPolicy | None = None,
         actor: str = "system",
+        *,
+        highest_risk_domain: DomainId | None = None,
+        evidence_scores: Mapping[str, float] | None = None,
+        reliability_scores: Mapping[str, float] | None = None,
+        temporal_scores: Mapping[str, float] | None = None,
     ) -> DomainConflictResolution:
         """Call-around pattern for conflict resolution with lifecycle events."""
         self.emit_conflict_detected(case=case, actor=actor)
-        resolution = resolver.resolve(case, policy)
+        validated_primary = _ensure_domain_id(primary_domain)
+        resolution = resolver.resolve(
+            case,
+            policy=policy,
+            primary_domain=validated_primary,
+            highest_risk_domain=highest_risk_domain,
+            evidence_scores=evidence_scores,
+            reliability_scores=reliability_scores,
+            temporal_scores=temporal_scores,
+        )
         self.emit_conflict_resolution(
             resolution=resolution,
-            primary_domain=primary_domain,
+            primary_domain=validated_primary,
             actor=actor,
         )
         return resolution

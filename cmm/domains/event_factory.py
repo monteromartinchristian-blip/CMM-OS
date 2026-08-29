@@ -86,11 +86,35 @@ class DomainEventFactory:
                 field="actor",
             )
 
-        if isinstance(permissions, (str, bytes)) or not isinstance(
+        if session_id is not None and (
+            not isinstance(session_id, str) or isinstance(session_id, bool)
+        ):
+            raise DomainEventContractError(
+                f"session_id must be a string or None, got {type(session_id).__name__}: {session_id!r}",
+                field="session_id",
+            )
+
+        if correlation_id is not None and (
+            not isinstance(correlation_id, str) or isinstance(correlation_id, bool)
+        ):
+            raise DomainEventContractError(
+                f"correlation_id must be a string or None, got {type(correlation_id).__name__}: {correlation_id!r}",
+                field="correlation_id",
+            )
+
+        if causation_id is not None and (
+            not isinstance(causation_id, str) or isinstance(causation_id, bool)
+        ):
+            raise DomainEventContractError(
+                f"causation_id must be a string or None, got {type(causation_id).__name__}: {causation_id!r}",
+                field="causation_id",
+            )
+
+        if isinstance(permissions, (str, bytes, set, frozenset)) or not isinstance(
             permissions, (list, tuple, Sequence)
         ):
             raise DomainEventContractError(
-                "permissions must be a sequence of strings, not a scalar",
+                "permissions must be an ordered sequence of strings, not a set or scalar",
                 field="permissions",
             )
 
@@ -120,11 +144,11 @@ class DomainEventFactory:
                 field="domain_id",
             )
 
-        if isinstance(related_domain_ids, (str, bytes)) or not isinstance(
-            related_domain_ids, (list, tuple, Sequence)
-        ):
+        if isinstance(
+            related_domain_ids, (str, bytes, set, frozenset)
+        ) or not isinstance(related_domain_ids, (list, tuple, Sequence)):
             raise DomainEventContractError(
-                "related_domain_ids must be a sequence",
+                "related_domain_ids must be an ordered sequence, not a set or scalar",
                 field="related_domain_ids",
             )
 
@@ -144,11 +168,11 @@ class DomainEventFactory:
                     field="related_domain_ids",
                 )
 
-        if isinstance(provenance, (str, bytes)) or not isinstance(
+        if isinstance(provenance, (str, bytes, set, frozenset)) or not isinstance(
             provenance, (list, tuple, Sequence)
         ):
             raise DomainEventContractError(
-                "provenance must be a sequence",
+                "provenance must be an ordered sequence, not a set or scalar",
                 field="provenance",
             )
 

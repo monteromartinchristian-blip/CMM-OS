@@ -69,10 +69,15 @@ class DomainKernelEventPublisher:
                 self._listener(kernel_event)
             self._emitted_events.append(kernel_event)
         except Exception as exc:
+            exc_type_name = type(exc).__name__
             raise DomainEventPublicationError(
-                f"Failed to deliver domain event '{event.event_type}' to kernel listener: {exc}",
+                f"Failed to deliver domain event '{event.event_type}' to kernel listener ({exc_type_name})",
                 field="event",
-                details={"event_type": event.event_type, "event_id": event.event_id},
+                details={
+                    "event_type": event.event_type,
+                    "event_id": event.event_id,
+                    "listener_error_type": exc_type_name,
+                },
             ) from exc
 
         return kernel_event

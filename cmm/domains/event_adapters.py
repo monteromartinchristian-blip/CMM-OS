@@ -17,7 +17,11 @@ from cmm.domains.conflict_resolution_contracts import (
     DomainConflictStatus,
 )
 from cmm.domains.enums import DomainResolutionStatus
-from cmm.domains.event_contracts import DomainEvent, DomainEventReference
+from cmm.domains.event_contracts import (
+    DomainEvent,
+    DomainEventReference,
+    _contains_secret_value,
+)
 from cmm.domains.event_factory import DomainEventFactory
 from cmm.domains.identifiers import DomainId
 from cmm.domains.resolver_contracts import DomainResolutionResult
@@ -25,25 +29,32 @@ from cmm.domains.resolver_contracts import DomainResolutionResult
 _DEFAULT_FACTORY = DomainEventFactory()
 
 _AUTHORIZATION_HEADER_RE = re.compile(
-    r"authorization\s*:\s*bearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE
+    r"authorization\s*[:=]\s*(?:bearer\s+)?[^\s;,]+", re.IGNORECASE
 )
-_BEARER_RE = re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]+", re.IGNORECASE)
+_COOKIE_HEADER_RE = re.compile(
+    r"(?:set[_-]?cookie|cookie)\s*[:=]\s*[^\r\n;,]+", re.IGNORECASE
+)
+_BEARER_RE = re.compile(r"\bbearer(?:\s+|[:=]\s*)[a-zA-Z0-9_\-\.]+", re.IGNORECASE)
 _API_KEY_RE = re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]+\b", re.IGNORECASE)
 _KEY_PATTERN_RE = re.compile(r"\bkey-[a-zA-Z0-9_\-]+\b", re.IGNORECASE)
-_COOKIE_SESSION_RE = re.compile(
-    r"\b(?:cookie|session[_-]?token|auth[_-]?token)\s*=\s*[^\s;]+", re.IGNORECASE
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"\b(?:password|secret|credential|session[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token)\s*[:=]\s*[^\s;,]+",
+    re.IGNORECASE,
 )
 
 
 def _sanitize_public_error_message(error: str) -> str:
     """Sanitize raw exception/error strings to prevent secret leakage across the event boundary."""
     if not isinstance(error, str):
-        return str(error)
-    sanitized = _AUTHORIZATION_HEADER_RE.sub("[REDACTED_AUTH_HEADER]", error)
+        error = str(error)
+    sanitized = _AUTHORIZATION_HEADER_RE.sub("[REDACTED_AUTH]", error)
+    sanitized = _COOKIE_HEADER_RE.sub("[REDACTED_COOKIE]", sanitized)
     sanitized = _BEARER_RE.sub("[REDACTED_BEARER]", sanitized)
     sanitized = _API_KEY_RE.sub("[REDACTED_KEY]", sanitized)
     sanitized = _KEY_PATTERN_RE.sub("[REDACTED_KEY]", sanitized)
-    sanitized = _COOKIE_SESSION_RE.sub("[REDACTED_TOKEN]", sanitized)
+    sanitized = _SECRET_ASSIGNMENT_RE.sub("[REDACTED_SECRET]", sanitized)
+    if _contains_secret_value(sanitized):
+        return "[REDACTED_ERROR]"
     return sanitized
 
 

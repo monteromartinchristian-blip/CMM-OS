@@ -7,12 +7,15 @@ Phase 10.33: Domain Events.
 from __future__ import annotations
 
 import ast
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from cmm.domains.composition_contracts import DomainComposition, DomainCompositionStatus
+from cmm.domains.conflict_resolution import DomainConflictResolver
 from cmm.domains.conflict_resolution_contracts import (
     DomainConflictAuthority,
     DomainConflictCase,
@@ -1046,3 +1049,356 @@ def test_cp47_implementation_plan_presence() -> None:
     )
     assert plan_path.exists(), f"Plan must exist at {plan_path}"
     assert len(plan_path.read_text(encoding="utf-8").strip()) > 100
+
+
+# CP-48: Top-level secret rejection across actor and permissions (B2)
+def test_cp48_top_level_secret_rejection() -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    synthetic_key = "sk-" + "a" * 40
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp48-1",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor=synthetic_key,
+            sensitivity="internal",
+            occurred_at=now,
+        )
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp48-2",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            permissions=("Bearer secret1234567890",),
+        )
+
+
+# CP-49: DomainEventReference privacy rejection on kind and secret reference_id (B2)
+def test_cp49_reference_privacy_rejection() -> None:
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEventReference(kind="system_prompt", reference_id="ref-cp49")
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEventReference(
+            kind="resolution", reference_id="Authorization: Bearer secret-token-xyz"
+        )
+
+
+# CP-50: Password, secret, credential, cookie, and token patterns rejection in payload and metadata (B2)
+@pytest.mark.parametrize(
+    "secret_dict",
+    [
+        {"pass": "password=supersecret"},
+        {"cookie_val": "cookie: sessionid123456"},
+        {"cred": "credential: admincred"},
+        {"sec": "secret=mysecretkey"},
+    ],
+)
+def test_cp50_expanded_secret_patterns_rejection(secret_dict: dict[str, str]) -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp50-p",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            payload=secret_dict,
+        )
+
+    with pytest.raises((DomainContractValidationError, DomainEventContractError)):
+        DomainEvent(
+            event_id="evt-cp50-m",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            metadata=secret_dict,
+        )
+
+
+# CP-51: Safe failure adapter representation and comprehensive secret sanitization (B2)
+def test_cp51_safe_failure_adapter_representation() -> None:
+    evt_op = adapt_operation_failed(
+        operation_id="op-cp51",
+        domain_id="domain:project",
+        error="Failure with password=hunter2 and Set-Cookie: cookie: secretcookie123",
+        error_code="ERR_AUTH_FAILED",
+        error_type="AuthenticationError",
+    )
+    assert evt_op.payload["status"] == "failed"
+    assert evt_op.payload["error_code"] == "ERR_AUTH_FAILED"
+    assert evt_op.payload["error_type"] == "AuthenticationError"
+    error_str = str(evt_op.payload["error"])
+    assert "hunter2" not in error_str
+    assert "secretcookie123" not in error_str
+
+
+# CP-52: Safe publisher listener failure wrapping without raw exception secret leakage (B2)
+def test_cp52_safe_publisher_listener_failure() -> None:
+    def failing_listener(evt: Event) -> None:
+        raise RuntimeError(
+            "Database connection error with Authorization: Bearer SECRET_PUB_KEY_999"
+        )
+
+    publisher = DomainKernelEventPublisher(event_listener=failing_listener)
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    event = DomainEvent(
+        event_id="evt-cp52",
+        event_type="domain.resolution.started",
+        schema_version="1.0.0",
+        domain_id=DomainId(slug="project"),
+        actor="system",
+        sensitivity="internal",
+        occurred_at=now,
+    )
+    with pytest.raises(DomainEventPublicationError) as exc_info:
+        publisher.publish(event)
+    err_msg = str(exc_info.value)
+    assert "SECRET_PUB_KEY_999" not in err_msg
+    assert "Authorization: Bearer" not in err_msg
+
+
+# CP-53: Strict session_id type validation and JSON safety (M2)
+@pytest.mark.parametrize("invalid_id", [123, object(), ["bad"], {"bad": 1}, True])
+def test_cp53_strict_session_id_type_validation(invalid_id: Any) -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent(
+            event_id="evt-cp53",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            session_id=invalid_id,
+        )
+
+
+# CP-54: Strict correlation_id type validation and JSON safety (M2)
+@pytest.mark.parametrize("invalid_id", [123, object(), ["bad"], {"bad": 1}, True])
+def test_cp54_strict_correlation_id_type_validation(invalid_id: Any) -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent(
+            event_id="evt-cp54",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            correlation_id=invalid_id,
+        )
+
+
+# CP-55: Strict causation_id type validation and JSON safety (M2)
+@pytest.mark.parametrize("invalid_id", [123, object(), ["bad"], {"bad": 1}, True])
+def test_cp55_strict_causation_id_type_validation(invalid_id: Any) -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent(
+            event_id="evt-cp55",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            causation_id=invalid_id,
+        )
+
+
+# CP-56: Full event JSON-safe round trip serialization with json.dumps (M2)
+def test_cp56_json_safe_roundtrip_serialization() -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    event = DomainEvent(
+        event_id="evt-cp56",
+        event_type="domain.resolution.completed",
+        schema_version="1.0.0",
+        domain_id=DomainId(slug="project"),
+        actor="agent-json",
+        occurred_at=now,
+        sensitivity="internal",
+        session_id="session-cp56",
+        correlation_id="corr-cp56",
+        causation_id="cause-cp56",
+        permissions=("read", "execute"),
+        payload={"score": 0.98, "valid": True, "count": 10},
+        metadata={"env": "testing"},
+    )
+    raw_dict = event.to_dict()
+    dumped = json.dumps(raw_dict)
+    assert isinstance(dumped, str)
+    loaded = json.loads(dumped)
+    assert loaded["session_id"] == "session-cp56"
+    assert loaded["correlation_id"] == "corr-cp56"
+    assert loaded["causation_id"] == "cause-cp56"
+
+
+# CP-57: Real conflict bridge call-around execution with DomainConflictResolver (M5)
+def test_cp57_real_conflict_bridge_call_around() -> None:
+    published_events: list[Event] = []
+    publisher = DomainKernelEventPublisher(event_listener=published_events.append)
+    bridge = DomainLifecycleEventBridge(publisher=publisher)
+    resolver = DomainConflictResolver()
+
+    ref1 = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-p",
+        domain_id=DomainId(slug="project"),
+        severity=DomainConflictSeverity.MATERIAL,
+        authority_kind=DomainConflictAuthority.PRIMARY_DOMAIN,
+    )
+    ref2 = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-s",
+        domain_id=DomainId(slug="general"),
+        severity=DomainConflictSeverity.MATERIAL,
+        authority_kind=DomainConflictAuthority.UNCLASSIFIED,
+    )
+    case = DomainConflictCase(
+        id="case-cp57",
+        domains=(DomainId(slug="project"), DomainId(slug="general")),
+        kind=DomainConflictKind.RECOMMENDATION,
+        severity=DomainConflictSeverity.MATERIAL,
+        status=DomainConflictStatus.OPEN,
+        references=(ref1, ref2),
+    )
+
+    resolution = bridge.resolve_conflict_with_events(
+        resolver=resolver,
+        case=case,
+        primary_domain="domain:project",
+    )
+    assert resolution.status == DomainConflictStatus.RESOLVED
+    assert len(published_events) == 2
+    assert published_events[0].name == "domain.conflict.detected"
+    assert published_events[1].name == "domain.conflict.resolved"
+
+
+# CP-58: Primary-domain propagation and semantic effect in conflict bridge (M5)
+def test_cp58_primary_domain_propagation_and_semantic_effect() -> None:
+    bridge = DomainLifecycleEventBridge()
+    resolver = DomainConflictResolver()
+
+    ref_h = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-health-win",
+        domain_id=DomainId(slug="health"),
+        severity=DomainConflictSeverity.MATERIAL,
+        authority_kind=DomainConflictAuthority.PRIMARY_DOMAIN,
+    )
+    ref_p = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-proj-loss",
+        domain_id=DomainId(slug="project"),
+        severity=DomainConflictSeverity.MATERIAL,
+        authority_kind=DomainConflictAuthority.PRIMARY_DOMAIN,
+    )
+    case = DomainConflictCase(
+        id="case-cp58",
+        domains=(DomainId(slug="health"), DomainId(slug="project")),
+        kind=DomainConflictKind.RECOMMENDATION,
+        severity=DomainConflictSeverity.MATERIAL,
+        status=DomainConflictStatus.OPEN,
+        references=(ref_h, ref_p),
+    )
+
+    res = bridge.resolve_conflict_with_events(
+        resolver=resolver,
+        case=case,
+        primary_domain=DomainId(slug="health"),
+    )
+    assert res.winning_reference_ids == ("ref-health-win",)
+
+
+# CP-59: Conflict bridge resolved-event emission semantic correctness (M5)
+def test_cp59_unresolved_conflict_does_not_emit_resolved() -> None:
+    published_events: list[Event] = []
+    publisher = DomainKernelEventPublisher(event_listener=published_events.append)
+    bridge = DomainLifecycleEventBridge(publisher=publisher)
+    resolver = DomainConflictResolver()
+
+    ref_a = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-cp59-a",
+        domain_id=DomainId(slug="project"),
+        severity=DomainConflictSeverity.BLOCKING,
+        authority_kind=DomainConflictAuthority.UNCLASSIFIED,
+        blocking=True,
+    )
+    ref_b = DomainConflictReference(
+        source_kind=DomainConflictSourceKind.DOMAIN_SPECIFIC_CONFLICT,
+        source_id="ref-cp59-b",
+        domain_id=DomainId(slug="general"),
+        severity=DomainConflictSeverity.BLOCKING,
+        authority_kind=DomainConflictAuthority.UNCLASSIFIED,
+        blocking=True,
+    )
+    case = DomainConflictCase(
+        id="case-cp59",
+        domains=(DomainId(slug="project"), DomainId(slug="general")),
+        kind=DomainConflictKind.RECOMMENDATION,
+        severity=DomainConflictSeverity.BLOCKING,
+        status=DomainConflictStatus.OPEN,
+        references=(ref_a, ref_b),
+        blocking=True,
+    )
+
+    bridge.resolve_conflict_with_events(
+        resolver=resolver,
+        case=case,
+        primary_domain="domain:project",
+    )
+    assert len(published_events) == 1
+    assert published_events[0].name == "domain.conflict.detected"
+
+
+# CP-60: Deterministic sequence ordering and rejection of unordered sets (m2)
+def test_cp60_deterministic_sequence_ordering_and_set_rejection() -> None:
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent(
+            event_id="evt-cp60-set",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            related_domain_ids={DomainId(slug="health")},  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(
+        (DomainContractValidationError, DomainEventContractError, TypeError)
+    ):
+        DomainEvent(
+            event_id="evt-cp60-perm-set",
+            event_type="domain.resolution.started",
+            schema_version="1.0.0",
+            domain_id=DomainId(slug="project"),
+            actor="system",
+            sensitivity="internal",
+            occurred_at=now,
+            permissions={"read"},  # type: ignore[arg-type]
+        )

@@ -18,7 +18,6 @@ from cmm.domains.contracts import (
     _deep_freeze,
     _deep_unfreeze,
     _ensure_tz_aware,
-    _normalize_empty_to_none,
     _validate_non_empty_str,
 )
 from cmm.domains.errors import (
@@ -158,12 +157,14 @@ _PRIVATE_TOKEN_SEQUENCES = (
 )
 
 _SECRET_VALUE_PATTERNS = (
-    re.compile(r"authorization\s*:", re.IGNORECASE),
+    re.compile(r"authorization\s*[:=]", re.IGNORECASE),
     re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]{8,}", re.IGNORECASE),
+    re.compile(r"\bbearer\s*[:=]\s*\S+", re.IGNORECASE),
     re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
-    re.compile(r"\bkey-[a-zA-Z0-9_\-]{16,}\b", re.IGNORECASE),
+    re.compile(r"\bkey-[a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
     re.compile(
-        r"\b(?:cookie|session[_-]?token|auth[_-]?token)\s*=\s*[^\s;]+", re.IGNORECASE
+        r"\b(?:password|secret|credential|cookie|session[_-]?token|access[_-]?token|refresh[_-]?token|auth[_-]?token)\s*[:=]\s*\S+",
+        re.IGNORECASE,
     ),
 )
 
@@ -197,6 +198,59 @@ def _contains_secret_value(value: str) -> bool:
         if pattern.search(value):
             return True
     return False
+
+
+def _validate_event_string_privacy(value: str, field_name: str) -> str:
+    """Validate that an event string field contains no secrets or forbidden private markers."""
+    if _contains_secret_value(value):
+        raise DomainContractValidationError(
+            f"Secret-like value detected in {field_name}",
+            field=field_name,
+        )
+    if _contains_private_marker(value):
+        raise DomainContractValidationError(
+            f"Forbidden privacy/credential marker detected in {field_name}: '{value}'",
+            field=field_name,
+            details={"forbidden_value": value},
+        )
+    return value
+
+
+def _validate_optional_str_identifier(val: Any, field_name: str) -> str | None:
+    """Validate optional string identifier: None or strict string (coerces whitespace/empty to None)."""
+    if val is None:
+        return None
+    if not isinstance(val, str) or isinstance(val, bool):
+        raise DomainContractValidationError(
+            f"{field_name} must be a string or None, got {type(val).__name__}: {val!r}",
+            field=field_name,
+        )
+    stripped = val.strip()
+    if not stripped:
+        return None
+    _validate_event_string_privacy(stripped, field_name)
+    return stripped
+
+
+def _validate_optional_str_from_dict(val: Any, field_name: str) -> str | None:
+    """Validate optional string identifier from dictionary deserialization."""
+    if val is None:
+        return None
+    if not isinstance(val, str) or isinstance(val, bool):
+        raise DomainEventSerializationError(
+            f"{field_name} must be a string or None, got {type(val).__name__}: {val!r}",
+            field=field_name,
+        )
+    stripped = val.strip()
+    if not stripped:
+        return None
+    try:
+        _validate_event_string_privacy(stripped, field_name)
+    except DomainContractValidationError as exc:
+        raise DomainEventSerializationError(
+            exc.message, field=field_name, details=dict(exc.details)
+        ) from exc
+    return stripped
 
 
 def _reject_unknown_event_fields(
@@ -302,7 +356,12 @@ def _freeze_domain_ids_event(
             f"{field_name} must be a sequence of DomainId, not a string",
             field=field_name,
         )
-    if not isinstance(seq, (tuple, list, set, Sequence)):
+    if isinstance(seq, (set, frozenset)):
+        raise DomainEventContractError(
+            f"{field_name} must be an ordered sequence (tuple or list), not a set/frozenset",
+            field=field_name,
+        )
+    if not isinstance(seq, (tuple, list, Sequence)):
         raise DomainEventContractError(
             f"{field_name} must be a tuple, list, or sequence",
             field=field_name,
@@ -347,7 +406,12 @@ def _freeze_str_tuple_unique_event(seq: Any, field_name: str) -> tuple[str, ...]
             f"{field_name} must be a sequence of strings, not a string",
             field=field_name,
         )
-    if not isinstance(seq, (tuple, list, set, Sequence)):
+    if isinstance(seq, (set, frozenset)):
+        raise DomainEventContractError(
+            f"{field_name} must be an ordered sequence (tuple or list), not a set/frozenset",
+            field=field_name,
+        )
+    if not isinstance(seq, (tuple, list, Sequence)):
         raise DomainEventContractError(
             f"{field_name} must be a tuple, list, or sequence of strings",
             field=field_name,
@@ -362,6 +426,7 @@ def _freeze_str_tuple_unique_event(seq: Any, field_name: str) -> tuple[str, ...]
                 details={"index": i, "value": item},
             )
         clean = item.strip()
+        _validate_event_string_privacy(clean, f"{field_name}[{i}]")
         if clean in seen:
             raise DomainEventContractError(
                 f"Duplicate item in {field_name}: {clean!r}",
@@ -420,12 +485,18 @@ class DomainEventReference:
     domain_id: DomainId | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", _validate_non_empty_str(self.kind, "kind"))
-        object.__setattr__(
-            self,
-            "reference_id",
-            _validate_non_empty_str(self.reference_id, "reference_id"),
-        )
+        kind_val = _validate_non_empty_str(self.kind, "kind")
+        _validate_event_string_privacy(kind_val, "kind")
+        object.__setattr__(self, "kind", kind_val)
+
+        ref_id_val = _validate_non_empty_str(self.reference_id, "reference_id")
+        if _contains_secret_value(ref_id_val):
+            raise DomainContractValidationError(
+                "Secret-like value detected in reference_id",
+                field="reference_id",
+            )
+        object.__setattr__(self, "reference_id", ref_id_val)
+
         if self.domain_id is not None:
             if isinstance(self.domain_id, str):
                 object.__setattr__(self, "domain_id", DomainId.from_str(self.domain_id))
@@ -468,12 +539,25 @@ class DomainEventReference:
                 f"kind must be a non-empty string, got {raw_kind!r}",
                 field="kind",
             )
+        try:
+            _validate_event_string_privacy(raw_kind.strip(), "kind")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="kind", details=dict(exc.details)
+            ) from exc
+
         raw_ref_id = data["reference_id"]
         if not isinstance(raw_ref_id, str) or not raw_ref_id.strip():
             raise DomainEventSerializationError(
                 f"reference_id must be a non-empty string, got {raw_ref_id!r}",
                 field="reference_id",
             )
+        if _contains_secret_value(raw_ref_id.strip()):
+            raise DomainEventSerializationError(
+                "Secret-like value detected in reference_id",
+                field="reference_id",
+            )
+
         raw_domain_id = data.get("domain_id")
         domain_id: DomainId | None = None
         if raw_domain_id is not None:
@@ -556,12 +640,13 @@ class DomainEvent:
             "schema_version",
             _validate_non_empty_str(self.schema_version, "schema_version"),
         )
-        object.__setattr__(self, "actor", _validate_non_empty_str(self.actor, "actor"))
-        object.__setattr__(
-            self,
-            "sensitivity",
-            _validate_non_empty_str(self.sensitivity, "sensitivity"),
-        )
+        actor_val = _validate_non_empty_str(self.actor, "actor")
+        _validate_event_string_privacy(actor_val, "actor")
+        object.__setattr__(self, "actor", actor_val)
+
+        sens_val = _validate_non_empty_str(self.sensitivity, "sensitivity")
+        _validate_event_string_privacy(sens_val, "sensitivity")
+        object.__setattr__(self, "sensitivity", sens_val)
 
         # DomainId validation / coercion
         if isinstance(self.domain_id, str):
@@ -581,13 +666,19 @@ class DomainEvent:
 
         # Session / correlation / causation IDs
         object.__setattr__(
-            self, "session_id", _normalize_empty_to_none(self.session_id)
+            self,
+            "session_id",
+            _validate_optional_str_identifier(self.session_id, "session_id"),
         )
         object.__setattr__(
-            self, "correlation_id", _normalize_empty_to_none(self.correlation_id)
+            self,
+            "correlation_id",
+            _validate_optional_str_identifier(self.correlation_id, "correlation_id"),
         )
         object.__setattr__(
-            self, "causation_id", _normalize_empty_to_none(self.causation_id)
+            self,
+            "causation_id",
+            _validate_optional_str_identifier(self.causation_id, "causation_id"),
         )
 
         # occurred_at timezone awareness
@@ -605,6 +696,11 @@ class DomainEvent:
         # Provenance
         if self.provenance is None:
             object.__setattr__(self, "provenance", ())
+        elif isinstance(self.provenance, (set, frozenset)):
+            raise DomainEventContractError(
+                "provenance must be an ordered sequence (tuple or list), not a set/frozenset",
+                field="provenance",
+            )
         elif isinstance(self.provenance, (tuple, list, Sequence)):
             prov_list: list[DomainEventReference] = []
             for i, ref in enumerate(self.provenance):
@@ -704,6 +800,12 @@ class DomainEvent:
                 f"actor must be a non-empty string, got {raw_actor!r}",
                 field="actor",
             )
+        try:
+            _validate_event_string_privacy(raw_actor.strip(), "actor")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="actor", details=dict(exc.details)
+            ) from exc
 
         raw_sens = data["sensitivity"]
         if not isinstance(raw_sens, str) or not raw_sens.strip():
@@ -711,6 +813,12 @@ class DomainEvent:
                 f"sensitivity must be a non-empty string, got {raw_sens!r}",
                 field="sensitivity",
             )
+        try:
+            _validate_event_string_privacy(raw_sens.strip(), "sensitivity")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="sensitivity", details=dict(exc.details)
+            ) from exc
 
         # DomainId
         raw_dom = data["domain_id"]
@@ -727,7 +835,7 @@ class DomainEvent:
 
         # Related DomainIds
         raw_rel = data.get("related_domain_ids", ())
-        if isinstance(raw_rel, (str, bytes)) or not isinstance(
+        if isinstance(raw_rel, (str, bytes, set, frozenset)) or not isinstance(
             raw_rel, (list, tuple, Sequence)
         ):
             raise DomainEventSerializationError(
@@ -749,7 +857,7 @@ class DomainEvent:
 
         # Provenance
         raw_prov = data.get("provenance", ())
-        if isinstance(raw_prov, (str, bytes)) or not isinstance(
+        if isinstance(raw_prov, (str, bytes, set, frozenset)) or not isinstance(
             raw_prov, (list, tuple, Sequence)
         ):
             raise DomainEventSerializationError(
@@ -768,7 +876,7 @@ class DomainEvent:
 
         # Permissions
         raw_perm = data.get("permissions", ())
-        if isinstance(raw_perm, (str, bytes)) or not isinstance(
+        if isinstance(raw_perm, (str, bytes, set, frozenset)) or not isinstance(
             raw_perm, (list, tuple, Sequence)
         ):
             raise DomainEventSerializationError(
@@ -781,6 +889,23 @@ class DomainEvent:
                     f"permissions[{i}] must be a non-empty string, got {p!r}",
                     field="permissions",
                 )
+            try:
+                _validate_event_string_privacy(p.strip(), f"permissions[{i}]")
+            except DomainContractValidationError as exc:
+                raise DomainEventSerializationError(
+                    exc.message, field="permissions", details=dict(exc.details)
+                ) from exc
+
+        # Optional identifiers (session_id, correlation_id, causation_id)
+        session_id = _validate_optional_str_from_dict(
+            data.get("session_id"), "session_id"
+        )
+        correlation_id = _validate_optional_str_from_dict(
+            data.get("correlation_id"), "correlation_id"
+        )
+        causation_id = _validate_optional_str_from_dict(
+            data.get("causation_id"), "causation_id"
+        )
 
         # Payload & Metadata type checks
         raw_payload = data.get("payload", {})
@@ -807,13 +932,13 @@ class DomainEvent:
             domain_id=domain_id,
             related_domain_ids=tuple(rel_list),
             actor=raw_actor,
-            session_id=data.get("session_id"),
+            session_id=session_id,
             occurred_at=occurred_at,
             provenance=tuple(prov_list),
             sensitivity=raw_sens,
             permissions=tuple(raw_perm),
-            correlation_id=data.get("correlation_id"),
-            causation_id=data.get("causation_id"),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
             payload=raw_payload,
             metadata=raw_meta,
         )
