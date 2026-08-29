@@ -13,11 +13,14 @@ from typing import Any
 
 from cmm.domains.errors import (
     DomainContractValidationError,
+    DomainError,
     DomainEventContractError,
+    DomainEventSerializationError,
 )
 from cmm.domains.event_contracts import (
     DomainEvent,
     DomainEventReference,
+    _validate_event_domain_id_privacy,
     _validate_event_string_privacy,
 )
 from cmm.domains.identifiers import DomainId
@@ -70,7 +73,7 @@ class DomainEventFactory:
         if event_id is not None:
             if not isinstance(event_id, str) or not event_id.strip():
                 raise DomainEventContractError(
-                    f"event_id must be a non-empty string if provided, got {event_id!r}",
+                    f"event_id must be a non-empty string if provided, got {type(event_id).__name__}",
                     field="event_id",
                 )
             try:
@@ -78,7 +81,7 @@ class DomainEventFactory:
             except DomainContractValidationError as exc:
                 raise DomainEventContractError(
                     exc.message, field="event_id", details=dict(exc.details)
-                ) from exc
+                ) from None
             final_id = event_id.strip()
         else:
             final_id = self._id_factory()
@@ -95,15 +98,21 @@ class DomainEventFactory:
 
         if not isinstance(actor, str) or not actor.strip():
             raise DomainEventContractError(
-                f"actor must be a non-empty string, got {actor!r}",
+                f"actor must be a non-empty string, got {type(actor).__name__}",
                 field="actor",
             )
+        try:
+            _validate_event_string_privacy(actor.strip(), "actor")
+        except DomainContractValidationError as exc:
+            raise DomainEventContractError(
+                exc.message, field="actor", details=dict(exc.details)
+            ) from None
 
         if session_id is not None and (
             not isinstance(session_id, str) or isinstance(session_id, bool)
         ):
             raise DomainEventContractError(
-                f"session_id must be a string or None, got {type(session_id).__name__}: {session_id!r}",
+                f"session_id must be a string or None, got {type(session_id).__name__}",
                 field="session_id",
             )
 
@@ -111,7 +120,7 @@ class DomainEventFactory:
             not isinstance(correlation_id, str) or isinstance(correlation_id, bool)
         ):
             raise DomainEventContractError(
-                f"correlation_id must be a string or None, got {type(correlation_id).__name__}: {correlation_id!r}",
+                f"correlation_id must be a string or None, got {type(correlation_id).__name__}",
                 field="correlation_id",
             )
 
@@ -119,7 +128,7 @@ class DomainEventFactory:
             not isinstance(causation_id, str) or isinstance(causation_id, bool)
         ):
             raise DomainEventContractError(
-                f"causation_id must be a string or None, got {type(causation_id).__name__}: {causation_id!r}",
+                f"causation_id must be a string or None, got {type(causation_id).__name__}",
                 field="causation_id",
             )
 
@@ -144,11 +153,17 @@ class DomainEventFactory:
             )
 
         if isinstance(domain_id, str):
-            dom_id = (
-                DomainId.from_str(domain_id)
-                if domain_id.startswith("domain:")
-                else DomainId(slug=domain_id)
-            )
+            try:
+                dom_id = (
+                    DomainId.from_str(domain_id)
+                    if domain_id.startswith("domain:")
+                    else DomainId(slug=domain_id)
+                )
+            except (DomainError, ValueError, TypeError, KeyError):
+                raise DomainEventContractError(
+                    "Invalid domain_id in factory",
+                    field="domain_id",
+                ) from None
         elif isinstance(domain_id, DomainId):
             dom_id = domain_id
         else:
@@ -156,6 +171,12 @@ class DomainEventFactory:
                 f"domain_id must be DomainId or str, got {type(domain_id).__name__}",
                 field="domain_id",
             )
+        try:
+            _validate_event_domain_id_privacy(dom_id, "domain_id")
+        except DomainContractValidationError as exc:
+            raise DomainEventContractError(
+                exc.message, field="domain_id", details=dict(exc.details)
+            ) from None
 
         if isinstance(
             related_domain_ids, (str, bytes, set, frozenset)
@@ -168,18 +189,35 @@ class DomainEventFactory:
         rel_ids: list[DomainId] = []
         for i, rd in enumerate(related_domain_ids):
             if isinstance(rd, str):
-                rel_ids.append(
-                    DomainId.from_str(rd)
-                    if rd.startswith("domain:")
-                    else DomainId(slug=rd)
-                )
+                try:
+                    rel_dom = (
+                        DomainId.from_str(rd)
+                        if rd.startswith("domain:")
+                        else DomainId(slug=rd)
+                    )
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventContractError(
+                        f"Invalid related_domain_ids[{i}]",
+                        field="related_domain_ids",
+                        details={"index": i},
+                    ) from None
             elif isinstance(rd, DomainId):
-                rel_ids.append(rd)
+                rel_dom = rd
             else:
                 raise DomainEventContractError(
                     f"related_domain_ids[{i}] must be DomainId or str, got {type(rd).__name__}",
                     field="related_domain_ids",
+                    details={"index": i},
                 )
+            try:
+                _validate_event_domain_id_privacy(rel_dom, f"related_domain_ids[{i}]")
+            except DomainContractValidationError as exc:
+                raise DomainEventContractError(
+                    exc.message,
+                    field="related_domain_ids",
+                    details={"index": i, **dict(exc.details)},
+                ) from None
+            rel_ids.append(rel_dom)
 
         if isinstance(provenance, (str, bytes, set, frozenset)) or not isinstance(
             provenance, (list, tuple, Sequence)
@@ -194,11 +232,22 @@ class DomainEventFactory:
             if isinstance(p, DomainEventReference):
                 prov_refs.append(p)
             elif isinstance(p, Mapping):
-                prov_refs.append(DomainEventReference.from_dict(dict(p)))
+                try:
+                    prov_refs.append(DomainEventReference.from_dict(dict(p)))
+                except (
+                    DomainEventSerializationError,
+                    DomainContractValidationError,
+                ) as exc:
+                    raise DomainEventContractError(
+                        exc.message,
+                        field="provenance",
+                        details={"index": i, **dict(getattr(exc, "details", {}))},
+                    ) from None
             else:
                 raise DomainEventContractError(
                     f"provenance[{i}] must be DomainEventReference or Mapping, got {type(p).__name__}",
                     field="provenance",
+                    details={"index": i},
                 )
 
         return DomainEvent(

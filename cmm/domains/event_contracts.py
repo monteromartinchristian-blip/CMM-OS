@@ -22,6 +22,7 @@ from cmm.domains.contracts import (
 )
 from cmm.domains.errors import (
     DomainContractValidationError,
+    DomainError,
     DomainEventContractError,
     DomainEventSerializationError,
 )
@@ -249,13 +250,29 @@ def _validate_event_string_privacy(value: str, field_name: str) -> str:
     return value
 
 
+def _validate_event_domain_id_privacy(
+    domain_id: DomainId | None, field_name: str = "domain_id"
+) -> DomainId | None:
+    """Validate that a DomainId does not contain secrets or forbidden private markers."""
+    if domain_id is None:
+        return None
+    if not isinstance(domain_id, DomainId):
+        raise DomainContractValidationError(
+            f"{field_name} must be DomainId or None, got {type(domain_id).__name__}",
+            field=field_name,
+        )
+    _validate_event_string_privacy(domain_id.slug, field_name)
+    _validate_event_string_privacy(str(domain_id), field_name)
+    return domain_id
+
+
 def _validate_optional_str_identifier(val: Any, field_name: str) -> str | None:
     """Validate optional string identifier: None or strict string (coerces whitespace/empty to None)."""
     if val is None:
         return None
     if not isinstance(val, str) or isinstance(val, bool):
         raise DomainContractValidationError(
-            f"{field_name} must be a string or None, got {type(val).__name__}: {val!r}",
+            f"{field_name} must be a string or None, got {type(val).__name__}",
             field=field_name,
         )
     stripped = val.strip()
@@ -271,7 +288,7 @@ def _validate_optional_str_from_dict(val: Any, field_name: str) -> str | None:
         return None
     if not isinstance(val, str) or isinstance(val, bool):
         raise DomainEventSerializationError(
-            f"{field_name} must be a string or None, got {type(val).__name__}: {val!r}",
+            f"{field_name} must be a string or None, got {type(val).__name__}",
             field=field_name,
         )
     stripped = val.strip()
@@ -282,7 +299,7 @@ def _validate_optional_str_from_dict(val: Any, field_name: str) -> str | None:
     except DomainContractValidationError as exc:
         raise DomainEventSerializationError(
             exc.message, field=field_name, details=dict(exc.details)
-        ) from exc
+        ) from None
     return stripped
 
 
@@ -292,6 +309,14 @@ def _reject_unknown_event_fields(
     """Raise DomainEventSerializationError if data contains unknown fields."""
     unknown = set(data.keys()) - known
     if unknown:
+        for k in unknown:
+            if isinstance(k, str):
+                try:
+                    _validate_event_string_privacy(k, "field_name")
+                except DomainContractValidationError as exc:
+                    raise DomainEventSerializationError(
+                        exc.message, field="data", details=dict(exc.details)
+                    ) from None
         raise DomainEventSerializationError(
             f"{cls_name}.from_dict got unknown fields: {sorted(unknown)}",
             field="data",
@@ -308,7 +333,7 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
     if isinstance(value, float):
         if not math.isfinite(value):
             raise DomainEventContractError(
-                f"{field_name}: float must be finite, got {value!r}",
+                f"{field_name}: float must be finite, got non-finite {type(value).__name__}",
                 field=field_name,
             )
         return value
@@ -330,7 +355,7 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
             for i, v in enumerate(value)
         ]
     raise DomainEventContractError(
-        f"{field_name}: value must be JSON-safe, got {type(value).__name__}: {value!r}",
+        f"{field_name}: value must be JSON-safe, got {type(value).__name__}",
         field=field_name,
     )
 
@@ -397,17 +422,24 @@ def _freeze_domain_ids_event(
             domain_id = item
         elif isinstance(item, str):
             try:
-                domain_id = DomainId.from_str(item)
-            except Exception as exc:
+                domain_id = (
+                    DomainId.from_str(item)
+                    if item.startswith("domain:")
+                    else DomainId(slug=item)
+                )
+            except (DomainError, ValueError, TypeError, KeyError):
                 raise DomainEventContractError(
-                    f"Invalid DomainId in {field_name}[{i}]: {exc}",
+                    f"Invalid DomainId in {field_name}[{i}]",
                     field=field_name,
-                ) from exc
+                    details={"index": i},
+                ) from None
         else:
             raise DomainEventContractError(
                 f"{field_name}[{i}] must be DomainId or str, got {type(item).__name__}",
                 field=field_name,
+                details={"index": i},
             )
+        _validate_event_domain_id_privacy(domain_id, f"{field_name}[{i}]")
         slug = domain_id.slug
         if require_unique and slug in seen:
             raise DomainEventContractError(
@@ -447,15 +479,15 @@ def _freeze_str_tuple_unique_event(seq: Any, field_name: str) -> tuple[str, ...]
             raise DomainEventContractError(
                 f"All items in {field_name} must be non-empty strings",
                 field=field_name,
-                details={"index": i, "value": item},
+                details={"index": i},
             )
         clean = item.strip()
         _validate_event_string_privacy(clean, f"{field_name}[{i}]")
         if clean in seen:
             raise DomainEventContractError(
-                f"Duplicate item in {field_name}: {clean!r}",
+                f"Duplicate item in {field_name}",
                 field=field_name,
-                details={"duplicate": clean},
+                details={"index": i},
             )
         seen.add(clean)
         result.append(clean)
@@ -477,11 +509,11 @@ def _parse_datetime_event(val: Any, field_name: str) -> datetime:
     if isinstance(val, str):
         try:
             parsed = datetime.fromisoformat(val)
-        except ValueError as exc:
+        except (ValueError, TypeError):
             raise DomainEventSerializationError(
-                f"Invalid isoformat datetime string for {field_name}: {val!r}",
+                f"Field '{field_name}' must contain a valid ISO-8601 datetime",
                 field=field_name,
-            ) from exc
+            ) from None
         if parsed.tzinfo is None:
             raise DomainEventSerializationError(
                 f"{field_name} must be timezone-aware", field=field_name
@@ -519,12 +551,24 @@ class DomainEventReference:
 
         if self.domain_id is not None:
             if isinstance(self.domain_id, str):
-                object.__setattr__(self, "domain_id", DomainId.from_str(self.domain_id))
+                try:
+                    dom_id = (
+                        DomainId.from_str(self.domain_id)
+                        if self.domain_id.startswith("domain:")
+                        else DomainId(slug=self.domain_id)
+                    )
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventContractError(
+                        "Invalid domain_id in DomainEventReference",
+                        field="domain_id",
+                    ) from None
+                object.__setattr__(self, "domain_id", dom_id)
             elif not isinstance(self.domain_id, DomainId):
                 raise DomainEventContractError(
                     f"domain_id must be DomainId or None, got {type(self.domain_id).__name__}",
                     field="domain_id",
                 )
+            _validate_event_domain_id_privacy(self.domain_id, "domain_id")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -556,7 +600,7 @@ class DomainEventReference:
         raw_kind = data["kind"]
         if not isinstance(raw_kind, str) or not raw_kind.strip():
             raise DomainEventSerializationError(
-                f"kind must be a non-empty string, got {raw_kind!r}",
+                f"kind must be a non-empty string, got {type(raw_kind).__name__}",
                 field="kind",
             )
         try:
@@ -564,12 +608,12 @@ class DomainEventReference:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="kind", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_ref_id = data["reference_id"]
         if not isinstance(raw_ref_id, str) or not raw_ref_id.strip():
             raise DomainEventSerializationError(
-                f"reference_id must be a non-empty string, got {raw_ref_id!r}",
+                f"reference_id must be a non-empty string, got {type(raw_ref_id).__name__}",
                 field="reference_id",
             )
         try:
@@ -577,22 +621,44 @@ class DomainEventReference:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="reference_id", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_domain_id = data.get("domain_id")
         domain_id: DomainId | None = None
         if raw_domain_id is not None:
             if isinstance(raw_domain_id, Mapping):
-                domain_id = DomainId.from_dict(dict(raw_domain_id))
+                try:
+                    domain_id = DomainId.from_dict(dict(raw_domain_id))
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventSerializationError(
+                        "Invalid domain_id in DomainEventReference",
+                        field="domain_id",
+                    ) from None
             elif isinstance(raw_domain_id, str):
-                domain_id = DomainId.from_str(raw_domain_id)
+                try:
+                    domain_id = (
+                        DomainId.from_str(raw_domain_id)
+                        if raw_domain_id.startswith("domain:")
+                        else DomainId(slug=raw_domain_id)
+                    )
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventSerializationError(
+                        "Invalid domain_id in DomainEventReference",
+                        field="domain_id",
+                    ) from None
             elif isinstance(raw_domain_id, DomainId):
                 domain_id = raw_domain_id
             else:
                 raise DomainEventSerializationError(
-                    f"Invalid domain_id in DomainEventReference: {raw_domain_id!r}",
+                    f"Invalid domain_id in DomainEventReference, got {type(raw_domain_id).__name__}",
                     field="domain_id",
                 )
+            try:
+                _validate_event_domain_id_privacy(domain_id, "domain_id")
+            except DomainContractValidationError as exc:
+                raise DomainEventSerializationError(
+                    exc.message, field="domain_id", details=dict(exc.details)
+                ) from None
         return cls(
             kind=raw_kind,
             reference_id=raw_ref_id,
@@ -671,12 +737,24 @@ class DomainEvent:
 
         # DomainId validation / coercion
         if isinstance(self.domain_id, str):
-            object.__setattr__(self, "domain_id", DomainId.from_str(self.domain_id))
+            try:
+                dom_id = (
+                    DomainId.from_str(self.domain_id)
+                    if self.domain_id.startswith("domain:")
+                    else DomainId(slug=self.domain_id)
+                )
+            except (DomainError, ValueError, TypeError, KeyError):
+                raise DomainEventContractError(
+                    "Invalid domain_id in DomainEvent",
+                    field="domain_id",
+                ) from None
+            object.__setattr__(self, "domain_id", dom_id)
         elif not isinstance(self.domain_id, DomainId):
             raise DomainEventContractError(
                 f"domain_id must be DomainId, got {type(self.domain_id).__name__}",
                 field="domain_id",
             )
+        _validate_event_domain_id_privacy(self.domain_id, "domain_id")
 
         # Related domain IDs
         object.__setattr__(
@@ -728,11 +806,22 @@ class DomainEvent:
                 if isinstance(ref, DomainEventReference):
                     prov_list.append(ref)
                 elif isinstance(ref, Mapping):
-                    prov_list.append(DomainEventReference.from_dict(dict(ref)))
+                    try:
+                        prov_list.append(DomainEventReference.from_dict(dict(ref)))
+                    except (
+                        DomainEventSerializationError,
+                        DomainContractValidationError,
+                    ) as exc:
+                        raise DomainEventContractError(
+                            exc.message,
+                            field="provenance",
+                            details={"index": i, **dict(getattr(exc, "details", {}))},
+                        ) from None
                 else:
                     raise DomainEventContractError(
                         f"provenance[{i}] must be DomainEventReference, got {type(ref).__name__}",
                         field="provenance",
+                        details={"index": i},
                     )
             object.__setattr__(self, "provenance", tuple(prov_list))
         else:
@@ -797,7 +886,7 @@ class DomainEvent:
         raw_id = data["event_id"]
         if not isinstance(raw_id, str) or not raw_id.strip():
             raise DomainEventSerializationError(
-                f"event_id must be a non-empty string, got {raw_id!r}",
+                f"event_id must be a non-empty string, got {type(raw_id).__name__}",
                 field="event_id",
             )
         try:
@@ -805,12 +894,12 @@ class DomainEvent:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="event_id", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_type = data["event_type"]
         if not isinstance(raw_type, str) or not raw_type.strip():
             raise DomainEventSerializationError(
-                f"event_type must be a non-empty string, got {raw_type!r}",
+                f"event_type must be a non-empty string, got {type(raw_type).__name__}",
                 field="event_type",
             )
         try:
@@ -818,12 +907,12 @@ class DomainEvent:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="event_type", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_ver = data["schema_version"]
         if not isinstance(raw_ver, str) or not raw_ver.strip():
             raise DomainEventSerializationError(
-                f"schema_version must be a non-empty string, got {raw_ver!r}",
+                f"schema_version must be a non-empty string, got {type(raw_ver).__name__}",
                 field="schema_version",
             )
         try:
@@ -831,12 +920,12 @@ class DomainEvent:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="schema_version", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_actor = data["actor"]
         if not isinstance(raw_actor, str) or not raw_actor.strip():
             raise DomainEventSerializationError(
-                f"actor must be a non-empty string, got {raw_actor!r}",
+                f"actor must be a non-empty string, got {type(raw_actor).__name__}",
                 field="actor",
             )
         try:
@@ -844,12 +933,12 @@ class DomainEvent:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="actor", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         raw_sens = data["sensitivity"]
         if not isinstance(raw_sens, str) or not raw_sens.strip():
             raise DomainEventSerializationError(
-                f"sensitivity must be a non-empty string, got {raw_sens!r}",
+                f"sensitivity must be a non-empty string, got {type(raw_sens).__name__}",
                 field="sensitivity",
             )
         try:
@@ -857,20 +946,41 @@ class DomainEvent:
         except DomainContractValidationError as exc:
             raise DomainEventSerializationError(
                 exc.message, field="sensitivity", details=dict(exc.details)
-            ) from exc
+            ) from None
 
         # DomainId
         raw_dom = data["domain_id"]
         if isinstance(raw_dom, Mapping):
-            domain_id = DomainId.from_dict(dict(raw_dom))
+            try:
+                domain_id = DomainId.from_dict(dict(raw_dom))
+            except (DomainError, ValueError, TypeError, KeyError):
+                raise DomainEventSerializationError(
+                    "Invalid domain_id in DomainEvent", field="domain_id"
+                ) from None
         elif isinstance(raw_dom, str):
-            domain_id = DomainId.from_str(raw_dom)
+            try:
+                domain_id = (
+                    DomainId.from_str(raw_dom)
+                    if raw_dom.startswith("domain:")
+                    else DomainId(slug=raw_dom)
+                )
+            except (DomainError, ValueError, TypeError, KeyError):
+                raise DomainEventSerializationError(
+                    "Invalid domain_id in DomainEvent", field="domain_id"
+                ) from None
         elif isinstance(raw_dom, DomainId):
             domain_id = raw_dom
         else:
             raise DomainEventSerializationError(
-                f"Invalid domain_id in DomainEvent: {raw_dom!r}", field="domain_id"
+                f"Invalid domain_id in DomainEvent, got {type(raw_dom).__name__}",
+                field="domain_id",
             )
+        try:
+            _validate_event_domain_id_privacy(domain_id, "domain_id")
+        except DomainContractValidationError as exc:
+            raise DomainEventSerializationError(
+                exc.message, field="domain_id", details=dict(exc.details)
+            ) from None
 
         # Related DomainIds
         raw_rel = data.get("related_domain_ids", ())
@@ -883,16 +993,44 @@ class DomainEvent:
         rel_list: list[DomainId] = []
         for i, rd in enumerate(raw_rel):
             if isinstance(rd, Mapping):
-                rel_list.append(DomainId.from_dict(dict(rd)))
+                try:
+                    rel_dom = DomainId.from_dict(dict(rd))
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventSerializationError(
+                        f"Invalid related_domain_ids[{i}]",
+                        field="related_domain_ids",
+                        details={"index": i},
+                    ) from None
             elif isinstance(rd, str):
-                rel_list.append(DomainId.from_str(rd))
+                try:
+                    rel_dom = (
+                        DomainId.from_str(rd)
+                        if rd.startswith("domain:")
+                        else DomainId(slug=rd)
+                    )
+                except (DomainError, ValueError, TypeError, KeyError):
+                    raise DomainEventSerializationError(
+                        f"Invalid related_domain_ids[{i}]",
+                        field="related_domain_ids",
+                        details={"index": i},
+                    ) from None
             elif isinstance(rd, DomainId):
-                rel_list.append(rd)
+                rel_dom = rd
             else:
                 raise DomainEventSerializationError(
-                    f"Invalid related_domain_ids[{i}]: {rd!r}",
+                    f"Invalid related_domain_ids[{i}], got {type(rd).__name__}",
                     field="related_domain_ids",
+                    details={"index": i},
                 )
+            try:
+                _validate_event_domain_id_privacy(rel_dom, f"related_domain_ids[{i}]")
+            except DomainContractValidationError as exc:
+                raise DomainEventSerializationError(
+                    exc.message,
+                    field="related_domain_ids",
+                    details={"index": i, **dict(exc.details)},
+                ) from None
+            rel_list.append(rel_dom)
 
         # Provenance
         raw_prov = data.get("provenance", ())
@@ -907,10 +1045,22 @@ class DomainEvent:
             if isinstance(p, DomainEventReference):
                 prov_list.append(p)
             elif isinstance(p, Mapping):
-                prov_list.append(DomainEventReference.from_dict(dict(p)))
+                try:
+                    prov_list.append(DomainEventReference.from_dict(dict(p)))
+                except (
+                    DomainEventSerializationError,
+                    DomainContractValidationError,
+                ) as exc:
+                    raise DomainEventSerializationError(
+                        exc.message,
+                        field="provenance",
+                        details={"index": i, **dict(getattr(exc, "details", {}))},
+                    ) from None
             else:
                 raise DomainEventSerializationError(
-                    f"Invalid provenance item[{i}]: {p!r}", field="provenance"
+                    f"Invalid provenance item[{i}], got {type(p).__name__}",
+                    field="provenance",
+                    details={"index": i},
                 )
 
         # Permissions
@@ -925,15 +1075,18 @@ class DomainEvent:
         for i, p in enumerate(raw_perm):
             if not isinstance(p, str) or not p.strip():
                 raise DomainEventSerializationError(
-                    f"permissions[{i}] must be a non-empty string, got {p!r}",
+                    f"permissions[{i}] must be a non-empty string, got {type(p).__name__}",
                     field="permissions",
+                    details={"index": i},
                 )
             try:
                 _validate_event_string_privacy(p.strip(), f"permissions[{i}]")
             except DomainContractValidationError as exc:
                 raise DomainEventSerializationError(
-                    exc.message, field="permissions", details=dict(exc.details)
-                ) from exc
+                    exc.message,
+                    field="permissions",
+                    details={"index": i, **dict(exc.details)},
+                ) from None
 
         # Optional identifiers (session_id, correlation_id, causation_id)
         session_id = _validate_optional_str_from_dict(
