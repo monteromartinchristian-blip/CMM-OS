@@ -373,14 +373,39 @@ It must not duplicate the authoritative component's decision logic.
 
 Domain events are an observability/integration surface and therefore require strict minimization.
 
-Required safeguards:
+### 15.1 Runtime security contract
+
+The runtime security contract is explicit:
+
+1. **Normative caller requirement:** Callers MUST NOT place secrets or credentials in Domain Events.
+2. **Active boundary rejection:** The Domain Event boundary actively rejects:
+   - credential- and secret-bearing mapping keys and contexts;
+   - private markers already covered by the existing privacy policy;
+   - values matching canonical high-confidence credential signatures.
+3. **Centralized registry:** Credential signatures are maintained centrally in one canonical policy (`cmm/domains/credential_policy.py`).
+4. **Explicit non-goals:** The detector intentionally DOES NOT attempt:
+   - arbitrary unknown-secret discovery;
+   - entropy-based secret classification;
+   - generic "long string = secret" heuristics (to prevent false positives on valid identifiers, URLs, or hashes).
+5. **Deterministic enforcement guarantee:** Runtime detection guarantees rejection of:
+   - structurally secret-bearing contexts; and
+   - recognized high-confidence credential formats,
+   not mathematically universal recognition of every possible unknown credential format.
+6. **Error non-disclosure:** Rejected credentials must never be echoed in:
+   - exception messages;
+   - error details;
+   - Kernel events;
+   - emitted-event tracking.
+7. **Regression matrix:** Adding a credential family to the canonical registry automatically subjects it to the full event-boundary regression matrix across all public event fields, deserialization paths, and Kernel publication gates.
+
+### 15.2 Required safeguards
 
 - reference-first payloads;
 - recursive secret-key rejection;
-- no credentials;
-- no API keys;
+- centralized high-confidence credential signature detection;
+- no API keys or access tokens;
 - no authorization headers;
-- no cookies/tokens;
+- no cookies/session tokens;
 - no hidden reasoning;
 - no private prompt capture;
 - no raw sensitive content when a reference is sufficient;
@@ -391,9 +416,12 @@ Required safeguards:
 
 ## 16. Proposed implementation units
 
-The implementation plan should prefer small, focused files following existing `cmm/domains/` patterns:
+The implementation plan prefers small, focused files following existing `cmm/domains/` patterns:
 
 ```text
+cmm/domains/credential_policy.py
+    canonical high-confidence credential signatures and detection policy
+
 cmm/domains/event_catalog.py
     canonical 23-event general catalog and namespace helpers
 
