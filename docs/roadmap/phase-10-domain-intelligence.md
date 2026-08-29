@@ -4975,13 +4975,14 @@ No:
 
 > **Implementation status:** Implemented, pending independent re-audit
 > **DP-033:** `IMPLEMENTED`
-> **AT-DP-033:** `PASS` — 58 connected acceptance checkpoints (`tests/domains/test_domain_events_dp033_acceptance.py`)
-> **Audit V1 Remediation:** `COMPLETED` (B1, B2, M1, M2, M3, M4, M5, m1 remediated & regression test suite passing: `tests/domains/test_domain_events_audit_v1_regressions.py`)
+> **AT-DP-033:** `PASS` — 86 connected acceptance checkpoints (CP-01 through CP-60 in `tests/domains/test_domain_events_dp033_acceptance.py`)
+> **Audit remediation:** V1 findings remediated (8/8) & V2 findings remediated (4/4: B2, M2, M5, m2); regression test suites passing (`tests/domains/test_domain_events_audit_v1_regressions.py`, `tests/domains/test_domain_events_audit_v2_regressions.py`)
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-events-implementation-plan.md`
-> **Focused Phase 10.33 tests:** 221 passed
-> **Domain suite:** 7127 passed
-> **Phase 10.33 Python delta:** 19 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Focused Phase 10.33 tests:** 211 passed
+> **Domain suite:** 7203 passed
+> **Global suite:** 12743 passed
+> **Phase 10.33 Python delta:** 20 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
 
 Objective
 
