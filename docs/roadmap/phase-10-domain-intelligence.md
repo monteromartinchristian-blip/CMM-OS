@@ -4976,13 +4976,13 @@ No:
 > **Implementation status:** Implemented, pending independent re-audit
 > **DP-033:** `IMPLEMENTED`
 > **AT-DP-033:** `PASS` — 66 connected logical checkpoints (CP-01 through CP-66 in `tests/domains/test_domain_events_dp033_acceptance.py`), 92 parametrized pytest cases
-> **Audit remediation:** V1 findings remediated (8/8), V2 findings remediated (4/4), V3 findings remediated (1/1), & V4 findings remediated (2/2: B2.1 DomainId privacy bypass & B2.2 validation error non-disclosure; m4 checkpoint count distinction); regression test suites passing (`tests/domains/test_domain_events_audit_v1_regressions.py`, `tests/domains/test_domain_events_audit_v2_regressions.py`, `tests/domains/test_domain_events_audit_v3_regressions.py`, `tests/domains/test_domain_events_audit_v4_regressions.py`)
+> **Audit remediation:** V1 findings remediated (8/8), V2 findings remediated (4/4), V3 findings remediated (1/1), V4 findings remediated (2/2), & V5 production findings remediated (B2.1 MappingProxyType JSON-safety / deep-immutability / privacy bypass & B2.2 unknown non-string/secret field error non-disclosure); audit-tooling scanner minor (m5) pending external V6 packager; regression test suites passing (`tests/domains/test_domain_events_audit_v1_regressions.py`, `tests/domains/test_domain_events_audit_v2_regressions.py`, `tests/domains/test_domain_events_audit_v3_regressions.py`, `tests/domains/test_domain_events_audit_v4_regressions.py`, `tests/domains/test_domain_events_audit_v5_regressions.py`)
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-28-domain-events-implementation-plan.md`
-> **Focused Phase 10.33 tests:** 305 passed
-> **Domain suite:** 7297 passed
-> **Global suite:** 12837 passed
-> **Phase 10.33 Python delta:** 22 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
+> **Focused Phase 10.33 tests:** 353 passed
+> **Domain suite:** 7345 passed
+> **Global suite:** 12885 passed
+> **Phase 10.33 Python delta:** 23 files touched/created; Ruff 0 violations; format check PASS; syntax compile PASS
 
 Objective
 
