@@ -4973,10 +4973,11 @@ No:
 
 10.33 - Domain Events
 
-> **Implementation status:** Implemented, pending independent re-audit
+> **Implementation status:** Complete — independently audited and closed
 > **DP-033:** `IMPLEMENTED`
 > **AT-DP-033:** `PASS` — 66 connected logical checkpoints (CP-01 through CP-66 in `tests/domains/test_domain_events_dp033_acceptance.py`), 92 parametrized pytest cases
-> **Audit remediation:** V1 findings remediated (8/8), V2 findings remediated (4/4), V3 findings remediated (1/1), V4 findings remediated (2/2), V5 findings remediated (1/1 blocker, 1/1 audit-tooling minor), V6 findings remediated (B2.1 privacy validation ordering & B2.2 high-confidence credential formats), V7 findings remediated (B2 canonical credential detection policy, centralized high-confidence credential registry, V7 credential families & explicit runtime security contract), & V8 minor remediated (M8 registry-driven regression matrix: 1:1 key parity gate, canonical test vectors for all 20 signatures across all event boundaries); credential regression matrix now registry-driven; Phase 10.33 remains Implemented, pending independent re-audit; regression test suites passing (`tests/domains/test_domain_events_audit_v1_regressions.py`, `tests/domains/test_domain_events_audit_v2_regressions.py`, `tests/domains/test_domain_events_audit_v3_regressions.py`, `tests/domains/test_domain_events_audit_v4_regressions.py`, `tests/domains/test_domain_events_audit_v5_regressions.py`, `tests/domains/test_domain_events_audit_v6_regressions.py`, `tests/domains/test_domain_events_audit_v7_regressions.py`)
+> **Audit remediation:** V1–V8 findings remediated; V9 independent audit `PASS` with BLOCKERS=0, MAJORS=0, MINORS=0; the credential regression matrix is registry-driven with exact 20/20 signature-vector parity; all audit regression suites remain passing.
+> **Independent audit:** V9 `PASS` — audited HEAD `6d19556d112606bd145c3f323d8a1ee041d4677e`; BLOCKERS=0; MAJORS=0; MINORS=0; bundle SHA-256 `21a30698da0b121b43739c5ec3de427c70987190ed3c2528ce2648ad8e4de43a`
 > **Canonical design:** `docs/superpowers/specs/2026-08-28-domain-events-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-29-phase-10.33-audit-v7-credential-policy-remediation.md`
 > **Focused Phase 10.33 tests:** 848 passed
