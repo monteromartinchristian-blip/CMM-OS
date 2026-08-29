@@ -191,6 +191,11 @@ _SECRET_VALUE_PATTERNS = (
     re.compile(r"\bbearer\s*[:=]\s*\S+", re.IGNORECASE),
     re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
     re.compile(r"\bkey-[a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
+    re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{16,}\b", re.IGNORECASE),
+    re.compile(r"\bgithub_pat_[a-zA-Z0-9_]{16,}\b", re.IGNORECASE),
+    re.compile(r"\bAKIA[0-9A-Za-z]{16}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z\-_]{30,}\b"),
+    re.compile(r"\bxox[bpar]-[0-9a-zA-Z\-]{10,}\b", re.IGNORECASE),
     re.compile(
         r"\b(?:password|secret|credential|cookie|set[_-]?cookie|session[_-]?token|sessionid|session[_-]?id|access[_-]?token|refresh[_-]?token|auth[_-]?token|csrf[_-]?token|csrftoken)\s*[:=]\s*\S+",
         re.IGNORECASE,
@@ -355,6 +360,14 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
                     f"{field_name}: all keys must be strings",
                     field=field_name,
                 )
+            try:
+                _validate_event_string_privacy(k, field_name)
+            except DomainContractValidationError as exc:
+                raise DomainEventContractError(
+                    exc.message,
+                    field=field_name,
+                    details=dict(exc.details),
+                ) from None
             result[k] = _validate_json_safe_event(v, f"{field_name}.{k}")
         return result
     if isinstance(value, (list, tuple)):
