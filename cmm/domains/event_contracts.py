@@ -307,16 +307,22 @@ def _reject_unknown_event_fields(
     data: Mapping[str, Any], known: frozenset[str], cls_name: str
 ) -> None:
     """Raise DomainEventSerializationError if data contains unknown fields."""
+    for i, k in enumerate(data.keys()):
+        if not isinstance(k, str) or isinstance(k, bool):
+            raise DomainEventSerializationError(
+                f"{cls_name}.from_dict input mapping contains a non-string field name of type {type(k).__name__}",
+                field="data",
+                details={"key_type": type(k).__name__, "index": i},
+            )
     unknown = set(data.keys()) - known
     if unknown:
-        for k in unknown:
-            if isinstance(k, str):
-                try:
-                    _validate_event_string_privacy(k, "field_name")
-                except DomainContractValidationError as exc:
-                    raise DomainEventSerializationError(
-                        exc.message, field="data", details=dict(exc.details)
-                    ) from None
+        for k in sorted(unknown):
+            try:
+                _validate_event_string_privacy(k, "field_name")
+            except DomainContractValidationError as exc:
+                raise DomainEventSerializationError(
+                    exc.message, field="data", details=dict(exc.details)
+                ) from None
         raise DomainEventSerializationError(
             f"{cls_name}.from_dict got unknown fields: {sorted(unknown)}",
             field="data",
@@ -328,7 +334,11 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
     """Validate that a value is JSON-safe (recursively)."""
     if value is None:
         return None
-    if isinstance(value, (str, int)):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -337,12 +347,10 @@ def _validate_json_safe_event(value: Any, field_name: str) -> Any:
                 field=field_name,
             )
         return value
-    if isinstance(value, bool):
-        return value
     if isinstance(value, Mapping):
         result: dict[str, Any] = {}
         for k, v in value.items():
-            if not isinstance(k, str):
+            if not isinstance(k, str) or isinstance(k, bool):
                 raise DomainEventContractError(
                     f"{field_name}: all keys must be strings",
                     field=field_name,
@@ -381,9 +389,6 @@ def _validate_event_dict_payload(
     """Validate dictionary payload/metadata is JSON-safe, credential-free, and deep-freeze it."""
     if raw is None:
         return MappingProxyType({})
-    if isinstance(raw, MappingProxyType):
-        _reject_credential_keys_event(raw, field_name)
-        return raw
     if not isinstance(raw, Mapping):
         raise DomainEventContractError(
             f"{field_name} must be a mapping, got {type(raw).__name__}",

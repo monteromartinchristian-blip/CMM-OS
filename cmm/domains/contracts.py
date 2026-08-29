@@ -30,10 +30,10 @@ from cmm.domains.identifiers import (
 
 
 def _deep_freeze(value: Any) -> Any:
-    """Recursively freeze value: dict → MappingProxyType, list/tuple → tuple, set → frozenset."""
-    if isinstance(value, dict):
+    """Recursively freeze value: dict/mapping → MappingProxyType, list/tuple → tuple, set → frozenset."""
+    if isinstance(value, (dict, Mapping)):
         for k in value:
-            if not isinstance(k, str):
+            if not isinstance(k, str) or isinstance(k, bool):
                 raise DomainContractValidationError(
                     "Metadata keys must be strings", field="metadata"
                 )
@@ -46,12 +46,12 @@ def _deep_freeze(value: Any) -> Any:
 
 
 def _deep_unfreeze(value: Any) -> Any:
-    """Reverse _deep_freeze for serialization: MappingProxyType → dict, tuple → list, frozenset → sorted list."""
-    if isinstance(value, MappingProxyType):
+    """Reverse _deep_freeze for serialization: MappingProxyType/mapping → dict, tuple → list, frozenset → sorted list."""
+    if isinstance(value, (MappingProxyType, Mapping)):
         return {k: _deep_unfreeze(v) for k, v in value.items()}
-    if isinstance(value, tuple):
+    if isinstance(value, (tuple, list)):
         return [_deep_unfreeze(v) for v in value]
-    if isinstance(value, frozenset):
+    if isinstance(value, (frozenset, set)):
         return sorted([_deep_unfreeze(v) for v in value], key=str)
     return value
 
