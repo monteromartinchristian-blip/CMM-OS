@@ -20,6 +20,7 @@ from cmm.domains.contracts import (
     _ensure_tz_aware,
     _validate_non_empty_str,
 )
+from cmm.domains.credential_policy import contains_high_confidence_credential
 from cmm.domains.errors import (
     DomainContractValidationError,
     DomainError,
@@ -185,23 +186,6 @@ _PRIVATE_TOKEN_SEQUENCES = (
     ("csrf", "token"),
 )
 
-_SECRET_VALUE_PATTERNS = (
-    re.compile(r"authorization\s*[:=]", re.IGNORECASE),
-    re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]{8,}", re.IGNORECASE),
-    re.compile(r"\bbearer\s*[:=]\s*\S+", re.IGNORECASE),
-    re.compile(r"\b(?:sk|pk|api[_-]?key)[-_][a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
-    re.compile(r"\bkey-[a-zA-Z0-9_\-]{8,}\b", re.IGNORECASE),
-    re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{16,}\b", re.IGNORECASE),
-    re.compile(r"\bgithub_pat_[a-zA-Z0-9_]{16,}\b", re.IGNORECASE),
-    re.compile(r"\bAKIA[0-9A-Za-z]{16}\b"),
-    re.compile(r"\bAIza[0-9A-Za-z\-_]{30,}\b"),
-    re.compile(r"\bxox[bpar]-[0-9a-zA-Z\-]{10,}\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:password|secret|credential|cookie|set[_-]?cookie|session[_-]?token|sessionid|session[_-]?id|access[_-]?token|refresh[_-]?token|auth[_-]?token|csrf[_-]?token|csrftoken)\s*[:=]\s*\S+",
-        re.IGNORECASE,
-    ),
-)
-
 
 def _normalized(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
@@ -231,11 +215,7 @@ def _contains_private_marker(value: str) -> bool:
 
 
 def _contains_secret_value(value: str) -> bool:
-    cleaned = re.sub(r"\[REDACTED_[A-Z0-9_]+\]", " ", value, flags=re.IGNORECASE)
-    for pattern in _SECRET_VALUE_PATTERNS:
-        if pattern.search(cleaned):
-            return True
-    return False
+    return contains_high_confidence_credential(value)
 
 
 def _validate_event_string_privacy(value: str, field_name: str) -> str:

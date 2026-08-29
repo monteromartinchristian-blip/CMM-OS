@@ -16,12 +16,12 @@ from cmm.domains.conflict_resolution_contracts import (
     DomainConflictResolution,
     DomainConflictStatus,
 )
+from cmm.domains.credential_policy import contains_high_confidence_credential
 from cmm.domains.enums import DomainResolutionStatus
 from cmm.domains.event_contracts import (
     DomainEvent,
     DomainEventReference,
     _contains_private_marker,
-    _contains_secret_value,
 )
 from cmm.domains.event_factory import DomainEventFactory
 from cmm.domains.identifiers import DomainId
@@ -52,7 +52,9 @@ def _sanitize_public_error_message(error: str) -> str:
     sanitized = _API_KEY_RE.sub("[REDACTED_KEY]", sanitized)
     sanitized = _KEY_PATTERN_RE.sub("[REDACTED_KEY]", sanitized)
     sanitized = _SECRET_ASSIGNMENT_RE.sub("[REDACTED_SECRET]", sanitized)
-    if _contains_secret_value(sanitized) or _contains_private_marker(sanitized):
+    if contains_high_confidence_credential(sanitized) or _contains_private_marker(
+        sanitized
+    ):
         return "[REDACTED_ERROR]"
     return sanitized
 
