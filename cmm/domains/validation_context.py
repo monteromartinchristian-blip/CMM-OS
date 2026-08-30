@@ -58,7 +58,7 @@ def build_domain_validation_context(
         requested_steps=request.requested_steps,
         excluded_steps=request.excluded_steps,
         allow_commit=False,
-        requested_policy="domain_validation",
+        requested_policy=None,
         actor=actor,
         metadata={
             "domain_validation": domain_meta,

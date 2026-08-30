@@ -381,24 +381,6 @@ DEFAULT_VALIDATION_POLICIES: dict[str, ValidationPolicy] = {
         allow_commit=False,
         metadata={"objective": "continuous integration policy"},
     ),
-    "domain_validation": ValidationPolicy(
-        name="domain_validation",
-        required_steps=(
-            "domain.manifest",
-            "domain.contracts",
-            "domain.permissions",
-            "domain.dependencies",
-            "domain.compatibility",
-            "domain.security",
-            "domain.fragmentation",
-            "domain.tests",
-        ),
-        optional_steps=(),
-        stop_on_blocking_failure=True,
-        require_full_suite=False,
-        allow_commit=False,
-        metadata={"objective": "domain pack validation"},
-    ),
 }
 
 
