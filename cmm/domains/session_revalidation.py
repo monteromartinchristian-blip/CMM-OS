@@ -59,8 +59,9 @@ def revalidate_domains(
         checks.append(
             DomainSessionCheck(
                 name="registry_check",
-                status=DomainSessionCheckStatus.PASS,
-                message="No registry provided; skipping registry lookup",
+                status=DomainSessionCheckStatus.BLOCKING,
+                message="Domain registry authority is required for resumption revalidation",
+                blocking=True,
             )
         )
         return tuple(checks)
@@ -287,10 +288,14 @@ def revalidate_resource_and_knowledge_drift(
                 checks.append(
                     DomainSessionCheck(
                         name=f"resource_drift_{res_id}",
-                        status=DomainSessionCheckStatus.PASS,
-                        message=f"Resource '{res_id}' reference preserved",
+                        status=DomainSessionCheckStatus.WARNING,
+                        message=f"Resource '{res_id}' in domain '{domain}' has no current version metadata (unverified)",
                         blocking=False,
-                        details={"resource_id": res_id, "domain": domain},
+                        details={
+                            "resource_id": res_id,
+                            "domain": domain,
+                            "status": "UNKNOWN",
+                        },
                     )
                 )
 
@@ -349,10 +354,14 @@ def revalidate_resource_and_knowledge_drift(
                 checks.append(
                     DomainSessionCheck(
                         name=f"knowledge_drift_{know_id}",
-                        status=DomainSessionCheckStatus.PASS,
-                        message=f"Knowledge '{know_id}' reference preserved",
+                        status=DomainSessionCheckStatus.WARNING,
+                        message=f"Knowledge '{know_id}' in domain '{domain}' has no current version metadata (unverified)",
                         blocking=False,
-                        details={"knowledge_id": know_id, "domain": domain},
+                        details={
+                            "knowledge_id": know_id,
+                            "domain": domain,
+                            "status": "UNKNOWN",
+                        },
                     )
                 )
 
@@ -379,8 +388,8 @@ def revalidate_temporal(
         checks.append(
             DomainSessionCheck(
                 name="temporal_validity",
-                status=DomainSessionCheckStatus.PASS,
-                message="Temporal validity preserved",
+                status=DomainSessionCheckStatus.WARNING,
+                message="No current temporal reference provided; temporal validity unverified",
                 blocking=False,
             )
         )
@@ -430,10 +439,13 @@ def revalidate_workflows(
     migrations = dict(workflow_migrations) if workflow_migrations is not None else {}
 
     for wf_id in context.active_workflow_refs:
-        raw_status = statuses.get(wf_id, DomainWorkflowClassification.CURRENT.value)
-        try:
-            classification = DomainWorkflowClassification(raw_status.upper())
-        except Exception:  # noqa: BLE001
+        if wf_id in statuses:
+            raw_status = statuses[wf_id]
+            try:
+                classification = DomainWorkflowClassification(str(raw_status).upper())
+            except Exception:  # noqa: BLE001
+                classification = DomainWorkflowClassification.INCOMPATIBLE
+        else:
             classification = DomainWorkflowClassification.CURRENT
 
         if classification in (

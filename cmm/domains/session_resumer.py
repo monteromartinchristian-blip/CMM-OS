@@ -12,11 +12,15 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from cmm.domains.enums import DomainStatus
+from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.contracts import DomainDefinition
+from cmm.domains.enums import DomainResolutionStatus, DomainStatus
 from cmm.domains.errors import (
     DomainSessionResumeError,
     DomainSessionSerializationError,
 )
+from cmm.domains.identifiers import DomainId
+from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_codec import DomainSessionCodec
 from cmm.domains.session_contracts import (
     DomainSessionCheck,
@@ -84,10 +88,11 @@ class DomainSessionResumer:
         event_publisher: DomainKernelEventPublisher | None = None,
         codec: DomainSessionCodec | None = None,
         persistence_updater: Callable[[DomainSessionContext], None] | None = None,
+        session_loader: Callable[[str], Any] | None = None,
     ) -> None:
         self._registry = registry
         self._resolver = resolver
-        self._composer = composer
+        self._composer = composer or DefaultDomainComposer()
         self._fallback_resolver = fallback_resolver
         self._permission_evaluator = permission_evaluator
         self._operation_filter = operation_filter
@@ -99,10 +104,11 @@ class DomainSessionResumer:
         self._event_publisher = event_publisher
         self._codec = codec or DomainSessionCodec()
         self._persistence_updater = persistence_updater
+        self._session_loader = session_loader
 
     def _is_domain_active(self, domain_ref: str) -> bool:
         if self._registry is None:
-            return True
+            return False
         slug = _extract_slug(domain_ref)
         record = self._registry.get_record(slug)
         if record is None:
@@ -117,9 +123,14 @@ class DomainSessionResumer:
         """Attempt to resume a domain session strictly and safely."""
         # 1. Extract context
         context: DomainSessionContext | None = None
+        shared_session_id: str | None = None
         if isinstance(session_context, DomainSessionContext):
             context = session_context
+            shared_session_id = context.session_id
         elif isinstance(session_context, Mapping):
+            shared_session_id = session_context.get(
+                "session_id"
+            ) or session_context.get("id")
             context = self._codec.extract_from_session(session_context)
             if context is None:
                 try:
@@ -130,7 +141,26 @@ class DomainSessionResumer:
                         field="session_context",
                     ) from exc
         elif session_context is not None and hasattr(session_context, "metadata"):
+            shared_session_id = getattr(session_context, "session_id", None) or getattr(
+                session_context, "id", None
+            )
             context = self._codec.extract_from_session(session_context)
+        elif self._session_loader is not None:
+            loaded_session = self._session_loader(request.session_id)
+            if loaded_session is not None:
+                if isinstance(loaded_session, DomainSessionContext):
+                    context = loaded_session
+                    shared_session_id = context.session_id
+                elif isinstance(loaded_session, Mapping):
+                    shared_session_id = loaded_session.get(
+                        "session_id"
+                    ) or loaded_session.get("id")
+                    context = self._codec.extract_from_session(loaded_session)
+                elif hasattr(loaded_session, "metadata"):
+                    shared_session_id = getattr(
+                        loaded_session, "session_id", None
+                    ) or getattr(loaded_session, "id", None)
+                    context = self._codec.extract_from_session(loaded_session)
 
         if context is None:
             raise DomainSessionResumeError(
@@ -138,10 +168,105 @@ class DomainSessionResumer:
                 field="session_context",
             )
 
-        session_id = request.session_id or context.session_id
+        # 1.1 Strict Session ID Binding (MAJOR-01)
+        if request.session_id != context.session_id:
+            raise DomainSessionResumeError(
+                f"Session ID mismatch between request ({request.session_id}) and domain session context ({context.session_id})",
+                field="session_id",
+            )
+        if shared_session_id is not None and shared_session_id != request.session_id:
+            raise DomainSessionResumeError(
+                f"Session ID mismatch between request ({request.session_id}) and shared session envelope ({shared_session_id})",
+                field="session_id",
+            )
+
+        session_id = request.session_id
         previous_revision = context.revision
         checks: list[DomainSessionCheck] = []
         warnings: list[str] = []
+
+        # 1.2 Mandatory authorities check (BLOCKER-01 & BLOCKER-03)
+        if self._registry is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="registry_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message="Domain registry authority is required for resumption",
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=(
+                    "Domain registry authority is required for resumption",
+                ),
+                recorded_resumption=False,
+            )
+
+        if self._permission_evaluator is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="permission_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message="Permission authority is required for resumption",
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=("Permission authority is required for resumption",),
+                recorded_resumption=False,
+            )
+
+        if self._operation_filter is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="operation_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message="Operation authority is required for resumption",
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=("Operation authority is required for resumption",),
+                recorded_resumption=False,
+            )
+
+        if self._persistence_updater is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.FAILED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="persistence_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message="Persistence authority is required for resumption",
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=("Persistence authority is required for resumption",),
+                recorded_resumption=False,
+            )
 
         # 2. Pure revalidation
         pure_checks = revalidate_session_state(context, self._registry, request)
@@ -286,21 +411,122 @@ class DomainSessionResumer:
                     occurred_at=now_ts,
                 )
 
-        # 5. Permission re-evaluation
+        # 4.5 Real Composition execution when composition is needed or composer provided (BLOCKER-02)
+        composition_id = context.composition_id
+        effective_profile = context.effective_profile
+        effective_rules = context.effective_rule_ids
+        available_ops_from_comp: tuple[str, ...] | None = None
+        perms_from_comp: tuple[str, ...] | None = None
+
+        composer_to_use = self._composer
+        if composer_to_use is None and (
+            status
+            in (
+                DomainSessionResumeStatus.RECOMPOSED,
+                DomainSessionResumeStatus.RE_RESOLVED,
+            )
+            or context.composition_id is None
+        ):
+            composer_to_use = DefaultDomainComposer()
+
+        if composer_to_use is not None:
+            res_result = DomainResolutionResult(
+                id=f"domain-resolution-resume-{session_id}",
+                context_id=f"ctx-resume-{session_id}",
+                status=DomainResolutionStatus.RESOLVED,
+                primary_domain=DomainId(slug=_extract_slug(effective_primary)),
+                supporting_domains=tuple(
+                    DomainId(slug=_extract_slug(s)) for s in effective_supporting
+                ),
+                confidence=1.0,
+                resolved_at=now_ts,
+            )
+            definitions: list[DomainDefinition] = []
+            if self._registry is not None:
+                p_rec = self._registry.get_record(_extract_slug(effective_primary))
+                if p_rec is not None:
+                    definitions.append(p_rec.definition)
+                for s in effective_supporting:
+                    s_rec = self._registry.get_record(_extract_slug(s))
+                    if s_rec is not None:
+                        definitions.append(s_rec.definition)
+
+            try:
+                composed = composer_to_use.compose(res_result, definitions)
+            except TypeError:
+                composed = composer_to_use.compose(res_result)
+
+            if (
+                context.composition_id is not None
+                and status is DomainSessionResumeStatus.RESUMED
+            ):
+                composition_id = context.composition_id
+            else:
+                composition_id = (
+                    getattr(composed, "id", None) or f"domain-composition-{session_id}"
+                )
+            raw_profile = getattr(composed, "effective_profile", None)
+            effective_profile = (
+                raw_profile
+                if (raw_profile is None or isinstance(raw_profile, str))
+                else getattr(raw_profile, "name", str(raw_profile))
+            )
+            raw_rules = getattr(composed, "rules", ())
+            if isinstance(raw_rules, (list, tuple, set, frozenset)):
+                effective_rules = tuple(
+                    str(getattr(r, "identifier", getattr(r, "id", r)))
+                    for r in raw_rules
+                )
+            else:
+                effective_rules = ()
+            raw_perms = getattr(composed, "permissions", ())
+            if hasattr(raw_perms, "granted_permissions"):
+                perms_from_comp = tuple(str(p) for p in raw_perms.granted_permissions)
+            elif isinstance(raw_perms, (list, tuple, set, frozenset)):
+                perms_from_comp = tuple(
+                    str(getattr(p, "identifier", getattr(p, "id", p)))
+                    for p in raw_perms
+                )
+            else:
+                perms_from_comp = ()
+
+            raw_ops = getattr(composed, "operations", ())
+            if isinstance(raw_ops, (list, tuple, set, frozenset)):
+                available_ops_from_comp = tuple(
+                    str(getattr(o, "identifier", getattr(o, "id", o))) for o in raw_ops
+                )
+            else:
+                available_ops_from_comp = ()
+
+        # 5. Permission re-evaluation (BLOCKER-01)
+        perms_input = (
+            perms_from_comp
+            if perms_from_comp is not None
+            else context.effective_permission_refs
+        )
         if self._permission_evaluator is not None:
             effective_permissions = self._permission_evaluator(
-                request.actor, context.effective_permission_refs
+                request.actor, perms_input
             )
+        elif perms_from_comp is not None:
+            effective_permissions = perms_from_comp
         else:
-            effective_permissions = context.effective_permission_refs
+            effective_permissions = ()
 
-        # 6. Operation recalculation
+        # 6. Operation recalculation (BLOCKER-01)
+        ops_input = (
+            available_ops_from_comp
+            if available_ops_from_comp is not None
+            else context.available_operation_ids
+        )
         if self._operation_filter is not None:
             effective_operations = self._operation_filter(
-                effective_permissions, context.available_operation_ids
+                effective_permissions, ops_input
             )
+        elif available_ops_from_comp is not None:
+            effective_operations = available_ops_from_comp
         else:
-            effective_operations = context.available_operation_ids
+            effective_operations = ()
 
         # 7. Workflow validation
         effective_workflows = context.active_workflow_refs
@@ -355,7 +581,11 @@ class DomainSessionResumer:
                     f"Dropped {len(expired_approvals)} expired/invalid approvals"
                 )
 
-        if status is DomainSessionResumeStatus.RESUMED:
+        if status in (
+            DomainSessionResumeStatus.RESUMED,
+            DomainSessionResumeStatus.RECOMPOSED,
+            DomainSessionResumeStatus.RE_RESOLVED,
+        ):
             if recovered_questions:
                 status = DomainSessionResumeStatus.WAITING_FOR_USER
             elif recovered_approvals:
@@ -379,9 +609,9 @@ class DomainSessionResumer:
             primary_domain=effective_primary,
             supporting_domains=effective_supporting,
             domain_versions=context.domain_versions,
-            composition_id=context.composition_id,
-            effective_profile=context.effective_profile,
-            effective_rule_ids=context.effective_rule_ids,
+            composition_id=composition_id,
+            effective_profile=effective_profile,
+            effective_rule_ids=effective_rules,
             effective_permission_refs=effective_permissions,
             active_workflow_refs=effective_workflows,
             available_operation_ids=effective_operations,
@@ -400,24 +630,23 @@ class DomainSessionResumer:
             metadata=dict(context.metadata),
         )
 
-        # 11. Persistence boundary execution
-        if self._persistence_updater is not None:
-            try:
-                self._persistence_updater(resumed_context)
-            except Exception as exc:  # noqa: BLE001
-                return DomainSessionResumeResult(
-                    status=DomainSessionResumeStatus.FAILED,
-                    session_id=session_id,
-                    previous_revision=previous_revision,
-                    resumed_revision=previous_revision,
-                    context=None,
-                    checks=tuple(checks),
-                    warnings=tuple(warnings),
-                    blocking_findings=(f"Persistence failure: {exc}",),
-                    recorded_resumption=False,
-                )
+        # 11. Persistence boundary execution (BLOCKER-03: MUST HAPPEN BEFORE EVENT PUBLICATION)
+        try:
+            self._persistence_updater(resumed_context)
+        except Exception as exc:  # noqa: BLE001
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.FAILED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=tuple(checks),
+                warnings=tuple(warnings),
+                blocking_findings=(f"Persistence failure: {exc}",),
+                recorded_resumption=False,
+            )
 
-        # 12. Event publication boundary
+        # 12. Event publication boundary (ONLY AFTER SUCCESSFUL PERSISTENCE COMMIT)
         if self._event_publisher is not None:
             from cmm.domains.event_factory import DomainEventFactory
 

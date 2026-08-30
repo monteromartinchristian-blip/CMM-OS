@@ -114,6 +114,24 @@ def _dedupe_tuple(items: Iterable[Any] | None, field_name: str) -> tuple[str, ..
     return tuple(result)
 
 
+def _validate_bool(val: Any, field_name: str) -> bool:
+    """Validate that val is a boolean."""
+    if not isinstance(val, bool):
+        raise DomainSessionContractError(
+            f"{field_name} must be a bool, got {val!r}", field=field_name
+        )
+    return val
+
+
+def _validate_bool_serialization(val: Any, field_name: str) -> bool:
+    """Validate boolean for deserialization."""
+    if not isinstance(val, bool):
+        raise DomainSessionSerializationError(
+            f"{field_name} must be a boolean, got {val!r}", field=field_name
+        )
+    return val
+
+
 def _validate_revision(val: Any) -> int:
     """Validate that revision is a positive integer >= 1."""
     if isinstance(val, bool) or not isinstance(val, int) or val < 1:
@@ -130,6 +148,60 @@ def _validate_revision_serialization(val: Any) -> int:
             f"revision must be an integer >= 1, got {val!r}", field="revision"
         )
     return val
+
+
+def _validate_revision_opt_serialization(val: Any, field_name: str = "revision") -> int:
+    """Validate non-negative integer revision for deserialization."""
+    if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+        raise DomainSessionSerializationError(
+            f"{field_name} must be an integer >= 0, got {val!r}", field=field_name
+        )
+    return val
+
+
+def _validate_actor(val: Any, field_name: str = "actor") -> Any:
+    """Validate that actor is JSON-safe and contains no credentials."""
+    if val is None:
+        return None
+    if isinstance(val, (str, int, float, bool)):
+        _validate_no_credentials(val, field_name)
+        return val
+    if isinstance(val, Mapping):
+        _validate_no_credentials(val, field_name)
+        try:
+            json.dumps(dict(val), allow_nan=False)
+        except Exception as exc:
+            raise DomainSessionContractError(
+                f"{field_name} must be JSON-serializable, got error: {exc}",
+                field=field_name,
+            ) from exc
+        return _deep_freeze(dict(val))
+    if isinstance(val, (list, tuple)):
+        _validate_no_credentials(val, field_name)
+        try:
+            json.dumps(list(val), allow_nan=False)
+        except Exception as exc:
+            raise DomainSessionContractError(
+                f"{field_name} must be JSON-serializable, got error: {exc}",
+                field=field_name,
+            ) from exc
+        return tuple(val)
+    raise DomainSessionContractError(
+        f"{field_name} must be a JSON-serializable scalar or mapping, got {type(val).__name__}",
+        field=field_name,
+    )
+
+
+def _validate_actor_serialization(val: Any, field_name: str = "actor") -> Any:
+    """Validate actor during deserialization."""
+    if val is None:
+        return None
+    try:
+        return _validate_actor(val, field_name)
+    except DomainSessionContractError as exc:
+        raise DomainSessionSerializationError(
+            exc.message, field=exc.field, details=dict(exc.details)
+        ) from exc
 
 
 def _freeze_nested_refs_map(
@@ -303,7 +375,9 @@ class DomainSessionCheck:
             name=_validate_non_empty_serialization(data["name"], "name"),
             status=status,
             message=_validate_non_empty_serialization(data["message"], "message"),
-            blocking=bool(data.get("blocking", False)),
+            blocking=_validate_bool_serialization(
+                data.get("blocking", False), "blocking"
+            ),
             details=dict(data.get("details", {})),
         )
 
@@ -759,6 +833,11 @@ class DomainSessionResumeRequest:
             "session_id",
             _validate_non_empty(self.session_id, "session_id"),
         )
+        object.__setattr__(
+            self,
+            "actor",
+            _validate_actor(self.actor, "actor"),
+        )
         if self.temporal_reference is not None:
             try:
                 _ensure_tz_aware(self.temporal_reference, "temporal_reference")
@@ -784,9 +863,14 @@ class DomainSessionResumeRequest:
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
+        actor_out = (
+            _deep_unfreeze(self.actor)
+            if isinstance(self.actor, MappingProxyType)
+            else self.actor
+        )
         return {
             "session_id": self.session_id,
-            "actor": self.actor,
+            "actor": actor_out,
             "temporal_reference": self.temporal_reference.isoformat()
             if self.temporal_reference is not None
             else None,
@@ -831,7 +915,7 @@ class DomainSessionResumeRequest:
             session_id=_validate_non_empty_serialization(
                 data["session_id"], "session_id"
             ),
-            actor=data.get("actor"),
+            actor=_validate_actor_serialization(data.get("actor"), "actor"),
             temporal_reference=temporal_dt,
             current_resource_versions=dict(data.get("current_resource_versions", {})),
             current_knowledge_versions=dict(data.get("current_knowledge_versions", {})),
@@ -1005,8 +1089,12 @@ class DomainSessionResumeResult:
             session_id=_validate_non_empty_serialization(
                 data["session_id"], "session_id"
             ),
-            previous_revision=int(data["previous_revision"]),
-            resumed_revision=int(data["resumed_revision"]),
+            previous_revision=_validate_revision_opt_serialization(
+                data["previous_revision"], "previous_revision"
+            ),
+            resumed_revision=_validate_revision_opt_serialization(
+                data["resumed_revision"], "resumed_revision"
+            ),
             context=ctx,
             checks=tuple(checks),
             warnings=tuple(data.get("warnings", ())),
@@ -1014,7 +1102,9 @@ class DomainSessionResumeResult:
             recovered_question_refs=tuple(data.get("recovered_question_refs", ())),
             recovered_approval_refs=tuple(data.get("recovered_approval_refs", ())),
             next_recommended_step=data.get("next_recommended_step"),
-            recorded_resumption=bool(data.get("recorded_resumption", False)),
+            recorded_resumption=_validate_bool_serialization(
+                data.get("recorded_resumption", False), "recorded_resumption"
+            ),
             metadata=dict(data.get("metadata", {})),
         )
 
