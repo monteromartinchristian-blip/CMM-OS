@@ -294,6 +294,7 @@ def test_recomposed_status_requires_composer_invocation():
     mock_composition.permissions = ("perm:health_read",)
     mock_composition.operations = ("op:health_read",)
     mock_composer.compose.return_value = mock_composition
+    mock_composer.recompose.return_value = mock_composition
 
     resumer = DomainSessionResumer(
         registry=reg,
@@ -306,7 +307,7 @@ def test_recomposed_status_requires_composer_invocation():
     result = resumer.resume(req, ctx)
 
     assert result.status is DomainSessionResumeStatus.RECOMPOSED
-    assert mock_composer.compose.called
+    assert mock_composer.recompose.called
     assert result.context is not None
     assert result.context.composition_id == "comp:NEW_RECOMPOSED"
     assert result.context.effective_profile == "profile:NEW"
@@ -647,6 +648,9 @@ def test_composer_and_resolver_doubles_must_be_invoked():
 
     class TrappingComposer:
         def compose(self, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("TrappingComposer invoked successfully")
+
+        def recompose(self, *args: Any, **kwargs: Any) -> Any:
             raise RuntimeError("TrappingComposer invoked successfully")
 
     resumer = DomainSessionResumer(
