@@ -11,6 +11,7 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainRegistryRecord
 from cmm.domains.session_codec import DomainSessionCodec
 from cmm.domains.session_contracts import (
+    DomainSessionCheckStatus,
     DomainSessionContext,
     DomainSessionResumeRequest,
     DomainSessionResumeStatus,
@@ -360,3 +361,92 @@ def test_retry_after_failed_persistence_does_not_skip_revision():
     persisted = adapter.load_domain_session("session-123")
     assert persisted is not None
     assert persisted.revision == 3
+
+
+def test_idempotent_resume_after_accepted_version_drift():
+    """First resume accepts 1.1.0 version drift; second resume from updated context reports PASS without drift."""
+    reg = _setup_registry()
+    # Update health domain to 1.1.0 in registry
+    d_health_v11 = DomainDefinition(
+        id=DomainId(slug="health"),
+        name="health",
+        display_name="Health Domain",
+        version="1.1.0",
+        kind=DomainKind.PERSONAL,
+        description="Health description",
+        manifest_id=DomainManifestId(slug="health", version="1.1.0"),
+    )
+    reg.register(d_health_v11)
+    reg.restore_record(
+        DomainRegistryRecord(
+            definition=d_health_v11,
+            status=DomainStatus.ACTIVE,
+            registered_at=_now(),
+            updated_at=_now(),
+        )
+    )
+
+    ctx = DomainSessionContext(
+        session_id="session-drift-1",
+        primary_domain="domain:health",
+        domain_versions={"domain:health": "1.0.0"},
+        revision=1,
+        updated_at=_now(),
+    )
+    adapter = shared_session_adapter()
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=adapter,
+    )
+    req = DomainSessionResumeRequest(session_id="session-drift-1")
+
+    # 1. First resume: detects version change 1.0.0 -> 1.1.0, accepts it, and saves updated version in context
+    res1 = resumer.resume(req, ctx)
+    assert res1.status is DomainSessionResumeStatus.RESUMED
+    assert res1.context is not None
+    assert res1.context.domain_versions["domain:health"] == "1.1.0"
+    v_chk1 = next(c for c in res1.checks if c.name == "domain_version_domain:health")
+    assert v_chk1.status is DomainSessionCheckStatus.CHANGED
+
+    # 2. Second resume: starting from the resumed context (which now records 1.1.0)
+    res2 = resumer.resume(req, res1.context)
+    assert res2.status is DomainSessionResumeStatus.RESUMED
+    assert res2.context is not None
+    assert res2.context.domain_versions["domain:health"] == "1.1.0"
+    v_chk2 = next(c for c in res2.checks if c.name == "domain_version_domain:health")
+    assert v_chk2.status is DomainSessionCheckStatus.PASS
+
+
+def test_drift_invalidates_partial_results_and_traces():
+    """Resource/knowledge drift triggers REPLAN_REQUIRED and invalidates partial results/traces."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-drift-dep",
+        primary_domain="domain:health",
+        domain_resource_refs={"domain:health": ("res:vital_signs",)},
+        partial_result_refs=("part:heart_rate_analysis",),
+        trace_refs=("trace:sensor_ingest_001",),
+        next_recommended_step="continue_vital_sign_monitoring",
+        revision=1,
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(
+        session_id="session-drift-dep",
+        current_resource_versions={"res:vital_signs": "v_drifted"},
+    )
+    res = resumer.resume(req, ctx)
+
+    assert res.status is DomainSessionResumeStatus.REPLAN_REQUIRED
+    assert res.context is not None
+    assert res.context.partial_result_refs == ()
+    assert res.context.trace_refs == ()
+    assert res.context.next_recommended_step == "replan_execution"
+    assert any("invalidated" in w.lower() for w in res.warnings)

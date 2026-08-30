@@ -375,15 +375,53 @@ def revalidate_temporal(
     """Revalidate temporal reference and validity."""
     checks: list[DomainSessionCheck] = []
     if request is not None and request.temporal_reference is not None:
-        checks.append(
-            DomainSessionCheck(
-                name="temporal_validity",
-                status=DomainSessionCheckStatus.PASS,
-                message="Temporal reference is timezone-aware and valid",
-                blocking=False,
-                details={"temporal_reference": request.temporal_reference.isoformat()},
+        ref = request.temporal_reference
+        if ref < context.updated_at:
+            checks.append(
+                DomainSessionCheck(
+                    name="temporal_validity",
+                    status=DomainSessionCheckStatus.INCOMPATIBLE,
+                    message="Temporal reference is in the past relative to session state",
+                    blocking=True,
+                    details={
+                        "temporal_reference": ref.isoformat(),
+                        "session_updated_at": context.updated_at.isoformat(),
+                    },
+                )
             )
-        )
+        else:
+            max_age = (
+                request.metadata.get("max_session_age_seconds")
+                if request.metadata
+                else None
+            )
+            elapsed = (ref - context.updated_at).total_seconds()
+            if max_age is not None and elapsed > float(max_age):
+                checks.append(
+                    DomainSessionCheck(
+                        name="temporal_validity",
+                        status=DomainSessionCheckStatus.DRIFT,
+                        message=(
+                            f"Session temporal freshness exceeded max age "
+                            f"({elapsed:.0f}s > {max_age}s)"
+                        ),
+                        blocking=False,
+                        details={
+                            "elapsed_seconds": elapsed,
+                            "max_age_seconds": max_age,
+                        },
+                    )
+                )
+            else:
+                checks.append(
+                    DomainSessionCheck(
+                        name="temporal_validity",
+                        status=DomainSessionCheckStatus.PASS,
+                        message="Temporal reference is fresh and timezone-aware",
+                        blocking=False,
+                        details={"temporal_reference": ref.isoformat()},
+                    )
+                )
     else:
         checks.append(
             DomainSessionCheck(

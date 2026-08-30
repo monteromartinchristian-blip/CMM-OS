@@ -234,6 +234,45 @@ def test_revalidate_temporal():
     assert checks[0].status is DomainSessionCheckStatus.PASS
 
 
+def test_revalidate_temporal_past_reference_fails_closed():
+    from datetime import timedelta
+
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        updated_at=_now(),
+    )
+    past_ref = _now() - timedelta(seconds=100)
+    req = DomainSessionResumeRequest(
+        session_id="session-123",
+        temporal_reference=past_ref,
+    )
+    checks = revalidate_temporal(ctx, req)
+    assert len(checks) >= 1
+    assert checks[0].status is DomainSessionCheckStatus.INCOMPATIBLE
+    assert checks[0].blocking is True
+
+
+def test_revalidate_temporal_freshness_window_exceeded():
+    from datetime import timedelta
+
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        updated_at=_now(),
+    )
+    future_ref = _now() + timedelta(days=60)
+    req = DomainSessionResumeRequest(
+        session_id="session-123",
+        temporal_reference=future_ref,
+        metadata={"max_session_age_seconds": 3600},
+    )
+    checks = revalidate_temporal(ctx, req)
+    assert len(checks) >= 1
+    assert checks[0].status is DomainSessionCheckStatus.DRIFT
+    assert checks[0].blocking is False
+
+
 def test_revalidate_session_state_orchestration():
     reg = _setup_registry()
     ctx = DomainSessionContext(

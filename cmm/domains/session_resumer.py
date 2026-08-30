@@ -849,6 +849,21 @@ class DomainSessionResumer:
                     f"Dropped {len(expired_approvals)} expired/invalid approvals"
                 )
 
+        # 8.5 Drift impact and dependency invalidation (MAJOR-01, MAJOR-02)
+        has_drift = any(c.status is DomainSessionCheckStatus.DRIFT for c in checks)
+        if has_drift and status is DomainSessionResumeStatus.RESUMED:
+            status = DomainSessionResumeStatus.REPLAN_REQUIRED
+
+        if has_drift:
+            effective_partial_results: tuple[str, ...] = ()
+            effective_trace_refs: tuple[str, ...] = ()
+            warnings.append(
+                "Stale partial results and traces invalidated due to resource/knowledge drift"
+            )
+        else:
+            effective_partial_results = context.partial_result_refs
+            effective_trace_refs = context.trace_refs
+
         if status in (
             DomainSessionResumeStatus.RESUMED,
             DomainSessionResumeStatus.RECOMPOSED,
@@ -862,8 +877,25 @@ class DomainSessionResumer:
         # 9. Next recommended step
         if self._next_step_reconstructor is not None:
             next_step = self._next_step_reconstructor(context, status)
+        elif (
+            has_drift or status is DomainSessionResumeStatus.REPLAN_REQUIRED
+        ) and context.next_recommended_step is not None:
+            next_step = "replan_execution"
         else:
             next_step = context.next_recommended_step
+
+        # 9.5 Current accepted domain versions persistence (MAJOR-01)
+        accepted_domain_versions = dict(context.domain_versions)
+        if self._registry is not None:
+            p_rec = self._registry.get_record(_extract_slug(effective_primary))
+            if p_rec is not None:
+                accepted_domain_versions[effective_primary] = str(
+                    p_rec.definition.version
+                )
+            for sup in effective_supporting:
+                s_rec = self._registry.get_record(_extract_slug(sup))
+                if s_rec is not None:
+                    accepted_domain_versions[sup] = str(s_rec.definition.version)
 
         # 10. Transitions consolidation
         transitions = (
@@ -876,7 +908,7 @@ class DomainSessionResumer:
             session_id=session_id,
             primary_domain=effective_primary,
             supporting_domains=effective_supporting,
-            domain_versions=context.domain_versions,
+            domain_versions=accepted_domain_versions,
             composition_id=composition_id,
             effective_profile=effective_profile,
             effective_rule_ids=effective_rules,
@@ -888,8 +920,8 @@ class DomainSessionResumer:
             pending_domain_question_refs=recovered_questions,
             domain_conflict_refs=context.domain_conflict_refs,
             approval_refs=recovered_approvals,
-            partial_result_refs=context.partial_result_refs,
-            trace_refs=context.trace_refs,
+            partial_result_refs=effective_partial_results,
+            trace_refs=effective_trace_refs,
             domain_transitions=transitions,
             last_resolution_id=last_resolution_id,
             next_recommended_step=next_step,
