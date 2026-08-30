@@ -378,7 +378,7 @@
       "checkpoint_id": 54,
       "description": "Bundle generation uses git archive with prefix PAX commit verification and forbidden-path checks",
       "evidence_type": "artifact_contract",
-      "evidence_reference": "git_archive_v7",
+      "evidence_reference": "git_archive_v9",
       "required": true
     },
     {

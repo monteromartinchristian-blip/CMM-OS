@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PENDING = "IMPLEMENTED_PENDING_AUDIT"
 COMPLETE = "COMPLETE"
-EVIDENCE_VERSION = 7
+EVIDENCE_VERSION = 9
 
 
 def _write_json(path: Path, payload: object) -> None:

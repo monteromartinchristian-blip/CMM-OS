@@ -1,0 +1,136 @@
+{
+  "artifact_contract": {
+    "archive_format": "tar.gz",
+    "command_template": "git archive --format=tar.gz --prefix=CMM-OS-phase-10.34/ -o <external-output> <committed-head>",
+    "contract_id": "git_archive_v9",
+    "embedded_commit_verification": "external_required",
+    "forbidden_member_patterns": [
+      ".git",
+      ".venv",
+      "__pycache__",
+      ".pyc"
+    ],
+    "forbidden_paths_check": true,
+    "generator": "git archive",
+    "output_location": "external_to_repository",
+    "pax_commit_id_verification": true,
+    "prefix": "CMM-OS-phase-10.34/"
+  },
+  "audit_iteration": "V9",
+  "gate_groups": {
+    "pre_audit_gates": {
+      "component_gates": [
+        "focused_tests",
+        "domain_tests",
+        "global_tests",
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check",
+        "phase10_33_regression"
+      ],
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "quality_gates": {
+      "component_gates": [
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check"
+      ],
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    }
+  },
+  "gates": {
+    "compileall": {
+      "command": ".venv/bin/python -m compileall -q cmm tests scripts",
+      "exit_code": 0,
+      "gate_id": "compileall",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "gate_id": "diff_check",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "domain_tests": {
+      "actual_count": 8289,
+      "command": ".venv/bin/python -m pytest -q tests/domains",
+      "exit_code": 0,
+      "gate_id": "domain_tests",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "focused_tests": {
+      "actual_count": 449,
+      "command": ".venv/bin/python -m pytest -q tests/domains/test_domain_session_*.py",
+      "exit_code": 0,
+      "gate_id": "focused_tests",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "global_tests": {
+      "actual_count": 13844,
+      "command": ".venv/bin/python -m pytest -q",
+      "exit_code": 0,
+      "gate_id": "global_tests",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "phase10_33_regression": {
+      "actual_count": 168,
+      "command": ".venv/bin/python -m pytest -q tests/domains/test_domain_event_catalog.py tests/domains/test_domain_event_factory.py tests/domains/test_domain_event_publisher.py tests/domains/test_domain_session_security.py",
+      "domain_session_resumed_event": "ABSENT",
+      "exit_code": 0,
+      "gate_id": "phase10_33_regression",
+      "general_event_count": 23,
+      "general_event_unique_count": 23,
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "ruff_check": {
+      "command": ".venv/bin/ruff check cmm/domains/session_*.py cmm/domains/resource_authority.py cmm/domains/knowledge_authority.py cmm/domains/composer.py cmm/domains/composition_contracts.py tests/domains/test_domain_session_*.py tests/domains/domain_session_audit_evidence.py tests/domains/domain_session_lifecycle_test_support.py scripts/audit/*.py",
+      "exit_code": 0,
+      "gate_id": "ruff_check",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    },
+    "ruff_format": {
+      "command": ".venv/bin/ruff format --check cmm/domains/session_*.py cmm/domains/resource_authority.py cmm/domains/knowledge_authority.py cmm/domains/composer.py cmm/domains/composition_contracts.py tests/domains/test_domain_session_*.py tests/domains/domain_session_audit_evidence.py tests/domains/domain_session_lifecycle_test_support.py scripts/audit/*.py",
+      "exit_code": 0,
+      "gate_id": "ruff_format",
+      "result_source": "command_execution",
+      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "status": "PASS"
+    }
+  },
+  "generated_at": "2026-08-30T17:52:02+02:00",
+  "phase": "10.34",
+  "pre_audit": {
+    "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+    "source_scope_clean_when_generated": true
+  },
+  "pytest_evidence": {
+    "inventory": "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt",
+    "inventory_sha256": "df453e647311bb7012785d22f3e2cea9752c1d75ca46d35ef6896db9e442b941",
+    "node_count": 13844
+  },
+  "schema_version": 2,
+  "source_evidence": {
+    "file_count": 1463,
+    "manifest": "docs/audits/evidence/phase-10.34-v9-source-hashes.json",
+    "manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367"
+  }
+}

@@ -223,7 +223,7 @@ def test_14_post_pass_portable_validator_remains_56_of_56(tmp_path: Path) -> Non
         tmp_path, status=PENDING, pending_audit_version=7
     )
     write_audit(archive_root, 7, status="PASS", blockers=0, majors=0, minors=0)
-    validator = archive_root / "scripts/audit/validate-phase-10.34-v7-evidence.py"
+    validator = archive_root / "scripts/audit/validate-phase-10.34-v9-evidence.py"
 
     completed = subprocess.run(
         (sys.executable, str(validator), str(archive_root)),
@@ -255,7 +255,7 @@ def test_16_external_gate_mutation_still_fails(tmp_path: Path) -> None:
         tmp_path, status=PENDING, pending_audit_version=7
     )
     write_audit(archive_root, 6, status="FAIL", blockers=0, majors=1, minors=0)
-    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v7-gates.json"
+    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v9-gates.json"
     gates = json.loads(gates_path.read_text(encoding="utf-8"))
     gates["gates"]["focused_tests"]["status"] = "FAIL"
     _write_json(gates_path, gates)
@@ -270,7 +270,7 @@ def test_17_pytest_inventory_mutation_still_fails(tmp_path: Path) -> None:
     )
     write_audit(archive_root, 6, status="FAIL", blockers=0, majors=1, minors=0)
     inventory_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v7-pytest-nodes.txt"
+        archive_root / "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
     )
     nodes = inventory_path.read_text(encoding="utf-8").splitlines()
     inventory_path.write_text("\n".join(nodes[1:]) + "\n", encoding="utf-8")

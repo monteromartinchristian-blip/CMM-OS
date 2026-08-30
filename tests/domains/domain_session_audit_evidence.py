@@ -19,12 +19,12 @@ EVIDENCE_MANIFEST_PATH = (
     REPO_ROOT / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
 )
 SOURCE_HASH_MANIFEST_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-source-hashes.json"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
 )
 PYTEST_NODE_INVENTORY_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-pytest-nodes.txt"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
 )
-EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-gates.json"
+EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-gates.json"
 
 VALID_EVIDENCE_TYPES = frozenset(
     {
@@ -237,7 +237,7 @@ def _validate_relative_path(value: Any, *, label: str) -> str:
 
 
 def discover_source_hash_paths(repo_root: Path) -> tuple[str, ...]:
-    """Return the deterministic source/test/config scope covered by V7 gates."""
+    """Return the deterministic source/test/config scope covered by V9 gates."""
     paths: set[str] = {
         "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json",
         "pyproject.toml",
@@ -261,7 +261,7 @@ def _validate_source_binding(
     manifest_rel = _validate_relative_path(
         source_evidence.get("manifest"), label="source hash manifest path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v7-source-hashes.json"
+    expected_rel = "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
     if manifest_rel != expected_rel:
         _fail("gate artifact references the wrong source hash manifest")
     expected_digest = source_evidence.get("manifest_sha256")
@@ -338,7 +338,7 @@ def _validate_pytest_inventory(
     inventory_rel = _validate_relative_path(
         evidence.get("inventory"), label="pytest inventory path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v7-pytest-nodes.txt"
+    expected_rel = "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
     if inventory_rel != expected_rel:
         _fail("gate artifact references the wrong pytest inventory")
     expected_digest = evidence.get("inventory_sha256")
@@ -723,7 +723,7 @@ def validate_at_dp_034(
         repo_root / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
     )
     gates_path = gates_path or (
-        repo_root / "docs/audits/evidence/phase-10.34-v7-gates.json"
+        repo_root / "docs/audits/evidence/phase-10.34-v9-gates.json"
     )
     manifest = _read_json(manifest_path, label="evidence manifest")
     gates_payload = _read_json(gates_path, label="external gate artifact")
