@@ -12,6 +12,7 @@ from cmm.development import (
     DevelopmentService,
     create_planning_provider,
 )
+from cmm.domains.sdk.cli import handle_domain_cli, register_domain_cli
 from cmm.execution.development import AutonomousExecutionService
 from cmm.validation.cli import handle_validation_cli, register_validation_cli
 from kernel.end_to_end_runner import EndToEndRunner
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     register_validation_cli(subparsers)
+    register_domain_cli(subparsers)
 
     # Phase 9.22 - Agent Runtime CLI (`cmm agent ...`). Listed here only for
     # discoverability in `cmm --help`; actual dispatch happens earlier in
@@ -157,6 +159,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "validation":
         return handle_validation_cli(args)
+
+    if args.command == "domain":
+        return handle_domain_cli(args)
 
     if args.command == "develop":
         return _develop(args)
