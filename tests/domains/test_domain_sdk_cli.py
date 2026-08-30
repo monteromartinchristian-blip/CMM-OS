@@ -7,10 +7,15 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from cmm.domains.enums import DomainValidationStatus
 from cmm.domains.registry import DomainRegistry
+from cmm.domains.sdk import cli as sdk_cli
 from cmm.domains.sdk.cli import validate_domain_path
+from cmm.domains.sdk.packager import DomainPackager
 from cmm.domains.sdk.scaffold import DomainScaffolder
 
 
@@ -31,7 +36,9 @@ def test_cli_domain_create_success(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"CLI create failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"CLI create failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
     assert (dest / "manifest.json").is_file()
     assert (dest / "README.md").is_file()
     assert (dest / "fixtures" / "sample.json").is_file()
@@ -89,7 +96,10 @@ def test_validate_domain_path_canonical_success(tmp_path: Path) -> None:
     DomainScaffolder().create("valid-pack", destination=pack_root)
 
     result = validate_domain_path(pack_root)
-    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+    assert result.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
     assert result.manifest_valid is True
     assert result.compatibility_valid is True
     assert result.security_valid is True
@@ -107,7 +117,10 @@ def test_validate_domain_path_tampered_fails_canonically(tmp_path: Path) -> None
     manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     result = validate_domain_path(pack_root)
-    assert result.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR)
+    assert result.status in (
+        DomainValidationStatus.FAILED,
+        DomainValidationStatus.ERROR,
+    )
     assert result.manifest_valid is False or not all(
         (result.security_valid, result.manifest_valid, result.contracts_valid)
     )
@@ -130,8 +143,12 @@ def test_cli_domain_validate_success(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"Validation failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    assert "domain:validate-sample" in result.stdout or "validate-sample" in result.stdout
+    assert result.returncode == 0, (
+        f"Validation failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+    assert (
+        "domain:validate-sample" in result.stdout or "validate-sample" in result.stdout
+    )
 
 
 def test_cli_domain_validate_failure(tmp_path: Path) -> None:
@@ -166,7 +183,10 @@ def test_cli_domain_validate_does_not_mutate_registry(tmp_path: Path) -> None:
     snapshot_before = registry.snapshot_state()
 
     result = validate_domain_path(pack_root)
-    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+    assert result.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
 
     snapshot_after = registry.snapshot_state()
     assert snapshot_before == snapshot_after
@@ -189,7 +209,69 @@ def test_cli_domain_test_success(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"Test command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"Test command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+
+
+def test_handle_test_prepares_harness_before_pytest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pack_root = tmp_path / "prepared-test-pack"
+    DomainScaffolder().create("prepared-test-pack", destination=pack_root)
+    calls: list[Path] = []
+
+    class HarnessSpy:
+        def prepare(self, root: Path) -> object:
+            calls.append(root)
+            return object()
+
+    monkeypatch.setattr(sdk_cli, "DomainTestHarness", HarnessSpy, raising=False)
+    monkeypatch.setattr(
+        sdk_cli.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0),
+    )
+
+    result = sdk_cli._handle_test(SimpleNamespace(path=str(pack_root)))
+
+    assert result == 0
+    assert calls == [pack_root.resolve()]
+
+
+def test_non_strict_validation_does_not_claim_test_readiness(tmp_path: Path) -> None:
+    pack_root = tmp_path / "structural-only-pack"
+    DomainScaffolder().create("structural-only-pack", destination=pack_root)
+
+    result = validate_domain_path(pack_root)
+
+    assert result.status is DomainValidationStatus.WARNING
+    assert result.metadata["strict"] is False
+    assert result.metadata["run_tests"] is False
+    assert result.metadata["tests_evaluated"] is False
+
+
+def test_packaging_warning_does_not_replace_test_readiness(tmp_path: Path) -> None:
+    pack_root = tmp_path / "missing-tests-readiness"
+    DomainScaffolder().create("missing-tests-readiness", destination=pack_root)
+    shutil.rmtree(pack_root / "tests")
+
+    structural = validate_domain_path(pack_root)
+    archive = DomainPackager().pack(
+        pack_root,
+        output=tmp_path / "missing-tests-readiness.tar.gz",
+    )
+    tested = subprocess.run(
+        [sys.executable, "-m", "cmm", "domain", "test", str(pack_root)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert structural.status is DomainValidationStatus.WARNING
+    assert structural.metadata["tests_evaluated"] is False
+    assert archive.is_file()
+    assert tested.returncode != 0
 
 
 def test_cli_domain_test_validation_failure_blocks_test(tmp_path: Path) -> None:
@@ -285,7 +367,9 @@ def test_cli_domain_test_path_with_spaces(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"Test with spaces failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"Test with spaces failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
 
 
 def test_cli_domain_pack_success(tmp_path: Path) -> None:
@@ -308,7 +392,9 @@ def test_cli_domain_pack_success(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, f"Pack command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"Pack command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
     assert out_archive.is_file()
 
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from cmm.domains.discovery import FileSystemDomainDiscovery
-from cmm.domains.discovery_contracts import DomainSource
+from cmm.domains.discovery_contracts import DomainCandidate, DomainSource
 from cmm.domains.enums import DomainSourceKind
 from cmm.domains.errors import DomainContractValidationError, DomainError
 from cmm.domains.manifest_reader import JsonDomainManifestReader
@@ -17,8 +18,15 @@ from cmm.domains.validation_contracts import (
 )
 
 
-def validate_domain_path(pack_root: Path | str) -> DomainValidationResult:
-    """Validate a Domain Pack at pack_root using canonical Domain Validation."""
+@dataclass(frozen=True, slots=True)
+class _ResolvedDomainTarget:
+    root: Path
+    candidate: DomainCandidate | None
+    domain_pack: DomainPack | None
+
+
+def _resolve_domain_target(pack_root: Path | str) -> _ResolvedDomainTarget:
+    """Resolve one SDK target through canonical discovery and manifest parsing."""
     root = Path(pack_root).resolve()
     if not root.exists() or not root.is_dir():
         raise DomainContractValidationError(
@@ -51,12 +59,28 @@ def validate_domain_path(pack_root: Path | str) -> DomainValidationResult:
         except (DomainError, OSError, ValueError, TypeError):
             domain_pack = None
 
-    request = DomainValidationRequest(
-        pack=domain_pack,
-        root_path=str(root),
+    return _ResolvedDomainTarget(
+        root=root,
         candidate=candidate,
+        domain_pack=domain_pack,
+    )
+
+
+def _validate_resolved_domain_target(
+    target: _ResolvedDomainTarget,
+) -> DomainValidationResult:
+    """Validate a previously resolved target with the canonical pipeline."""
+    request = DomainValidationRequest(
+        pack=target.domain_pack,
+        root_path=str(target.root),
+        candidate=target.candidate,
         strict=False,
         run_tests=False,
     )
     validator = PipelineDomainValidator()
     return validator.validate(request)
+
+
+def validate_domain_path(pack_root: Path | str) -> DomainValidationResult:
+    """Validate a Domain Pack at pack_root using canonical Domain Validation."""
+    return _validate_resolved_domain_target(_resolve_domain_target(pack_root))

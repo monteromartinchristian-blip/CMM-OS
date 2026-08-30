@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cmm.domains.enums import DomainValidationStatus
+from cmm.domains.enums import DomainPackStatus, DomainStatus, DomainValidationStatus
 from cmm.domains.errors import DomainError
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.sdk.harness import DomainHarnessError, DomainTestHarness
@@ -19,7 +19,10 @@ def test_harness_validate_delegates_to_canonical_validation(tmp_path: Path) -> N
 
     harness = DomainTestHarness()
     result = harness.validate(pack_root)
-    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+    assert result.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
     assert result.manifest_valid is True
 
 
@@ -45,6 +48,21 @@ def test_harness_prepare_creates_isolated_context(tmp_path: Path) -> None:
     ctx1 = harness1.prepare(pack_root1)
     ctx2 = harness2.prepare(pack_root2)
 
+    assert ctx1.domain_pack is not None
+    assert ctx1.domain_pack.manifest.domain_id.slug == "pack-one"
+    assert ctx1.domain_pack.definition.id.slug == "pack-one"
+    assert ctx1.domain_pack.status is DomainPackStatus.INSTALLED
+    record1 = ctx1.domain_registry.get_record("pack-one", "0.1.0")
+    assert record1 is not None
+    assert record1.status is DomainStatus.REGISTERED
+    assert record1.definition.enabled is False
+    assert ctx1.permission_registry.list_policies() == ()
+
+    assert ctx2.domain_pack is not None
+    assert ctx2.domain_registry.get("pack-two", "0.1.0") is not None
+    assert ctx1.domain_registry.get("pack-two", "0.1.0") is None
+    assert ctx2.domain_registry.get("pack-one", "0.1.0") is None
+
     assert ctx1.domain_registry is not ctx2.domain_registry
     assert ctx1.resource_registry is not ctx2.resource_registry
     assert ctx1.profile_registry is not ctx2.profile_registry
@@ -52,6 +70,16 @@ def test_harness_prepare_creates_isolated_context(tmp_path: Path) -> None:
     assert ctx1.operation_registry is not ctx2.operation_registry
     assert ctx1.workflow_registry is not ctx2.workflow_registry
     assert ctx1.permission_registry is not ctx2.permission_registry
+
+    ctx1.domain_registry.enable("pack-one", "0.1.0")
+    assert (
+        ctx1.domain_registry.get_record("pack-one", "0.1.0").status
+        is DomainStatus.ACTIVE
+    )
+    assert (
+        ctx2.domain_registry.get_record("pack-two", "0.1.0").status
+        is DomainStatus.REGISTERED
+    )
 
 
 def test_harness_prepare_blocks_on_validation_failure(tmp_path: Path) -> None:

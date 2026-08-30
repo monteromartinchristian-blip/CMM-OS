@@ -9,6 +9,7 @@ from pathlib import Path
 
 from cmm.domains.enums import DomainValidationStatus
 from cmm.domains.errors import DomainError
+from cmm.domains.sdk.harness import DomainTestHarness
 from cmm.domains.sdk.packager import DomainPackager
 from cmm.domains.sdk.scaffold import DomainScaffolder
 from cmm.domains.sdk.validation import validate_domain_path
@@ -177,23 +178,8 @@ def _handle_test(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # 1. Canonical validation
-    result = validate_domain_path(pack_root)
-    blocking = [f for f in result.findings if getattr(f, "blocking", False)]
-    if (
-        result.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR)
-        or blocking
-    ):
-        print(
-            f"Error: Domain validation failed for {pack_root} with status={result.status.value}",
-            file=sys.stderr,
-        )
-        for f in blocking:
-            print(
-                f"- [{getattr(f, 'code', 'error')}] {getattr(f, 'message', str(f))}",
-                file=sys.stderr,
-            )
-        return 1
+    # 1. Canonical isolated harness preparation
+    DomainTestHarness().prepare(pack_root)
 
     # 2. Check tests directory
     tests_dir = (pack_root / "tests").resolve()

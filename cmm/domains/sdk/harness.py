@@ -10,6 +10,8 @@ from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.domains.enums import DomainValidationStatus
 from cmm.domains.errors import DomainError
+from cmm.domains.loader import DeclarativeDomainLoader
+from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.pack import DomainPack
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -17,7 +19,11 @@ from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
 from cmm.domains.sdk.fixtures import DomainFixtureLoader
-from cmm.domains.sdk.validation import validate_domain_path
+from cmm.domains.sdk.validation import (
+    _resolve_domain_target,
+    _validate_resolved_domain_target,
+    validate_domain_path,
+)
 from cmm.domains.validation_contracts import DomainValidationResult
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 
@@ -31,7 +37,7 @@ class DomainHarnessContext:
     """Isolated canonical registry and runtime context for Domain Pack testing."""
 
     pack_root: Path
-    domain_pack: DomainPack | None
+    domain_pack: DomainPack
     domain_registry: DomainRegistry
     resource_registry: InMemoryDomainResourceRegistry
     profile_registry: InMemoryDomainProfileRegistry
@@ -57,8 +63,8 @@ class DomainTestHarness:
 
     def prepare(self, pack_root: Path | str) -> DomainHarnessContext:
         """Prepare an isolated canonical runtime context for the pack."""
-        root = Path(pack_root).resolve()
-        validation_result = self.validate(root)
+        target = _resolve_domain_target(pack_root)
+        validation_result = _validate_resolved_domain_target(target)
 
         blocking = [
             f for f in validation_result.findings if getattr(f, "blocking", False)
@@ -83,9 +89,26 @@ class DomainTestHarness:
         workflow_registry = InMemoryDomainWorkflowRegistry()
         permission_registry = DomainPermissionRegistry()
 
+        if target.candidate is None or target.domain_pack is None:
+            raise DomainHarnessError(
+                "Cannot prepare harness: canonical discovery did not resolve a pack"
+            )
+
+        loader = DeclarativeDomainLoader(
+            discovery=None,
+            manifest_reader=JsonDomainManifestReader(),
+            registry=domain_registry,
+        )
+        load_result = loader.load(target.candidate, allow_untrusted=True)
+        if load_result.pack is None or load_result.registry_record is None:
+            details = "; ".join(load_result.errors) or load_result.status.value
+            raise DomainHarnessError(
+                f"Cannot prepare harness: canonical load failed: {details}"
+            )
+
         return DomainHarnessContext(
-            pack_root=root,
-            domain_pack=None,
+            pack_root=target.root,
+            domain_pack=load_result.pack,
             domain_registry=domain_registry,
             resource_registry=resource_registry,
             profile_registry=profile_registry,
