@@ -15,8 +15,9 @@ The Domain SDK is strictly a **public facade** over canonical CMM OS Domain subs
    - Validation directly delegates to `PipelineDomainValidator` (`cmm.domains.validation`).
    - Packaging bundles packs into deterministic `.tar.gz` archives with normalized POSIX member paths, stable permissions (`0o755`/`0o644`), zero timestamps, and zero UIDs/GIDs.
    - Test harness isolates in-memory canonical registries (`DomainRegistry`, `InMemoryDomainResourceRegistry`, `InMemoryDomainProfileRegistry`, `InMemoryReasoningRuleRegistry`, `InMemoryDomainOperationRegistry`, `InMemoryDomainWorkflowRegistry`, `DomainPermissionRegistry`).
-2. **Deterministic & Side-Effect Free**:
-   - Running validation, fixture loading, test execution, or packaging never mutates the global `DomainRegistry`, runtime sessions, or event bus.
+2. **Deterministic & Side-Effect Constrained**:
+   - SDK-owned validation, fixture loading, harness preparation, and packaging do not mutate production Domain state.
+   - `cmm domain test` executes developer-owned Python tests. Isolation guarantees apply to the canonical state provided by `DomainTestHarness`; arbitrary test-code side effects are outside that guarantee.
 3. **Preserved Invariants**:
    - Domain events remain exactly 23 canonical event types.
    - Domain Sessions invariant: snapshot state remains decoupled from active authority.
@@ -119,6 +120,12 @@ archive_path = packager.pack(
 )
 ```
 
+Packaging fails closed: the output must be a fresh path ending in `.tar.gz`.
+Existing destinations are never overwritten, and source-pack members (including
+paths that alias them through symlinks) cannot be used as output destinations.
+For an output inside the source pack, the destination parent directory must
+already exist so a failed packaging attempt cannot modify the source tree.
+
 ---
 
 ## 4. CLI Tooling
@@ -155,4 +162,4 @@ Validates the domain pack and executes pytest within the pack's `tests/` directo
 cmm domain pack <path> [--output <archive_path>]
 ```
 
-Validates and packages the domain pack into a deterministic `.tar.gz` archive, automatically excluding transient files (`__pycache__`, `.pytest_cache`, `.DS_Store`, `.pyc`, `.venv`, `.git`).
+Validates and packages the domain pack into a deterministic `.tar.gz` archive, automatically excluding transient files (`__pycache__`, `.pytest_cache`, `.DS_Store`, `.pyc`, `.venv`, `.git`). The output must be a fresh `.tar.gz` path; existing archives are not overwritten, and source-pack files cannot be selected as output destinations.

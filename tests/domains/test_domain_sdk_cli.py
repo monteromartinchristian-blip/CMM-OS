@@ -15,7 +15,10 @@ from cmm.domains.enums import DomainValidationStatus
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.sdk import cli as sdk_cli
 from cmm.domains.sdk.cli import validate_domain_path
-from cmm.domains.sdk.packager import DomainPackager
+from cmm.domains.sdk.packager import (
+    DomainPackager,
+    DomainPackagingError,
+)
 from cmm.domains.sdk.scaffold import DomainScaffolder
 
 
@@ -424,3 +427,92 @@ def test_cli_domain_pack_failure_on_invalid_pack(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert not out_archive.exists()
     assert "Traceback" not in result.stderr
+
+
+def test_cli_domain_pack_rejects_existing_output_without_traceback(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "existing-cli-output-pack"
+    DomainScaffolder().create("existing-cli-output-pack", destination=pack_root)
+    output = tmp_path / "existing-cli-output-pack.tar.gz"
+    original_bytes = b"DO NOT OVERWRITE"
+    output.write_bytes(original_bytes)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "pack",
+            str(pack_root),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert output.read_bytes() == original_bytes
+    assert "Error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_domain_pack_rejects_output_directory_without_traceback(
+    tmp_path: Path,
+) -> None:
+    pack_root = tmp_path / "directory-cli-output-pack"
+    DomainScaffolder().create("directory-cli-output-pack", destination=pack_root)
+    output = tmp_path / "existing-directory.tar.gz"
+    output.mkdir()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "pack",
+            str(pack_root),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert output.is_dir()
+    assert "Error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_handle_domain_pack_translates_expected_packaging_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pack_root = tmp_path / "filesystem-error-cli-pack"
+    DomainScaffolder().create("filesystem-error-cli-pack", destination=pack_root)
+
+    class FailingPackager:
+        def pack(self, pack_root: Path, output: Path | None = None) -> Path:
+            raise DomainPackagingError("cannot write package destination")
+
+    monkeypatch.setattr(sdk_cli, "DomainPackager", FailingPackager)
+
+    result = sdk_cli.handle_domain_cli(
+        SimpleNamespace(
+            domain_subcommand="pack",
+            path=pack_root,
+            output=tmp_path / "filesystem-error-cli-pack.tar.gz",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert result != 0
+    assert "cannot write package destination" in captured.err
+    assert "Traceback" not in captured.err
