@@ -1,6 +1,6 @@
 # Domain Sessions Reference
 
-**Status:** implemented; independent audit pending (Phase 10.34)
+**Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V5 pending (Phase 10.34)
 
 ## 1. Overview
 
@@ -144,4 +144,5 @@ All domain session structures strictly enforce credential privacy by recursively
 
 The subsystem is validated through **AT-DP-034** comprising 56 checkpoints:
 - Full test suite: `tests/domains/test_domain_session_*.py`
-- Focused domain session suite: 304 unit, security, regression, and acceptance tests passing.
+- Focused domain session suite: 392 unit, security, regression, evidence, and acceptance tests passing on the V5 verified source tree.
+- Audit V4 regression suite: 32 tests passing, including mutation-style AT-DP-034 evidence failures.
