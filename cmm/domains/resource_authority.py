@@ -141,9 +141,10 @@ class DefaultDomainResourceAuthority:
                     },
                 )
 
-        # Evaluate basic expiration from temporal scope if context has valid_until
+        # A registered native definition owns temporal semantics. Only use the
+        # narrow valid_until fallback when no native policy is available.
         valid_until = ctx.temporal_scope.get("valid_until")
-        if valid_until is not None and valid_until < now:
+        if defn is None and valid_until is not None and valid_until < now:
             return DomainResourceCurrentVerdict(
                 resource_id=resource_id,
                 status=DomainSessionCheckStatus.BLOCKING,
