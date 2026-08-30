@@ -1,6 +1,6 @@
 # Domain Intelligence Requirements Matrix
 
-**Status:** Canonical reference for consolidated Phase 10 requirements. Phase 10.33 is complete and independently audited with final audit V9 `PASS`, zero blockers, majors, or minors. Phase 10.34–10.51 proceed sequentially afterward. Phase 10.52–10.53 remain the final planned Domain Packs.
+**Status:** Canonical reference for consolidated Phase 10 requirements. Phase 10.33 is complete and independently audited with final audit V9 `PASS`, zero blockers, majors, or minors. Phase 10.34 is implemented (independent audit pending). Phase 10.35–10.51 proceed sequentially afterward. Phase 10.52–10.53 remain the final planned Domain Packs.
 
 **Coverage evidence:** [Domain prompt clause coverage](../audits/domain-prompt-clause-coverage.md)
 
@@ -400,7 +400,8 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.31 — Domain Selection Policies (complete, independently audited and closed)
 10.32 — Domain Conflict Resolution (complete, independently audited and closed; final audit V11 `PASS`)
 10.33 — Domain Events (complete, independently audited and closed; final audit V9 `PASS`)
-10.34–10.51 — Remaining Domain Intelligence infrastructure sequence
+10.34 — Domain Sessions (implemented, independent audit pending)
+10.35–10.51 — Remaining Domain Intelligence infrastructure sequence
 10.52 — Mental Health
 10.53 — Neurodivergence
 Phase 11 — Stable Integrated Platform

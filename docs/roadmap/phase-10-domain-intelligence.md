@@ -5044,9 +5044,15 @@ The specialized events should:
 
 10.34 - Domain Sessions
 
+> **Status:** implemented; independent audit pending
+> **Reference document:** `docs/reference/domain-sessions.md`
+> **Design specification:** `docs/superpowers/specs/2026-08-30-domain-sessions-design.md`
+> **Implementation plan:** `docs/superpowers/plans/2026-08-30-domain-sessions-implementation-plan.md`
+> **Focused tests:** 198 passed (`AT-DP-034` gate PASS)
+
 Objective
 
-Extender Session Context to preserve the specialized status of a domain performance.
+Extend shared Phase 8 Session Context to preserve, revalidate, and restore the specialized state of domain intelligence safely across process restarts and pauses.
 
 Domain Session Context
 
