@@ -280,37 +280,37 @@ class DefaultDomainAPI:
         """Delegate to ``DomainRegistry.list_workflows``."""
         return self._domain_registry.list_workflows(domain_id, version)
 
-    # ── Lifecycle (Task 3) ────────────────────────────────────────────────
+    # ── Lifecycle ─────────────────────────────────────────────────────────
 
     def discover_domains(
         self, sources: tuple[DomainSource, ...]
     ) -> DomainDiscoveryResult:
         """Delegate to canonical Domain Discovery (non-executing)."""
-        raise NotImplementedError
+        return self._discovery.discover(sources)
 
     def validate_domain(
         self, request: DomainValidationRequest
     ) -> DomainValidationResult:
         """Delegate to canonical Domain Validation."""
-        raise NotImplementedError
+        return self._validator.validate(request)
 
     def install_domain(
         self, candidate: DomainCandidate, *, allow_untrusted: bool = False
     ) -> DomainLoadResult:
         """Delegate to ``DeclarativeDomainLoader.load`` (runtime load only)."""
-        raise NotImplementedError
+        return self._loader.load(candidate, allow_untrusted=allow_untrusted)
 
     def enable_domain(
         self, domain_id: str, version: str | None = None
     ) -> DomainDefinition:
         """Delegate to ``DomainRegistry.enable``."""
-        raise NotImplementedError
+        return self._domain_registry.enable(domain_id, version)
 
     def disable_domain(
         self, domain_id: str, version: str | None = None
     ) -> DomainDefinition:
         """Delegate to ``DomainRegistry.disable``."""
-        raise NotImplementedError
+        return self._domain_registry.disable(domain_id, version)
 
     # ── Resolution (Task 4) ───────────────────────────────────────────────
 
