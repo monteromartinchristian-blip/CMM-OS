@@ -1,6 +1,6 @@
 # Domain Sessions Reference
 
-**Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V7 pending (Phase 10.34)
+**Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V8 pending (Phase 10.34)
 
 ## 1. Overview
 
