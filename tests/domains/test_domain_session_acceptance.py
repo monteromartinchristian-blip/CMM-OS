@@ -105,7 +105,7 @@ DOMAIN_SESSION_CHECKPOINTS_56: tuple[str, ...] = (
     "53. Phase 10.33 event, credential, factory, and publisher regressions pass without a 24th general event",
     "54. Bundle generation contract uses git archive, the canonical prefix, PAX commit verification, and forbidden-path checks",
     "55. All required pre-audit gates pass on the verified source tree from a clean worktree",
-    "56. Closure remains guarded while the latest independent audit is V4 FAIL and V5 is pending",
+    "56. Closure guard discovers the latest independent audit dynamically, rejects premature closure, and permits closure eligibility only after a clean independent PASS with zero findings",
 )
 
 
@@ -1044,7 +1044,7 @@ def test_checkpoint_53_conservative_matrix_status_before_audit():
 
 
 def test_checkpoint_54_git_archive_tar_gz_generation_contract():
-    """54. The V6 archive contract is executable and commit-verifiable."""
+    """54. The V7 archive contract is executable and commit-verifiable."""
     evidence = validate_at_dp_034().resolved[54]
     assert evidence.details["generator"] == "git archive"
     assert evidence.details["prefix"] == "CMM-OS-phase-10.34/"
@@ -1060,11 +1060,22 @@ def test_checkpoint_55_independent_audit_criteria_contract():
 
 
 def test_checkpoint_56_closure_only_after_clean_audit():
-    """56. V5 FAIL remains latest and Phase 10.34 remains pending V6."""
+    """56. Latest audit state is valid independently of closure eligibility."""
     evidence = validate_at_dp_034().resolved[56]
-    assert evidence.details["latest_independent_audit"] == "V5"
-    assert evidence.details["latest_independent_audit_status"] == "FAIL"
-    assert evidence.details["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
+    details = evidence.details
+    assert details["latest_independent_audit"].startswith("V")
+    assert details["latest_independent_audit_status"] in {"PASS", "FAIL"}
+    assert all(details[name] >= 0 for name in ("blockers", "majors", "minors"))
+    clean_pass = details["latest_independent_audit_status"] == "PASS" and not any(
+        details[name] for name in ("blockers", "majors", "minors")
+    )
+    assert details["closure_eligible"] is clean_pass
+    assert details["phase_status"] in {
+        "IMPLEMENTED_PENDING_AUDIT",
+        "COMPLETE",
+        "CLOSED",
+        "AUDITED",
+    }
 
 
 # ── Meta-Test: Complete 56 Checkpoints Accounting ────────────────────────────

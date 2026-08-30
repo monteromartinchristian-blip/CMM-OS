@@ -629,9 +629,13 @@ def test_24_checkpoint_55_validates_actual_pre_audit_gates() -> None:
 def test_25_checkpoint_56_enforces_closure_guard() -> None:
     evidence = validate_at_dp_034().resolved[56]
     assert evidence.evidence_type == "documentation_gate"
-    assert evidence.details["latest_independent_audit"] == "V5"
-    assert evidence.details["latest_independent_audit_status"] == "FAIL"
-    assert evidence.details["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
+    details = evidence.details
+    assert details["latest_independent_audit"].startswith("V")
+    assert details["latest_independent_audit_status"] in {"PASS", "FAIL"}
+    clean_pass = details["latest_independent_audit_status"] == "PASS" and not any(
+        details[name] for name in ("blockers", "majors", "minors")
+    )
+    assert details["closure_eligible"] is clean_pass
 
 
 def test_26_invalid_evidence_type_is_rejected(tmp_path: Path) -> None:

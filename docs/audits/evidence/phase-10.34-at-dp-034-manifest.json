@@ -378,7 +378,7 @@
       "checkpoint_id": 54,
       "description": "Bundle generation uses git archive with prefix PAX commit verification and forbidden-path checks",
       "evidence_type": "artifact_contract",
-      "evidence_reference": "git_archive_v6",
+      "evidence_reference": "git_archive_v7",
       "required": true
     },
     {
@@ -390,7 +390,7 @@
     },
     {
       "checkpoint_id": 56,
-      "description": "Closure remains guarded while latest independent audit V4 is FAIL and V5 is pending",
+      "description": "Closure guard discovers the latest independent audit dynamically, rejects premature closure, and permits closure eligibility only after a clean independent PASS with zero findings",
       "evidence_type": "documentation_gate",
       "evidence_reference": "closure_guard",
       "required": true

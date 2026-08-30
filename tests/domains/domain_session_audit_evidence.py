@@ -19,12 +19,12 @@ EVIDENCE_MANIFEST_PATH = (
     REPO_ROOT / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
 )
 SOURCE_HASH_MANIFEST_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-source-hashes.json"
 )
 PYTEST_NODE_INVENTORY_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-pytest-nodes.txt"
 )
-EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-gates.json"
+EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v7-gates.json"
 
 VALID_EVIDENCE_TYPES = frozenset(
     {
@@ -58,6 +58,32 @@ FORBIDDEN_EVIDENCE_MARKERS = frozenset(
 
 class EvidenceValidationError(AssertionError):
     """Raised when committed AT-DP-034 evidence is absent or unverifiable."""
+
+
+@dataclass(frozen=True, slots=True)
+class IndependentAuditRecord:
+    """Canonical machine-readable result from one independent audit report."""
+
+    version: int
+    status: str
+    blockers: int
+    majors: int
+    minors: int
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class ClosureGuardResult:
+    """Phase 10.34 audit lifecycle state and closure eligibility decision."""
+
+    latest_audit_version: int | None
+    latest_audit_status: str | None
+    blockers: int | None
+    majors: int | None
+    minors: int | None
+    phase_status: str
+    closure_eligible: bool
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,8 +237,11 @@ def _validate_relative_path(value: Any, *, label: str) -> str:
 
 
 def discover_source_hash_paths(repo_root: Path) -> tuple[str, ...]:
-    """Return the deterministic source/test/config scope covered by V6 gates."""
-    paths: set[str] = {"pyproject.toml"}
+    """Return the deterministic source/test/config scope covered by V7 gates."""
+    paths: set[str] = {
+        "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json",
+        "pyproject.toml",
+    }
     for root_name in ("cmm", "tests", "scripts/audit"):
         root = repo_root / root_name
         if not root.is_dir():
@@ -232,7 +261,7 @@ def _validate_source_binding(
     manifest_rel = _validate_relative_path(
         source_evidence.get("manifest"), label="source hash manifest path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    expected_rel = "docs/audits/evidence/phase-10.34-v7-source-hashes.json"
     if manifest_rel != expected_rel:
         _fail("gate artifact references the wrong source hash manifest")
     expected_digest = source_evidence.get("manifest_sha256")
@@ -309,7 +338,7 @@ def _validate_pytest_inventory(
     inventory_rel = _validate_relative_path(
         evidence.get("inventory"), label="pytest inventory path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt"
+    expected_rel = "docs/audits/evidence/phase-10.34-v7-pytest-nodes.txt"
     if inventory_rel != expected_rel:
         _fail("gate artifact references the wrong pytest inventory")
     expected_digest = evidence.get("inventory_sha256")
@@ -464,33 +493,220 @@ def _validate_artifact_contract(
     return contract
 
 
-def _validate_closure_guard(repo_root: Path) -> Mapping[str, Any]:
+_INDEPENDENT_AUDIT_FILENAME = re.compile(
+    r"phase-10\.34-independent-audit-v(?P<version>\d+)\.md"
+)
+_INDEPENDENT_AUDIT_MARKER = re.compile(
+    r"FINAL_INDEPENDENT_AUDIT_V(?P<version>\d+)=(?P<status>PASS|FAIL)"
+)
+_CLOSED_PHASE_STATUSES = frozenset({"COMPLETE", "CLOSED", "AUDITED"})
+
+
+def _canonical_audit_header(text: str) -> str:
+    """Return the authoritative summary before the report's narrative body."""
+    separator = re.search(r"(?m)^---\s*$", text)
+    return text[: separator.start()] if separator else text
+
+
+def _parse_finding_count(header: str, name: str, path: Path) -> int:
+    declarations = [
+        line.strip()
+        for line in header.splitlines()
+        if line.strip().startswith(f"{name}=")
+    ]
+    if not declarations:
+        _fail(f"independent audit missing {name}: {path.name}")
+    if len(declarations) != 1:
+        _fail(f"independent audit contains duplicate {name}: {path.name}")
+    raw_value = declarations[0].partition("=")[2]
+    if not re.fullmatch(r"-?\d+", raw_value):
+        _fail(f"independent audit {name} must be an integer: {path.name}")
+    value = int(raw_value)
+    if value < 0:
+        _fail(f"independent audit {name} cannot be negative: {path.name}")
+    return value
+
+
+def parse_independent_audit_report(
+    path: Path, *, version: int
+) -> IndependentAuditRecord:
+    """Parse one audit's canonical header without treating quoted examples as results."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        _fail(f"independent audit is not readable: {path.name}: {exc}")
+    header = _canonical_audit_header(text)
+    marker_lines = [
+        line.strip()
+        for line in header.splitlines()
+        if line.strip().startswith("FINAL_INDEPENDENT_AUDIT")
+    ]
+    if not marker_lines:
+        _fail(f"independent audit missing FINAL marker: {path.name}")
+    if len(marker_lines) != 1:
+        _fail(f"independent audit contains duplicate FINAL marker: {path.name}")
+    marker = _INDEPENDENT_AUDIT_MARKER.fullmatch(marker_lines[0])
+    if marker is None:
+        _fail(f"independent audit FINAL marker is malformed: {path.name}")
+    marker_version = int(marker.group("version"))
+    if marker_version != version:
+        _fail(
+            "independent audit filename/marker version mismatch: "
+            f"v{version} != V{marker_version}"
+        )
+
+    blockers = _parse_finding_count(header, "BLOCKERS", path)
+    majors = _parse_finding_count(header, "MAJORS", path)
+    minors = _parse_finding_count(header, "MINORS", path)
+    status = marker.group("status")
+    if status == "PASS" and any((blockers, majors, minors)):
+        _fail("independent audit PASS requires zero findings")
+    return IndependentAuditRecord(
+        version=version,
+        status=status,
+        blockers=blockers,
+        majors=majors,
+        minors=minors,
+        path=path,
+    )
+
+
+def discover_latest_independent_audit(
+    repo_root: Path,
+) -> IndependentAuditRecord | None:
+    """Discover and parse the numerically latest Phase 10.34 independent audit."""
     audit_dir = repo_root / "docs/audits"
     audits: list[tuple[int, Path]] = []
-    pattern = re.compile(r"phase-10\.34-independent-audit-v(\d+)\.md$")
+    if not audit_dir.is_dir():
+        return None
     for path in audit_dir.glob("phase-10.34-independent-audit-v*.md"):
-        match = pattern.search(path.name)
+        match = _INDEPENDENT_AUDIT_FILENAME.fullmatch(path.name)
         if match:
-            audits.append((int(match.group(1)), path))
+            audits.append((int(match.group("version")), path))
     if not audits:
-        _fail("closure guard found no independent Phase 10.34 audit")
+        return None
     latest_version, latest_path = max(audits)
-    latest_text = latest_path.read_text(encoding="utf-8")
-    if latest_version != 5 or "FINAL_INDEPENDENT_AUDIT_V5=FAIL" not in latest_text:
-        _fail("closure guard requires latest independent audit V5 FAIL")
+    return parse_independent_audit_report(latest_path, version=latest_version)
 
-    roadmap_text = (repo_root / "ROADMAP.md").read_text(encoding="utf-8")
-    if "IMPLEMENTED_PENDING_AUDIT" not in roadmap_text:
-        _fail("closure guard requires IMPLEMENTED_PENDING_AUDIT")
-    if "independent re-audit V6 pending" not in roadmap_text:
-        _fail("closure guard requires independent re-audit V6 pending")
-    if (audit_dir / "phase-10.34-independent-audit-v6.md").exists():
-        _fail("closure guard forbids a self-authored independent audit V6")
+
+def _normalize_phase_status(status_line: str, *, path: Path) -> str:
+    upper = status_line.upper()
+    if "IMPLEMENTED_PENDING_AUDIT" in upper:
+        return "IMPLEMENTED_PENDING_AUDIT"
+    for status in ("COMPLETE", "CLOSED", "AUDITED"):
+        if re.search(rf"\b{status}\b", upper):
+            return status
+    _fail(f"unrecognized Phase 10.34 status in {path}")
+
+
+def _extract_explicit_phase_status(path: Path, text: str) -> str:
+    match = re.search(r"(?m)^> ?\*\*Status:\*\*\s*(?P<status>.+)$", text)
+    if match is None:
+        match = re.search(r"(?m)^\*\*Status:\*\*\s*(?P<status>.+)$", text)
+    if match is None:
+        _fail(f"Phase 10.34 status marker missing: {path}")
+    return _normalize_phase_status(match.group("status"), path=path)
+
+
+def _discover_phase_10_34_status(repo_root: Path) -> tuple[str, bool]:
+    phase_roadmap_path = repo_root / "docs/roadmap/phase-10-domain-intelligence.md"
+    reference_path = repo_root / "docs/reference/domain-sessions.md"
+    main_roadmap_path = repo_root / "ROADMAP.md"
+    for path in (phase_roadmap_path, reference_path, main_roadmap_path):
+        if not path.is_file():
+            _fail(f"Phase 10.34 lifecycle document missing: {path}")
+
+    phase_roadmap = phase_roadmap_path.read_text(encoding="utf-8")
+    phase_start = re.search(r"(?m)^10\.34\s*-\s*Domain Sessions\s*$", phase_roadmap)
+    if phase_start is None:
+        _fail("Phase 10.34 roadmap section missing")
+    next_phase = re.search(r"(?m)^10\.35\s*-", phase_roadmap[phase_start.end() :])
+    phase_end = (
+        phase_start.end() + next_phase.start()
+        if next_phase is not None
+        else len(phase_roadmap)
+    )
+    phase_section = phase_roadmap[phase_start.start() : phase_end]
+    phase_status = _extract_explicit_phase_status(phase_roadmap_path, phase_section)
+
+    reference_status = _extract_explicit_phase_status(
+        reference_path, reference_path.read_text(encoding="utf-8")
+    )
+    phase_closed = phase_status in _CLOSED_PHASE_STATUSES
+    reference_closed = reference_status in _CLOSED_PHASE_STATUSES
+    if phase_closed != reference_closed:
+        _fail("Phase 10.34 roadmap/reference lifecycle states disagree")
+
+    main_roadmap = main_roadmap_path.read_text(encoding="utf-8")
+    main_claims_closed = bool(
+        re.search(
+            r"Phase 10\.34\b.{0,200}\b(?:COMPLETE|COMPLETED|CLOSED|AUDITED)\b",
+            main_roadmap,
+            flags=re.IGNORECASE,
+        )
+    )
+    return phase_status, phase_closed or reference_closed or main_claims_closed
+
+
+def evaluate_phase_10_34_closure_eligibility(
+    repo_root: Path,
+) -> ClosureGuardResult:
+    """Evaluate closure independently from whether AT-DP-034 evidence is valid."""
+    phase_status, documentation_claims_closed = _discover_phase_10_34_status(repo_root)
+    audit = discover_latest_independent_audit(repo_root)
+    if audit is None:
+        if documentation_claims_closed:
+            _fail("Phase 10.34 is documented closed without an independent audit")
+        return ClosureGuardResult(
+            latest_audit_version=None,
+            latest_audit_status=None,
+            blockers=None,
+            majors=None,
+            minors=None,
+            phase_status=phase_status,
+            closure_eligible=False,
+            reason="no independent audit exists",
+        )
+
+    clean_pass = audit.status == "PASS" and not any(
+        (audit.blockers, audit.majors, audit.minors)
+    )
+    if documentation_claims_closed and not clean_pass:
+        _fail("Phase 10.34 is documented closed without a clean independent PASS")
+    reason = (
+        "latest independent audit is a clean PASS with zero findings"
+        if clean_pass
+        else "latest independent audit is not a clean PASS"
+    )
+    return ClosureGuardResult(
+        latest_audit_version=audit.version,
+        latest_audit_status=audit.status,
+        blockers=audit.blockers,
+        majors=audit.majors,
+        minors=audit.minors,
+        phase_status=phase_status,
+        closure_eligible=clean_pass,
+        reason=reason,
+    )
+
+
+def _validate_closure_guard(repo_root: Path) -> Mapping[str, Any]:
+    result = evaluate_phase_10_34_closure_eligibility(repo_root)
+    latest_label = (
+        f"V{result.latest_audit_version}"
+        if result.latest_audit_version is not None
+        else None
+    )
     return MappingProxyType(
         {
-            "latest_independent_audit": "V5",
-            "latest_independent_audit_status": "FAIL",
-            "phase_status": "IMPLEMENTED_PENDING_AUDIT",
+            "latest_independent_audit": latest_label,
+            "latest_independent_audit_status": result.latest_audit_status,
+            "blockers": result.blockers,
+            "majors": result.majors,
+            "minors": result.minors,
+            "phase_status": result.phase_status,
+            "closure_eligible": result.closure_eligible,
+            "reason": result.reason,
         }
     )
 
@@ -507,7 +723,7 @@ def validate_at_dp_034(
         repo_root / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
     )
     gates_path = gates_path or (
-        repo_root / "docs/audits/evidence/phase-10.34-v6-gates.json"
+        repo_root / "docs/audits/evidence/phase-10.34-v7-gates.json"
     )
     manifest = _read_json(manifest_path, label="evidence manifest")
     gates_payload = _read_json(gates_path, label="external gate artifact")
@@ -635,11 +851,16 @@ __all__ = [
     "EXTERNAL_GATES_PATH",
     "PYTEST_NODE_INVENTORY_PATH",
     "SOURCE_HASH_MANIFEST_PATH",
+    "ClosureGuardResult",
     "EvidenceValidationError",
     "EvidenceValidationReport",
+    "IndependentAuditRecord",
     "ResolvedEvidence",
     "collect_pytest_nodes",
+    "discover_latest_independent_audit",
     "discover_source_hash_paths",
+    "evaluate_phase_10_34_closure_eligibility",
+    "parse_independent_audit_report",
     "validate_at_dp_034",
     "validate_at_dp_034_bundle_evidence",
 ]
