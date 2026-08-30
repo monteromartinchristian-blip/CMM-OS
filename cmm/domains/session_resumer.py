@@ -21,6 +21,7 @@ from cmm.domains.errors import (
     DomainSessionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.composition_contracts import DomainCompositionInput
 from cmm.domains.resolution_contracts import DomainResolutionContext
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_codec import DomainSessionCodec
@@ -703,8 +704,24 @@ class DomainSessionResumer:
             composer_to_use = DefaultDomainComposer()
 
         if needs_composition and composer_to_use is not None:
+            definitions: list[DomainDefinition] = []
+            if self._registry is not None:
+                p_rec = self._registry.get_record(_extract_slug(effective_primary))
+                if p_rec is not None:
+                    definitions.append(p_rec.definition)
+                for s in effective_supporting:
+                    s_rec = self._registry.get_record(_extract_slug(s))
+                    if s_rec is not None:
+                        definitions.append(s_rec.definition)
+
             if re_resolution_result is not None:
+                # Genuine re-resolution result from canonical resolver
                 res_result = re_resolution_result
+                # Use compose() with authoritative result
+                try:
+                    composed = composer_to_use.compose(res_result, definitions)
+                except TypeError:
+                    composed = composer_to_use.compose(res_result)
             elif self._resolver is not None:
                 all_reg_domains = (
                     tuple(r.definition.id for r in self._registry.list_records())
@@ -747,48 +764,48 @@ class DomainSessionResumer:
                     res_result = None
 
                 if (
-                    res_result is None
-                    or res_result.status != DomainResolutionStatus.RESOLVED
+                    res_result is not None
+                    and res_result.status == DomainResolutionStatus.RESOLVED
                 ):
-                    res_result = DomainResolutionResult(
-                        id=last_resolution_id or f"domain-recomposition-{session_id}",
-                        context_id=f"ctx-recomp-{session_id}",
-                        status=DomainResolutionStatus.RESOLVED,
+                    # Genuine resolver result
+                    last_resolution_id = res_result.id
+                    try:
+                        composed = composer_to_use.compose(res_result, definitions)
+                    except TypeError:
+                        composed = composer_to_use.compose(res_result)
+                else:
+                    # Resolver failed/non-RESOLVED: use recompose() without fabricating
+                    comp_input = DomainCompositionInput(
                         primary_domain=DomainId(slug=_extract_slug(effective_primary)),
                         supporting_domains=tuple(
                             DomainId(slug=_extract_slug(s))
                             for s in effective_supporting
                         ),
-                        confidence=0.0,
-                        resolved_at=now_ts,
+                        previous_resolution_id=last_resolution_id,
+                        previous_composition_id=context.composition_id,
+                        resolution_authoritative=False,
+                        recomposition_reason="supporting_domain_change",
                     )
+                    try:
+                        composed = composer_to_use.recompose(comp_input, definitions)
+                    except TypeError:
+                        composed = composer_to_use.recompose(comp_input)
             else:
-                res_result = DomainResolutionResult(
-                    id=last_resolution_id or f"domain-recomposition-{session_id}",
-                    context_id=f"ctx-recomp-{session_id}",
-                    status=DomainResolutionStatus.RESOLVED,
+                # No resolver configured: recompose from current session state
+                comp_input = DomainCompositionInput(
                     primary_domain=DomainId(slug=_extract_slug(effective_primary)),
                     supporting_domains=tuple(
                         DomainId(slug=_extract_slug(s)) for s in effective_supporting
                     ),
-                    confidence=0.0,
-                    resolved_at=now_ts,
+                    previous_resolution_id=last_resolution_id,
+                    previous_composition_id=context.composition_id,
+                    resolution_authoritative=False,
+                    recomposition_reason="supporting_domain_change",
                 )
-
-            definitions: list[DomainDefinition] = []
-            if self._registry is not None:
-                p_rec = self._registry.get_record(_extract_slug(effective_primary))
-                if p_rec is not None:
-                    definitions.append(p_rec.definition)
-                for s in effective_supporting:
-                    s_rec = self._registry.get_record(_extract_slug(s))
-                    if s_rec is not None:
-                        definitions.append(s_rec.definition)
-
-            try:
-                composed = composer_to_use.compose(res_result, definitions)
-            except TypeError:
-                composed = composer_to_use.compose(res_result)
+                try:
+                    composed = composer_to_use.recompose(comp_input, definitions)
+                except TypeError:
+                    composed = composer_to_use.recompose(comp_input)
 
             composition_id = (
                 getattr(composed, "id", None) or f"domain-composition-{session_id}"

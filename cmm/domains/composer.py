@@ -265,6 +265,86 @@ def _deduplicate_conflicts_by_key(
     return tuple(seen.values())
 
 
+
+def _normalize_definitions_for_recomposition(
+    definitions: Iterable[DomainDefinition],
+    composition_input: DomainCompositionInput,
+) -> tuple[DomainDefinition, ...]:
+    """Materialize, validate, and order definitions based on composition input."""
+    def_list = list(definitions)
+
+    if not def_list:
+        raise DomainCompositionContractError(
+            "No definitions provided for composition",
+            field="definitions",
+        )
+
+    for defn in def_list:
+        if not isinstance(defn, DomainDefinition):
+            raise DomainCompositionContractError(
+                f"All definitions must be DomainDefinition instances, got {type(defn).__name__}",
+                field="definitions",
+            )
+
+    seen_ids: set[str] = set()
+    for defn in def_list:
+        slug = defn.id.slug
+        if slug in seen_ids:
+            raise DomainCompositionContractError(
+                f"Duplicate definition ID: {slug}",
+                field="definitions",
+                details={"duplicate": slug},
+            )
+        seen_ids.add(slug)
+
+    slug_to_def = {d.id.slug: d for d in def_list}
+
+    primary_slug = composition_input.primary_domain.slug
+    if primary_slug not in slug_to_def:
+        raise DomainCompositionContractError(
+            f"Primary domain '{primary_slug}' not found in definitions",
+            field="definitions",
+        )
+
+    primary_def = slug_to_def[primary_slug]
+    if not primary_def.enabled:
+        raise DomainCompositionContractError(
+            f"Primary domain '{primary_slug}' is disabled",
+            field="definitions",
+            details={"domain": primary_slug},
+        )
+
+    ordered: list[DomainDefinition] = [primary_def]
+    supporting_slugs = [sd.slug for sd in composition_input.supporting_domains]
+
+    for sup_slug in supporting_slugs:
+        if sup_slug not in slug_to_def:
+            raise DomainCompositionContractError(
+                f"Supporting domain '{sup_slug}' not found in definitions",
+                field="definitions",
+            )
+        sup_def = slug_to_def[sup_slug]
+        if not sup_def.enabled:
+            raise DomainCompositionContractError(
+                f"Supporting domain '{sup_slug}' is disabled",
+                field="definitions",
+                details={"domain": sup_slug},
+            )
+        ordered.append(sup_def)
+
+    expected_slugs = {primary_slug} | set(supporting_slugs)
+    actual_slugs = {d.id.slug for d in def_list}
+    extra = actual_slugs - expected_slugs
+    if extra:
+        raise DomainCompositionContractError(
+            f"Provided definitions not in composition input: {sorted(extra)}",
+            field="definitions",
+            details={"extra": sorted(extra)},
+        )
+
+    return tuple(ordered)
+
+
 def _sort_decisions(
     decisions: tuple[DomainCompositionDecision, ...],
 ) -> tuple[DomainCompositionDecision, ...]:
@@ -337,12 +417,41 @@ class DefaultDomainComposer:
         definitions: Iterable[DomainDefinition],
     ) -> DomainComposition:
         """Compose a DomainComposition from a resolution and definitions."""
-        # 1. Validate resolution
         _validate_resolution(resolution)
-
-        # 2. Materialize and order definitions
         ordered_defs = _normalize_definitions(definitions, resolution)
+        return self._build_composition(resolution.id, ordered_defs)
 
+    def recompose(
+        self,
+        composition_input: DomainCompositionInput,
+        definitions: Iterable[DomainDefinition],
+    ) -> DomainComposition:
+        """Recompose from current session state without requiring a resolver result."""
+        ordered_defs = _normalize_definitions_for_recomposition(definitions, composition_input)
+        
+        metadata_dict = dict(composition_input.metadata)
+        metadata_dict["resolution_authoritative"] = composition_input.resolution_authoritative
+        if composition_input.recomposition_reason:
+            metadata_dict["recomposition_reason"] = composition_input.recomposition_reason
+            
+        from types import MappingProxyType
+        return self._build_composition(
+            composition_input.previous_resolution_id or "none",
+            ordered_defs,
+            metadata=MappingProxyType(metadata_dict)
+        )
+
+    def _build_composition(
+        self,
+        resolution_id: str,
+        ordered_defs: tuple[DomainDefinition, ...],
+        metadata: MappingProxyType[str, Any] | None = None,
+    ) -> DomainComposition:
+        """Core composition logic after normalization."""
+        if metadata is None:
+            from types import MappingProxyType
+            metadata = MappingProxyType({})
+            
         # 3. Compose reasoning profile
         effective_profile, profile_decisions = compose_reasoning_profile(ordered_defs)
 
@@ -464,7 +573,7 @@ class DefaultDomainComposer:
 
         return DomainComposition(
             id=composition_id,
-            resolution_id=resolution.id,
+            resolution_id=resolution_id,
             status=status,
             primary_domain=primary_domain,
             supporting_domains=supporting_domains,
@@ -481,6 +590,7 @@ class DefaultDomainComposer:
             conflicts=sorted_conflicts,
             policy=self._policy,
             composed_at=composed_at,
+            metadata=metadata,
         )
 
 

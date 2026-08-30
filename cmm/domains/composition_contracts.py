@@ -1426,11 +1426,74 @@ class DomainComposition:
             metadata=_deep_freeze(data.get("metadata")),
         )
 
+@dataclass(frozen=True, slots=True)
+class DomainCompositionInput:
+    """Typed input for recomposition without requiring a resolver result.
+    
+    Used when the primary domain remains valid and only supporting domains,
+    version, permission availability, resource state, or composition state
+    have changed. This avoids fabricating a synthetic DomainResolutionResult.
+    """
+    
+    primary_domain: DomainId
+    supporting_domains: tuple[DomainId, ...]
+    previous_resolution_id: str | None = None
+    previous_composition_id: str | None = None
+    resolution_authoritative: bool = False
+    recomposition_reason: str = ""
+    metadata: MappingProxyType[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "primary_domain",
+            _coerce_domain_id(self.primary_domain, "primary_domain"),
+        )
+        object.__setattr__(
+            self,
+            "supporting_domains",
+            _freeze_domain_ids(
+                self.supporting_domains, "supporting_domains", require_unique=True
+            ),
+        )
+        if self.previous_resolution_id is not None and (
+            not isinstance(self.previous_resolution_id, str)
+            or not self.previous_resolution_id.strip()
+        ):
+            raise DomainCompositionContractError(
+                "previous_resolution_id must be a non-empty string or None",
+                field="previous_resolution_id",
+            )
+        if self.previous_composition_id is not None and (
+            not isinstance(self.previous_composition_id, str)
+            or not self.previous_composition_id.strip()
+        ):
+            raise DomainCompositionContractError(
+                "previous_composition_id must be a non-empty string or None",
+                field="previous_composition_id",
+            )
+        object.__setattr__(
+            self,
+            "resolution_authoritative",
+            _validate_strict_bool(
+                self.resolution_authoritative, "resolution_authoritative"
+            ),
+        )
+        if self.recomposition_reason and not isinstance(self.recomposition_reason, str):
+            raise DomainCompositionContractError(
+                "recomposition_reason must be a string",
+                field="recomposition_reason",
+            )
+        object.__setattr__(self, "metadata", _deep_freeze(self.metadata))
+
 
 __all__ = [
     "DomainComposition",
     "DomainCompositionConflict",
     "DomainCompositionDecision",
+    "DomainCompositionInput",
     "DomainCompositionItem",
     "DomainCompositionPolicy",
     "EffectiveReasoningProfile",
