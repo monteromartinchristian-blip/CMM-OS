@@ -105,9 +105,98 @@ def test_unpack_and_revalidate(tmp_path: Path) -> None:
             # Ensure member has no path traversal
             if member.name.startswith("/") or ".." in member.name.split("/"):
                 raise ValueError(f"Dangerous archive member: {member.name}")
-            tar.extract(member, path=extracted_root, filter="data" if hasattr(tarfile, "data_filter") else None)
+            tar.extract(
+                member,
+                path=extracted_root,
+                filter="data" if hasattr(tarfile, "data_filter") else None,
+            )
 
     # Revalidate extracted domain pack
     result = validate_domain_path(extracted_root)
-    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+    assert result.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
     assert result.manifest_valid is True
+
+
+def test_output_archive_inside_pack_root_is_not_packaged(tmp_path: Path) -> None:
+    pack_root = tmp_path / "inside-output-pack"
+    DomainScaffolder().create("inside-output-pack", destination=pack_root)
+    output = pack_root / "dist" / "inside-output-pack.tar.gz"
+
+    DomainPackager().pack(pack_root, output=output)
+
+    with tarfile.open(output, "r:gz") as tar:
+        assert "dist/inside-output-pack.tar.gz" not in tar.getnames()
+
+
+def test_preexisting_output_inside_pack_root_is_not_packaged(tmp_path: Path) -> None:
+    pack_root = tmp_path / "preexisting-output-pack"
+    DomainScaffolder().create("preexisting-output-pack", destination=pack_root)
+    output = pack_root / "preexisting-output-pack.tar.gz"
+    output.write_bytes(b"stale archive bytes")
+
+    DomainPackager().pack(pack_root, output=output)
+    first_bytes = output.read_bytes()
+    DomainPackager().pack(pack_root, output=output)
+
+    with tarfile.open(output, "r:gz") as tar:
+        assert "preexisting-output-pack.tar.gz" not in tar.getnames()
+    assert output.read_bytes() == first_bytes
+
+
+def test_packager_rejects_escaping_symlink(tmp_path: Path) -> None:
+    pack_root = tmp_path / "escaping-link-pack"
+    DomainScaffolder().create("escaping-link-pack", destination=pack_root)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside", encoding="utf-8")
+    (pack_root / "outside-link.txt").symlink_to(outside)
+
+    with pytest.raises(DomainPackagingError, match="validation|escape"):
+        DomainPackager().pack(pack_root, output=tmp_path / "escaping.tar.gz")
+
+
+def test_packager_preserves_safe_relative_in_root_symlink(tmp_path: Path) -> None:
+    pack_root = tmp_path / "safe-link-pack"
+    DomainScaffolder().create("safe-link-pack", destination=pack_root)
+    link = pack_root / "sample-link.json"
+    link.symlink_to("fixtures/sample.json")
+    output = tmp_path / "safe-link-pack.tar.gz"
+
+    DomainPackager().pack(pack_root, output=output)
+
+    with tarfile.open(output, "r:gz") as tar:
+        member = tar.getmember("sample-link.json")
+        assert member.issym()
+        assert member.linkname == "fixtures/sample.json"
+
+    extracted_root = tmp_path / "safe-link-extracted"
+    extracted_root.mkdir()
+    with tarfile.open(output, "r:gz") as tar:
+        for member in tar.getmembers():
+            tar.extract(
+                member,
+                path=extracted_root,
+                filter="data" if hasattr(tarfile, "data_filter") else None,
+            )
+    extracted_link = extracted_root / "sample-link.json"
+    assert extracted_link.is_symlink()
+    assert extracted_link.resolve().is_relative_to(extracted_root)
+    revalidated = validate_domain_path(extracted_root)
+    assert revalidated.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
+
+
+@pytest.mark.parametrize("target", ["/absolute/target", "missing-target.json"])
+def test_packager_rejects_absolute_or_broken_symlink(
+    tmp_path: Path, target: str
+) -> None:
+    pack_root = tmp_path / "unsafe-link-pack"
+    DomainScaffolder().create("unsafe-link-pack", destination=pack_root)
+    (pack_root / "unsafe-link").symlink_to(target)
+
+    with pytest.raises(DomainPackagingError, match="validation|symlink"):
+        DomainPackager().pack(pack_root, output=tmp_path / "unsafe.tar.gz")

@@ -78,11 +78,15 @@ class DomainPackager:
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 3. Collect source items deterministically
-        collected_items = self._collect_items(root)
+        temp_out = out_path.with_suffix(f"{out_path.suffix}.tmp")
+
+        # 3. Collect source items deterministically, excluding this output.
+        collected_items = self._collect_items(
+            root,
+            excluded_paths=frozenset({out_path, temp_out}),
+        )
 
         # 4. Write deterministic tar.gz archive
-        temp_out = out_path.with_suffix(f"{out_path.suffix}.tmp")
         try:
             with (
                 temp_out.open("wb") as raw_file,
@@ -113,6 +117,9 @@ class DomainPackager:
                         tarinfo.mode = 0o644
                         with path.open("rb") as f:
                             tar.addfile(tarinfo, f)
+                    elif tarinfo.issym():
+                        tarinfo.mode = 0o777
+                        tar.addfile(tarinfo)
 
             temp_out.replace(out_path)
         except Exception:
@@ -122,16 +129,44 @@ class DomainPackager:
 
         return out_path
 
-    def _collect_items(self, root: Path) -> list[tuple[Path, str]]:
+    def _collect_items(
+        self,
+        root: Path,
+        *,
+        excluded_paths: frozenset[Path] = frozenset(),
+    ) -> list[tuple[Path, str]]:
         """Collect and sort files and directories to include in the package."""
         items: list[tuple[Path, str]] = []
 
-        all_paths = sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix())
+        all_paths = sorted(
+            root.rglob("*"), key=lambda p: p.relative_to(root).as_posix()
+        )
 
         for p in all_paths:
-            # Check symlink escape
+            if p in excluded_paths:
+                continue
+
+            if p.is_symlink():
+                link_target = Path(p.readlink())
+                if link_target.is_absolute():
+                    raise DomainPackagingError(
+                        f"Absolute symlink is not allowed in domain pack: {p}"
+                    )
+                try:
+                    resolved = p.resolve(strict=True)
+                except (OSError, RuntimeError) as exc:
+                    raise DomainPackagingError(
+                        f"Broken or ambiguous symlink in domain pack: {p}"
+                    ) from exc
+            else:
+                try:
+                    resolved = p.resolve(strict=True)
+                except OSError as exc:
+                    raise DomainPackagingError(
+                        f"Path could not be resolved in domain pack: {p}"
+                    ) from exc
+
             try:
-                resolved = p.resolve()
                 resolved.relative_to(root)
             except ValueError as exc:
                 raise DomainPackagingError(
