@@ -19,9 +19,11 @@ from cmm.domains.contracts import (
     _deep_unfreeze,
     _ensure_tz_aware,
 )
+from cmm.domains.credential_policy import contains_high_confidence_credential
 from cmm.domains.errors import (
     DomainContractValidationError,
     DomainSessionContractError,
+    DomainSessionSecurityError,
     DomainSessionSerializationError,
 )
 
@@ -31,6 +33,31 @@ DOMAIN_SESSION_SCHEMA_VERSION: int = 1
 
 
 # ── Internal Validation & Parsing Helpers ─────────────────────────────────────
+
+
+def _validate_no_credentials(value: Any, field_name: str) -> None:
+    """Recursively validate that value contains no high-confidence credentials."""
+    if isinstance(value, str):
+        if contains_high_confidence_credential(value):
+            raise DomainSessionSecurityError(
+                f"High-confidence credential detected in {field_name}",
+                field=field_name,
+                details={"security_violation": "credential_detected"},
+            )
+    elif isinstance(value, Mapping):
+        for k, v in value.items():
+            if isinstance(k, str) and contains_high_confidence_credential(k):
+                raise DomainSessionSecurityError(
+                    f"High-confidence credential detected in {field_name} key",
+                    field=field_name,
+                    details={"security_violation": "credential_detected"},
+                )
+            _validate_no_credentials(
+                v, f"{field_name}.{k}" if isinstance(k, str) else field_name
+            )
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _validate_no_credentials(item, field_name)
 
 
 def _reject_unknown_fields(
@@ -52,6 +79,7 @@ def _validate_non_empty(val: Any, field_name: str) -> str:
         raise DomainSessionContractError(
             f"{field_name} must be a non-empty string", field=field_name
         )
+    _validate_no_credentials(val, field_name)
     return val.strip()
 
 
@@ -62,6 +90,7 @@ def _validate_non_empty_serialization(val: Any, field_name: str) -> str:
             f"{field_name} must be a non-empty string, got {val!r}",
             field=field_name,
         )
+    _validate_no_credentials(val, field_name)
     return val.strip()
 
 
@@ -77,6 +106,7 @@ def _dedupe_tuple(items: Iterable[Any] | None, field_name: str) -> tuple[str, ..
                 f"{field_name} items must be non-empty strings",
                 field=field_name,
             )
+        _validate_no_credentials(item, field_name)
         cleaned = item.strip()
         if cleaned not in seen:
             seen.add(cleaned)
@@ -118,6 +148,7 @@ def _freeze_nested_refs_map(
             raise DomainSessionContractError(
                 f"{field_name} keys must be non-empty strings", field=field_name
             )
+        _validate_no_credentials(k, f"{field_name}_key")
         if not isinstance(v, (list, tuple, set, frozenset)):
             raise DomainSessionContractError(
                 f"{field_name}[{k!r}] must be a sequence of strings",
@@ -143,11 +174,13 @@ def _freeze_str_str_map(
             raise DomainSessionContractError(
                 f"{field_name} keys must be non-empty strings", field=field_name
             )
+        _validate_no_credentials(k, f"{field_name}_key")
         if not isinstance(v, str) or not v.strip():
             raise DomainSessionContractError(
                 f"{field_name}[{k!r}] must be a non-empty string",
                 field=field_name,
             )
+        _validate_no_credentials(v, f"{field_name}[{k!r}]")
         frozen[k.strip()] = v.strip()
     return MappingProxyType(frozen)
 
@@ -229,6 +262,7 @@ class DomainSessionCheck:
                 f"blocking must be a bool, got {self.blocking!r}",
                 field="blocking",
             )
+        _validate_no_credentials(self.details, "details")
         object.__setattr__(self, "details", _deep_freeze(dict(self.details)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -338,6 +372,7 @@ class DomainSessionTransition:
                 exc.message, field=exc.field, details=dict(exc.details)
             ) from exc
 
+        _validate_no_credentials(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -552,6 +587,7 @@ class DomainSessionContext:
                 exc.message, field=exc.field, details=dict(exc.details)
             ) from exc
 
+        _validate_no_credentials(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -744,6 +780,7 @@ class DomainSessionResumeRequest:
                 self.current_knowledge_versions, "current_knowledge_versions"
             ),
         )
+        _validate_no_credentials(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -872,6 +909,7 @@ class DomainSessionResumeResult:
                 f"recorded_resumption must be a bool, got {self.recorded_resumption!r}",
                 field="recorded_resumption",
             )
+        _validate_no_credentials(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
