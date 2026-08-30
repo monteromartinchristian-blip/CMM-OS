@@ -419,6 +419,7 @@ class DomainWorkflowClassification(str, Enum):
     MISSING = "MISSING"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
 
 
 def revalidate_workflows(
@@ -446,7 +447,7 @@ def revalidate_workflows(
             except Exception:  # noqa: BLE001
                 classification = DomainWorkflowClassification.INCOMPATIBLE
         else:
-            classification = DomainWorkflowClassification.CURRENT
+            classification = DomainWorkflowClassification.UNKNOWN
 
         if classification in (
             DomainWorkflowClassification.COMPLETED,
@@ -491,6 +492,7 @@ def revalidate_workflows(
         elif classification in (
             DomainWorkflowClassification.INCOMPATIBLE,
             DomainWorkflowClassification.MISSING,
+            DomainWorkflowClassification.UNKNOWN,
         ):
             active_refs.append(wf_id)
             checks.append(

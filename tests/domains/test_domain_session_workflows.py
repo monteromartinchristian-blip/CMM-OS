@@ -154,3 +154,48 @@ def test_resumer_integrates_workflow_reconciliation():
     assert res.status is DomainSessionResumeStatus.RESUMED
     assert res.context is not None
     assert res.context.active_workflow_refs == ("wf:migrated",)
+
+
+def test_active_workflow_without_workflow_evaluator_fails_closed():
+    """Active workflows without workflow authority must fail closed."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        active_workflow_refs=("wf:unverified_active",),
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        workflow_evaluator=None,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    res = resumer.resume(req, ctx)
+
+    assert res.status is DomainSessionResumeStatus.BLOCKED
+    assert res.recorded_resumption is False
+    assert res.context is None
+    assert any("workflow authority" in f.lower() for f in res.blocking_findings)
+
+
+def test_revalidate_workflows_unknown_workflow_fails_closed():
+    """Unknown workflow not present in status mapping must be classified UNKNOWN and block."""
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        active_workflow_refs=("wf:unregistered_ghost",),
+        updated_at=_now(),
+    )
+    checks, active_refs, overall_status = revalidate_workflows(
+        ctx, workflow_statuses={}
+    )
+
+    assert overall_status is DomainSessionResumeStatus.INCOMPATIBLE
+    assert active_refs == ("wf:unregistered_ghost",)
+    assert len(checks) == 1
+    assert checks[0].status is DomainSessionCheckStatus.INCOMPATIBLE
+    assert checks[0].blocking is True
+    assert checks[0].details.get("status") == "UNKNOWN"

@@ -24,17 +24,21 @@ def _now() -> datetime:
     return datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
 
 
+def _make_definition(slug: str, version: str = "1.0.0") -> DomainDefinition:
+    return DomainDefinition(
+        id=DomainId(slug=slug),
+        name=slug,
+        display_name=f"Domain {slug}",
+        version=version,
+        kind=DomainKind.PERSONAL,
+        description=f"Description for {slug}",
+        manifest_id=DomainManifestId(slug=slug, version=version),
+    )
+
+
 def _setup_registry() -> DomainRegistry:
     reg = DomainRegistry()
-    d_health = DomainDefinition(
-        id=DomainId(slug="health"),
-        name="health",
-        display_name="Health Domain",
-        version="1.0.0",
-        kind=DomainKind.PERSONAL,
-        description="Health description",
-        manifest_id=DomainManifestId(slug="health", version="1.0.0"),
-    )
+    d_health = _make_definition("health", "1.0.0")
     reg.register(d_health)
     now = _now()
     reg.restore_record(
@@ -163,3 +167,116 @@ def test_blocking_conflict_blocks_resumption():
     assert result.status is DomainSessionResumeStatus.BLOCKED
     assert result.context is None
     assert any("conflict" in finding.lower() for finding in result.blocking_findings)
+
+
+def test_pending_questions_without_evaluator_fails_closed():
+    """Pending questions without question authority must fail closed."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        pending_domain_question_refs=("q:unverified_question",),
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        question_evaluator=None,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+    assert result.context is None
+    assert any("question authority" in f.lower() for f in result.blocking_findings)
+
+
+def test_pending_approvals_without_evaluator_fails_closed():
+    """Pending approvals without approval authority must fail closed."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        approval_refs=("appr:unverified_approval",),
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        approval_evaluator=None,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+    assert result.context is None
+    assert any("approval authority" in f.lower() for f in result.blocking_findings)
+
+
+def test_conflict_refs_without_evaluator_fails_closed():
+    """Conflict references without conflict authority must fail closed."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        domain_conflict_refs=("conf:unverified",),
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        conflict_evaluator=None,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+    assert result.context is None
+    assert any("conflict authority" in f.lower() for f in result.blocking_findings)
+
+
+def test_material_recomposition_drops_questions_for_removed_domain():
+    """Material recomposition must re-evaluate questions and drop questions of removed domains."""
+    reg = _setup_registry()
+    d_fitness = _make_definition("fitness", "1.0.0")
+    reg.register(d_fitness)
+    # Disable fitness domain
+    reg.restore_record(
+        DomainRegistryRecord(
+            definition=d_fitness,
+            status=DomainStatus.DISABLED,
+            registered_at=_now(),
+            updated_at=_now(),
+        )
+    )
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        supporting_domains=("domain:fitness",),
+        pending_domain_question_refs=("q:health_symptoms", "q:fitness_intensity"),
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        question_evaluator=lambda q_refs: (q_refs, ()),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.WAITING_FOR_USER
+    assert result.context is not None
+    assert "q:fitness_intensity" not in result.context.pending_domain_question_refs
+    assert result.context.pending_domain_question_refs == ("q:health_symptoms",)
+    assert any("dropped" in w.lower() for w in result.warnings)

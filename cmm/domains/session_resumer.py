@@ -283,6 +283,118 @@ class DomainSessionResumer:
                 recorded_resumption=False,
             )
 
+        if context.active_workflow_refs and self._workflow_evaluator is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="workflow_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=(
+                            "Workflow authority is required for resumption when "
+                            "active workflows are present"
+                        ),
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=(
+                    (
+                        "Workflow authority is required for resumption when active "
+                        "workflows are present"
+                    ),
+                ),
+                recorded_resumption=False,
+            )
+
+        if context.domain_conflict_refs and self._conflict_evaluator is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="conflict_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=(
+                            "Conflict authority is required for resumption when "
+                            "conflict references are present"
+                        ),
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=(
+                    (
+                        "Conflict authority is required for resumption when "
+                        "conflict references are present"
+                    ),
+                ),
+                recorded_resumption=False,
+            )
+
+        if context.pending_domain_question_refs and self._question_evaluator is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="question_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=(
+                            "Question authority is required for resumption when "
+                            "pending questions are present"
+                        ),
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=(
+                    (
+                        "Question authority is required for resumption when "
+                        "pending questions are present"
+                    ),
+                ),
+                recorded_resumption=False,
+            )
+
+        if context.approval_refs and self._approval_evaluator is None:
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.BLOCKED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=(
+                    DomainSessionCheck(
+                        name="approval_authority_check",
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=(
+                            "Approval authority is required for resumption when "
+                            "approvals are present"
+                        ),
+                        blocking=True,
+                    ),
+                ),
+                warnings=(),
+                blocking_findings=(
+                    (
+                        "Approval authority is required for resumption when "
+                        "approvals are present"
+                    ),
+                ),
+                recorded_resumption=False,
+            )
+
         # 2. Pure revalidation
         pure_checks = revalidate_session_state(context, self._registry, request)
         checks.extend(pure_checks)
@@ -695,6 +807,37 @@ class DomainSessionResumer:
                 warnings.append(
                     f"Dropped {len(invalid_questions)} invalidated questions"
                 )
+
+        # Invalidate questions targeting domains removed during recomposition/re-resolution
+        if (
+            status
+            in (
+                DomainSessionResumeStatus.RECOMPOSED,
+                DomainSessionResumeStatus.RE_RESOLVED,
+            )
+            and recovered_questions
+        ):
+            active_slugs = {_extract_slug(effective_primary)} | {
+                _extract_slug(s) for s in effective_supporting
+            }
+            prev_slugs = {_extract_slug(context.primary_domain)} | {
+                _extract_slug(s) for s in context.supporting_domains
+            }
+            removed_slugs = prev_slugs - active_slugs
+            if removed_slugs:
+                retained_q = []
+                dropped_q = []
+                for q in recovered_questions:
+                    q_lower = q.lower()
+                    if any(slug in q_lower for slug in removed_slugs):
+                        dropped_q.append(q)
+                    else:
+                        retained_q.append(q)
+                recovered_questions = tuple(retained_q)
+                if dropped_q:
+                    warnings.append(
+                        f"Dropped {len(dropped_q)} question(s) from removed domain(s): {sorted(removed_slugs)}"
+                    )
 
         recovered_approvals = context.approval_refs
         if self._approval_evaluator is not None:
