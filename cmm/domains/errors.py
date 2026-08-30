@@ -854,6 +854,43 @@ class DomainEventPublicationError(DomainEventError):
     code = "DOMAIN_EVENT_PUBLICATION_ERROR"
 
 
+# Phase 10.34 – Domain Sessions
+class DomainSessionError(DomainError):
+    """Base error for all Domain Session operations."""
+
+    code = "DOMAIN_SESSION_ERROR"
+
+
+class DomainSessionContractError(DomainSessionError, DomainContractValidationError):
+    """Raised when a Domain Session contract is violated or fails validation."""
+
+    code = "DOMAIN_SESSION_CONTRACT_ERROR"
+
+
+class DomainSessionSerializationError(DomainSessionContractError):
+    """Raised when Domain Session serialization or deserialization fails."""
+
+    code = "DOMAIN_SESSION_SERIALIZATION_ERROR"
+
+
+class DomainSessionRevalidationError(DomainSessionError):
+    """Raised when Domain Session revalidation fails."""
+
+    code = "DOMAIN_SESSION_REVALIDATION_ERROR"
+
+
+class DomainSessionResumeError(DomainSessionError):
+    """Raised when Domain Session resumption fails."""
+
+    code = "DOMAIN_SESSION_RESUME_ERROR"
+
+
+class DomainSessionSecurityError(DomainSessionError):
+    """Raised when Domain Session security or credential policy is violated."""
+
+    code = "DOMAIN_SESSION_SECURITY_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -962,6 +999,12 @@ __all__ = [
     "DomainRuleSelectionError",
     "DomainRuleSerializationError",
     "DomainSerializationError",
+    "DomainSessionContractError",
+    "DomainSessionError",
+    "DomainSessionResumeError",
+    "DomainSessionRevalidationError",
+    "DomainSessionSecurityError",
+    "DomainSessionSerializationError",
     "DomainSourceUntrusted",
     "DomainUnloadFailed",
     "DomainUnloadRollbackFailed",
