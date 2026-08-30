@@ -5114,8 +5114,11 @@ On resume:
 
 10.35 - Domain SDK
 
-> **Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V2 pending;
-> Phase 10.35 is not closed.
+> **Status:** Complete — independently audited and closed. Final independent audit V3: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-035=VERIFIED_EXISTING`; `AT-DP-035=PASS`.
+>
+> **Audited implementation HEAD:** `6893dc68c64b9780df3da29877a7935cfe5e9cba`
+> **Audit V3 bundle SHA-256:** `1d5847215a81d8ae8a29ee42fcf38227a582b0aa0683164d545e3871345f2848`
+> **Independent audit:** `docs/audits/phase-10.35-independent-audit-v3.md`
 
 Objective
 
