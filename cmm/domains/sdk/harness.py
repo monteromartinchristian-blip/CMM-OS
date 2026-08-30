@@ -16,8 +16,8 @@ from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.profile_registry import InMemoryDomainProfileRegistry
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
-from cmm.domains.sdk.cli import validate_domain_path
 from cmm.domains.sdk.fixtures import DomainFixtureLoader
+from cmm.domains.sdk.validation import validate_domain_path
 from cmm.domains.validation_contracts import DomainValidationResult
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 

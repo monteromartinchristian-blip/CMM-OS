@@ -286,3 +286,55 @@ def test_cli_domain_test_path_with_spaces(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, f"Test with spaces failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+
+
+def test_cli_domain_pack_success(tmp_path: Path) -> None:
+    pack_root = tmp_path / "pack-target"
+    DomainScaffolder().create("pack-target", destination=pack_root)
+
+    out_archive = tmp_path / "pack-target.tar.gz"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "pack",
+            str(pack_root),
+            "--output",
+            str(out_archive),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"Pack command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert out_archive.is_file()
+
+
+def test_cli_domain_pack_failure_on_invalid_pack(tmp_path: Path) -> None:
+    pack_root = tmp_path / "broken-target"
+    DomainScaffolder().create("broken-target", destination=pack_root)
+
+    # Corrupt manifest
+    (pack_root / "manifest.json").write_text("{invalid json", encoding="utf-8")
+
+    out_archive = tmp_path / "broken-target.tar.gz"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "pack",
+            str(pack_root),
+            "--output",
+            str(out_archive),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not out_archive.exists()
+    assert "Traceback" not in result.stderr

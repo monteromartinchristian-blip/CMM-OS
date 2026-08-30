@@ -13,7 +13,9 @@ from cmm.domains.sdk.harness import (
     DomainHarnessError,
     DomainTestHarness,
 )
+from cmm.domains.sdk.packager import DomainPackager, DomainPackagingError
 from cmm.domains.sdk.scaffold import DomainScaffolder, DomainScaffoldError
+from cmm.domains.sdk.validation import validate_domain_path
 
 __all__ = [
     "DomainBuilder",
@@ -21,8 +23,11 @@ __all__ = [
     "DomainFixtureLoader",
     "DomainHarnessContext",
     "DomainHarnessError",
+    "DomainPackager",
+    "DomainPackagingError",
     "DomainScaffoldError",
     "DomainScaffolder",
     "DomainTestHarness",
     "ManifestBuilder",
+    "validate_domain_path",
 ]
