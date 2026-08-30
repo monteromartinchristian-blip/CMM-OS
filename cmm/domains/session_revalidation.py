@@ -7,6 +7,8 @@ and temporal validity.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from cmm.domains.enums import DomainStatus
@@ -16,6 +18,7 @@ from cmm.domains.session_contracts import (
     DomainSessionCheckStatus,
     DomainSessionContext,
     DomainSessionResumeRequest,
+    DomainSessionResumeStatus,
 )
 
 if TYPE_CHECKING:
@@ -397,9 +400,120 @@ def revalidate_session_state(
     return tuple(checks)
 
 
+class DomainWorkflowClassification(str, Enum):
+    """Classification of a resumed domain workflow reference."""
+
+    CURRENT = "CURRENT"
+    MIGRATED = "MIGRATED"
+    REPLAN_REQUIRED = "REPLAN_REQUIRED"
+    INCOMPATIBLE = "INCOMPATIBLE"
+    MISSING = "MISSING"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+def revalidate_workflows(
+    context: DomainSessionContext,
+    workflow_statuses: Mapping[str, str] | None = None,
+    workflow_migrations: Mapping[str, str] | None = None,
+) -> tuple[
+    tuple[DomainSessionCheck, ...],
+    tuple[str, ...],
+    DomainSessionResumeStatus | None,
+]:
+    """Revalidate and reconcile active workflow references for resumed session."""
+    checks: list[DomainSessionCheck] = []
+    active_refs: list[str] = []
+    overall_status: DomainSessionResumeStatus | None = None
+
+    statuses = dict(workflow_statuses) if workflow_statuses is not None else {}
+    migrations = dict(workflow_migrations) if workflow_migrations is not None else {}
+
+    for wf_id in context.active_workflow_refs:
+        raw_status = statuses.get(wf_id, DomainWorkflowClassification.CURRENT.value)
+        try:
+            classification = DomainWorkflowClassification(raw_status.upper())
+        except Exception:  # noqa: BLE001
+            classification = DomainWorkflowClassification.CURRENT
+
+        if classification in (
+            DomainWorkflowClassification.COMPLETED,
+            DomainWorkflowClassification.CANCELLED,
+        ):
+            checks.append(
+                DomainSessionCheck(
+                    name=f"workflow_{wf_id}",
+                    status=DomainSessionCheckStatus.PASS,
+                    message=f"Workflow '{wf_id}' is {classification.value.lower()} and retired",
+                    blocking=False,
+                    details={
+                        "workflow_id": wf_id,
+                        "status": classification.value,
+                    },
+                )
+            )
+        elif classification is DomainWorkflowClassification.MIGRATED:
+            target = migrations.get(wf_id, wf_id)
+            active_refs.append(target)
+            checks.append(
+                DomainSessionCheck(
+                    name=f"workflow_{wf_id}",
+                    status=DomainSessionCheckStatus.CHANGED,
+                    message=f"Workflow '{wf_id}' migrated to '{target}'",
+                    blocking=False,
+                    details={"workflow_id": wf_id, "migrated_to": target},
+                )
+            )
+        elif classification is DomainWorkflowClassification.REPLAN_REQUIRED:
+            active_refs.append(wf_id)
+            checks.append(
+                DomainSessionCheck(
+                    name=f"workflow_{wf_id}",
+                    status=DomainSessionCheckStatus.WARNING,
+                    message=f"Workflow '{wf_id}' requires replanning",
+                    blocking=False,
+                    details={"workflow_id": wf_id},
+                )
+            )
+            overall_status = DomainSessionResumeStatus.REPLAN_REQUIRED
+        elif classification in (
+            DomainWorkflowClassification.INCOMPATIBLE,
+            DomainWorkflowClassification.MISSING,
+        ):
+            active_refs.append(wf_id)
+            checks.append(
+                DomainSessionCheck(
+                    name=f"workflow_{wf_id}",
+                    status=DomainSessionCheckStatus.INCOMPATIBLE,
+                    message=f"Workflow '{wf_id}' is {classification.value.lower()}",
+                    blocking=True,
+                    details={
+                        "workflow_id": wf_id,
+                        "status": classification.value,
+                    },
+                )
+            )
+            overall_status = DomainSessionResumeStatus.INCOMPATIBLE
+        else:
+            active_refs.append(wf_id)
+            checks.append(
+                DomainSessionCheck(
+                    name=f"workflow_{wf_id}",
+                    status=DomainSessionCheckStatus.PASS,
+                    message=f"Workflow '{wf_id}' is current",
+                    blocking=False,
+                    details={"workflow_id": wf_id},
+                )
+            )
+
+    return tuple(checks), tuple(active_refs), overall_status
+
+
 __all__ = [
+    "DomainWorkflowClassification",
     "revalidate_domains",
     "revalidate_resource_and_knowledge_drift",
     "revalidate_session_state",
     "revalidate_temporal",
+    "revalidate_workflows",
 ]
