@@ -237,47 +237,48 @@ class DefaultDomainAPI:
         self._trace_assembler = trace_assembler
         self._trace_validator = trace_validator
 
-    # ── Registry and inspection (Task 2) ─────────────────────────────────
+    # ── Registry and inspection ──────────────────────────────────────────
 
     def list_domains(
         self, query: DomainQuery | None = None
     ) -> tuple[DomainDefinition, ...]:
         """Delegate to ``DomainRegistry.list``."""
-        raise NotImplementedError
+        return self._domain_registry.list(query)
 
     def get_domain(
         self, domain_id: str, version: str | None = None
     ) -> DomainDefinition | None:
         """Delegate to the canonical registry lookup."""
-        raise NotImplementedError
+        return self._domain_registry.get(domain_id, version)
 
     def get_capabilities(
         self, domain_id: str, version: str | None = None
     ) -> tuple[Any, ...]:
         """Return the capabilities declared by the canonical definition."""
-        raise NotImplementedError
+        definition = self._domain_registry.get_required(domain_id, version)
+        return definition.capabilities
 
     def get_resources(
         self, domain_id: str, version: str | None = None
     ) -> tuple[str, ...]:
         """Delegate to ``DomainRegistry.list_resources``."""
-        raise NotImplementedError
+        return self._domain_registry.list_resources(domain_id, version)
 
     def get_rules(self, domain_id: str, version: str | None = None) -> tuple[str, ...]:
         """Delegate to ``DomainRegistry.list_rules``."""
-        raise NotImplementedError
+        return self._domain_registry.list_rules(domain_id, version)
 
     def get_operations(
         self, domain_id: str, version: str | None = None
     ) -> tuple[str, ...]:
         """Delegate to ``DomainRegistry.list_operations``."""
-        raise NotImplementedError
+        return self._domain_registry.list_operations(domain_id, version)
 
     def get_workflows(
         self, domain_id: str, version: str | None = None
     ) -> tuple[str, ...]:
         """Delegate to ``DomainRegistry.list_workflows``."""
-        raise NotImplementedError
+        return self._domain_registry.list_workflows(domain_id, version)
 
     # ── Lifecycle (Task 3) ────────────────────────────────────────────────
 
