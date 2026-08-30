@@ -18,6 +18,7 @@ from cmm.domains.session_contracts import (
 )
 from cmm.domains.session_resumer import DomainSessionResumer
 from tests.domains.domain_session_test_support import (
+    StubDomainResolver,
     failing_shared_session_adapter,
     shared_session_adapter,
 )
@@ -109,7 +110,7 @@ def test_re_resolution_emits_resolution_completed_event():
     )
     resumer = DomainSessionResumer(
         registry=reg,
-        fallback_resolver=lambda p, s: "domain:general",
+        resolver=StubDomainResolver(primary_slug="general"),
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
@@ -176,7 +177,7 @@ def test_persistence_failure_prevents_event_emission():
     )
     resumer = DomainSessionResumer(
         registry=reg,
-        fallback_resolver=lambda p, s: "domain:general",
+        resolver=StubDomainResolver(primary_slug="general"),
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,

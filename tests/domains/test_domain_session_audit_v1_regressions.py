@@ -46,6 +46,7 @@ from cmm.domains.session_revalidation import (
     revalidate_workflows,
 )
 from tests.domains.domain_session_test_support import (
+    StubDomainResolver,
     failing_shared_session_adapter,
     shared_session_adapter,
 )
@@ -576,7 +577,9 @@ def test_reresolved_status_requires_real_resolution():
     )
     resumer = DomainSessionResumer(
         registry=reg,
-        fallback_resolver=lambda prim, sup: "domain:general",
+        resolver=StubDomainResolver(
+            primary_slug="general", resolution_id="res-audit-001"
+        ),
         permission_evaluator=lambda a, p: ("perm:gen_read",),
         operation_filter=lambda p, o: ("op:gen_query",),
         shared_session_adapter=shared_session_adapter(),
@@ -586,6 +589,41 @@ def test_reresolved_status_requires_real_resolution():
     assert result.status is DomainSessionResumeStatus.RE_RESOLVED
     assert result.context is not None
     assert result.context.primary_domain == "domain:general"
+    assert result.context.last_resolution_id == "res-audit-001"
+
+
+def test_resolver_double_must_be_invoked_on_inactive_primary():
+    """Unused resolver double that raises error when expected proves it is wired."""
+    reg = _build_test_registry()
+    d_health = _make_def("health", "1.0.0")
+    reg.restore_record(
+        DomainRegistryRecord(
+            definition=d_health,
+            status=DomainStatus.DISABLED,
+            registered_at=_now(),
+            updated_at=_now(),
+        )
+    )
+    ctx = DomainSessionContext(
+        session_id="s-resolv-trap",
+        primary_domain="domain:health",
+        updated_at=_now(),
+    )
+
+    class TrappingResolver:
+        def resolve(self, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("TrappingResolver invoked successfully")
+
+    resumer = DomainSessionResumer(
+        registry=reg,
+        resolver=TrappingResolver(),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="s-resolv-trap")
+    with pytest.raises(RuntimeError, match="TrappingResolver invoked successfully"):
+        resumer.resume(req, ctx)
 
 
 def test_composer_and_resolver_doubles_must_be_invoked():

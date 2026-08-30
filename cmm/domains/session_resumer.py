@@ -16,10 +16,12 @@ from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainResolutionStatus, DomainStatus
 from cmm.domains.errors import (
+    DomainError,
     DomainSessionResumeError,
     DomainSessionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.resolution_contracts import DomainResolutionContext
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_codec import DomainSessionCodec
 from cmm.domains.session_contracts import (
@@ -316,43 +318,163 @@ class DomainSessionResumer:
             c.status is DomainSessionCheckStatus.INCOMPATIBLE for c in checks
         )
 
-        if blocking_findings:
-            # Check if primary domain is missing/disabled and we have a fallback resolver
-            p_active = self._is_domain_active(context.primary_domain)
-            if not p_active and self._fallback_resolver is not None:
-                # Attempt safe re-resolution
-                try:
-                    new_primary = self._fallback_resolver(
-                        context.primary_domain, context.supporting_domains
-                    )
-                except Exception:  # noqa: BLE001
-                    new_primary = None
+        re_resolution_result: DomainResolutionResult | None = None
+        effective_primary = context.primary_domain
+        effective_supporting = context.supporting_domains
+        now_ts = request.temporal_reference or datetime.now(timezone.utc)
 
-                if new_primary and self._is_domain_active(new_primary):
-                    # Filter out primary domain blocking check and proceed to re-resolve
+        if blocking_findings:
+            p_active = self._is_domain_active(context.primary_domain)
+            if not p_active:
+                if self._resolver is not None:
+                    all_reg_domains = (
+                        tuple(r.definition.id for r in self._registry.list_records())
+                        if self._registry is not None
+                        else ()
+                    )
+                    avail_slug_set = {d.slug for d in all_reg_domains}
+                    res_ctx = DomainResolutionContext(
+                        id=f"domain-resolution-ctx-resume-{session_id}",
+                        session_id=session_id,
+                        objective=(
+                            f"Domain session resumption for session '{session_id}' "
+                            f"(re-resolve primary domain '{context.primary_domain}')"
+                        ),
+                        available_domains=all_reg_domains,
+                        explicit_domains=tuple(
+                            DomainId(slug=_extract_slug(s))
+                            for s in context.supporting_domains
+                            if _extract_slug(s) in avail_slug_set
+                        ),
+                        active_domains=(
+                            tuple(
+                                r.definition.id
+                                for r in self._registry.list_records()
+                                if r.status
+                                in (DomainStatus.ACTIVE, DomainStatus.DEGRADED)
+                            )
+                            if self._registry is not None
+                            else ()
+                        ),
+                        current_profile=context.effective_profile,
+                        current_workflow=(
+                            context.active_workflow_refs[0]
+                            if context.active_workflow_refs
+                            else None
+                        ),
+                        requested_operations=context.available_operation_ids,
+                        actor=str(request.actor or "system"),
+                        temporal_reference=now_ts,
+                    )
+                    try:
+                        resolved_cand = self._resolver.resolve(res_ctx)
+                    except DomainError as exc:
+                        return DomainSessionResumeResult(
+                            status=DomainSessionResumeStatus.BLOCKED,
+                            session_id=session_id,
+                            previous_revision=previous_revision,
+                            resumed_revision=previous_revision,
+                            context=None,
+                            checks=tuple(checks),
+                            warnings=tuple(warnings),
+                            blocking_findings=(f"Domain resolution failed: {exc}",),
+                            recorded_resumption=False,
+                        )
+
+                    if (
+                        resolved_cand is None
+                        or resolved_cand.status != DomainResolutionStatus.RESOLVED
+                        or resolved_cand.primary_domain is None
+                    ):
+                        res_status_name = (
+                            resolved_cand.status.value
+                            if resolved_cand and hasattr(resolved_cand, "status")
+                            else "UNRESOLVED"
+                        )
+                        return DomainSessionResumeResult(
+                            status=DomainSessionResumeStatus.BLOCKED,
+                            session_id=session_id,
+                            previous_revision=previous_revision,
+                            resumed_revision=previous_revision,
+                            context=None,
+                            checks=tuple(checks),
+                            warnings=tuple(warnings),
+                            blocking_findings=(
+                                f"Domain resolution for inactive primary domain failed with status '{res_status_name}'",
+                            ),
+                            recorded_resumption=False,
+                        )
+
+                    if (
+                        resolved_cand.confidence is not None
+                        and resolved_cand.confidence < 0.5
+                    ):
+                        return DomainSessionResumeResult(
+                            status=DomainSessionResumeStatus.BLOCKED,
+                            session_id=session_id,
+                            previous_revision=previous_revision,
+                            resumed_revision=previous_revision,
+                            context=None,
+                            checks=tuple(checks),
+                            warnings=tuple(warnings),
+                            blocking_findings=(
+                                f"Domain resolution confidence ({resolved_cand.confidence}) is below required threshold",
+                            ),
+                            recorded_resumption=False,
+                        )
+
+                    new_slug = _extract_slug(
+                        resolved_cand.primary_domain.slug
+                        if hasattr(resolved_cand.primary_domain, "slug")
+                        else str(resolved_cand.primary_domain)
+                    )
+                    if not self._is_domain_active(new_slug):
+                        return DomainSessionResumeResult(
+                            status=DomainSessionResumeStatus.BLOCKED,
+                            session_id=session_id,
+                            previous_revision=previous_revision,
+                            resumed_revision=previous_revision,
+                            context=None,
+                            checks=tuple(checks),
+                            warnings=tuple(warnings),
+                            blocking_findings=(
+                                f"Resolved primary domain '{new_slug}' is not active in registry",
+                            ),
+                            recorded_resumption=False,
+                        )
+
+                    re_resolution_result = resolved_cand
+                    effective_primary = f"domain:{new_slug}"
+                    if resolved_cand.supporting_domains:
+                        sup_slugs = tuple(
+                            f"domain:{s.slug if hasattr(s, 'slug') else str(s)}"
+                            for s in resolved_cand.supporting_domains
+                        )
+                        effective_supporting = tuple(
+                            s for s in sup_slugs if self._is_domain_active(s)
+                        )
+
                     blocking_findings = [
                         c.message
                         for c in checks
                         if c.blocking and c.name != "primary_domain_status"
                     ]
                 else:
-                    status = (
-                        DomainSessionResumeStatus.INCOMPATIBLE
-                        if has_incompatible
-                        else DomainSessionResumeStatus.BLOCKED
-                    )
                     return DomainSessionResumeResult(
-                        status=status,
+                        status=DomainSessionResumeStatus.BLOCKED,
                         session_id=session_id,
                         previous_revision=previous_revision,
                         resumed_revision=previous_revision,
                         context=None,
                         checks=tuple(checks),
                         warnings=tuple(warnings),
-                        blocking_findings=tuple(blocking_findings),
+                        blocking_findings=(
+                            f"Primary domain '{context.primary_domain}' is inactive and canonical resolver authority is required",
+                        ),
                         recorded_resumption=False,
                     )
-            else:
+
+            if blocking_findings:
                 status = (
                     DomainSessionResumeStatus.INCOMPATIBLE
                     if has_incompatible
@@ -371,41 +493,13 @@ class DomainSessionResumer:
                 )
 
         # 4. Domain Resolution / Recomposition logic
-        status = DomainSessionResumeStatus.RESUMED
-        effective_primary = context.primary_domain
-        effective_supporting = context.supporting_domains
         new_transition: DomainSessionTransition | None = None
-        now_ts = request.temporal_reference or datetime.now(timezone.utc)
-
-        # Check primary domain
-        if not self._is_domain_active(context.primary_domain):
-            if self._fallback_resolver is not None:
-                effective_primary = self._fallback_resolver(
-                    context.primary_domain, context.supporting_domains
-                )
-                status = DomainSessionResumeStatus.RE_RESOLVED
-                new_transition = DomainSessionTransition(
-                    previous_primary_domain=context.primary_domain,
-                    new_primary_domain=effective_primary,
-                    previous_supporting_domains=context.supporting_domains,
-                    new_supporting_domains=context.supporting_domains,
-                    reason_code="RE_RESOLUTION",
-                    occurred_at=now_ts,
-                )
-            else:
-                return DomainSessionResumeResult(
-                    status=DomainSessionResumeStatus.BLOCKED,
-                    session_id=session_id,
-                    previous_revision=previous_revision,
-                    resumed_revision=previous_revision,
-                    context=None,
-                    checks=tuple(checks),
-                    warnings=tuple(warnings),
-                    blocking_findings=(
-                        f"Primary domain '{context.primary_domain}' is inactive and no resolver available",
-                    ),
-                    recorded_resumption=False,
-                )
+        if re_resolution_result is not None:
+            status = DomainSessionResumeStatus.RE_RESOLVED
+            last_resolution_id = re_resolution_result.id
+        else:
+            status = DomainSessionResumeStatus.RESUMED
+            last_resolution_id = context.last_resolution_id
 
         # Check supporting domains
         active_supporting = tuple(
@@ -413,16 +507,8 @@ class DomainSessionResumer:
         )
         if active_supporting != effective_supporting:
             effective_supporting = active_supporting
-            if new_transition is None:
+            if re_resolution_result is None:
                 status = DomainSessionResumeStatus.RECOMPOSED
-                new_transition = DomainSessionTransition(
-                    previous_primary_domain=context.primary_domain,
-                    new_primary_domain=effective_primary,
-                    previous_supporting_domains=context.supporting_domains,
-                    new_supporting_domains=effective_supporting,
-                    reason_code="RECOMPOSITION_SUPPORTING_DISABLED",
-                    occurred_at=now_ts,
-                )
 
         # 4.5 Real Composition execution when composition is needed or composer provided (BLOCKER-02)
         composition_id = context.composition_id
@@ -443,17 +529,20 @@ class DomainSessionResumer:
             composer_to_use = DefaultDomainComposer()
 
         if composer_to_use is not None:
-            res_result = DomainResolutionResult(
-                id=f"domain-resolution-resume-{session_id}",
-                context_id=f"ctx-resume-{session_id}",
-                status=DomainResolutionStatus.RESOLVED,
-                primary_domain=DomainId(slug=_extract_slug(effective_primary)),
-                supporting_domains=tuple(
-                    DomainId(slug=_extract_slug(s)) for s in effective_supporting
-                ),
-                confidence=1.0,
-                resolved_at=now_ts,
-            )
+            if re_resolution_result is not None:
+                res_result = re_resolution_result
+            else:
+                res_result = DomainResolutionResult(
+                    id=last_resolution_id or f"domain-resolution-resume-{session_id}",
+                    context_id=f"ctx-resume-{session_id}",
+                    status=DomainResolutionStatus.RESOLVED,
+                    primary_domain=DomainId(slug=_extract_slug(effective_primary)),
+                    supporting_domains=tuple(
+                        DomainId(slug=_extract_slug(s)) for s in effective_supporting
+                    ),
+                    confidence=1.0,
+                    resolved_at=now_ts,
+                )
             definitions: list[DomainDefinition] = []
             if self._registry is not None:
                 p_rec = self._registry.get_record(_extract_slug(effective_primary))
@@ -477,6 +566,29 @@ class DomainSessionResumer:
             else:
                 composition_id = (
                     getattr(composed, "id", None) or f"domain-composition-{session_id}"
+                )
+
+            if re_resolution_result is not None:
+                new_transition = DomainSessionTransition(
+                    previous_primary_domain=context.primary_domain,
+                    new_primary_domain=effective_primary,
+                    previous_supporting_domains=context.supporting_domains,
+                    new_supporting_domains=effective_supporting,
+                    reason_code="RE_RESOLUTION",
+                    resolution_id=re_resolution_result.id,
+                    composition_id=composition_id,
+                    occurred_at=now_ts,
+                )
+            elif status is DomainSessionResumeStatus.RECOMPOSED:
+                new_transition = DomainSessionTransition(
+                    previous_primary_domain=context.primary_domain,
+                    new_primary_domain=effective_primary,
+                    previous_supporting_domains=context.supporting_domains,
+                    new_supporting_domains=effective_supporting,
+                    reason_code="RECOMPOSITION_SUPPORTING_DISABLED",
+                    resolution_id=last_resolution_id,
+                    composition_id=composition_id,
+                    occurred_at=now_ts,
                 )
             raw_profile = getattr(composed, "effective_profile", None)
             effective_profile = (
@@ -636,7 +748,7 @@ class DomainSessionResumer:
             partial_result_refs=context.partial_result_refs,
             trace_refs=context.trace_refs,
             domain_transitions=transitions,
-            last_resolution_id=context.last_resolution_id,
+            last_resolution_id=last_resolution_id,
             next_recommended_step=next_step,
             revision=previous_revision + 1,
             updated_at=now_ts,

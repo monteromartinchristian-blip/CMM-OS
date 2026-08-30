@@ -17,6 +17,7 @@ from cmm.domains.session_contracts import (
 )
 from cmm.domains.session_resumer import DomainSessionResumer
 from tests.domains.domain_session_test_support import (
+    StubDomainResolver,
     failing_shared_session_adapter,
     shared_session_adapter,
 )
@@ -162,10 +163,12 @@ def test_re_resolution_when_primary_domain_missing():
         primary_domain="domain:unregistered",
         updated_at=_now(),
     )
-    # Resolver that falls back safely to general domain
+    stub_resolver = StubDomainResolver(
+        primary_slug="general", resolution_id="res-reresolv-001"
+    )
     resumer = DomainSessionResumer(
         registry=reg,
-        fallback_resolver=lambda primary, supporting: "domain:general",
+        resolver=stub_resolver,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
         shared_session_adapter=shared_session_adapter(),
@@ -176,7 +179,65 @@ def test_re_resolution_when_primary_domain_missing():
     assert result.status is DomainSessionResumeStatus.RE_RESOLVED
     assert result.context is not None
     assert result.context.primary_domain == "domain:general"
+    assert result.context.last_resolution_id == "res-reresolv-001"
     assert len(result.context.domain_transitions) == 1
+    transition = result.context.domain_transitions[0]
+    assert transition.resolution_id == "res-reresolv-001"
+    assert transition.composition_id is not None
+    assert len(stub_resolver.invoked_with) == 1
+
+
+def test_inactive_primary_without_resolver_fails_closed():
+    """Fallback callback alone cannot bypass canonical resolver policy."""
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:unregistered",
+        updated_at=_now(),
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        resolver=None,
+        fallback_resolver=lambda p, s: "domain:general",
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+    assert result.context is None
+    assert any("canonical resolver" in f.lower() for f in result.blocking_findings)
+
+
+def test_ambiguous_resolution_fails_closed():
+    from cmm.domains.enums import DomainResolutionStatus
+
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:unregistered",
+        updated_at=_now(),
+    )
+    stub_resolver = StubDomainResolver(
+        primary_slug="general",
+        status=DomainResolutionStatus.AMBIGUOUS,
+    )
+    resumer = DomainSessionResumer(
+        registry=reg,
+        resolver=stub_resolver,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        shared_session_adapter=shared_session_adapter(),
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    result = resumer.resume(req, ctx)
+
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+    assert result.context is None
 
 
 def test_blocking_check_fails_closed():
