@@ -1,0 +1,399 @@
+{
+  "schema_version": 1,
+  "phase": "10.34",
+  "gate": "AT-DP-034",
+  "checkpoints": [
+    {
+      "checkpoint_id": 1,
+      "description": "One canonical Domain Session extension exists",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_01_canonical_extension",
+      "required": true
+    },
+    {
+      "checkpoint_id": 2,
+      "description": "Domain Sessions reuse Phase 8 shared session infrastructure",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_02_shared_session_reuse",
+      "required": true
+    },
+    {
+      "checkpoint_id": 3,
+      "description": "Primary and supporting domains are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_03_domain_preservation",
+      "required": true
+    },
+    {
+      "checkpoint_id": 4,
+      "description": "Stored domain versions permit drift detection",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_04_stored_versions_drift",
+      "required": true
+    },
+    {
+      "checkpoint_id": 5,
+      "description": "Composition continuity is preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_05_composition_continuity",
+      "required": true
+    },
+    {
+      "checkpoint_id": 6,
+      "description": "Effective profile continuity is preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_06_effective_profile_continuity",
+      "required": true
+    },
+    {
+      "checkpoint_id": 7,
+      "description": "Effective rule continuity is preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_07_effective_rule_continuity",
+      "required": true
+    },
+    {
+      "checkpoint_id": 8,
+      "description": "Permission continuity is historical evidence and never current authorization",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_08_effective_permission_untrusted_snapshot",
+      "required": true
+    },
+    {
+      "checkpoint_id": 9,
+      "description": "Resource references are grouped and preserved by domain",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_09_resource_refs_grouped_by_domain",
+      "required": true
+    },
+    {
+      "checkpoint_id": 10,
+      "description": "Knowledge references are grouped and preserved by domain",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_10_knowledge_refs_grouped_by_domain",
+      "required": true
+    },
+    {
+      "checkpoint_id": 11,
+      "description": "Workflow references are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_11_workflow_refs_preserved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 12,
+      "description": "Operation availability snapshots are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_12_operation_availability_snapshot_preserved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 13,
+      "description": "Pending questions are preserved and recovered without duplication",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_13_pending_questions_preserved_recovered",
+      "required": true
+    },
+    {
+      "checkpoint_id": 14,
+      "description": "Conflict references are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_14_conflict_refs_preserved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 15,
+      "description": "Approvals are preserved without becoming stale authorization",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_15_approvals_preserved_never_auto_authorize",
+      "required": true
+    },
+    {
+      "checkpoint_id": 16,
+      "description": "Partial result references are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_16_partial_result_refs_preserved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 17,
+      "description": "Trace references are preserved",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_17_trace_refs_preserved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 18,
+      "description": "Domain changes are explicitly recorded",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_18_domain_changes_explicitly_recorded",
+      "required": true
+    },
+    {
+      "checkpoint_id": 19,
+      "description": "Next recommended step is preserved or reconstructed",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_19_next_recommended_step_reconstructed",
+      "required": true
+    },
+    {
+      "checkpoint_id": 20,
+      "description": "Serialization is strict deterministic JSON-safe round-trippable and version aware",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_20_serialization_strict_deterministic_json_safe",
+      "required": true
+    },
+    {
+      "checkpoint_id": 21,
+      "description": "Session state rejects credentials and reuses canonical credential policy",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_21_no_credentials_rejection",
+      "required": true
+    },
+    {
+      "checkpoint_id": 22,
+      "description": "No independent Domain Session repository exists",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_22_no_independent_session_repository",
+      "required": true
+    },
+    {
+      "checkpoint_id": 23,
+      "description": "Resumption checks active domains",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_23_resumption_checks_active_domains",
+      "required": true
+    },
+    {
+      "checkpoint_id": 24,
+      "description": "Resumption checks domain versions",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_24_resumption_checks_domain_versions",
+      "required": true
+    },
+    {
+      "checkpoint_id": 25,
+      "description": "Resumption checks compatibility",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_25_resumption_checks_compatibility",
+      "required": true
+    },
+    {
+      "checkpoint_id": 26,
+      "description": "Resumption detects modified missing or invalidated resources and knowledge",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_26_resumption_detects_resource_knowledge_drift",
+      "required": true
+    },
+    {
+      "checkpoint_id": 27,
+      "description": "Resumption re-evaluates temporal validity",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_27_resumption_reevaluates_temporal_validity",
+      "required": true
+    },
+    {
+      "checkpoint_id": 28,
+      "description": "Resumption re-evaluates current permissions",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_28_resumption_reevaluates_current_permissions",
+      "required": true
+    },
+    {
+      "checkpoint_id": 29,
+      "description": "Resumption reconstructs current composition",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_29_resumption_reconstructs_composition",
+      "required": true
+    },
+    {
+      "checkpoint_id": 30,
+      "description": "Material changes trigger profile rule question and operation reevaluation",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_30_material_changes_trigger_reevaluation",
+      "required": true
+    },
+    {
+      "checkpoint_id": 31,
+      "description": "Resumption detects workflow migration",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_31_resumption_detects_workflow_migration",
+      "required": true
+    },
+    {
+      "checkpoint_id": 32,
+      "description": "Resumption recovers valid questions",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_32_resumption_recovers_valid_questions",
+      "required": true
+    },
+    {
+      "checkpoint_id": 33,
+      "description": "Resumption recovers valid approvals",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_33_resumption_recovers_valid_approvals",
+      "required": true
+    },
+    {
+      "checkpoint_id": 34,
+      "description": "Stale permissions never authorize an operation",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_34_stale_permissions_never_authorize",
+      "required": true
+    },
+    {
+      "checkpoint_id": 35,
+      "description": "Stale operation availability never executes an operation",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_35_stale_operations_never_execute",
+      "required": true
+    },
+    {
+      "checkpoint_id": 36,
+      "description": "Blocking incompatibility prevents continuation",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_36_blocking_incompatibility_fails_closed",
+      "required": true
+    },
+    {
+      "checkpoint_id": 37,
+      "description": "Repeated unchanged resumption is idempotent",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_37_repeated_resumption_is_idempotent",
+      "required": true
+    },
+    {
+      "checkpoint_id": 38,
+      "description": "Resumption uses shared revision history without adding a 24th general event",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_38_resumption_recorded_via_shared_revision_no_24th_event",
+      "required": true
+    },
+    {
+      "checkpoint_id": 39,
+      "description": "Lifecycle events use canonical Phase 10.33 contracts only after authoritative results",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_39_actual_lifecycle_events_use_canonical_types_after_commit",
+      "required": true
+    },
+    {
+      "checkpoint_id": 40,
+      "description": "Pure Phase 10.31 and 10.32 components remain pure",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_40_pure_components_remain_pure",
+      "required": true
+    },
+    {
+      "checkpoint_id": 41,
+      "description": "No AgentRuntimeEventBus dependency is introduced",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_41_no_agent_runtime_event_bus_dependency",
+      "required": true
+    },
+    {
+      "checkpoint_id": 42,
+      "description": "Resume does not mutate memory or knowledge",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_42_no_memory_mutation_on_resume",
+      "required": true
+    },
+    {
+      "checkpoint_id": 43,
+      "description": "Resume does not execute an approval decision",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_43_no_approval_decision_executed_on_resume",
+      "required": true
+    },
+    {
+      "checkpoint_id": 44,
+      "description": "Resume does not execute an operation",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_44_no_operation_executes_merely_from_resume",
+      "required": true
+    },
+    {
+      "checkpoint_id": 45,
+      "description": "Persistence failure cannot partially commit a resumed session",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_45_persistence_failure_atomic_no_partial_commit",
+      "required": true
+    },
+    {
+      "checkpoint_id": 46,
+      "description": "Fresh import is side-effect free",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_46_fresh_import_side_effect_free",
+      "required": true
+    },
+    {
+      "checkpoint_id": 47,
+      "description": "Malformed serialized state fails closed",
+      "evidence_type": "pytest_node",
+      "evidence_reference": "tests/domains/test_domain_session_acceptance.py::test_checkpoint_47_malformed_serialized_state_fails_closed",
+      "required": true
+    },
+    {
+      "checkpoint_id": 48,
+      "description": "Focused Domain Session tests pass on the verified source tree",
+      "evidence_type": "external_gate",
+      "evidence_reference": "focused_tests",
+      "required": true
+    },
+    {
+      "checkpoint_id": 49,
+      "description": "Phase 10 domain tests pass on the verified source tree",
+      "evidence_type": "external_gate",
+      "evidence_reference": "domain_tests",
+      "required": true
+    },
+    {
+      "checkpoint_id": 50,
+      "description": "Global tests pass on the verified source tree",
+      "evidence_type": "external_gate",
+      "evidence_reference": "global_tests",
+      "required": true
+    },
+    {
+      "checkpoint_id": 51,
+      "description": "Ruff check format check compileall and diff hygiene pass",
+      "evidence_type": "external_gate",
+      "evidence_reference": "quality_gates",
+      "required": true
+    },
+    {
+      "checkpoint_id": 52,
+      "description": "AT-DP-034 inventory has 56 unique required checkpoints with resolved evidence",
+      "evidence_type": "architecture_gate",
+      "evidence_reference": "manifest_inventory_56_resolved",
+      "required": true
+    },
+    {
+      "checkpoint_id": 53,
+      "description": "Phase 10.33 event and credential regressions pass without domain.session.resumed",
+      "evidence_type": "external_gate",
+      "evidence_reference": "phase10_33_regression",
+      "required": true
+    },
+    {
+      "checkpoint_id": 54,
+      "description": "Bundle generation uses git archive with prefix PAX commit verification and forbidden-path checks",
+      "evidence_type": "artifact_contract",
+      "evidence_reference": "git_archive_v5",
+      "required": true
+    },
+    {
+      "checkpoint_id": 55,
+      "description": "All real pre-audit gates pass on the verified tree from a clean worktree",
+      "evidence_type": "external_gate",
+      "evidence_reference": "pre_audit_gates",
+      "required": true
+    },
+    {
+      "checkpoint_id": 56,
+      "description": "Closure remains guarded while latest independent audit V4 is FAIL and V5 is pending",
+      "evidence_type": "documentation_gate",
+      "evidence_reference": "closure_guard",
+      "required": true
+    }
+  ]
+}

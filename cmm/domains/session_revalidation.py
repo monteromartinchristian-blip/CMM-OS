@@ -314,13 +314,18 @@ def revalidate_resource_and_knowledge_drift(
                         checks.append(
                             DomainSessionCheck(
                                 name=f"resource_drift_{res_id}",
-                                status=DomainSessionCheckStatus.PASS,
-                                message=f"Resource '{res_id}' is current",
-                                blocking=False,
+                                status=DomainSessionCheckStatus.BLOCKING,
+                                message=(
+                                    f"Resource '{res_id}' in domain '{domain}' has only "
+                                    "version snapshot evidence and no current authority "
+                                    "(fail-closed)"
+                                ),
+                                blocking=True,
                                 details={
                                     "resource_id": res_id,
                                     "domain": domain,
-                                    "current_version": v,
+                                    "snapshot_version": v,
+                                    "status": "UNVERIFIED",
                                 },
                             )
                         )
@@ -416,13 +421,18 @@ def revalidate_resource_and_knowledge_drift(
                         checks.append(
                             DomainSessionCheck(
                                 name=f"knowledge_drift_{know_id}",
-                                status=DomainSessionCheckStatus.PASS,
-                                message=f"Knowledge '{know_id}' is current",
-                                blocking=False,
+                                status=DomainSessionCheckStatus.BLOCKING,
+                                message=(
+                                    f"Knowledge '{know_id}' in domain '{domain}' has only "
+                                    "version snapshot evidence and no current authority "
+                                    "(fail-closed)"
+                                ),
+                                blocking=True,
                                 details={
                                     "knowledge_id": know_id,
                                     "domain": domain,
-                                    "current_version": v,
+                                    "snapshot_version": v,
+                                    "status": "UNVERIFIED",
                                 },
                             )
                         )

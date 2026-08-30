@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
 
-from cmm.domains.session_contracts import DomainSessionCheckStatus
 from cmm.domains.resource_contracts import _deep_freeze
+from cmm.domains.session_contracts import DomainSessionCheckStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,15 +26,13 @@ class DomainKnowledgeCurrentVerdict:
     status: DomainSessionCheckStatus
     message: str = ""
     is_blocking: bool = False
-    details: Mapping[str, Any] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    details: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not self.knowledge_id or not isinstance(self.knowledge_id, str):
             raise ValueError("knowledge_id must be a non-empty string")
         if not isinstance(self.status, DomainSessionCheckStatus):
-            raise ValueError("status must be a DomainSessionCheckStatus")
+            raise TypeError("status must be a DomainSessionCheckStatus")
         object.__setattr__(self, "details", _deep_freeze(self.details))
 
 
@@ -80,7 +78,11 @@ class DefaultDomainKnowledgeAuthority:
                 status=DomainSessionCheckStatus.BLOCKING,
                 message=f"Knowledge '{knowledge_id}' not found in authoritative knowledge registry",
                 is_blocking=True,
-                details={"knowledge_id": knowledge_id, "domain": domain, "reason": "NOT_FOUND"},
+                details={
+                    "knowledge_id": knowledge_id,
+                    "domain": domain,
+                    "reason": "NOT_FOUND",
+                },
             )
 
         val = self._valid_knowledge[knowledge_id]
@@ -92,7 +94,11 @@ class DefaultDomainKnowledgeAuthority:
                     status=DomainSessionCheckStatus.BLOCKING,
                     message=f"Knowledge '{knowledge_id}' is {val_u.lower()}",
                     is_blocking=True,
-                    details={"knowledge_id": knowledge_id, "domain": domain, "status": val_u},
+                    details={
+                        "knowledge_id": knowledge_id,
+                        "domain": domain,
+                        "status": val_u,
+                    },
                 )
             if val_u in ("STALE", "DRIFT", "CHANGED") or "drift" in val.lower():
                 return DomainKnowledgeCurrentVerdict(
@@ -100,7 +106,11 @@ class DefaultDomainKnowledgeAuthority:
                     status=DomainSessionCheckStatus.DRIFT,
                     message=f"Knowledge '{knowledge_id}' has drifted/is stale",
                     is_blocking=False,
-                    details={"knowledge_id": knowledge_id, "domain": domain, "status": val_u},
+                    details={
+                        "knowledge_id": knowledge_id,
+                        "domain": domain,
+                        "status": val_u,
+                    },
                 )
 
         return DomainKnowledgeCurrentVerdict(

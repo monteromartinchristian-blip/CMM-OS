@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.composition_contracts import DomainCompositionInput
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainResolutionStatus, DomainStatus
 from cmm.domains.errors import (
@@ -21,7 +22,6 @@ from cmm.domains.errors import (
     DomainSessionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
-from cmm.domains.composition_contracts import DomainCompositionInput
 from cmm.domains.resolution_contracts import DomainResolutionContext
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_codec import DomainSessionCodec

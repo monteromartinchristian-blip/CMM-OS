@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
@@ -21,6 +22,7 @@ from cmm.domains.composition_contracts import (
     DomainComposition,
     DomainCompositionConflict,
     DomainCompositionDecision,
+    DomainCompositionInput,
     DomainCompositionPolicy,
 )
 from cmm.domains.composition_items import (
@@ -265,7 +267,6 @@ def _deduplicate_conflicts_by_key(
     return tuple(seen.values())
 
 
-
 def _normalize_definitions_for_recomposition(
     definitions: Iterable[DomainDefinition],
     composition_input: DomainCompositionInput,
@@ -427,18 +428,23 @@ class DefaultDomainComposer:
         definitions: Iterable[DomainDefinition],
     ) -> DomainComposition:
         """Recompose from current session state without requiring a resolver result."""
-        ordered_defs = _normalize_definitions_for_recomposition(definitions, composition_input)
-        
+        ordered_defs = _normalize_definitions_for_recomposition(
+            definitions, composition_input
+        )
+
         metadata_dict = dict(composition_input.metadata)
-        metadata_dict["resolution_authoritative"] = composition_input.resolution_authoritative
+        metadata_dict["resolution_authoritative"] = (
+            composition_input.resolution_authoritative
+        )
         if composition_input.recomposition_reason:
-            metadata_dict["recomposition_reason"] = composition_input.recomposition_reason
-            
-        from types import MappingProxyType
+            metadata_dict["recomposition_reason"] = (
+                composition_input.recomposition_reason
+            )
+
         return self._build_composition(
             composition_input.previous_resolution_id or "none",
             ordered_defs,
-            metadata=MappingProxyType(metadata_dict)
+            metadata=MappingProxyType(metadata_dict),
         )
 
     def _build_composition(
@@ -449,9 +455,8 @@ class DefaultDomainComposer:
     ) -> DomainComposition:
         """Core composition logic after normalization."""
         if metadata is None:
-            from types import MappingProxyType
             metadata = MappingProxyType({})
-            
+
         # 3. Compose reasoning profile
         effective_profile, profile_decisions = compose_reasoning_profile(ordered_defs)
 

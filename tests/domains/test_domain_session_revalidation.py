@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.enums import DomainKind, DomainStatus
 from cmm.domains.identifiers import DomainId
+from cmm.domains.knowledge_authority import DefaultDomainKnowledgeAuthority
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainRegistryRecord
+from cmm.domains.resource_authority import DefaultDomainResourceAuthority
+from cmm.domains.resource_contracts import DomainResourceContext
 from cmm.domains.session_contracts import (
     DomainSessionCheckStatus,
     DomainSessionContext,
@@ -203,7 +206,23 @@ def test_revalidate_resource_and_knowledge_drift():
         current_resource_versions={"res:1": "v1", "res:2": "v2"},
         current_knowledge_versions={"know:1": "k1"},
     )
-    checks = revalidate_resource_and_knowledge_drift(ctx, req)
+    resource_authority = DefaultDomainResourceAuthority(
+        resources={
+            resource_id: DomainResourceContext(
+                resource_id=resource_id,
+                kind="test-resource",
+                provenance=("test:native-authority",),
+            )
+            for resource_id in ("res:1", "res:2")
+        }
+    )
+    knowledge_authority = DefaultDomainKnowledgeAuthority({"know:1": {"version": "k1"}})
+    checks = revalidate_resource_and_knowledge_drift(
+        ctx,
+        req,
+        resource_authority=resource_authority,
+        knowledge_authority=knowledge_authority,
+    )
     assert all(chk.status is DomainSessionCheckStatus.PASS for chk in checks)
 
     # Drift in resource and missing knowledge
@@ -288,6 +307,17 @@ def test_revalidate_session_state_orchestration():
         temporal_reference=_now(),
         current_resource_versions={"res:1": "v1"},
     )
-    all_checks = revalidate_session_state(ctx, reg, req)
+    resource_authority = DefaultDomainResourceAuthority(
+        resources={
+            "res:1": DomainResourceContext(
+                resource_id="res:1",
+                kind="test-resource",
+                provenance=("test:native-authority",),
+            )
+        }
+    )
+    all_checks = revalidate_session_state(
+        ctx, reg, req, resource_authority=resource_authority
+    )
     assert len(all_checks) >= 3
     assert not any(chk.blocking for chk in all_checks)

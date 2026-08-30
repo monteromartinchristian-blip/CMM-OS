@@ -41,6 +41,7 @@ from cmm.domains.session_revalidation import (
     revalidate_temporal,
     revalidate_workflows,
 )
+from tests.domains.domain_session_audit_evidence import validate_at_dp_034
 from tests.domains.domain_session_test_support import (
     failing_shared_session_adapter,
     shared_session_adapter,
@@ -101,10 +102,10 @@ DOMAIN_SESSION_CHECKPOINTS_56: tuple[str, ...] = (
     "50. Global tests pass",
     "51. Ruff, format check, syntax compilation, and diff hygiene pass",
     "52. AT-DP-034 passes",
-    "53. Documentation and requirements matrix record implementation conservatively before independent audit",
-    "54. A git archive TAR.GZ is generated from the exact committed implementation HEAD before independent audit",
-    "55. Independent ChatGPT audit reaches 0 blockers, 0 majors, and 0 minors before closure",
-    "56. Closure documentation occurs only after that clean audit",
+    "53. Phase 10.33 event, credential, factory, and publisher regressions pass without a 24th general event",
+    "54. Bundle generation contract uses git archive, the canonical prefix, PAX commit verification, and forbidden-path checks",
+    "55. All required pre-audit gates pass on the verified source tree from a clean worktree",
+    "56. Closure remains guarded while the latest independent audit is V4 FAIL and V5 is pending",
 )
 
 
@@ -995,138 +996,82 @@ def test_checkpoint_47_malformed_serialized_state_fails_closed():
 
 
 def test_checkpoint_48_focused_domain_session_tests_pass():
-    """48. Focused Domain Sessions test files exist and form an active comprehensive test suite."""
-    from pathlib import Path
-
-    tests_dir = Path(__file__).parent
-    domain_session_tests = sorted(tests_dir.glob("test_domain_session_*.py"))
-    assert len(domain_session_tests) >= 11
-    for p in domain_session_tests:
-        assert p.is_file()
-        assert p.stat().st_size > 0
+    """48. Focused Domain Sessions test execution is recorded for the verified tree."""
+    evidence = validate_at_dp_034().resolved[48]
+    assert evidence.evidence_reference == "focused_tests"
+    assert evidence.actual_count > 0
 
 
 def test_checkpoint_49_phase_10_domain_tests_pass():
-    """49. Phase 10 domain core contracts and services are correctly exposed and instantiable."""
-    from cmm.domains.composer import DefaultDomainComposer
-    from cmm.domains.contracts import DomainDefinition
-    from cmm.domains.event_publisher import DomainKernelEventPublisher
-    from cmm.domains.registry import DomainRegistry
-    from cmm.domains.session_codec import DomainSessionCodec
-    from cmm.domains.session_contracts import DomainSessionContext
-    from cmm.domains.session_persistence import SharedSessionDomainAdapter
-    from cmm.domains.session_resumer import DomainSessionResumer
-
-    for cls in (
-        DomainDefinition,
-        DomainRegistry,
-        DomainSessionContext,
-        DomainSessionResumer,
-        DomainSessionCodec,
-        SharedSessionDomainAdapter,
-        DefaultDomainComposer,
-        DomainKernelEventPublisher,
-    ):
-        assert cls is not None
-        assert callable(cls)
+    """49. Phase 10 domain test execution is recorded for the verified tree."""
+    evidence = validate_at_dp_034().resolved[49]
+    assert evidence.evidence_reference == "domain_tests"
+    assert evidence.actual_count > 0
 
 
 def test_checkpoint_50_global_tests_pass():
-    """50. Shared runtime session subsystem remains free of domain dependencies."""
-    import ast
-    from pathlib import Path
-
-    sessions_py = Path("cmm/runtime/sessions.py")
-    assert sessions_py.exists()
-    tree = ast.parse(sessions_py.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert not alias.name.startswith("cmm.domains"), (
-                    f"cmm.runtime.sessions illegally imports {alias.name}"
-                )
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            assert not node.module.startswith("cmm.domains"), (
-                f"cmm.runtime.sessions illegally imports from {node.module}"
-            )
+    """50. Global test execution is recorded for the verified tree."""
+    evidence = validate_at_dp_034().resolved[50]
+    assert evidence.evidence_reference == "global_tests"
+    assert evidence.actual_count > 0
 
 
 def test_checkpoint_51_quality_gates_ruff_compile_hygiene():
-    """51. All domain session implementation files compile cleanly without syntax errors."""
-    from pathlib import Path
-
-    domain_files = [
-        Path("cmm/domains/session_contracts.py"),
-        Path("cmm/domains/session_codec.py"),
-        Path("cmm/domains/session_persistence.py"),
-        Path("cmm/domains/session_resumer.py"),
-        Path("cmm/domains/session_revalidation.py"),
-        Path("cmm/runtime/sessions.py"),
-    ]
-    for f in domain_files:
-        assert f.exists(), f"{f} must exist"
-        source = f.read_text(encoding="utf-8")
-        compiled = compile(source, str(f), "exec")
-        assert compiled is not None
+    """51. All four real quality commands are recorded for the verified tree."""
+    evidence = validate_at_dp_034().resolved[51]
+    assert evidence.component_gates == (
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check",
+    )
 
 
 def test_checkpoint_52_at_dp_034_complete_56_gate():
-    """52. AT-DP-034 passes with all 56 checkpoints explicitly verified."""
-    assert len(DOMAIN_SESSION_CHECKPOINTS_56) == 56
-    for idx, cp in enumerate(DOMAIN_SESSION_CHECKPOINTS_56, start=1):
-        assert cp.startswith(f"{idx}. ")
-        assert len(cp.strip()) > 5
+    """52. AT-DP-034 resolves all 56 required manifest entries."""
+    report = validate_at_dp_034()
+    assert report.logical_checkpoints == 56
+    assert report.required_checkpoints == 56
+    assert report.evidence_resolved == 56
 
 
 def test_checkpoint_53_conservative_matrix_status_before_audit():
-    """53. Documentation and requirements matrix record implementation conservatively before independent audit."""
-    from pathlib import Path
-
-    roadmap = Path("ROADMAP.md")
-    assert roadmap.exists()
-    content = roadmap.read_text(encoding="utf-8")
-    assert "Phase 10.34 — Domain Sessions" in content
+    """53. Phase 10.33 regression evidence preserves the 23-event catalog."""
+    evidence = validate_at_dp_034().resolved[53]
+    assert evidence.details["general_event_count"] == 23
+    assert evidence.details["general_event_unique_count"] == 23
+    assert evidence.details["domain_session_resumed_event"] == "ABSENT"
 
 
 def test_checkpoint_54_git_archive_tar_gz_generation_contract():
-    """54. A git archive TAR.GZ is generated with prefix 'CMM-OS-phase-10.34/' from committed HEAD before audit."""
-    expected_bundle_name = "phase-10.34-audit-v4.tar.gz"
-    expected_prefix = "CMM-OS-phase-10.34/"
-    assert expected_bundle_name.endswith(".tar.gz")
-    assert "audit-v4" in expected_bundle_name
-    assert expected_prefix == "CMM-OS-phase-10.34/"
+    """54. The V5 archive contract is executable and commit-verifiable."""
+    evidence = validate_at_dp_034().resolved[54]
+    assert evidence.details["generator"] == "git archive"
+    assert evidence.details["prefix"] == "CMM-OS-phase-10.34/"
+    assert evidence.details["pax_commit_id_verification"] is True
+    assert evidence.details["forbidden_paths_check"] is True
 
 
 def test_checkpoint_55_independent_audit_criteria_contract():
-    """55. Independent ChatGPT audit reaches 0 blockers, 0 majors, and 0 minors before closure."""
-    audit_criteria = {
-        "required_blockers": 0,
-        "required_majors": 0,
-        "required_minors": 0,
-    }
-    assert audit_criteria["required_blockers"] == 0
-    assert audit_criteria["required_majors"] == 0
-    assert audit_criteria["required_minors"] == 0
+    """55. All pre-audit commands passed on the bound tree from a clean worktree."""
+    evidence = validate_at_dp_034().resolved[55]
+    assert evidence.details["worktree_clean_when_generated"] is True
+    assert evidence.details["all_required_external_gates_pass"] is True
 
 
 def test_checkpoint_56_closure_only_after_clean_audit():
-    """56. Closure documentation occurs only after that clean audit; self-asserted PASS is forbidden."""
-    from pathlib import Path
-
-    # Verify that Phase 10.34 is NOT prematurely marked complete in ROADMAP before independent audit report records PASS
-    roadmap = Path("ROADMAP.md")
-    assert roadmap.exists()
-    content = roadmap.read_text(encoding="utf-8")
-    # Must NOT claim Phase 10.34 is complete / closed
-    assert "Phase 10.34" in content
-    assert len(DOMAIN_SESSION_CHECKPOINTS_56) == 56
+    """56. V4 FAIL remains the latest audit and Phase 10.34 remains pending V5."""
+    evidence = validate_at_dp_034().resolved[56]
+    assert evidence.details["latest_independent_audit"] == "V4"
+    assert evidence.details["latest_independent_audit_status"] == "FAIL"
+    assert evidence.details["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
 
 
 # ── Meta-Test: Complete 56 Checkpoints Accounting ────────────────────────────
 
 
 def test_at_dp_034_all_56_checkpoints_covered_meta_test():
-    """Meta-test asserting exact 56 checkpoints in inventory and corresponding test coverage."""
+    """Meta-test asserting exact inventory, test coverage, and resolved evidence."""
     assert len(DOMAIN_SESSION_CHECKPOINTS_56) == 56
     assert len(set(DOMAIN_SESSION_CHECKPOINTS_56)) == 56
 
@@ -1138,3 +1083,7 @@ def test_at_dp_034_all_56_checkpoints_covered_meta_test():
         func_name = f"test_checkpoint_{idx:02d}_"
         matching = [name for name in dir(current_module) if name.startswith(func_name)]
         assert len(matching) == 1, f"Missing test function for checkpoint {idx:02d}"
+
+    report = validate_at_dp_034()
+    assert report.evidence_resolved == 56
+    assert report.placeholders == 0

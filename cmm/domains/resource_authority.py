@@ -14,7 +14,6 @@ from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
 
-from cmm.domains.session_contracts import DomainSessionCheckStatus
 from cmm.domains.resource_contracts import (
     DomainResourceContext,
     DomainResourceDefinition,
@@ -22,6 +21,7 @@ from cmm.domains.resource_contracts import (
     _deep_freeze,
 )
 from cmm.domains.resource_resolver import _evaluate_temporal_policy
+from cmm.domains.session_contracts import DomainSessionCheckStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,15 +35,13 @@ class DomainResourceCurrentVerdict:
     context: DomainResourceContext | None = None
     definition: DomainResourceDefinition | None = None
     temporal_policy: DomainResourceTemporalPolicy | None = None
-    details: Mapping[str, Any] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    details: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not self.resource_id or not isinstance(self.resource_id, str):
             raise ValueError("resource_id must be a non-empty string")
         if not isinstance(self.status, DomainSessionCheckStatus):
-            raise ValueError("status must be a DomainSessionCheckStatus")
+            raise TypeError("status must be a DomainSessionCheckStatus")
         object.__setattr__(self, "details", _deep_freeze(self.details))
 
 
@@ -103,7 +101,11 @@ class DefaultDomainResourceAuthority:
                 status=DomainSessionCheckStatus.BLOCKING,
                 message=f"Resource '{resource_id}' not found in authoritative resource registry",
                 is_blocking=True,
-                details={"resource_id": resource_id, "domain": domain, "reason": "NOT_FOUND"},
+                details={
+                    "resource_id": resource_id,
+                    "domain": domain,
+                    "reason": "NOT_FOUND",
+                },
             )
 
         ctx = self._resources[resource_id]
@@ -149,7 +151,11 @@ class DefaultDomainResourceAuthority:
                 is_blocking=True,
                 context=ctx,
                 definition=defn,
-                details={"resource_id": resource_id, "domain": domain, "reason": "EXPIRED"},
+                details={
+                    "resource_id": resource_id,
+                    "domain": domain,
+                    "reason": "EXPIRED",
+                },
             )
 
         return DomainResourceCurrentVerdict(

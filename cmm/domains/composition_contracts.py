@@ -1426,15 +1426,16 @@ class DomainComposition:
             metadata=_deep_freeze(data.get("metadata")),
         )
 
+
 @dataclass(frozen=True, slots=True)
 class DomainCompositionInput:
     """Typed input for recomposition without requiring a resolver result.
-    
+
     Used when the primary domain remains valid and only supporting domains,
     version, permission availability, resource state, or composition state
     have changed. This avoids fabricating a synthetic DomainResolutionResult.
     """
-    
+
     primary_domain: DomainId
     supporting_domains: tuple[DomainId, ...]
     previous_resolution_id: str | None = None
@@ -1444,7 +1445,7 @@ class DomainCompositionInput:
     metadata: MappingProxyType[str, Any] = field(
         default_factory=lambda: MappingProxyType({})
     )
-    
+
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
