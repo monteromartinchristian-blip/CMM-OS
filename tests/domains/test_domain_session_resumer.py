@@ -314,10 +314,11 @@ def test_idempotent_resume():
         temporal_reference=_now(),
     )
     r1 = resumer.resume(req, ctx)
-    r2 = resumer.resume(req, ctx)
+    r2 = resumer.resume(req, r1.context)
 
-    assert r1.status == r2.status
-    assert r1.resumed_revision == r2.resumed_revision
+    assert r1.status == r2.status == DomainSessionResumeStatus.RESUMED
+    assert r1.resumed_revision == 2
+    assert r2.resumed_revision == 3
     assert r1.context is not None and r2.context is not None
     assert r1.context.primary_domain == r2.context.primary_domain
     assert r1.context.supporting_domains == r2.context.supporting_domains
