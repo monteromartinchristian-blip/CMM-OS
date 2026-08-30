@@ -312,13 +312,13 @@ class DefaultDomainAPI:
         """Delegate to ``DomainRegistry.disable``."""
         return self._domain_registry.disable(domain_id, version)
 
-    # ── Resolution (Task 4) ───────────────────────────────────────────────
+    # ── Resolution ────────────────────────────────────────────────────────
 
     def resolve_domain(
         self, context: DomainResolutionContext
     ) -> DomainResolutionResult:
         """Delegate to the canonical ``DomainResolver``."""
-        raise NotImplementedError
+        return self._resolver.resolve(context)
 
     # ── Operation execution (Task 5) ──────────────────────────────────────
 
