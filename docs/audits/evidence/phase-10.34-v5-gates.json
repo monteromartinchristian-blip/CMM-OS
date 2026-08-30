@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "phase": "10.34",
+  "audit_iteration": "V5",
+  "generated_at": "2026-08-30T04:34:47Z",
+  "verified_source_commit": "10e49eabc1d75b0d017f9324362b228ae316bf85",
+  "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd",
+  "verified_paths": [
+    "cmm",
+    "tests",
+    "pyproject.toml"
+  ],
+  "gates": {
+    "focused_tests": {
+      "gate_id": "focused_tests",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/python -m pytest -q tests/domains/test_domain_session_*.py",
+      "exit_code": 0,
+      "actual_count": 392,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "domain_tests": {
+      "gate_id": "domain_tests",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/python -m pytest -q tests/domains",
+      "exit_code": 0,
+      "actual_count": 8232,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "global_tests": {
+      "gate_id": "global_tests",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/python -m pytest -q",
+      "exit_code": 0,
+      "actual_count": 13787,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "ruff_check": {
+      "gate_id": "ruff_check",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/ruff check cmm/domains/session_*.py cmm/domains/resource_authority.py cmm/domains/knowledge_authority.py cmm/domains/composer.py cmm/domains/composition_contracts.py tests/domains/test_domain_session_*.py tests/domains/domain_session_audit_evidence.py",
+      "exit_code": 0,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "ruff_format": {
+      "gate_id": "ruff_format",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/ruff format --check cmm/domains/session_*.py cmm/domains/resource_authority.py cmm/domains/knowledge_authority.py cmm/domains/composer.py cmm/domains/composition_contracts.py tests/domains/test_domain_session_*.py tests/domains/domain_session_audit_evidence.py",
+      "exit_code": 0,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "compileall": {
+      "gate_id": "compileall",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/python -m compileall -q cmm tests",
+      "exit_code": 0,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "diff_check": {
+      "gate_id": "diff_check",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "phase10_33_regression": {
+      "gate_id": "phase10_33_regression",
+      "status": "PASS",
+      "result_source": "command_execution",
+      "command": ".venv/bin/python -m pytest -q tests/domains/test_domain_event_catalog.py tests/domains/test_domain_event_factory.py tests/domains/test_domain_event_publisher.py tests/domains/test_domain_session_security.py",
+      "exit_code": 0,
+      "actual_count": 168,
+      "general_event_count": 23,
+      "general_event_unique_count": 23,
+      "domain_session_resumed_event": "ABSENT",
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    }
+  },
+  "gate_groups": {
+    "quality_gates": {
+      "status": "PASS",
+      "component_gates": [
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check"
+      ],
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    },
+    "pre_audit_gates": {
+      "status": "PASS",
+      "component_gates": [
+        "focused_tests",
+        "domain_tests",
+        "global_tests",
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check",
+        "phase10_33_regression"
+      ],
+      "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+    }
+  },
+  "pre_audit": {
+    "worktree_clean_when_generated": true,
+    "verified_source_tree": "c409279deeb790d07bfb29fea893311882c60ccd"
+  },
+  "artifact_contract": {
+    "contract_id": "git_archive_v5",
+    "archive_format": "tar.gz",
+    "generator": "git archive",
+    "command_template": "git archive --format=tar.gz --prefix=CMM-OS-phase-10.34/ -o <external-output> <committed-head>",
+    "prefix": "CMM-OS-phase-10.34/",
+    "output_location": "external_to_repository",
+    "pax_commit_id_verification": true,
+    "forbidden_paths_check": true,
+    "forbidden_member_patterns": [
+      ".git",
+      ".venv",
+      "__pycache__",
+      ".pyc"
+    ]
+  }
+}
