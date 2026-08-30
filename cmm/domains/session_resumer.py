@@ -71,6 +71,11 @@ class DomainSessionResumer:
             tuple[tuple[str, ...], tuple[str, ...]],
         ]
         | None = None,
+        conflict_evaluator: Callable[
+            [tuple[str, ...]],
+            tuple[DomainSessionResumeStatus | None, tuple[DomainSessionCheck, ...]],
+        ]
+        | None = None,
         next_step_reconstructor: Callable[
             [DomainSessionContext, DomainSessionResumeStatus],
             str | None,
@@ -89,6 +94,7 @@ class DomainSessionResumer:
         self._workflow_evaluator = workflow_evaluator
         self._question_evaluator = question_evaluator
         self._approval_evaluator = approval_evaluator
+        self._conflict_evaluator = conflict_evaluator
         self._next_step_reconstructor = next_step_reconstructor
         self._event_publisher = event_publisher
         self._codec = codec or DomainSessionCodec()
@@ -140,6 +146,31 @@ class DomainSessionResumer:
         # 2. Pure revalidation
         pure_checks = revalidate_session_state(context, self._registry, request)
         checks.extend(pure_checks)
+
+        # 2.5 Conflict evaluation
+        if self._conflict_evaluator is not None:
+            conf_status, conf_checks = self._conflict_evaluator(
+                context.domain_conflict_refs
+            )
+            checks.extend(conf_checks)
+            if (
+                any(c.blocking for c in conf_checks)
+                or conf_status is DomainSessionResumeStatus.BLOCKED
+            ):
+                return DomainSessionResumeResult(
+                    status=DomainSessionResumeStatus.BLOCKED,
+                    session_id=session_id,
+                    previous_revision=previous_revision,
+                    resumed_revision=previous_revision,
+                    context=None,
+                    checks=tuple(checks),
+                    warnings=tuple(warnings),
+                    blocking_findings=tuple(
+                        c.message for c in conf_checks if c.blocking
+                    )
+                    or ("Unresolved blocking conflict in session",),
+                    recorded_resumption=False,
+                )
 
         # 3. Check for blocking / incompatible findings
         blocking_findings = [c.message for c in checks if c.blocking]
@@ -323,6 +354,12 @@ class DomainSessionResumer:
                 warnings.append(
                     f"Dropped {len(expired_approvals)} expired/invalid approvals"
                 )
+
+        if status is DomainSessionResumeStatus.RESUMED:
+            if recovered_questions:
+                status = DomainSessionResumeStatus.WAITING_FOR_USER
+            elif recovered_approvals:
+                status = DomainSessionResumeStatus.WAITING_FOR_APPROVAL
 
         # 9. Next recommended step
         if self._next_step_reconstructor is not None:
