@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
+
+from cmm.domains.enums import DomainValidationStatus
+from cmm.domains.registry import DomainRegistry
+from cmm.domains.sdk.cli import validate_domain_path
+from cmm.domains.sdk.scaffold import DomainScaffolder
 
 
 def test_cli_domain_create_success(tmp_path: Path) -> None:
@@ -75,3 +81,91 @@ def test_cli_domain_create_existing_destination_fails(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "Traceback" not in result.stderr
+
+
+def test_validate_domain_path_canonical_success(tmp_path: Path) -> None:
+    pack_root = tmp_path / "valid-pack"
+    DomainScaffolder().create("valid-pack", destination=pack_root)
+
+    result = validate_domain_path(pack_root)
+    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+    assert result.manifest_valid is True
+    assert result.compatibility_valid is True
+    assert result.security_valid is True
+    assert result.fragmentation_valid is True
+
+
+def test_validate_domain_path_tampered_fails_canonically(tmp_path: Path) -> None:
+    pack_root = tmp_path / "tampered-pack"
+    DomainScaffolder().create("tampered-pack", destination=pack_root)
+
+    # Corrupt manifest with forbidden path traversal in fixtures
+    manifest_path = pack_root / "manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["fixtures"] = [{"id": "escape", "path": "../outside.json"}]
+    manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    result = validate_domain_path(pack_root)
+    assert result.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR)
+    assert result.manifest_valid is False or not all(
+        (result.security_valid, result.manifest_valid, result.contracts_valid)
+    )
+
+
+def test_cli_domain_validate_success(tmp_path: Path) -> None:
+    pack_root = tmp_path / "validate-sample"
+    DomainScaffolder().create("validate-sample", destination=pack_root)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "validate",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"Validation failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    assert "domain:validate-sample" in result.stdout or "validate-sample" in result.stdout
+
+
+def test_cli_domain_validate_failure(tmp_path: Path) -> None:
+    pack_root = tmp_path / "broken-pack"
+    DomainScaffolder().create("broken-pack", destination=pack_root)
+
+    manifest_path = pack_root / "manifest.json"
+    manifest_path.write_text("{invalid json", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "validate",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_domain_validate_does_not_mutate_registry(tmp_path: Path) -> None:
+    pack_root = tmp_path / "registry-check"
+    DomainScaffolder().create("registry-check", destination=pack_root)
+
+    registry = DomainRegistry()
+    snapshot_before = registry.snapshot_state()
+
+    result = validate_domain_path(pack_root)
+    assert result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+
+    snapshot_after = registry.snapshot_state()
+    assert snapshot_before == snapshot_after

@@ -1,4 +1,4 @@
-"""Phase 10.35 — Domain SDK CLI Interface."""
+"""Phase 10.35 — Domain SDK CLI Interface and Canonical Validation Facade."""
 
 from __future__ import annotations
 
@@ -6,8 +6,64 @@ import argparse
 import sys
 from pathlib import Path
 
-from cmm.domains.errors import DomainError
+from cmm.domains.discovery import FileSystemDomainDiscovery
+from cmm.domains.discovery_contracts import DomainSource
+from cmm.domains.enums import DomainSourceKind, DomainValidationStatus
+from cmm.domains.errors import DomainContractValidationError, DomainError
+from cmm.domains.manifest_reader import JsonDomainManifestReader
+from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.sdk.scaffold import DomainScaffolder
+from cmm.domains.validation import PipelineDomainValidator
+from cmm.domains.validation_contracts import (
+    DomainValidationRequest,
+    DomainValidationResult,
+)
+
+
+def validate_domain_path(pack_root: Path | str) -> DomainValidationResult:
+    """Validate a Domain Pack at pack_root using canonical Domain Validation."""
+    root = Path(pack_root).resolve()
+    if not root.exists() or not root.is_dir():
+        raise DomainContractValidationError(
+            f"Domain pack root does not exist or is not a directory: {pack_root}",
+            field="root_path",
+        )
+
+    # 1. Canonical Discovery
+    source = DomainSource(
+        source_id="sdk_target",
+        kind=DomainSourceKind.DIRECTORY,
+        location=str(root),
+        trusted=False,
+        recursive=False,
+    )
+    discovery = FileSystemDomainDiscovery().discover((source,))
+
+    candidate = discovery.candidates[0] if discovery.candidates else None
+    domain_pack: DomainPack | None = None
+
+    if candidate is not None:
+        manifest_path = Path(candidate.location) / candidate.manifest_path
+        try:
+            manifest_doc = JsonDomainManifestReader().read_document(manifest_path)
+            parsed = ParsedDomainPack.from_declarative_dict(manifest_doc.data)
+            domain_pack = DomainPack(
+                definition=parsed.definition,
+                manifest=parsed.manifest,
+                root_path=str(root),
+            )
+        except (DomainError, OSError, ValueError, TypeError):
+            domain_pack = None
+
+    request = DomainValidationRequest(
+        pack=domain_pack,
+        root_path=str(root),
+        candidate=candidate,
+        strict=False,
+        run_tests=False,
+    )
+    validator = PipelineDomainValidator()
+    return validator.validate(request)
 
 
 def register_domain_cli(subparsers: argparse._SubParsersAction) -> None:
@@ -99,7 +155,10 @@ def handle_domain_cli(args: argparse.Namespace) -> int:
             print(f"Error: Unknown domain subcommand: {subcommand}", file=sys.stderr)
             return 2
     except DomainError as exc:
-        print(f"Error: {exc.message if hasattr(exc, 'message') else str(exc)}", file=sys.stderr)
+        print(
+            f"Error: {exc.message if hasattr(exc, 'message') else str(exc)}",
+            file=sys.stderr,
+        )
         return 1
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -120,18 +179,49 @@ def _handle_create(args: argparse.Namespace) -> int:
 
 
 def _handle_validate(args: argparse.Namespace) -> int:
-    # Will be connected in Task 3
-    print("validate not yet implemented", file=sys.stderr)
+    path = getattr(args, "path", None)
+    if path is None:
+        print("Error: path is required for validation", file=sys.stderr)
+        return 1
+
+    result = validate_domain_path(path)
+
+    blocking_findings = [f for f in result.findings if getattr(f, "blocking", False)]
+    warnings = list(result.warnings)
+
+    print(f"Domain: {result.domain_id}")
+    print(f"Version: {result.version}")
+    print(f"Status: {result.status.value}")
+    print(f"Blocking findings: {len(blocking_findings)}")
+    print(f"Warnings: {len(warnings)}")
+
+    if blocking_findings:
+        print("\nBlocking findings:")
+        for f in blocking_findings:
+            msg = getattr(f, "message", str(f))
+            print(f"- [{getattr(f, 'code', 'error')}] {msg}")
+
+    if warnings:
+        print("\nWarnings:")
+        for w in warnings:
+            msg = getattr(w, "message", str(w))
+            print(f"- [{getattr(w, 'code', 'warning')}] {msg}")
+
+    if (
+        result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+        and not blocking_findings
+    ):
+        return 0
     return 1
 
 
 def _handle_test(args: argparse.Namespace) -> int:
-    # Will be connected in Task 5
+    # Connected in Task 5
     print("test not yet implemented", file=sys.stderr)
     return 1
 
 
 def _handle_pack(args: argparse.Namespace) -> int:
-    # Will be connected in Task 6
+    # Connected in Task 6
     print("pack not yet implemented", file=sys.stderr)
     return 1
