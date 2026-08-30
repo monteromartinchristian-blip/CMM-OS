@@ -98,6 +98,7 @@ class DomainSessionResumer:
         shared_session_adapter: Any | None = None,
         resource_authority: DomainResourceAuthority | None = None,
         knowledge_authority: DomainKnowledgeAuthority | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._registry = registry
         self._resolver = resolver
@@ -117,6 +118,7 @@ class DomainSessionResumer:
         self._shared_session_adapter = shared_session_adapter
         self._resource_authority = resource_authority
         self._knowledge_authority = knowledge_authority
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def _is_domain_active(self, domain_ref: str) -> bool:
         if self._registry is None:
@@ -249,6 +251,7 @@ class DomainSessionResumer:
         previous_revision = context.revision
         checks: list[DomainSessionCheck] = []
         warnings: list[str] = []
+        now_ts = request.temporal_reference or self._clock()
 
         # 1.2 Mandatory authorities check (BLOCKER-01 & BLOCKER-03)
         if self._registry is None:
@@ -457,6 +460,7 @@ class DomainSessionResumer:
             request,
             resource_authority=self._resource_authority,
             knowledge_authority=self._knowledge_authority,
+            current_time=now_ts,
         )
         checks.extend(pure_checks)
 
@@ -506,7 +510,6 @@ class DomainSessionResumer:
         re_resolution_result: DomainResolutionResult | None = None
         effective_primary = context.primary_domain
         effective_supporting = context.supporting_domains
-        now_ts = request.temporal_reference or datetime.now(timezone.utc)
 
         if blocking_findings:
             p_active = self._is_domain_active(context.primary_domain)
@@ -630,14 +633,15 @@ class DomainSessionResumer:
 
                     re_resolution_result = resolved_cand
                     effective_primary = f"domain:{new_slug}"
-                    if resolved_cand.supporting_domains:
-                        sup_slugs = tuple(
-                            f"domain:{s.slug if hasattr(s, 'slug') else str(s)}"
-                            for s in resolved_cand.supporting_domains
-                        )
-                        effective_supporting = tuple(
-                            s for s in sup_slugs if self._is_domain_active(s)
-                        )
+                    sup_slugs = tuple(
+                        f"domain:{s.slug if hasattr(s, 'slug') else str(s)}"
+                        for s in resolved_cand.supporting_domains
+                    )
+                    effective_supporting = tuple(
+                        s
+                        for s in sup_slugs
+                        if s != effective_primary and self._is_domain_active(s)
+                    )
 
                     blocking_findings = [
                         c.message

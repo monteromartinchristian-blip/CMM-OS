@@ -401,6 +401,72 @@ def test_09_native_knowledge_invalidation_invalidates_continuity() -> None:
     assert any(c.blocking and knowledge_id in c.name for c in result.checks)
 
 
+def test_missing_temporal_reference_uses_current_clock_for_native_freshness() -> None:
+    """Native freshness must use current truth, not the persisted update timestamp."""
+    resource_id = "res:expired-after-persistence"
+    result = _resumer(
+        _registry(),
+        resource_authority=_resource_authority(
+            resource_id, valid_until=NOW + timedelta(hours=1)
+        ),
+        clock=lambda: NOW + timedelta(hours=2),
+    ).resume(
+        DomainSessionResumeRequest(
+            session_id="audit-v4-current-clock-native-freshness"
+        ),
+        DomainSessionContext(
+            session_id="audit-v4-current-clock-native-freshness",
+            primary_domain="domain:health",
+            domain_resource_refs={"domain:health": (resource_id,)},
+            updated_at=NOW,
+        ),
+    )
+
+    resource_check = next(
+        c for c in result.checks if c.name == f"resource_drift_{resource_id}"
+    )
+    assert resource_check.status is not DomainSessionCheckStatus.PASS
+    assert resource_check.blocking is True
+    assert result.status is DomainSessionResumeStatus.BLOCKED
+    assert result.recorded_resumption is False
+
+
+def test_canonical_reresolution_empty_support_replaces_historical_support() -> None:
+    """Canonical empty support is authoritative and must clear historical support."""
+    resolution = DomainResolutionResult(
+        id="resolution:canonical:no-support",
+        context_id="resolution-context:no-support",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=DomainId("health"),
+        supporting_domains=(),
+        confidence=0.91,
+        resolved_at=NOW,
+    )
+
+    class Resolver:
+        def resolve(self, _context: object) -> DomainResolutionResult:
+            return resolution
+
+    result = _resumer(_registry(fitness_active=False), resolver=Resolver()).resume(
+        DomainSessionResumeRequest(
+            session_id="audit-v4-reresolution-clears-support",
+            temporal_reference=NOW,
+        ),
+        DomainSessionContext(
+            session_id="audit-v4-reresolution-clears-support",
+            primary_domain="domain:fitness",
+            supporting_domains=("domain:health",),
+            updated_at=NOW,
+        ),
+    )
+
+    assert result.status is DomainSessionResumeStatus.RE_RESOLVED
+    assert result.context is not None
+    assert result.context.primary_domain == "domain:health"
+    assert result.context.supporting_domains == ()
+    assert result.context.last_resolution_id == resolution.id
+
+
 def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -624,3 +690,10 @@ def test_32_missing_checkpoint_is_rejected(tmp_path: Path) -> None:
     _write_json(manifest_path, manifest)
     with pytest.raises(EvidenceValidationError, match="IDs 1..56"):
         _validate_copies(manifest_path, gates_path)
+
+
+def test_canonical_evidence_artifacts_are_committed_and_clean() -> None:
+    """Canonical evidence bytes must be immutable in the commit under audit."""
+    report = validate_at_dp_034()
+    assert report.evidence_commit != "fixture"
+    assert len(report.evidence_commit) == 40

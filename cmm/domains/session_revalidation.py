@@ -8,6 +8,7 @@ and temporal validity.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -230,6 +231,7 @@ def revalidate_resource_and_knowledge_drift(
     request: DomainSessionResumeRequest | None = None,
     resource_authority: DomainResourceAuthority | None = None,
     knowledge_authority: DomainKnowledgeAuthority | None = None,
+    current_time: datetime | None = None,
 ) -> tuple[DomainSessionCheck, ...]:
     """Revalidate resource and knowledge references against native authorities or snapshot metadata."""
     checks: list[DomainSessionCheck] = []
@@ -244,7 +246,7 @@ def revalidate_resource_and_knowledge_drift(
     now_ts = (
         request.temporal_reference
         if request is not None and request.temporal_reference is not None
-        else context.updated_at
+        else current_time or datetime.now(timezone.utc)
     )
 
     # 1. Resource references
@@ -537,6 +539,7 @@ def revalidate_session_state(
     request: DomainSessionResumeRequest | None = None,
     resource_authority: DomainResourceAuthority | None = None,
     knowledge_authority: DomainKnowledgeAuthority | None = None,
+    current_time: datetime | None = None,
 ) -> tuple[DomainSessionCheck, ...]:
     """Run all pure revalidation checks deterministically on the domain session."""
     checks: list[DomainSessionCheck] = []
@@ -547,6 +550,7 @@ def revalidate_session_state(
             request,
             resource_authority=resource_authority,
             knowledge_authority=knowledge_authority,
+            current_time=current_time,
         )
     )
     checks.extend(revalidate_temporal(context, request))
