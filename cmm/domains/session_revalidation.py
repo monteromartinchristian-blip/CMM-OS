@@ -1,0 +1,405 @@
+"""Phase 10.34 — Domain Session Revalidation.
+
+Pure, side-effect-free revalidation checks for Domain Session state on resumption.
+Revalidates active domain definitions, version compatibility, resource/knowledge drift,
+and temporal validity.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from cmm.domains.enums import DomainStatus
+from cmm.domains.registry_contracts import parse_semver
+from cmm.domains.session_contracts import (
+    DomainSessionCheck,
+    DomainSessionCheckStatus,
+    DomainSessionContext,
+    DomainSessionResumeRequest,
+)
+
+if TYPE_CHECKING:
+    from cmm.domains.registry import DomainRegistry
+
+
+def _extract_slug(domain_ref: str) -> str:
+    """Extract canonical slug from a domain identifier string (e.g. 'domain:health' -> 'health')."""
+    if domain_ref.startswith("domain:"):
+        return domain_ref[len("domain:") :]
+    return domain_ref
+
+
+def _is_compatible_version(stored_version: str, current_version: str) -> bool:
+    """Determine whether current_version is backward-compatible with stored_version."""
+    if stored_version == current_version:
+        return True
+    try:
+        s_semver = parse_semver(stored_version)
+        c_semver = parse_semver(current_version)
+        # Major version bump is breaking / incompatible
+        if s_semver.major != c_semver.major:
+            return False
+        # If major == 0, minor version bump is breaking in SemVer
+        return not (s_semver.major == 0 and s_semver.minor != c_semver.minor)
+    except Exception:  # noqa: BLE001
+        # Fallback: exact match if non-semver
+        return stored_version == current_version
+
+
+def revalidate_domains(
+    context: DomainSessionContext, registry: DomainRegistry | None = None
+) -> tuple[DomainSessionCheck, ...]:
+    """Revalidate primary and supporting domains against registry for active status and version drift."""
+    checks: list[DomainSessionCheck] = []
+
+    if registry is None:
+        checks.append(
+            DomainSessionCheck(
+                name="registry_check",
+                status=DomainSessionCheckStatus.PASS,
+                message="No registry provided; skipping registry lookup",
+            )
+        )
+        return tuple(checks)
+
+    # 1. Primary domain check
+    p_slug = _extract_slug(context.primary_domain)
+    p_record = registry.get_record(p_slug)
+
+    if p_record is None:
+        checks.append(
+            DomainSessionCheck(
+                name="primary_domain_status",
+                status=DomainSessionCheckStatus.BLOCKING,
+                message=f"Primary domain '{context.primary_domain}' is not registered",
+                blocking=True,
+                details={"primary_domain": context.primary_domain},
+            )
+        )
+    elif p_record.status not in (DomainStatus.ACTIVE, DomainStatus.DEGRADED):
+        checks.append(
+            DomainSessionCheck(
+                name="primary_domain_status",
+                status=DomainSessionCheckStatus.BLOCKING,
+                message=f"Primary domain '{context.primary_domain}' is not active (status={p_record.status.value})",
+                blocking=True,
+                details={
+                    "primary_domain": context.primary_domain,
+                    "status": p_record.status.value,
+                },
+            )
+        )
+    else:
+        checks.append(
+            DomainSessionCheck(
+                name="primary_domain_status",
+                status=DomainSessionCheckStatus.PASS,
+                message=f"Primary domain '{context.primary_domain}' is active",
+                blocking=False,
+                details={"primary_domain": context.primary_domain},
+            )
+        )
+        # Check version drift
+        stored_v = context.domain_versions.get(
+            context.primary_domain
+        ) or context.domain_versions.get(p_slug)
+        if stored_v is not None:
+            current_v = str(p_record.definition.version)
+            if stored_v == current_v:
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"domain_version_{context.primary_domain}",
+                        status=DomainSessionCheckStatus.PASS,
+                        message=f"Primary domain version matches ({current_v})",
+                        details={
+                            "domain": context.primary_domain,
+                            "version": current_v,
+                        },
+                    )
+                )
+            elif _is_compatible_version(stored_v, current_v):
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"domain_version_{context.primary_domain}",
+                        status=DomainSessionCheckStatus.CHANGED,
+                        message=f"Primary domain version changed from {stored_v} to {current_v} (compatible)",
+                        blocking=False,
+                        details={
+                            "domain": context.primary_domain,
+                            "stored_version": stored_v,
+                            "current_version": current_v,
+                        },
+                    )
+                )
+            else:
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"domain_version_{context.primary_domain}",
+                        status=DomainSessionCheckStatus.INCOMPATIBLE,
+                        message=f"Primary domain version changed from {stored_v} to {current_v} (incompatible major version)",
+                        blocking=True,
+                        details={
+                            "domain": context.primary_domain,
+                            "stored_version": stored_v,
+                            "current_version": current_v,
+                        },
+                    )
+                )
+
+    # 2. Supporting domains check
+    for sup in context.supporting_domains:
+        s_slug = _extract_slug(sup)
+        s_record = registry.get_record(s_slug)
+        if s_record is None or s_record.status not in (
+            DomainStatus.ACTIVE,
+            DomainStatus.DEGRADED,
+        ):
+            checks.append(
+                DomainSessionCheck(
+                    name=f"supporting_domain_status_{sup}",
+                    status=DomainSessionCheckStatus.CHANGED,
+                    message=f"Supporting domain '{sup}' is no longer active",
+                    blocking=False,
+                    details={"domain": sup},
+                )
+            )
+        else:
+            checks.append(
+                DomainSessionCheck(
+                    name=f"supporting_domain_status_{sup}",
+                    status=DomainSessionCheckStatus.PASS,
+                    message=f"Supporting domain '{sup}' is active",
+                    blocking=False,
+                    details={"domain": sup},
+                )
+            )
+            stored_sv = context.domain_versions.get(sup) or context.domain_versions.get(
+                s_slug
+            )
+            if stored_sv is not None:
+                curr_sv = str(s_record.definition.version)
+                if stored_sv == curr_sv:
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"domain_version_{sup}",
+                            status=DomainSessionCheckStatus.PASS,
+                            message=f"Supporting domain '{sup}' version matches ({curr_sv})",
+                            details={"domain": sup, "version": curr_sv},
+                        )
+                    )
+                elif _is_compatible_version(stored_sv, curr_sv):
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"domain_version_{sup}",
+                            status=DomainSessionCheckStatus.CHANGED,
+                            message=f"Supporting domain '{sup}' version changed from {stored_sv} to {curr_sv} (compatible)",
+                            blocking=False,
+                            details={
+                                "domain": sup,
+                                "stored_version": stored_sv,
+                                "current_version": curr_sv,
+                            },
+                        )
+                    )
+                else:
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"domain_version_{sup}",
+                            status=DomainSessionCheckStatus.INCOMPATIBLE,
+                            message=f"Supporting domain '{sup}' version changed from {stored_sv} to {curr_sv} (incompatible)",
+                            blocking=True,
+                            details={
+                                "domain": sup,
+                                "stored_version": stored_sv,
+                                "current_version": curr_sv,
+                            },
+                        )
+                    )
+
+    return tuple(checks)
+
+
+def revalidate_resource_and_knowledge_drift(
+    context: DomainSessionContext,
+    request: DomainSessionResumeRequest | None = None,
+) -> tuple[DomainSessionCheck, ...]:
+    """Revalidate resource and knowledge references against current metadata/versions."""
+    checks: list[DomainSessionCheck] = []
+
+    res_versions: dict[str, str] = (
+        dict(request.current_resource_versions) if request is not None else {}
+    )
+    know_versions: dict[str, str] = (
+        dict(request.current_knowledge_versions) if request is not None else {}
+    )
+
+    # 1. Resource references
+    for domain, res_tuple in context.domain_resource_refs.items():
+        for res_id in res_tuple:
+            if res_id in res_versions:
+                v = res_versions[res_id]
+                if v in ("MISSING", "INVALIDATED"):
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"resource_drift_{res_id}",
+                            status=DomainSessionCheckStatus.BLOCKING,
+                            message=f"Resource '{res_id}' in domain '{domain}' is {v.lower()}",
+                            blocking=True,
+                            details={
+                                "resource_id": res_id,
+                                "domain": domain,
+                                "status": v,
+                            },
+                        )
+                    )
+                elif "drift" in v.lower() or "changed" in v.lower():
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"resource_drift_{res_id}",
+                            status=DomainSessionCheckStatus.DRIFT,
+                            message=f"Resource '{res_id}' in domain '{domain}' has drifted",
+                            blocking=False,
+                            details={
+                                "resource_id": res_id,
+                                "domain": domain,
+                                "current_version": v,
+                            },
+                        )
+                    )
+                else:
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"resource_drift_{res_id}",
+                            status=DomainSessionCheckStatus.PASS,
+                            message=f"Resource '{res_id}' is current",
+                            blocking=False,
+                            details={
+                                "resource_id": res_id,
+                                "domain": domain,
+                                "current_version": v,
+                            },
+                        )
+                    )
+            else:
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"resource_drift_{res_id}",
+                        status=DomainSessionCheckStatus.PASS,
+                        message=f"Resource '{res_id}' reference preserved",
+                        blocking=False,
+                        details={"resource_id": res_id, "domain": domain},
+                    )
+                )
+
+    # 2. Knowledge references
+    for domain, know_tuple in context.domain_knowledge_refs.items():
+        for know_id in know_tuple:
+            if know_id in know_versions:
+                v = know_versions[know_id]
+                if v in ("MISSING", "INVALIDATED"):
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"knowledge_drift_{know_id}",
+                            status=DomainSessionCheckStatus.BLOCKING,
+                            message=f"Knowledge '{know_id}' in domain '{domain}' is {v.lower()}",
+                            blocking=True,
+                            details={
+                                "knowledge_id": know_id,
+                                "domain": domain,
+                                "status": v,
+                            },
+                        )
+                    )
+                elif (
+                    "stale" in v.lower()
+                    or "drift" in v.lower()
+                    or "changed" in v.lower()
+                ):
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"knowledge_drift_{know_id}",
+                            status=DomainSessionCheckStatus.DRIFT,
+                            message=f"Knowledge '{know_id}' in domain '{domain}' is stale/drifted",
+                            blocking=False,
+                            details={
+                                "knowledge_id": know_id,
+                                "domain": domain,
+                                "current_version": v,
+                            },
+                        )
+                    )
+                else:
+                    checks.append(
+                        DomainSessionCheck(
+                            name=f"knowledge_drift_{know_id}",
+                            status=DomainSessionCheckStatus.PASS,
+                            message=f"Knowledge '{know_id}' is current",
+                            blocking=False,
+                            details={
+                                "knowledge_id": know_id,
+                                "domain": domain,
+                                "current_version": v,
+                            },
+                        )
+                    )
+            else:
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"knowledge_drift_{know_id}",
+                        status=DomainSessionCheckStatus.PASS,
+                        message=f"Knowledge '{know_id}' reference preserved",
+                        blocking=False,
+                        details={"knowledge_id": know_id, "domain": domain},
+                    )
+                )
+
+    return tuple(checks)
+
+
+def revalidate_temporal(
+    context: DomainSessionContext,
+    request: DomainSessionResumeRequest | None = None,
+) -> tuple[DomainSessionCheck, ...]:
+    """Revalidate temporal reference and validity."""
+    checks: list[DomainSessionCheck] = []
+    if request is not None and request.temporal_reference is not None:
+        checks.append(
+            DomainSessionCheck(
+                name="temporal_validity",
+                status=DomainSessionCheckStatus.PASS,
+                message="Temporal reference is timezone-aware and valid",
+                blocking=False,
+                details={"temporal_reference": request.temporal_reference.isoformat()},
+            )
+        )
+    else:
+        checks.append(
+            DomainSessionCheck(
+                name="temporal_validity",
+                status=DomainSessionCheckStatus.PASS,
+                message="Temporal validity preserved",
+                blocking=False,
+            )
+        )
+    return tuple(checks)
+
+
+def revalidate_session_state(
+    context: DomainSessionContext,
+    registry: DomainRegistry | None = None,
+    request: DomainSessionResumeRequest | None = None,
+) -> tuple[DomainSessionCheck, ...]:
+    """Run all pure revalidation checks deterministically on the domain session."""
+    checks: list[DomainSessionCheck] = []
+    checks.extend(revalidate_domains(context, registry))
+    checks.extend(revalidate_resource_and_knowledge_drift(context, request))
+    checks.extend(revalidate_temporal(context, request))
+    return tuple(checks)
+
+
+__all__ = [
+    "revalidate_domains",
+    "revalidate_resource_and_knowledge_drift",
+    "revalidate_session_state",
+    "revalidate_temporal",
+]
