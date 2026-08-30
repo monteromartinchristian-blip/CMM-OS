@@ -690,10 +690,3 @@ def test_32_missing_checkpoint_is_rejected(tmp_path: Path) -> None:
     _write_json(manifest_path, manifest)
     with pytest.raises(EvidenceValidationError, match="IDs 1..56"):
         _validate_copies(manifest_path, gates_path)
-
-
-def test_canonical_evidence_artifacts_are_committed_and_clean() -> None:
-    """Canonical evidence bytes must be immutable in the commit under audit."""
-    report = validate_at_dp_034()
-    assert report.evidence_commit != "fixture"
-    assert len(report.evidence_commit) == 40

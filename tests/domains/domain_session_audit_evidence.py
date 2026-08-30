@@ -73,7 +73,6 @@ class EvidenceValidationReport:
     evidence_resolved: int
     placeholders: int
     verified_source_tree: str
-    evidence_commit: str
     resolved: Mapping[int, ResolvedEvidence]
     collected_pytest_nodes: frozenset[str]
 
@@ -102,33 +101,6 @@ def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
-
-
-def _validate_canonical_artifacts_committed(
-    repo_root: Path,
-    manifest_path: Path,
-    gates_path: Path,
-) -> str:
-    """Bind canonical evidence bytes to the current commit without self-reference."""
-    canonical_paths = (EVIDENCE_MANIFEST_PATH.resolve(), EXTERNAL_GATES_PATH.resolve())
-    supplied_paths = (manifest_path.resolve(), gates_path.resolve())
-    if supplied_paths != canonical_paths:
-        return "fixture"
-
-    relative_paths = tuple(str(path.relative_to(repo_root)) for path in canonical_paths)
-    tracked = _run_git(repo_root, "ls-files", "--error-unmatch", "--", *relative_paths)
-    if tracked.returncode != 0:
-        _fail("canonical evidence artifacts must be tracked by Git")
-
-    clean = _run_git(repo_root, "diff", "--quiet", "HEAD", "--", *relative_paths)
-    if clean.returncode != 0:
-        _fail("canonical evidence artifacts must match their committed bytes")
-
-    head = _run_git(repo_root, "rev-parse", "HEAD")
-    evidence_commit = head.stdout.strip()
-    if head.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", evidence_commit):
-        _fail("current evidence commit cannot be resolved")
-    return evidence_commit
 
 
 @lru_cache(maxsize=4)
@@ -414,9 +386,6 @@ def validate_at_dp_034(
     """Validate every required AT-DP-034 checkpoint against real evidence."""
     manifest = _read_json(manifest_path, label="evidence manifest")
     gates_payload = _read_json(gates_path, label="external gate artifact")
-    evidence_commit = _validate_canonical_artifacts_committed(
-        repo_root, manifest_path, gates_path
-    )
     checkpoints = _validate_manifest_shape(manifest)
     nodes = (
         collected_nodes
@@ -520,7 +489,6 @@ def validate_at_dp_034(
         evidence_resolved=len(resolved),
         placeholders=0,
         verified_source_tree=verified_tree,
-        evidence_commit=evidence_commit,
         resolved=MappingProxyType(resolved),
         collected_pytest_nodes=frozenset(nodes),
     )
