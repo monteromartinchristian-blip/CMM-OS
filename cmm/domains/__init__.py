@@ -439,6 +439,16 @@ from cmm.domains.resolver_scoring import (
 )
 
 # Phase 10.10 – Domain Resources
+from cmm.domains.resource_authority import (
+    DefaultDomainResourceAuthority,
+    DomainResourceAuthority,
+    DomainResourceCurrentVerdict,
+)
+from cmm.domains.knowledge_authority import (
+    DefaultDomainKnowledgeAuthority,
+    DomainKnowledgeAuthority,
+    DomainKnowledgeCurrentVerdict,
+)
 from cmm.domains.resource_contracts import (
     DomainResourceBinding,
     DomainResourceChecksum,
@@ -777,16 +787,22 @@ __all__ = [
     "DomainResolutionSerializationError",
     "DomainResolutionSignal",
     "DomainResolutionSnapshotError",
+    "DefaultDomainKnowledgeAuthority",
+    "DefaultDomainResourceAuthority",
+    "DomainKnowledgeAuthority",
+    "DomainKnowledgeCurrentVerdict",
     "DomainResolutionStatus",
     "DomainResolutionUnsupportedError",
     "DomainResolver",
     "DomainResolverConfigurationError",
     "DomainResolverError",
     "DomainResolverExecutionError",
+    "DomainResourceAuthority",
     "DomainResourceBinding",
     "DomainResourceChecksum",
     "DomainResourceConfigurationError",
     "DomainResourceContext",
+    "DomainResourceCurrentVerdict",
     "DomainResourceContractError",
     "DomainResourceDecision",
     "DomainResourceDecisionCode",

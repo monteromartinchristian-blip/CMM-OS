@@ -42,7 +42,9 @@ from cmm.domains.session_revalidation import (
 
 if TYPE_CHECKING:
     from cmm.domains.event_publisher import DomainKernelEventPublisher
+    from cmm.domains.knowledge_authority import DomainKnowledgeAuthority
     from cmm.domains.registry import DomainRegistry
+    from cmm.domains.resource_authority import DomainResourceAuthority
 
 
 class DomainSessionResumer:
@@ -94,6 +96,8 @@ class DomainSessionResumer:
         persistence_updater: Callable[[DomainSessionContext], None] | None = None,
         session_loader: Callable[[str], Any] | None = None,
         shared_session_adapter: Any | None = None,
+        resource_authority: DomainResourceAuthority | None = None,
+        knowledge_authority: DomainKnowledgeAuthority | None = None,
     ) -> None:
         self._registry = registry
         self._resolver = resolver
@@ -111,6 +115,8 @@ class DomainSessionResumer:
         self._persistence_updater = persistence_updater
         self._session_loader = session_loader
         self._shared_session_adapter = shared_session_adapter
+        self._resource_authority = resource_authority
+        self._knowledge_authority = knowledge_authority
 
     def _is_domain_active(self, domain_ref: str) -> bool:
         if self._registry is None:
@@ -445,7 +451,13 @@ class DomainSessionResumer:
             )
 
         # 2. Pure revalidation
-        pure_checks = revalidate_session_state(context, self._registry, request)
+        pure_checks = revalidate_session_state(
+            context,
+            self._registry,
+            request,
+            resource_authority=self._resource_authority,
+            knowledge_authority=self._knowledge_authority,
+        )
         checks.extend(pure_checks)
 
         status: DomainSessionResumeStatus = DomainSessionResumeStatus.RESUMED

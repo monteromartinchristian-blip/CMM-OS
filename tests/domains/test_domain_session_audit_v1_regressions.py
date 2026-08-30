@@ -963,6 +963,7 @@ def test_unknown_resource_state_is_not_pass():
     assert res_checks[0].status in (
         DomainSessionCheckStatus.WARNING,
         DomainSessionCheckStatus.DRIFT,
+        DomainSessionCheckStatus.BLOCKING,
     )
 
 
@@ -982,6 +983,7 @@ def test_unknown_knowledge_state_is_not_pass():
     assert know_checks[0].status in (
         DomainSessionCheckStatus.WARNING,
         DomainSessionCheckStatus.DRIFT,
+        DomainSessionCheckStatus.BLOCKING,
     )
 
 

@@ -22,7 +22,9 @@ from cmm.domains.session_contracts import (
 )
 
 if TYPE_CHECKING:
+    from cmm.domains.knowledge_authority import DomainKnowledgeAuthority
     from cmm.domains.registry import DomainRegistry
+    from cmm.domains.resource_authority import DomainResourceAuthority
 
 
 def _extract_slug(domain_ref: str) -> str:
@@ -226,8 +228,10 @@ def revalidate_domains(
 def revalidate_resource_and_knowledge_drift(
     context: DomainSessionContext,
     request: DomainSessionResumeRequest | None = None,
+    resource_authority: DomainResourceAuthority | None = None,
+    knowledge_authority: DomainKnowledgeAuthority | None = None,
 ) -> tuple[DomainSessionCheck, ...]:
-    """Revalidate resource and knowledge references against current metadata/versions."""
+    """Revalidate resource and knowledge references against native authorities or snapshot metadata."""
     checks: list[DomainSessionCheck] = []
 
     res_versions: dict[str, str] = (
@@ -246,7 +250,31 @@ def revalidate_resource_and_knowledge_drift(
     # 1. Resource references
     for domain, res_tuple in context.domain_resource_refs.items():
         for res_id in res_tuple:
-            if res_id in res_versions:
+            if resource_authority is not None:
+                # Authoritative native evaluation
+                verdict = resource_authority.resolve_resource_freshness(
+                    res_id, domain=domain, at=now_ts
+                )
+                is_blocking = verdict.is_blocking or (
+                    verdict.status
+                    in (
+                        DomainSessionCheckStatus.BLOCKING,
+                        DomainSessionCheckStatus.INCOMPATIBLE,
+                        DomainSessionCheckStatus.FAILED,
+                    )
+                )
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"resource_drift_{res_id}",
+                        status=verdict.status,
+                        message=verdict.message
+                        or f"Resource '{res_id}' in domain '{domain}' evaluated by authority",
+                        blocking=is_blocking,
+                        details=dict(verdict.details),
+                    )
+                )
+            elif res_id in res_versions:
+                # Historical/snapshot version fallback
                 v = res_versions[res_id]
                 if isinstance(v, str):
                     v_upper = v.upper().strip()
@@ -296,87 +324,24 @@ def revalidate_resource_and_knowledge_drift(
                                 },
                             )
                         )
-                elif isinstance(v, Mapping):
-                    # Native resource context or temporal metadata dict
-                    status_val = str(v.get("status", "")).upper().strip()
-                    valid_until = v.get("valid_until")
-                    exp_required = bool(v.get("expiration_required", False))
-                    hist_allowed = bool(v.get("historical_allowed", True))
-                    is_expired = False
-                    if valid_until is not None:
-                        from datetime import datetime
-
-                        dt_until = (
-                            datetime.fromisoformat(valid_until)
-                            if isinstance(valid_until, str)
-                            else valid_until
-                        )
-                        if dt_until < now_ts:
-                            is_expired = True
-
-                    if (
-                        status_val in ("MISSING", "INVALIDATED")
-                        or (status_val == "EXPIRED" and not hist_allowed)
-                        or (is_expired and (not hist_allowed or exp_required))
-                    ):
-                        checks.append(
-                            DomainSessionCheck(
-                                name=f"resource_drift_{res_id}",
-                                status=DomainSessionCheckStatus.BLOCKING,
-                                message=f"Resource '{res_id}' in domain '{domain}' is expired/invalidated (historical use not allowed)",
-                                blocking=True,
-                                details={
-                                    "resource_id": res_id,
-                                    "domain": domain,
-                                    "status": status_val or "EXPIRED",
-                                },
-                            )
-                        )
-                    elif status_val in ("STALE", "DRIFT", "CHANGED") or is_expired:
-                        checks.append(
-                            DomainSessionCheck(
-                                name=f"resource_drift_{res_id}",
-                                status=DomainSessionCheckStatus.DRIFT,
-                                message=f"Resource '{res_id}' in domain '{domain}' has drifted/expired",
-                                blocking=False,
-                                details={
-                                    "resource_id": res_id,
-                                    "domain": domain,
-                                    "current_version": str(v),
-                                },
-                            )
-                        )
-                    else:
-                        checks.append(
-                            DomainSessionCheck(
-                                name=f"resource_drift_{res_id}",
-                                status=DomainSessionCheckStatus.PASS,
-                                message=f"Resource '{res_id}' is current",
-                                blocking=False,
-                                details={
-                                    "resource_id": res_id,
-                                    "domain": domain,
-                                    "current_version": str(v.get("version", "current")),
-                                },
-                            )
-                        )
                 else:
                     checks.append(
                         DomainSessionCheck(
                             name=f"resource_drift_{res_id}",
-                            status=DomainSessionCheckStatus.WARNING,
-                            message=f"Resource '{res_id}' in domain '{domain}' has unknown metadata format",
-                            blocking=False,
+                            status=DomainSessionCheckStatus.BLOCKING,
+                            message=f"Resource '{res_id}' in domain '{domain}' has invalid version metadata (fail-closed)",
+                            blocking=True,
                             details={"resource_id": res_id, "domain": domain},
                         )
                     )
             else:
+                # Missing/unverified authority for referenced resource -> conservative fail-closed
                 checks.append(
                     DomainSessionCheck(
                         name=f"resource_drift_{res_id}",
-                        status=DomainSessionCheckStatus.WARNING,
-                        message=f"Resource '{res_id}' in domain '{domain}' has no current version metadata (unverified)",
-                        blocking=False,
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=f"Resource '{res_id}' in domain '{domain}' has no authoritative verification (fail-closed)",
+                        blocking=True,
                         details={
                             "resource_id": res_id,
                             "domain": domain,
@@ -388,61 +353,97 @@ def revalidate_resource_and_knowledge_drift(
     # 2. Knowledge references
     for domain, know_tuple in context.domain_knowledge_refs.items():
         for know_id in know_tuple:
-            if know_id in know_versions:
+            if knowledge_authority is not None:
+                # Authoritative native evaluation
+                k_verdict = knowledge_authority.resolve_knowledge_freshness(
+                    know_id, domain=domain, at=now_ts
+                )
+                is_k_blocking = k_verdict.is_blocking or (
+                    k_verdict.status
+                    in (
+                        DomainSessionCheckStatus.BLOCKING,
+                        DomainSessionCheckStatus.INCOMPATIBLE,
+                        DomainSessionCheckStatus.FAILED,
+                    )
+                )
+                checks.append(
+                    DomainSessionCheck(
+                        name=f"knowledge_drift_{know_id}",
+                        status=k_verdict.status,
+                        message=k_verdict.message
+                        or f"Knowledge '{know_id}' in domain '{domain}' evaluated by authority",
+                        blocking=is_k_blocking,
+                        details=dict(k_verdict.details),
+                    )
+                )
+            elif know_id in know_versions:
                 v = know_versions[know_id]
-                if v in ("MISSING", "INVALIDATED"):
-                    checks.append(
-                        DomainSessionCheck(
-                            name=f"knowledge_drift_{know_id}",
-                            status=DomainSessionCheckStatus.BLOCKING,
-                            message=f"Knowledge '{know_id}' in domain '{domain}' is {v.lower()}",
-                            blocking=True,
-                            details={
-                                "knowledge_id": know_id,
-                                "domain": domain,
-                                "status": v,
-                            },
+                if isinstance(v, str):
+                    v_upper = v.upper().strip()
+                    if v_upper in ("MISSING", "INVALIDATED", "EXPIRED"):
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"knowledge_drift_{know_id}",
+                                status=DomainSessionCheckStatus.BLOCKING,
+                                message=f"Knowledge '{know_id}' in domain '{domain}' is {v_upper.lower()}",
+                                blocking=True,
+                                details={
+                                    "knowledge_id": know_id,
+                                    "domain": domain,
+                                    "status": v_upper,
+                                },
+                            )
                         )
-                    )
-                elif (
-                    "stale" in v.lower()
-                    or "drift" in v.lower()
-                    or "changed" in v.lower()
-                ):
-                    checks.append(
-                        DomainSessionCheck(
-                            name=f"knowledge_drift_{know_id}",
-                            status=DomainSessionCheckStatus.DRIFT,
-                            message=f"Knowledge '{know_id}' in domain '{domain}' is stale/drifted",
-                            blocking=False,
-                            details={
-                                "knowledge_id": know_id,
-                                "domain": domain,
-                                "current_version": v,
-                            },
+                    elif (
+                        v_upper in ("STALE", "DRIFT", "CHANGED")
+                        or "drift" in v.lower()
+                        or "changed" in v.lower()
+                    ):
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"knowledge_drift_{know_id}",
+                                status=DomainSessionCheckStatus.DRIFT,
+                                message=f"Knowledge '{know_id}' in domain '{domain}' is stale/drifted",
+                                blocking=False,
+                                details={
+                                    "knowledge_id": know_id,
+                                    "domain": domain,
+                                    "current_version": v,
+                                },
+                            )
                         )
-                    )
+                    else:
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"knowledge_drift_{know_id}",
+                                status=DomainSessionCheckStatus.PASS,
+                                message=f"Knowledge '{know_id}' is current",
+                                blocking=False,
+                                details={
+                                    "knowledge_id": know_id,
+                                    "domain": domain,
+                                    "current_version": v,
+                                },
+                            )
+                        )
                 else:
                     checks.append(
                         DomainSessionCheck(
                             name=f"knowledge_drift_{know_id}",
-                            status=DomainSessionCheckStatus.PASS,
-                            message=f"Knowledge '{know_id}' is current",
-                            blocking=False,
-                            details={
-                                "knowledge_id": know_id,
-                                "domain": domain,
-                                "current_version": v,
-                            },
+                            status=DomainSessionCheckStatus.BLOCKING,
+                            message=f"Knowledge '{know_id}' in domain '{domain}' has invalid metadata (fail-closed)",
+                            blocking=True,
+                            details={"knowledge_id": know_id, "domain": domain},
                         )
                     )
             else:
+                # Missing/unverified authority for referenced knowledge -> conservative fail-closed
                 checks.append(
                     DomainSessionCheck(
                         name=f"knowledge_drift_{know_id}",
-                        status=DomainSessionCheckStatus.WARNING,
-                        message=f"Knowledge '{know_id}' in domain '{domain}' has no current version metadata (unverified)",
-                        blocking=False,
+                        status=DomainSessionCheckStatus.BLOCKING,
+                        message=f"Knowledge '{know_id}' in domain '{domain}' has no authoritative verification (fail-closed)",
+                        blocking=True,
                         details={
                             "knowledge_id": know_id,
                             "domain": domain,
@@ -524,11 +525,20 @@ def revalidate_session_state(
     context: DomainSessionContext,
     registry: DomainRegistry | None = None,
     request: DomainSessionResumeRequest | None = None,
+    resource_authority: DomainResourceAuthority | None = None,
+    knowledge_authority: DomainKnowledgeAuthority | None = None,
 ) -> tuple[DomainSessionCheck, ...]:
     """Run all pure revalidation checks deterministically on the domain session."""
     checks: list[DomainSessionCheck] = []
     checks.extend(revalidate_domains(context, registry))
-    checks.extend(revalidate_resource_and_knowledge_drift(context, request))
+    checks.extend(
+        revalidate_resource_and_knowledge_drift(
+            context,
+            request,
+            resource_authority=resource_authority,
+            knowledge_authority=knowledge_authority,
+        )
+    )
     checks.extend(revalidate_temporal(context, request))
     return tuple(checks)
 

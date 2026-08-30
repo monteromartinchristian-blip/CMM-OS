@@ -102,6 +102,7 @@ class TestPublicAPI:
             "DomainCompositionDecision",
             "DomainCompositionError",
             "DomainCompositionExecutionError",
+            "DomainCompositionInput",
             "DomainCompositionItem",
             "DomainCompositionPolicy",
             "DomainCompositionPort",
@@ -227,12 +228,18 @@ class TestPublicAPI:
             "merge_findings",
             "merge_gaps",
             "merge_questions",
+            "DefaultDomainKnowledgeAuthority",
+            "DefaultDomainResourceAuthority",
             "DefaultDomainResourceResolver",
             "DefaultDomainResourceValidator",
+            "DomainKnowledgeAuthority",
+            "DomainKnowledgeCurrentVerdict",
+            "DomainResourceAuthority",
             "DomainResourceBinding",
             "DomainResourceChecksum",
             "DomainResourceConfigurationError",
             "DomainResourceContext",
+            "DomainResourceCurrentVerdict",
             "DomainResourceContractError",
             "DomainResourceDecision",
             "DomainResourceDecisionCode",
@@ -594,7 +601,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 510
+        assert len(cmm.domains.__all__) == 517
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
