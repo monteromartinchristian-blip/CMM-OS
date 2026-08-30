@@ -417,6 +417,37 @@ class DomainSessionResumer:
                     recorded_resumption=False,
                 )
 
+        # 12. Event publication boundary
+        if self._event_publisher is not None:
+            from cmm.domains.event_factory import DomainEventFactory
+
+            factory = DomainEventFactory()
+            if status is DomainSessionResumeStatus.RE_RESOLVED:
+                evt = factory.create_event(
+                    event_type="domain.resolution.completed",
+                    domain_id=effective_primary,
+                    actor=str(request.actor or "system"),
+                    session_id=session_id,
+                    payload={
+                        "previous_primary": context.primary_domain,
+                        "new_primary": effective_primary,
+                    },
+                )
+                self._event_publisher.publish(evt)
+            elif status is DomainSessionResumeStatus.RECOMPOSED:
+                evt = factory.create_event(
+                    event_type="domain.composition.updated",
+                    domain_id=effective_primary,
+                    related_domain_ids=effective_supporting,
+                    actor=str(request.actor or "system"),
+                    session_id=session_id,
+                    payload={
+                        "previous_supporting": list(context.supporting_domains),
+                        "new_supporting": list(effective_supporting),
+                    },
+                )
+                self._event_publisher.publish(evt)
+
         return DomainSessionResumeResult(
             status=status,
             session_id=session_id,
