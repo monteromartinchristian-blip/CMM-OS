@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -216,9 +217,59 @@ def _handle_validate(args: argparse.Namespace) -> int:
 
 
 def _handle_test(args: argparse.Namespace) -> int:
-    # Connected in Task 5
-    print("test not yet implemented", file=sys.stderr)
-    return 1
+    path = getattr(args, "path", None)
+    if path is None:
+        print("Error: path is required for test", file=sys.stderr)
+        return 1
+
+    pack_root = Path(path).resolve()
+    if not pack_root.exists() or not pack_root.is_dir():
+        print(
+            f"Error: Domain pack root does not exist or is not a directory: {path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 1. Canonical validation
+    result = validate_domain_path(pack_root)
+    blocking = [f for f in result.findings if getattr(f, "blocking", False)]
+    if (
+        result.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR)
+        or blocking
+    ):
+        print(
+            f"Error: Domain validation failed for {pack_root} with status={result.status.value}",
+            file=sys.stderr,
+        )
+        for f in blocking:
+            print(
+                f"- [{getattr(f, 'code', 'error')}] {getattr(f, 'message', str(f))}",
+                file=sys.stderr,
+            )
+        return 1
+
+    # 2. Check tests directory
+    tests_dir = (pack_root / "tests").resolve()
+    try:
+        tests_dir.relative_to(pack_root)
+    except ValueError:
+        print(
+            f"Error: Tests directory escapes domain pack root: {tests_dir}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not tests_dir.exists() or not tests_dir.is_dir():
+        print(f"Error: No tests directory found in {pack_root}", file=sys.stderr)
+        return 1
+
+    # 3. Execute pytest safely via argv list
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", str(tests_dir)],
+        cwd=str(pack_root),
+        check=False,
+    )
+    return completed.returncode
 
 
 def _handle_pack(args: argparse.Namespace) -> int:

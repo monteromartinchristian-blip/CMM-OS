@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -169,3 +170,119 @@ def test_cli_domain_validate_does_not_mutate_registry(tmp_path: Path) -> None:
 
     snapshot_after = registry.snapshot_state()
     assert snapshot_before == snapshot_after
+
+
+def test_cli_domain_test_success(tmp_path: Path) -> None:
+    pack_root = tmp_path / "test-sample"
+    DomainScaffolder().create("test-sample", destination=pack_root)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "test",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"Test command failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+
+
+def test_cli_domain_test_validation_failure_blocks_test(tmp_path: Path) -> None:
+    pack_root = tmp_path / "blocked-test-pack"
+    DomainScaffolder().create("blocked-test-pack", destination=pack_root)
+
+    # Corrupt manifest
+    manifest_path = pack_root / "manifest.json"
+    manifest_path.write_text("{invalid json", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "test",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_domain_test_failing_test_returns_nonzero(tmp_path: Path) -> None:
+    pack_root = tmp_path / "failing-test-pack"
+    DomainScaffolder().create("failing-test-pack", destination=pack_root)
+
+    # Add a failing test
+    test_file = pack_root / "tests" / "test_domain.py"
+    test_file.write_text(
+        "def test_failure():\n    assert False, 'intentional failure'\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "test",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+
+
+def test_cli_domain_test_missing_tests_dir_fails(tmp_path: Path) -> None:
+    pack_root = tmp_path / "no-tests-pack"
+    DomainScaffolder().create("no-tests-pack", destination=pack_root)
+
+    # Remove tests directory
+    shutil.rmtree(pack_root / "tests")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "test",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_domain_test_path_with_spaces(tmp_path: Path) -> None:
+    pack_root = tmp_path / "pack with spaces"
+    DomainScaffolder().create("spaces-pack", destination=pack_root)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "cmm",
+            "domain",
+            "test",
+            str(pack_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"Test with spaces failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
