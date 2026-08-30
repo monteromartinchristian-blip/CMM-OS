@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from cmm.domains.contracts import DomainDefinition
+from cmm.domains.enums import DomainKind, DomainStatus
+from cmm.domains.identifiers import DomainId, DomainManifestId
+from cmm.domains.registry import DomainRegistry
+from cmm.domains.registry_contracts import DomainRegistryRecord
 from cmm.domains.session_contracts import (
     DomainSessionCheckStatus,
     DomainSessionContext,
@@ -19,6 +24,30 @@ from cmm.domains.session_revalidation import (
 
 def _now() -> datetime:
     return datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
+
+
+def _setup_registry() -> DomainRegistry:
+    reg = DomainRegistry()
+    d_health = DomainDefinition(
+        id=DomainId(slug="health"),
+        name="health",
+        display_name="Health Domain",
+        version="1.0.0",
+        kind=DomainKind.PERSONAL,
+        description="Health description",
+        manifest_id=DomainManifestId(slug="health", version="1.0.0"),
+    )
+    reg.register(d_health)
+    now = _now()
+    reg.restore_record(
+        DomainRegistryRecord(
+            definition=d_health,
+            status=DomainStatus.ACTIVE,
+            registered_at=now,
+            updated_at=now,
+        )
+    )
+    return reg
 
 
 def test_revalidate_workflows_nominal_current():
@@ -100,6 +129,7 @@ def test_revalidate_workflows_incompatible_or_missing_blocks():
 
 
 def test_resumer_integrates_workflow_reconciliation():
+    reg = _setup_registry()
     ctx = DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -107,11 +137,15 @@ def test_resumer_integrates_workflow_reconciliation():
         updated_at=_now(),
     )
     resumer = DomainSessionResumer(
+        registry=reg,
         workflow_evaluator=lambda refs: (
             DomainSessionResumeStatus.RESUMED,
             ("wf:migrated",),
             None,
-        )
+        ),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     res = resumer.resume(req, ctx)

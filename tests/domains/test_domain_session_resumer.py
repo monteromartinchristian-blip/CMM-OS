@@ -66,7 +66,12 @@ def test_nominal_resume():
         revision=1,
         updated_at=_now(),
     )
-    resumer = DomainSessionResumer(registry=reg)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
 
@@ -92,7 +97,13 @@ def test_resume_with_dict_payload_via_codec():
     codec = DomainSessionCodec()
     session_envelope = {"id": "session-123", "domain_session": ctx.to_dict()}
 
-    resumer = DomainSessionResumer(registry=reg, codec=codec)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        codec=codec,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, session_envelope)
 
@@ -121,7 +132,12 @@ def test_recomposition_when_supporting_domain_disabled():
         domain_versions={"domain:health": "1.0.0", "domain:sport": "1.2.0"},
         updated_at=_now(),
     )
-    resumer = DomainSessionResumer(registry=reg)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
 
@@ -146,6 +162,9 @@ def test_re_resolution_when_primary_domain_missing():
     resumer = DomainSessionResumer(
         registry=reg,
         fallback_resolver=lambda primary, supporting: "domain:general",
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -168,7 +187,12 @@ def test_blocking_check_fails_closed():
         session_id="session-123",
         current_resource_versions={"res:1": "MISSING"},
     )
-    resumer = DomainSessionResumer(registry=reg)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     result = resumer.resume(req, ctx)
 
     assert result.status is DomainSessionResumeStatus.BLOCKED
@@ -191,6 +215,8 @@ def test_persistence_failure_rollback():
 
     resumer = DomainSessionResumer(
         registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
         persistence_updater=failing_persistence,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
@@ -212,7 +238,12 @@ def test_idempotent_resume():
         revision=1,
         updated_at=_now(),
     )
-    resumer = DomainSessionResumer(registry=reg)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(
         session_id="session-123",
         temporal_reference=_now(),
@@ -242,6 +273,8 @@ def test_retry_after_failed_persistence_does_not_skip_revision():
 
     resumer_failing = DomainSessionResumer(
         registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
         persistence_updater=failing_persistence,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
@@ -253,6 +286,8 @@ def test_retry_after_failed_persistence_does_not_skip_revision():
     saved: list[DomainSessionContext] = []
     resumer_ok = DomainSessionResumer(
         registry=reg,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
         persistence_updater=lambda c: saved.append(c),
     )
     res2 = resumer_ok.resume(req, ctx)

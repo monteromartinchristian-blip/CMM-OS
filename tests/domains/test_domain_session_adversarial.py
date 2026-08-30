@@ -167,6 +167,7 @@ class TestUnauthorizedCrossDomainEscalation:
             registry=reg,
             permission_evaluator=lambda actor, perms: (),
             operation_filter=lambda perms, ops: (),
+            persistence_updater=lambda c: None,
         )
         req = DomainSessionResumeRequest(
             session_id="session-123", actor="untrusted_guest"
@@ -201,7 +202,12 @@ class TestSideEffectBoundaryViolations:
             primary_domain="domain:health",
             updated_at=_now(),
         )
-        resumer = DomainSessionResumer(registry=reg)
+        resumer = DomainSessionResumer(
+            registry=reg,
+            permission_evaluator=lambda a, p: p,
+            operation_filter=lambda p, o: o,
+            persistence_updater=lambda c: None,
+        )
         req = DomainSessionResumeRequest(session_id="session-123")
         resumer.resume(req, ctx)
 
@@ -213,13 +219,30 @@ class TestSideEffectBoundaryViolations:
         def mock_op_executor(op_id: str):
             executed_ops.append(op_id)
 
+        reg = DomainRegistry()
+        d_health = _make_definition("health", "1.0.0")
+        reg.register(d_health)
+        reg.restore_record(
+            DomainRegistryRecord(
+                definition=d_health,
+                status=DomainStatus.ACTIVE,
+                registered_at=_now(),
+                updated_at=_now(),
+            )
+        )
+
         ctx = DomainSessionContext(
             session_id="session-123",
             primary_domain="domain:health",
             available_operation_ids=("op:send_notification", "op:delete_record"),
             updated_at=_now(),
         )
-        resumer = DomainSessionResumer()
+        resumer = DomainSessionResumer(
+            registry=reg,
+            permission_evaluator=lambda a, p: p,
+            operation_filter=lambda p, o: o,
+            persistence_updater=lambda c: None,
+        )
         req = DomainSessionResumeRequest(session_id="session-123")
         res = resumer.resume(req, ctx)
 

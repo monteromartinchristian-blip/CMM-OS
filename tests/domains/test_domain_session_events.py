@@ -76,7 +76,13 @@ def test_nominal_resume_emits_no_invented_event():
         domain_versions={"domain:health": "1.0.0", "domain:sport": "1.2.0"},
         updated_at=_now(),
     )
-    resumer = DomainSessionResumer(registry=reg, event_publisher=publisher)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        event_publisher=publisher,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
 
@@ -101,6 +107,9 @@ def test_re_resolution_emits_resolution_completed_event():
         registry=reg,
         fallback_resolver=lambda p, s: "domain:general",
         event_publisher=publisher,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -134,7 +143,13 @@ def test_recomposition_emits_composition_updated_event():
         domain_versions={"domain:health": "1.0.0", "domain:sport": "1.2.0"},
         updated_at=_now(),
     )
-    resumer = DomainSessionResumer(registry=reg, event_publisher=publisher)
+    resumer = DomainSessionResumer(
+        registry=reg,
+        event_publisher=publisher,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
+    )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
 
@@ -159,6 +174,8 @@ def test_persistence_failure_prevents_event_emission():
         registry=reg,
         fallback_resolver=lambda p, s: "domain:general",
         event_publisher=publisher,
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
         persistence_updater=lambda c: (_ for _ in ()).throw(RuntimeError("DB dead")),
     )
     req = DomainSessionResumeRequest(session_id="session-123")

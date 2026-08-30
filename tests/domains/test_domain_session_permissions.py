@@ -77,6 +77,7 @@ def test_persisted_permission_downgrade_removes_unauthorized_operation():
         operation_filter=lambda perms, ops: tuple(
             op for op in ops if op != "op:prescribe_medication"
         ),
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123", actor="user-1")
     result = resumer.resume(req, ctx)
@@ -103,6 +104,7 @@ def test_persisted_permission_never_authorizes_without_reevaluation():
         registry=reg,
         permission_evaluator=lambda actor, perms: (),
         operation_filter=lambda perms, ops: (),
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123", actor="untrusted")
     result = resumer.resume(req, ctx)

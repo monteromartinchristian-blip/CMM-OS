@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from cmm.domains.contracts import DomainDefinition
+from cmm.domains.enums import DomainKind, DomainStatus
+from cmm.domains.identifiers import DomainId, DomainManifestId
+from cmm.domains.registry import DomainRegistry
+from cmm.domains.registry_contracts import DomainRegistryRecord
 from cmm.domains.session_contracts import (
     DomainSessionCheck,
     DomainSessionCheckStatus,
@@ -18,7 +23,32 @@ def _now() -> datetime:
     return datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
 
 
+def _setup_registry() -> DomainRegistry:
+    reg = DomainRegistry()
+    d_health = DomainDefinition(
+        id=DomainId(slug="health"),
+        name="health",
+        display_name="Health Domain",
+        version="1.0.0",
+        kind=DomainKind.PERSONAL,
+        description="Health description",
+        manifest_id=DomainManifestId(slug="health", version="1.0.0"),
+    )
+    reg.register(d_health)
+    now = _now()
+    reg.restore_record(
+        DomainRegistryRecord(
+            definition=d_health,
+            status=DomainStatus.ACTIVE,
+            registered_at=now,
+            updated_at=now,
+        )
+    )
+    return reg
+
+
 def test_pending_questions_recovery_and_waiting_for_user():
+    reg = _setup_registry()
     ctx = DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -27,10 +57,14 @@ def test_pending_questions_recovery_and_waiting_for_user():
     )
     # Question evaluator resolves q:prior_conditions as already answered, keeps q:symptom_onset
     resumer = DomainSessionResumer(
+        registry=reg,
         question_evaluator=lambda q_refs: (
             ("q:symptom_onset",),
             ("q:prior_conditions",),
-        )
+        ),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -44,6 +78,7 @@ def test_pending_questions_recovery_and_waiting_for_user():
 
 
 def test_pending_approvals_recovery_and_waiting_for_approval():
+    reg = _setup_registry()
     ctx = DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -52,10 +87,14 @@ def test_pending_approvals_recovery_and_waiting_for_approval():
     )
     # Approval evaluator keeps pending appr:medication_purchase, drops expired appr:stale_grant
     resumer = DomainSessionResumer(
+        registry=reg,
         approval_evaluator=lambda a_refs: (
             ("appr:medication_purchase",),
             ("appr:stale_grant",),
-        )
+        ),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -67,6 +106,7 @@ def test_pending_approvals_recovery_and_waiting_for_approval():
 
 
 def test_stale_approval_does_not_become_authorization():
+    reg = _setup_registry()
     ctx = DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -76,8 +116,11 @@ def test_stale_approval_does_not_become_authorization():
     )
     # Evaluator drops historical approval
     resumer = DomainSessionResumer(
+        registry=reg,
         approval_evaluator=lambda a_refs: ((), ("appr:historical_old",)),
+        permission_evaluator=lambda a, p: p,
         operation_filter=lambda perms, ops: (),  # No active approval -> operation removed
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -88,6 +131,7 @@ def test_stale_approval_does_not_become_authorization():
 
 
 def test_blocking_conflict_blocks_resumption():
+    reg = _setup_registry()
     ctx = DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -95,6 +139,7 @@ def test_blocking_conflict_blocks_resumption():
         updated_at=_now(),
     )
     resumer = DomainSessionResumer(
+        registry=reg,
         # Conflict checker detects unresolved blocking conflict
         conflict_evaluator=lambda conf_refs: (
             DomainSessionResumeStatus.BLOCKED,
@@ -106,7 +151,10 @@ def test_blocking_conflict_blocks_resumption():
                     blocking=True,
                 ),
             ),
-        )
+        ),
+        permission_evaluator=lambda a, p: p,
+        operation_filter=lambda p, o: o,
+        persistence_updater=lambda c: None,
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
