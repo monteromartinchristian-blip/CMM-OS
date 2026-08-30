@@ -328,7 +328,7 @@ class DefaultDomainAPI:
         """Delegate to the authoritative operation orchestrator."""
         return self._operation_orchestrator.execute(request)
 
-    # ── Workflow execution (Task 6) ───────────────────────────────────────
+    # ── Workflow execution ────────────────────────────────────────────────
 
     def start_workflow(
         self,
@@ -337,7 +337,8 @@ class DefaultDomainAPI:
         inputs: Mapping[str, Any],
     ) -> DomainWorkflowResult:
         """Resolve through the workflow registry and execute canonically."""
-        raise NotImplementedError
+        definition = self._workflow_registry.resolve_active(workflow_id)
+        return self._workflow_executor.execute_result(definition, context, dict(inputs))
 
     # ── Sessions (Task 7) ─────────────────────────────────────────────────
 
