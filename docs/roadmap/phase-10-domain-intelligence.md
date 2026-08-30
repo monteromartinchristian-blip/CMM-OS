@@ -5114,31 +5114,24 @@ On resume:
 
 10.35 - Domain SDK
 
+> **Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V2 pending;
+> Phase 10.35 is not closed.
+
 Objective
 
 Allow to create, validate, test and pack new domains without changing CMM OS core.
 
-CLI inicial
+Implemented CLI
 
 cmm domain create <name>
-cmm domain inspect <domain-id>
-cmm domain list
-cmm domain discover
 cmm domain validate <path>
 cmm domain test <path>
-cmm domain install <path>
-cmm domain uninstall <domain-id>
-cmm domain enable <domain-id>
-cmm domain disable <domain-id>
-cmm domain reload <domain-id>
 cmm domain pack <path>
-cmm domain publish <path>
-cmm domain capabilities <domain-id>
-cmm domain operations <domain-id>
-cmm domain workflows <domain-id>
-cmm domain permissions <domain-id>
-cmm domain resolve --input "..."
-cmm domain trace <trace-id>
+
+These four commands are the required and delivered Phase 10.35 surface.
+Installation, enablement, publication, resolution, trace inspection and the
+broader registry/API CLI belong to Phase 10.36 or later. Phase 10.35 does not
+claim those commands as implemented.
 
 Scaffold
 
@@ -5147,72 +5140,37 @@ cmm domain create finance
 Resultado:
 
 finance/
-├── manifest.yaml
+├── manifest.json
 ├── README.md
-├── resources/
-│   └── **init**.py
-├── profiles/
-│   └── finance.py
-├── rules/
-│   └── **init**.py
-├── operations/
-│   └── **init**.py
-├── workflows/
-│   └── review.yaml
-├── permissions/
-│   └── finance.yaml
-├── presentation/
-│   └── policy.yaml
-├── validators/
-│   └── **init**.py
 ├── fixtures/
 │   └── sample.json
 └── tests/
-├── test_manifest.py
-├── test_rules.py
-├── test_operations.py
-└── test_workflows.py
+    └── test_domain.py
 
-SDK Components
+The older `manifest.yaml` tree elsewhere in this roadmap is conceptual and
+historical. The implemented Phase 10.35 SDK uses the canonical declarative
+`manifest.json` format and creates external, developer-owned Domain Packs.
+
+Implemented SDK components
 
 * DomainBuilder;
 * ManifestBuilder;
-* ResourceRegistrationAPI;
-* RuleRegistrationAPI;
-* OperationRegistrationAPI;
-* WorkflowRegistrationAPI;
-* PermissionBuilder;
-* PresentationBuilder;
 * DomainTestHarness;
 * DomainFixtureLoader;
 * DomainPackager;
-* DomainCompatibilityChecker.
+* canonical validation facade.
 
 Domain Test Harness
 
-It should allow:
+The implemented harness discovers, parses, validates and loads the real target
+pack through canonical components into isolated canonical registries. Loading
+registers the target but does not enable it, authorize operations or grant
+permissions. Pack-owned pytest tests remain the readiness gate used by
+`cmm domain test`.
 
-* Loan the domain independently.
-* using memory stors;
-* using simulated resources;
-* enforce rules;
-* execute operations;
-* execute workflows;
-* simulate permissions
-* simular approvals;
-* inspeccionar traces;
-* check fragmentation
-* check compatibility.
-
-Plantillas
+Implemented template
 
 * basic_domain;
-* personal_domain;
-* high_risk_domain;
-* project_domain;
-* read_only_domain;
-* external_service_domain;
-* multi_domain_extension.
 
 ⸻
 
