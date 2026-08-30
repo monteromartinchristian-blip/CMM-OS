@@ -251,11 +251,7 @@ def discover_source_hash_paths(repo_root: Path) -> tuple[str, ...]:
             _fail(f"required source scope missing: {root_name}")
         for path in root.rglob("*.py"):
             if "__pycache__" not in path.parts:
-                rel = path.relative_to(repo_root).as_posix()
-                if not rel.startswith("cmm/domains/sdk/") and not rel.startswith(
-                    "tests/domains/test_domain_sdk_"
-                ):
-                    paths.add(rel)
+                paths.add(path.relative_to(repo_root).as_posix())
     return tuple(sorted(paths))
 
 
@@ -332,12 +328,6 @@ def _validate_source_binding(
         except ValueError:
             _fail(f"hashed source path escapes repository root: {relative}")
         if _sha256(path) != expected_file_digest:
-            if relative in (
-                "cmm/__main__.py",
-                "cmm/domains/validation_context.py",
-                "tests/domains/domain_session_audit_evidence.py",
-            ):
-                continue
             _fail(f"source hash mismatch: {relative}")
     return expected_digest, MappingProxyType(normalized)
 

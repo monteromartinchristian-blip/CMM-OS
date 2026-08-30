@@ -92,7 +92,7 @@ def _set_main_roadmap_state(
     _replace_once(path, r"^\*\*Implemented through:\*\*.*$", implemented_through)
     _replace_once(
         path,
-        r"^remains closed\. Phase 10\.33.*final planned Domain Packs\.$",
+        r"^remains closed\. Phases? 10\.33.*final planned Domain Packs\.$",
         narrative,
     )
 

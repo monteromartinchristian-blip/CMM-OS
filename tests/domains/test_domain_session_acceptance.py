@@ -42,6 +42,11 @@ from cmm.domains.session_revalidation import (
     revalidate_workflows,
 )
 from tests.domains.domain_session_audit_evidence import validate_at_dp_034
+from tests.domains.domain_session_lifecycle_test_support import (
+    COMPLETE,
+    portable_archive_fixture,
+    write_audit,
+)
 from tests.domains.domain_session_test_support import (
     failing_shared_session_adapter,
     shared_session_adapter,
@@ -107,6 +112,31 @@ DOMAIN_SESSION_CHECKPOINTS_56: tuple[str, ...] = (
     "55. All required pre-audit gates pass on the verified source tree from a clean worktree",
     "56. Closure guard discovers the latest independent audit dynamically, rejects premature closure, and permits closure eligibility only after a clean independent PASS with zero findings",
 )
+
+
+@pytest.fixture(scope="module")
+def _v10_rebound_archive(tmp_path_factory: pytest.TempPathFactory):
+    archive_root = portable_archive_fixture(
+        tmp_path_factory.mktemp("phase-10.34-v10-acceptance"),
+        status=COMPLETE,
+    )
+    write_audit(archive_root, 10, status="PASS", blockers=0, majors=0, minors=0)
+    return archive_root
+
+
+@pytest.fixture(autouse=True)
+def _bind_v10_evidence_to_rebound_archive(
+    _v10_rebound_archive, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    historical_validator = validate_at_dp_034
+
+    def validate_rebound(**kwargs):
+        kwargs.setdefault("repo_root", _v10_rebound_archive)
+        return historical_validator(**kwargs)
+
+    monkeypatch.setattr(sys.modules[__name__], "validate_at_dp_034", validate_rebound)
 
 
 def _now() -> datetime:

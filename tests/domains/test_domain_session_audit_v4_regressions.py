@@ -38,9 +38,51 @@ from tests.domains.domain_session_audit_evidence import (
     collect_pytest_nodes,
     validate_at_dp_034,
 )
+from tests.domains.domain_session_lifecycle_test_support import (
+    COMPLETE,
+    portable_archive_fixture,
+    write_audit,
+)
 from tests.domains.domain_session_test_support import shared_session_adapter
 
 NOW = datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(scope="module")
+def _v10_rebound_archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    archive_root = portable_archive_fixture(
+        tmp_path_factory.mktemp("phase-10.34-v10-regressions"),
+        status=COMPLETE,
+    )
+    write_audit(archive_root, 10, status="PASS", blockers=0, majors=0, minors=0)
+    return archive_root
+
+
+@pytest.fixture(autouse=True)
+def _bind_v10_evidence_to_rebound_archive(
+    _v10_rebound_archive: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    historical_validator = validate_at_dp_034
+
+    def validate_rebound(**kwargs):
+        kwargs.setdefault("repo_root", _v10_rebound_archive)
+        return historical_validator(**kwargs)
+
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "validate_at_dp_034", validate_rebound)
+    monkeypatch.setattr(
+        module,
+        "EVIDENCE_MANIFEST_PATH",
+        _v10_rebound_archive
+        / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json",
+    )
+    monkeypatch.setattr(
+        module,
+        "EXTERNAL_GATES_PATH",
+        _v10_rebound_archive / "docs/audits/evidence/phase-10.34-v10-gates.json",
+    )
 
 
 def _definition(slug: str) -> DomainDefinition:
