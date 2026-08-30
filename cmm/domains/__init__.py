@@ -238,6 +238,12 @@ from cmm.domains.errors import (
     DomainRuleSelectionError,
     DomainRuleSerializationError,
     DomainSerializationError,
+    DomainSessionContractError,
+    DomainSessionError,
+    DomainSessionResumeError,
+    DomainSessionRevalidationError,
+    DomainSessionSecurityError,
+    DomainSessionSerializationError,
     DomainSourceUntrusted,
     DomainUnloadFailed,
     DomainUnloadRollbackFailed,
@@ -489,6 +495,33 @@ from cmm.domains.selection import build_domain_selection_transition
 from cmm.domains.selection_contracts import (
     DomainSelectionPolicy,
     DomainSelectionTransition,
+)
+
+# Phase 10.34 – Domain Sessions
+from cmm.domains.session_codec import (
+    DOMAIN_SESSION_EXTENSION_KEY,
+    DomainSessionCodec,
+)
+from cmm.domains.session_contracts import (
+    DOMAIN_SESSION_SCHEMA_VERSION,
+    DomainSessionCheck,
+    DomainSessionCheckStatus,
+    DomainSessionContext,
+    DomainSessionResumeRequest,
+    DomainSessionResumeResult,
+    DomainSessionResumeStatus,
+    DomainSessionTransition,
+)
+from cmm.domains.session_resumer import (
+    DomainSessionResumer,
+)
+from cmm.domains.session_revalidation import (
+    DomainWorkflowClassification,
+    revalidate_domains,
+    revalidate_resource_and_knowledge_drift,
+    revalidate_session_state,
+    revalidate_temporal,
+    revalidate_workflows,
 )
 
 # Phase 10.5 – Domain Validation
@@ -1144,4 +1177,30 @@ __all__ += [
     "request_for_operation",
     "request_for_rule_permission",
     "request_for_workflow",
+]
+
+__all__ += [
+    "DOMAIN_SESSION_EXTENSION_KEY",
+    "DOMAIN_SESSION_SCHEMA_VERSION",
+    "DomainSessionCheck",
+    "DomainSessionCheckStatus",
+    "DomainSessionCodec",
+    "DomainSessionContext",
+    "DomainSessionContractError",
+    "DomainSessionError",
+    "DomainSessionResumeError",
+    "DomainSessionResumeRequest",
+    "DomainSessionResumeResult",
+    "DomainSessionResumeStatus",
+    "DomainSessionResumer",
+    "DomainSessionRevalidationError",
+    "DomainSessionSecurityError",
+    "DomainSessionSerializationError",
+    "DomainSessionTransition",
+    "DomainWorkflowClassification",
+    "revalidate_domains",
+    "revalidate_resource_and_knowledge_drift",
+    "revalidate_session_state",
+    "revalidate_temporal",
+    "revalidate_workflows",
 ]
