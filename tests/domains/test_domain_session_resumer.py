@@ -16,6 +16,10 @@ from cmm.domains.session_contracts import (
     DomainSessionResumeStatus,
 )
 from cmm.domains.session_resumer import DomainSessionResumer
+from tests.domains.domain_session_test_support import (
+    failing_shared_session_adapter,
+    shared_session_adapter,
+)
 
 
 def _now() -> datetime:
@@ -70,7 +74,7 @@ def test_nominal_resume():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -102,7 +106,7 @@ def test_resume_with_dict_payload_via_codec():
         codec=codec,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, session_envelope)
@@ -136,7 +140,7 @@ def test_recomposition_when_supporting_domain_disabled():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -164,7 +168,7 @@ def test_re_resolution_when_primary_domain_missing():
         fallback_resolver=lambda primary, supporting: "domain:general",
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -191,7 +195,7 @@ def test_blocking_check_fails_closed():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
 
@@ -210,14 +214,13 @@ def test_persistence_failure_rollback():
         updated_at=_now(),
     )
 
-    def failing_persistence(resumed_ctx: DomainSessionContext) -> None:
-        raise RuntimeError("Database connection failure")
-
     resumer = DomainSessionResumer(
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=failing_persistence,
+        shared_session_adapter=failing_shared_session_adapter(
+            RuntimeError("Database connection failure")
+        ),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -242,7 +245,7 @@ def test_idempotent_resume():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(
         session_id="session-123",
@@ -268,30 +271,31 @@ def test_retry_after_failed_persistence_does_not_skip_revision():
         updated_at=_now(),
     )
 
-    def failing_persistence(c: DomainSessionContext) -> None:
-        raise RuntimeError("Transient DB glitch")
-
     resumer_failing = DomainSessionResumer(
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=failing_persistence,
+        shared_session_adapter=failing_shared_session_adapter(
+            RuntimeError("Transient DB glitch")
+        ),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     res1 = resumer_failing.resume(req, ctx)
     assert res1.status is DomainSessionResumeStatus.FAILED
     assert res1.resumed_revision == 2
 
-    # Retry
-    saved: list[DomainSessionContext] = []
+    # Retry through a healthy authoritative shared store.
+    adapter = shared_session_adapter()
     resumer_ok = DomainSessionResumer(
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: saved.append(c),
+        shared_session_adapter=adapter,
     )
     res2 = resumer_ok.resume(req, ctx)
     assert res2.status is DomainSessionResumeStatus.RESUMED
     assert res2.resumed_revision == 3
-    assert len(saved) == 1
-    assert saved[0].revision == 3
+
+    persisted = adapter.load_domain_session("session-123")
+    assert persisted is not None
+    assert persisted.revision == 3

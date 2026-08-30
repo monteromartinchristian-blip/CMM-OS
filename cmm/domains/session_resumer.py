@@ -89,6 +89,7 @@ class DomainSessionResumer:
         codec: DomainSessionCodec | None = None,
         persistence_updater: Callable[[DomainSessionContext], None] | None = None,
         session_loader: Callable[[str], Any] | None = None,
+        shared_session_adapter: Any | None = None,
     ) -> None:
         self._registry = registry
         self._resolver = resolver
@@ -105,6 +106,7 @@ class DomainSessionResumer:
         self._codec = codec or DomainSessionCodec()
         self._persistence_updater = persistence_updater
         self._session_loader = session_loader
+        self._shared_session_adapter = shared_session_adapter
 
     def _is_domain_active(self, domain_ref: str) -> bool:
         if self._registry is None:
@@ -161,6 +163,12 @@ class DomainSessionResumer:
                         loaded_session, "session_id", None
                     ) or getattr(loaded_session, "id", None)
                     context = self._codec.extract_from_session(loaded_session)
+        elif self._shared_session_adapter is not None:
+            # Production path: load the durable shared session by ID
+            context = self._shared_session_adapter.load_domain_session(
+                request.session_id
+            )
+            shared_session_id = context.session_id if context else None
 
         if context is None:
             raise DomainSessionResumeError(
@@ -248,7 +256,7 @@ class DomainSessionResumer:
                 recorded_resumption=False,
             )
 
-        if self._persistence_updater is None:
+        if self._shared_session_adapter is None:
             return DomainSessionResumeResult(
                 status=DomainSessionResumeStatus.FAILED,
                 session_id=session_id,
@@ -257,14 +265,19 @@ class DomainSessionResumer:
                 context=None,
                 checks=(
                     DomainSessionCheck(
-                        name="persistence_authority_check",
+                        name="shared_persistence_authority_check",
                         status=DomainSessionCheckStatus.BLOCKING,
-                        message="Persistence authority is required for resumption",
+                        message=(
+                            "Shared session persistence authority is required "
+                            "for resumption"
+                        ),
                         blocking=True,
                     ),
                 ),
                 warnings=(),
-                blocking_findings=("Persistence authority is required for resumption",),
+                blocking_findings=(
+                    "Shared session persistence authority is required for resumption",
+                ),
                 recorded_resumption=False,
             )
 
@@ -630,10 +643,15 @@ class DomainSessionResumer:
             metadata=dict(context.metadata),
         )
 
-        # 11. Persistence boundary execution (BLOCKER-03: MUST HAPPEN BEFORE EVENT PUBLICATION)
+        # 11. Authoritative shared-session persistence boundary.
+        # The generic shared SessionStore is the durable source of truth.
+        # Legacy persistence_updater callbacks are never sufficient evidence
+        # of a committed resumption.
         try:
-            self._persistence_updater(resumed_context)
-        except Exception as exc:  # noqa: BLE001
+            committed_context = self._shared_session_adapter.save_domain_session(
+                resumed_context
+            )
+        except Exception:  # noqa: BLE001
             return DomainSessionResumeResult(
                 status=DomainSessionResumeStatus.FAILED,
                 session_id=session_id,
@@ -642,7 +660,24 @@ class DomainSessionResumer:
                 context=None,
                 checks=tuple(checks),
                 warnings=tuple(warnings),
-                blocking_findings=(f"Persistence failure: {exc}",),
+                blocking_findings=("Shared session persistence failure",),
+                recorded_resumption=False,
+            )
+
+        if (
+            not isinstance(committed_context, DomainSessionContext)
+            or committed_context.session_id != session_id
+            or committed_context.revision != resumed_context.revision
+        ):
+            return DomainSessionResumeResult(
+                status=DomainSessionResumeStatus.FAILED,
+                session_id=session_id,
+                previous_revision=previous_revision,
+                resumed_revision=previous_revision,
+                context=None,
+                checks=tuple(checks),
+                warnings=tuple(warnings),
+                blocking_findings=("Shared session commit verification failed",),
                 recorded_resumption=False,
             )
 
@@ -682,7 +717,7 @@ class DomainSessionResumer:
             session_id=session_id,
             previous_revision=previous_revision,
             resumed_revision=previous_revision + 1,
-            context=resumed_context,
+            context=committed_context,
             checks=tuple(checks),
             warnings=tuple(warnings),
             blocking_findings=(),

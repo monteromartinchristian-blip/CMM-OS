@@ -45,6 +45,10 @@ from cmm.domains.session_revalidation import (
     revalidate_temporal,
     revalidate_workflows,
 )
+from tests.domains.domain_session_test_support import (
+    failing_shared_session_adapter,
+    shared_session_adapter,
+)
 
 
 def _now() -> datetime:
@@ -130,7 +134,7 @@ def test_resume_without_current_permission_authority_fails_closed():
         registry=reg,
         permission_evaluator=None,
         operation_filter=None,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
 
@@ -161,7 +165,7 @@ def test_resume_without_current_operation_authority_fails_closed():
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=None,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
 
@@ -188,7 +192,7 @@ def test_resume_without_current_domain_registry_fails_closed():
         registry=None,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
 
@@ -217,7 +221,7 @@ def test_stale_permission_snapshot_never_becomes_current_permission():
         registry=reg,
         permission_evaluator=lambda actor, perms: ("perm:health_read",),
         operation_filter=lambda perms, ops: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
     assert result.status is DomainSessionResumeStatus.RESUMED
@@ -241,7 +245,7 @@ def test_stale_operation_snapshot_never_becomes_current_availability():
         registry=reg,
         permission_evaluator=lambda actor, perms: ("perm:health_read",),
         operation_filter=lambda perms, ops: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     result = resumer.resume(req, ctx)
     assert result.status is DomainSessionResumeStatus.RESUMED
@@ -295,7 +299,7 @@ def test_recomposed_status_requires_composer_invocation():
         composer=mock_composer,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-1")
     result = resumer.resume(req, ctx)
@@ -333,7 +337,7 @@ def test_supporting_domain_removal_rebuilds_composition():
         composer=real_composer,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-2")
     result = resumer.resume(req, ctx)
@@ -370,7 +374,7 @@ def test_material_domain_change_recomputes_profile():
         composer=real_composer,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-3")
     result = resumer.resume(req, ctx)
@@ -404,7 +408,7 @@ def test_material_domain_change_recomputes_rules():
         composer=real_composer,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-4")
     result = resumer.resume(req, ctx)
@@ -438,7 +442,7 @@ def test_material_domain_change_recomputes_permissions():
         composer=DefaultDomainComposer(),
         permission_evaluator=lambda a, p: tuple(x for x in p if "fitness" not in x),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-5")
     result = resumer.resume(req, ctx)
@@ -471,7 +475,7 @@ def test_material_domain_change_recomputes_operations():
         composer=DefaultDomainComposer(),
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-6")
     result = resumer.resume(req, ctx)
@@ -508,7 +512,7 @@ def test_material_domain_change_reevaluates_questions():
             ("q:health_symptom",),
             ("q:fitness_intensity",),
         ),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-7")
     result = resumer.resume(req, ctx)
@@ -543,7 +547,7 @@ def test_material_domain_change_reconstructs_next_step():
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
         next_step_reconstructor=lambda c, st: "step:recalculated_health_step",
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-comp-8")
     result = resumer.resume(req, ctx)
@@ -575,7 +579,7 @@ def test_reresolved_status_requires_real_resolution():
         fallback_resolver=lambda prim, sup: "domain:general",
         permission_evaluator=lambda a, p: ("perm:gen_read",),
         operation_filter=lambda p, o: ("op:gen_query",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-resolv-1")
     result = resumer.resume(req, ctx)
@@ -612,7 +616,7 @@ def test_composer_and_resolver_doubles_must_be_invoked():
         composer=TrappingComposer(),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-trap-1")
     with pytest.raises(RuntimeError, match="TrappingComposer invoked successfully"):
@@ -631,7 +635,7 @@ def test_resume_requires_authoritative_shared_session():
         registry=_build_test_registry(),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     with pytest.raises(DomainSessionResumeError, match="session context is missing"):
         resumer.resume(req, session_context=None)
@@ -654,7 +658,7 @@ def test_resume_loads_domain_state_from_shared_session():
         codec=codec,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="s-persist-2")
     result = resumer.resume(req, attached)
@@ -673,16 +677,13 @@ def test_resume_records_revision_only_after_shared_persistence_commit():
         revision=3,
         updated_at=_now(),
     )
-    persisted_contexts: list[DomainSessionContext] = []
-
-    def updater(updated_ctx: DomainSessionContext) -> None:
-        persisted_contexts.append(updated_ctx)
+    adapter = shared_session_adapter()
 
     resumer = DomainSessionResumer(
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=updater,
+        shared_session_adapter=adapter,
     )
     req = DomainSessionResumeRequest(session_id="s-persist-3")
     result = resumer.resume(req, ctx)
@@ -691,8 +692,9 @@ def test_resume_records_revision_only_after_shared_persistence_commit():
     assert result.recorded_resumption is True
     assert result.previous_revision == 3
     assert result.resumed_revision == 4
-    assert len(persisted_contexts) == 1
-    assert persisted_contexts[0].revision == 4
+    persisted = adapter.load_domain_session("s-persist-3")
+    assert persisted is not None
+    assert persisted.revision == 4
 
 
 def test_resume_without_persistence_authority_cannot_claim_recorded():
@@ -707,7 +709,6 @@ def test_resume_without_persistence_authority_cannot_claim_recorded():
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=None,  # Missing persistence
     )
     req = DomainSessionResumeRequest(session_id="s-persist-4")
     result = resumer.resume(req, ctx)
@@ -730,14 +731,13 @@ def test_persistence_failure_keeps_previous_revision_recoverable():
         updated_at=_now(),
     )
 
-    def failing_updater(c: DomainSessionContext) -> None:
-        raise OSError("Disk write failed / database lock")
-
     resumer = DomainSessionResumer(
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=failing_updater,
+        shared_session_adapter=failing_shared_session_adapter(
+            OSError("Disk write failed / database lock")
+        ),
     )
     req = DomainSessionResumeRequest(session_id="s-persist-5")
     result = resumer.resume(req, ctx)
@@ -747,7 +747,9 @@ def test_persistence_failure_keeps_previous_revision_recoverable():
     assert result.previous_revision == 2
     assert result.resumed_revision == 2
     assert result.context is None
-    assert any("Disk write failed" in f for f in result.blocking_findings)
+    assert any(
+        "Shared session persistence failure" in f for f in result.blocking_findings
+    )
 
 
 def test_persistence_failure_does_not_emit_committed_transition_event():
@@ -771,15 +773,14 @@ def test_persistence_failure_does_not_emit_committed_transition_event():
     )
     mock_publisher = MagicMock()
 
-    def failing_updater(c: DomainSessionContext) -> None:
-        raise RuntimeError("Persistence commit aborted")
-
     resumer = DomainSessionResumer(
         registry=reg,
         composer=DefaultDomainComposer(),
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=failing_updater,
+        shared_session_adapter=failing_shared_session_adapter(
+            RuntimeError("Persistence commit aborted")
+        ),
         event_publisher=mock_publisher,
     )
     req = DomainSessionResumeRequest(session_id="s-persist-6")
@@ -817,7 +818,7 @@ def test_request_context_session_id_mismatch_fails_closed():
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     with pytest.raises(
         (
@@ -844,7 +845,7 @@ def test_context_shared_session_id_mismatch_fails_closed():
         codec=codec,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-B")
     with pytest.raises(
@@ -872,7 +873,7 @@ def test_request_shared_session_id_mismatch_fails_closed():
         codec=codec,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-B")
     with pytest.raises(

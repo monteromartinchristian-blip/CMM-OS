@@ -15,6 +15,7 @@ from cmm.domains.session_contracts import (
     DomainSessionResumeStatus,
 )
 from cmm.domains.session_resumer import DomainSessionResumer
+from tests.domains.domain_session_test_support import shared_session_adapter
 
 
 def _now() -> datetime:
@@ -77,7 +78,7 @@ def test_persisted_permission_downgrade_removes_unauthorized_operation():
         operation_filter=lambda perms, ops: tuple(
             op for op in ops if op != "op:prescribe_medication"
         ),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123", actor="user-1")
     result = resumer.resume(req, ctx)
@@ -104,7 +105,7 @@ def test_persisted_permission_never_authorizes_without_reevaluation():
         registry=reg,
         permission_evaluator=lambda actor, perms: (),
         operation_filter=lambda perms, ops: (),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123", actor="untrusted")
     result = resumer.resume(req, ctx)

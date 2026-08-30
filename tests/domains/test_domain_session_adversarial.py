@@ -26,6 +26,7 @@ from cmm.domains.session_contracts import (
     DomainSessionTransition,
 )
 from cmm.domains.session_resumer import DomainSessionResumer
+from tests.domains.domain_session_test_support import shared_session_adapter
 
 
 def _now() -> datetime:
@@ -167,7 +168,7 @@ class TestUnauthorizedCrossDomainEscalation:
             registry=reg,
             permission_evaluator=lambda actor, perms: (),
             operation_filter=lambda perms, ops: (),
-            persistence_updater=lambda c: None,
+            shared_session_adapter=shared_session_adapter(),
         )
         req = DomainSessionResumeRequest(
             session_id="session-123", actor="untrusted_guest"
@@ -206,7 +207,7 @@ class TestSideEffectBoundaryViolations:
             registry=reg,
             permission_evaluator=lambda a, p: p,
             operation_filter=lambda p, o: o,
-            persistence_updater=lambda c: None,
+            shared_session_adapter=shared_session_adapter(),
         )
         req = DomainSessionResumeRequest(session_id="session-123")
         resumer.resume(req, ctx)
@@ -241,7 +242,7 @@ class TestSideEffectBoundaryViolations:
             registry=reg,
             permission_evaluator=lambda a, p: p,
             operation_filter=lambda p, o: o,
-            persistence_updater=lambda c: None,
+            shared_session_adapter=shared_session_adapter(),
         )
         req = DomainSessionResumeRequest(session_id="session-123")
         res = resumer.resume(req, ctx)

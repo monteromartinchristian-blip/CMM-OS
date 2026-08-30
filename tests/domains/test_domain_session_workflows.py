@@ -20,6 +20,7 @@ from cmm.domains.session_revalidation import (
     DomainWorkflowClassification,
     revalidate_workflows,
 )
+from tests.domains.domain_session_test_support import shared_session_adapter
 
 
 def _now() -> datetime:
@@ -145,7 +146,7 @@ def test_resumer_integrates_workflow_reconciliation():
         ),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     res = resumer.resume(req, ctx)

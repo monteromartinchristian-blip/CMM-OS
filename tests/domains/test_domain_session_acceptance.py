@@ -41,6 +41,10 @@ from cmm.domains.session_revalidation import (
     revalidate_temporal,
     revalidate_workflows,
 )
+from tests.domains.domain_session_test_support import (
+    failing_shared_session_adapter,
+    shared_session_adapter,
+)
 
 # ── 56 Acceptance Checkpoints Canonical Inventory ────────────────────────────
 
@@ -253,7 +257,7 @@ def test_checkpoint_08_effective_permission_untrusted_snapshot():
         registry=reg,
         permission_evaluator=lambda actor, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-008"), ctx)
     assert res.status is DomainSessionResumeStatus.RESUMED
@@ -341,7 +345,7 @@ def test_checkpoint_15_approvals_preserved_never_auto_authorize():
         approval_evaluator=lambda a: ((), ("appr:expired_data_export",)),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-015"), ctx)
     assert res.context is not None
@@ -392,7 +396,7 @@ def test_checkpoint_18_domain_changes_explicitly_recorded():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-018"), ctx)
     assert res.status is DomainSessionResumeStatus.RECOMPOSED
@@ -462,7 +466,7 @@ def test_checkpoint_23_resumption_checks_active_domains():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-023"), ctx)
     assert res.status is DomainSessionResumeStatus.BLOCKED
@@ -506,7 +510,7 @@ def test_checkpoint_25_resumption_checks_compatibility():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(req, ctx)
     assert res.status is DomainSessionResumeStatus.BLOCKED
@@ -564,7 +568,7 @@ def test_checkpoint_28_resumption_reevaluates_current_permissions():
         registry=reg,
         permission_evaluator=lambda a, p: ("perm:health_read",),
         operation_filter=lambda p, o: ("op:health_read",),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-028"), ctx)
     assert res.context is not None
@@ -594,7 +598,7 @@ def test_checkpoint_29_resumption_reconstructs_composition():
         composer=DefaultDomainComposer(),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-029"), ctx)
     assert res.status is DomainSessionResumeStatus.RECOMPOSED
@@ -626,7 +630,7 @@ def test_checkpoint_30_material_changes_trigger_reevaluation():
         composer=DefaultDomainComposer(),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-030"), ctx)
     assert res.status is DomainSessionResumeStatus.RECOMPOSED
@@ -665,7 +669,7 @@ def test_checkpoint_32_resumption_recovers_valid_questions():
         question_evaluator=lambda q: (("q:allergies",), ()),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-032"), ctx)
     assert res.status is DomainSessionResumeStatus.WAITING_FOR_USER
@@ -686,7 +690,7 @@ def test_checkpoint_33_resumption_recovers_valid_approvals():
         approval_evaluator=lambda a: (("appr:export",), ()),
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-033"), ctx)
     assert res.status is DomainSessionResumeStatus.WAITING_FOR_APPROVAL
@@ -706,7 +710,7 @@ def test_checkpoint_34_stale_permissions_never_authorize():
         registry=reg,
         permission_evaluator=lambda a, p: (),  # Deny all
         operation_filter=lambda p, o: (),
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(DomainSessionResumeRequest(session_id="session-034"), ctx)
     assert res.context is not None
@@ -727,7 +731,7 @@ def test_checkpoint_35_stale_operations_never_execute():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     resumer.resume(DomainSessionResumeRequest(session_id="session-035"), ctx)
     assert executed == []
@@ -749,7 +753,7 @@ def test_checkpoint_36_blocking_incompatibility_fails_closed():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     res = resumer.resume(req, ctx)
     assert res.status is DomainSessionResumeStatus.BLOCKED
@@ -773,7 +777,7 @@ def test_checkpoint_37_repeated_resumption_is_idempotent():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(
         session_id="session-037", temporal_reference=_now()
@@ -819,7 +823,7 @@ def test_checkpoint_39_actual_lifecycle_events_use_canonical_types_after_commit(
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     resumer.resume(DomainSessionResumeRequest(session_id="session-039"), ctx)
     assert len(published) == 1
@@ -858,7 +862,7 @@ def test_checkpoint_42_no_memory_mutation_on_resume():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     resumer.resume(DomainSessionResumeRequest(session_id="session-042"), ctx)
     assert ctx.domain_knowledge_refs["domain:health"] == ("know:immutable",)
@@ -878,7 +882,7 @@ def test_checkpoint_43_no_approval_decision_executed_on_resume():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     resumer.resume(DomainSessionResumeRequest(session_id="session-043"), ctx)
     assert executed_decisions == []
@@ -898,7 +902,7 @@ def test_checkpoint_44_no_operation_executes_merely_from_resume():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     resumer.resume(DomainSessionResumeRequest(session_id="session-044"), ctx)
     assert executed == []
@@ -917,7 +921,7 @@ def test_checkpoint_45_persistence_failure_atomic_no_partial_commit():
         registry=reg,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: (_ for _ in ()).throw(
+        shared_session_adapter=failing_shared_session_adapter(
             OSError("Disk write error")
         ),
     )

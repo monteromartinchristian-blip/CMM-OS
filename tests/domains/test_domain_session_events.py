@@ -17,6 +17,10 @@ from cmm.domains.session_contracts import (
     DomainSessionResumeStatus,
 )
 from cmm.domains.session_resumer import DomainSessionResumer
+from tests.domains.domain_session_test_support import (
+    failing_shared_session_adapter,
+    shared_session_adapter,
+)
 
 
 def _now() -> datetime:
@@ -81,7 +85,7 @@ def test_nominal_resume_emits_no_invented_event():
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -109,7 +113,7 @@ def test_re_resolution_emits_resolution_completed_event():
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -148,7 +152,7 @@ def test_recomposition_emits_composition_updated_event():
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: None,
+        shared_session_adapter=shared_session_adapter(),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
@@ -176,7 +180,7 @@ def test_persistence_failure_prevents_event_emission():
         event_publisher=publisher,
         permission_evaluator=lambda a, p: p,
         operation_filter=lambda p, o: o,
-        persistence_updater=lambda c: (_ for _ in ()).throw(RuntimeError("DB dead")),
+        shared_session_adapter=failing_shared_session_adapter(RuntimeError("DB dead")),
     )
     req = DomainSessionResumeRequest(session_id="session-123")
     result = resumer.resume(req, ctx)
