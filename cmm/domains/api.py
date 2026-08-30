@@ -320,13 +320,13 @@ class DefaultDomainAPI:
         """Delegate to the canonical ``DomainResolver``."""
         return self._resolver.resolve(context)
 
-    # ── Operation execution (Task 5) ──────────────────────────────────────
+    # ── Operation execution ───────────────────────────────────────────────
 
     def execute_operation(
         self, request: DomainOperationRequest
     ) -> DomainOperationResult:
         """Delegate to the authoritative operation orchestrator."""
-        raise NotImplementedError
+        return self._operation_orchestrator.execute(request)
 
     # ── Workflow execution (Task 6) ───────────────────────────────────────
 
