@@ -51,9 +51,11 @@ def test_18_closed_repo_fixture_with_clean_v8_pass_is_closure_eligible(
     assert "Phase 10.35 — Domain SDK is next" in (
         archive_root / "ROADMAP.md"
     ).read_text(encoding="utf-8")
-    assert "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`" in (
+    matrix = (
         archive_root / "docs/reference/domain-intelligence-requirements-matrix.md"
     ).read_text(encoding="utf-8")
+    assert "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`" in matrix
+    assert "re-audit V9 pending" not in matrix
 
 
 def test_19_closed_repo_fixture_with_fail_fails_closed(tmp_path: Path) -> None:

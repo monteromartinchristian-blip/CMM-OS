@@ -29,7 +29,7 @@
         "diff_check",
         "phase10_33_regression"
       ],
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "quality_gates": {
@@ -39,7 +39,7 @@
         "compileall",
         "diff_check"
       ],
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     }
   },
@@ -49,7 +49,7 @@
       "exit_code": 0,
       "gate_id": "compileall",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "diff_check": {
@@ -57,7 +57,7 @@
       "exit_code": 0,
       "gate_id": "diff_check",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "domain_tests": {
@@ -66,7 +66,7 @@
       "exit_code": 0,
       "gate_id": "domain_tests",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "focused_tests": {
@@ -75,7 +75,7 @@
       "exit_code": 0,
       "gate_id": "focused_tests",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "global_tests": {
@@ -84,7 +84,7 @@
       "exit_code": 0,
       "gate_id": "global_tests",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "phase10_33_regression": {
@@ -96,7 +96,7 @@
       "general_event_count": 23,
       "general_event_unique_count": 23,
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "ruff_check": {
@@ -104,7 +104,7 @@
       "exit_code": 0,
       "gate_id": "ruff_check",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     },
     "ruff_format": {
@@ -112,14 +112,14 @@
       "exit_code": 0,
       "gate_id": "ruff_format",
       "result_source": "command_execution",
-      "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+      "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
       "status": "PASS"
     }
   },
-  "generated_at": "2026-08-30T17:52:02+02:00",
+  "generated_at": "2026-08-30T17:54:26+02:00",
   "phase": "10.34",
   "pre_audit": {
-    "source_hash_manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367",
+    "source_hash_manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b",
     "source_scope_clean_when_generated": true
   },
   "pytest_evidence": {
@@ -131,6 +131,6 @@
   "source_evidence": {
     "file_count": 1463,
     "manifest": "docs/audits/evidence/phase-10.34-v9-source-hashes.json",
-    "manifest_sha256": "94fab2268fe945ec625dfde26c6a20f2b01302ac0eb8146fdf5a84808f221367"
+    "manifest_sha256": "2d6852a95eead96eb3c96272456acf95255963272a6c71f0dec471968e4a427b"
   }
 }

@@ -132,7 +132,8 @@ def _set_requirements_matrix_state(
             lines[dp_index],
         )
         lines[dp_index] = re.sub(
-            r"(?:independent re-audit V\d+ pending|final independent audit V\d+ `PASS`)",
+            r"(?:(?:independent|fixture-isolation) re-audit V\d+ pending|"
+            r"final independent audit V\d+ `PASS`)",
             f"independent re-audit V{pending_audit_version} pending",
             lines[dp_index],
         )
@@ -154,7 +155,8 @@ def _set_requirements_matrix_state(
             lines[dp_index],
         )
         lines[dp_index] = re.sub(
-            r"(?:independent re-audit V\d+ pending|final independent audit V\d+ `PASS`)",
+            r"(?:(?:independent|fixture-isolation) re-audit V\d+ pending|"
+            r"final independent audit V\d+ `PASS`)",
             "final independent audit V8 `PASS`",
             lines[dp_index],
         )
