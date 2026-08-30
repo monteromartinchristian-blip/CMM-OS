@@ -5048,7 +5048,7 @@ The specialized events should:
 > **Reference document:** `docs/reference/domain-sessions.md`
 > **Design specification:** `docs/superpowers/specs/2026-08-30-domain-sessions-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-30-domain-sessions-implementation-plan.md`
-> **Focused tests:** 198 passed (`AT-DP-034` gate PASS)
+> **Focused tests:** 215 passed (`AT-DP-034` gate PASS)
 
 Objective
 

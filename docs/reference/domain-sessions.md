@@ -144,4 +144,4 @@ All domain session structures strictly enforce credential privacy by recursively
 
 The subsystem is validated through **AT-DP-034** comprising 56 checkpoints:
 - Full test suite: `tests/domains/test_domain_session_*.py`
-- Focused domain session suite: 198 unit & acceptance tests passing.
+- Focused domain session suite: 215 unit & acceptance tests passing.
