@@ -5044,11 +5044,11 @@ The specialized events should:
 
 10.34 - Domain Sessions
 
-> **Status:** `IMPLEMENTED_PENDING_AUDIT`; independent re-audit V8 pending
+> **Status:** `IMPLEMENTED_PENDING_AUDIT`; final independent audit V8 `PASS`; fixture-isolation re-audit V9 pending
 > **Reference document:** `docs/reference/domain-sessions.md`
 > **Design specification:** `docs/superpowers/specs/2026-08-30-domain-sessions-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-30-domain-sessions-implementation-plan.md`
-> **Focused tests:** 443 passed (`AT-DP-034` — 56/56 portable evidence-bound checkpoints, 40 audit V1 regression tests, 23 audit V3 regression tests, 34 audit V4 regression tests, 32 audit V5 regression tests, 17 audit V6 lifecycle regression tests)
+> **Focused tests:** 449 passed (`AT-DP-034` — 56/56 portable evidence-bound checkpoints, 40 audit V1 regression tests, 23 audit V3 regression tests, 34 audit V4 regression tests, 32 audit V5 regression tests, 17 audit V6 lifecycle regression tests, 6 audit V8 fixture-isolation regression tests; 8289 domain tests; 13844 global tests)
 
 Objective
 
