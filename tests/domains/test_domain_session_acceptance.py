@@ -1044,7 +1044,7 @@ def test_checkpoint_53_conservative_matrix_status_before_audit():
 
 
 def test_checkpoint_54_git_archive_tar_gz_generation_contract():
-    """54. The V5 archive contract is executable and commit-verifiable."""
+    """54. The V6 archive contract is executable and commit-verifiable."""
     evidence = validate_at_dp_034().resolved[54]
     assert evidence.details["generator"] == "git archive"
     assert evidence.details["prefix"] == "CMM-OS-phase-10.34/"
@@ -1060,9 +1060,9 @@ def test_checkpoint_55_independent_audit_criteria_contract():
 
 
 def test_checkpoint_56_closure_only_after_clean_audit():
-    """56. V4 FAIL remains the latest audit and Phase 10.34 remains pending V5."""
+    """56. V5 FAIL remains latest and Phase 10.34 remains pending V6."""
     evidence = validate_at_dp_034().resolved[56]
-    assert evidence.details["latest_independent_audit"] == "V4"
+    assert evidence.details["latest_independent_audit"] == "V5"
     assert evidence.details["latest_independent_audit_status"] == "FAIL"
     assert evidence.details["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
 

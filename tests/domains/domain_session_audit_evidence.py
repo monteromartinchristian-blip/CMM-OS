@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any
 
@@ -16,7 +18,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE_MANIFEST_PATH = (
     REPO_ROOT / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
 )
-EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v5-gates.json"
+SOURCE_HASH_MANIFEST_PATH = (
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+)
+PYTEST_NODE_INVENTORY_PATH = (
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt"
+)
+EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-gates.json"
 
 VALID_EVIDENCE_TYPES = frozenset(
     {
@@ -73,6 +81,7 @@ class EvidenceValidationReport:
     evidence_resolved: int
     placeholders: int
     verified_source_tree: str
+    source_hash_manifest_sha256: str
     resolved: Mapping[int, ResolvedEvidence]
     collected_pytest_nodes: frozenset[str]
 
@@ -81,11 +90,23 @@ def _fail(message: str) -> None:
     raise EvidenceValidationError(message)
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            _fail(f"JSON object contains duplicate key: {key}")
+        result[key] = value
+    return result
+
+
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         _fail(f"{label} missing: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         _fail(f"{label} is not readable JSON: {exc}")
     if not isinstance(payload, dict):
@@ -93,22 +114,11 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     return payload
 
 
-def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ("git", *args),
-        cwd=repo_root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-
 @lru_cache(maxsize=4)
 def _collect_pytest_nodes_cached(repo_root_text: str) -> frozenset[str]:
     repo_root = Path(repo_root_text)
-    python = repo_root / ".venv/bin/python"
     completed = subprocess.run(
-        (str(python), "-m", "pytest", "--collect-only", "-q"),
+        (sys.executable, "-m", "pytest", "--collect-only", "-q"),
         cwd=repo_root,
         check=False,
         capture_output=True,
@@ -179,47 +189,153 @@ def _validate_manifest_shape(manifest: Mapping[str, Any]) -> list[dict[str, Any]
     return sorted(normalized, key=lambda item: item["checkpoint_id"])
 
 
-def _validate_verified_tree(gates: Mapping[str, Any], repo_root: Path) -> str:
-    commit = gates.get("verified_source_commit")
-    verified_tree = gates.get("verified_source_tree")
-    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
-        _fail("gate artifact verified_source_commit must be a full Git SHA")
-    if not isinstance(verified_tree, str) or not re.fullmatch(
-        r"[0-9a-f]{40}", verified_tree
-    ):
-        _fail("gate artifact verified_source_tree must be a full Git tree SHA")
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
-    tree_result = _run_git(repo_root, "rev-parse", f"{commit}^{{tree}}")
-    if tree_result.returncode != 0:
-        _fail(f"verified_source_commit cannot be resolved: {commit}")
-    actual_tree = tree_result.stdout.strip()
-    if actual_tree != verified_tree:
-        _fail(
-            "verified_source_tree does not match verified_source_commit: "
-            f"expected {actual_tree}, recorded {verified_tree}"
-        )
 
-    diff_result = _run_git(
-        repo_root,
-        "diff",
-        "--quiet",
-        commit,
-        "--",
-        "cmm",
-        "tests",
-        "pyproject.toml",
+def _validate_relative_path(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        _fail(f"{label} must be a non-empty relative path")
+    if "\\" in value:
+        _fail(f"{label} must use POSIX separators: {value!r}")
+    candidate = PurePosixPath(value)
+    if candidate.is_absolute() or ".." in candidate.parts or "." in candidate.parts:
+        _fail(f"{label} contains path traversal: {value!r}")
+    if candidate.as_posix() != value:
+        _fail(f"{label} is not canonical: {value!r}")
+    return value
+
+
+def discover_source_hash_paths(repo_root: Path) -> tuple[str, ...]:
+    """Return the deterministic source/test/config scope covered by V6 gates."""
+    paths: set[str] = {"pyproject.toml"}
+    for root_name in ("cmm", "tests", "scripts/audit"):
+        root = repo_root / root_name
+        if not root.is_dir():
+            _fail(f"required source scope missing: {root_name}")
+        for path in root.rglob("*.py"):
+            if "__pycache__" not in path.parts:
+                paths.add(path.relative_to(repo_root).as_posix())
+    return tuple(sorted(paths))
+
+
+def _validate_source_binding(
+    gates: Mapping[str, Any], repo_root: Path
+) -> tuple[str, Mapping[str, Any]]:
+    source_evidence = gates.get("source_evidence")
+    if not isinstance(source_evidence, Mapping):
+        _fail("gate artifact source_evidence is missing")
+    manifest_rel = _validate_relative_path(
+        source_evidence.get("manifest"), label="source hash manifest path"
     )
-    if diff_result.returncode != 0:
+    expected_rel = "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    if manifest_rel != expected_rel:
+        _fail("gate artifact references the wrong source hash manifest")
+    expected_digest = source_evidence.get("manifest_sha256")
+    if not isinstance(expected_digest, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", expected_digest
+    ):
+        _fail("source hash manifest SHA256 is malformed")
+
+    manifest_path = repo_root / manifest_rel
+    if not manifest_path.is_file():
+        _fail(f"source hash manifest missing: {manifest_path}")
+    actual_digest = _sha256(manifest_path)
+    if actual_digest != expected_digest:
+        _fail("source hash manifest digest mismatch")
+    manifest = _read_json(manifest_path, label="source hash manifest")
+    if manifest.get("schema_version") != 1:
+        _fail("source hash manifest has an unsupported schema_version")
+    if manifest.get("algorithm") != "sha256":
+        _fail("source hash manifest uses an unknown algorithm")
+    files = manifest.get("files")
+    if not isinstance(files, Mapping) or not files:
+        _fail("source hash manifest files must be a non-empty object")
+
+    normalized: dict[str, str] = {}
+    for raw_path, raw_digest in files.items():
+        relative = _validate_relative_path(raw_path, label="source hash path")
+        if not isinstance(raw_digest, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", raw_digest
+        ):
+            _fail(f"source hash is malformed for {relative}")
+        normalized[relative] = raw_digest
+
+    required_paths = discover_source_hash_paths(repo_root)
+    missing_from_manifest = sorted(set(required_paths) - normalized.keys())
+    extra_in_manifest = sorted(normalized.keys() - set(required_paths))
+    if missing_from_manifest:
         _fail(
-            "current source/test tree differs from the tree bound to external evidence"
+            "required source file absent from hash manifest: "
+            f"{missing_from_manifest[0]}"
         )
-    return verified_tree
+    if extra_in_manifest:
+        missing_hashed_path = next(
+            (
+                relative
+                for relative in extra_in_manifest
+                if not (repo_root / relative).is_file()
+            ),
+            None,
+        )
+        if missing_hashed_path is not None:
+            _fail(f"hashed source file missing or unsafe: {missing_hashed_path}")
+        _fail(f"unexpected source hash path: {extra_in_manifest[0]}")
+
+    root_resolved = repo_root.resolve()
+    for relative, expected_file_digest in normalized.items():
+        path = repo_root / relative
+        if not path.is_file() or path.is_symlink():
+            _fail(f"hashed source file missing or unsafe: {relative}")
+        try:
+            path.resolve().relative_to(root_resolved)
+        except ValueError:
+            _fail(f"hashed source path escapes repository root: {relative}")
+        if _sha256(path) != expected_file_digest:
+            _fail(f"source hash mismatch: {relative}")
+    return expected_digest, MappingProxyType(normalized)
+
+
+def _validate_pytest_inventory(
+    gates: Mapping[str, Any], repo_root: Path
+) -> frozenset[str]:
+    evidence = gates.get("pytest_evidence")
+    if not isinstance(evidence, Mapping):
+        _fail("gate artifact pytest_evidence is missing")
+    inventory_rel = _validate_relative_path(
+        evidence.get("inventory"), label="pytest inventory path"
+    )
+    expected_rel = "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt"
+    if inventory_rel != expected_rel:
+        _fail("gate artifact references the wrong pytest inventory")
+    expected_digest = evidence.get("inventory_sha256")
+    if not isinstance(expected_digest, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", expected_digest
+    ):
+        _fail("pytest inventory SHA256 is malformed")
+    path = repo_root / inventory_rel
+    if not path.is_file():
+        _fail(f"pytest node inventory missing: {path}")
+    if _sha256(path) != expected_digest:
+        _fail("pytest inventory hash mismatch")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines != sorted(lines) or len(lines) != len(set(lines)):
+        _fail("pytest node inventory must be non-empty, sorted, and unique")
+    if any(not line.startswith("tests/") or "::" not in line for line in lines):
+        _fail("pytest node inventory contains a malformed node")
+    if evidence.get("node_count") != len(lines):
+        _fail("pytest node inventory count mismatch")
+    return frozenset(lines)
 
 
 def _validate_gate_record(
     gate_id: str,
     gate: Any,
-    verified_tree: str,
+    source_manifest_digest: str,
 ) -> Mapping[str, Any]:
     if not isinstance(gate, Mapping):
         _fail(f"external gate {gate_id} is missing")
@@ -234,8 +350,8 @@ def _validate_gate_record(
         _fail(f"external gate {gate_id} command must be non-empty")
     if gate.get("exit_code") != 0:
         _fail(f"external gate {gate_id} must record exit_code 0")
-    if gate.get("verified_source_tree") != verified_tree:
-        _fail(f"external gate {gate_id} has wrong verified_source_tree")
+    if gate.get("source_hash_manifest_sha256") != source_manifest_digest:
+        _fail(f"external gate {gate_id} has wrong source hash binding")
     if gate_id in COUNTED_GATE_IDS:
         actual_count = gate.get("actual_count")
         if (
@@ -249,7 +365,7 @@ def _validate_gate_record(
 
 def _validate_external_gates(
     gates_payload: Mapping[str, Any],
-    verified_tree: str,
+    source_manifest_digest: str,
 ) -> dict[str, Mapping[str, Any]]:
     raw_gates = gates_payload.get("gates")
     if not isinstance(raw_gates, Mapping):
@@ -257,7 +373,7 @@ def _validate_external_gates(
     validated: dict[str, Mapping[str, Any]] = {}
     for gate_id in REQUIRED_GATE_IDS:
         validated[gate_id] = _validate_gate_record(
-            gate_id, raw_gates.get(gate_id), verified_tree
+            gate_id, raw_gates.get(gate_id), source_manifest_digest
         )
 
     phase_gate = validated["phase10_33_regression"]
@@ -274,7 +390,7 @@ def _validate_gate_group(
     reference: str,
     gates_payload: Mapping[str, Any],
     validated_gates: Mapping[str, Mapping[str, Any]],
-    verified_tree: str,
+    source_manifest_digest: str,
 ) -> ResolvedEvidence:
     raw_groups = gates_payload.get("gate_groups")
     if not isinstance(raw_groups, Mapping):
@@ -284,8 +400,8 @@ def _validate_gate_group(
         _fail(f"external gate group {reference} is missing")
     if group.get("status") != "PASS":
         _fail(f"external gate group {reference} must be PASS")
-    if group.get("verified_source_tree") != verified_tree:
-        _fail(f"external gate group {reference} has wrong verified_source_tree")
+    if group.get("source_hash_manifest_sha256") != source_manifest_digest:
+        _fail(f"external gate group {reference} has wrong source hash binding")
     members_raw = group.get("component_gates")
     if not isinstance(members_raw, list) or not all(
         isinstance(member, str) for member in members_raw
@@ -303,12 +419,13 @@ def _validate_gate_group(
         pre_audit = gates_payload.get("pre_audit")
         if not isinstance(pre_audit, Mapping):
             _fail("pre_audit evidence is missing")
-        if pre_audit.get("worktree_clean_when_generated") is not True:
-            _fail("pre_audit evidence must record a clean worktree")
-        if pre_audit.get("verified_source_tree") != verified_tree:
-            _fail("pre_audit evidence has wrong verified_source_tree")
+        if pre_audit.get("source_scope_clean_when_generated") is not True:
+            _fail("pre_audit evidence must record a clean tested source scope")
+        if pre_audit.get("source_hash_manifest_sha256") != source_manifest_digest:
+            _fail("pre_audit evidence has wrong source hash binding")
         details = {
             "worktree_clean_when_generated": True,
+            "source_scope_clean_when_generated": True,
             "all_required_external_gates_pass": True,
         }
     return ResolvedEvidence(
@@ -336,6 +453,8 @@ def _validate_artifact_contract(
         _fail("artifact contract must allow an external output location")
     if contract.get("pax_commit_id_verification") is not True:
         _fail("artifact contract must verify the PAX commit ID")
+    if contract.get("embedded_commit_verification") != "external_required":
+        _fail("artifact contract must require external embedded commit verification")
     if contract.get("forbidden_paths_check") is not True:
         _fail("artifact contract must verify forbidden archive paths")
     forbidden = contract.get("forbidden_member_patterns")
@@ -357,19 +476,19 @@ def _validate_closure_guard(repo_root: Path) -> Mapping[str, Any]:
         _fail("closure guard found no independent Phase 10.34 audit")
     latest_version, latest_path = max(audits)
     latest_text = latest_path.read_text(encoding="utf-8")
-    if latest_version != 4 or "FINAL_INDEPENDENT_AUDIT_V4=FAIL" not in latest_text:
-        _fail("closure guard requires latest independent audit V4 FAIL")
+    if latest_version != 5 or "FINAL_INDEPENDENT_AUDIT_V5=FAIL" not in latest_text:
+        _fail("closure guard requires latest independent audit V5 FAIL")
 
     roadmap_text = (repo_root / "ROADMAP.md").read_text(encoding="utf-8")
     if "IMPLEMENTED_PENDING_AUDIT" not in roadmap_text:
         _fail("closure guard requires IMPLEMENTED_PENDING_AUDIT")
-    if "independent re-audit V5 pending" not in roadmap_text:
-        _fail("closure guard requires independent re-audit V5 pending")
-    if (audit_dir / "phase-10.34-independent-audit-v5.md").exists():
-        _fail("closure guard forbids a self-authored independent audit V5")
+    if "independent re-audit V6 pending" not in roadmap_text:
+        _fail("closure guard requires independent re-audit V6 pending")
+    if (audit_dir / "phase-10.34-independent-audit-v6.md").exists():
+        _fail("closure guard forbids a self-authored independent audit V6")
     return MappingProxyType(
         {
-            "latest_independent_audit": "V4",
+            "latest_independent_audit": "V5",
             "latest_independent_audit_status": "FAIL",
             "phase_status": "IMPLEMENTED_PENDING_AUDIT",
         }
@@ -379,21 +498,27 @@ def _validate_closure_guard(repo_root: Path) -> Mapping[str, Any]:
 def validate_at_dp_034(
     *,
     repo_root: Path = REPO_ROOT,
-    manifest_path: Path = EVIDENCE_MANIFEST_PATH,
-    gates_path: Path = EXTERNAL_GATES_PATH,
+    manifest_path: Path | None = None,
+    gates_path: Path | None = None,
     collected_nodes: frozenset[str] | None = None,
 ) -> EvidenceValidationReport:
     """Validate every required AT-DP-034 checkpoint against real evidence."""
+    manifest_path = manifest_path or (
+        repo_root / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
+    )
+    gates_path = gates_path or (
+        repo_root / "docs/audits/evidence/phase-10.34-v6-gates.json"
+    )
     manifest = _read_json(manifest_path, label="evidence manifest")
     gates_payload = _read_json(gates_path, label="external gate artifact")
     checkpoints = _validate_manifest_shape(manifest)
-    nodes = (
-        collected_nodes
-        if collected_nodes is not None
-        else collect_pytest_nodes(repo_root)
+    source_manifest_digest, _source_files = _validate_source_binding(
+        gates_payload, repo_root
     )
-    verified_tree = _validate_verified_tree(gates_payload, repo_root)
-    validated_gates = _validate_external_gates(gates_payload, verified_tree)
+    nodes = _validate_pytest_inventory(gates_payload, repo_root)
+    if collected_nodes is not None and not nodes.issubset(collected_nodes):
+        _fail("committed pytest node inventory differs from live collection")
+    validated_gates = _validate_external_gates(gates_payload, source_manifest_digest)
 
     resolved: dict[int, ResolvedEvidence] = {}
     for checkpoint in checkpoints:
@@ -443,7 +568,10 @@ def validate_at_dp_034(
                 )
             else:
                 group_evidence = _validate_gate_group(
-                    reference, gates_payload, validated_gates, verified_tree
+                    reference,
+                    gates_payload,
+                    validated_gates,
+                    source_manifest_digest,
                 )
                 evidence = ResolvedEvidence(
                     checkpoint_id=checkpoint_id,
@@ -488,18 +616,30 @@ def validate_at_dp_034(
         required_checkpoints=sum(item["required"] is True for item in checkpoints),
         evidence_resolved=len(resolved),
         placeholders=0,
-        verified_source_tree=verified_tree,
+        verified_source_tree=source_manifest_digest,
+        source_hash_manifest_sha256=source_manifest_digest,
         resolved=MappingProxyType(resolved),
         collected_pytest_nodes=frozenset(nodes),
     )
 
 
+def validate_at_dp_034_bundle_evidence(
+    repo_root: Path,
+) -> EvidenceValidationReport:
+    """Validate AT-DP-034 using only files inside an extracted bundle."""
+    return validate_at_dp_034(repo_root=repo_root)
+
+
 __all__ = [
     "EVIDENCE_MANIFEST_PATH",
     "EXTERNAL_GATES_PATH",
+    "PYTEST_NODE_INVENTORY_PATH",
+    "SOURCE_HASH_MANIFEST_PATH",
     "EvidenceValidationError",
     "EvidenceValidationReport",
     "ResolvedEvidence",
     "collect_pytest_nodes",
+    "discover_source_hash_paths",
     "validate_at_dp_034",
+    "validate_at_dp_034_bundle_evidence",
 ]

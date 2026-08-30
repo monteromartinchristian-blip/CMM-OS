@@ -539,11 +539,11 @@ def test_14_failed_external_gate_is_rejected(tmp_path: Path) -> None:
         _validate_copies(manifest_path, gates_path)
 
 
-def test_15_wrong_verified_tree_is_rejected(tmp_path: Path) -> None:
+def test_15_wrong_source_manifest_digest_is_rejected(tmp_path: Path) -> None:
     manifest_path, gates_path, _manifest, gates = _evidence_copies(tmp_path)
-    gates["verified_source_tree"] = "0" * 40
+    gates["source_evidence"]["manifest_sha256"] = "0" * 64
     _write_json(gates_path, gates)
-    with pytest.raises(EvidenceValidationError, match="verified_source_tree"):
+    with pytest.raises(EvidenceValidationError, match="manifest digest mismatch"):
         _validate_copies(manifest_path, gates_path)
 
 
@@ -629,7 +629,7 @@ def test_24_checkpoint_55_validates_actual_pre_audit_gates() -> None:
 def test_25_checkpoint_56_enforces_closure_guard() -> None:
     evidence = validate_at_dp_034().resolved[56]
     assert evidence.evidence_type == "documentation_gate"
-    assert evidence.details["latest_independent_audit"] == "V4"
+    assert evidence.details["latest_independent_audit"] == "V5"
     assert evidence.details["latest_independent_audit_status"] == "FAIL"
     assert evidence.details["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
 

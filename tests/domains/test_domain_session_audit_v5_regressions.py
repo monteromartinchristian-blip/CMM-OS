@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import shutil
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
 
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import KnowledgeKind, KnowledgeStatus, TemporalScopeKind
@@ -27,9 +33,14 @@ from cmm.domains.session_contracts import (
     DomainSessionResumeStatus,
 )
 from cmm.domains.session_resumer import DomainSessionResumer
+from tests.domains.domain_session_audit_evidence import (
+    EvidenceValidationError,
+    validate_at_dp_034_bundle_evidence,
+)
 from tests.domains.domain_session_test_support import shared_session_adapter
 
 NOW = datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _resource_authority(
@@ -271,3 +282,243 @@ def test_09_session_e2e_invalidated_knowledge_cannot_resume() -> None:
     assert knowledge_check.blocking is True
     assert result.status is DomainSessionResumeStatus.BLOCKED
     assert result.recorded_resumption is False
+
+
+def _portable_archive_fixture(tmp_path: Path) -> Path:
+    archive_root = tmp_path / "CMM-OS-phase-10.34"
+    source_manifest_path = (
+        REPO_ROOT / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    required_paths = set(source_manifest["files"])
+    required_paths.update(
+        {
+            "ROADMAP.md",
+            "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json",
+            "docs/audits/evidence/phase-10.34-v6-gates.json",
+            "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt",
+            "docs/audits/evidence/phase-10.34-v6-source-hashes.json",
+            "docs/audits/phase-10.34-independent-audit-v5.md",
+        }
+    )
+    for relative in sorted(required_paths):
+        destination = archive_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / relative, destination)
+    assert not (archive_root / ".git").exists()
+    assert not (archive_root / ".venv").exists()
+    return archive_root
+
+
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _rebind_source_manifest(archive_root: Path) -> None:
+    manifest_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v6-gates.json"
+    gates = json.loads(gates_path.read_text(encoding="utf-8"))
+    gates["source_evidence"]["manifest_sha256"] = digest
+    for gate in gates["gates"].values():
+        gate["source_hash_manifest_sha256"] = digest
+    for group in gates["gate_groups"].values():
+        group["source_hash_manifest_sha256"] = digest
+    gates["pre_audit"]["source_hash_manifest_sha256"] = digest
+    _write_json(gates_path, gates)
+
+
+def test_10_portable_evidence_validator_succeeds_without_git(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+
+    report = validate_at_dp_034_bundle_evidence(archive_root)
+
+    assert report.evidence_resolved == 56
+
+
+def test_11_portable_evidence_validator_succeeds_without_venv(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+
+    report = validate_at_dp_034_bundle_evidence(archive_root)
+
+    assert report.logical_checkpoints == 56
+    assert len(report.collected_pytest_nodes) > 0
+
+
+def test_12_source_hash_mismatch_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    source = archive_root / "cmm/domains/resource_authority.py"
+    source.write_text(source.read_text(encoding="utf-8") + "\n# mutation\n")
+
+    with pytest.raises(EvidenceValidationError, match="hash mismatch"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_13_missing_hashed_source_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    (archive_root / "cmm/domains/resource_authority.py").unlink()
+
+    with pytest.raises(EvidenceValidationError, match="missing"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_14_gate_fail_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v6-gates.json"
+    gates = json.loads(gates_path.read_text(encoding="utf-8"))
+    gates["gates"]["focused_tests"]["status"] = "FAIL"
+    _write_json(gates_path, gates)
+
+    with pytest.raises(EvidenceValidationError, match="focused_tests.*PASS"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_15_pytest_inventory_mutation_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    inventory_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-pytest-nodes.txt"
+    )
+    nodes = inventory_path.read_text(encoding="utf-8").splitlines()
+    inventory_path.write_text("\n".join(nodes[1:]) + "\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceValidationError, match="inventory.*hash"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_16_missing_evidence_artifact_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    (archive_root / "docs/audits/evidence/phase-10.34-v6-gates.json").unlink()
+
+    with pytest.raises(EvidenceValidationError, match="gate artifact.*missing"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_17_fifty_six_unique_checkpoints_still_resolve(tmp_path: Path) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    assert report.logical_checkpoints == 56
+    assert report.required_checkpoints == 56
+    assert tuple(report.resolved) == tuple(range(1, 57))
+
+
+@pytest.mark.parametrize(
+    ("checkpoint_id", "evidence_reference"),
+    [
+        (48, "focused_tests"),
+        (49, "domain_tests"),
+        (50, "global_tests"),
+        (53, "phase10_33_regression"),
+    ],
+)
+def test_portable_counted_checkpoint_evidence(
+    tmp_path: Path,
+    checkpoint_id: int,
+    evidence_reference: str,
+) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    evidence = report.resolved[checkpoint_id]
+    assert evidence.evidence_reference == evidence_reference
+    assert evidence.actual_count is not None
+    assert evidence.actual_count > 0
+
+
+def test_21_checkpoint_51_portable_quality_evidence(tmp_path: Path) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    assert report.resolved[51].component_gates == (
+        "ruff_check",
+        "ruff_format",
+        "compileall",
+        "diff_check",
+    )
+
+
+def test_23_checkpoint_54_archive_contract_is_portable(tmp_path: Path) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    contract = report.resolved[54].details
+    assert contract["generator"] == "git archive"
+    assert contract["prefix"] == "CMM-OS-phase-10.34/"
+    assert contract["pax_commit_id_verification"] is True
+
+
+def test_24_checkpoint_55_pre_audit_gate_is_portable(tmp_path: Path) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    assert report.resolved[55].details["all_required_external_gates_pass"] is True
+
+
+def test_25_checkpoint_56_closure_guard_is_portable(tmp_path: Path) -> None:
+    report = validate_at_dp_034_bundle_evidence(_portable_archive_fixture(tmp_path))
+
+    closure = report.resolved[56].details
+    assert closure["latest_independent_audit"] == "V5"
+    assert closure["latest_independent_audit_status"] == "FAIL"
+    assert closure["phase_status"] == "IMPLEMENTED_PENDING_AUDIT"
+
+
+def test_unknown_source_hash_algorithm_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    manifest_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["algorithm"] = "md5"
+    _write_json(manifest_path, manifest)
+    _rebind_source_manifest(archive_root)
+
+    with pytest.raises(EvidenceValidationError, match="unknown algorithm"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_source_hash_path_traversal_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    manifest_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"]["../escape.py"] = "0" * 64
+    _write_json(manifest_path, manifest)
+    _rebind_source_manifest(archive_root)
+
+    with pytest.raises(EvidenceValidationError, match="path traversal"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_duplicate_source_hash_path_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    manifest_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    manifest_path.write_text(
+        '{"algorithm":"sha256","files":{"same.py":"'
+        + "0" * 64
+        + '","same.py":"'
+        + "0" * 64
+        + '"},"schema_version":1}\n',
+        encoding="utf-8",
+    )
+    _rebind_source_manifest(archive_root)
+
+    with pytest.raises(EvidenceValidationError, match="duplicate key"):
+        validate_at_dp_034_bundle_evidence(archive_root)
+
+
+def test_required_source_absent_from_manifest_is_rejected(tmp_path: Path) -> None:
+    archive_root = _portable_archive_fixture(tmp_path)
+    manifest_path = (
+        archive_root / "docs/audits/evidence/phase-10.34-v6-source-hashes.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["files"]["cmm/domains/resource_authority.py"]
+    _write_json(manifest_path, manifest)
+    _rebind_source_manifest(archive_root)
+
+    with pytest.raises(EvidenceValidationError, match="absent from hash manifest"):
+        validate_at_dp_034_bundle_evidence(archive_root)
