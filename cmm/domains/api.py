@@ -340,17 +340,17 @@ class DefaultDomainAPI:
         definition = self._workflow_registry.resolve_active(workflow_id)
         return self._workflow_executor.execute_result(definition, context, dict(inputs))
 
-    # ── Sessions (Task 7) ─────────────────────────────────────────────────
+    # ── Sessions ──────────────────────────────────────────────────────────
 
     def get_session(self, session_id: str) -> DomainSessionContext | None:
         """Delegate to ``SharedSessionDomainAdapter.load_domain_session``."""
-        raise NotImplementedError
+        return self._session_adapter.load_domain_session(session_id)
 
     def resume_session(
         self, request: DomainSessionResumeRequest
     ) -> DomainSessionResumeResult:
         """Delegate to ``DomainSessionResumer.resume``."""
-        raise NotImplementedError
+        return self._session_resumer.resume(request)
 
     # ── Conflicts and traces (Task 8) ─────────────────────────────────────
 
