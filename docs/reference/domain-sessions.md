@@ -1,6 +1,6 @@
 # Domain Sessions Reference
 
-**Status:** `IMPLEMENTED_PENDING_AUDIT`; final independent audit V8 `PASS`; fixture-isolation re-audit V9 pending (Phase 10.34)
+**Status:** `IMPLEMENTED_PENDING_AUDIT`; latest independent audit V9 `FAIL`; independent re-audit V10 pending (Phase 10.34)
 
 ## 1. Overview
 
@@ -144,6 +144,6 @@ All domain session structures strictly enforce credential privacy by recursively
 
 The subsystem is validated through **AT-DP-034** comprising 56 checkpoints:
 - Full test suite: `tests/domains/test_domain_session_*.py`
-- Focused domain session suite: 449 tests passing on the V9 portable source-hash manifest, including 17 dedicated audit V6 lifecycle regressions and 6 dedicated audit V8 fixture-isolation regressions; 8289 domain tests and 13844 global tests pass.
+- Focused domain session suite: 455 tests passing on the V10 portable source-hash manifest, including 17 dedicated audit V6 lifecycle regressions, 6 dedicated audit V8 fixture-isolation regressions, and 6 dedicated audit V9 artifact-binding regressions; 8295 domain tests and 13850 global tests pass.
 - Audit V4 regression suite: 34 tests passing, including mutation-style AT-DP-034 evidence failures.
 - Audit V5 regression suite: 32 tests passing, covering native resource/knowledge semantics plus archive-portable evidence and mutation coverage.
