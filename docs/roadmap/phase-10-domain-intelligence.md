@@ -5044,7 +5044,7 @@ The specialized events should:
 
 10.34 - Domain Sessions
 
-> **Status:** `IMPLEMENTED_PENDING_AUDIT`; latest independent audit V9 `FAIL`; independent re-audit V10 pending
+> **Status:** Complete — independently audited and closed; final independent audit V10 `PASS`; `DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`; BLOCKERS=0; MAJORS=0; MINORS=0
 > **Reference document:** `docs/reference/domain-sessions.md`
 > **Design specification:** `docs/superpowers/specs/2026-08-30-domain-sessions-design.md`
 > **Implementation plan:** `docs/superpowers/plans/2026-08-30-domain-sessions-implementation-plan.md`
