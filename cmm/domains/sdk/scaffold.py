@@ -49,9 +49,13 @@ class DomainScaffolder:
         # Protection against existing non-empty directory or file
         if dest_path.exists():
             if dest_path.is_file():
-                raise DomainScaffoldError(f"Destination {dest_path} is an existing file")
+                raise DomainScaffoldError(
+                    f"Destination {dest_path} is an existing file"
+                )
             if any(dest_path.iterdir()):
-                raise DomainScaffoldError(f"Destination directory {dest_path} is not empty")
+                raise DomainScaffoldError(
+                    f"Destination directory {dest_path} is not empty"
+                )
         else:
             dest_path.mkdir(parents=True, exist_ok=True)
 
@@ -74,7 +78,7 @@ class DomainScaffolder:
             "schema_version": "1",
             "name": slug,
             "description": f"{slug} domain pack",
-            "pack_kind": "internal",
+            "pack_kind": "external",
             "fixtures": [
                 {
                     "id": "sample",

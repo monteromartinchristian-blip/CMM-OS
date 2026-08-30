@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from cmm.domains.enums import DomainPackKind
 from cmm.domains.errors import DomainError
 from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.sdk.scaffold import DomainScaffolder
@@ -37,6 +38,8 @@ def test_basic_domain_scaffold_creates_minimal_canonical_pack(tmp_path: Path) ->
     manifest = DomainManifest.from_declarative_dict(manifest_doc.data)
     assert manifest.domain_id.slug == "sample-pack"
     assert manifest.package_version == "0.1.0"
+    assert manifest.pack_kind is DomainPackKind.EXTERNAL
+    assert "enabled" not in manifest_doc.data
 
 
 def test_scaffold_rejects_invalid_names(tmp_path: Path) -> None:

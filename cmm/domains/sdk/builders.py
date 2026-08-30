@@ -25,7 +25,7 @@ class ManifestBuilder:
         self._schema_version: str = "1"
         self._description: str | None = None
         self._entrypoint: str | None = None
-        self._pack_kind: DomainPackKind = DomainPackKind.INTERNAL
+        self._pack_kind: DomainPackKind = DomainPackKind.EXTERNAL
         self._metadata: dict[str, Any] = {}
         self._resources: list[Any] = []
         self._profiles: list[Any] = []

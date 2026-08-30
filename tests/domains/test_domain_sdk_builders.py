@@ -20,7 +20,7 @@ def test_manifest_builder_default_construction() -> None:
     assert manifest.domain_id.slug == "example"
     assert manifest.package_version == "0.1.0"
     assert manifest.schema_version == "1"
-    assert manifest.pack_kind == DomainPackKind.INTERNAL
+    assert manifest.pack_kind == DomainPackKind.EXTERNAL
 
 
 def test_manifest_builder_deterministic_to_dict() -> None:
@@ -28,7 +28,9 @@ def test_manifest_builder_deterministic_to_dict() -> None:
     manifest = builder.build()
 
     assert manifest.to_dict() == builder.to_dict()
-    assert builder.to_dict() == ManifestBuilder(slug="example", version="1.2.0").to_dict()
+    assert (
+        builder.to_dict() == ManifestBuilder(slug="example", version="1.2.0").to_dict()
+    )
 
 
 def test_manifest_builder_fluent_methods() -> None:
