@@ -406,7 +406,8 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.32 — Domain Conflict Resolution (complete, independently audited and closed; final audit V11 `PASS`)
 10.33 — Domain Events (complete, independently audited and closed; final audit V9 `PASS`)
 10.34 — Domain Sessions (complete, independently audited and closed; final audit V10 `PASS`)
-10.35–10.51 — Remaining Domain Intelligence infrastructure sequence
+10.35 — Domain SDK
+10.36–10.51 — Remaining Domain Intelligence infrastructure sequence
 10.52 — Mental Health
 10.53 — Neurodivergence
 Phase 11 — Stable Integrated Platform
