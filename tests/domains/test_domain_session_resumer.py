@@ -226,3 +226,37 @@ def test_idempotent_resume():
     assert r1.context.primary_domain == r2.context.primary_domain
     assert r1.context.supporting_domains == r2.context.supporting_domains
     assert len(r1.context.domain_transitions) == len(r2.context.domain_transitions)
+
+
+def test_retry_after_failed_persistence_does_not_skip_revision():
+    reg = _setup_registry()
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        revision=2,
+        updated_at=_now(),
+    )
+
+    def failing_persistence(c: DomainSessionContext) -> None:
+        raise RuntimeError("Transient DB glitch")
+
+    resumer_failing = DomainSessionResumer(
+        registry=reg,
+        persistence_updater=failing_persistence,
+    )
+    req = DomainSessionResumeRequest(session_id="session-123")
+    res1 = resumer_failing.resume(req, ctx)
+    assert res1.status is DomainSessionResumeStatus.FAILED
+    assert res1.resumed_revision == 2
+
+    # Retry
+    saved: list[DomainSessionContext] = []
+    resumer_ok = DomainSessionResumer(
+        registry=reg,
+        persistence_updater=lambda c: saved.append(c),
+    )
+    res2 = resumer_ok.resume(req, ctx)
+    assert res2.status is DomainSessionResumeStatus.RESUMED
+    assert res2.resumed_revision == 3
+    assert len(saved) == 1
+    assert saved[0].revision == 3
