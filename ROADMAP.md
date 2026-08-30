@@ -462,7 +462,7 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.33 are complete and independently audited. Phase 10.34 — Domain Sessions is implemented with `DP-034=IMPLEMENTED`, `AT-DP-034=IMPLEMENTED_PENDING_AUDIT` (56 connected checkpoints, 40 dedicated audit V1 regression tests, 304 focused domain session tests; independent re-audit V2 pending). Phase 10.35–10.51 remain the next Domain Intelligence infrastructure sequence; Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) remain later planned Domain Packs.
+**Current progress:** Phase 10.19–10.33 are complete and independently audited. Phase 10.34 — Domain Sessions is implemented with `DP-034=IMPLEMENTED`, `AT-DP-034=IMPLEMENTED_PENDING_AUDIT` (56 connected checkpoints, 40 dedicated audit V1 regression tests, 23 dedicated audit V3 regression tests, 360 focused domain session tests; independent re-audit V4 pending). Phase 10.35–10.51 remain the next Domain Intelligence infrastructure sequence; Phase 10.52 (`domain:mental-health`) and 10.53 (`domain:neurodivergence`) remain later planned Domain Packs.
 
 **Implemented through:** Phase 10.34 — Domain Sessions (implemented; independent audit pending).
 Phase 10.15 remains closed; Phase 10.35 — Domain SDK is the next Phase 10 implementation milestone after 10.34 independent audit.
