@@ -23,7 +23,7 @@ def _now() -> datetime:
     return datetime(2026, 8, 30, 10, 0, 0, tzinfo=timezone.utc)
 
 
-def _sample_context() -> DomainSessionContext:
+def _sample_context(revision: int = 1) -> DomainSessionContext:
     return DomainSessionContext(
         session_id="session-123",
         primary_domain="domain:health",
@@ -57,7 +57,7 @@ def _sample_context() -> DomainSessionContext:
         ),
         last_resolution_id="res-123",
         next_recommended_step="step:evaluate",
-        revision=1,
+        revision=revision,
         updated_at=_now(),
         metadata={"channel": "cli"},
     )
@@ -251,7 +251,7 @@ def test_round_trip_resume_result():
         session_id="session-123",
         previous_revision=1,
         resumed_revision=2,
-        context=_sample_context(),
+        context=_sample_context(revision=2),
         checks=(
             DomainSessionCheck(
                 name="c1",

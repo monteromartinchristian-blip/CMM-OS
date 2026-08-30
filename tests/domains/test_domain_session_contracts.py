@@ -217,12 +217,19 @@ def test_domain_session_resume_request_and_result():
     assert req.current_resource_versions == {"res:1": "v1.0"}
     assert isinstance(req.metadata, MappingProxyType)
 
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        revision=2,
+        updated_at=_now(),
+    )
+
     res = DomainSessionResumeResult(
         status=DomainSessionResumeStatus.RESUMED,
         session_id="session-123",
         previous_revision=1,
         resumed_revision=2,
-        context=None,
+        context=ctx,
         checks=(),
         warnings=(),
         blocking_findings=(),
@@ -234,6 +241,102 @@ def test_domain_session_resume_request_and_result():
     assert res.status is DomainSessionResumeStatus.RESUMED
     assert res.resumed_revision == 2
     assert res.recorded_resumption is True
+
+
+def test_nan_and_inf_rejected_in_direct_constructors():
+    """Constructors must reject NaN and Infinity in JSON-facing fields."""
+    with pytest.raises(DomainSessionContractError, match="NaN or Infinity"):
+        DomainSessionContext(
+            session_id="session-123",
+            primary_domain="domain:health",
+            metadata={"weight": float("nan")},
+            updated_at=_now(),
+        )
+
+    with pytest.raises(DomainSessionContractError, match="NaN or Infinity"):
+        DomainSessionCheck(
+            name="test_check",
+            status=DomainSessionCheckStatus.PASS,
+            message="Check message",
+            details={"score": float("inf")},
+        )
+
+    with pytest.raises(
+        DomainSessionContractError, match="NaN or Infinity|finite number"
+    ):
+        DomainSessionResumeRequest(
+            session_id="session-123",
+            actor={"user_id": 123, "score": float("nan")},
+        )
+
+
+def test_strict_revision_invariants_in_resume_result():
+    """Strict revision rules in DomainSessionResumeResult."""
+    ctx = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        revision=2,
+        updated_at=_now(),
+    )
+
+    # 1. resumed_revision < previous_revision
+    with pytest.raises(DomainSessionContractError, match="resumed_revision"):
+        DomainSessionResumeResult(
+            status=DomainSessionResumeStatus.FAILED,
+            session_id="session-123",
+            previous_revision=3,
+            resumed_revision=2,
+            recorded_resumption=False,
+        )
+
+    # 2. recorded_resumption=True with non-advancing revision
+    with pytest.raises(DomainSessionContractError, match="resumed_revision"):
+        DomainSessionResumeResult(
+            status=DomainSessionResumeStatus.RESUMED,
+            session_id="session-123",
+            previous_revision=1,
+            resumed_revision=1,
+            context=ctx,
+            recorded_resumption=True,
+        )
+
+    # 3. recorded_resumption=False with advancing revision
+    with pytest.raises(DomainSessionContractError, match="resumed_revision"):
+        DomainSessionResumeResult(
+            status=DomainSessionResumeStatus.BLOCKED,
+            session_id="session-123",
+            previous_revision=1,
+            resumed_revision=2,
+            context=None,
+            recorded_resumption=False,
+        )
+
+    # 4. context.revision != resumed_revision
+    ctx_mismatch = DomainSessionContext(
+        session_id="session-123",
+        primary_domain="domain:health",
+        revision=5,
+        updated_at=_now(),
+    )
+    with pytest.raises(DomainSessionContractError, match="context.revision"):
+        DomainSessionResumeResult(
+            status=DomainSessionResumeStatus.RESUMED,
+            session_id="session-123",
+            previous_revision=1,
+            resumed_revision=2,
+            context=ctx_mismatch,
+            recorded_resumption=True,
+        )
+
+
+def test_actor_collections_deeply_frozen():
+    """Actor collections must be deeply frozen and immutable."""
+    req = DomainSessionResumeRequest(
+        session_id="session-123",
+        actor={"user_id": "u-123", "roles": ["admin", "editor"]},
+    )
+    assert isinstance(req.actor, MappingProxyType)
+    assert isinstance(req.actor["roles"], tuple)
 
 
 def test_error_hierarchy():

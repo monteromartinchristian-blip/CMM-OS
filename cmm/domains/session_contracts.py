@@ -7,6 +7,7 @@ All dataclasses are ``frozen=True``, use ``slots=True``, and never expose mutabl
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -150,6 +151,15 @@ def _validate_revision_serialization(val: Any) -> int:
     return val
 
 
+def _validate_revision_opt(val: Any, field_name: str = "revision") -> int:
+    """Validate that revision is a non-negative integer >= 0."""
+    if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+        raise DomainSessionContractError(
+            f"{field_name} must be an integer >= 0, got {val!r}", field=field_name
+        )
+    return val
+
+
 def _validate_revision_opt_serialization(val: Any, field_name: str = "revision") -> int:
     """Validate non-negative integer revision for deserialization."""
     if isinstance(val, bool) or not isinstance(val, int) or val < 0:
@@ -159,15 +169,48 @@ def _validate_revision_opt_serialization(val: Any, field_name: str = "revision")
     return val
 
 
+def _validate_no_nan_or_inf(val: Any, field_name: str) -> None:
+    """Recursively validate that floating point values contain no NaN or Infinity."""
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            raise DomainSessionContractError(
+                f"{field_name} must contain finite numbers (no NaN or Infinity), got {val}",
+                field=field_name,
+            )
+    elif isinstance(val, Mapping):
+        for k, v in val.items():
+            if not isinstance(k, str):
+                raise DomainSessionContractError(
+                    f"{field_name} keys must be strings, got {type(k).__name__}",
+                    field=field_name,
+                )
+            _validate_no_nan_or_inf(v, f"{field_name}.{k}")
+    elif isinstance(val, (list, tuple, set, frozenset)):
+        for i, item in enumerate(val):
+            _validate_no_nan_or_inf(item, f"{field_name}[{i}]")
+
+
 def _validate_actor(val: Any, field_name: str = "actor") -> Any:
-    """Validate that actor is JSON-safe and contains no credentials."""
+    """Validate that actor is JSON-safe, deeply frozen, and contains no credentials or NaN/Inf."""
     if val is None:
         return None
-    if isinstance(val, (str, int, float, bool)):
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
         _validate_no_credentials(val, field_name)
+        return val
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            raise DomainSessionContractError(
+                f"{field_name} must be a finite number, got {val}",
+                field=field_name,
+            )
         return val
     if isinstance(val, Mapping):
         _validate_no_credentials(val, field_name)
+        _validate_no_nan_or_inf(val, field_name)
         try:
             json.dumps(dict(val), allow_nan=False)
         except Exception as exc:
@@ -178,6 +221,7 @@ def _validate_actor(val: Any, field_name: str = "actor") -> Any:
         return _deep_freeze(dict(val))
     if isinstance(val, (list, tuple)):
         _validate_no_credentials(val, field_name)
+        _validate_no_nan_or_inf(val, field_name)
         try:
             json.dumps(list(val), allow_nan=False)
         except Exception as exc:
@@ -185,7 +229,7 @@ def _validate_actor(val: Any, field_name: str = "actor") -> Any:
                 f"{field_name} must be JSON-serializable, got error: {exc}",
                 field=field_name,
             ) from exc
-        return tuple(val)
+        return _deep_freeze(list(val))
     raise DomainSessionContractError(
         f"{field_name} must be a JSON-serializable scalar or mapping, got {type(val).__name__}",
         field=field_name,
@@ -335,6 +379,7 @@ class DomainSessionCheck:
                 field="blocking",
             )
         _validate_no_credentials(self.details, "details")
+        _validate_no_nan_or_inf(self.details, "details")
         object.__setattr__(self, "details", _deep_freeze(dict(self.details)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -447,6 +492,7 @@ class DomainSessionTransition:
             ) from exc
 
         _validate_no_credentials(self.metadata, "metadata")
+        _validate_no_nan_or_inf(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -662,6 +708,7 @@ class DomainSessionContext:
             ) from exc
 
         _validate_no_credentials(self.metadata, "metadata")
+        _validate_no_nan_or_inf(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -860,6 +907,7 @@ class DomainSessionResumeRequest:
             ),
         )
         _validate_no_credentials(self.metadata, "metadata")
+        _validate_no_nan_or_inf(self.metadata, "metadata")
         object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
@@ -942,6 +990,10 @@ class DomainSessionResumeResult:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        _validate_no_credentials(self.metadata, "metadata")
+        _validate_no_nan_or_inf(self.metadata, "metadata")
+        object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
+
         if not isinstance(self.status, DomainSessionResumeStatus):
             raise DomainSessionContractError(
                 f"status must be a DomainSessionResumeStatus, got {self.status!r}",
@@ -952,12 +1004,46 @@ class DomainSessionResumeResult:
             "session_id",
             _validate_non_empty(self.session_id, "session_id"),
         )
+        _validate_revision_opt(self.previous_revision, "previous_revision")
+        _validate_revision_opt(self.resumed_revision, "resumed_revision")
+
+        if self.resumed_revision < self.previous_revision:
+            raise DomainSessionContractError(
+                f"resumed_revision ({self.resumed_revision}) must be >= previous_revision ({self.previous_revision})",
+                field="resumed_revision",
+            )
+
+        if self.recorded_resumption:
+            if self.context is None:
+                raise DomainSessionContractError(
+                    "context must not be None when recorded_resumption is True",
+                    field="context",
+                )
+            if self.resumed_revision != self.previous_revision + 1:
+                raise DomainSessionContractError(
+                    f"resumed_revision ({self.resumed_revision}) must equal previous_revision + 1 ({self.previous_revision + 1}) when recorded_resumption is True",
+                    field="resumed_revision",
+                )
+        else:
+            if self.resumed_revision != self.previous_revision:
+                raise DomainSessionContractError(
+                    f"resumed_revision ({self.resumed_revision}) must equal previous_revision ({self.previous_revision}) when recorded_resumption is False",
+                    field="resumed_revision",
+                )
+
         if self.context is not None and not isinstance(
             self.context, DomainSessionContext
         ):
             raise DomainSessionContractError(
                 "context must be a DomainSessionContext or None", field="context"
             )
+
+        if self.context is not None and self.context.revision != self.resumed_revision:
+            raise DomainSessionContractError(
+                f"context.revision ({self.context.revision}) must equal resumed_revision ({self.resumed_revision})",
+                field="context",
+            )
+
         for i, chk in enumerate(self.checks):
             if not isinstance(chk, DomainSessionCheck):
                 raise DomainSessionContractError(
@@ -993,8 +1079,6 @@ class DomainSessionResumeResult:
                 f"recorded_resumption must be a bool, got {self.recorded_resumption!r}",
                 field="recorded_resumption",
             )
-        _validate_no_credentials(self.metadata, "metadata")
-        object.__setattr__(self, "metadata", _deep_freeze(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         return {

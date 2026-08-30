@@ -1153,6 +1153,7 @@ def test_resume_result_is_json_safe():
         context=DomainSessionContext(
             session_id="session-json-2",
             primary_domain="domain:health",
+            revision=2,
             updated_at=_now(),
         ),
         checks=(
