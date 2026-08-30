@@ -32,6 +32,7 @@ from cmm.domains.session_contracts import (
     DomainSessionResumeResult,
     DomainSessionResumeStatus,
     DomainSessionTransition,
+    merge_resume_status,
 )
 from cmm.domains.session_revalidation import (
     _extract_slug,
@@ -128,49 +129,96 @@ class DomainSessionResumer:
         # 1. Extract context
         context: DomainSessionContext | None = None
         shared_session_id: str | None = None
+
+        durable_context: DomainSessionContext | None = None
+        if self._shared_session_adapter is not None:
+            durable_context = self._shared_session_adapter.load_domain_session(
+                request.session_id
+            )
+
+        explicit_context: DomainSessionContext | None = None
         if isinstance(session_context, DomainSessionContext):
-            context = session_context
-            shared_session_id = context.session_id
+            explicit_context = session_context
+            shared_session_id = explicit_context.session_id
         elif isinstance(session_context, Mapping):
             shared_session_id = session_context.get(
                 "session_id"
             ) or session_context.get("id")
-            context = self._codec.extract_from_session(session_context)
-            if context is None:
+            extracted = self._codec.extract_from_session(session_context)
+            if extracted is None:
                 try:
-                    context = DomainSessionContext.from_dict(session_context)
+                    explicit_context = DomainSessionContext.from_dict(session_context)
                 except Exception as exc:
                     raise DomainSessionSerializationError(
                         f"Failed to parse session context mapping: {exc}",
                         field="session_context",
                     ) from exc
+            else:
+                explicit_context = extracted
         elif session_context is not None and hasattr(session_context, "metadata"):
             shared_session_id = getattr(session_context, "session_id", None) or getattr(
                 session_context, "id", None
             )
-            context = self._codec.extract_from_session(session_context)
+            explicit_context = self._codec.extract_from_session(session_context)
         elif self._session_loader is not None:
             loaded_session = self._session_loader(request.session_id)
             if loaded_session is not None:
                 if isinstance(loaded_session, DomainSessionContext):
-                    context = loaded_session
-                    shared_session_id = context.session_id
+                    explicit_context = loaded_session
+                    shared_session_id = explicit_context.session_id
                 elif isinstance(loaded_session, Mapping):
                     shared_session_id = loaded_session.get(
                         "session_id"
                     ) or loaded_session.get("id")
-                    context = self._codec.extract_from_session(loaded_session)
+                    explicit_context = self._codec.extract_from_session(loaded_session)
                 elif hasattr(loaded_session, "metadata"):
                     shared_session_id = getattr(
                         loaded_session, "session_id", None
                     ) or getattr(loaded_session, "id", None)
-                    context = self._codec.extract_from_session(loaded_session)
-        elif self._shared_session_adapter is not None:
-            # Production path: load the durable shared session by ID
-            context = self._shared_session_adapter.load_domain_session(
-                request.session_id
-            )
-            shared_session_id = context.session_id if context else None
+                    explicit_context = self._codec.extract_from_session(loaded_session)
+
+        if self._shared_session_adapter is not None:
+            if durable_context is not None:
+                if explicit_context is not None:
+                    if explicit_context.session_id != request.session_id:
+                        raise DomainSessionResumeError(
+                            f"Session ID mismatch between request ({request.session_id}) and domain session context ({explicit_context.session_id})",
+                            field="session_id",
+                        )
+                    if explicit_context.revision != durable_context.revision:
+                        return DomainSessionResumeResult(
+                            status=DomainSessionResumeStatus.FAILED,
+                            session_id=request.session_id,
+                            previous_revision=durable_context.revision,
+                            resumed_revision=durable_context.revision,
+                            context=None,
+                            checks=(
+                                DomainSessionCheck(
+                                    name="authoritative_revision_check",
+                                    status=DomainSessionCheckStatus.BLOCKING,
+                                    message=(
+                                        f"Explicit session context revision ({explicit_context.revision}) "
+                                        f"does not match authoritative durable revision ({durable_context.revision})"
+                                    ),
+                                    blocking=True,
+                                ),
+                            ),
+                            warnings=(),
+                            blocking_findings=(
+                                (
+                                    f"Explicit session context revision ({explicit_context.revision}) "
+                                    f"does not match authoritative durable revision ({durable_context.revision})"
+                                ),
+                            ),
+                            recorded_resumption=False,
+                        )
+                context = durable_context
+                shared_session_id = durable_context.session_id
+            else:
+                context = explicit_context
+                shared_session_id = context.session_id if context else None
+        else:
+            context = explicit_context
 
         if context is None:
             raise DomainSessionResumeError(
@@ -399,18 +447,30 @@ class DomainSessionResumer:
         pure_checks = revalidate_session_state(context, self._registry, request)
         checks.extend(pure_checks)
 
+        status: DomainSessionResumeStatus = DomainSessionResumeStatus.RESUMED
+
         # 2.5 Conflict evaluation
         if self._conflict_evaluator is not None:
             conf_status, conf_checks = self._conflict_evaluator(
                 context.domain_conflict_refs
             )
             checks.extend(conf_checks)
-            if (
-                any(c.blocking for c in conf_checks)
-                or conf_status is DomainSessionResumeStatus.BLOCKED
+            if conf_status is not None:
+                status = merge_resume_status(status, conf_status)
+            if any(c.blocking for c in conf_checks) or status in (
+                DomainSessionResumeStatus.FAILED,
+                DomainSessionResumeStatus.BLOCKED,
+                DomainSessionResumeStatus.INCOMPATIBLE,
             ):
                 return DomainSessionResumeResult(
-                    status=DomainSessionResumeStatus.BLOCKED,
+                    status=status
+                    if status
+                    in (
+                        DomainSessionResumeStatus.FAILED,
+                        DomainSessionResumeStatus.BLOCKED,
+                        DomainSessionResumeStatus.INCOMPATIBLE,
+                    )
+                    else DomainSessionResumeStatus.BLOCKED,
                     session_id=session_id,
                     previous_revision=previous_revision,
                     resumed_revision=previous_revision,
@@ -420,7 +480,7 @@ class DomainSessionResumer:
                     blocking_findings=tuple(
                         c.message for c in conf_checks if c.blocking
                     )
-                    or ("Unresolved blocking conflict in session",),
+                    or (f"Conflict evaluation resulted in {status.value}",),
                     recorded_resumption=False,
                 )
 
@@ -607,10 +667,9 @@ class DomainSessionResumer:
         # 4. Domain Resolution / Recomposition logic
         new_transition: DomainSessionTransition | None = None
         if re_resolution_result is not None:
-            status = DomainSessionResumeStatus.RE_RESOLVED
+            status = merge_resume_status(status, DomainSessionResumeStatus.RE_RESOLVED)
             last_resolution_id = re_resolution_result.id
         else:
-            status = DomainSessionResumeStatus.RESUMED
             last_resolution_id = context.last_resolution_id
 
         # Check supporting domains
@@ -620,9 +679,11 @@ class DomainSessionResumer:
         if active_supporting != effective_supporting:
             effective_supporting = active_supporting
             if re_resolution_result is None:
-                status = DomainSessionResumeStatus.RECOMPOSED
+                status = merge_resume_status(
+                    status, DomainSessionResumeStatus.RECOMPOSED
+                )
 
-        # 4.5 Real Composition execution when composition is needed or composer provided (BLOCKER-02)
+        # 4.5 Real Composition execution when composition is needed or composer provided
         composition_id = context.composition_id
         effective_profile = context.effective_profile
         effective_rules = context.effective_rule_ids
@@ -630,31 +691,90 @@ class DomainSessionResumer:
         perms_from_comp: tuple[str, ...] | None = None
 
         composer_to_use = self._composer
-        if composer_to_use is None and (
+        needs_composition = (
             status
             in (
                 DomainSessionResumeStatus.RECOMPOSED,
                 DomainSessionResumeStatus.RE_RESOLVED,
             )
             or context.composition_id is None
-        ):
+        )
+        if composer_to_use is None and needs_composition:
             composer_to_use = DefaultDomainComposer()
 
-        if composer_to_use is not None:
+        if needs_composition and composer_to_use is not None:
             if re_resolution_result is not None:
                 res_result = re_resolution_result
+            elif self._resolver is not None:
+                all_reg_domains = (
+                    tuple(r.definition.id for r in self._registry.list_records())
+                    if self._registry is not None
+                    else ()
+                )
+                avail_slug_set = {d.slug for d in all_reg_domains}
+                res_ctx = DomainResolutionContext(
+                    id=f"domain-resolution-ctx-recomp-{session_id}",
+                    session_id=session_id,
+                    objective=f"Domain session recomposition for session '{session_id}'",
+                    available_domains=all_reg_domains,
+                    explicit_domains=tuple(
+                        DomainId(slug=_extract_slug(s))
+                        for s in effective_supporting
+                        if _extract_slug(s) in avail_slug_set
+                    ),
+                    active_domains=(
+                        tuple(
+                            r.definition.id
+                            for r in self._registry.list_records()
+                            if r.status in (DomainStatus.ACTIVE, DomainStatus.DEGRADED)
+                        )
+                        if self._registry is not None
+                        else ()
+                    ),
+                    current_profile=context.effective_profile,
+                    current_workflow=(
+                        context.active_workflow_refs[0]
+                        if context.active_workflow_refs
+                        else None
+                    ),
+                    requested_operations=context.available_operation_ids,
+                    actor=str(request.actor or "system"),
+                    temporal_reference=now_ts,
+                )
+                try:
+                    res_result = self._resolver.resolve(res_ctx)
+                except Exception:  # noqa: BLE001
+                    res_result = None
+
+                if (
+                    res_result is None
+                    or res_result.status != DomainResolutionStatus.RESOLVED
+                ):
+                    res_result = DomainResolutionResult(
+                        id=last_resolution_id or f"domain-recomposition-{session_id}",
+                        context_id=f"ctx-recomp-{session_id}",
+                        status=DomainResolutionStatus.RESOLVED,
+                        primary_domain=DomainId(slug=_extract_slug(effective_primary)),
+                        supporting_domains=tuple(
+                            DomainId(slug=_extract_slug(s))
+                            for s in effective_supporting
+                        ),
+                        confidence=0.0,
+                        resolved_at=now_ts,
+                    )
             else:
                 res_result = DomainResolutionResult(
-                    id=last_resolution_id or f"domain-resolution-resume-{session_id}",
-                    context_id=f"ctx-resume-{session_id}",
+                    id=last_resolution_id or f"domain-recomposition-{session_id}",
+                    context_id=f"ctx-recomp-{session_id}",
                     status=DomainResolutionStatus.RESOLVED,
                     primary_domain=DomainId(slug=_extract_slug(effective_primary)),
                     supporting_domains=tuple(
                         DomainId(slug=_extract_slug(s)) for s in effective_supporting
                     ),
-                    confidence=1.0,
+                    confidence=0.0,
                     resolved_at=now_ts,
                 )
+
             definitions: list[DomainDefinition] = []
             if self._registry is not None:
                 p_rec = self._registry.get_record(_extract_slug(effective_primary))
@@ -670,15 +790,9 @@ class DomainSessionResumer:
             except TypeError:
                 composed = composer_to_use.compose(res_result)
 
-            if (
-                context.composition_id is not None
-                and status is DomainSessionResumeStatus.RESUMED
-            ):
-                composition_id = context.composition_id
-            else:
-                composition_id = (
-                    getattr(composed, "id", None) or f"domain-composition-{session_id}"
-                )
+            composition_id = (
+                getattr(composed, "id", None) or f"domain-composition-{session_id}"
+            )
 
             if re_resolution_result is not None:
                 new_transition = DomainSessionTransition(
@@ -702,6 +816,7 @@ class DomainSessionResumer:
                     composition_id=composition_id,
                     occurred_at=now_ts,
                 )
+
             raw_profile = getattr(composed, "effective_profile", None)
             effective_profile = (
                 raw_profile
@@ -774,27 +889,27 @@ class DomainSessionResumer:
             if wf_check is not None:
                 checks.append(wf_check)
             if wf_status is not None:
-                if wf_status in (
-                    DomainSessionResumeStatus.INCOMPATIBLE,
-                    DomainSessionResumeStatus.BLOCKED,
-                ):
-                    return DomainSessionResumeResult(
-                        status=wf_status,
-                        session_id=session_id,
-                        previous_revision=previous_revision,
-                        resumed_revision=previous_revision,
-                        context=None,
-                        checks=tuple(checks),
-                        warnings=tuple(warnings),
-                        blocking_findings=(
-                            wf_check.message
-                            if wf_check
-                            else "Workflow validation blocked continuation",
-                        ),
-                        recorded_resumption=False,
-                    )
-                if status is DomainSessionResumeStatus.RESUMED:
-                    status = wf_status
+                status = merge_resume_status(status, wf_status)
+            if status in (
+                DomainSessionResumeStatus.FAILED,
+                DomainSessionResumeStatus.BLOCKED,
+                DomainSessionResumeStatus.INCOMPATIBLE,
+            ):
+                return DomainSessionResumeResult(
+                    status=status,
+                    session_id=session_id,
+                    previous_revision=previous_revision,
+                    resumed_revision=previous_revision,
+                    context=None,
+                    checks=tuple(checks),
+                    warnings=tuple(warnings),
+                    blocking_findings=(
+                        wf_check.message
+                        if wf_check
+                        else f"Workflow validation resulted in {status.value}",
+                    ),
+                    recorded_resumption=False,
+                )
             effective_workflows = wf_refs
 
         # 8. Questions and Approvals recovery
@@ -851,38 +966,61 @@ class DomainSessionResumer:
 
         # 8.5 Drift impact and dependency invalidation (MAJOR-01, MAJOR-02)
         has_drift = any(c.status is DomainSessionCheckStatus.DRIFT for c in checks)
-        if has_drift and status is DomainSessionResumeStatus.RESUMED:
-            status = DomainSessionResumeStatus.REPLAN_REQUIRED
-
         if has_drift:
+            status = merge_resume_status(
+                status, DomainSessionResumeStatus.REPLAN_REQUIRED
+            )
+
+        if recovered_questions:
+            status = merge_resume_status(
+                status, DomainSessionResumeStatus.WAITING_FOR_USER
+            )
+        elif recovered_approvals:
+            status = merge_resume_status(
+                status, DomainSessionResumeStatus.WAITING_FOR_APPROVAL
+            )
+
+        has_version_change = any(
+            c.status
+            in (
+                DomainSessionCheckStatus.CHANGED,
+                DomainSessionCheckStatus.INCOMPATIBLE,
+                DomainSessionCheckStatus.DRIFT,
+            )
+            and c.name.startswith("domain_version_")
+            for c in checks
+        )
+        is_material_change = (
+            has_drift
+            or has_version_change
+            or status
+            in (
+                DomainSessionResumeStatus.RECOMPOSED,
+                DomainSessionResumeStatus.RE_RESOLVED,
+                DomainSessionResumeStatus.REPLAN_REQUIRED,
+            )
+        )
+
+        if is_material_change:
             effective_partial_results: tuple[str, ...] = ()
             effective_trace_refs: tuple[str, ...] = ()
-            warnings.append(
-                "Stale partial results and traces invalidated due to resource/knowledge drift"
-            )
+            if context.partial_result_refs or context.trace_refs:
+                warnings.append(
+                    "Stale partial results and traces invalidated due to material session changes"
+                )
+            if self._next_step_reconstructor is not None:
+                next_step = self._next_step_reconstructor(context, status)
+            elif context.next_recommended_step is not None:
+                next_step = "replan_execution"
+            else:
+                next_step = None
         else:
             effective_partial_results = context.partial_result_refs
             effective_trace_refs = context.trace_refs
-
-        if status in (
-            DomainSessionResumeStatus.RESUMED,
-            DomainSessionResumeStatus.RECOMPOSED,
-            DomainSessionResumeStatus.RE_RESOLVED,
-        ):
-            if recovered_questions:
-                status = DomainSessionResumeStatus.WAITING_FOR_USER
-            elif recovered_approvals:
-                status = DomainSessionResumeStatus.WAITING_FOR_APPROVAL
-
-        # 9. Next recommended step
-        if self._next_step_reconstructor is not None:
-            next_step = self._next_step_reconstructor(context, status)
-        elif (
-            has_drift or status is DomainSessionResumeStatus.REPLAN_REQUIRED
-        ) and context.next_recommended_step is not None:
-            next_step = "replan_execution"
-        else:
-            next_step = context.next_recommended_step
+            if self._next_step_reconstructor is not None:
+                next_step = self._next_step_reconstructor(context, status)
+            else:
+                next_step = context.next_recommended_step
 
         # 9.5 Current accepted domain versions persistence (MAJOR-01)
         accepted_domain_versions = dict(context.domain_versions)
@@ -936,7 +1074,8 @@ class DomainSessionResumer:
         # of a committed resumption.
         try:
             committed_context = self._shared_session_adapter.save_domain_session(
-                resumed_context
+                resumed_context,
+                expected_previous_revision=previous_revision,
             )
         except Exception:  # noqa: BLE001
             return DomainSessionResumeResult(

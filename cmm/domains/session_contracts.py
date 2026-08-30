@@ -169,34 +169,50 @@ def _validate_revision_opt_serialization(val: Any, field_name: str = "revision")
     return val
 
 
-def _validate_no_nan_or_inf(val: Any, field_name: str) -> None:
-    """Recursively validate that floating point values contain no NaN or Infinity."""
+def _validate_strict_json_safe(val: Any, field_name: str) -> None:
+    """Recursively validate that val contains only strict JSON-serializable primitives and containers."""
+    if val is None or isinstance(val, (bool, int)):
+        return
     if isinstance(val, float):
         if math.isnan(val) or math.isinf(val):
             raise DomainSessionContractError(
                 f"{field_name} must contain finite numbers (no NaN or Infinity), got {val}",
                 field=field_name,
             )
-    elif isinstance(val, Mapping):
+        return
+    if isinstance(val, str):
+        _validate_no_credentials(val, field_name)
+        return
+    if isinstance(val, Mapping):
         for k, v in val.items():
-            if not isinstance(k, str):
+            if not isinstance(k, str) or not k.strip():
                 raise DomainSessionContractError(
-                    f"{field_name} keys must be strings, got {type(k).__name__}",
+                    f"{field_name} keys must be non-empty strings, got {k!r}",
                     field=field_name,
                 )
-            _validate_no_nan_or_inf(v, f"{field_name}.{k}")
-    elif isinstance(val, (list, tuple, set, frozenset)):
+            _validate_no_credentials(k, f"{field_name}.{k}")
+            _validate_strict_json_safe(v, f"{field_name}.{k}")
+        return
+    if isinstance(val, (list, tuple)):
         for i, item in enumerate(val):
-            _validate_no_nan_or_inf(item, f"{field_name}[{i}]")
+            _validate_strict_json_safe(item, f"{field_name}[{i}]")
+        return
+    raise DomainSessionContractError(
+        f"{field_name} must be JSON-serializable, got unsupported type {type(val).__name__}: {val!r}",
+        field=field_name,
+    )
+
+
+def _validate_no_nan_or_inf(val: Any, field_name: str) -> None:
+    """Recursively validate that floating point values contain no NaN or Infinity."""
+    _validate_strict_json_safe(val, field_name)
 
 
 def _validate_actor(val: Any, field_name: str = "actor") -> Any:
-    """Validate that actor is JSON-safe, deeply frozen, and contains no credentials or NaN/Inf."""
+    """Validate that actor is JSON-safe, deeply frozen, and contains no credentials, opaque objects, or NaN/Inf."""
     if val is None:
         return None
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, int):
+    if isinstance(val, (bool, int)):
         return val
     if isinstance(val, str):
         _validate_no_credentials(val, field_name)
@@ -209,26 +225,10 @@ def _validate_actor(val: Any, field_name: str = "actor") -> Any:
             )
         return val
     if isinstance(val, Mapping):
-        _validate_no_credentials(val, field_name)
-        _validate_no_nan_or_inf(val, field_name)
-        try:
-            json.dumps(dict(val), allow_nan=False)
-        except Exception as exc:
-            raise DomainSessionContractError(
-                f"{field_name} must be JSON-serializable, got error: {exc}",
-                field=field_name,
-            ) from exc
+        _validate_strict_json_safe(val, field_name)
         return _deep_freeze(dict(val))
     if isinstance(val, (list, tuple)):
-        _validate_no_credentials(val, field_name)
-        _validate_no_nan_or_inf(val, field_name)
-        try:
-            json.dumps(list(val), allow_nan=False)
-        except Exception as exc:
-            raise DomainSessionContractError(
-                f"{field_name} must be JSON-serializable, got error: {exc}",
-                field=field_name,
-            ) from exc
+        _validate_strict_json_safe(val, field_name)
         return _deep_freeze(list(val))
     raise DomainSessionContractError(
         f"{field_name} must be a JSON-serializable scalar or mapping, got {type(val).__name__}",
@@ -336,6 +336,41 @@ class DomainSessionResumeStatus(str, Enum):
     BLOCKED = "BLOCKED"
     INCOMPATIBLE = "INCOMPATIBLE"
     FAILED = "FAILED"
+
+
+_STATUS_SEVERITY: dict[DomainSessionResumeStatus, int] = {
+    DomainSessionResumeStatus.FAILED: 90,
+    DomainSessionResumeStatus.BLOCKED: 80,
+    DomainSessionResumeStatus.INCOMPATIBLE: 70,
+    DomainSessionResumeStatus.REPLAN_REQUIRED: 60,
+    DomainSessionResumeStatus.WAITING_FOR_USER: 50,
+    DomainSessionResumeStatus.WAITING_FOR_APPROVAL: 40,
+    DomainSessionResumeStatus.RE_RESOLVED: 30,
+    DomainSessionResumeStatus.RECOMPOSED: 20,
+    DomainSessionResumeStatus.RESUMED: 10,
+}
+
+
+def merge_resume_status(
+    current: DomainSessionResumeStatus | None,
+    incoming: DomainSessionResumeStatus | None,
+) -> DomainSessionResumeStatus:
+    """Merge two DomainSessionResumeStatus values, preserving the highest severity / restriction.
+
+    Precedence order (highest to lowest):
+      FAILED (90) > BLOCKED (80) > INCOMPATIBLE (70) > REPLAN_REQUIRED (60) >
+      WAITING_FOR_USER (50) > WAITING_FOR_APPROVAL (40) > RE_RESOLVED (30) >
+      RECOMPOSED (20) > RESUMED (10).
+    """
+    if current is None:
+        if incoming is None:
+            return DomainSessionResumeStatus.RESUMED
+        return incoming
+    if incoming is None:
+        return current
+    sev_cur = _STATUS_SEVERITY.get(current, 0)
+    sev_inc = _STATUS_SEVERITY.get(incoming, 0)
+    return current if sev_cur >= sev_inc else incoming
 
 
 class DomainSessionCheckStatus(str, Enum):
@@ -1202,4 +1237,5 @@ __all__ = [
     "DomainSessionResumeResult",
     "DomainSessionResumeStatus",
     "DomainSessionTransition",
+    "merge_resume_status",
 ]

@@ -237,51 +237,137 @@ def revalidate_resource_and_knowledge_drift(
         dict(request.current_knowledge_versions) if request is not None else {}
     )
 
+    now_ts = (
+        request.temporal_reference
+        if request is not None and request.temporal_reference is not None
+        else context.updated_at
+    )
+
     # 1. Resource references
     for domain, res_tuple in context.domain_resource_refs.items():
         for res_id in res_tuple:
             if res_id in res_versions:
                 v = res_versions[res_id]
-                if v in ("MISSING", "INVALIDATED"):
-                    checks.append(
-                        DomainSessionCheck(
-                            name=f"resource_drift_{res_id}",
-                            status=DomainSessionCheckStatus.BLOCKING,
-                            message=f"Resource '{res_id}' in domain '{domain}' is {v.lower()}",
-                            blocking=True,
-                            details={
-                                "resource_id": res_id,
-                                "domain": domain,
-                                "status": v,
-                            },
+                if isinstance(v, str):
+                    v_upper = v.upper().strip()
+                    if v_upper in ("MISSING", "INVALIDATED", "EXPIRED"):
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.BLOCKING,
+                                message=f"Resource '{res_id}' in domain '{domain}' is {v_upper.lower()}",
+                                blocking=True,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "status": v_upper,
+                                },
+                            )
                         )
-                    )
-                elif "drift" in v.lower() or "changed" in v.lower():
-                    checks.append(
-                        DomainSessionCheck(
-                            name=f"resource_drift_{res_id}",
-                            status=DomainSessionCheckStatus.DRIFT,
-                            message=f"Resource '{res_id}' in domain '{domain}' has drifted",
-                            blocking=False,
-                            details={
-                                "resource_id": res_id,
-                                "domain": domain,
-                                "current_version": v,
-                            },
+                    elif (
+                        v_upper in ("STALE", "DRIFT", "CHANGED")
+                        or "drift" in v.lower()
+                        or "changed" in v.lower()
+                    ):
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.DRIFT,
+                                message=f"Resource '{res_id}' in domain '{domain}' has drifted",
+                                blocking=False,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "current_version": v,
+                                },
+                            )
                         )
-                    )
+                    else:
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.PASS,
+                                message=f"Resource '{res_id}' is current",
+                                blocking=False,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "current_version": v,
+                                },
+                            )
+                        )
+                elif isinstance(v, Mapping):
+                    # Native resource context or temporal metadata dict
+                    status_val = str(v.get("status", "")).upper().strip()
+                    valid_until = v.get("valid_until")
+                    exp_required = bool(v.get("expiration_required", False))
+                    hist_allowed = bool(v.get("historical_allowed", True))
+                    is_expired = False
+                    if valid_until is not None:
+                        from datetime import datetime
+
+                        dt_until = (
+                            datetime.fromisoformat(valid_until)
+                            if isinstance(valid_until, str)
+                            else valid_until
+                        )
+                        if dt_until < now_ts:
+                            is_expired = True
+
+                    if (
+                        status_val in ("MISSING", "INVALIDATED")
+                        or (status_val == "EXPIRED" and not hist_allowed)
+                        or (is_expired and (not hist_allowed or exp_required))
+                    ):
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.BLOCKING,
+                                message=f"Resource '{res_id}' in domain '{domain}' is expired/invalidated (historical use not allowed)",
+                                blocking=True,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "status": status_val or "EXPIRED",
+                                },
+                            )
+                        )
+                    elif status_val in ("STALE", "DRIFT", "CHANGED") or is_expired:
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.DRIFT,
+                                message=f"Resource '{res_id}' in domain '{domain}' has drifted/expired",
+                                blocking=False,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "current_version": str(v),
+                                },
+                            )
+                        )
+                    else:
+                        checks.append(
+                            DomainSessionCheck(
+                                name=f"resource_drift_{res_id}",
+                                status=DomainSessionCheckStatus.PASS,
+                                message=f"Resource '{res_id}' is current",
+                                blocking=False,
+                                details={
+                                    "resource_id": res_id,
+                                    "domain": domain,
+                                    "current_version": str(v.get("version", "current")),
+                                },
+                            )
+                        )
                 else:
                     checks.append(
                         DomainSessionCheck(
                             name=f"resource_drift_{res_id}",
-                            status=DomainSessionCheckStatus.PASS,
-                            message=f"Resource '{res_id}' is current",
+                            status=DomainSessionCheckStatus.WARNING,
+                            message=f"Resource '{res_id}' in domain '{domain}' has unknown metadata format",
                             blocking=False,
-                            details={
-                                "resource_id": res_id,
-                                "domain": domain,
-                                "current_version": v,
-                            },
+                            details={"resource_id": res_id, "domain": domain},
                         )
                     )
             else:

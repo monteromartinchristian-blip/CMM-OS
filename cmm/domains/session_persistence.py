@@ -86,12 +86,14 @@ class SharedSessionDomainAdapter:
         return context
 
     def save_domain_session(
-        self, context: DomainSessionContext
+        self,
+        context: DomainSessionContext,
+        expected_previous_revision: int | None = None,
     ) -> DomainSessionContext:
         """Attach the domain extension and commit through the shared store.
 
-        Returns the committed context (unchanged content-wise; the shared
-        envelope's revision/history records the commit).
+        Enforces optimistic revision checking on the domain session extension
+        as well as the shared session envelope.
         """
         if not isinstance(context, DomainSessionContext):
             raise DomainSessionSerializationError(
@@ -99,10 +101,40 @@ class SharedSessionDomainAdapter:
                 field="context",
             )
         shared = self._store.load(context.session_id)
-        if shared is None:
+        if shared is not None:
+            raw_existing = shared.extensions.get(self._extension_key)
+            if raw_existing is not None:
+                existing_ctx = DomainSessionContext.from_dict(dict(raw_existing))
+                if (
+                    expected_previous_revision is not None
+                    and existing_ctx.revision != expected_previous_revision
+                ):
+                    from cmm.runtime.sessions import SessionPersistenceError
+
+                    raise SessionPersistenceError(
+                        f"Revision conflict for domain session '{context.session_id}': "
+                        f"expected previous revision {expected_previous_revision}, "
+                        f"but durable revision is {existing_ctx.revision}"
+                    )
+                if context.revision <= existing_ctx.revision:
+                    from cmm.runtime.sessions import SessionPersistenceError
+
+                    raise SessionPersistenceError(
+                        f"Stale revision for domain session '{context.session_id}': "
+                        f"candidate revision {context.revision} <= durable revision {existing_ctx.revision}"
+                    )
+                if context.revision != existing_ctx.revision + 1:
+                    from cmm.runtime.sessions import SessionPersistenceError
+
+                    raise SessionPersistenceError(
+                        f"Invalid revision jump for domain session '{context.session_id}': "
+                        f"candidate revision {context.revision} != durable revision {existing_ctx.revision} + 1"
+                    )
+        else:
             from cmm.runtime.sessions import SharedSessionState
 
             shared = SharedSessionState(session_id=context.session_id)
+
         updated = shared.with_extension(
             self._extension_key, context.to_dict(), reason="domain-session:update"
         )
