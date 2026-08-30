@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PENDING = "IMPLEMENTED_PENDING_AUDIT"
 COMPLETE = "COMPLETE"
-EVIDENCE_VERSION = 9
+EVIDENCE_VERSION = 10
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -69,17 +69,17 @@ def _set_main_roadmap_state(
     else:
         implemented = (
             "> **Implemented:** Phases 0–9 plus Phase 10 through 10.34 "
-            "(Phase 10.34 complete; final independent audit V8 `PASS`)<br>"
+            "(Phase 10.34 complete; final independent audit V10 `PASS`)<br>"
         )
         progress = (
             "**Current progress:** Phase 10.19–10.34 are complete and independently "
             "audited. Phase 10.34 — Domain Sessions has `DP-034=VERIFIED_EXISTING` "
-            "and `AT-DP-034=PASS`; final independent audit V8 `PASS`. Phase 10.35 — "
+            "and `AT-DP-034=PASS`; final independent audit V10 `PASS`. Phase 10.35 — "
             "Domain SDK is next."
         )
         implemented_through = (
             "**Implemented through:** Phase 10.34 — Domain Sessions "
-            "(`COMPLETE`; final independent audit V8 `PASS`; "
+            "(`COMPLETE`; final independent audit V10 `PASS`; "
             "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`)."
         )
         narrative = (
@@ -145,7 +145,7 @@ def _set_requirements_matrix_state(
         lines[status_index] = (
             "**Status:** Canonical reference for consolidated Phase 10 requirements. "
             "Phase 10.33 and Phase 10.34 are complete and independently audited; "
-            "Phase 10.34 final independent audit V8 `PASS`. Phase 10.35–10.51 "
+            "Phase 10.34 final independent audit V10 `PASS`. Phase 10.35–10.51 "
             "proceed afterward."
         )
         lines[dp_index] = re.sub(
@@ -157,11 +157,11 @@ def _set_requirements_matrix_state(
         lines[dp_index] = re.sub(
             r"(?:(?:independent|fixture-isolation) re-audit V\d+ pending|"
             r"final independent audit V\d+ `PASS`)",
-            "final independent audit V8 `PASS`",
+            "final independent audit V10 `PASS`",
             lines[dp_index],
         )
         lines[order_index] = (
-            "10.34 — Domain Sessions (`COMPLETE`; final independent audit V8 `PASS`; "
+            "10.34 — Domain Sessions (`COMPLETE`; final independent audit V10 `PASS`; "
             "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`)"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -199,11 +199,11 @@ def set_phase_10_34_documented_state(
         )
     else:
         phase_line = (
-            "> **Status:** `COMPLETE`; final independent audit V8 `PASS`; "
+            "> **Status:** `COMPLETE`; final independent audit V10 `PASS`; "
             "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS`"
         )
         reference_line = (
-            "**Status:** `COMPLETE`; final independent audit V8 `PASS`; "
+            "**Status:** `COMPLETE`; final independent audit V10 `PASS`; "
             "`DP-034=VERIFIED_EXISTING`; `AT-DP-034=PASS` (Phase 10.34)"
         )
     phase_text = phase_roadmap.read_text(encoding="utf-8")
@@ -297,19 +297,27 @@ def write_audit(
     blockers: int,
     majors: int,
     minors: int,
+    audited_source_hash_manifest_sha256: str | None = None,
 ) -> None:
+    if status == "PASS" and audited_source_hash_manifest_sha256 is None:
+        manifest_path = archive_root / (
+            f"docs/audits/evidence/phase-10.34-v{EVIDENCE_VERSION}-source-hashes.json"
+        )
+        audited_source_hash_manifest_sha256 = _sha256(manifest_path)
+    audit_lines = [
+        f"FINAL_INDEPENDENT_AUDIT_V{version}={status}",
+        f"BLOCKERS={blockers}",
+        f"MAJORS={majors}",
+        f"MINORS={minors}",
+    ]
+    if audited_source_hash_manifest_sha256 is not None:
+        audit_lines.append(
+            f"AUDITED_SOURCE_HASH_MANIFEST_SHA256={audited_source_hash_manifest_sha256}"
+        )
     path = archive_root / f"docs/audits/phase-10.34-independent-audit-v{version}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        "\n".join(
-            (
-                f"FINAL_INDEPENDENT_AUDIT_V{version}={status}",
-                f"BLOCKERS={blockers}",
-                f"MAJORS={majors}",
-                f"MINORS={minors}",
-                "",
-            )
-        ),
+        "\n".join((*audit_lines, "")),
         encoding="utf-8",
     )
 

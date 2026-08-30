@@ -309,10 +309,10 @@ def _write_json(path: Path, payload: object) -> None:
 
 def _rebind_source_manifest(archive_root: Path) -> None:
     manifest_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     )
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v9-gates.json"
+    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v10-gates.json"
     gates = json.loads(gates_path.read_text(encoding="utf-8"))
     gates["source_evidence"]["manifest_sha256"] = digest
     for gate in gates["gates"].values():
@@ -359,7 +359,7 @@ def test_13_missing_hashed_source_is_rejected(tmp_path: Path) -> None:
 
 def test_14_gate_fail_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
-    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v9-gates.json"
+    gates_path = archive_root / "docs/audits/evidence/phase-10.34-v10-gates.json"
     gates = json.loads(gates_path.read_text(encoding="utf-8"))
     gates["gates"]["focused_tests"]["status"] = "FAIL"
     _write_json(gates_path, gates)
@@ -371,7 +371,7 @@ def test_14_gate_fail_is_rejected(tmp_path: Path) -> None:
 def test_15_pytest_inventory_mutation_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
     inventory_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-pytest-nodes.txt"
     )
     nodes = inventory_path.read_text(encoding="utf-8").splitlines()
     inventory_path.write_text("\n".join(nodes[1:]) + "\n", encoding="utf-8")
@@ -382,7 +382,7 @@ def test_15_pytest_inventory_mutation_is_rejected(tmp_path: Path) -> None:
 
 def test_16_missing_evidence_artifact_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
-    (archive_root / "docs/audits/evidence/phase-10.34-v9-gates.json").unlink()
+    (archive_root / "docs/audits/evidence/phase-10.34-v10-gates.json").unlink()
 
     with pytest.raises(EvidenceValidationError, match="gate artifact.*missing"):
         validate_at_dp_034_bundle_evidence(archive_root)
@@ -457,7 +457,7 @@ def test_25_checkpoint_56_closure_guard_is_portable(tmp_path: Path) -> None:
 def test_unknown_source_hash_algorithm_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
     manifest_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["algorithm"] = "md5"
@@ -471,7 +471,7 @@ def test_unknown_source_hash_algorithm_is_rejected(tmp_path: Path) -> None:
 def test_source_hash_path_traversal_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
     manifest_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["files"]["../escape.py"] = "0" * 64
@@ -485,7 +485,7 @@ def test_source_hash_path_traversal_is_rejected(tmp_path: Path) -> None:
 def test_duplicate_source_hash_path_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
     manifest_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     )
     manifest_path.write_text(
         '{"algorithm":"sha256","files":{"same.py":"'
@@ -504,7 +504,7 @@ def test_duplicate_source_hash_path_is_rejected(tmp_path: Path) -> None:
 def test_required_source_absent_from_manifest_is_rejected(tmp_path: Path) -> None:
     archive_root = _portable_archive_fixture(tmp_path)
     manifest_path = (
-        archive_root / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+        archive_root / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     del manifest["files"]["cmm/domains/resource_authority.py"]

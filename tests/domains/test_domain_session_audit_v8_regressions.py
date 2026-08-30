@@ -15,7 +15,6 @@ from tests.domains.domain_session_lifecycle_test_support import (
     COMPLETE,
     PENDING,
     REPO_ROOT,
-    copy_real_audit,
     portable_archive_fixture,
     write_audit,
 )
@@ -34,18 +33,18 @@ def _document_snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
-def test_18_closed_repo_fixture_with_clean_v8_pass_is_closure_eligible(
+def test_18_closed_repo_fixture_with_matching_pass_is_closure_eligible(
     tmp_path: Path,
 ) -> None:
     archive_root = portable_archive_fixture(tmp_path, status=COMPLETE)
-    copy_real_audit(REPO_ROOT, archive_root, 8)
+    write_audit(archive_root, 10, status="PASS", blockers=0, majors=0, minors=0)
 
     report = validate_at_dp_034_bundle_evidence(archive_root)
 
     closure = report.resolved[56].details
     assert report.evidence_resolved == 56
     assert closure["phase_status"] == COMPLETE
-    assert closure["latest_independent_audit"] == "V8"
+    assert closure["latest_independent_audit"] == "V10"
     assert closure["latest_independent_audit_status"] == "PASS"
     assert closure["closure_eligible"] is True
     assert "Phase 10.35 — Domain SDK is next" in (

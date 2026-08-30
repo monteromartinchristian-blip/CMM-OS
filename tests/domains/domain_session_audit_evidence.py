@@ -19,12 +19,12 @@ EVIDENCE_MANIFEST_PATH = (
     REPO_ROOT / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
 )
 SOURCE_HASH_MANIFEST_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
 )
 PYTEST_NODE_INVENTORY_PATH = (
-    REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
+    REPO_ROOT / "docs/audits/evidence/phase-10.34-v10-pytest-nodes.txt"
 )
-EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v9-gates.json"
+EXTERNAL_GATES_PATH = REPO_ROOT / "docs/audits/evidence/phase-10.34-v10-gates.json"
 
 VALID_EVIDENCE_TYPES = frozenset(
     {
@@ -69,6 +69,7 @@ class IndependentAuditRecord:
     blockers: int
     majors: int
     minors: int
+    audited_source_hash_manifest_sha256: str | None
     path: Path
 
 
@@ -81,6 +82,8 @@ class ClosureGuardResult:
     blockers: int | None
     majors: int | None
     minors: int | None
+    audited_source_hash_manifest_sha256: str | None
+    current_source_hash_manifest_sha256: str | None
     phase_status: str
     closure_eligible: bool
     reason: str
@@ -237,7 +240,7 @@ def _validate_relative_path(value: Any, *, label: str) -> str:
 
 
 def discover_source_hash_paths(repo_root: Path) -> tuple[str, ...]:
-    """Return the deterministic source/test/config scope covered by V9 gates."""
+    """Return the deterministic source/test/config scope covered by V10 gates."""
     paths: set[str] = {
         "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json",
         "pyproject.toml",
@@ -261,7 +264,7 @@ def _validate_source_binding(
     manifest_rel = _validate_relative_path(
         source_evidence.get("manifest"), label="source hash manifest path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v9-source-hashes.json"
+    expected_rel = "docs/audits/evidence/phase-10.34-v10-source-hashes.json"
     if manifest_rel != expected_rel:
         _fail("gate artifact references the wrong source hash manifest")
     expected_digest = source_evidence.get("manifest_sha256")
@@ -338,7 +341,7 @@ def _validate_pytest_inventory(
     inventory_rel = _validate_relative_path(
         evidence.get("inventory"), label="pytest inventory path"
     )
-    expected_rel = "docs/audits/evidence/phase-10.34-v9-pytest-nodes.txt"
+    expected_rel = "docs/audits/evidence/phase-10.34-v10-pytest-nodes.txt"
     if inventory_rel != expected_rel:
         _fail("gate artifact references the wrong pytest inventory")
     expected_digest = evidence.get("inventory_sha256")
@@ -527,6 +530,19 @@ def _parse_finding_count(header: str, name: str, path: Path) -> int:
     return value
 
 
+def _parse_optional_audit_field(header: str, name: str, path: Path) -> str | None:
+    declarations = [
+        line.strip()
+        for line in header.splitlines()
+        if line.strip().startswith(f"{name}=")
+    ]
+    if not declarations:
+        return None
+    if len(declarations) != 1:
+        _fail(f"independent audit contains duplicate {name}: {path.name}")
+    return declarations[0].partition("=")[2]
+
+
 def parse_independent_audit_report(
     path: Path, *, version: int
 ) -> IndependentAuditRecord:
@@ -567,6 +583,9 @@ def parse_independent_audit_report(
         blockers=blockers,
         majors=majors,
         minors=minors,
+        audited_source_hash_manifest_sha256=_parse_optional_audit_field(
+            header, "AUDITED_SOURCE_HASH_MANIFEST_SHA256", path
+        ),
         path=path,
     )
 
@@ -663,29 +682,52 @@ def evaluate_phase_10_34_closure_eligibility(
             blockers=None,
             majors=None,
             minors=None,
+            audited_source_hash_manifest_sha256=None,
+            current_source_hash_manifest_sha256=None,
             phase_status=phase_status,
             closure_eligible=False,
             reason="no independent audit exists",
         )
 
+    current_manifest_path = repo_root / SOURCE_HASH_MANIFEST_PATH.relative_to(REPO_ROOT)
+    try:
+        current_manifest_digest = (
+            _sha256(current_manifest_path) if current_manifest_path.is_file() else None
+        )
+    except OSError:
+        current_manifest_digest = None
     clean_pass = audit.status == "PASS" and not any(
         (audit.blockers, audit.majors, audit.minors)
     )
-    if documentation_claims_closed and not clean_pass:
-        _fail("Phase 10.34 is documented closed without a clean independent PASS")
-    reason = (
-        "latest independent audit is a clean PASS with zero findings"
-        if clean_pass
-        else "latest independent audit is not a clean PASS"
+    audited_manifest_digest = audit.audited_source_hash_manifest_sha256
+    valid_audit_binding = bool(
+        audited_manifest_digest
+        and re.fullmatch(r"[0-9a-f]{64}", audited_manifest_digest)
+        and current_manifest_digest == audited_manifest_digest
     )
+    closure_eligible = clean_pass and valid_audit_binding
+    if documentation_claims_closed and not closure_eligible:
+        _fail("Phase 10.34 is documented closed without a clean independent PASS")
+    if not clean_pass:
+        reason = "latest independent audit is not a clean PASS"
+    elif not audited_manifest_digest:
+        reason = "latest independent PASS is missing source manifest binding"
+    elif not re.fullmatch(r"[0-9a-f]{64}", audited_manifest_digest):
+        reason = "latest independent PASS has malformed source manifest binding"
+    elif current_manifest_digest != audited_manifest_digest:
+        reason = "latest independent PASS does not match current source manifest"
+    else:
+        reason = "latest independent PASS matches current source manifest"
     return ClosureGuardResult(
         latest_audit_version=audit.version,
         latest_audit_status=audit.status,
         blockers=audit.blockers,
         majors=audit.majors,
         minors=audit.minors,
+        audited_source_hash_manifest_sha256=audited_manifest_digest,
+        current_source_hash_manifest_sha256=current_manifest_digest,
         phase_status=phase_status,
-        closure_eligible=clean_pass,
+        closure_eligible=closure_eligible,
         reason=reason,
     )
 
@@ -704,6 +746,12 @@ def _validate_closure_guard(repo_root: Path) -> Mapping[str, Any]:
             "blockers": result.blockers,
             "majors": result.majors,
             "minors": result.minors,
+            "audited_source_hash_manifest_sha256": (
+                result.audited_source_hash_manifest_sha256
+            ),
+            "current_source_hash_manifest_sha256": (
+                result.current_source_hash_manifest_sha256
+            ),
             "phase_status": result.phase_status,
             "closure_eligible": result.closure_eligible,
             "reason": result.reason,
@@ -723,7 +771,7 @@ def validate_at_dp_034(
         repo_root / "docs/audits/evidence/phase-10.34-at-dp-034-manifest.json"
     )
     gates_path = gates_path or (
-        repo_root / "docs/audits/evidence/phase-10.34-v9-gates.json"
+        repo_root / "docs/audits/evidence/phase-10.34-v10-gates.json"
     )
     manifest = _read_json(manifest_path, label="evidence manifest")
     gates_payload = _read_json(gates_path, label="external gate artifact")

@@ -1066,10 +1066,13 @@ def test_checkpoint_56_closure_only_after_clean_audit():
     assert details["latest_independent_audit"].startswith("V")
     assert details["latest_independent_audit_status"] in {"PASS", "FAIL"}
     assert all(details[name] >= 0 for name in ("blockers", "majors", "minors"))
-    clean_pass = details["latest_independent_audit_status"] == "PASS" and not any(
-        details[name] for name in ("blockers", "majors", "minors")
+    bound_clean_pass = (
+        details["latest_independent_audit_status"] == "PASS"
+        and not any(details[name] for name in ("blockers", "majors", "minors"))
+        and details["audited_source_hash_manifest_sha256"]
+        == details["current_source_hash_manifest_sha256"]
     )
-    assert details["closure_eligible"] is clean_pass
+    assert details["closure_eligible"] is bound_clean_pass
     assert details["phase_status"] in {
         "IMPLEMENTED_PENDING_AUDIT",
         "COMPLETE",
