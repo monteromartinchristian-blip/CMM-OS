@@ -5181,8 +5181,8 @@ Implemented template
 
 Status
 
-Implementation complete — independent audit pending.
-`DP-036 = IMPLEMENTED_PENDING_AUDIT`; `AT-DP-036 = PASS`.
+Complete — independently audited and closed.
+`DP-036 = VERIFIED_EXISTING`; `AT-DP-036 = PASS`.
 
 Delivered surface
 
@@ -5240,6 +5240,9 @@ Reference
 * Implementation reference: `docs/reference/domain-api.md`
 * Acceptance: `tests/domains/test_domain_api_dp036_acceptance.py` (AT-DP-036)
 * Adversarial boundaries: `tests/domains/test_domain_api_adversarial.py`
+* Final independent re-audit: `docs/audits/phase-10.36-independent-reaudit-v3.md` — V3 `PASS` (`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`)
+* Audited implementation HEAD: `c119abbeaeedf297087ccc5cb01ba311f4cd5c61`
+* Audit V3 bundle SHA-256: `add96184a11d98c3625d9bdec786a10460e34a3211b34b972f2d43d62f4221d0`
 
 ⸻
 

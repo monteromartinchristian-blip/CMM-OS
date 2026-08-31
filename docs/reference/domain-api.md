@@ -1,8 +1,12 @@
 # Domain API — Phase 10.36
 
-**Status:** Phase 10.36 implementation complete — independent audit pending
-**DP-036:** `IMPLEMENTED_PENDING_AUDIT`
+**Status:** Phase 10.36 complete — independently audited and closed
+**DP-036:** `VERIFIED_EXISTING`
 **AT-DP-036:** `PASS`
+**Final independent re-audit:** V3 `PASS` (`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`)
+**Audit report:** `docs/audits/phase-10.36-independent-reaudit-v3.md`
+**Audited implementation HEAD:** `c119abbeaeedf297087ccc5cb01ba311f4cd5c61`
+**Audit V3 bundle SHA-256:** `add96184a11d98c3625d9bdec786a10460e34a3211b34b972f2d43d62f4221d0`
 
 ## Purpose and non-goals
 
