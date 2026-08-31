@@ -891,6 +891,22 @@ class DomainSessionSecurityError(DomainSessionError):
     code = "DOMAIN_SESSION_SECURITY_ERROR"
 
 
+# ── Phase 10.37 – Domain Observability Errors ─────────────────────────────────
+
+
+class InvalidDomainObservabilityContractError(DomainError, ValueError):
+    """Raised when Phase 10.37 observability data violates its public contract."""
+
+    code = "DOMAIN_OBSERVABILITY_CONTRACT_ERROR"
+
+
+class InvalidDomainObservabilityEvidenceError(InvalidDomainObservabilityContractError):
+    """Raised when supplied canonical observability evidence is malformed,
+    contradictory at the identity level, or unsafe."""
+
+    code = "DOMAIN_OBSERVABILITY_EVIDENCE_INVALID"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -1014,4 +1030,6 @@ __all__ = [
     "DomainValidationExecutionError",
     "DomainValidationRequestInvalid",
     "DomainValidationStepMissing",
+    "InvalidDomainObservabilityContractError",
+    "InvalidDomainObservabilityEvidenceError",
 ]
