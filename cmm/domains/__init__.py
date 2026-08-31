@@ -309,6 +309,11 @@ from cmm.domains.identifiers import (
     DomainManifestId,
     DomainResultId,
 )
+from cmm.domains.knowledge_authority import (
+    DefaultDomainKnowledgeAuthority,
+    DomainKnowledgeAuthority,
+    DomainKnowledgeCurrentVerdict,
+)
 from cmm.domains.lifecycle_bridge import (
     DomainLifecycleEventBridge,
 )
@@ -443,11 +448,6 @@ from cmm.domains.resource_authority import (
     DefaultDomainResourceAuthority,
     DomainResourceAuthority,
     DomainResourceCurrentVerdict,
-)
-from cmm.domains.knowledge_authority import (
-    DefaultDomainKnowledgeAuthority,
-    DomainKnowledgeAuthority,
-    DomainKnowledgeCurrentVerdict,
 )
 from cmm.domains.resource_contracts import (
     DomainResourceBinding,
@@ -606,10 +606,12 @@ __all__ = [
     "DeclarativeDomainLoader",
     "DefaultCrossDomainEngine",
     "DefaultDomainComposer",
+    "DefaultDomainKnowledgeAuthority",
     "DefaultDomainOperationOrchestrator",
     "DefaultDomainProfileComposer",
     "DefaultDomainProfileResolver",
     "DefaultDomainResolver",
+    "DefaultDomainResourceAuthority",
     "DefaultDomainResourceResolver",
     "DefaultDomainResourceValidator",
     "DefaultDomainRuleExecutor",
@@ -679,6 +681,8 @@ __all__ = [
     "DomainId",
     "DomainKernelEventPublisher",
     "DomainKind",
+    "DomainKnowledgeAuthority",
+    "DomainKnowledgeCurrentVerdict",
     "DomainLifecycleEventBridge",
     "DomainLoadFailed",
     "DomainLoadRejected",
@@ -787,10 +791,6 @@ __all__ = [
     "DomainResolutionSerializationError",
     "DomainResolutionSignal",
     "DomainResolutionSnapshotError",
-    "DefaultDomainKnowledgeAuthority",
-    "DefaultDomainResourceAuthority",
-    "DomainKnowledgeAuthority",
-    "DomainKnowledgeCurrentVerdict",
     "DomainResolutionStatus",
     "DomainResolutionUnsupportedError",
     "DomainResolver",
@@ -802,8 +802,8 @@ __all__ = [
     "DomainResourceChecksum",
     "DomainResourceConfigurationError",
     "DomainResourceContext",
-    "DomainResourceCurrentVerdict",
     "DomainResourceContractError",
+    "DomainResourceCurrentVerdict",
     "DomainResourceDecision",
     "DomainResourceDecisionCode",
     "DomainResourceDefinition",
@@ -1221,4 +1221,12 @@ __all__ += [
     "revalidate_session_state",
     "revalidate_temporal",
     "revalidate_workflows",
+]
+
+# Phase 10.36 – Domain API (public coordination facade)
+from cmm.domains.api import DefaultDomainAPI, DomainAPI
+
+__all__ += [
+    "DefaultDomainAPI",
+    "DomainAPI",
 ]

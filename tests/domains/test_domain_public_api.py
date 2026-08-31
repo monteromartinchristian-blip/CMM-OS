@@ -592,6 +592,13 @@ class TestPublicAPI:
                 "revalidate_workflows",
             }
         )
+        # Phase 10.36 – Domain API public coordination facade
+        expected.update(
+            {
+                "DefaultDomainAPI",
+                "DomainAPI",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -601,7 +608,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 517
+        assert len(cmm.domains.__all__) == 519
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

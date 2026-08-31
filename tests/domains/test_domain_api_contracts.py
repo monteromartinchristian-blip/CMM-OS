@@ -177,3 +177,17 @@ class TestImportSafety:
 
         assert not hasattr(domains_pkg, "_default_api")
         assert not hasattr(domains_pkg, "default_domain_api")
+
+
+class TestPublicExports:
+    def test_domain_api_exported_from_package(self) -> None:
+        import cmm.domains as domains_pkg
+
+        assert domains_pkg.DomainAPI is DomainAPI
+        assert domains_pkg.DefaultDomainAPI is DefaultDomainAPI
+
+    def test_exports_listed_in_all(self) -> None:
+        import cmm.domains as domains_pkg
+
+        assert "DomainAPI" in domains_pkg.__all__
+        assert "DefaultDomainAPI" in domains_pkg.__all__
