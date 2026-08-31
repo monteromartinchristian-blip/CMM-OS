@@ -834,11 +834,21 @@ class DomainMetricsCalculator:
         # execution.multi_domain + execution.domains.mean
         participant_counts: list[int] = []
         multi_domain_ids: list[str] = []
+        # Source precedence for execution occurrences: a DomainTrace that
+        # references a composition already represents that occurrence, so the
+        # composition must not be double-counted.
+        trace_referenced_composition_ids = {
+            trace.references.composition_id
+            for trace in normalized.traces
+            if trace.status in (DomainTraceStatus.COMPLETED, DomainTraceStatus.PARTIAL)
+        }
         for composition in normalized.compositions:
             if composition.status in (
                 DomainCompositionStatus.COMPOSED,
                 DomainCompositionStatus.PARTIAL,
             ):
+                if composition.id in trace_referenced_composition_ids:
+                    continue
                 participants = {
                     str(composition.primary_domain),
                     *(str(domain) for domain in composition.supporting_domains),
