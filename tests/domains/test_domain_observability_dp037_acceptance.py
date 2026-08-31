@@ -886,6 +886,10 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
 
     # ── 39. Real source precedence: linked Event/Trace/result → one logical
     # occurrence ────────────────────────────────────────────────────────────
+    # The shared canonical identity is the operation RESULT ID: canonical
+    # adapters place DEFINITION IDs into ``operation_run`` provenance, and
+    # definition IDs legitimately repeat across executions, so only an
+    # explicit execution-instance reference may merge the three channels.
     from cmm.domains.event_contracts import DomainEventReference
     from cmm.domains.trace_contracts import (
         DomainTraceReference,
@@ -913,7 +917,7 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
         provenance=(
             DomainEventReference(
                 kind="operation_run",
-                reference_id="op-overlap-linked-op",
+                reference_id="op-overlap-linked",
                 domain_id=HEALTH_DOMAIN_ID,
             ),
         ),
@@ -924,7 +928,7 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
             role=DomainTraceRole.PRIMARY,
             references=(
                 DomainTraceReference(
-                    ref_id="op-overlap-linked-op",
+                    ref_id="op-overlap-linked",
                     kind=DomainTraceReferenceKind.OPERATION_RESULT,
                     domain_id=HEALTH_DOMAIN_ID,
                 ),
@@ -956,11 +960,11 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
         )
     )
     # Genuinely linked Event/Trace/result share one explicit canonical
-    # operation reference → exactly one logical log occurrence.
+    # execution reference (the result_id) → exactly one logical log occurrence.
     assert len(overlap_report.log_entries) == 1
     overlap_entry = overlap_report.log_entries[0]
     assert overlap_entry.source_kind == "domain_event"
-    assert "op-overlap-linked-op" in overlap_entry.reference_ids
+    assert "op-overlap-linked" in overlap_entry.reference_ids
 
     # Unlinked Event/Trace/result (no shared canonical reference) must remain
     # distinct: co-location is not shared identity.

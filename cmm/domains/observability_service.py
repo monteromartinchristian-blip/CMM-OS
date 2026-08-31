@@ -160,28 +160,38 @@ def _trace_occurrence_keys(trace: Any) -> _OCCURRENCE_KEY:
 
 
 def _operation_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
-    """Explicit occurrence references for one DomainOperationResult.
+    """Explicit occurrence references for one ``DomainOperationResult``.
 
-    The result occurrence ID (``result_id``) is the self reference; the
-    canonical ``operation_id`` is the logical operation occurrence reference
-    shared with ``operation_run`` event provenance and ``OPERATION_RESULT``
-    trace references.
+    ``result_id`` is the canonical execution occurrence identity (the
+    orchestrator generates a fresh ``result_id`` per execution). The
+    ``operation_id``/``operation_version`` pair identifies the operation
+    DEFINITION, which is legitimately shared by two executions of the same
+    operation, so it MUST NOT be an occurrence key. An Event/Trace merges
+    with this result only when one of their canonical references explicitly
+    carries this ``result_id``.
     """
     return frozenset(
         {
             ("operation_result", result.result_id),
-            ("operation", result.operation_id),
+            ("operation", result.result_id),
         }
     )
 
 
 def _workflow_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
-    """Explicit occurrence references for one DomainWorkflowResult."""
-    run = result.common_result.run
+    """Explicit occurrence references for one ``DomainWorkflowResult``.
+
+    ``run_id`` is the canonical execution occurrence identity
+    (``WorkflowRun.run_id`` is generated per run). ``workflow_id`` identifies
+    the workflow DEFINITION, which two separate runs legitimately share, so
+    it MUST NOT be an occurrence key. An Event/Trace merges with this result
+    only when one of their canonical references explicitly carries this
+    ``run_id``.
+    """
     return frozenset(
         {
             ("workflow_result", result.run_id),
-            ("workflow", run.workflow_id),
+            ("workflow", result.run_id),
         }
     )
 
@@ -508,6 +518,7 @@ class DomainObservabilityService:
                     {
                         item
                         for item in (
+                            result.result_id,
                             result.transaction_id,
                             result.approval_request_id,
                         )

@@ -285,11 +285,13 @@ def test_report_captures_clock_exactly_once() -> None:
 def test_shared_reference_occurrence_is_not_duplicated() -> None:
     """One logical occurrence represented by event+trace+result counts once.
 
-    The three channels share an explicit canonical occurrence reference: the
-    event's ``operation_run`` provenance, the trace's ``OPERATION_RESULT``
-    contribution reference and the operation result's ``operation_id`` all
-    resolve to the same operation occurrence reference. Source precedence
-    keeps the DomainEvent as the single winning log entry.
+    The three channels share an explicit canonical EXECUTION reference: the
+    event's ``operation_run`` provenance and the trace's ``OPERATION_RESULT``
+    contribution reference both carry the operation result's ``result_id``
+    (the canonical execution identity — the orchestrator generates a fresh
+    ``result_id`` per execution, while ``operation_id`` is a definition ID
+    that repeats across executions). Source precedence keeps the DomainEvent
+    as the single winning log entry.
     """
     event = DomainEvent(
         event_id="evt-shared-1",
@@ -302,7 +304,7 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
         provenance=(
             DomainEventReference(
                 kind="operation_run",
-                reference_id="op-shared",
+                reference_id="op-res-shared",
                 domain_id=DomainId.from_str("domain:health"),
             ),
         ),
@@ -321,7 +323,7 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
                 role=DomainTraceRole.PRIMARY,
                 references=(
                     DomainTraceReference(
-                        ref_id="op-shared",
+                        ref_id="op-res-shared",
                         kind=DomainTraceReferenceKind.OPERATION_RESULT,
                         domain_id=DomainId.from_str("domain:health"),
                     ),
@@ -356,7 +358,7 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
     assert entry.source_kind == "domain_event"
     assert entry.source_id == "evt-shared-1"
     # Legitimate secondary references remain available on the winning entry.
-    assert "op-shared" in entry.reference_ids
+    assert "op-res-shared" in entry.reference_ids
 
 
 # ── D. Canonical final ordering ──────────────────────────────────────────────

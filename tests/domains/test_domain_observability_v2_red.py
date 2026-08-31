@@ -462,16 +462,22 @@ def _trace_referencing_operation(trace_id: str, operation_id: str) -> DomainTrac
 
 
 def test_linked_event_trace_result_produces_one_log_occurrence() -> None:
-    """Event + Trace + public result sharing one canonical occurrence reference
-    must produce exactly one logical log occurrence.
+    """Event + Trace + public result sharing one explicit canonical execution
+    reference must produce exactly one logical log occurrence.
 
-    The shared canonical identity is the operation reference: the event
-    carries ``operation_run`` provenance, the trace carries an
-    ``OPERATION_RESULT`` contribution reference, and the operation result
-    carries the same ``operation_id`` — all for the same operation occurrence.
+    The shared canonical identity is the operation RESULT ID
+    (``DomainOperationResult.result_id``): the event carries ``operation_run``
+    provenance pointing at that execution reference, the trace carries an
+    ``OPERATION_RESULT`` contribution reference with the same ID, and the
+    operation result's own identity IS that ``result_id``.
+
+    Audit V3 MAJOR-01: ``operation_id`` is a definition ID (canonical
+    adapters place it in ``operation_run`` provenance and two executions of
+    one operation share it), so it must never merge executions. Only the
+    explicit execution-instance reference may.
     """
-    event = _event_with_reference("evt-major3-1", "operation_run", "op-3")
-    trace = _trace_referencing_operation("trace-major3-1", "op-3")
+    event = _event_with_reference("evt-major3-1", "operation_run", "op-res-major3-1")
+    trace = _trace_referencing_operation("trace-major3-1", "op-res-major3-1")
     operation = _operation_result("op-res-major3-1", "op-3")
 
     report = _service().build_report(
@@ -488,7 +494,7 @@ def test_linked_event_trace_result_produces_one_log_occurrence() -> None:
     assert entry.source_kind == "domain_event"
     assert entry.source_id == "evt-major3-1"
     # Legitimate secondary references remain available in the winning entry.
-    assert "op-3" in tuple(entry.reference_ids)
+    assert "op-res-major3-1" in tuple(entry.reference_ids)
 
 
 def test_unlinked_evidence_remains_distinct() -> None:
@@ -522,8 +528,8 @@ def test_same_source_duplicate_evidence_produces_one_log_entry() -> None:
 
 def test_report_is_deterministic_after_normalization() -> None:
     """Reordered equivalent evidence → same log_entries/report/digest."""
-    event = _event_with_reference("evt-major3-det", "operation_run", "op-det")
-    trace = _trace_referencing_operation("trace-major3-det", "op-det")
+    event = _event_with_reference("evt-major3-det", "operation_run", "op-res-major3-det")
+    trace = _trace_referencing_operation("trace-major3-det", "op-res-major3-det")
     operation = _operation_result("op-res-major3-det", "op-det")
 
     forward = _service().build_report(
