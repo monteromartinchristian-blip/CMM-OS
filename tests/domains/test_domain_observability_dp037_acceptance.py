@@ -1198,3 +1198,268 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
     # ── 50-52. No parallel infrastructure, DomainAPI unchanged, 23/23 events
     assert len(CANONICAL_DOMAIN_EVENTS) == 23
     assert len({e for e in CANONICAL_DOMAIN_EVENTS}) == 23
+
+    # ── V3 MAJOR-03 A. Operation definition reuse remains two occurrences ──
+    # Two real canonical executions of the SAME operation definition share
+    # operation_id + operation_version but carry distinct result_id/request_id
+    # (the canonical orchestrator generates a fresh result_id per execution).
+    reuse_first = DomainOperationResult(
+        result_id="domain-result:reuse-a",
+        request_id="request-reuse-a",
+        operation_id="health.build_summary",
+        operation_version="1.0.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        status=DomainOperationStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    reuse_second = DomainOperationResult(
+        result_id="domain-result:reuse-b",
+        request_id="request-reuse-b",
+        operation_id="health.build_summary",
+        operation_version="1.0.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        status=DomainOperationStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    reuse_report = service.build_report(
+        DomainObservabilityEvidence(operation_evidence=(reuse_first, reuse_second))
+    )
+    reuse_operation_ids = tuple(
+        entry.source_id
+        for entry in reuse_report.log_entries
+        if entry.source_kind == "operation_result"
+    )
+    assert reuse_operation_ids == ("domain-result:reuse-a", "domain-result:reuse-b")
+    reuse_snapshot = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(operation_evidence=(reuse_first, reuse_second)),
+        generated_at=NOW,
+    )
+    reuse_metric = _metric(reuse_snapshot, "operations.by_domain")
+    assert {b.key: b.value for b in reuse_metric.buckets} == {"domain:health": 2}
+
+    # ── V3 MAJOR-03 B. Workflow definition reuse remains two occurrences ───
+    # Two runs of the SAME workflow definition share workflow_id but carry
+    # distinct run_id (generated per run by the canonical engine).
+    reuse_run_a = WorkflowRun(
+        run_id="run-reuse-a",
+        workflow_id="wf-reuse",
+        workflow_version="1.0.0",
+        status=WorkflowRunStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    reuse_run_b = WorkflowRun(
+        run_id="run-reuse-b",
+        workflow_id="wf-reuse",
+        workflow_version="1.0.0",
+        status=WorkflowRunStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    reuse_workflow_a = DomainWorkflowResult(
+        common_result=WorkflowResult(run=reuse_run_a),
+        domain_id=HEALTH_DOMAIN_ID,
+    )
+    reuse_workflow_b = DomainWorkflowResult(
+        common_result=WorkflowResult(run=reuse_run_b),
+        domain_id=HEALTH_DOMAIN_ID,
+    )
+    workflow_reuse_report = service.build_report(
+        DomainObservabilityEvidence(
+            workflow_evidence=(reuse_workflow_a, reuse_workflow_b)
+        )
+    )
+    workflow_reuse_ids = tuple(
+        entry.source_id
+        for entry in workflow_reuse_report.log_entries
+        if entry.source_kind == "workflow_result"
+    )
+    assert workflow_reuse_ids == ("run-reuse-a", "run-reuse-b")
+
+    # ── V3 MAJOR-03 C. Real Event/Trace/result linking reflects the actual
+    # canonical reference path ──────────────────────────────────────────────
+    # Canonical adapters (adapt_operation_completed) place the operation
+    # DEFINITION ID into operation_run provenance; a definition ID repeats
+    # across executions, so it must NOT merge two executions. Event + Trace
+    # sharing the explicit reference merge (event wins); both public results
+    # remain distinct.
+    from cmm.domains.event_adapters import adapt_operation_completed
+
+    definition_event = adapt_operation_completed(
+        "health.build_summary", HEALTH_DOMAIN_ID
+    )
+    definition_trace_request = DomainTraceAssemblyRequest(
+        request_id="request:overlap-definition",
+        goal_id="goal:overlap-definition",
+        primary_domain=HEALTH_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            DomainTraceContribution(
+                domain_id=HEALTH_DOMAIN_ID,
+                role=DomainTraceRole.PRIMARY,
+                references=(
+                    DomainTraceReference(
+                        ref_id="health.build_summary",
+                        kind=DomainTraceReferenceKind.OPERATION_RESULT,
+                        domain_id=HEALTH_DOMAIN_ID,
+                    ),
+                ),
+            ),
+        ),
+        references=DomainTraceReferences(
+            resolution_context_id="resolution-context:overlap-definition",
+            resolution_result_id="resolution-result:overlap-definition",
+            composition_id="composition:overlap-definition",
+        ),
+        domain_results=(),
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+        metadata={"category": "at-dp-037-definition-reuse"},
+    )
+    definition_trace = DomainTraceAssembler().assemble(definition_trace_request)
+    definition_report = service.build_report(
+        DomainObservabilityEvidence(
+            events=(definition_event,),
+            traces=(definition_trace,),
+            operation_evidence=(reuse_first, reuse_second),
+        )
+    )
+    # Event + Trace merge through their shared explicit reference; the two
+    # public executions are never suppressed through the definition ID.
+    assert len(definition_report.log_entries) == 3
+    definition_kinds = sorted(
+        entry.source_kind for entry in definition_report.log_entries
+    )
+    assert definition_kinds == [
+        "domain_event",
+        "operation_result",
+        "operation_result",
+    ]
+
+    # With a REAL execution-instance link (channels explicitly reference the
+    # result_id), all three channels genuinely merge to one entry.
+    execution_linked_event = DomainEvent(
+        event_id="evt-execution-linked",
+        event_type="domain.operation.completed",
+        schema_version="1.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+        provenance=(
+            DomainEventReference(
+                kind="operation_run",
+                reference_id="domain-result:reuse-a",
+                domain_id=HEALTH_DOMAIN_ID,
+            ),
+        ),
+    )
+    execution_linked_trace = DomainTraceAssembler().assemble(
+        DomainTraceAssemblyRequest(
+            request_id="request:overlap-execution-linked",
+            goal_id="goal:overlap-execution-linked",
+            primary_domain=HEALTH_DOMAIN_ID,
+            supporting_domains=(),
+            contributions=(
+                DomainTraceContribution(
+                    domain_id=HEALTH_DOMAIN_ID,
+                    role=DomainTraceRole.PRIMARY,
+                    references=(
+                        DomainTraceReference(
+                            ref_id="domain-result:reuse-a",
+                            kind=DomainTraceReferenceKind.OPERATION_RESULT,
+                            domain_id=HEALTH_DOMAIN_ID,
+                        ),
+                    ),
+                ),
+            ),
+            references=DomainTraceReferences(
+                resolution_context_id="resolution-context:overlap-execution-linked",
+                resolution_result_id="resolution-result:overlap-execution-linked",
+                composition_id="composition:overlap-execution-linked",
+            ),
+            domain_results=(),
+            started_at=NOW,
+            completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+            metadata={"category": "at-dp-037-execution-linked"},
+        )
+    )
+    execution_linked_report = service.build_report(
+        DomainObservabilityEvidence(
+            events=(execution_linked_event,),
+            traces=(execution_linked_trace,),
+            operation_evidence=(reuse_first,),
+        )
+    )
+    assert len(execution_linked_report.log_entries) == 1
+    execution_linked_entry = execution_linked_report.log_entries[0]
+    assert execution_linked_entry.source_kind == "domain_event"
+    assert "domain-result:reuse-a" in execution_linked_entry.reference_ids
+
+    # ── V3 MAJOR-03 D. Runtime fail-closed on previously-unvalidated fields ─
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(events=({"fake": "event"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(traces=({"fake": "trace"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(resolution_results=({"fake": "resolution"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(registry_definitions=({"fake": "definition"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(registry_records=({"fake": "record"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(load_results=({"fake": "load"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(compositions=({"fake": "composition"},))
+
+    # ── V3 MAJOR-03 E. Permission same-identity conflict fails closed ──────
+    conflict_allow = DomainOperationPermissionDecision(
+        operation_id="health.export_medical_context",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.ALLOW,
+    )
+    conflict_deny = DomainOperationPermissionDecision(
+        operation_id="health.export_medical_context",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.DENY,
+    )
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(permission_evidence=(conflict_allow, conflict_deny))
+
+    # ── V3 MAJOR-03 F. Approval requirements never merge by class name ─────
+    approval_second = PermissionApprovalRequirement(
+        requirement_id="approval-remediated-2",
+        action=PermissionCapability.RESOURCE_READ,
+        actor_id="actor-2",
+        session_id="session-remediated-1",
+        domain_id=GENERAL_DOMAIN_ID,
+        operation_id="general.other_operation",
+        operation_version="1.0.0",
+        fingerprint="fingerprint-remediated-2",
+    )
+    approval_report = service.build_report(
+        DomainObservabilityEvidence(approval_evidence=(approval, approval_second))
+    )
+    approval_entries = [
+        entry
+        for entry in approval_report.log_entries
+        if entry.source_kind == "approval_evidence"
+    ]
+    assert len(approval_entries) == 2
+    assert {entry.source_id for entry in approval_entries} == {
+        "approval-remediated-1",
+        "approval-remediated-2",
+    }
+    assert all(
+        entry.source_id != "PermissionApprovalRequirement" for entry in approval_entries
+    )
+    approval_requested = _metric(
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(approval_evidence=(approval, approval_second)),
+            generated_at=NOW,
+        ),
+        "approvals.requested",
+    )
+    assert approval_requested.value == 2
