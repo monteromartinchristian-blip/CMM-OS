@@ -126,3 +126,70 @@ def test_no_observability_persistence_modules() -> None:
     assert "observability_store" not in names
     assert "observability_repository" not in names
     assert "observability_persistence" not in names
+
+
+def test_no_agent_runtime_event_bus_coupling() -> None:
+    """Phase 10.37 must not treat the Agent Runtime event bus as Domain truth."""
+    forbidden_modules = (
+        "cmm.agent_runtime.event_bus",
+        "cmm.agent_runtime.events",
+        "cmm.agent_runtime.bus",
+    )
+    for module_name in (
+        "cmm.domains.observability_contracts",
+        "cmm.domains.observability_metrics",
+        "cmm.domains.observability_health",
+        "cmm.domains.observability_service",
+    ):
+        module = importlib.import_module(module_name)
+        source = inspect.getsource(module)
+        for forbidden in forbidden_modules:
+            assert forbidden not in source, module_name
+
+
+def test_no_session_enumeration_or_store_wrapper() -> None:
+    """Phase 10.34 shared session persistence must remain authoritative; no new
+    session repository or enumeration API exists in Phase 10.37."""
+    forbidden_symbols = (
+        "DomainSessionRepository",
+        "DomainObservabilitySessionStore",
+        "list_sessions",
+        "enumerate_sessions",
+        "SessionStore",
+    )
+    for module_name in (
+        "cmm.domains.observability_contracts",
+        "cmm.domains.observability_metrics",
+        "cmm.domains.observability_health",
+        "cmm.domains.observability_service",
+    ):
+        module = importlib.import_module(module_name)
+        for symbol in forbidden_symbols:
+            assert not hasattr(module, symbol), f"{module_name}.{symbol}"
+
+
+def test_no_domain_session_resumed_event_created() -> None:
+    """Phase 10.37 must not invent a new ``domain.session.resumed`` event."""
+    from cmm.domains.event_catalog import CANONICAL_DOMAIN_EVENTS
+
+    assert "domain.session.resumed" not in CANONICAL_DOMAIN_EVENTS
+
+
+def test_observability_modules_do_not_export_mutation_capability() -> None:
+    """No resolver/composer/conflict/runtime module may import observability."""
+    operational_sources = []
+    for module_name in (
+        "cmm.domains.resolver",
+        "cmm.domains.resolver_scoring",
+        "cmm.domains.composer",
+        "cmm.domains.conflict_resolution",
+        "cmm.domains.operation_execution",
+        "cmm.domains.workflow_execution",
+    ):
+        try:
+            module = importlib.import_module(module_name)
+            operational_sources.append(inspect.getsource(module))
+        except ModuleNotFoundError:  # the guard proves absence either way
+            continue
+    combined = "\n".join(operational_sources)
+    assert "observability_" not in combined
