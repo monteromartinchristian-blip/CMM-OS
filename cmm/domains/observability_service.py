@@ -86,45 +86,63 @@ class DomainObservabilityService:
         *,
         health_domain_ids: tuple[str, ...] = (),
     ) -> DomainObservabilityReport:
-        """Build a deterministic, privacy-minimized observability report."""
+        """Build a deterministic, privacy-minimized observability report.
+
+        Determinism laws:
+        - the clock is captured exactly once per report request; every derived
+          report timestamp comes from the captured ``generated_at``;
+        - log entries are sorted canonically by ``(source_kind, source_id)``;
+        - health results are ordered by Domain ID;
+        - health_domain_ids are deduplicated and sorted before evaluation.
+        """
         generated_at = self._clock()
 
-        log_entries: tuple[DomainObservabilityLogEntry, ...] = ()
+        projected: list[DomainObservabilityLogEntry] = []
         for event in evidence.events:
-            log_entries = (*log_entries, self._project_event(event))
+            projected.append(self._project_event(event))
         for trace in evidence.traces:
-            log_entries = (*log_entries, self._project_trace(trace))
+            projected.append(self._project_trace(trace))
 
         for operation in evidence.operation_evidence:
-            log_entries = (*log_entries, self._project_operation(operation))
+            projected.append(self._project_operation(operation))
 
         for workflow in evidence.workflow_evidence:
-            log_entries = (*log_entries, self._project_workflow(workflow))
+            projected.append(self._project_workflow(workflow, generated_at))
 
         for result in evidence.resolution_results:
-            log_entries = (*log_entries, self._project_resolution(result))
+            projected.append(self._project_resolution(result))
 
         for composition in evidence.compositions:
-            log_entries = (*log_entries, self._project_composition(composition))
+            projected.append(self._project_composition(composition))
 
         for conflict in evidence.conflict_results:
-            log_entries = (*log_entries, self._project_conflict(conflict))
+            projected.append(self._project_conflict(conflict, generated_at))
 
         for permission in evidence.permission_evidence:
-            log_entries = (*log_entries, self._project_permission(permission))
+            projected.append(self._project_permission(permission, generated_at))
 
         for approval in evidence.approval_evidence:
-            log_entries = (*log_entries, self._project_approval(approval))
+            projected.append(self._project_approval(approval, generated_at))
 
         for session in evidence.sessions:
-            log_entries = (*log_entries, self._project_session(session))
+            projected.append(self._project_session(session, generated_at))
+
+        # Canonical final ordering of log entries: stable explicit sort by
+        # (source_kind, source_id), independent of input tuple order.
+        log_entries = tuple(
+            sorted(projected, key=lambda entry: (entry.source_kind, entry.source_id))
+        )
 
         metrics = self._metrics_calculator.calculate(
             evidence, generated_at=generated_at
         )
 
+        health_domain_ids_sorted = tuple(
+            sorted({domain_id for domain_id in health_domain_ids})
+        )
         health_results = tuple(
-            self._health_checker.check(domain_id) for domain_id in health_domain_ids
+            self._health_checker.check(domain_id)
+            for domain_id in health_domain_ids_sorted
         )
 
         source_event_ids = tuple(sorted({event.event_id for event in evidence.events}))
@@ -211,14 +229,16 @@ class DomainObservabilityService:
             },
         )
 
-    def _project_workflow(self, result: Any) -> DomainObservabilityLogEntry:
+    def _project_workflow(
+        self, result: Any, generated_at: datetime
+    ) -> DomainObservabilityLogEntry:
         run = result.common_result.run
         return DomainObservabilityLogEntry(
             source_kind="workflow_result",
             source_id=result.run_id,
             category="workflow",
             status=str(run.status.value),
-            occurred_at=run.started_at or self._clock(),
+            occurred_at=run.started_at or generated_at,
             primary_domain=result.domain_id,
             duration_ms=_duration_ms(run.started_at, run.completed_at),
             reference_ids=(result.run_id,),
@@ -261,16 +281,18 @@ class DomainObservabilityService:
             reference_ids=tuple(item for item in (result.resolution_id,) if item),
         )
 
-    def _project_conflict(self, result: Any) -> DomainObservabilityLogEntry:
+    def _project_conflict(
+        self, result: Any, generated_at: datetime
+    ) -> DomainObservabilityLogEntry:
         return DomainObservabilityLogEntry(
             source_kind="conflict_case",
             source_id=result.id,
             category="conflict",
             status=str(result.status.value),
-            occurred_at=self._clock(),
+            occurred_at=generated_at,
             supporting_domains=tuple(str(domain_id) for domain_id in result.domains),
             reference_ids=tuple(
-                sorted({reference.ref_id for reference in result.references})
+                sorted({reference.source_id for reference in result.references})
             ),
             metadata={
                 "kind": result.kind.value
@@ -283,7 +305,9 @@ class DomainObservabilityService:
             },
         )
 
-    def _project_permission(self, result: Any) -> DomainObservabilityLogEntry:
+    def _project_permission(
+        self, result: Any, generated_at: datetime
+    ) -> DomainObservabilityLogEntry:
         outcome = getattr(result, "outcome", None)
         outcome_value = outcome.value if hasattr(outcome, "value") else str(outcome)
         return DomainObservabilityLogEntry(
@@ -293,7 +317,7 @@ class DomainObservabilityService:
             ),
             category="permission",
             status=outcome_value,
-            occurred_at=self._clock(),
+            occurred_at=generated_at,
             primary_domain=getattr(result, "domain_id", None),
             session_id=getattr(result, "session_id", None),
             reference_ids=tuple(
@@ -302,7 +326,9 @@ class DomainObservabilityService:
             metadata={"action": getattr(result, "action", None)},
         )
 
-    def _project_approval(self, result: Any) -> DomainObservabilityLogEntry:
+    def _project_approval(
+        self, result: Any, generated_at: datetime
+    ) -> DomainObservabilityLogEntry:
         requirement_id = getattr(result, "requirement_id", None)
         request_id = getattr(result, "request_id", None)
         source_id = requirement_id or request_id or type(result).__name__
@@ -311,7 +337,7 @@ class DomainObservabilityService:
             source_id=str(source_id),
             category="approval",
             status="requested",
-            occurred_at=self._clock(),
+            occurred_at=generated_at,
             primary_domain=getattr(result, "domain_id", None),
             session_id=getattr(result, "session_id", None),
             reference_ids=tuple(
@@ -324,13 +350,15 @@ class DomainObservabilityService:
             ),
         )
 
-    def _project_session(self, session: Any) -> DomainObservabilityLogEntry:
+    def _project_session(
+        self, session: Any, generated_at: datetime
+    ) -> DomainObservabilityLogEntry:
         return DomainObservabilityLogEntry(
             source_kind="session_context",
             source_id=session.session_id,
             category="session",
             status="active",
-            occurred_at=self._clock(),
+            occurred_at=generated_at,
             primary_domain=session.primary_domain,
             supporting_domains=tuple(session.supporting_domains),
             reference_ids=tuple(
