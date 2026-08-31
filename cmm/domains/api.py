@@ -352,7 +352,7 @@ class DefaultDomainAPI:
         """Delegate to ``DomainSessionResumer.resume``."""
         return self._session_resumer.resume(request)
 
-    # ── Conflicts and traces (Task 8) ─────────────────────────────────────
+    # ── Conflicts and traces ──────────────────────────────────────────────
 
     def resolve_conflict(
         self,
@@ -366,14 +366,22 @@ class DefaultDomainAPI:
         temporal_scores: Mapping[str, float] | None = None,
     ) -> DomainConflictResolution:
         """Delegate to the pure ``DomainConflictResolver``."""
-        raise NotImplementedError
+        return self._conflict_resolver.resolve(
+            case,
+            policy=policy,
+            primary_domain=primary_domain,
+            highest_risk_domain=highest_risk_domain,
+            evidence_scores=evidence_scores,
+            reliability_scores=reliability_scores,
+            temporal_scores=temporal_scores,
+        )
 
     def assemble_trace(self, request: DomainTraceAssemblyRequest) -> DomainTrace:
         """Delegate to ``DomainTraceAssembler.assemble`` (reference-only)."""
-        raise NotImplementedError
+        return self._trace_assembler.assemble(request)
 
     def validate_trace(
         self, trace: DomainTrace, inventory: DomainTraceReferenceInventory
     ) -> DomainTraceValidationResult:
         """Delegate to the canonical trace reference validator."""
-        raise NotImplementedError
+        return self._trace_validator.validate(trace, inventory)
