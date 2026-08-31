@@ -35,7 +35,7 @@ from cmm.domains.enums import (
     DomainOperationStatus,
     DomainResolutionStatus,
 )
-from cmm.domains.event_contracts import DomainEvent
+from cmm.domains.event_contracts import DomainEvent, DomainEventReference
 from cmm.domains.health.bootstrap import build_standard_health_domain_bootstrap
 from cmm.domains.observability_health import DomainHealthChecker
 from cmm.domains.observability_metrics import (
@@ -50,6 +50,8 @@ from cmm.domains.resolver_contracts import (
 from cmm.domains.trace_contracts import (
     DomainTrace,
     DomainTraceContribution,
+    DomainTraceReference,
+    DomainTraceReferenceKind,
     DomainTraceReferences,
     DomainTraceRole,
     DomainTraceStatus,
@@ -281,7 +283,14 @@ def test_report_captures_clock_exactly_once() -> None:
 
 
 def test_shared_reference_occurrence_is_not_duplicated() -> None:
-    """One logical occurrence represented by event+trace+result counts once."""
+    """One logical occurrence represented by event+trace+result counts once.
+
+    The three channels share an explicit canonical occurrence reference: the
+    event's ``operation_run`` provenance, the trace's ``OPERATION_RESULT``
+    contribution reference and the operation result's ``operation_id`` all
+    resolve to the same operation occurrence reference. Source precedence
+    keeps the DomainEvent as the single winning log entry.
+    """
     event = DomainEvent(
         event_id="evt-shared-1",
         event_type="domain.operation.completed",
@@ -290,6 +299,13 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
         actor="orchestrator",
         occurred_at=NOW,
         sensitivity="internal",
+        provenance=(
+            DomainEventReference(
+                kind="operation_run",
+                reference_id="op-shared",
+                domain_id=DomainId.from_str("domain:health"),
+            ),
+        ),
     )
     operation = _operation("op-res-shared", "op-shared")
 
@@ -303,7 +319,13 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
             DomainTraceContribution(
                 domain_id=DomainId.from_str("domain:health"),
                 role=DomainTraceRole.PRIMARY,
-                references=(),
+                references=(
+                    DomainTraceReference(
+                        ref_id="op-shared",
+                        kind=DomainTraceReferenceKind.OPERATION_RESULT,
+                        domain_id=DomainId.from_str("domain:health"),
+                    ),
+                ),
             ),
         ),
         references=DomainTraceReferences(
@@ -327,9 +349,14 @@ def test_shared_reference_occurrence_is_not_duplicated() -> None:
         )
     )
 
-    # The report must contain exactly 3 log entries: event, trace, operation
-    # result. No duplicate of the same logical occurrence.
-    assert len(report.log_entries) == 3
+    # The report must contain exactly 1 logical log occurrence for the three
+    # channels, with the DomainEvent winning by source precedence.
+    assert len(report.log_entries) == 1
+    entry = report.log_entries[0]
+    assert entry.source_kind == "domain_event"
+    assert entry.source_id == "evt-shared-1"
+    # Legitimate secondary references remain available on the winning entry.
+    assert "op-shared" in entry.reference_ids
 
 
 # ── D. Canonical final ordering ──────────────────────────────────────────────

@@ -10,10 +10,12 @@ evidence supplied by the caller.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from cmm.domains.errors import InvalidDomainObservabilityEvidenceError
 from cmm.domains.observability_contracts import (
     DomainHealthResult,
     DomainMetricsSnapshot,
@@ -24,7 +26,10 @@ from cmm.domains.observability_health import DomainHealthChecker
 from cmm.domains.observability_metrics import (
     DomainMetricsCalculator,
     DomainObservabilityEvidence,
+    _normalize_evidence,
 )
+from cmm.domains.permission_adapters import DomainOperationPermissionDecision
+from cmm.domains.trace_contracts import DomainTraceReferenceKind
 
 # Stable projection categories (not a new event namespace).
 _CATEGORY_BY_EVENT_TYPE_PREFIX: tuple[tuple[str, str], ...] = (
@@ -53,6 +58,245 @@ def _category_for_event_type(event_type: str) -> str:
         if event_type.startswith(prefix):
             return category
     return "result"
+
+
+# ── Source precedence ────────────────────────────────────────────────────────
+#
+# One logical occurrence may be represented through multiple canonical
+# channels (DomainEvent → DomainTrace → canonical public result). The report
+# MUST produce one log entry per logical occurrence with an explicit source
+# precedence:
+#
+#   domain_event (1) wins over domain_trace (2) wins over public results (3+)
+#
+# Occurrence identity is derived ONLY from explicit canonical references —
+# never from fuzzy content, co-location, category/status/domain similarity or
+# timestamp proximity. A public result that has no explicit reference link to
+# an Event/Trace can never be suppressed merely because it "looks similar".
+
+_SOURCE_PRECEDENCE: dict[str, int] = {
+    "domain_event": 1,
+    "domain_trace": 2,
+    "operation_result": 3,
+    "workflow_result": 4,
+    "resolution_result": 5,
+    "composition_result": 6,
+    "conflict_case": 7,
+    "permission_decision": 8,
+    "approval_evidence": 9,
+    "session_context": 10,
+}
+
+# Canonical event-provenance reference kinds, normalized to occurrence
+# categories (matching the trace reference-kind categories below so that an
+# event and a trace can resolve to the SAME logical occurrence reference).
+_EVENT_REF_KIND_TO_OCCURRENCE: dict[str, str] = {
+    "operation_run": "operation",
+    "workflow_run": "workflow",
+    "composition": "composition",
+    "resolution": "resolution",
+    "conflict_case": "conflict",
+    "conflict_resolution": "conflict",
+    "approval": "approval",
+    "memory_proposal": "memory",
+    "memory_update": "memory",
+    "execution": "execution",
+}
+
+_TRACE_KIND_TO_OCCURRENCE: dict[DomainTraceReferenceKind, str] = {
+    DomainTraceReferenceKind.OPERATION_RESULT: "operation",
+    DomainTraceReferenceKind.WORKFLOW_RUN: "workflow",
+    DomainTraceReferenceKind.WORKFLOW_RESULT: "workflow",
+    DomainTraceReferenceKind.COMPOSITION: "composition",
+    DomainTraceReferenceKind.RESOLUTION_RESULT: "resolution",
+    DomainTraceReferenceKind.RESOLUTION_CONTEXT: "resolution",
+    DomainTraceReferenceKind.PERMISSION_DECISION: "permission",
+    DomainTraceReferenceKind.APPROVAL_REQUEST: "approval",
+    DomainTraceReferenceKind.APPROVAL_DECISION: "approval",
+    DomainTraceReferenceKind.RULE_RESULT: "rule",
+    DomainTraceReferenceKind.APPLIED_RULE_TRACE: "rule",
+    DomainTraceReferenceKind.RESOURCE_RESOLUTION: "resource",
+    DomainTraceReferenceKind.KNOWLEDGE_PACKAGE: "knowledge",
+    DomainTraceReferenceKind.MEMORY_PROPOSAL: "memory",
+    DomainTraceReferenceKind.MEMORY_BINDING: "memory",
+    DomainTraceReferenceKind.CROSS_DOMAIN_RESULT: "cross_domain",
+    DomainTraceReferenceKind.CROSS_DOMAIN_TRACE: "cross_domain",
+    DomainTraceReferenceKind.FINDING: "finding",
+}
+
+_OCCURRENCE_KEY = frozenset[tuple[str, str]]
+
+
+def _event_occurrence_keys(event: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainEvent.
+
+    The event's own ID is always an occurrence reference; each provenance
+    reference contributes its canonical occurrence reference. Provenance
+    references are the canonical way an event links to an operation/workflow/
+    composition/resolution occurrence.
+    """
+    keys = {("domain_event", event.event_id)}
+    for reference in getattr(event, "provenance", ()) or ():
+        occurrence_kind = _EVENT_REF_KIND_TO_OCCURRENCE.get(reference.kind)
+        if occurrence_kind is not None:
+            keys.add((occurrence_kind, reference.reference_id))
+    return frozenset(keys)
+
+
+def _trace_occurrence_keys(trace: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainTrace.
+
+    The trace's own ID is always an occurrence reference; every canonical
+    trace reference contributes its occurrence reference. This is how a trace
+    links to the same operation/workflow/composition occurrence referenced by
+    an event provenance reference or a public result.
+    """
+    keys = {("domain_trace", trace.id)}
+    for reference in trace.all_references():
+        occurrence_kind = _TRACE_KIND_TO_OCCURRENCE.get(reference.kind)
+        if occurrence_kind is not None:
+            keys.add((occurrence_kind, reference.ref_id))
+    return frozenset(keys)
+
+
+def _operation_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainOperationResult.
+
+    The result occurrence ID (``result_id``) is the self reference; the
+    canonical ``operation_id`` is the logical operation occurrence reference
+    shared with ``operation_run`` event provenance and ``OPERATION_RESULT``
+    trace references.
+    """
+    return frozenset(
+        {
+            ("operation_result", result.result_id),
+            ("operation", result.operation_id),
+        }
+    )
+
+
+def _workflow_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainWorkflowResult."""
+    run = result.common_result.run
+    return frozenset(
+        {
+            ("workflow_result", result.run_id),
+            ("workflow", run.workflow_id),
+        }
+    )
+
+
+def _resolution_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainResolutionResult."""
+    return frozenset(
+        {
+            ("resolution_result", result.id),
+            ("resolution", result.id),
+        }
+    )
+
+
+def _composition_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainComposition."""
+    return frozenset({("composition", result.id)})
+
+
+def _conflict_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Explicit occurrence references for one DomainConflictCase."""
+    return frozenset({("conflict", result.id)})
+
+
+def _permission_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    return frozenset({("permission", _permission_decision_id(result))})
+
+
+def _approval_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    requirement_id = getattr(result, "requirement_id", None)
+    return frozenset(
+        {
+            ("approval", requirement_id)
+            if requirement_id
+            else ("approval", type(result).__name__)
+        }
+    )
+
+
+def _session_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    return frozenset({("session", result.session_id)})
+
+
+def _normalize_log_occurrences(
+    projected: Sequence[tuple[DomainObservabilityLogEntry, _OCCURRENCE_KEY]],
+) -> tuple[DomainObservabilityLogEntry, ...]:
+    """Normalize projected log entries into ONE entry per logical occurrence.
+
+    Two entries represent the same logical occurrence only when they share an
+    explicit canonical occurrence reference (a common key). Within each merged
+    occurrence the highest-precedence source wins:
+    ``domain_event → domain_trace → public result``. Legitimate secondary
+    reference IDs of the suppressed sources are preserved in the winning
+    entry's ``reference_ids`` (safe refs only, no payload duplication).
+
+    Conflicting same-source identity is handled before projection by evidence
+    normalization (identical canonical duplicates collapse, conflicts fail
+    closed). This stage only merges cross-channel representations of one
+    explicit occurrence, then sorts canonically.
+    """
+    items = list(projected)
+
+    # Union-find over shared explicit occurrence references. The grouping is
+    # order-independent because it is the transitive closure of a pure
+    # key-intersection relation.
+    parent = list(range(len(items)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        root_a = find(first)
+        root_b = find(second)
+        if root_a != root_b:
+            parent[root_a] = root_b
+
+    key_index: dict[tuple[str, str], int] = {}
+    for index, (_entry, keys) in enumerate(items):
+        for key in keys:
+            if key in key_index:
+                union(index, key_index[key])
+            else:
+                key_index[key] = index
+
+    groups: dict[int, list[int]] = {}
+    for index in range(len(items)):
+        groups.setdefault(find(index), []).append(index)
+
+    winners: list[DomainObservabilityLogEntry] = []
+    for indices in groups.values():
+        entries = [items[index][0] for index in indices]
+        ordered = sorted(
+            entries,
+            key=lambda entry: (
+                _SOURCE_PRECEDENCE.get(entry.source_kind, 99),
+                entry.source_kind,
+                entry.source_id,
+            ),
+        )
+        winner = ordered[0]
+        merged_reference_ids = tuple(
+            sorted(
+                {reference for entry in entries for reference in entry.reference_ids}
+            )
+        )
+        if merged_reference_ids != winner.reference_ids:
+            winner = replace(winner, reference_ids=merged_reference_ids)
+        winners.append(winner)
+
+    return tuple(
+        sorted(winners, key=lambda entry: (entry.source_kind, entry.source_id))
+    )
 
 
 class DomainObservabilityService:
@@ -97,41 +341,89 @@ class DomainObservabilityService:
         """
         generated_at = self._clock()
 
-        projected: list[DomainObservabilityLogEntry] = []
-        for event in evidence.events:
-            projected.append(self._project_event(event))
-        for trace in evidence.traces:
-            projected.append(self._project_trace(trace))
+        # Occurrence normalization happens BEFORE log projection:
+        #  - identical same-source canonical evidence collapses to one entry;
+        #  - conflicting same-source identity fails closed;
+        #  - cross-channel representations of one explicit occurrence merge
+        #    with source precedence (event → trace → public result).
+        normalized = _normalize_evidence(evidence)
 
-        for operation in evidence.operation_evidence:
-            projected.append(self._project_operation(operation))
+        projected: list[
+            tuple[DomainObservabilityLogEntry, frozenset[tuple[str, str]]]
+        ] = []
+        for event in normalized.events:
+            projected.append(
+                (self._project_event(event), _event_occurrence_keys(event))
+            )
+        for trace in normalized.traces:
+            projected.append(
+                (self._project_trace(trace), _trace_occurrence_keys(trace))
+            )
 
-        for workflow in evidence.workflow_evidence:
-            projected.append(self._project_workflow(workflow, generated_at))
+        for operation in normalized.operation_evidence:
+            projected.append(
+                (
+                    self._project_operation(operation),
+                    _operation_occurrence_keys(operation),
+                )
+            )
 
-        for result in evidence.resolution_results:
-            projected.append(self._project_resolution(result))
+        for workflow in normalized.workflow_evidence:
+            projected.append(
+                (
+                    self._project_workflow(workflow, generated_at),
+                    _workflow_occurrence_keys(workflow),
+                )
+            )
 
-        for composition in evidence.compositions:
-            projected.append(self._project_composition(composition))
+        for result in normalized.resolution_results:
+            projected.append(
+                (self._project_resolution(result), _resolution_occurrence_keys(result))
+            )
 
-        for conflict in evidence.conflict_results:
-            projected.append(self._project_conflict(conflict, generated_at))
+        for composition in normalized.compositions:
+            projected.append(
+                (
+                    self._project_composition(composition),
+                    _composition_occurrence_keys(composition),
+                )
+            )
 
-        for permission in evidence.permission_evidence:
-            projected.append(self._project_permission(permission, generated_at))
+        for conflict in normalized.conflict_results:
+            projected.append(
+                (
+                    self._project_conflict(conflict, generated_at),
+                    _conflict_occurrence_keys(conflict),
+                )
+            )
 
-        for approval in evidence.approval_evidence:
-            projected.append(self._project_approval(approval, generated_at))
+        for permission in normalized.permission_evidence:
+            projected.append(
+                (
+                    self._project_permission(permission, generated_at),
+                    _permission_occurrence_keys(permission),
+                )
+            )
 
-        for session in evidence.sessions:
-            projected.append(self._project_session(session, generated_at))
+        for approval in normalized.approval_evidence:
+            projected.append(
+                (
+                    self._project_approval(approval, generated_at),
+                    _approval_occurrence_keys(approval),
+                )
+            )
 
-        # Canonical final ordering of log entries: stable explicit sort by
-        # (source_kind, source_id), independent of input tuple order.
-        log_entries = tuple(
-            sorted(projected, key=lambda entry: (entry.source_kind, entry.source_id))
-        )
+        for session in normalized.sessions:
+            projected.append(
+                (
+                    self._project_session(session, generated_at),
+                    _session_occurrence_keys(session),
+                )
+            )
+
+        # One logical occurrence per explicit canonical reference, then a
+        # canonical final sort by (source_kind, source_id).
+        log_entries = _normalize_log_occurrences(projected)
 
         metrics = self._metrics_calculator.calculate(
             evidence, generated_at=generated_at
@@ -308,22 +600,51 @@ class DomainObservabilityService:
     def _project_permission(
         self, result: Any, generated_at: datetime
     ) -> DomainObservabilityLogEntry:
-        outcome = getattr(result, "outcome", None)
-        outcome_value = outcome.value if hasattr(outcome, "value") else str(outcome)
-        return DomainObservabilityLogEntry(
-            source_kind="permission_decision",
-            source_id=str(
-                getattr(result, "decision_id", None) or type(result).__name__
-            ),
-            category="permission",
-            status=outcome_value,
-            occurred_at=generated_at,
-            primary_domain=getattr(result, "domain_id", None),
-            session_id=getattr(result, "session_id", None),
-            reference_ids=tuple(
-                str(item) for item in getattr(result, "reasons", ()) or ()
-            ),
-            metadata={"action": getattr(result, "action", None)},
+        """Project one canonical ``DomainOperationPermissionDecision``.
+
+        The canonical permission contract exposes
+
+        ``operation_id / operation_version / decision / reasons /
+        approval_requirements / requirement_decisions / provenance /
+        effective_constraints``
+
+        and does NOT expose ``outcome``, ``decision_id``, ``domain_id`` or
+        ``action``. The projection reads only canonical safe fields: the
+        status is ``decision.value``, the stable source identity binds
+        ``operation_id + operation_version``, and the explicit metadata
+        allowlist carries those two safe identifiers. Reason/approval text is
+        never copied.
+        """
+        if isinstance(result, DomainOperationPermissionDecision):
+            return DomainObservabilityLogEntry(
+                source_kind="permission_decision",
+                source_id=_permission_decision_id(result),
+                category="permission",
+                status=result.decision.value,
+                occurred_at=generated_at,
+                primary_domain=None,
+                session_id=None,
+                reference_ids=tuple(
+                    item
+                    for item in (
+                        result.operation_id,
+                        result.operation_version,
+                    )
+                    if item
+                ),
+                metadata={
+                    "operation_id": result.operation_id,
+                    "operation_version": result.operation_version,
+                },
+            )
+        # Non-canonical permission evidence has no stable public projection.
+        raise InvalidDomainObservabilityEvidenceError(
+            "permission evidence must be a canonical DomainOperationPermissionDecision",
+            field="permission_evidence",
+            details={
+                "source_type": type(result).__name__,
+                "source_id": "",
+            },
         )
 
     def _project_approval(
@@ -371,6 +692,17 @@ class DomainObservabilityService:
                 )
             ),
         )
+
+
+def _permission_decision_id(decision: DomainOperationPermissionDecision) -> str:
+    """Stable canonical permission decision identity.
+
+    Binds ``operation_id`` + ``operation_version`` so that two DENY decisions
+    for the same operation at distinct semantic versions are distinct
+    decisions while identical decisions project to identical IDs. Never a
+    class name.
+    """
+    return f"permission:{decision.operation_id}:{decision.operation_version}"
 
 
 def _event_status(event_type: str) -> str:
