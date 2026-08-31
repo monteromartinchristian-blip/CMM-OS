@@ -5324,6 +5324,39 @@ findings=[],
 metadata={},
 )
 
+Implementation status
+
+Phase 10.37 — Domain Observability is **implemented, pending independent audit**.
+
+```text
+DP-037 = IMPLEMENTED_PENDING_AUDIT
+AT-DP-037 = PASS
+```
+
+Implemented projection: canonical Domain evidence → read-only privacy-minimized
+projection → exact metrics or explicit `UNAVAILABLE` + per-domain read-only
+health → ephemeral deterministic report.
+
+* Canonical 25-entry metric catalog: `CANONICAL_DOMAIN_OBSERVABILITY_METRICS`.
+* Exact/unavailable semantics: `no evidence != zero != guess`; unavailable is
+  never encoded as zero.
+* Read-only per-domain health checking (manifest, registry, resources, rules,
+  operations, workflows, permissions, dependencies).
+* Strict anti-inference: general does not imply fallback; supporting domains do
+  not imply transfer; repeated knowledge references do not imply reuse; missing
+  questions do not imply avoided; missing duplicates do not imply prevented.
+* Reference-first privacy: raw payloads, metadata, user text and secret-shaped
+  content are never copied into output.
+* No parallel observability infrastructure: no store, repository, event bus,
+  runtime, engine, registry, loader or trace; Domain Events remain 23/23;
+  DomainAPI remains unchanged.
+
+* Implementation reference: `docs/reference/domain-observability.md`
+* Acceptance: `tests/domains/test_domain_observability_dp037_acceptance.py`
+  (AT-DP-037)
+* The independently audited boundary remains Phase 10.36 until the independent
+  ChatGPT audit completes.
+
 ⸻
 
 10.38 - Security
