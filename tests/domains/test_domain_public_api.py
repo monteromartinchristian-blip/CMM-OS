@@ -599,6 +599,27 @@ class TestPublicAPI:
                 "DomainAPI",
             }
         )
+        # Phase 10.37 – Domain Observability read-only projection
+        expected.update(
+            {
+                "CANONICAL_DOMAIN_OBSERVABILITY_METRICS",
+                "DomainHealthChecker",
+                "DomainHealthFinding",
+                "DomainHealthResult",
+                "DomainHealthStatus",
+                "DomainMetricBucket",
+                "DomainMetricMeasurement",
+                "DomainMetricStatus",
+                "DomainMetricsCalculator",
+                "DomainMetricsSnapshot",
+                "DomainObservabilityEvidence",
+                "DomainObservabilityLogEntry",
+                "DomainObservabilityReport",
+                "DomainObservabilityService",
+                "InvalidDomainObservabilityContractError",
+                "InvalidDomainObservabilityEvidenceError",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -608,7 +629,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 519
+        assert len(cmm.domains.__all__) == 535
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

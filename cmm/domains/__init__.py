@@ -1230,3 +1230,46 @@ __all__ += [
     "DefaultDomainAPI",
     "DomainAPI",
 ]
+
+# Phase 10.37 – Domain Observability (read-only projection)
+from cmm.domains.errors import (
+    InvalidDomainObservabilityContractError,
+    InvalidDomainObservabilityEvidenceError,
+)
+from cmm.domains.observability_contracts import (
+    DomainHealthFinding,
+    DomainHealthResult,
+    DomainHealthStatus,
+    DomainMetricBucket,
+    DomainMetricMeasurement,
+    DomainMetricsSnapshot,
+    DomainMetricStatus,
+    DomainObservabilityLogEntry,
+    DomainObservabilityReport,
+)
+from cmm.domains.observability_health import DomainHealthChecker
+from cmm.domains.observability_metrics import (
+    CANONICAL_DOMAIN_OBSERVABILITY_METRICS,
+    DomainMetricsCalculator,
+    DomainObservabilityEvidence,
+)
+from cmm.domains.observability_service import DomainObservabilityService
+
+__all__ += [
+    "CANONICAL_DOMAIN_OBSERVABILITY_METRICS",
+    "DomainHealthChecker",
+    "DomainHealthFinding",
+    "DomainHealthResult",
+    "DomainHealthStatus",
+    "DomainMetricBucket",
+    "DomainMetricMeasurement",
+    "DomainMetricStatus",
+    "DomainMetricsCalculator",
+    "DomainMetricsSnapshot",
+    "DomainObservabilityEvidence",
+    "DomainObservabilityLogEntry",
+    "DomainObservabilityReport",
+    "DomainObservabilityService",
+    "InvalidDomainObservabilityContractError",
+    "InvalidDomainObservabilityEvidenceError",
+]
