@@ -29,7 +29,12 @@ def test_evaluate_error_pattern_single_error_insufficient() -> None:
     """A single isolated error is not a recurrent error pattern."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go home."},
+            {
+                "id": "err-1",
+                "error_type": "subject_verb_agreement",
+                "context_id": "c1",
+                "sentence": "He go home.",
+            },
         )
     )
     assert result["pattern_state"] == "insufficient_evidence"
@@ -41,8 +46,18 @@ def test_evaluate_error_pattern_repeated_same_sentence_not_independent() -> None
     """Repeated identical tokens in copied context do not count as independent."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go home."},
-            {"id": "err-2", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go home."},
+            {
+                "id": "err-1",
+                "error_type": "subject_verb_agreement",
+                "context_id": "c1",
+                "sentence": "He go home.",
+            },
+            {
+                "id": "err-2",
+                "error_type": "subject_verb_agreement",
+                "context_id": "c1",
+                "sentence": "He go home.",
+            },
         )
     )
     assert result["pattern_state"] == "insufficient_evidence"
@@ -54,8 +69,22 @@ def test_evaluate_error_pattern_independent_comparable_samples() -> None:
     """Same systematic error across independent contexts confirms pattern."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "subject_verb_agreement", "context_id": "c1", "sentence": "He go to school.", "comparable": True, "comparison_key": "free-writing"},
-            {"id": "err-2", "error_type": "subject_verb_agreement", "context_id": "c2", "sentence": "She have a dog.", "comparable": True, "comparison_key": "free-writing"},
+            {
+                "id": "err-1",
+                "error_type": "subject_verb_agreement",
+                "context_id": "c1",
+                "sentence": "He go to school.",
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
+            {
+                "id": "err-2",
+                "error_type": "subject_verb_agreement",
+                "context_id": "c2",
+                "sentence": "She have a dog.",
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
         )
     )
     assert result["pattern_state"] in ("candidate", "evidenced")
@@ -154,8 +183,18 @@ def test_evaluate_error_pattern_valid_variety_excluded() -> None:
     """Valid variety differences must not be counted as error pattern evidence."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "var-1", "error_type": "spelling", "is_valid_alternative": True, "context_id": "c1"},
-            {"id": "err-1", "error_type": "spelling", "is_valid_alternative": False, "context_id": "c2"},
+            {
+                "id": "var-1",
+                "error_type": "spelling",
+                "is_valid_alternative": True,
+                "context_id": "c1",
+            },
+            {
+                "id": "err-1",
+                "error_type": "spelling",
+                "is_valid_alternative": False,
+                "context_id": "c2",
+            },
         )
     )
     assert result["pattern_state"] == "insufficient_evidence"
@@ -167,9 +206,30 @@ def test_evaluate_error_pattern_resolved_with_isolated_slip() -> None:
     """A resolved pattern with one isolated slip shows lapse_possible without full regression."""
     result = evaluate_error_pattern(
         observations=(
-            {"id": "err-1", "error_type": "past_tense", "context_id": "c1", "resolved": True, "comparable": True, "comparison_key": "free-writing"},
-            {"id": "err-2", "error_type": "past_tense", "context_id": "c2", "resolved": True, "comparable": True, "comparison_key": "free-writing"},
-            {"id": "slip-1", "error_type": "past_tense", "context_id": "c3", "resolved": False, "comparable": True, "comparison_key": "free-writing"},
+            {
+                "id": "err-1",
+                "error_type": "past_tense",
+                "context_id": "c1",
+                "resolved": True,
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
+            {
+                "id": "err-2",
+                "error_type": "past_tense",
+                "context_id": "c2",
+                "resolved": True,
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
+            {
+                "id": "slip-1",
+                "error_type": "past_tense",
+                "context_id": "c3",
+                "resolved": False,
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
         )
     )
     assert result["lapse_possible"] is True
@@ -179,8 +239,18 @@ def test_evaluate_error_pattern_resolved_with_isolated_slip() -> None:
 def test_evaluate_error_pattern_order_invariance() -> None:
     """Permuting evidence does not alter pattern outcome."""
     obs1 = (
-        {"id": "err-1", "error_type": "preposition", "context_id": "c1", "sentence": "I arrived at."},
-        {"id": "err-2", "error_type": "preposition", "context_id": "c2", "sentence": "She listened on him."},
+        {
+            "id": "err-1",
+            "error_type": "preposition",
+            "context_id": "c1",
+            "sentence": "I arrived at.",
+        },
+        {
+            "id": "err-2",
+            "error_type": "preposition",
+            "context_id": "c2",
+            "sentence": "She listened on him.",
+        },
     )
     obs2 = (obs1[1], obs1[0])
     res1 = evaluate_error_pattern(observations=obs1)
@@ -203,11 +273,12 @@ def test_prioritize_corrections_hierarchy() -> None:
 
 def test_prioritize_corrections_modes() -> None:
     """In practice mode, minor style errors are selective; in assess mode, feedback is deferred."""
-    errors = (
-        {"id": "e1", "category": "minor_style", "blocking": False},
-    )
+    errors = ({"id": "e1", "category": "minor_style", "blocking": False},)
     practice_res = prioritize_corrections(errors=errors, mode="practice")
-    assert practice_res["immediate_correction_count"] == 0 or practice_res["selective_density"] is True
+    assert (
+        practice_res["immediate_correction_count"] == 0
+        or practice_res["selective_density"] is True
+    )
 
     assess_res = prioritize_corrections(errors=errors, mode="assess")
     assert assess_res["defer_feedback"] is True
@@ -217,8 +288,18 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
     """Verify adaptive difficulty responses to performance evidence."""
     # High score across comparable sessions -> increase
     perf_high = (
-        {"session_id": "s1", "score": 0.95, "comparable": True, "comparison_key": "exercises"},
-        {"session_id": "s2", "score": 0.92, "comparable": True, "comparison_key": "exercises"},
+        {
+            "session_id": "s1",
+            "score": 0.95,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
+        {
+            "session_id": "s2",
+            "score": 0.92,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
     )
     res_inc = adapt_difficulty(current_difficulty=3, performance=perf_high)
     assert res_inc["action"] == "increase"
@@ -226,8 +307,18 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 
     # Low score -> scaffold_reduce
     perf_low = (
-        {"session_id": "s1", "score": 0.35, "comparable": True, "comparison_key": "exercises"},
-        {"session_id": "s2", "score": 0.40, "comparable": True, "comparison_key": "exercises"},
+        {
+            "session_id": "s1",
+            "score": 0.35,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
+        {
+            "session_id": "s2",
+            "score": 0.40,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
     )
     res_red = adapt_difficulty(current_difficulty=3, performance=perf_low)
     assert res_red["action"] == "scaffold_reduce"
@@ -235,8 +326,18 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 
     # Adequate score -> maintain_and_advance
     perf_mid = (
-        {"session_id": "s1", "score": 0.75, "comparable": True, "comparison_key": "exercises"},
-        {"session_id": "s2", "score": 0.78, "comparable": True, "comparison_key": "exercises"},
+        {
+            "session_id": "s1",
+            "score": 0.75,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
+        {
+            "session_id": "s2",
+            "score": 0.78,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
     )
     res_adv = adapt_difficulty(current_difficulty=3, performance=perf_mid)
     assert res_adv["action"] == "maintain_and_advance"
@@ -246,11 +347,22 @@ def test_adapt_difficulty_increase_scaffold_maintain() -> None:
 def test_adapt_difficulty_one_bad_session_no_stable_regression() -> None:
     """One single bad session does not alter stable proficiency."""
     perf_single_bad = (
-        {"session_id": "s1", "score": 0.20, "comparable": True, "comparison_key": "exercises"},
+        {
+            "session_id": "s1",
+            "score": 0.20,
+            "comparable": True,
+            "comparison_key": "exercises",
+        },
     )
-    res = adapt_difficulty(current_difficulty=4, performance=perf_single_bad, stable_proficiency="B2")
+    res = adapt_difficulty(
+        current_difficulty=4, performance=perf_single_bad, stable_proficiency="B2"
+    )
     assert res["stable_proficiency_changed"] is False
-    assert res["action"] in ("scaffold_reduce", "insufficient_evidence", "maintain_and_advance")
+    assert res["action"] in (
+        "scaffold_reduce",
+        "insufficient_evidence",
+        "maintain_and_advance",
+    )
 
 
 def test_error_rules_evaluation() -> None:
@@ -270,7 +382,11 @@ def test_error_rules_evaluation() -> None:
     ctx_ep = ReasoningRuleContext(
         reasoning_id="r-ep",
         timestamp=NOW,
-        metadata={"material": {"observations": [{"id": "e1", "context_id": "c1", "error_type": "t"}]}},
+        metadata={
+            "material": {
+                "observations": [{"id": "e1", "context_id": "c1", "error_type": "t"}]
+            }
+        },
     )
     res_ep = rule_ep.evaluate(ctx_ep)
     assert res_ep.status == ReasoningRuleResultStatus.APPLIED
@@ -290,7 +406,9 @@ def test_error_rules_evaluation() -> None:
     ctx_cp = ReasoningRuleContext(
         reasoning_id="r-cp",
         timestamp=NOW,
-        metadata={"material": {"errors": [{"id": "e1", "category": "comprehension_blocking"}]}},
+        metadata={
+            "material": {"errors": [{"id": "e1", "category": "comprehension_blocking"}]}
+        },
     )
     res_cp = rule_cp.evaluate(ctx_cp)
     assert res_cp.status == ReasoningRuleResultStatus.APPLIED
@@ -310,7 +428,15 @@ def test_error_rules_evaluation() -> None:
     ctx_ad = ReasoningRuleContext(
         reasoning_id="r-ad",
         timestamp=NOW,
-        metadata={"material": {"current_difficulty": 2, "performance": [{"score": 0.9, "comparable": True}, {"score": 0.9, "comparable": True}]}},
+        metadata={
+            "material": {
+                "current_difficulty": 2,
+                "performance": [
+                    {"score": 0.9, "comparable": True},
+                    {"score": 0.9, "comparable": True},
+                ],
+            }
+        },
     )
     res_ad = rule_ad.evaluate(ctx_ad)
     assert res_ad.status == ReasoningRuleResultStatus.APPLIED

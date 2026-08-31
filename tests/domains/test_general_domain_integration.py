@@ -60,9 +60,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -89,9 +87,10 @@ def test_complete_registration():
     assert len(registries["rule_registry"].list_all()) == 6
     assert len(operation_registry.list_definitions()) == 8
     assert len(registries["workflow_registry"].list_for_domain(GENERAL_DOMAIN_ID)) == 4
-    assert registries["permission_registry"].get(
-        "domain-permission:general:1.0.0"
-    ) is not None
+    assert (
+        registries["permission_registry"].get("domain-permission:general:1.0.0")
+        is not None
+    )
 
 
 def test_duplicate_registration_raises():
@@ -339,6 +338,8 @@ def test_deterministic_atomic_failure():
             **registries,
             operation_registry=operation_registry,
         )
+
+
 # ── Validation-first: operation implementation mismatch ──────────────────────
 
 
@@ -431,6 +432,8 @@ def test_existing_profile_for_general_domain_fails_before_any_mutation():
     assert registries["profile_registry"].get("other.general.profile") is not None
     assert registries["resource_registry"].list_all() == ()
     assert registries["rule_registry"].list_all() == ()
+
+
 # ── Validation-first: nested common registry collisions ──────────────────────
 
 
@@ -446,9 +449,7 @@ def test_common_operation_collision_fails_before_any_mutation():
 
     # Pre-register DIRECTLY in the common registry, bypassing the Domain
     # operation registry entirely.
-    operation_registry.common_registry.register(
-        operation.to_operation_descriptor()
-    )
+    operation_registry.common_registry.register(operation.to_operation_descriptor())
 
     # Precondition: the Domain registry is untouched, so the current Phase 1
     # Domain-duplicate validation cannot see this collision.

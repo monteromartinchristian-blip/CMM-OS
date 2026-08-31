@@ -338,7 +338,11 @@ def test_university_availability_bound_provenance_tracks_university():
         remaining_hours=4,
         available_hours=10,
         target_days=30,
-        university_projection={"authorized": True, "available_hours": 6, "workload_hours": 0},
+        university_projection={
+            "authorized": True,
+            "available_hours": 6,
+            "workload_hours": 0,
+        },
     )
     assert record["capacity_hours"] == 6
     assert "university" in record["capacity_sources"]
@@ -349,7 +353,11 @@ def test_university_workload_reduction_provenance_tracks_university():
         remaining_hours=4,
         available_hours=10,
         target_days=30,
-        university_projection={"authorized": True, "available_hours": 8, "workload_hours": 3},
+        university_projection={
+            "authorized": True,
+            "available_hours": 8,
+            "workload_hours": 3,
+        },
     )
     assert record["capacity_hours"] == 5
     assert "university" in record["capacity_sources"]
@@ -361,7 +369,11 @@ def test_health_plus_university_composed_provenance_truthful():
         available_hours=11,
         target_days=30,
         health_constraint={"authorized": True, "functional_cap_hours": 8},
-        university_projection={"authorized": True, "available_hours": 7, "workload_hours": 2},
+        university_projection={
+            "authorized": True,
+            "available_hours": 7,
+            "workload_hours": 2,
+        },
     )
     assert record["capacity_hours"] == 5
     assert record["capacity_sources"] == ("health", "university")

@@ -215,14 +215,18 @@ def test_operation_can_be_registered():
 
 def test_search_knowledge_is_read_only():
     operations = build_general_operation_definitions()
-    search = next(op for op in operations if op.operation_id == "general.search_knowledge")
+    search = next(
+        op for op in operations if op.operation_id == "general.search_knowledge"
+    )
     assert search.operation_type is DomainOperationType.READ
     assert "memory.read" in search.required_permissions
 
 
 def test_create_task_is_proposal_only():
     operations = build_general_operation_definitions()
-    create_task = next(op for op in operations if op.operation_id == "general.create_task")
+    create_task = next(
+        op for op in operations if op.operation_id == "general.create_task"
+    )
     assert create_task.metadata.get("proposal_only") is True
 
 

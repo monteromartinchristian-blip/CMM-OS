@@ -96,8 +96,14 @@ def _questions_and_tail(*, dependencies: tuple[str, ...]) -> tuple[WorkflowNode,
     )
 
 
-def _workflow(workflow_id: str, *, description: str, purpose: str,
-              core_nodes: tuple[WorkflowNode, ...], metadata: dict) -> DomainWorkflowDefinition:
+def _workflow(
+    workflow_id: str,
+    *,
+    description: str,
+    purpose: str,
+    core_nodes: tuple[WorkflowNode, ...],
+    metadata: dict,
+) -> DomainWorkflowDefinition:
     return DomainWorkflowDefinition(
         workflow_id=workflow_id,
         domain_id="domain:reflection",

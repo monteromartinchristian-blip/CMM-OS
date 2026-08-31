@@ -15,7 +15,10 @@ def test_initial_catalog_contains_all_declared_ids_and_no_false_stubs() -> None:
     registry = build_initial_reasoning_rule_catalog()
     definitions = registry.inspect_definitions()
     assert {item.id for item in definitions} == set(INITIAL_DOMAIN_REASONING_RULE_IDS)
-    assert "global.distinguish_fact_inference_hypothesis" in INITIAL_DOMAIN_REASONING_RULE_IDS
+    assert (
+        "global.distinguish_fact_inference_hypothesis"
+        in INITIAL_DOMAIN_REASONING_RULE_IDS
+    )
     assert "security.no_unauthorized_inference" in INITIAL_DOMAIN_REASONING_RULE_IDS
     assert all(callable(rule.evaluate) for rule in registry.list_all())
 
@@ -30,8 +33,11 @@ def test_structural_catalog_rules_are_conservative() -> None:
     assert red_flags is not None
     escalation = red_flags.evaluate(
         ReasoningRuleContext(
-            reasoning_id="r", active_domains=("domain:health",), primary_domain="domain:health",
-            timestamp=NOW, metadata={"health": {"red_flags_present": True}},
+            reasoning_id="r",
+            active_domains=("domain:health",),
+            primary_domain="domain:health",
+            timestamp=NOW,
+            metadata={"health": {"red_flags_present": True}},
         )
     )
     assert escalation.escalation is not None

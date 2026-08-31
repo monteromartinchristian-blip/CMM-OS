@@ -50,10 +50,9 @@ def _grounded(
 
 
 def _canonical_rule():
-    return {
-        rule.definition.id: rule
-        for rule in build_university_rules()
-    }["university.academic_source_authority"]
+    return {rule.definition.id: rule for rule in build_university_rules()}[
+        "university.academic_source_authority"
+    ]
 
 
 def _canonical_result(*claims):
@@ -748,6 +747,8 @@ def test_canonical_rule_referenced_grounded_source_remains_authoritative():
     assert finding.metadata["fact_resolved"] is True
     assert finding.metadata["authoritative_source_id"] == "official-grade-record"
     assert finding.metadata["authoritative_value"] == "A"
+
+
 # ── V9-B2: malformed source authority evidence never resolves confidently ─────
 # ── and never falls through to RULE_NOT_APPLICABLE. ──────────────────────────
 
@@ -833,6 +834,7 @@ def test_direct_helper_malformed_source_member_prevents_confident_resolution():
     assert result["authority_resolved"] is False
     assert result["fact_resolved"] is False
     assert result["authority_unknown"] is True
+
 
 # V10 tests
 
@@ -943,10 +945,7 @@ def test_v11_b3_canonical_source_authority_opaque_claim_leaves_evidence_gap():
         },
         {},
     )
-    assert any(
-        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
-        for gap in result.gaps
-    )
+    assert any(gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED" for gap in result.gaps)
     grade_finding = _authority_finding(result, "grade")
     assert grade_finding.metadata["authority_resolved"] is False
     assert grade_finding.metadata["authority_unknown"] is True
@@ -1061,10 +1060,7 @@ def test_v12_b2_canonical_partial_same_attribute_evidence_unresolved():
     assert finding.metadata["authority_resolved"] is False
     assert finding.metadata["fact_resolved"] is False
     assert finding.metadata["authority_unknown"] is True
-    assert any(
-        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
-        for gap in result.gaps
-    )
+    assert any(gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED" for gap in result.gaps)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1225,10 +1221,7 @@ def test_v13_b1_canonicical_partial_arbitrary_provenance_unresolved():
     assert finding.metadata["authority_resolved"] is False
     assert finding.metadata["fact_resolved"] is False
     assert finding.metadata["authority_unknown"] is True
-    assert any(
-        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
-        for gap in result.gaps
-    )
+    assert any(gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED" for gap in result.gaps)
 
 
 def test_v13_b1_canonical_relation_unknown_claim_never_buckets_relevant():
@@ -1252,10 +1245,7 @@ def test_v13_b1_canonical_relation_unknown_claim_never_buckets_relevant():
     assert finding.metadata["authority_resolved"] is False
     assert finding.metadata["fact_resolved"] is False
     assert finding.metadata["authority_unknown"] is True
-    assert any(
-        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
-        for gap in result.gaps
-    )
+    assert any(gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED" for gap in result.gaps)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1354,10 +1344,7 @@ def test_v13_b2_canonical_source_authority_malformed_scope_never_global():
     assert finding.metadata["fact_resolved"] is False
     assert finding.metadata["authority_unknown"] is True
     assert finding.metadata["scope"] != "course:A"
-    assert any(
-        gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED"
-        for gap in result.gaps
-    )
+    assert any(gap.code == "SOURCE_AUTHORITY_EVIDENCE_MALFORMED" for gap in result.gaps)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1921,9 +1908,7 @@ def test_v17_flat_supersedes_container_remains_valid(container_type):
     assert result["authoritative_source_id"] == "new"
     assert result["superseded_sources"] == ("old",)
     evaluated_new = next(
-        source
-        for source in result["matched_sources"]
-        if source["source_id"] == "new"
+        source for source in result["matched_sources"] if source["source_id"] == "new"
     )
     assert evaluated_new["supersedes_malformed"] is False
 
@@ -1981,7 +1966,9 @@ def test_v18_closure_legacy_source_type_is_not_string_coerced_to_authority():
     assert result["authoritative_source_id"] is None
 
 
-@pytest.mark.parametrize("malformed_attribute", (["grade"], ("grade",), {}, 7, True, None, ""))
+@pytest.mark.parametrize(
+    "malformed_attribute", (["grade"], ("grade",), {}, 7, True, None, "")
+)
 def test_v18_closure_requested_attribute_identity_is_strict(malformed_attribute):
     result = classify_academic_source_authority(
         attribute=malformed_attribute,

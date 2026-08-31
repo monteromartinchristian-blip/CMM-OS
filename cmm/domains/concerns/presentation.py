@@ -177,10 +177,20 @@ def present_concerns_result(result) -> dict:
     all_facts = list(result.get("facts") or tuple(stmt_facts))
     if isinstance(key_facts, (list, tuple)):
         for kf in key_facts:
-            if isinstance(kf, str) and kf.strip() and kf not in all_facts or isinstance(kf, Mapping) and kf not in all_facts:
+            if (
+                isinstance(kf, str)
+                and kf.strip()
+                and kf not in all_facts
+                or isinstance(kf, Mapping)
+                and kf not in all_facts
+            ):
                 all_facts.append(kf)
     prepared_content = result.get("prepared_content")
-    if not all_facts and isinstance(prepared_content, str) and "## Key facts" in prepared_content:
+    if (
+        not all_facts
+        and isinstance(prepared_content, str)
+        and "## Key facts" in prepared_content
+    ):
         lines = prepared_content.splitlines()
         in_key_facts = False
         for line in lines:
@@ -189,7 +199,12 @@ def present_concerns_result(result) -> dict:
                 continue
             elif line.startswith("## "):
                 in_key_facts = False
-            elif in_key_facts and line.startswith("- ") and line[2:].strip() and line[2:].strip() != "Not stated.":
+            elif (
+                in_key_facts
+                and line.startswith("- ")
+                and line[2:].strip()
+                and line[2:].strip() != "Not stated."
+            ):
                 all_facts.append(line[2:].strip())
 
     facts = _project_records(
@@ -246,14 +261,21 @@ def present_concerns_result(result) -> dict:
                         or c.get("statement")
                         or c.get("text")
                     )
-                    if isinstance(text, str) and text.strip() and text.strip() not in retained_texts:
+                    if (
+                        isinstance(text, str)
+                        and text.strip()
+                        and text.strip() not in retained_texts
+                    ):
                         suppressed_texts.add(text.strip())
-                elif isinstance(c, str) and c.strip() and c.strip() not in retained_texts:
+                elif (
+                    isinstance(c, str) and c.strip() and c.strip() not in retained_texts
+                ):
                     suppressed_texts.add(c.strip())
         scenarios = tuple(
             s
             for s in scenarios
-            if s.get("statement") not in suppressed_texts and s.get("caveat") not in suppressed_texts
+            if s.get("statement") not in suppressed_texts
+            and s.get("caveat") not in suppressed_texts
         )
 
     # Uncertainty and calibrations preservation (FI-001)
@@ -301,13 +323,19 @@ def present_concerns_result(result) -> dict:
         open_questions = tuple(
             {
                 "question": q.get("question") if isinstance(q, Mapping) else str(q),
-                "materiality": q.get("materiality", "material") if isinstance(q, Mapping) else "material",
-                "why_it_matters": tuple(q.get("why_it_matters", ())) if isinstance(q, Mapping) and isinstance(q.get("why_it_matters"), (list, tuple)) else (),
+                "materiality": q.get("materiality", "material")
+                if isinstance(q, Mapping)
+                else "material",
+                "why_it_matters": tuple(q.get("why_it_matters", ()))
+                if isinstance(q, Mapping)
+                and isinstance(q.get("why_it_matters"), (list, tuple))
+                else (),
             }
             if isinstance(q, Mapping)
             else {"question": str(q), "materiality": "material", "why_it_matters": ()}
             for q in questions_raw
-            if (isinstance(q, Mapping) and q.get("question")) or (isinstance(q, str) and q.strip())
+            if (isinstance(q, Mapping) and q.get("question"))
+            or (isinstance(q, str) and q.strip())
         )
     else:
         open_questions = ()
@@ -326,10 +354,9 @@ def present_concerns_result(result) -> dict:
         material_concerns_raw = result.get("acknowledged_concerns")
     material_concerns = _string_items(material_concerns_raw)
 
-    absolute_certainty_claimed = (
-        _literal_true(result.get("absolute_certainty"))
-        or _literal_true(result.get("certainty_amplified"))
-    )
+    absolute_certainty_claimed = _literal_true(
+        result.get("absolute_certainty")
+    ) or _literal_true(result.get("certainty_amplified"))
 
     risk_value = result.get("risk")
     if isinstance(risk_value, Mapping):
@@ -339,7 +366,9 @@ def present_concerns_result(result) -> dict:
             "risk_level": result.get("risk_level"),
             "emotion_drove_risk": result.get("emotion_drove_risk", False),
             "grounded_risk_evidence": result.get("grounded_risk_evidence", False),
-            "specialized_ownership_preserved": result.get("specialized_ownership_preserved", False),
+            "specialized_ownership_preserved": result.get(
+                "specialized_ownership_preserved", False
+            ),
             "immediate": result.get("immediate", False),
             "escalation_recommended": result.get("escalation_recommended", False),
         }
@@ -350,7 +379,9 @@ def present_concerns_result(result) -> dict:
     action_state = result.get("action_state") or "NO_ACTION_NEEDED"
     memory_value = result.get("memory_state")
     memory_state = (
-        dict(memory_value) if isinstance(memory_value, Mapping) else {"persisted": False}
+        dict(memory_value)
+        if isinstance(memory_value, Mapping)
+        else {"persisted": False}
     )
     permissions = _string_items(result.get("permissions"))
     support_need = result.get("support_need") or "UNCLEAR"
@@ -386,10 +417,18 @@ def present_concerns_result(result) -> dict:
                 candidates.append(val.strip())
             elif isinstance(val, (list, tuple)):
                 for item in val:
-                    if isinstance(item, str) and item.strip() and item.strip() not in candidates:
+                    if (
+                        isinstance(item, str)
+                        and item.strip()
+                        and item.strip() not in candidates
+                    ):
                         candidates.append(item.strip())
         prepared_content = result.get("prepared_content")
-        if not candidates and isinstance(prepared_content, str) and "—" in prepared_content:
+        if (
+            not candidates
+            and isinstance(prepared_content, str)
+            and "—" in prepared_content
+        ):
             first_line = prepared_content.splitlines()[0]
             summary = first_line.split("—", 1)[-1].strip()
             if summary:

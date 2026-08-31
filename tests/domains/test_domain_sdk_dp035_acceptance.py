@@ -68,7 +68,10 @@ class TestDomainSdkDP035Acceptance:
         # Step 4: Programmatic validation via DomainTestHarness
         harness = DomainTestHarness()
         val_result = harness.validate(pack_root)
-        assert val_result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+        assert val_result.status in (
+            DomainValidationStatus.PASSED,
+            DomainValidationStatus.WARNING,
+        )
         assert val_result.manifest_valid is True
         assert val_result.contracts_valid is True
         assert val_result.permissions_valid is True
@@ -94,7 +97,9 @@ class TestDomainSdkDP035Acceptance:
 
         # Step 7: Fluent builders build canonical contracts
         manifest_builder = (
-            ManifestBuilder(slug="custom-analytics", version="1.0.0", name="Custom Analytics")
+            ManifestBuilder(
+                slug="custom-analytics", version="1.0.0", name="Custom Analytics"
+            )
             .with_description("Advanced analytics domain pack")
             .with_metadata(author="CMM Team", tier="enterprise")
         )
@@ -145,10 +150,17 @@ class TestDomainSdkDP035Acceptance:
             for member in tar.getmembers():
                 assert not member.name.startswith("/")
                 assert ".." not in member.name.split("/")
-                tar.extract(member, path=extracted_root, filter="data" if hasattr(tarfile, "data_filter") else None)
+                tar.extract(
+                    member,
+                    path=extracted_root,
+                    filter="data" if hasattr(tarfile, "data_filter") else None,
+                )
 
         reval_result = validate_domain_path(extracted_root)
-        assert reval_result.status in (DomainValidationStatus.PASSED, DomainValidationStatus.WARNING)
+        assert reval_result.status in (
+            DomainValidationStatus.PASSED,
+            DomainValidationStatus.WARNING,
+        )
         assert reval_result.manifest_valid is True
 
         # Step 11: Global registry and system state remains untouched

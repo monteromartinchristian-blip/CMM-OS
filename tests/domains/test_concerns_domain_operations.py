@@ -37,7 +37,9 @@ from cmm.domains.concerns.operations import (
 def test_exactly_13_operations_in_catalog_order():
     operations = build_concerns_operation_definitions()
     assert len(operations) == 13
-    assert tuple(op.operation_id for op in operations) == CANONICAL_CONCERNS_OPERATION_IDS
+    assert (
+        tuple(op.operation_id for op in operations) == CANONICAL_CONCERNS_OPERATION_IDS
+    )
 
 
 def test_operations_domain_and_prefix():
@@ -88,10 +90,9 @@ def test_operations_registered_unavailable_without_implementations():
 
 
 def test_prepare_professional_discussion_is_preparation_only():
-    op = {
-        o.operation_id: o
-        for o in build_concerns_operation_definitions()
-    }["concerns.prepare_professional_discussion"]
+    op = {o.operation_id: o for o in build_concerns_operation_definitions()}[
+        "concerns.prepare_professional_discussion"
+    ]
     assert op.metadata.get("preparation_only") is True
     result = prepare_professional_discussion_result(
         concern_summary="recurring symptom worry",
@@ -123,7 +124,9 @@ def test_every_operation_has_result_helper_delegating_to_rules():
 
     assert (
         reassurance_helper["assessment"]
-        == evaluate_reassurance(evidence=evidence, uncertainty=uncertainty)["assessment"]
+        == evaluate_reassurance(evidence=evidence, uncertainty=uncertainty)[
+            "assessment"
+        ]
     )
 
 
@@ -153,7 +156,11 @@ def test_support_need_result_preserves_precedence():
 def test_separate_reality_interpretation_result_levels_distinct():
     helper = separate_reality_interpretation_result(
         statements=(
-            {"statement": "email sent Monday", "level": "fact", "evidence_references": ("m1",)},
+            {
+                "statement": "email sent Monday",
+                "level": "fact",
+                "evidence_references": ("m1",),
+            },
             {"statement": "I feel ignored", "level": "experience"},
             {"statement": "they avoid me", "level": "interpretation"},
             {"statement": "maybe I lose them", "level": "fear"},
@@ -169,8 +176,16 @@ def test_separate_reality_interpretation_result_levels_distinct():
 def test_explore_hypotheses_preserves_multiples():
     helper = explore_hypotheses_result(
         hypotheses=(
-            {"identity": "h1", "statement": "workload explains it", "supporting_ids": ("s1",)},
-            {"identity": "h2", "statement": "relationship tension explains it", "supporting_ids": ("s2",)},
+            {
+                "identity": "h1",
+                "statement": "workload explains it",
+                "supporting_ids": ("s1",),
+            },
+            {
+                "identity": "h2",
+                "statement": "relationship tension explains it",
+                "supporting_ids": ("s2",),
+            },
         ),
     )
     assert len(helper["hypotheses"]) == 2
@@ -181,7 +196,12 @@ def test_explore_hypotheses_preserves_multiples():
 def test_calibrate_uncertainty_output_states():
     helper = calibrate_uncertainty_result(
         records=(
-            {"identity": "c1", "claim": "email sent", "basis_references": ("m1",), "status": "established"},
+            {
+                "identity": "c1",
+                "claim": "email sent",
+                "basis_references": ("m1",),
+                "status": "established",
+            },
             {"identity": "c2", "claim": "intent unknown"},
         ),
     )

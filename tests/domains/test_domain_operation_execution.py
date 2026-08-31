@@ -239,7 +239,9 @@ def test_validation_policy_is_delegated_to_common_adapter() -> None:
     assert result.status is DomainOperationStatus.COMPLETED
     assert adapter.request is not None
     assert adapter.request.metadata["requires_validation"] is True
-    assert adapter.request.metadata["validation_policy_id"] == "validation:domain-output"
+    assert (
+        adapter.request.metadata["validation_policy_id"] == "validation:domain-output"
+    )
 
 
 def test_common_result_identity_mismatch_is_contract_error() -> None:

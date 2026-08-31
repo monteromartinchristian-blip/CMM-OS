@@ -113,7 +113,14 @@ _EXPLICIT_REQUEST_SIGNALS: tuple[tuple[frozenset[str], str], ...] = (
     ),
     (
         frozenset(
-            {"tell me what you think", "que opinas", "qué opinas", "what would you do", "tu opinion", "tu opinión"}
+            {
+                "tell me what you think",
+                "que opinas",
+                "qué opinas",
+                "what would you do",
+                "tu opinion",
+                "tu opinión",
+            }
         ),
         SUPPORT_PERSPECTIVE,
     ),
@@ -132,7 +139,12 @@ _EXPLICIT_REQUEST_SIGNALS: tuple[tuple[frozenset[str], str], ...] = (
     ),
     (
         frozenset(
-            {"can you reassure me", "puedes tranquilizarme", "reassure me that", "tranquilizame"}
+            {
+                "can you reassure me",
+                "puedes tranquilizarme",
+                "reassure me that",
+                "tranquilizame",
+            }
         ),
         SUPPORT_REASSURANCE,
     ),
@@ -535,7 +547,6 @@ _CATASTROPHIC_PROMOTIONS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 # Task 4 helpers — epistemics, uncertainty, reassurance, proportional risk
 # ═════════════════════════════════════════════════════════════════════════════
@@ -832,14 +843,10 @@ def evaluate_reassurance(
         )
 
     pro_concern_all = [
-        item
-        for item in pool
-        if item["stance"] == STANCE_SUPPORTS_TARGET
+        item for item in pool if item["stance"] == STANCE_SUPPORTS_TARGET
     ]
     pro_reassurance_all = [
-        item
-        for item in pool
-        if item["stance"] == STANCE_OPPOSES_TARGET
+        item for item in pool if item["stance"] == STANCE_OPPOSES_TARGET
     ]
     pro_concern_strong = [
         item for item in pro_concern_all if _is_current_and_grounded(item)
@@ -908,9 +915,7 @@ def evaluate_reassurance(
 
     # Base plausibility evaluation
     raw_bp = _usable_scalar_string(base_plausibility)
-    canonical_bp = (
-        _BASE_PLAUSIBILITY_ALIASES.get(raw_bp.lower()) if raw_bp else None
-    )
+    canonical_bp = _BASE_PLAUSIBILITY_ALIASES.get(raw_bp.lower()) if raw_bp else None
     base_plausibility_value = raw_bp if canonical_bp is not None else None
     evaluated_bp = canonical_bp or BASE_PLAUSIBILITY_UNKNOWN
     target = _usable_scalar_string(target_claim)
@@ -955,8 +960,10 @@ def evaluate_reassurance(
         else:
             assessment = REASSURANCE_SUPPORTED
     elif (
-        pro_reassurance_all or specialized_reassuring
-    ) and not specialized_concern and not material_concern:
+        (pro_reassurance_all or specialized_reassuring)
+        and not specialized_concern
+        and not material_concern
+    ):
         if evaluated_bp == BASE_PLAUSIBILITY_HIGH and not pro_reassurance_strong:
             assessment = UNCERTAIN
         elif (
@@ -1046,9 +1053,11 @@ def evaluate_proportional_risk(
     high-risk state.
     """
     severity_norm = _semantic_text(severity)
-    severity_malformed = severity is not None and (
-        severity_norm is None or severity_norm not in _SEVERITY_ALIASES
-    ) and not isinstance(severity, str)
+    severity_malformed = (
+        severity is not None
+        and (severity_norm is None or severity_norm not in _SEVERITY_ALIASES)
+        and not isinstance(severity, str)
+    )
     if isinstance(severity, str) and severity_norm not in _SEVERITY_ALIASES:
         # Unknown free-text severity carries no weight.
         severity_malformed = True
@@ -1126,7 +1135,9 @@ def evaluate_proportional_risk(
         risk_level = _RISK_NONE
 
     invented_risk = (
-        risk_level == _RISK_HIGH and not specialized_authorized and not risk_evidence_material
+        risk_level == _RISK_HIGH
+        and not specialized_authorized
+        and not risk_evidence_material
     )
     return normalize_json_value(
         {
@@ -1248,7 +1259,12 @@ def evaluate_caveat_policy(*, caveats=()) -> dict:
         )
         relevant = relevance in ("high", "medium")
         grounded = grounding is not None
-        if is_material and grounded and relevant and uncertainty not in ("high", "unknown"):
+        if (
+            is_material
+            and grounded
+            and relevant
+            and uncertainty not in ("high", "unknown")
+        ):
             retained.append(
                 {
                     "caveat": caveat,
@@ -1268,7 +1284,8 @@ def evaluate_caveat_policy(*, caveats=()) -> dict:
             "retained": tuple(retained),
             "suppressed_count": suppressed + (1 if malformed else 0),
             "suppression_reason": (
-                "unsupported_remote_possibilities" if retained and suppressed
+                "unsupported_remote_possibilities"
+                if retained and suppressed
                 else "unsupported_remote_possibilities"
                 if suppressed and not retained
                 else None
@@ -1304,7 +1321,13 @@ def detect_false_reassurance(*, reassurance_state, material_concerns=()) -> dict
         false_reassurance = True
         reason = "absolute_certainty"
         corrected = CONCERN_SUPPORTED if has_material_concern else UNCERTAIN
-    elif has_material_concern and assessment == REASSURANCE_SUPPORTED or has_material_concern and assessment == REASSURANCE_PARTIAL and concern_erased:
+    elif (
+        has_material_concern
+        and assessment == REASSURANCE_SUPPORTED
+        or has_material_concern
+        and assessment == REASSURANCE_PARTIAL
+        and concern_erased
+    ):
         false_reassurance = True
         reason = "material_concern_minimized"
         corrected = CONCERN_SUPPORTED
@@ -1475,10 +1498,14 @@ def review_recurring_concern_state(*, current=None, previous=()) -> dict:
         and current_impact != prior_impacts[topic]
     )
 
-    meaningfully_different = recurrence in (
-        RECURRENCE_NEW_TOPIC,
-        RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
-    ) or impact_changed
+    meaningfully_different = (
+        recurrence
+        in (
+            RECURRENCE_NEW_TOPIC,
+            RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
+        )
+        or impact_changed
+    )
 
     return normalize_json_value(
         {
@@ -1486,8 +1513,7 @@ def review_recurring_concern_state(*, current=None, previous=()) -> dict:
             "same_topic": same_topic,
             "same_question": same_question,
             "meaningfully_different": meaningfully_different,
-            "evidence_changed": recurrence
-            == RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
+            "evidence_changed": recurrence == RECURRENCE_SAME_QUESTION_NEW_EVIDENCE,
             "interpretation_changed": _boolean_true(
                 current.get("interpretation_changed")
             ),
@@ -1600,7 +1626,12 @@ def evaluate_action_state(
         request_norm
         and any(
             marker in request_norm
-            for marker in ("what can i do", "que puedo hacer", "next step", "siguiente paso")
+            for marker in (
+                "what can i do",
+                "que puedo hacer",
+                "next step",
+                "siguiente paso",
+            )
             if marker
         )
     )
@@ -1710,12 +1741,16 @@ def evaluate_grounded_directness(
     supporting_refs = {
         item["grounding"]
         for item in records
-        if isinstance(item, Mapping) and item.get("supports") and _usable_reference(item.get("identity")) is not None
+        if isinstance(item, Mapping)
+        and item.get("supports")
+        and _usable_reference(item.get("identity")) is not None
     }
     countering_refs = {
         item["grounding"]
         for item in records
-        if isinstance(item, Mapping) and item.get("against") and _usable_reference(item.get("identity")) is not None
+        if isinstance(item, Mapping)
+        and item.get("against")
+        and _usable_reference(item.get("identity")) is not None
     }
     del supporting_refs, countering_refs
 
@@ -1749,11 +1784,15 @@ def evaluate_grounded_directness(
         and assessment_norm == "concern_material"
         and len(grounded_support) >= len(grounded_counter)
     )
-    uncertainty_preserved = balanced or bool(
-        uncertainty_record["uncertainties"]
-    ) or assessment_norm == "balanced"
+    uncertainty_preserved = (
+        balanced
+        or bool(uncertainty_record["uncertainties"])
+        or assessment_norm == "balanced"
+    )
 
-    basis = "insufficient" if not has_basis else ("balanced" if balanced else "grounded")
+    basis = (
+        "insufficient" if not has_basis else ("balanced" if balanced else "grounded")
+    )
 
     return normalize_json_value(
         {
@@ -1820,9 +1859,7 @@ def evaluate_immediate_risk_escalation(
             "escalate": escalate,
             "credible_signal": credible_signal,
             "routed_to_domain": specialized_domain_id if escalate else None,
-            "escalation_source": (
-                "specialized_domain_result" if escalate else None
-            ),
+            "escalation_source": ("specialized_domain_result" if escalate else None),
             "own_protocol_created": False,
             "emotion_triggered_escalation": False,
             "ordinary_distress_not_escalated": not escalate,
@@ -1956,9 +1993,7 @@ def infer_support_need(
         for component in explicit_components:
             if component not in unique:
                 unique.append(component)
-        support_need = (
-            SUPPORT_MIXED if len(unique) > 1 else unique[0]
-        )
+        support_need = SUPPORT_MIXED if len(unique) > 1 else unique[0]
         basis = "explicit_current_request"
         return normalize_json_value(
             {
@@ -1968,7 +2003,8 @@ def infer_support_need(
                 "explicit": True,
                 "inferred": False,
                 "invented_classification": False,
-                "problem_solving_allowed": support_need in (
+                "problem_solving_allowed": support_need
+                in (
                     SUPPORT_PROBLEM_SOLVING,
                     SUPPORT_NEXT_STEP,
                     SUPPORT_DECISION_SUPPORT,
@@ -1988,9 +2024,7 @@ def infer_support_need(
         for component in signal_components:
             if component not in unique:
                 unique.append(component)
-        support_need = (
-            SUPPORT_MIXED if len(unique) > 1 else unique[0]
-        )
+        support_need = SUPPORT_MIXED if len(unique) > 1 else unique[0]
         return normalize_json_value(
             {
                 "support_need": support_need,
@@ -1999,7 +2033,8 @@ def infer_support_need(
                 "explicit": False,
                 "inferred": True,
                 "invented_classification": False,
-                "problem_solving_allowed": support_need in (
+                "problem_solving_allowed": support_need
+                in (
                     SUPPORT_PROBLEM_SOLVING,
                     SUPPORT_NEXT_STEP,
                     SUPPORT_DECISION_SUPPORT,
@@ -2028,7 +2063,8 @@ def infer_support_need(
                 "explicit": False,
                 "inferred": True,
                 "invented_classification": False,
-                "problem_solving_allowed": context_need in (
+                "problem_solving_allowed": context_need
+                in (
                     SUPPORT_PROBLEM_SOLVING,
                     SUPPORT_NEXT_STEP,
                     SUPPORT_DECISION_SUPPORT,
@@ -2057,7 +2093,8 @@ def infer_support_need(
                 "explicit": False,
                 "inferred": True,
                 "invented_classification": False,
-                "problem_solving_allowed": historical in (
+                "problem_solving_allowed": historical
+                in (
                     SUPPORT_PROBLEM_SOLVING,
                     SUPPORT_NEXT_STEP,
                     SUPPORT_DECISION_SUPPORT,
@@ -2118,7 +2155,9 @@ def understand_concern(material) -> dict:
 
     situation = _first_usable(raw_material, *_UNDERSTANDING_REQUIRED_FIELDS[0][1])
     trigger = _first_usable(raw_material, *_UNDERSTANDING_REQUIRED_FIELDS[1][1])
-    matters = _first_usable(raw_material, "what_matters", "feared_meaning", "core_issue")
+    matters = _first_usable(
+        raw_material, "what_matters", "feared_meaning", "core_issue"
+    )
     statement = _first_usable(raw_material, "statement")
     session_context = raw_material.get("session_context")
     explicit_request = raw_material.get("explicit_request")
@@ -2139,7 +2178,9 @@ def understand_concern(material) -> dict:
 
     support = infer_support_need(
         explicit_request=explicit_request,
-        session_context=session_context if isinstance(session_context, Mapping) else None,
+        session_context=session_context
+        if isinstance(session_context, Mapping)
+        else None,
     )
 
     questions: list[dict] = []
@@ -2159,7 +2200,9 @@ def understand_concern(material) -> dict:
         # interrogate.
         respond_with_qualification = True
 
-    ready_for_substantive_response = understood and support["support_need"] != SUPPORT_UNCLEAR
+    ready_for_substantive_response = (
+        understood and support["support_need"] != SUPPORT_UNCLEAR
+    )
     return normalize_json_value(
         {
             "understood": understood,
@@ -2213,7 +2256,12 @@ def map_lived_experience(material) -> dict:
             malformed = True
             continue
         for item in items:
-            content = _usable_scalar_string(item) if not isinstance(item, Mapping) else _usable_scalar_string(item.get("content")) or _usable_scalar_string(item.get("statement"))
+            content = (
+                _usable_scalar_string(item)
+                if not isinstance(item, Mapping)
+                else _usable_scalar_string(item.get("content"))
+                or _usable_scalar_string(item.get("statement"))
+            )
             if content is None:
                 continue
             record = {
@@ -2293,9 +2341,7 @@ def evaluate_question_materiality(*, question=None, changes=()) -> dict:
         changes_malformed = True
 
     material = (
-        question_text is not None
-        and len(recognized) > 0
-        and not changes_malformed
+        question_text is not None and len(recognized) > 0 and not changes_malformed
     )
     return normalize_json_value(
         {
@@ -2586,8 +2632,12 @@ class ContextualQuestionRule:
             )
         evaluations = [
             evaluate_question_materiality(
-                question=question.get("question") if isinstance(question, Mapping) else question,
-                changes=question.get("changes", ()) if isinstance(question, Mapping) else (),
+                question=question.get("question")
+                if isinstance(question, Mapping)
+                else question,
+                changes=question.get("changes", ())
+                if isinstance(question, Mapping)
+                else (),
             )
             for question in questions
             if isinstance(question, (Mapping, str))
@@ -2721,7 +2771,6 @@ class EvidenceCalibratedReassuranceRule:
         )
 
 
-
 @dataclass(frozen=True, slots=True)
 class ProportionalRiskRule:
     definition: DomainReasoningRuleDefinition
@@ -2798,21 +2847,29 @@ class NoCatastrophicEscalationRule:
                     source_state=(
                         transition.get("source_state")
                         if isinstance(transition, Mapping)
-                        else {"kind": transition.get("source_kind") or transition.get("source")}
+                        else {
+                            "kind": transition.get("source_kind")
+                            or transition.get("source")
+                        }
                         if isinstance(transition, Mapping)
                         else None
                     ),
                     proposed_state=(
                         transition.get("proposed_state")
                         if isinstance(transition, Mapping)
-                        else {"kind": transition.get("proposed_kind") or transition.get("proposed")}
+                        else {
+                            "kind": transition.get("proposed_kind")
+                            or transition.get("proposed")
+                        }
                         if isinstance(transition, Mapping)
                         else None
                     ),
                 )
                 for transition in transitions
             )
-            blocked = tuple(result["promotion"] for result in results if result["blocked"])
+            blocked = tuple(
+                result["promotion"] for result in results if result["blocked"]
+            )
 
         caveat_record = None
         if caveats:
@@ -2825,8 +2882,12 @@ class NoCatastrophicEscalationRule:
         }
         if caveat_record is not None:
             finding_metadata["retained_caveats"] = caveat_record["retained"]
-            finding_metadata["suppressed_caveats_count"] = caveat_record["suppressed_count"]
-            finding_metadata["remote_possibilities_not_stacked"] = caveat_record["remote_possibilities_not_stacked"]
+            finding_metadata["suppressed_caveats_count"] = caveat_record[
+                "suppressed_count"
+            ]
+            finding_metadata["remote_possibilities_not_stacked"] = caveat_record[
+                "remote_possibilities_not_stacked"
+            ]
 
         finding = ReasoningFinding(
             code=(
@@ -2839,7 +2900,9 @@ class NoCatastrophicEscalationRule:
                 if any_blocked
                 else "No unsupported catastrophic promotion found; caveat policy enforced."
             ),
-            severity=ReasoningSeverity.WARNING if any_blocked else ReasoningSeverity.INFO,
+            severity=ReasoningSeverity.WARNING
+            if any_blocked
+            else ReasoningSeverity.INFO,
             rule_id=self.definition.id,
             domain_id=self.definition.domain_id,
             metadata=finding_metadata,
@@ -3104,9 +3167,7 @@ class ImmediateRiskEscalationRule:
                 "escalate": record["escalate"],
                 "routed_to_domain": record["routed_to_domain"],
                 "own_protocol_created": record["own_protocol_created"],
-                "emotion_triggered_escalation": record[
-                    "emotion_triggered_escalation"
-                ],
+                "emotion_triggered_escalation": record["emotion_triggered_escalation"],
             },
         )
         return _result(

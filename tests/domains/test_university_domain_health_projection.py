@@ -69,10 +69,9 @@ def test_workload_rule_consumes_authorized_constraint_projection():
     """AcademicWorkloadRule consumes an authorized constraint projection, not a
     Health record.  A reduced-availability constraint is folded into the plan as
     a factual input, and the rule never fetches Health data itself."""
-    rule = {
-        r.definition.id: r
-        for r in university.build_university_rules()
-    }["university.academic_workload"]
+    rule = {r.definition.id: r for r in university.build_university_rules()}[
+        "university.academic_workload"
+    ]
     # The constraint projection is a *minimal functional constraint* already
     # authorized for transfer (e.g. "reduced available workload"), not clinical
     # detail.  An authorized functional cap that the plan exceeds makes the
@@ -90,9 +89,7 @@ def test_workload_rule_consumes_authorized_constraint_projection():
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings
-    )
+    assert any(finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings)
 
 
 def test_workload_helper_accepts_only_scalar_constraint_signal():
@@ -128,7 +125,9 @@ def test_supporting_health_cannot_widen_university_permissions():
     # Inbound cross-domain is scoped and approval-gated, not an autonomous
     # outbound grant; University grants no outbound cross-domain access.
     assert PermissionCapability.DOMAIN_CROSS_ACCESS not in policy.allowed_capabilities
-    assert PermissionCapability.DOMAIN_CROSS_ACCESS not in policy.prohibited_capabilities
+    assert (
+        PermissionCapability.DOMAIN_CROSS_ACCESS not in policy.prohibited_capabilities
+    )
     assert PermissionCapability.DOMAIN_CROSS_ACCESS in policy.approval_capabilities
     assert policy.allow_cross_domain_access is False
 
@@ -176,10 +175,9 @@ def test_no_direct_health_store_import_in_inspection():
 
 
 def _workload_rule():
-    return {
-        r.definition.id: r
-        for r in university.build_university_rules()
-    }["university.academic_workload"]
+    return {r.definition.id: r for r in university.build_university_rules()}[
+        "university.academic_workload"
+    ]
 
 
 def test_workload_rule_truthy_health_authorization_not_consumed():

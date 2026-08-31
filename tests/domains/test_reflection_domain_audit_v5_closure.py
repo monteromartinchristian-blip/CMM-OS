@@ -49,7 +49,9 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 20, 23, 0, tzinfo=timezone.utc)
 
 
-def _build_valid_reflection_chain(proposal_id: str = "prop-v5-1", *, approved: bool = True):
+def _build_valid_reflection_chain(
+    proposal_id: str = "prop-v5-1", *, approved: bool = True
+):
     ref = DomainMemoryReference(
         reference_id=f"ref:{proposal_id}",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -80,7 +82,11 @@ def _build_valid_reflection_chain(proposal_id: str = "prop-v5-1", *, approved: b
     )
     temp_inventory = DomainMemoryReferenceInventory(
         references=(ref,),
-        traces=(DomainMemoryTraceSnapshot(trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"),),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
         permission_decisions=(permission,),
     )
     view = build_reflection_memory_view(request=view_request, inventory=temp_inventory)
@@ -157,7 +163,10 @@ def test_v5_diagnostic_compositional_and_normalization_restricted(stmt: str):
     assert hyp["diagnostic"] is True
     assert hyp["restricted_inference"] is True
     pres = present_reflection_result(res)
-    assert pres["hypotheses"][0]["statement"] == "[restricted: diagnostic/classifying claim withheld]"
+    assert (
+        pres["hypotheses"][0]["statement"]
+        == "[restricted: diagnostic/classifying claim withheld]"
+    )
 
 
 @pytest.mark.parametrize(
@@ -199,7 +208,9 @@ def test_v5_diagnostic_mixed_clauses_restricted(stmt: str):
     res = evaluate_hypotheses(
         hypotheses=({"identity": "h1", "statement": stmt, "supporting_ids": ("s1",)},)
     )
-    assert res["no_diagnosis"] is False, f"Expected mixed statement {stmt!r} to be RESTRICTED"
+    assert res["no_diagnosis"] is False, (
+        f"Expected mixed statement {stmt!r} to be RESTRICTED"
+    )
     assert res["hypotheses"][0]["diagnostic"] is True
 
 
@@ -226,7 +237,9 @@ def test_v5_certainty_negated_and_normalization_safe(text: str):
     """Explicitly negated certainty and lack of certainty remain safe under all normalization forms."""
     res = {"unresolved": True, "conclusion": text}
     policy = no_forced_conclusion_policy(res)
-    assert policy["forced_conclusion"] is False, f"Expected {text!r} to be SAFE (forced_conclusion=False)"
+    assert policy["forced_conclusion"] is False, (
+        f"Expected {text!r} to be SAFE (forced_conclusion=False)"
+    )
     assert policy["valid_unresolved_completion"] is True
 
 
@@ -250,7 +263,9 @@ def test_v5_certainty_affirmed_and_normalization_forced(text: str):
     """Affirmative certainty is flagged as forced conclusion under all normalization forms."""
     res = {"unresolved": True, "conclusion": text}
     policy = no_forced_conclusion_policy(res)
-    assert policy["forced_conclusion"] is True, f"Expected {text!r} to be FORCED (forced_conclusion=True)"
+    assert policy["forced_conclusion"] is True, (
+        f"Expected {text!r} to be FORCED (forced_conclusion=True)"
+    )
     assert policy["valid_unresolved_completion"] is False
 
 
@@ -267,7 +282,9 @@ def test_v5_certainty_mixed_clauses_forced(text: str):
     """A contrastive clause with affirmative certainty forces conclusion even when preceded by uncertainty."""
     res = {"unresolved": True, "conclusion": text}
     policy = no_forced_conclusion_policy(res)
-    assert policy["forced_conclusion"] is True, f"Expected mixed certainty {text!r} to be FORCED"
+    assert policy["forced_conclusion"] is True, (
+        f"Expected mixed certainty {text!r} to be FORCED"
+    )
     assert policy["valid_unresolved_completion"] is False
 
 
@@ -302,9 +319,18 @@ def test_v5_no_forced_conclusion_rule_parity():
         timestamp=NOW,
         active_domains=("domain:reflection",),
         primary_domain="domain:reflection",
-        metadata={"result": {"unresolved": True, "conclusion": "Carezco de certeza suficiente"}},
+        metadata={
+            "result": {
+                "unresolved": True,
+                "conclusion": "Carezco de certeza suficiente",
+            }
+        },
     )
-    rule = next(r for r in build_reflection_rules() if r.definition.id == "reflection.no_forced_conclusion")
+    rule = next(
+        r
+        for r in build_reflection_rules()
+        if r.definition.id == "reflection.no_forced_conclusion"
+    )
     res_safe = rule.evaluate(context_safe)
     assert res_safe.status is ReasoningRuleResultStatus.APPLIED
     assert res_safe.findings[0].metadata["forced_conclusion"] is False
@@ -314,7 +340,12 @@ def test_v5_no_forced_conclusion_rule_parity():
         timestamp=NOW,
         active_domains=("domain:reflection",),
         primary_domain="domain:reflection",
-        metadata={"result": {"unresolved": True, "conclusion": "Sé con total seguridad que ocurrió"}},
+        metadata={
+            "result": {
+                "unresolved": True,
+                "conclusion": "Sé con total seguridad que ocurrió",
+            }
+        },
     )
     res_forced = rule.evaluate(context_forced)
     assert res_forced.status is ReasoningRuleResultStatus.APPLIED
@@ -337,9 +368,17 @@ def test_v5_strict_json_all_outputs():
             confirmation_inventory=inventory,
         ),
         evaluate_hypotheses(
-            hypotheses=({"identity": "h1", "statement": "No corresponde diagnosticar aquí", "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {
+                    "identity": "h1",
+                    "statement": "No corresponde diagnosticar aquí",
+                    "supporting_ids": ("s1",),
+                },
+            )
         ),
-        no_forced_conclusion_policy({"unresolved": True, "conclusion": "Carezco de certeza suficiente"}),
+        no_forced_conclusion_policy(
+            {"unresolved": True, "conclusion": "Carezco de certeza suficiente"}
+        ),
         evaluate_ambivalence(records=()),
         evaluate_open_questions(questions=()),
         evaluate_persistence_basis({"pattern": "x", "sources": ("s1",)}),
@@ -354,7 +393,11 @@ def test_v5_strict_json_all_outputs():
 def test_v5_input_non_mutation():
     """Input structures must not be mutated by helper execution."""
     raw_hyp = [
-        {"identity": "h1", "statement": "Su estilo de apego es patológico", "supporting_ids": ["s1"]}
+        {
+            "identity": "h1",
+            "statement": "Su estilo de apego es patológico",
+            "supporting_ids": ["s1"],
+        }
     ]
     hyp_copy = copy.deepcopy(raw_hyp)
     evaluate_hypotheses(hypotheses=raw_hyp)

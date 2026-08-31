@@ -76,9 +76,7 @@ def build_standard_general_domain_bootstrap(
     operation_registry = InMemoryDomainOperationRegistry(
         InMemoryAgentOperationRegistry()
     )
-    workflow_registry = InMemoryDomainWorkflowRegistry(
-        InMemoryWorkflowRegistry()
-    )
+    workflow_registry = InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry())
     permission_registry = DomainPermissionRegistry()
     resolver = DefaultDomainResolver(
         fallback_domain=DomainId.from_str(GENERAL_DOMAIN_ID),

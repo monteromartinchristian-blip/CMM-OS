@@ -222,9 +222,7 @@ def test_question_materiality_requires_real_change():
 def test_malformed_changes_argument_never_means_material():
     """Malformed truthy primitives must not mean 'material question'."""
     for raw in (True, 1, 1.5, {}, "yes", object()):
-        record = evaluate_question_materiality(
-            question="anything", changes=raw
-        )
+        record = evaluate_question_materiality(question="anything", changes=raw)
         assert record["materiality"] == QUESTION_NOT_MATERIAL
         json.dumps(record, allow_nan=False)
 

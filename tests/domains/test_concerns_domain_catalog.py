@@ -176,7 +176,11 @@ def test_rule_ids_align_with_rule_names():
     """Every rule ID is the snake_case projection of its canonical class name."""
     import re
 
-    for rule_id, rule_name in zip(CANONICAL_CONCERNS_RULE_IDS, CANONICAL_CONCERNS_RULE_NAMES):
+    for rule_id, rule_name in zip(
+        CANONICAL_CONCERNS_RULE_IDS, CANONICAL_CONCERNS_RULE_NAMES
+    ):
         suffix = rule_id.split(".", 1)[1]
-        projected = re.sub(r"(?<!^)(?=[A-Z])", "_", rule_name.replace("Rule", "")).lower()
+        projected = re.sub(
+            r"(?<!^)(?=[A-Z])", "_", rule_name.replace("Rule", "")
+        ).lower()
         assert suffix == projected, f"{rule_id} does not project {rule_name}"

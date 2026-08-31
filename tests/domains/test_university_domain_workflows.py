@@ -18,8 +18,7 @@ from cmm.workflows.enums import WorkflowNodeType
 
 def _by_id():
     return {
-        w.workflow_id: w
-        for w in university.build_university_workflow_definitions()
+        w.workflow_id: w for w in university.build_university_workflow_definitions()
     }
 
 
@@ -52,9 +51,7 @@ def _transitive_deps(node_map, start):
 def test_seven_workflows_and_canonical_order():
     workflows = university.build_university_workflow_definitions()
     assert len(workflows) == 7
-    assert [w.workflow_id for w in workflows] == list(
-        CANONICAL_UNIVERSITY_WORKFLOW_IDS
-    )
+    assert [w.workflow_id for w in workflows] == list(CANONICAL_UNIVERSITY_WORKFLOW_IDS)
 
 
 def test_ordered_safety_path_load_profile_reason():
@@ -165,9 +162,7 @@ def test_assignment_preparation_only_prepares():
     wf = _by_id()["university.assignment_preparation"]
     op_ids = {node.operation_id for node in wf.nodes if node.operation_id}
     assert "university.prepare_assignment" in op_ids
-    assert all(
-        word not in op for op in op_ids for word in ("send", "submit")
-    )
+    assert all(word not in op for op in op_ids for word in ("send", "submit"))
 
 
 def test_academic_review_only_reviews():

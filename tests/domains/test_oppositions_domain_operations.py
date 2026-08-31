@@ -39,8 +39,12 @@ def test_required_resources_are_minimal():
     resources are declared."""
     operations = build_oppositions_operation_definitions()
     by_id = {op.operation_id: op for op in operations}
-    assert by_id["oppositions.review_call"].required_resources == ("oppositions.official_call",)
-    assert by_id["oppositions.create_study_plan"].required_resources == ("oppositions.syllabus",)
+    assert by_id["oppositions.review_call"].required_resources == (
+        "oppositions.official_call",
+    )
+    assert by_id["oppositions.create_study_plan"].required_resources == (
+        "oppositions.syllabus",
+    )
 
 
 def test_proposal_only_operations_respect_boundaries():

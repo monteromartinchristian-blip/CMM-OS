@@ -26,9 +26,7 @@ REFLECTION_RULE_IDS: tuple[str, ...] = CANONICAL_REFLECTION_RULE_IDS
 REFLECTION_OPERATION_IDS: tuple[str, ...] = CANONICAL_REFLECTION_OPERATION_IDS
 REFLECTION_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_REFLECTION_WORKFLOW_IDS
 
-REFLECTION_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:reflection:1.0.0",
-)
+REFLECTION_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:reflection:1.0.0",)
 
 
 def build_reflection_domain_definition() -> DomainDefinition:

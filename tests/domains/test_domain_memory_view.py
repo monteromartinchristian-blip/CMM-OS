@@ -364,8 +364,9 @@ def test_same_request_id_different_trace_produces_different_view_id() -> None:
     assert first.view_id != second.view_id
 
 
-def test_same_request_id_different_temporal_reference_produces_different_view_id(
-) -> None:
+def test_same_request_id_different_temporal_reference_produces_different_view_id() -> (
+    None
+):
     ref = DomainMemoryReference(
         reference_id="ref:knowledge:temporal-identity",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -397,7 +398,9 @@ def test_same_request_id_different_temporal_reference_produces_different_view_id
     assert first.view_id != second.view_id
 
 
-def test_same_request_id_different_supporting_domains_produces_different_view_id() -> None:
+def test_same_request_id_different_supporting_domains_produces_different_view_id() -> (
+    None
+):
     ref = DomainMemoryReference(
         reference_id="ref:knowledge:supp-id",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -433,7 +436,9 @@ def test_same_request_id_different_supporting_domains_produces_different_view_id
     assert first.view_id != second.view_id
 
 
-def test_same_request_id_different_resolution_reference_id_produces_different_view_id() -> None:
+def test_same_request_id_different_resolution_reference_id_produces_different_view_id() -> (
+    None
+):
     ref = DomainMemoryReference(
         reference_id="ref:knowledge:res-id",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -505,7 +510,9 @@ def test_same_request_id_different_requested_kinds_produces_different_view_id() 
     assert first.view_id != second.view_id
 
 
-def test_same_request_id_different_permission_decision_ids_produces_different_view_id() -> None:
+def test_same_request_id_different_permission_decision_ids_produces_different_view_id() -> (
+    None
+):
     from cmm.domains.memory_contracts import DomainMemoryPermissionDecisionSnapshot
 
     ref = DomainMemoryReference(
@@ -574,7 +581,10 @@ def test_timeless_with_expires_at_without_temporal_reference_is_excluded() -> No
     )
 
     assert view.selected_references == ()
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    )
 
 
 def _resolve_temporal_reference(
@@ -637,7 +647,10 @@ def test_interval_without_temporal_reference_is_not_selected() -> None:
     )
 
     assert view.selected_references == ()
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    )
 
 
 def test_expired_timeless_reference_is_not_selected() -> None:
@@ -656,7 +669,10 @@ def test_expired_timeless_reference_is_not_selected() -> None:
     )
 
     assert view.selected_references == ()
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_EXPIRED
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_EXPIRED
+    )
 
 
 def test_unknown_temporal_scope_without_reference_is_not_selected() -> None:
@@ -673,10 +689,15 @@ def test_unknown_temporal_scope_without_reference_is_not_selected() -> None:
     )
 
     assert view.selected_references == ()
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_UNKNOWN
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_UNKNOWN
+    )
 
 
-def test_timeless_without_expiration_and_without_temporal_reference_is_selected() -> None:
+def test_timeless_without_expiration_and_without_temporal_reference_is_selected() -> (
+    None
+):
     from cmm.domains.memory_contracts import (
         DomainMemorySelectionDecisionCode,
         DomainMemoryTemporalKind,
@@ -690,7 +711,9 @@ def test_timeless_without_expiration_and_without_temporal_reference_is_selected(
     )
 
     assert len(view.selected_references) == 1
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.SELECTED
+    assert (
+        view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.SELECTED
+    )
 
 
 def test_resolver_rejects_unknown_permission_decision_ids() -> None:
@@ -734,7 +757,10 @@ def test_resolver_rejects_unknown_permission_decision_ids() -> None:
 
     assert view.selected_references == ()
     assert len(view.selection_decisions) == 1
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_PERMISSION_DENIED
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_PERMISSION_DENIED
+    )
 
 
 def test_unknown_temporal_with_temporal_reference_is_excluded_unknown() -> None:
@@ -785,7 +811,10 @@ def test_unknown_temporal_with_temporal_reference_is_excluded_unknown() -> None:
 
     assert view.selected_references == ()
     assert len(view.selection_decisions) == 1
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_UNKNOWN
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_UNKNOWN
+    )
 
 
 def test_safety_temporal_kind_is_excluded_invalid() -> None:
@@ -836,4 +865,7 @@ def test_safety_temporal_kind_is_excluded_invalid() -> None:
 
     assert view.selected_references == ()
     assert len(view.selection_decisions) == 1
-    assert view.selection_decisions[0].code == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    assert (
+        view.selection_decisions[0].code
+        == DomainMemorySelectionDecisionCode.EXCLUDED_TEMPORAL_INVALID
+    )

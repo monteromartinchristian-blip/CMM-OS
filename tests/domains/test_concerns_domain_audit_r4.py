@@ -109,10 +109,30 @@ def test_explicit_certainty_pursuit_with_all_other_dimensions_yields_true():
     """An explicit certainty-pursuit marker plus the other grounded dimensions
     → pattern detected True."""
     turns = (
-        {"turn": 1, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 2, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 3, "same_question": True, "evidence_state": "unchanged", "impossible_certainty": True},
-        {"turn": 4, "same_question": True, "relief_followed_by_checking": True, "pursuing_certainty": True},
+        {
+            "turn": 1,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 2,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 3,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "impossible_certainty": True,
+        },
+        {
+            "turn": 4,
+            "same_question": True,
+            "relief_followed_by_checking": True,
+            "pursuing_certainty": True,
+        },
     )
     record = evaluate_repetitive_certainty_pattern(turns=turns)
     assert record["pattern_detected"] is True

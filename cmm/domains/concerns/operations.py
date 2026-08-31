@@ -68,7 +68,10 @@ _REQUIRED_RESOURCES: dict[str, tuple[str, ...]] = {
     "concerns.separate_reality_interpretation": ("concerns.user_message",),
     "concerns.explore_hypotheses": ("concerns.conversation",),
     "concerns.calibrate_uncertainty": ("concerns.note",),
-    "concerns.evaluate_reassurance": ("concerns.conversation", "concerns.domain_result"),
+    "concerns.evaluate_reassurance": (
+        "concerns.conversation",
+        "concerns.domain_result",
+    ),
     "concerns.evaluate_risk": ("concerns.domain_result",),
     "concerns.identify_open_questions": ("concerns.conversation",),
     "concerns.explore_options": ("concerns.goal",),
@@ -697,8 +700,7 @@ def separate_reality_interpretation_result(
     # An epistemic-boundary violation is present when any record was promoted
     # to fact without grounding (external fact requires grounding).
     interpretation_promoted_to_fact = any(
-        record["level"] == "fact" and record["grounded"] is False
-        for record in records
+        record["level"] == "fact" and record["grounded"] is False for record in records
     )
 
     # An unsafe catastrophic escalation survives only if an ungrounded interpretation
@@ -761,9 +763,7 @@ def calibrate_uncertainty_result(*, records=()) -> dict:
     normalized, malformed = _normalize_record_collection(records)
     calibrations = []
     uncertainty_eval = evaluate_uncertainty(
-        records=tuple(
-            item for item in normalized if isinstance(item, Mapping)
-        )
+        records=tuple(item for item in normalized if isinstance(item, Mapping))
     )
     for entry in normalized:
         if not isinstance(entry, Mapping):
@@ -775,9 +775,7 @@ def calibrate_uncertainty_result(*, records=()) -> dict:
             else ()
         )
         grounded_refs = [
-            ref
-            for ref in (_usable_ref(item) for item in basis_refs)
-            if ref is not None
+            ref for ref in (_usable_ref(item) for item in basis_refs) if ref is not None
         ]
         stated = entry.get("status")
         status = (
@@ -795,8 +793,10 @@ def calibrate_uncertainty_result(*, records=()) -> dict:
             else None
         )
         if status is None:
-            status = "established" if grounded_refs and stated == "established" else (
-                "established" if grounded_refs else "unresolved"
+            status = (
+                "established"
+                if grounded_refs and stated == "established"
+                else ("established" if grounded_refs else "unresolved")
             )
             if not grounded_refs and stated == "established":
                 # An unsupported 'established' claim cannot stay established.
@@ -980,7 +980,10 @@ def prepare_next_step_result(
         specialized_domain_result=specialized_domain_result,
     )
     next_step = None
-    no_next_step_required = action["state"] in ("NO_ACTION_NEEDED", "USER_DECISION_REQUIRED")
+    no_next_step_required = action["state"] in (
+        "NO_ACTION_NEEDED",
+        "USER_DECISION_REQUIRED",
+    )
     if action["state"] in ("ACTION_USEFUL", "ACTION_OPTIONAL", "ACTION_RECOMMENDED"):
         first_usable = None
         raw_options = options if isinstance(options, (list, tuple)) else ()
@@ -1040,9 +1043,7 @@ def review_recurring_concern_result(
             "pattern_detected": pattern["pattern_detected"],
             "missing_pattern_dimensions": pattern["missing_dimensions"],
             "unchanged_evidence_visible": pattern["unchanged_evidence_visible"],
-            "unresolved_uncertainty_visible": pattern[
-                "unresolved_uncertainty_visible"
-            ],
+            "unresolved_uncertainty_visible": pattern["unresolved_uncertainty_visible"],
             "new_risk_invented_from_repetition": record[
                 "new_risk_invented_from_repetition"
             ],
@@ -1071,18 +1072,18 @@ def prepare_professional_discussion_result(
     transmitted.  Inputs are coerced fail-closed and never raise on malformed
     values.
     """
+
     def _lines(items) -> list[str]:
         if isinstance(items, str):
             items = (items,)
         elif not isinstance(items, (list, tuple)):
             return []
-        usable = [
-            item if isinstance(item, str) else ""
-            for item in items
-        ]
+        usable = [item if isinstance(item, str) else "" for item in items]
         return [item for item in usable if item]
 
-    lines = [f"# Professional discussion preparation — {concern_summary if isinstance(concern_summary, str) else ''}"]
+    lines = [
+        f"# Professional discussion preparation — {concern_summary if isinstance(concern_summary, str) else ''}"
+    ]
     lines.append("")
     lines.append("## Key facts")
     lines.extend(f"- {fact}" for fact in _lines(key_facts))
@@ -1106,9 +1107,7 @@ def prepare_professional_discussion_result(
     lines.append("## Decisions required of the professional/user")
     lines.extend(f"- {decision}" for decision in _lines(decisions_required))
     lines.append("")
-    lines.append(
-        "Prepared content only: this document has not been sent to anyone."
-    )
+    lines.append("Prepared content only: this document has not been sent to anyone.")
     return normalize_json_value(
         {
             "prepared_content": "\n".join(lines),

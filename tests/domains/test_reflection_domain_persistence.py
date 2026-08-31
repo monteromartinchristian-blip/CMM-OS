@@ -18,8 +18,15 @@ from cmm.domains.reflection.rules import (
 )
 
 
-def _pattern(pattern, *, sources=(), repetition=0, model_inferred=False,
-             duplicate_summaries=(), single_conversation=False):
+def _pattern(
+    pattern,
+    *,
+    sources=(),
+    repetition=0,
+    model_inferred=False,
+    duplicate_summaries=(),
+    single_conversation=False,
+):
     return {
         "pattern": pattern,
         "sources": tuple(sources),
@@ -31,7 +38,21 @@ def _pattern(pattern, *, sources=(), repetition=0, model_inferred=False,
 
 
 def test_literal_true_authorizes_confirmation():
-    for raw in ("true", "false", 1, 0, "0", "1", [], {}, (), None, 1.0, -1, float("nan")):
+    for raw in (
+        "true",
+        "false",
+        1,
+        0,
+        "0",
+        "1",
+        [],
+        {},
+        (),
+        None,
+        1.0,
+        -1,
+        float("nan"),
+    ):
         assert authorizes_confirmation(raw) is False
     assert authorizes_confirmation(True) is True
     assert authorizes_confirmation(False) is False
@@ -55,8 +76,12 @@ def test_repeated_model_inference_not_confirmed():
 
 def test_repeated_evidence_in_one_conversation_not_confirmed():
     record = classify_persistence(
-        _pattern("avoids intimacy", sources=("conv:1", "conv:1", "conv:1"),
-                 single_conversation=True, repetition=3)
+        _pattern(
+            "avoids intimacy",
+            sources=("conv:1", "conv:1", "conv:1"),
+            single_conversation=True,
+            repetition=3,
+        )
     )
     assert record["confirmed"] is False
     assert "single_conversation" in record["excluded_reasons"]
@@ -68,7 +93,9 @@ def test_duplicate_memory_summaries_give_no_corroboration():
     )
     assert basis["independent_grounded_sources"] == 0
     assert basis["duplicate_summaries_ignored"] == 3
-    record = classify_persistence(_pattern("avoids intimacy", duplicate_summaries=("m1", "m2")))
+    record = classify_persistence(
+        _pattern("avoids intimacy", duplicate_summaries=("m1", "m2"))
+    )
     assert record["confirmed"] is False
 
 
@@ -91,7 +118,9 @@ from cmm.domains.reflection.memory import (
 )
 
 
-def _valid_persistence_chain(proposal_id: str = "prop-pers-1", *, approved: bool = True):
+def _valid_persistence_chain(
+    proposal_id: str = "prop-pers-1", *, approved: bool = True
+):
     ref = DomainMemoryReference(
         reference_id=f"ref:{proposal_id}",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -173,9 +202,14 @@ def _valid_persistence_chain(proposal_id: str = "prop-pers-1", *, approved: bool
 
 
 def test_valid_confirmation_authorizes_proposal():
-    binding, inventory = _valid_persistence_chain(proposal_id="prop-pers-1", approved=True)
+    binding, inventory = _valid_persistence_chain(
+        proposal_id="prop-pers-1", approved=True
+    )
     record = classify_persistence(
-        {**_pattern("avoids intimacy", sources=("msg:1", "msg:2")), "proposal_id": "prop-pers-1"},
+        {
+            **_pattern("avoids intimacy", sources=("msg:1", "msg:2")),
+            "proposal_id": "prop-pers-1",
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )
@@ -195,10 +229,15 @@ def test_raw_true_is_not_a_complete_confirmation():
 
 
 def test_model_or_memory_summary_provenance_not_grounded():
-    binding, inventory = _valid_persistence_chain(proposal_id="prop-pers-2", approved=True)
+    binding, inventory = _valid_persistence_chain(
+        proposal_id="prop-pers-2", approved=True
+    )
     for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
         record = classify_persistence(
-            {**_pattern("avoids intimacy", sources=sources), "proposal_id": "prop-pers-2"},
+            {
+                **_pattern("avoids intimacy", sources=sources),
+                "proposal_id": "prop-pers-2",
+            },
             confirmation_binding=binding,
             confirmation_inventory=inventory,
         )

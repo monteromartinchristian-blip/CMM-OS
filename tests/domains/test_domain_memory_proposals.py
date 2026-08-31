@@ -12,10 +12,7 @@ from cmm.domains.memory_contracts import (
 )
 
 _VIEW_DIGEST1 = "abc123def456" + ("0" * 52)
-_VID1 = (
-    "view:req:1:"
-    f"{_VIEW_DIGEST1[:_DIGEST_PREFIX_LENGTH]}"
-)
+_VID1 = f"view:req:1:{_VIEW_DIGEST1[:_DIGEST_PREFIX_LENGTH]}"
 
 
 def _make_binding_id(
@@ -38,9 +35,7 @@ def _make_binding_id(
             "view_id": view_id,
             "view_digest": view_digest,
             "memory_proposal_ids": sorted(set(memory_proposal_ids)),
-            "agent_knowledge_proposal_ids": sorted(
-                set(agent_knowledge_proposal_ids)
-            ),
+            "agent_knowledge_proposal_ids": sorted(set(agent_knowledge_proposal_ids)),
             "affected_reference_ids": sorted(set(affected_reference_ids)),
             "permission_decision_ids": sorted(set(permission_decision_ids)),
             "approval_request_ids": sorted(set(approval_request_ids)),
@@ -51,7 +46,6 @@ def _make_binding_id(
         f"binding:{domain_id}:{trace_id}:{view_id}:"
         f"{content_digest[:_DIGEST_PREFIX_LENGTH]}"
     )
-
 
 
 def test_proposal_binding_creation_and_immutability() -> None:
@@ -91,7 +85,6 @@ def test_proposal_binding_creation_and_immutability() -> None:
         binding.trace_id = "trace:2"  # type: ignore[misc]
 
 
-
 def test_proposal_binding_requires_at_least_one_proposal() -> None:
     binding_id = _make_binding_id()
 
@@ -101,11 +94,10 @@ def test_proposal_binding_requires_at_least_one_proposal() -> None:
             domain_id="domain:health",
             trace_id="trace:1",
             view_id=_VID1,
-        view_digest=_VIEW_DIGEST1,
+            view_digest=_VIEW_DIGEST1,
             memory_proposal_ids=(),
             agent_knowledge_proposal_ids=(),
         )
-
 
 
 def test_proposal_binding_serialization_roundtrip() -> None:
@@ -127,7 +119,6 @@ def test_proposal_binding_serialization_roundtrip() -> None:
 
     assert deserialized == binding
     assert deserialized.digest == binding.digest
-
 
 
 def test_proposal_binding_order_independence() -> None:
@@ -166,20 +157,14 @@ def test_proposal_binding_order_independence() -> None:
 
 def test_binding_id_suffix_must_match_content_digest() -> None:
     view_digest = "abc123def456" + ("0" * 52)
-    view_id = (
-        "view:req:1:"
-        f"{view_digest[:_DIGEST_PREFIX_LENGTH]}"
-    )
+    view_id = f"view:req:1:{view_digest[:_DIGEST_PREFIX_LENGTH]}"
 
     with pytest.raises(
         DomainMemoryContractError,
         match="binding_id suffix must match content_digest prefix",
     ):
         DomainMemoryProposalBinding(
-            binding_id=(
-                "binding:domain:health:trace:1:"
-                f"{view_id}:deadbeefdead"
-            ),
+            binding_id=(f"binding:domain:health:trace:1:{view_id}:deadbeefdead"),
             domain_id="domain:health",
             trace_id="trace:1",
             view_id=view_id,

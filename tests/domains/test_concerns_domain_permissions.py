@@ -198,7 +198,9 @@ def test_memory_view_request_and_binding_roundtrip():
 
 
 def test_binding_validation_runs_against_shared_validator():
-    trace = DomainMemoryTraceSnapshot(trace_id="trace-2", primary_domain="domain:concerns")
+    trace = DomainMemoryTraceSnapshot(
+        trace_id="trace-2", primary_domain="domain:concerns"
+    )
     ref = _reference("ref:2", "item:2")
     permission = DomainMemoryPermissionDecisionSnapshot(
         decision_id="perm-2",
@@ -240,7 +242,9 @@ def test_binding_validation_fails_closed_on_missing_trace():
     inventory = DomainMemoryReferenceInventory(references=(ref,))
     view = build_concerns_memory_view(request=request, inventory=inventory)
     proposal = build_concerns_memory_proposal(proposal_id="cmp-5")
-    binding = build_concerns_memory_binding(proposal=proposal, view=view, trace_id="trace-3")
+    binding = build_concerns_memory_binding(
+        proposal=proposal, view=view, trace_id="trace-3"
+    )
     result = validate_concerns_memory_binding(binding=binding, inventory=inventory)
     assert result.is_valid is False
 

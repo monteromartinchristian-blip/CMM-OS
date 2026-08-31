@@ -105,11 +105,20 @@ def test_registration_does_not_merge_other_domain_state():
         "permission_registry": DomainPermissionRegistry(),
     }
     register_concerns_domain(**registries)
-    for other in ("domain:relationships", "domain:health", "domain:reflection",
-                  "domain:university", "domain:oppositions", "domain:life-plan",
-                  "domain:project"):
+    for other in (
+        "domain:relationships",
+        "domain:health",
+        "domain:reflection",
+        "domain:university",
+        "domain:oppositions",
+        "domain:life-plan",
+        "domain:project",
+    ):
         assert registries["domain_registry"].get(other) is None
-    assert all(res.id.startswith("concerns.") for res in registries["resource_registry"].list_all())
+    assert all(
+        res.id.startswith("concerns.")
+        for res in registries["resource_registry"].list_all()
+    )
 
 
 # ── Health projection ────────────────────────────────────────────────────────
@@ -142,10 +151,27 @@ def test_health_reassuring_result_can_support_reassurance():
 
     record = evaluate_reassurance(
         target_claim="benign",
-        evidence=({"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "s1"},),
+        evidence=(
+            {
+                "identity": "e1",
+                "claim": "benign",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
+        ),
         counterevidence=(
-            {"identity": "c1", "claim": "benign", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c2", "claim": "benign", "stance": "opposes_target", "grounding": "b"},
+            {
+                "identity": "c1",
+                "claim": "benign",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c2",
+                "claim": "benign",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
         ),
         specialized_domain_result={
             "domain_id": "domain:health",
@@ -176,9 +202,11 @@ def test_concerns_does_not_invent_medical_risk():
 def test_reflection_meaning_stays_with_reflection():
     source = inspect.getsource(__import__("cmm.domains.concerns", fromlist=["*"]))
     # no static dependency on the reflection package internals
-    assert "from cmm.domains.reflection" not in source.replace(
-        "cmm.domains.reflection.rules", ""
-    ) or "cmm.domains.reflection" not in source
+    assert (
+        "from cmm.domains.reflection"
+        not in source.replace("cmm.domains.reflection.rules", "")
+        or "cmm.domains.reflection" not in source
+    )
 
 
 def test_broader_meaning_question_not_claimed_by_concerns():
@@ -187,9 +215,7 @@ def test_broader_meaning_question_not_claimed_by_concerns():
     Reflection's responsibility (no identity classification here)."""
     from cmm.domains.concerns.rules import infer_support_need
 
-    record = infer_support_need(
-        explicit_request="Why does this bother me so much?"
-    )
+    record = infer_support_need(explicit_request="Why does this bother me so much?")
     assert record["support_need"] == "UNDERSTANDING"
     assert record["diagnosis"] is False
     assert record["personality_trait"] is False
@@ -203,8 +229,16 @@ def test_hypothesis_exploration_composes_shared_contract():
     from cmm.domains.reflection.rules import evaluate_hypotheses
 
     hypotheses = (
-        {"identity": "h1", "statement": "fatigue explains it", "supporting_ids": ("s1",)},
-        {"identity": "h2", "statement": "stress explains it", "supporting_ids": ("s2",)},
+        {
+            "identity": "h1",
+            "statement": "fatigue explains it",
+            "supporting_ids": ("s1",),
+        },
+        {
+            "identity": "h2",
+            "statement": "stress explains it",
+            "supporting_ids": ("s2",),
+        },
     )
     concerns_view = explore_hypotheses_result(hypotheses=hypotheses)
     canonical = evaluate_hypotheses(hypotheses=hypotheses)

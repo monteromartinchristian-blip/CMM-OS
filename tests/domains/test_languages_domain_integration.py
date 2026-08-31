@@ -30,9 +30,7 @@ def _registries() -> dict:
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -44,12 +42,17 @@ def test_register_languages_domain_atomic_success() -> None:
 
     assert isinstance(result, LanguagesDomainIntegrationResult)
     assert registries["domain_registry"].get("domain:languages") is not None
-    assert registries["profile_registry"].get_by_domain(DomainId("languages")) is not None
+    assert (
+        registries["profile_registry"].get_by_domain(DomainId("languages")) is not None
+    )
     assert len(registries["resource_registry"].list_all()) == 15
     assert len(registries["rule_registry"].list_all()) == 14
     assert len(registries["operation_registry"].list_definitions()) == 15
     assert len(registries["workflow_registry"].list_for_domain("domain:languages")) == 9
-    assert registries["permission_registry"].get("domain-permission:languages:1.0.0") is not None
+    assert (
+        registries["permission_registry"].get("domain-permission:languages:1.0.0")
+        is not None
+    )
 
 
 def test_register_languages_domain_duplicate_raises_and_rolls_back() -> None:

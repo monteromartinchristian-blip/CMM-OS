@@ -141,8 +141,7 @@ def test_update_subject_status_internal_only():
 
 def test_no_autonomous_academic_action_operation():
     op_ids = {
-        op.operation_id
-        for op in university.build_university_operation_definitions()
+        op.operation_id for op in university.build_university_operation_definitions()
     }
     assert not any(
         word in op
@@ -165,10 +164,7 @@ def test_decision_support_never_adopts():
     from cmm.cognitive.enums import ReasoningRuleResultStatus
     from cmm.cognitive.reasoning_rule_contracts import ReasoningRuleContext
 
-    rules = {
-        rule.definition.id: rule
-        for rule in university.build_university_rules()
-    }
+    rules = {rule.definition.id: rule for rule in university.build_university_rules()}
     rule = rules["university.academic_decision_preservation"]
     result = rule.evaluate(
         ReasoningRuleContext(

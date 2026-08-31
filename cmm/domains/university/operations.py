@@ -142,12 +142,8 @@ _INPUT_SCHEMAS = {
     "university.prepare_assignment": _schema(
         ("assignment_id",), {"assignment_id": {"type": "string"}}
     ),
-    "university.track_deadlines": _schema(
-        ("source_ids",), {"source_ids": _ids(1)}
-    ),
-    "university.analyse_performance": _schema(
-        ("source_ids",), {"source_ids": _ids(1)}
-    ),
+    "university.track_deadlines": _schema(("source_ids",), {"source_ids": _ids(1)}),
+    "university.analyse_performance": _schema(("source_ids",), {"source_ids": _ids(1)}),
     "university.generate_academic_summary": _schema(
         ("source_ids",), {"source_ids": _ids(1)}
     ),
@@ -251,9 +247,7 @@ _PERFORMANCE_ANALYSIS = _schema(
 )
 
 # An academic summary is a structured synthesis.
-_ACADEMIC_SUMMARY = _schema(
-    ("summary",), {"summary": {"type": "string"}}
-)
+_ACADEMIC_SUMMARY = _schema(("summary",), {"summary": {"type": "string"}})
 
 # ``update_subject_status`` output reflects only the INTERNAL Academic State.
 _SUBJECT_STATUS = _schema(
@@ -311,9 +305,7 @@ _OUTPUT_SCHEMAS = {
 }
 
 
-def build_university_operation_definitions() -> tuple[
-    DomainOperationDefinition, ...
-]:
+def build_university_operation_definitions() -> tuple[DomainOperationDefinition, ...]:
     """Build the eleven University Domain operation definitions deterministically."""
     result = []
     for operation_id in UNIVERSITY_OPERATION_IDS:

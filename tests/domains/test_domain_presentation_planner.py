@@ -33,9 +33,17 @@ def _request(*, output: DomainOutputIntent | None = None) -> DomainPresentationR
             preferred_views=("summary",),
             allowed_output_types=("HUMAN_READABLE", "ARTIFACT_REQUEST"),
         ),
-        output_intent=output or DomainOutputIntent(DomainOutputIntentType.HUMAN_READABLE),
+        output_intent=output
+        or DomainOutputIntent(DomainOutputIntentType.HUMAN_READABLE),
         items=(
-            DomainPresentationItemRef("finding-1", "FINDING", 2, epistemic_kind="fact", confidence=0.8, requires_provenance=True),
+            DomainPresentationItemRef(
+                "finding-1",
+                "FINDING",
+                2,
+                epistemic_kind="fact",
+                confidence=0.8,
+                requires_provenance=True,
+            ),
             DomainPresentationItemRef("warning-2", "WARNING", 1, warning_priority=1),
             DomainPresentationItemRef("warning-1", "WARNING", 0, warning_priority=0),
             DomainPresentationItemRef("question-1", "QUESTION", 3),
@@ -52,10 +60,13 @@ def test_planner_orders_sections_and_warnings_without_copying_or_changing_items(
     request = _request()
     plan = DefaultDomainPresentationPlanner().plan(request)
 
-    assert [section.section_id for section in plan.sections][:2] == ["findings", "warnings"]
-    assert next(section for section in plan.sections if section.section_id == "warnings").item_refs == (
-        "warning-1", "warning-2"
-    )
+    assert [section.section_id for section in plan.sections][:2] == [
+        "findings",
+        "warnings",
+    ]
+    assert next(
+        section for section in plan.sections if section.section_id == "warnings"
+    ).item_refs == ("warning-1", "warning-2")
     assert plan.protected_terms == ("contraindication",)
     assert dict(plan.term_glosses) == {"contraindication": "brief_gloss"}
     assert plan.question_refs == ("question-1",)
@@ -64,7 +75,9 @@ def test_planner_orders_sections_and_warnings_without_copying_or_changing_items(
     assert plan.workflow_refs == ("workflow-1",)
     assert plan.memory_proposal_refs == ("memory-proposal-1",)
     assert plan.output_intent.output_type is DomainOutputIntentType.HUMAN_READABLE
-    assert "finding-1" not in plan.to_dict().__repr__() or "content" not in plan.to_dict()
+    assert (
+        "finding-1" not in plan.to_dict().__repr__() or "content" not in plan.to_dict()
+    )
 
 
 def test_planner_is_deterministic_and_artifact_intent_does_not_render_a_file():

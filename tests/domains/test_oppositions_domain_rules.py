@@ -36,9 +36,9 @@ def test_exactly_six_rules_built():
 
 
 def test_official_call_priority_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.official_call_priority"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.official_call_priority"
+    ]
     result = rule.evaluate(
         _context(
             opposition_claims=[
@@ -62,17 +62,17 @@ def test_official_call_priority_rule_evaluate():
 
 
 def test_official_call_priority_not_applicable():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.official_call_priority"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.official_call_priority"
+    ]
     result = rule.evaluate(_context())
     assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
 
 
 def test_temporal_validity_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.temporal_validity"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.temporal_validity"
+    ]
     result = rule.evaluate(
         _context(
             temporal_facts=[
@@ -93,9 +93,9 @@ def test_temporal_validity_rule_evaluate():
 
 
 def test_syllabus_coverage_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.syllabus_coverage"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.syllabus_coverage"
+    ]
     result = rule.evaluate(
         _context(
             topics=[{"id": "t1", "studied": "yes"}, {"id": "t2", "studied": "yes"}],
@@ -108,9 +108,9 @@ def test_syllabus_coverage_rule_evaluate():
 
 
 def test_study_feasibility_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.study_feasibility"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.study_feasibility"
+    ]
     result = rule.evaluate(
         _context(
             remaining_hours=20,
@@ -124,9 +124,9 @@ def test_study_feasibility_rule_evaluate():
 
 
 def test_mock_interpretation_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.mock_exam_interpretation"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.mock_exam_interpretation"
+    ]
     result = rule.evaluate(
         _context(mocks=[{"id": "m1", "score": 30, "total": 50, "scoring": "standard"}])
     )
@@ -135,13 +135,15 @@ def test_mock_interpretation_rule_evaluate():
 
 
 def test_alternative_route_rule_evaluate():
-    rule = {
-        r.definition.id: r for r in oppositions.build_oppositions_rules()
-    }["oppositions.alternative_route"]
+    rule = {r.definition.id: r for r in oppositions.build_oppositions_rules()}[
+        "oppositions.alternative_route"
+    ]
     result = rule.evaluate(
         _context(
             primary={"id": "primary", "eligibility": "eligible"},
-            alternatives=[{"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.7}],
+            alternatives=[
+                {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.7}
+            ],
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED

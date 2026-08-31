@@ -25,10 +25,9 @@ T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _canonical_result(integrity):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.academic_integrity"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.academic_integrity"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="integrity-production",
         timestamp=T,
@@ -247,9 +246,7 @@ def test_canonical_rule_unreferenced_official_restriction_cannot_prohibit(
             "course": "course-x",
             "assessment": "assignment-a",
             "requested_action": "draft_final_answer",
-            "grounded_restriction": _restriction(
-                source_reference=source_reference
-            ),
+            "grounded_restriction": _restriction(source_reference=source_reference),
         }
     )
     finding = result.findings[0]
@@ -376,10 +373,7 @@ def test_finding_preserves_restriction_source_and_temporal_evidence():
     assert finding.code == "INTEGRITY_RESTRICTION_APPLIED"
     assert finding.metadata["restriction_source_class"] == "official_regulation"
     assert finding.metadata["restriction_temporal"] == "current"
-    assert (
-        finding.metadata["restriction_source_reference"]
-        == "integrity-regulation-1"
-    )
+    assert finding.metadata["restriction_source_reference"] == "integrity-regulation-1"
     assert "integrity-regulation-1" in finding.references
 
 
@@ -415,6 +409,8 @@ def test_finding_code_does_not_claim_restriction_when_not_applied(integrity):
     assert finding.metadata["restriction_applies"] is False
     assert finding.code != "INTEGRITY_RESTRICTION_APPLIED"
     assert finding.code == "INTEGRITY_MODE_PRESERVED"
+
+
 # ── V9-B3.4: strict Integrity restriction grounding.  Truthy != grounded. ─────
 
 
@@ -568,17 +564,13 @@ def test_v12_b1_integrity_remembered_restriction_malformed_not_true(value):
 
 
 def test_v12_b1_integrity_remembered_restriction_literal_true_remembered():
-    result = _canonical_result(
-        {"mode": "mode_c", "remembered_restriction": True}
-    )
+    result = _canonical_result({"mode": "mode_c", "remembered_restriction": True})
     finding = result.findings[0]
     assert finding.metadata["remembered_not_official"] is True
 
 
 def test_v12_b1_integrity_remembered_restriction_literal_false_not_remembered():
-    result = _canonical_result(
-        {"mode": "mode_c", "remembered_restriction": False}
-    )
+    result = _canonical_result({"mode": "mode_c", "remembered_restriction": False})
     finding = result.findings[0]
     assert finding.metadata["remembered_not_official"] is False
 

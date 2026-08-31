@@ -48,9 +48,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -102,9 +100,7 @@ def test_failure_during_resources_rolls_back():
 
 def test_failure_during_rules_rolls_back():
     registries = _registries()
-    registries["rule_registry"] = _FailAfterN(
-        registries["rule_registry"], fail_after=0
-    )
+    registries["rule_registry"] = _FailAfterN(registries["rule_registry"], fail_after=0)
     before = _snapshot_all(registries)
     with pytest.raises(RuntimeError, match="simulated post-mutation failure"):
         register_reflection_domain(**registries)

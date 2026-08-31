@@ -61,16 +61,21 @@ def test_item_ref_has_no_content_or_unsafe_metadata_surface():
     assert "content" not in ref.to_dict()
     assert "value" not in ref.to_dict()
     with pytest.raises(DomainPresentationSerializationError):
-        DomainPresentationItemRef.from_dict({
-            **ref.to_dict(),
-            "content": "must not be accepted",
-        })
+        DomainPresentationItemRef.from_dict(
+            {
+                **ref.to_dict(),
+                "content": "must not be accepted",
+            }
+        )
 
 
 def test_artifact_format_requires_logical_artifact_request():
     with pytest.raises(DomainPresentationContractError, match="artifact_format"):
         DomainOutputIntent(DomainOutputIntentType.STRUCTURED, artifact_format="PDF")
 
-    assert DomainOutputIntent(
-        DomainOutputIntentType.ARTIFACT_REQUEST, artifact_format="PDF"
-    ).artifact_format == "PDF"
+    assert (
+        DomainOutputIntent(
+            DomainOutputIntentType.ARTIFACT_REQUEST, artifact_format="PDF"
+        ).artifact_format
+        == "PDF"
+    )

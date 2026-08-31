@@ -121,6 +121,8 @@ def test_assemble_keeps_caller_references_in_contribution():
         if r.kind is DomainTraceReferenceKind.OPERATION_RESULT
     ]
     assert [r.ref_id for r in op_refs] == ["op:1"]
+
+
 def test_assemble_round_trip():
     trace = assemble_general_trace(
         request_id="req1",

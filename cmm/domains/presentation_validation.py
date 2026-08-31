@@ -95,7 +95,9 @@ class DefaultDomainPresentationPreservationValidator:
 
     @staticmethod
     def _validate_identity(
-        request: DomainPresentationRequest, plan: DomainPresentationPlan, codes: list[str]
+        request: DomainPresentationRequest,
+        plan: DomainPresentationPlan,
+        codes: list[str],
     ) -> None:
         if plan.request_id != request.request_id:
             _append(codes, "REQUEST_ID_CHANGED")
@@ -106,7 +108,9 @@ class DefaultDomainPresentationPreservationValidator:
 
     @staticmethod
     def _validate_policy_transport(
-        request: DomainPresentationRequest, plan: DomainPresentationPlan, codes: list[str]
+        request: DomainPresentationRequest,
+        plan: DomainPresentationPlan,
+        codes: list[str],
     ) -> None:
         if plan.detail_level != request.policy.detail_level:
             _append(codes, "DETAIL_LEVEL_CHANGED")
@@ -116,7 +120,9 @@ class DefaultDomainPresentationPreservationValidator:
             _append(codes, "PREFERRED_OUTPUT_TYPE_CHANGED")
         expected_hypotheses = tuple(
             item.ref_id
-            for item in sorted(request.items, key=lambda item: (item.source_order, item.ref_id))
+            for item in sorted(
+                request.items, key=lambda item: (item.source_order, item.ref_id)
+            )
             if (
                 request.policy.allow_speculation is False
                 and item.epistemic_kind is not None
@@ -136,15 +142,16 @@ class DefaultDomainPresentationPreservationValidator:
                 for section in plan.sections
             )
             has_component = any(
-                component.component_id == "disclaimers"
-                for component in plan.components
+                component.component_id == "disclaimers" for component in plan.components
             )
             if not has_section and not has_component:
                 _append(codes, "DISCLAIMERS_MISSING")
 
     @staticmethod
     def _validate_output_intent(
-        request: DomainPresentationRequest, plan: DomainPresentationPlan, codes: list[str]
+        request: DomainPresentationRequest,
+        plan: DomainPresentationPlan,
+        codes: list[str],
     ) -> None:
         if plan.output_intent != resolved_output_intent(request):
             _append(codes, "OUTPUT_INTENT_CHANGED")
@@ -154,7 +161,9 @@ class DefaultDomainPresentationPreservationValidator:
 
     @staticmethod
     def _validate_terms(
-        request: DomainPresentationRequest, plan: DomainPresentationPlan, codes: list[str]
+        request: DomainPresentationRequest,
+        plan: DomainPresentationPlan,
+        codes: list[str],
     ) -> None:
         if tuple(plan.protected_terms) != tuple(request.policy.protected_terms):
             _append(codes, "PROTECTED_TERMS_CHANGED")
@@ -189,7 +198,9 @@ class DefaultDomainPresentationPreservationValidator:
         unexpected: list[str],
     ) -> None:
         by_id = {section.section_id: section for section in plan.sections}
-        required_sections = effective_required_sections(request.policy, request.presentation)
+        required_sections = effective_required_sections(
+            request.policy, request.presentation
+        )
         suppressed_sections = set(
             effective_suppressed_sections(request.policy, request.presentation)
         )
@@ -300,19 +311,29 @@ class DefaultDomainPresentationPreservationValidator:
     def _validate_components(plan: DomainPresentationPlan, codes: list[str]) -> None:
         section_ids = {section.section_id for section in plan.sections}
         for component in plan.components:
-            if component.section_id is not None and component.section_id not in section_ids:
+            if (
+                component.section_id is not None
+                and component.section_id not in section_ids
+            ):
                 _append(codes, "COMPONENT_UNKNOWN_SECTION")
 
     @staticmethod
     def _validate_warnings(
-        request: DomainPresentationRequest, plan: DomainPresentationPlan, codes: list[str]
+        request: DomainPresentationRequest,
+        plan: DomainPresentationPlan,
+        codes: list[str],
     ) -> None:
         warnings = [
-            item for item in request.items if item.item_type is DomainPresentationItemType.WARNING
+            item
+            for item in request.items
+            if item.item_type is DomainPresentationItemType.WARNING
         ]
-        expected = tuple(item.ref_id for item in sorted(warnings, key=_warning_order_key))
+        expected = tuple(
+            item.ref_id for item in sorted(warnings, key=_warning_order_key)
+        )
         warning_section = next(
-            (section for section in plan.sections if section.section_id == "warnings"), None
+            (section for section in plan.sections if section.section_id == "warnings"),
+            None,
         )
         actual_section = warning_section.item_refs if warning_section else ()
         if plan.warning_refs != expected or actual_section != expected:

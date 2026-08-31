@@ -189,7 +189,4 @@ def build_concerns_resource_definitions() -> tuple[DomainResourceDefinition, ...
             metadata={"provenance": True, "user_reported": True, "unverified": True},
         ),
     }
-    return tuple(
-        by_id[resource_id]
-        for resource_id in CANONICAL_CONCERNS_RESOURCE_IDS
-    )
+    return tuple(by_id[resource_id] for resource_id in CANONICAL_CONCERNS_RESOURCE_IDS)

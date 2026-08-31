@@ -18,29 +18,47 @@ from cmm.domains.profile_contracts import DomainPresentationPolicy
 
 def _request(values: dict[str, object]) -> DomainPresentationRequest:
     return DomainPresentationRequest(
-        request_id="request-1", upstream_result_id="result-1", composition_id="composition-1", policy_id="profile-1",
+        request_id="request-1",
+        upstream_result_id="result-1",
+        composition_id="composition-1",
+        policy_id="profile-1",
         presentation=PresentationComposition(values=values, provenance={}),
         policy=DomainPresentationPolicy(
-            required_sections=("warnings",), protected_terms=("risk",), term_glosses={"risk": "policy gloss"},
+            required_sections=("warnings",),
+            protected_terms=("risk",),
+            term_glosses={"risk": "policy gloss"},
             preferred_components=("warning-banner",),
         ),
         output_intent=DomainOutputIntent(DomainOutputIntentType.HUMAN_READABLE),
-        items=(DomainPresentationItemRef("warning-1", "WARNING", 0, warning_priority=0),),
-        primary_domain_id="domain:general", supporting_domain_ids=("domain:health",),
+        items=(
+            DomainPresentationItemRef("warning-1", "WARNING", 0, warning_priority=0),
+        ),
+        primary_domain_id="domain:general",
+        supporting_domain_ids=("domain:health",),
     )
 
 
 def test_multidomain_mapping_order_does_not_change_plan_and_safety_stays_visible():
-    first = _request({"required_sections": ["contradictions"], "components": ["source-panel"]})
-    second = _request({"components": ["source-panel"], "required_sections": ["contradictions"]})
+    first = _request(
+        {"required_sections": ["contradictions"], "components": ["source-panel"]}
+    )
+    second = _request(
+        {"components": ["source-panel"], "required_sections": ["contradictions"]}
+    )
     planner = DefaultDomainPresentationPlanner()
 
     first_plan = planner.plan(first)
     second_plan = planner.plan(second)
 
     assert first_plan.plan_id == second_plan.plan_id
-    assert [section.section_id for section in first_plan.sections][:2] == ["warnings", "contradictions"]
-    assert {component.component_id for component in first_plan.components} == {"warning-banner", "source-panel"}
+    assert [section.section_id for section in first_plan.sections][:2] == [
+        "warnings",
+        "contradictions",
+    ]
+    assert {component.component_id for component in first_plan.components} == {
+        "warning-banner",
+        "source-panel",
+    }
 
 
 def test_incompatible_multi_domain_gloss_is_typed_conflict_and_blocks_validation():

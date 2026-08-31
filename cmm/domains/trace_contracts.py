@@ -27,17 +27,42 @@ _MAX_METADATA_SEQUENCE_ITEMS = 64
 _MAX_METADATA_STRING_LENGTH = 128
 _PRIVATE_MARKERS = frozenset(
     {
-        "prompt", "systemprompt", "developerprompt", "usermessage", "objectivetext",
-        "content", "rawcontent", "payload", "secret", "token", "credential",
-        "password", "apikey", "chainofthought", "reasoningtext", "rawreasoning",
-        "rawresource", "toolarguments", "toolresponse", "providerrequest",
-        "providerresponse", "pii",
+        "prompt",
+        "systemprompt",
+        "developerprompt",
+        "usermessage",
+        "objectivetext",
+        "content",
+        "rawcontent",
+        "payload",
+        "secret",
+        "token",
+        "credential",
+        "password",
+        "apikey",
+        "chainofthought",
+        "reasoningtext",
+        "rawreasoning",
+        "rawresource",
+        "toolarguments",
+        "toolresponse",
+        "providerrequest",
+        "providerresponse",
+        "pii",
     }
 )
 _PRIVATE_KEY_TOKENS = frozenset(
     {
-        "prompt", "message", "content", "payload", "secret", "token",
-        "credential", "password", "apikey", "pii",
+        "prompt",
+        "message",
+        "content",
+        "payload",
+        "secret",
+        "token",
+        "credential",
+        "password",
+        "apikey",
+        "pii",
     }
 )
 _SAFE_REFERENCE_KEYS = frozenset(
@@ -85,10 +110,12 @@ def _contains_private_marker(value: str) -> bool:
     if normalized in _SAFE_REFERENCE_KEYS:
         return False
     tokens = _word_tokens(value)
-    if normalized in _PRIVATE_MARKERS or any(item in _PRIVATE_KEY_TOKENS for item in tokens):
+    if normalized in _PRIVATE_MARKERS or any(
+        item in _PRIVATE_KEY_TOKENS for item in tokens
+    ):
         return True
     return any(
-        tokens[index:index + len(sequence)] == sequence
+        tokens[index : index + len(sequence)] == sequence
         for sequence in _PRIVATE_TOKEN_SEQUENCES
         for index in range(len(tokens) - len(sequence) + 1)
     )
@@ -96,7 +123,9 @@ def _contains_private_marker(value: str) -> bool:
 
 def _identifier(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not _ID_RE.fullmatch(value):
-        raise DomainTraceContractError(f"{field_name} must be a safe reference ID", field=field_name)
+        raise DomainTraceContractError(
+            f"{field_name} must be a safe reference ID", field=field_name
+        )
     return value
 
 
@@ -107,47 +136,71 @@ def _domain_id(value: Any, field_name: str) -> DomainId:
         try:
             return DomainId.from_str(value)
         except ValueError as exc:
-            raise DomainTraceContractError(f"{field_name} must be a DomainId", field=field_name) from exc
+            raise DomainTraceContractError(
+                f"{field_name} must be a DomainId", field=field_name
+            ) from exc
     raise DomainTraceContractError(f"{field_name} must be a DomainId", field=field_name)
 
 
 def _aware(value: Any, field_name: str) -> datetime:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
-        raise DomainTraceContractError(f"{field_name} must be timezone-aware", field=field_name)
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() is None
+    ):
+        raise DomainTraceContractError(
+            f"{field_name} must be timezone-aware", field=field_name
+        )
     return value
 
 
 def _freeze_metadata(value: Any, field_name: str = "metadata", depth: int = 0) -> Any:
     if depth > _MAX_METADATA_DEPTH:
-        raise DomainTraceContractError(f"{field_name} exceeds maximum depth", field=field_name)
+        raise DomainTraceContractError(
+            f"{field_name} exceeds maximum depth", field=field_name
+        )
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
-            raise DomainTraceContractError(f"{field_name} floats must be finite", field=field_name)
+            raise DomainTraceContractError(
+                f"{field_name} floats must be finite", field=field_name
+            )
         return value
     if isinstance(value, str):
         if len(value) > _MAX_METADATA_STRING_LENGTH or not _ID_RE.fullmatch(value):
-            raise DomainTraceContractError(f"{field_name} strings must be bounded safe tokens", field=field_name)
+            raise DomainTraceContractError(
+                f"{field_name} strings must be bounded safe tokens", field=field_name
+            )
         if _contains_private_marker(value):
-            raise DomainTraceContractError(f"{field_name} contains private data", field=field_name)
+            raise DomainTraceContractError(
+                f"{field_name} contains private data", field=field_name
+            )
         return value
     if isinstance(value, Mapping):
         if len(value) > _MAX_METADATA_ITEMS:
-            raise DomainTraceContractError(f"{field_name} has too many entries", field=field_name)
+            raise DomainTraceContractError(
+                f"{field_name} has too many entries", field=field_name
+            )
         result: dict[str, Any] = {}
         for key, item in value.items():
             if not isinstance(key, str) or not _ID_RE.fullmatch(key):
-                raise DomainTraceContractError(f"{field_name} keys must be safe tokens", field=field_name)
+                raise DomainTraceContractError(
+                    f"{field_name} keys must be safe tokens", field=field_name
+                )
             if _contains_private_marker(key):
-                raise DomainTraceContractError(f"{field_name} contains private data", field=field_name)
+                raise DomainTraceContractError(
+                    f"{field_name} contains private data", field=field_name
+                )
             result[key] = _freeze_metadata(item, field_name, depth + 1)
         return MappingProxyType(result)
     if isinstance(value, (list, tuple)):
         if len(value) > _MAX_METADATA_SEQUENCE_ITEMS:
-            raise DomainTraceContractError(f"{field_name} has too many values", field=field_name)
+            raise DomainTraceContractError(
+                f"{field_name} has too many values", field=field_name
+            )
         return tuple(_freeze_metadata(item, field_name, depth + 1) for item in value)
     raise DomainTraceContractError(f"{field_name} must be JSON-safe", field=field_name)
 
@@ -164,14 +217,18 @@ def _canonical_json(value: Mapping[str, Any]) -> str:
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError) as exc:
-        raise DomainTraceContractError("trace must be JSON serializable", field="trace") from exc
+        raise DomainTraceContractError(
+            "trace must be JSON serializable", field="trace"
+        ) from exc
 
 
 def _strict_keys(data: Mapping[str, Any], allowed: set[str], name: str) -> None:
     if not isinstance(data, Mapping):
         raise DomainTraceSerializationError(f"{name} requires a mapping", field="data")
     if any(not isinstance(key, str) for key in data):
-        raise DomainTraceSerializationError(f"{name} keys must be strings", field="data")
+        raise DomainTraceSerializationError(
+            f"{name} keys must be strings", field="data"
+        )
     unknown = set(data) - allowed
     if unknown:
         raise DomainTraceSerializationError(f"unknown {name} fields", field="data")
@@ -181,10 +238,14 @@ def _sorted_ids(values: Any, field_name: str) -> tuple[str, ...]:
     if values is None:
         return ()
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise DomainTraceContractError(f"{field_name} must be a sequence", field=field_name)
+        raise DomainTraceContractError(
+            f"{field_name} must be a sequence", field=field_name
+        )
     result = tuple(_identifier(value, field_name) for value in values)
     if len(result) != len(set(result)):
-        raise DomainTraceContractError(f"{field_name} must not contain duplicates", field=field_name)
+        raise DomainTraceContractError(
+            f"{field_name} must not contain duplicates", field=field_name
+        )
     return tuple(sorted(result))
 
 
@@ -192,7 +253,9 @@ def _sorted_diagnostics(values: Any, field_name: str) -> tuple[str, ...]:
     if values is None:
         return ()
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise DomainTraceContractError(f"{field_name} must be a sequence", field=field_name)
+        raise DomainTraceContractError(
+            f"{field_name} must be a sequence", field=field_name
+        )
     labels: list[str] = []
     for value in values:
         if isinstance(value, str) and _ID_RE.fullmatch(value):
@@ -204,7 +267,9 @@ def _sorted_diagnostics(values: Any, field_name: str) -> tuple[str, ...]:
             material = b"bytes:" + value
         else:
             value_type = type(value)
-            material = f"type:{value_type.__module__}.{value_type.__qualname__}".encode()
+            material = (
+                f"type:{value_type.__module__}.{value_type.__qualname__}".encode()
+            )
         labels.append(f"invalid-reference:{hashlib.sha256(material).hexdigest()[:16]}")
     return tuple(sorted(set(labels)))
 
@@ -280,11 +345,20 @@ class DomainTraceDomainSelection:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _identifier(self.source_id, "source_id"))
-        object.__setattr__(self, "primary_domain", _domain_id(self.primary_domain, "primary_domain"))
-        supporting = tuple(_domain_id(item, "supporting_domains") for item in self.supporting_domains)
+        object.__setattr__(
+            self, "primary_domain", _domain_id(self.primary_domain, "primary_domain")
+        )
+        supporting = tuple(
+            _domain_id(item, "supporting_domains") for item in self.supporting_domains
+        )
         if self.primary_domain in supporting or len(set(supporting)) != len(supporting):
-            raise DomainTraceContractError("supporting_domains must be unique and exclude primary_domain", field="supporting_domains")
-        object.__setattr__(self, "supporting_domains", tuple(sorted(supporting, key=str)))
+            raise DomainTraceContractError(
+                "supporting_domains must be unique and exclude primary_domain",
+                field="supporting_domains",
+            )
+        object.__setattr__(
+            self, "supporting_domains", tuple(sorted(supporting, key=str))
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -295,10 +369,22 @@ class DomainTraceDomainSelection:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainTraceDomainSelection:
-        _strict_keys(data, {"source_id", "primary_domain", "supporting_domains"}, cls.__name__)
+        _strict_keys(
+            data, {"source_id", "primary_domain", "supporting_domains"}, cls.__name__
+        )
         try:
-            return cls(data["source_id"], data["primary_domain"], tuple(data.get("supporting_domains", ())))
-        except (KeyError, TypeError, ValueError, DomainSerializationError, DomainTraceContractError) as exc:
+            return cls(
+                data["source_id"],
+                data["primary_domain"],
+                tuple(data.get("supporting_domains", ())),
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+        ) as exc:
             raise DomainTraceSerializationError(
                 "invalid DomainTraceDomainSelection payload",
                 field="data",
@@ -371,7 +457,9 @@ class DomainTraceReference:
         if not isinstance(self.kind, DomainTraceReferenceKind):
             object.__setattr__(self, "kind", DomainTraceReferenceKind(self.kind))
         if self.domain_id is not None:
-            object.__setattr__(self, "domain_id", _domain_id(self.domain_id, "domain_id"))
+            object.__setattr__(
+                self, "domain_id", _domain_id(self.domain_id, "domain_id")
+            )
         if (self.kind in _GLOBAL_KINDS) != (self.domain_id is None):
             raise DomainTraceContractError(
                 "global references must omit domain_id and domain references must include it",
@@ -379,14 +467,28 @@ class DomainTraceReference:
             )
 
     def to_dict(self) -> dict[str, str | None]:
-        return {"ref_id": self.ref_id, "kind": self.kind.value, "domain_id": str(self.domain_id) if self.domain_id else None}
+        return {
+            "ref_id": self.ref_id,
+            "kind": self.kind.value,
+            "domain_id": str(self.domain_id) if self.domain_id else None,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainTraceReference:
         _strict_keys(data, {"ref_id", "kind", "domain_id"}, cls.__name__)
         try:
-            return cls(ref_id=data["ref_id"], kind=data["kind"], domain_id=data.get("domain_id"))
-        except (KeyError, TypeError, ValueError, DomainSerializationError, DomainTraceContractError) as exc:
+            return cls(
+                ref_id=data["ref_id"],
+                kind=data["kind"],
+                domain_id=data.get("domain_id"),
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+        ) as exc:
             raise DomainTraceSerializationError(
                 "invalid DomainTraceReference payload",
                 field="data",
@@ -406,27 +508,63 @@ class DomainTraceContribution:
         if not isinstance(self.role, DomainTraceRole):
             object.__setattr__(self, "role", DomainTraceRole(self.role))
         refs = tuple(
-            reference if isinstance(reference, DomainTraceReference) else DomainTraceReference.from_dict(reference)
+            reference
+            if isinstance(reference, DomainTraceReference)
+            else DomainTraceReference.from_dict(reference)
             for reference in self.references
         )
-        if any(reference.domain_id != self.domain_id or reference.kind in _GLOBAL_KINDS for reference in refs):
-            raise DomainTraceContractError("contribution references must belong to its domain", field="references")
-        if len({(reference.ref_id, reference.kind, reference.domain_id) for reference in refs}) != len(refs):
-            raise DomainTraceContractError("contribution references must not duplicate", field="references")
+        if any(
+            reference.domain_id != self.domain_id or reference.kind in _GLOBAL_KINDS
+            for reference in refs
+        ):
+            raise DomainTraceContractError(
+                "contribution references must belong to its domain", field="references"
+            )
+        if len(
+            {
+                (reference.ref_id, reference.kind, reference.domain_id)
+                for reference in refs
+            }
+        ) != len(refs):
+            raise DomainTraceContractError(
+                "contribution references must not duplicate", field="references"
+            )
         object.__setattr__(self, "references", refs)
 
     def canonicalized(self) -> DomainTraceContribution:
-        return DomainTraceContribution(self.domain_id, self.role, tuple(sorted(self.references, key=_reference_sort_key)))
+        return DomainTraceContribution(
+            self.domain_id,
+            self.role,
+            tuple(sorted(self.references, key=_reference_sort_key)),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"domain_id": str(self.domain_id), "role": self.role.value, "references": [item.to_dict() for item in self.references]}
+        return {
+            "domain_id": str(self.domain_id),
+            "role": self.role.value,
+            "references": [item.to_dict() for item in self.references],
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainTraceContribution:
         _strict_keys(data, {"domain_id", "role", "references"}, cls.__name__)
         try:
-            return cls(data["domain_id"], data["role"], tuple(DomainTraceReference.from_dict(item) for item in data.get("references", ())))
-        except (KeyError, TypeError, ValueError, DomainSerializationError, DomainTraceContractError, DomainTraceSerializationError) as exc:
+            return cls(
+                data["domain_id"],
+                data["role"],
+                tuple(
+                    DomainTraceReference.from_dict(item)
+                    for item in data.get("references", ())
+                ),
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+            DomainTraceSerializationError,
+        ) as exc:
             raise DomainTraceSerializationError(
                 "invalid DomainTraceContribution payload",
                 field="data",
@@ -438,7 +576,9 @@ def _canonical_participants(
     supporting_domains: Sequence[DomainId | str],
     contributions: Sequence[DomainTraceContribution | Mapping[str, Any]],
 ) -> tuple[tuple[DomainId, ...], tuple[DomainTraceContribution, ...]]:
-    supporting = tuple(_domain_id(value, "supporting_domains") for value in supporting_domains)
+    supporting = tuple(
+        _domain_id(value, "supporting_domains") for value in supporting_domains
+    )
     if primary_domain in supporting or len(set(supporting)) != len(supporting):
         raise DomainTraceContractError(
             "supporting_domains must be unique and exclude primary_domain",
@@ -479,7 +619,9 @@ def _reference_sort_key(reference: DomainTraceReference) -> tuple[str, str, str]
     return (reference.kind.value, str(reference.domain_id or ""), reference.ref_id)
 
 
-def _domain_result_sort_key(reference: DomainResultTraceReference) -> tuple[str, str, str]:
+def _domain_result_sort_key(
+    reference: DomainResultTraceReference,
+) -> tuple[str, str, str]:
     return (str(reference.domain_id), reference.result_id, reference.trace_id or "")
 
 
@@ -496,14 +638,24 @@ class DomainResultTraceReference:
             object.__setattr__(self, "trace_id", _identifier(self.trace_id, "trace_id"))
 
     def to_dict(self) -> dict[str, str | None]:
-        return {"result_id": self.result_id, "domain_id": str(self.domain_id), "trace_id": self.trace_id}
+        return {
+            "result_id": self.result_id,
+            "domain_id": str(self.domain_id),
+            "trace_id": self.trace_id,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainResultTraceReference:
         _strict_keys(data, {"result_id", "domain_id", "trace_id"}, cls.__name__)
         try:
             return cls(data["result_id"], data["domain_id"], data.get("trace_id"))
-        except (KeyError, TypeError, ValueError, DomainSerializationError, DomainTraceContractError) as exc:
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+        ) as exc:
             raise DomainTraceSerializationError(
                 "invalid DomainResultTraceReference payload",
                 field="data",
@@ -554,56 +706,136 @@ class DomainTraceReferences:
         for name in ("resolution_context_id", "resolution_result_id", "composition_id"):
             object.__setattr__(self, name, _identifier(getattr(self, name), name))
         if self.agent_trace_id is not None:
-            object.__setattr__(self, "agent_trace_id", _identifier(self.agent_trace_id, "agent_trace_id"))
-        for name in ("cognitive_result_ids", "reasoning_trace_ids", "knowledge_package_ids", "presentation_plan_ids", "presentation_validation_result_ids", "presentation_result_ids"):
+            object.__setattr__(
+                self,
+                "agent_trace_id",
+                _identifier(self.agent_trace_id, "agent_trace_id"),
+            )
+        for name in (
+            "cognitive_result_ids",
+            "reasoning_trace_ids",
+            "knowledge_package_ids",
+            "presentation_plan_ids",
+            "presentation_validation_result_ids",
+            "presentation_result_ids",
+        ):
             object.__setattr__(self, name, _sorted_ids(getattr(self, name), name))
         pairings = tuple(
-            pairing if isinstance(pairing, CrossDomainTraceReference) else CrossDomainTraceReference.from_dict(pairing)
+            pairing
+            if isinstance(pairing, CrossDomainTraceReference)
+            else CrossDomainTraceReference.from_dict(pairing)
             for pairing in self.cross_domain_results
         )
         if len({pairing.result_id for pairing in pairings}) != len(pairings):
-            raise DomainTraceContractError("cross_domain_results must not duplicate", field="cross_domain_results")
-        object.__setattr__(self, "cross_domain_results", tuple(sorted(pairings, key=lambda item: item.result_id)))
+            raise DomainTraceContractError(
+                "cross_domain_results must not duplicate", field="cross_domain_results"
+            )
+        object.__setattr__(
+            self,
+            "cross_domain_results",
+            tuple(sorted(pairings, key=lambda item: item.result_id)),
+        )
 
     def all_references(self) -> tuple[DomainTraceReference, ...]:
         items = [
-            DomainTraceReference(self.resolution_context_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT),
-            DomainTraceReference(self.resolution_result_id, DomainTraceReferenceKind.RESOLUTION_RESULT),
-            DomainTraceReference(self.composition_id, DomainTraceReferenceKind.COMPOSITION),
+            DomainTraceReference(
+                self.resolution_context_id, DomainTraceReferenceKind.RESOLUTION_CONTEXT
+            ),
+            DomainTraceReference(
+                self.resolution_result_id, DomainTraceReferenceKind.RESOLUTION_RESULT
+            ),
+            DomainTraceReference(
+                self.composition_id, DomainTraceReferenceKind.COMPOSITION
+            ),
         ]
         if self.agent_trace_id:
-            items.append(DomainTraceReference(self.agent_trace_id, DomainTraceReferenceKind.AGENT_TRACE))
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.COGNITIVE_RESULT) for item in self.cognitive_result_ids)
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.REASONING_TRACE) for item in self.reasoning_trace_ids)
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.KNOWLEDGE_PACKAGE) for item in self.knowledge_package_ids)
-        items.extend(DomainTraceReference(item.result_id, DomainTraceReferenceKind.CROSS_DOMAIN_RESULT) for item in self.cross_domain_results)
+            items.append(
+                DomainTraceReference(
+                    self.agent_trace_id, DomainTraceReferenceKind.AGENT_TRACE
+                )
+            )
         items.extend(
-            DomainTraceReference(item.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE)
+            DomainTraceReference(item, DomainTraceReferenceKind.COGNITIVE_RESULT)
+            for item in self.cognitive_result_ids
+        )
+        items.extend(
+            DomainTraceReference(item, DomainTraceReferenceKind.REASONING_TRACE)
+            for item in self.reasoning_trace_ids
+        )
+        items.extend(
+            DomainTraceReference(item, DomainTraceReferenceKind.KNOWLEDGE_PACKAGE)
+            for item in self.knowledge_package_ids
+        )
+        items.extend(
+            DomainTraceReference(
+                item.result_id, DomainTraceReferenceKind.CROSS_DOMAIN_RESULT
+            )
             for item in self.cross_domain_results
         )
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_PLAN) for item in self.presentation_plan_ids)
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_VALIDATION_RESULT) for item in self.presentation_validation_result_ids)
-        items.extend(DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_RESULT) for item in self.presentation_result_ids)
+        items.extend(
+            DomainTraceReference(
+                item.trace_id, DomainTraceReferenceKind.CROSS_DOMAIN_TRACE
+            )
+            for item in self.cross_domain_results
+        )
+        items.extend(
+            DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_PLAN)
+            for item in self.presentation_plan_ids
+        )
+        items.extend(
+            DomainTraceReference(
+                item, DomainTraceReferenceKind.PRESENTATION_VALIDATION_RESULT
+            )
+            for item in self.presentation_validation_result_ids
+        )
+        items.extend(
+            DomainTraceReference(item, DomainTraceReferenceKind.PRESENTATION_RESULT)
+            for item in self.presentation_result_ids
+        )
         return tuple(sorted(items, key=_reference_sort_key))
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "resolution_context_id": self.resolution_context_id, "resolution_result_id": self.resolution_result_id,
-            "composition_id": self.composition_id, "agent_trace_id": self.agent_trace_id,
-            "cognitive_result_ids": list(self.cognitive_result_ids), "reasoning_trace_ids": list(self.reasoning_trace_ids),
+            "resolution_context_id": self.resolution_context_id,
+            "resolution_result_id": self.resolution_result_id,
+            "composition_id": self.composition_id,
+            "agent_trace_id": self.agent_trace_id,
+            "cognitive_result_ids": list(self.cognitive_result_ids),
+            "reasoning_trace_ids": list(self.reasoning_trace_ids),
             "knowledge_package_ids": list(self.knowledge_package_ids),
-            "cross_domain_results": [item.to_dict() for item in self.cross_domain_results],
+            "cross_domain_results": [
+                item.to_dict() for item in self.cross_domain_results
+            ],
             "presentation_plan_ids": list(self.presentation_plan_ids),
-            "presentation_validation_result_ids": list(self.presentation_validation_result_ids),
+            "presentation_validation_result_ids": list(
+                self.presentation_validation_result_ids
+            ),
             "presentation_result_ids": list(self.presentation_result_ids),
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainTraceReferences:
-        _strict_keys(data, {field_name for field_name in cls.__dataclass_fields__}, cls.__name__)
+        _strict_keys(
+            data, {field_name for field_name in cls.__dataclass_fields__}, cls.__name__
+        )
         try:
-            return cls(**{**data, "cross_domain_results": tuple(CrossDomainTraceReference.from_dict(item) for item in data.get("cross_domain_results", ()))})
-        except (KeyError, TypeError, ValueError, DomainSerializationError, DomainTraceContractError, DomainTraceSerializationError) as exc:
+            return cls(
+                **{
+                    **data,
+                    "cross_domain_results": tuple(
+                        CrossDomainTraceReference.from_dict(item)
+                        for item in data.get("cross_domain_results", ())
+                    ),
+                }
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+            DomainTraceSerializationError,
+        ) as exc:
             raise DomainTraceSerializationError(
                 "invalid DomainTraceReferences payload",
                 field="data",
@@ -625,8 +857,12 @@ class DomainTraceAssemblyRequest:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
-        object.__setattr__(self, "primary_domain", _domain_id(self.primary_domain, "primary_domain"))
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
+        object.__setattr__(
+            self, "primary_domain", _domain_id(self.primary_domain, "primary_domain")
+        )
         if self.goal_id is not None:
             object.__setattr__(self, "goal_id", _identifier(self.goal_id, "goal_id"))
         supporting, contributions = _canonical_participants(
@@ -647,25 +883,39 @@ class DomainTraceAssemblyRequest:
             for item in self.domain_results
         )
         if len({item.result_id for item in results}) != len(results):
-            raise DomainTraceContractError("domain_results must not duplicate", field="domain_results")
-        object.__setattr__(self, "domain_results", tuple(sorted(results, key=_domain_result_sort_key)))
+            raise DomainTraceContractError(
+                "domain_results must not duplicate", field="domain_results"
+            )
+        object.__setattr__(
+            self, "domain_results", tuple(sorted(results, key=_domain_result_sort_key))
+        )
         _validate_domain_result_coverage(contributions, self.domain_results)
         _validate_global_id_uniqueness(contributions, references)
         if not isinstance(self.status, DomainTraceStatus):
             object.__setattr__(self, "status", DomainTraceStatus(self.status))
         object.__setattr__(self, "started_at", _aware(self.started_at, "started_at"))
-        object.__setattr__(self, "completed_at", _aware(self.completed_at, "completed_at"))
+        object.__setattr__(
+            self, "completed_at", _aware(self.completed_at, "completed_at")
+        )
         if self.completed_at < self.started_at:
-            raise DomainTraceContractError("completed_at must not precede started_at", field="completed_at")
+            raise DomainTraceContractError(
+                "completed_at must not precede started_at", field="completed_at"
+            )
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "request_id": self.request_id, "goal_id": self.goal_id,
-            "primary_domain": str(self.primary_domain), "supporting_domains": [str(item) for item in self.supporting_domains],
-            "contributions": [item.to_dict() for item in self.contributions], "references": self.references.to_dict(),
-            "domain_results": [item.to_dict() for item in self.domain_results], "status": self.status.value,
-            "started_at": self.started_at.isoformat(), "completed_at": self.completed_at.isoformat(), "metadata": _thaw(self.metadata),
+            "request_id": self.request_id,
+            "goal_id": self.goal_id,
+            "primary_domain": str(self.primary_domain),
+            "supporting_domains": [str(item) for item in self.supporting_domains],
+            "contributions": [item.to_dict() for item in self.contributions],
+            "references": self.references.to_dict(),
+            "domain_results": [item.to_dict() for item in self.domain_results],
+            "status": self.status.value,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": self.completed_at.isoformat(),
+            "metadata": _thaw(self.metadata),
         }
 
     @classmethod
@@ -674,13 +924,23 @@ class DomainTraceAssemblyRequest:
         _strict_keys(data, allowed, cls.__name__)
         try:
             return cls(
-                request_id=data["request_id"], goal_id=data.get("goal_id"), primary_domain=data["primary_domain"],
+                request_id=data["request_id"],
+                goal_id=data.get("goal_id"),
+                primary_domain=data["primary_domain"],
                 supporting_domains=tuple(data.get("supporting_domains", ())),
-                contributions=tuple(DomainTraceContribution.from_dict(item) for item in data["contributions"]),
+                contributions=tuple(
+                    DomainTraceContribution.from_dict(item)
+                    for item in data["contributions"]
+                ),
                 references=DomainTraceReferences.from_dict(data["references"]),
-                domain_results=tuple(DomainResultTraceReference.from_dict(item) for item in data.get("domain_results", ())),
-                status=data.get("status", DomainTraceStatus.COMPLETED.value), started_at=datetime.fromisoformat(data["started_at"]),
-                completed_at=datetime.fromisoformat(data["completed_at"]), metadata=data.get("metadata", {}),
+                domain_results=tuple(
+                    DomainResultTraceReference.from_dict(item)
+                    for item in data.get("domain_results", ())
+                ),
+                status=data.get("status", DomainTraceStatus.COMPLETED.value),
+                started_at=datetime.fromisoformat(data["started_at"]),
+                completed_at=datetime.fromisoformat(data["completed_at"]),
+                metadata=data.get("metadata", {}),
             )
         except (
             KeyError,
@@ -716,10 +976,18 @@ class DomainTrace:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _identifier(self.id, "id"))
-        if not isinstance(self.digest, str) or not re.fullmatch(r"[0-9a-f]{64}", self.digest):
-            raise DomainTraceContractError("digest must be a SHA-256 hex digest", field="digest")
-        object.__setattr__(self, "request_id", _identifier(self.request_id, "request_id"))
-        object.__setattr__(self, "primary_domain", _domain_id(self.primary_domain, "primary_domain"))
+        if not isinstance(self.digest, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", self.digest
+        ):
+            raise DomainTraceContractError(
+                "digest must be a SHA-256 hex digest", field="digest"
+            )
+        object.__setattr__(
+            self, "request_id", _identifier(self.request_id, "request_id")
+        )
+        object.__setattr__(
+            self, "primary_domain", _domain_id(self.primary_domain, "primary_domain")
+        )
         supporting, contributions = _canonical_participants(
             self.primary_domain, self.supporting_domains, self.contributions
         )
@@ -738,17 +1006,28 @@ class DomainTrace:
             for item in self.domain_results
         )
         if any(item.trace_id != self.id for item in results):
-            raise DomainTraceContractError("DomainResult trace IDs must equal DomainTrace.id", field="domain_results")
-        object.__setattr__(self, "domain_results", tuple(sorted(results, key=_domain_result_sort_key)))
+            raise DomainTraceContractError(
+                "DomainResult trace IDs must equal DomainTrace.id",
+                field="domain_results",
+            )
+        object.__setattr__(
+            self, "domain_results", tuple(sorted(results, key=_domain_result_sort_key))
+        )
         _validate_domain_result_coverage(contributions, self.domain_results)
         _validate_global_id_uniqueness(contributions, references)
         if not isinstance(self.status, DomainTraceStatus):
             object.__setattr__(self, "status", DomainTraceStatus(self.status))
         object.__setattr__(self, "started_at", _aware(self.started_at, "started_at"))
-        object.__setattr__(self, "completed_at", _aware(self.completed_at, "completed_at"))
-        expected_duration = int((self.completed_at - self.started_at).total_seconds() * 1000)
+        object.__setattr__(
+            self, "completed_at", _aware(self.completed_at, "completed_at")
+        )
+        expected_duration = int(
+            (self.completed_at - self.started_at).total_seconds() * 1000
+        )
         if self.completed_at < self.started_at or self.duration_ms != expected_duration:
-            raise DomainTraceContractError("duration_ms must equal timestamps", field="duration_ms")
+            raise DomainTraceContractError(
+                "duration_ms must equal timestamps", field="duration_ms"
+            )
         if self.goal_id is not None:
             object.__setattr__(self, "goal_id", _identifier(self.goal_id, "goal_id"))
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
@@ -762,24 +1041,40 @@ class DomainTrace:
         return payload
 
     def calculate_digest(self) -> str:
-        return hashlib.sha256(_canonical_json(self._digest_payload()).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            _canonical_json(self._digest_payload()).encode("utf-8")
+        ).hexdigest()
 
     @property
     def canonical_id(self) -> str:
         return f"domain-trace:{self.calculate_digest()[:24]}"
 
     def all_references(self) -> tuple[DomainTraceReference, ...]:
-        items = [reference for contribution in self.contributions for reference in contribution.references]
-        return tuple(sorted((*items, *self.references.all_references()), key=_reference_sort_key))
+        items = [
+            reference
+            for contribution in self.contributions
+            for reference in contribution.references
+        ]
+        return tuple(
+            sorted((*items, *self.references.all_references()), key=_reference_sort_key)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "digest": self.digest, "request_id": self.request_id, "goal_id": self.goal_id,
-            "primary_domain": str(self.primary_domain), "supporting_domains": [str(item) for item in self.supporting_domains],
-            "contributions": [item.to_dict() for item in self.contributions], "references": self.references.to_dict(),
-            "domain_results": [item.to_dict() for item in self.domain_results], "status": self.status.value,
-            "started_at": self.started_at.isoformat(), "completed_at": self.completed_at.isoformat(),
-            "duration_ms": self.duration_ms, "metadata": _thaw(self.metadata),
+            "id": self.id,
+            "digest": self.digest,
+            "request_id": self.request_id,
+            "goal_id": self.goal_id,
+            "primary_domain": str(self.primary_domain),
+            "supporting_domains": [str(item) for item in self.supporting_domains],
+            "contributions": [item.to_dict() for item in self.contributions],
+            "references": self.references.to_dict(),
+            "domain_results": [item.to_dict() for item in self.domain_results],
+            "status": self.status.value,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": self.completed_at.isoformat(),
+            "duration_ms": self.duration_ms,
+            "metadata": _thaw(self.metadata),
         }
 
     @classmethod
@@ -788,13 +1083,26 @@ class DomainTrace:
         _strict_keys(data, known, cls.__name__)
         try:
             return cls(
-                id=data["id"], digest=data["digest"], request_id=data["request_id"], goal_id=data.get("goal_id"),
-                primary_domain=data["primary_domain"], supporting_domains=tuple(data.get("supporting_domains", ())),
-                contributions=tuple(DomainTraceContribution.from_dict(item) for item in data["contributions"]),
+                id=data["id"],
+                digest=data["digest"],
+                request_id=data["request_id"],
+                goal_id=data.get("goal_id"),
+                primary_domain=data["primary_domain"],
+                supporting_domains=tuple(data.get("supporting_domains", ())),
+                contributions=tuple(
+                    DomainTraceContribution.from_dict(item)
+                    for item in data["contributions"]
+                ),
                 references=DomainTraceReferences.from_dict(data["references"]),
-                domain_results=tuple(DomainResultTraceReference.from_dict(item) for item in data.get("domain_results", ())),
-                status=data["status"], started_at=datetime.fromisoformat(data["started_at"]),
-                completed_at=datetime.fromisoformat(data["completed_at"]), duration_ms=data["duration_ms"], metadata=data.get("metadata", {}),
+                domain_results=tuple(
+                    DomainResultTraceReference.from_dict(item)
+                    for item in data.get("domain_results", ())
+                ),
+                status=data["status"],
+                started_at=datetime.fromisoformat(data["started_at"]),
+                completed_at=datetime.fromisoformat(data["completed_at"]),
+                duration_ms=data["duration_ms"],
+                metadata=data.get("metadata", {}),
             )
         except (
             KeyError,
@@ -822,46 +1130,107 @@ class DomainTraceReferenceInventory:
     cross_domain_results: tuple[CrossDomainTraceReference, ...] = ()
 
     def __post_init__(self) -> None:
-        refs = tuple(item if isinstance(item, DomainTraceReference) else DomainTraceReference.from_dict(item) for item in self.references)
+        refs = tuple(
+            item
+            if isinstance(item, DomainTraceReference)
+            else DomainTraceReference.from_dict(item)
+            for item in self.references
+        )
         identity_by_id: dict[str, tuple[DomainTraceReferenceKind, DomainId | None]] = {}
         for item in refs:
             identity = (item.kind, item.domain_id)
             if item.ref_id in identity_by_id:
-                raise DomainTraceContractError("reference IDs must resolve uniquely", field="references")
+                raise DomainTraceContractError(
+                    "reference IDs must resolve uniquely", field="references"
+                )
             identity_by_id[item.ref_id] = identity
-        object.__setattr__(self, "references", tuple(sorted(refs, key=_reference_sort_key)))
-        object.__setattr__(self, "expected_primary_domain", _domain_id(self.expected_primary_domain, "expected_primary_domain"))
-        supporting = tuple(_domain_id(item, "expected_supporting_domains") for item in self.expected_supporting_domains)
-        if self.expected_primary_domain in supporting or len(set(supporting)) != len(supporting):
-            raise DomainTraceContractError("expected_supporting_domains must be unique and exclude primary", field="expected_supporting_domains")
-        object.__setattr__(self, "expected_supporting_domains", tuple(sorted(supporting, key=str)))
+        object.__setattr__(
+            self, "references", tuple(sorted(refs, key=_reference_sort_key))
+        )
+        object.__setattr__(
+            self,
+            "expected_primary_domain",
+            _domain_id(self.expected_primary_domain, "expected_primary_domain"),
+        )
+        supporting = tuple(
+            _domain_id(item, "expected_supporting_domains")
+            for item in self.expected_supporting_domains
+        )
+        if self.expected_primary_domain in supporting or len(set(supporting)) != len(
+            supporting
+        ):
+            raise DomainTraceContractError(
+                "expected_supporting_domains must be unique and exclude primary",
+                field="expected_supporting_domains",
+            )
+        object.__setattr__(
+            self, "expected_supporting_domains", tuple(sorted(supporting, key=str))
+        )
         if not isinstance(self.resolution_result_domains, DomainTraceDomainSelection):
-            object.__setattr__(self, "resolution_result_domains", DomainTraceDomainSelection.from_dict(self.resolution_result_domains))
+            object.__setattr__(
+                self,
+                "resolution_result_domains",
+                DomainTraceDomainSelection.from_dict(self.resolution_result_domains),
+            )
         if not isinstance(self.composition_domains, DomainTraceDomainSelection):
-            object.__setattr__(self, "composition_domains", DomainTraceDomainSelection.from_dict(self.composition_domains))
-        results = tuple(item if isinstance(item, DomainResultTraceReference) else DomainResultTraceReference.from_dict(item) for item in self.domain_results)
-        cross = tuple(item if isinstance(item, CrossDomainTraceReference) else CrossDomainTraceReference.from_dict(item) for item in self.cross_domain_results)
+            object.__setattr__(
+                self,
+                "composition_domains",
+                DomainTraceDomainSelection.from_dict(self.composition_domains),
+            )
+        results = tuple(
+            item
+            if isinstance(item, DomainResultTraceReference)
+            else DomainResultTraceReference.from_dict(item)
+            for item in self.domain_results
+        )
+        cross = tuple(
+            item
+            if isinstance(item, CrossDomainTraceReference)
+            else CrossDomainTraceReference.from_dict(item)
+            for item in self.cross_domain_results
+        )
         if len({item.result_id for item in results}) != len(results):
-            raise DomainTraceContractError("inventory domain result pairings must not duplicate", field="domain_results")
+            raise DomainTraceContractError(
+                "inventory domain result pairings must not duplicate",
+                field="domain_results",
+            )
         if len({item.result_id for item in cross}) != len(cross):
-            raise DomainTraceContractError("inventory cross-domain result pairings must not duplicate", field="cross_domain_results")
-        object.__setattr__(self, "domain_results", tuple(sorted(results, key=lambda item: item.result_id)))
-        object.__setattr__(self, "cross_domain_results", tuple(sorted(cross, key=lambda item: item.result_id)))
+            raise DomainTraceContractError(
+                "inventory cross-domain result pairings must not duplicate",
+                field="cross_domain_results",
+            )
+        object.__setattr__(
+            self,
+            "domain_results",
+            tuple(sorted(results, key=lambda item: item.result_id)),
+        )
+        object.__setattr__(
+            self,
+            "cross_domain_results",
+            tuple(sorted(cross, key=lambda item: item.result_id)),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "references": [item.to_dict() for item in self.references],
             "expected_primary_domain": str(self.expected_primary_domain),
-            "expected_supporting_domains": [str(item) for item in self.expected_supporting_domains],
+            "expected_supporting_domains": [
+                str(item) for item in self.expected_supporting_domains
+            ],
             "resolution_result_domains": self.resolution_result_domains.to_dict(),
             "composition_domains": self.composition_domains.to_dict(),
             "domain_results": [item.to_dict() for item in self.domain_results],
-            "cross_domain_results": [item.to_dict() for item in self.cross_domain_results],
+            "cross_domain_results": [
+                item.to_dict() for item in self.cross_domain_results
+            ],
         }
 
     @property
     def digest(self) -> str:
-        return hashlib.sha256(_canonical_json(self.to_dict()).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            _canonical_json(self.to_dict()).encode("utf-8")
+        ).hexdigest()
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> DomainTraceReferenceInventory:
@@ -869,13 +1238,27 @@ class DomainTraceReferenceInventory:
         _strict_keys(data, allowed, cls.__name__)
         try:
             return cls(
-                references=tuple(DomainTraceReference.from_dict(item) for item in data["references"]),
+                references=tuple(
+                    DomainTraceReference.from_dict(item) for item in data["references"]
+                ),
                 expected_primary_domain=data["expected_primary_domain"],
-                expected_supporting_domains=tuple(data.get("expected_supporting_domains", ())),
-                resolution_result_domains=DomainTraceDomainSelection.from_dict(data["resolution_result_domains"]),
-                composition_domains=DomainTraceDomainSelection.from_dict(data["composition_domains"]),
-                domain_results=tuple(DomainResultTraceReference.from_dict(item) for item in data.get("domain_results", ())),
-                cross_domain_results=tuple(CrossDomainTraceReference.from_dict(item) for item in data.get("cross_domain_results", ())),
+                expected_supporting_domains=tuple(
+                    data.get("expected_supporting_domains", ())
+                ),
+                resolution_result_domains=DomainTraceDomainSelection.from_dict(
+                    data["resolution_result_domains"]
+                ),
+                composition_domains=DomainTraceDomainSelection.from_dict(
+                    data["composition_domains"]
+                ),
+                domain_results=tuple(
+                    DomainResultTraceReference.from_dict(item)
+                    for item in data.get("domain_results", ())
+                ),
+                cross_domain_results=tuple(
+                    CrossDomainTraceReference.from_dict(item)
+                    for item in data.get("cross_domain_results", ())
+                ),
             )
         except (
             KeyError,
@@ -940,27 +1323,53 @@ class DomainTraceValidationResult:
     inventory_digest: str | None = None
 
     def __post_init__(self) -> None:
-        codes = tuple(item if isinstance(item, DomainTraceValidationCode) else DomainTraceValidationCode(item) for item in self.codes)
+        codes = tuple(
+            item
+            if isinstance(item, DomainTraceValidationCode)
+            else DomainTraceValidationCode(item)
+            for item in self.codes
+        )
         object.__setattr__(self, "codes", tuple(dict.fromkeys(codes)))
-        for name in ("missing_references", "unexpected_references", "duplicate_references", "reference_kind_mismatches", "reference_domain_mismatches", "invariant_failures"):
-            object.__setattr__(self, name, _sorted_diagnostics(getattr(self, name), name))
+        for name in (
+            "missing_references",
+            "unexpected_references",
+            "duplicate_references",
+            "reference_kind_mismatches",
+            "reference_domain_mismatches",
+            "invariant_failures",
+        ):
+            object.__setattr__(
+                self, name, _sorted_diagnostics(getattr(self, name), name)
+            )
         for name in ("trace_digest", "inventory_digest"):
             value = getattr(self, name)
-            if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)):
-                raise DomainTraceContractError(f"{name} must be a SHA-256 hex digest", field=name)
+            if value is not None and (
+                not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+            ):
+                raise DomainTraceContractError(
+                    f"{name} must be a SHA-256 hex digest", field=name
+                )
         has_diagnostics = any(
             getattr(self, name)
             for name in (
-                "missing_references", "unexpected_references", "duplicate_references",
-                "reference_kind_mismatches", "reference_domain_mismatches", "invariant_failures",
+                "missing_references",
+                "unexpected_references",
+                "duplicate_references",
+                "reference_kind_mismatches",
+                "reference_domain_mismatches",
+                "invariant_failures",
             )
         )
         if not isinstance(self.valid, bool):
             raise DomainTraceContractError("valid must be a boolean", field="valid")
         if self.valid and (self.codes or has_diagnostics):
-            raise DomainTraceContractError("valid results cannot contain failures", field="valid")
+            raise DomainTraceContractError(
+                "valid results cannot contain failures", field="valid"
+            )
         if not self.valid and not (self.codes or has_diagnostics):
-            raise DomainTraceContractError("invalid results require a failure", field="valid")
+            raise DomainTraceContractError(
+                "invalid results require a failure", field="valid"
+            )
 
     @property
     def missing_refs(self) -> tuple[str, ...]:
@@ -972,15 +1381,24 @@ class DomainTraceValidationResult:
 
     @property
     def state(self) -> DomainTraceValidationState:
-        return DomainTraceValidationState.VALID if self.valid else DomainTraceValidationState.BLOCKED
+        return (
+            DomainTraceValidationState.VALID
+            if self.valid
+            else DomainTraceValidationState.BLOCKED
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "valid": self.valid, "codes": [item.value for item in self.codes],
-            "missing_references": list(self.missing_references), "unexpected_references": list(self.unexpected_references),
-            "duplicate_references": list(self.duplicate_references), "reference_kind_mismatches": list(self.reference_kind_mismatches),
-            "reference_domain_mismatches": list(self.reference_domain_mismatches), "invariant_failures": list(self.invariant_failures),
-            "trace_digest": self.trace_digest, "inventory_digest": self.inventory_digest,
+            "valid": self.valid,
+            "codes": [item.value for item in self.codes],
+            "missing_references": list(self.missing_references),
+            "unexpected_references": list(self.unexpected_references),
+            "duplicate_references": list(self.duplicate_references),
+            "reference_kind_mismatches": list(self.reference_kind_mismatches),
+            "reference_domain_mismatches": list(self.reference_domain_mismatches),
+            "invariant_failures": list(self.invariant_failures),
+            "trace_digest": self.trace_digest,
+            "inventory_digest": self.inventory_digest,
         }
 
     @classmethod
@@ -989,14 +1407,22 @@ class DomainTraceValidationResult:
         _strict_keys(data, allowed, cls.__name__)
         try:
             return cls(
-                valid=data["valid"], codes=tuple(data.get("codes", ())),
+                valid=data["valid"],
+                codes=tuple(data.get("codes", ())),
                 missing_references=tuple(data.get("missing_references", ())),
                 unexpected_references=tuple(data.get("unexpected_references", ())),
                 duplicate_references=tuple(data.get("duplicate_references", ())),
-                reference_kind_mismatches=tuple(data.get("reference_kind_mismatches", ())),
-                reference_domain_mismatches=tuple(data.get("reference_domain_mismatches", ())),
+                reference_kind_mismatches=tuple(
+                    data.get("reference_kind_mismatches", ())
+                ),
+                reference_domain_mismatches=tuple(
+                    data.get("reference_domain_mismatches", ())
+                ),
                 invariant_failures=tuple(data.get("invariant_failures", ())),
-                trace_digest=data.get("trace_digest"), inventory_digest=data.get("inventory_digest"),
+                trace_digest=data.get("trace_digest"),
+                inventory_digest=data.get("inventory_digest"),
             )
         except (KeyError, TypeError, ValueError, DomainTraceContractError) as exc:
-            raise DomainTraceSerializationError("invalid DomainTraceValidationResult payload", field="data") from exc
+            raise DomainTraceSerializationError(
+                "invalid DomainTraceValidationResult payload", field="data"
+            ) from exc

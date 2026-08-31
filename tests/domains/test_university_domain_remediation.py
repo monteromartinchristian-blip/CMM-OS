@@ -38,8 +38,7 @@ def _by_id(rules):
 
 _RULES = _by_id(university.build_university_rules())
 _OPERATIONS = {
-    op.operation_id: op
-    for op in university.build_university_operation_definitions()
+    op.operation_id: op for op in university.build_university_operation_definitions()
 }
 
 
@@ -288,9 +287,9 @@ def test_prepare_exam_cannot_schema_authorize_send_submit():
 
 
 def test_prepare_exam_valid_preparation_has_no_send_field():
-    preparation = _OPERATIONS[
-        "university.prepare_exam"
-    ].output_schema["properties"]["preparation"]["properties"]
+    preparation = _OPERATIONS["university.prepare_exam"].output_schema["properties"][
+        "preparation"
+    ]["properties"]
     for forbidden in ("sent", "submitted", "contacted", "executed"):
         assert forbidden not in preparation
 

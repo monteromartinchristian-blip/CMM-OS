@@ -36,7 +36,9 @@ def test_workflow_names_exact():
 
 def test_shared_engine_node_types_used_no_custom_runtime():
     all_types = {
-        node.node_type for w in build_concerns_workflow_definitions() for node in w.nodes
+        node.node_type
+        for w in build_concerns_workflow_definitions()
+        for node in w.nodes
     }
     assert WorkflowNodeType.COMPLETE in all_types
     assert WorkflowNodeType.REASON in all_types
@@ -73,9 +75,7 @@ def test_complete_transitively_depends_on_validate():
 
 
 def test_acyclic_real_dependencies_and_known_operations():
-    operation_ids = {
-        op.operation_id for op in build_concerns_operation_definitions()
-    }
+    operation_ids = {op.operation_id for op in build_concerns_operation_definitions()}
     for w in build_concerns_workflow_definitions():
         node_ids = {n.node_id for n in w.nodes}
         assert len(w.nodes) >= 6  # inert metadata-only workflows rejected
@@ -97,7 +97,11 @@ def test_all_workflows_acyclic():
         resolved: set[str] = set()
         remaining = dict(deps)
         while remaining:
-            ready = [node_id for node_id, requirements in remaining.items() if requirements <= resolved]
+            ready = [
+                node_id
+                for node_id, requirements in remaining.items()
+                if requirements <= resolved
+            ]
             if not ready:
                 raise AssertionError(f"cycle detected in {w.workflow_id}")
             for node_id in ready:
@@ -284,7 +288,10 @@ def test_missing_required_resource_fails_closed():
     )
     resolution = resolve_domain_workflow(wf, context)
     assert resolution.status is WorkflowAvailabilityStatus.UNAVAILABLE
-    assert any(reason in ("resource.missing", "operation.unavailable") for reason in resolution.reasons)
+    assert any(
+        reason in ("resource.missing", "operation.unavailable")
+        for reason in resolution.reasons
+    )
 
 
 def test_workflows_can_be_registered():

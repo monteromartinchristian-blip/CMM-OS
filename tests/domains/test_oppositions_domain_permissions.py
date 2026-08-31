@@ -13,7 +13,10 @@ def test_external_verification_official_only_read_only():
     """Canonical external verification is READ_ONLY + OFFICIAL_ONLY."""
     policy = build_oppositions_permission_policy()
     assert policy.allow_external_search is False
-    assert policy.source_requirement.minimum_source_class is ExternalSourceClass.OFFICIAL_ONLY
+    assert (
+        policy.source_requirement.minimum_source_class
+        is ExternalSourceClass.OFFICIAL_ONLY
+    )
 
 
 def test_no_autonomous_external_actions():
@@ -40,7 +43,10 @@ def test_source_class_not_trusted_as_official():
     The policy's OFFICIAL_ONLY requirement is the canonical boundary; a caller
     label cannot create authority (this is enforced at the rule level)."""
     policy = build_oppositions_permission_policy()
-    assert policy.source_requirement.minimum_source_class is ExternalSourceClass.OFFICIAL_ONLY
+    assert (
+        policy.source_requirement.minimum_source_class
+        is ExternalSourceClass.OFFICIAL_ONLY
+    )
 
 
 def test_supporting_domain_cannot_widen_permissions():

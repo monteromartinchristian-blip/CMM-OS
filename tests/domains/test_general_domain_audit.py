@@ -102,10 +102,7 @@ def test_seventeen_test_modules():
     import pathlib
 
     test_dir = pathlib.Path("tests/domains")
-    test_files = [
-        p.name
-        for p in test_dir.glob("test_general_domain_*.py")
-    ]
+    test_files = [p.name for p in test_dir.glob("test_general_domain_*.py")]
     assert len(test_files) == 17
 
 
@@ -116,8 +113,16 @@ def test_no_prohibited_dependencies():
     package_dir = pathlib.Path("cmm/domains/general")
     for py_file in package_dir.glob("*.py"):
         content = py_file.read_text()
-        for prohibited in ("sqlite", "store_sqlite", "requests.", "httpx.",
-                           "urllib.", "subprocess", "os.system", "shell=True"):
+        for prohibited in (
+            "sqlite",
+            "store_sqlite",
+            "requests.",
+            "httpx.",
+            "urllib.",
+            "subprocess",
+            "os.system",
+            "shell=True",
+        ):
             assert prohibited not in content, (
                 f"{py_file.name} contains prohibited dependency: {prohibited}"
             )
@@ -180,6 +185,4 @@ def test_approval_required_operations_are_proposal_only_and_unavailable_by_defau
         registered = bootstrap.operation_registry.get(op.operation_id, op.version)
         assert registered.enabled is False
         with pytest.raises(DomainOperationRegistryError):
-            bootstrap.operation_registry.get_implementation(
-                op.operation_id, op.version
-            )
+            bootstrap.operation_registry.get_implementation(op.operation_id, op.version)

@@ -66,20 +66,30 @@ class _PresentationCompositionView:
     term_glosses: Mapping[str, str] | None = None
 
     @classmethod
-    def from_request(cls, request: DomainPresentationRequest) -> _PresentationCompositionView:
+    def from_request(
+        cls, request: DomainPresentationRequest
+    ) -> _PresentationCompositionView:
         values = request.presentation.values
-        if not isinstance(values, Mapping):  # defensive; PresentationComposition enforces this
-            raise DomainPresentationPolicyError("presentation values must be a mapping", field="presentation")
+        if not isinstance(
+            values, Mapping
+        ):  # defensive; PresentationComposition enforces this
+            raise DomainPresentationPolicyError(
+                "presentation values must be a mapping", field="presentation"
+            )
         return cls(
             optional_sections=_read_tokens(values, "optional_sections"),
-            preferred_section_order=_read_tokens(values, "preferred_section_order", fallback="sections"),
+            preferred_section_order=_read_tokens(
+                values, "preferred_section_order", fallback="sections"
+            ),
             components=_read_tokens(values, "components"),
             views=_read_tokens(values, "views"),
             term_glosses=_read_glosses(values),
         )
 
 
-def _read_tokens(values: Mapping[str, object], key: str, *, fallback: str | None = None) -> tuple[str, ...]:
+def _read_tokens(
+    values: Mapping[str, object], key: str, *, fallback: str | None = None
+) -> tuple[str, ...]:
     raw = values.get(key, values.get(fallback) if fallback else ())
     if raw is None:
         return ()
@@ -105,11 +115,17 @@ def _read_glosses(values: Mapping[str, object]) -> Mapping[str, str] | None:
         return None
     if not isinstance(raw, Mapping):
         raise DomainPresentationPolicyError(
-            "presentation composition 'term_glosses' must be a mapping", field="term_glosses"
+            "presentation composition 'term_glosses' must be a mapping",
+            field="term_glosses",
         )
     result: dict[str, str] = {}
     for term, gloss in raw.items():
-        if not isinstance(term, str) or not term or not isinstance(gloss, str) or not gloss:
+        if (
+            not isinstance(term, str)
+            or not term
+            or not isinstance(gloss, str)
+            or not gloss
+        ):
             raise DomainPresentationPolicyError(
                 "presentation composition 'term_glosses' must contain non-empty strings",
                 field="term_glosses",
@@ -146,12 +162,15 @@ class DefaultDomainPresentationPlanner:
         self._validate_output_intent(request, output_intent)
         structural_disclaimers_required = (
             request.policy.require_disclaimers is True
-            and output_intent.output_type
-            is not DomainOutputIntentType.HUMAN_READABLE
+            and output_intent.output_type is not DomainOutputIntentType.HUMAN_READABLE
         )
         composition = _PresentationCompositionView.from_request(request)
-        required_sections = effective_required_sections(request.policy, request.presentation)
-        suppressed = set(effective_suppressed_sections(request.policy, request.presentation))
+        required_sections = effective_required_sections(
+            request.policy, request.presentation
+        )
+        suppressed = set(
+            effective_suppressed_sections(request.policy, request.presentation)
+        )
         illegal_suppression = set(required_sections) & suppressed
         if illegal_suppression:
             raise DomainPresentationPolicyError(
@@ -162,7 +181,9 @@ class DefaultDomainPresentationPlanner:
 
         by_section: dict[str, list[DomainPresentationItemRef]] = {}
         for item in request.items:
-            by_section.setdefault(_SECTION_BY_ITEM_TYPE[item.item_type], []).append(item)
+            by_section.setdefault(_SECTION_BY_ITEM_TYPE[item.item_type], []).append(
+                item
+            )
         section_order = _ordered_union(
             request.policy.preferred_section_order,
             composition.preferred_section_order,
@@ -182,13 +203,11 @@ class DefaultDomainPresentationPlanner:
             if section_id == "warnings":
                 section_items = sorted(section_items, key=_warning_order_key)
             else:
-                section_items = sorted(section_items, key=lambda item: (item.source_order, item.ref_id))
-            is_required = (
-                section_id in required_sections
-                or (
-                    section_id == "disclaimers"
-                    and structural_disclaimers_required
+                section_items = sorted(
+                    section_items, key=lambda item: (item.source_order, item.ref_id)
                 )
+            is_required = section_id in required_sections or (
+                section_id == "disclaimers" and structural_disclaimers_required
             )
             if not section_items and not is_required:
                 continue
@@ -206,12 +225,17 @@ class DefaultDomainPresentationPlanner:
         components = self._components(request, composition, tuple(sections))
         conflicts = self._terminology_conflicts(request, composition)
         warning_refs = tuple(
-            ref for section in sections if section.section_id == "warnings" for ref in section.item_refs
+            ref
+            for section in sections
+            if section.section_id == "warnings"
+            for ref in section.item_refs
         )
         grouped_refs = {
             group: tuple(
                 item.ref_id
-                for item in sorted(request.items, key=lambda value: (value.source_order, value.ref_id))
+                for item in sorted(
+                    request.items, key=lambda value: (value.source_order, value.ref_id)
+                )
                 if item.item_type is item_type
             )
             for item_type, group in _REFERENCE_GROUPS.items()
@@ -298,7 +322,9 @@ class DefaultDomainPresentationPlanner:
             DomainPresentationComponentDescriptor(
                 component_id=component_id,
                 view_id=view_id,
-                section_id="warnings" if component_id == "warning-banner" and "warnings" in section_ids else None,
+                section_id="warnings"
+                if component_id == "warning-banner" and "warnings" in section_ids
+                else None,
             )
             for component_id in component_ids
         )
@@ -336,7 +362,9 @@ def _apply_warning_position(
     """Reposition the existing warning section without deriving warning severity."""
     if warning_position not in {"before_content", "after_content"}:
         return section_order
-    without_warnings = tuple(section for section in section_order if section != "warnings")
+    without_warnings = tuple(
+        section for section in section_order if section != "warnings"
+    )
     if warning_position == "before_content":
         return ("warnings",) + without_warnings
     return without_warnings + ("warnings",)

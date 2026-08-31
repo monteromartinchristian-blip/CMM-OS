@@ -116,7 +116,9 @@ def test_assemble_rejects_nothing_valid_and_validates_clean():
         cross_domain_results=trace.references.cross_domain_results,
         expected_primary_domain=CONCERNS_DOMAIN_ID,
         expected_supporting_domains=(),
-        resolution_result_domains=DomainTraceDomainSelection("rr:clean", CONCERNS_DOMAIN_ID),
+        resolution_result_domains=DomainTraceDomainSelection(
+            "rr:clean", CONCERNS_DOMAIN_ID
+        ),
         composition_domains=DomainTraceDomainSelection("c:clean", CONCERNS_DOMAIN_ID),
     )
     result = validate_concerns_trace(trace=trace, inventory=inventory)

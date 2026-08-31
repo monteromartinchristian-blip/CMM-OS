@@ -33,7 +33,9 @@ from cmm.domains.errors import (
 from cmm.domains.registry_contracts import parse_semver
 
 
-def _error(message: str, field_name: str | None = None) -> DomainPermissionContractError:
+def _error(
+    message: str, field_name: str | None = None
+) -> DomainPermissionContractError:
     return DomainPermissionContractError(message, field=field_name)
 
 
@@ -118,16 +120,38 @@ class DomainAutonomyLimits:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name in ("maximum_autonomy_level", "maximum_operations", "maximum_workflows", "maximum_iterations", "maximum_questions", "maximum_external_calls"):
+        for name in (
+            "maximum_autonomy_level",
+            "maximum_operations",
+            "maximum_workflows",
+            "maximum_iterations",
+            "maximum_questions",
+            "maximum_external_calls",
+        ):
             value = getattr(self, name)
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
                 raise _error(f"{name} must be a non-negative integer or None", name)
         for name in ("maximum_duration_seconds", "maximum_cost"):
             value = getattr(self, name)
-            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
                 raise _error(f"{name} must be finite and non-negative", name)
-        object.__setattr__(self, "allow_reversible_changes", _bool(self.allow_reversible_changes, "allow_reversible_changes"))
-        object.__setattr__(self, "allow_irreversible_changes", _bool(self.allow_irreversible_changes, "allow_irreversible_changes"))
+        object.__setattr__(
+            self,
+            "allow_reversible_changes",
+            _bool(self.allow_reversible_changes, "allow_reversible_changes"),
+        )
+        object.__setattr__(
+            self,
+            "allow_irreversible_changes",
+            _bool(self.allow_irreversible_changes, "allow_irreversible_changes"),
+        )
         object.__setattr__(self, "metadata", _freeze(_json(self.metadata, "metadata")))
 
     def to_dict(self) -> dict[str, Any]:
@@ -138,22 +162,55 @@ class DomainAutonomyLimits:
         known = set(cls.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:
-            raise DomainPermissionSerializationError(f"unknown fields: {sorted(unknown)}")
+            raise DomainPermissionSerializationError(
+                f"unknown fields: {sorted(unknown)}"
+            )
         return cls(**dict(data))
 
 
 _POLICY_FIELDS = {
-    "policy_id", "domain_id", "version", "allowed_resources", "prohibited_resources",
-    "allowed_resource_kinds", "prohibited_resource_kinds",
-    "allowed_sensitivity_levels", "prohibited_sensitivity_levels", "allowed_operations", "prohibited_operations",
-    "allowed_workflows", "prohibited_workflows", "allow_cross_domain_access", "allowed_target_domains",
-    "prohibited_target_domains", "allow_sensitive_inference", "allow_memory_read", "allow_memory_write",
-    "allow_external_search", "allow_external_models", "allow_external_communication", "allow_file_modification",
-    "allow_task_creation", "allow_schedule_modification", "allow_goal_update", "allow_export",
-    "allowed_capabilities", "prohibited_capabilities", "approval_capabilities",
-    "allow_inbound_cross_domain_access", "allowed_source_domains", "prohibited_source_domains",
-    "expires_at", "approval_requirements", "autonomy_limits", "enabled", "metadata",
-    "source_requirement", "egress_policy", "export_policy", "post_verification",
+    "policy_id",
+    "domain_id",
+    "version",
+    "allowed_resources",
+    "prohibited_resources",
+    "allowed_resource_kinds",
+    "prohibited_resource_kinds",
+    "allowed_sensitivity_levels",
+    "prohibited_sensitivity_levels",
+    "allowed_operations",
+    "prohibited_operations",
+    "allowed_workflows",
+    "prohibited_workflows",
+    "allow_cross_domain_access",
+    "allowed_target_domains",
+    "prohibited_target_domains",
+    "allow_sensitive_inference",
+    "allow_memory_read",
+    "allow_memory_write",
+    "allow_external_search",
+    "allow_external_models",
+    "allow_external_communication",
+    "allow_file_modification",
+    "allow_task_creation",
+    "allow_schedule_modification",
+    "allow_goal_update",
+    "allow_export",
+    "allowed_capabilities",
+    "prohibited_capabilities",
+    "approval_capabilities",
+    "allow_inbound_cross_domain_access",
+    "allowed_source_domains",
+    "prohibited_source_domains",
+    "expires_at",
+    "approval_requirements",
+    "autonomy_limits",
+    "enabled",
+    "metadata",
+    "source_requirement",
+    "egress_policy",
+    "export_policy",
+    "post_verification",
 }
 
 
@@ -212,25 +269,84 @@ class DomainPermissionPolicy:
             parse_semver(self.version)
         except Exception as exc:
             raise _error("version must be valid SemVer", "version") from exc
-        for name in ("allowed_resources", "allowed_resource_kinds", "allowed_operations", "allowed_workflows", "allowed_target_domains", "allowed_source_domains"):
+        for name in (
+            "allowed_resources",
+            "allowed_resource_kinds",
+            "allowed_operations",
+            "allowed_workflows",
+            "allowed_target_domains",
+            "allowed_source_domains",
+        ):
             object.__setattr__(self, name, _optional_strings(getattr(self, name), name))
-        for name in ("prohibited_resources", "prohibited_resource_kinds", "prohibited_operations", "prohibited_workflows", "prohibited_target_domains", "prohibited_source_domains", "approval_requirements"):
+        for name in (
+            "prohibited_resources",
+            "prohibited_resource_kinds",
+            "prohibited_operations",
+            "prohibited_workflows",
+            "prohibited_target_domains",
+            "prohibited_source_domains",
+            "approval_requirements",
+        ):
             object.__setattr__(self, name, _strings(getattr(self, name), name))
         for name in ("allowed_sensitivity_levels", "prohibited_sensitivity_levels"):
             value = getattr(self, name)
             if value is not None:
-                object.__setattr__(self, name, tuple(_enum(item, SensitivityLevel, name) for item in value))
-        for name in ("allowed_capabilities", "prohibited_capabilities", "approval_capabilities"):
-            value = tuple(_enum(item, PermissionCapability, name) for item in getattr(self, name))
+                object.__setattr__(
+                    self,
+                    name,
+                    tuple(_enum(item, SensitivityLevel, name) for item in value),
+                )
+        for name in (
+            "allowed_capabilities",
+            "prohibited_capabilities",
+            "approval_capabilities",
+        ):
+            value = tuple(
+                _enum(item, PermissionCapability, name) for item in getattr(self, name)
+            )
             if len(set(value)) != len(value):
                 raise _error(f"{name} must not contain duplicates", name)
             object.__setattr__(self, name, value)
-        for name in _POLICY_FIELDS - {"policy_id", "domain_id", "version", "allowed_resources", "prohibited_resources", "allowed_resource_kinds", "prohibited_resource_kinds", "allowed_sensitivity_levels", "prohibited_sensitivity_levels", "allowed_operations", "prohibited_operations", "allowed_workflows", "prohibited_workflows", "allowed_target_domains", "prohibited_target_domains", "allowed_source_domains", "prohibited_source_domains", "allowed_capabilities", "prohibited_capabilities", "approval_capabilities", "approval_requirements", "autonomy_limits", "metadata", "enabled", "expires_at", "source_requirement", "egress_policy", "export_policy", "post_verification"}:
+        for name in _POLICY_FIELDS - {
+            "policy_id",
+            "domain_id",
+            "version",
+            "allowed_resources",
+            "prohibited_resources",
+            "allowed_resource_kinds",
+            "prohibited_resource_kinds",
+            "allowed_sensitivity_levels",
+            "prohibited_sensitivity_levels",
+            "allowed_operations",
+            "prohibited_operations",
+            "allowed_workflows",
+            "prohibited_workflows",
+            "allowed_target_domains",
+            "prohibited_target_domains",
+            "allowed_source_domains",
+            "prohibited_source_domains",
+            "allowed_capabilities",
+            "prohibited_capabilities",
+            "approval_capabilities",
+            "approval_requirements",
+            "autonomy_limits",
+            "metadata",
+            "enabled",
+            "expires_at",
+            "source_requirement",
+            "egress_policy",
+            "export_policy",
+            "post_verification",
+        }:
             object.__setattr__(self, name, _bool(getattr(self, name), name))
         if self.expires_at is not None:
-            object.__setattr__(self, "expires_at", _aware(self.expires_at, "expires_at"))
+            object.__setattr__(
+                self, "expires_at", _aware(self.expires_at, "expires_at")
+            )
         if not isinstance(self.autonomy_limits, DomainAutonomyLimits):
-            raise _error("autonomy_limits must be DomainAutonomyLimits", "autonomy_limits")
+            raise _error(
+                "autonomy_limits must be DomainAutonomyLimits", "autonomy_limits"
+            )
         for name, contract_type in (
             ("source_requirement", ExternalSourceRequirement),
             ("egress_policy", ExternalProviderEgressPolicy),
@@ -245,12 +361,27 @@ class DomainPermissionPolicy:
 
     def to_dict(self) -> dict[str, Any]:
         result = {name: _thaw(getattr(self, name)) for name in _POLICY_FIELDS}
-        result["allowed_sensitivity_levels"] = None if self.allowed_sensitivity_levels is None else [v.value for v in self.allowed_sensitivity_levels]
-        result["prohibited_sensitivity_levels"] = [v.value for v in self.prohibited_sensitivity_levels]
-        for name in ("allowed_capabilities", "prohibited_capabilities", "approval_capabilities"):
+        result["allowed_sensitivity_levels"] = (
+            None
+            if self.allowed_sensitivity_levels is None
+            else [v.value for v in self.allowed_sensitivity_levels]
+        )
+        result["prohibited_sensitivity_levels"] = [
+            v.value for v in self.prohibited_sensitivity_levels
+        ]
+        for name in (
+            "allowed_capabilities",
+            "prohibited_capabilities",
+            "approval_capabilities",
+        ):
             result[name] = [item.value for item in getattr(self, name)]
         result["autonomy_limits"] = self.autonomy_limits.to_dict()
-        for name in ("source_requirement", "egress_policy", "export_policy", "post_verification"):
+        for name in (
+            "source_requirement",
+            "egress_policy",
+            "export_policy",
+            "post_verification",
+        ):
             value = getattr(self, name)
             result[name] = None if value is None else value.to_dict()
         if self.expires_at is not None:
@@ -261,9 +392,13 @@ class DomainPermissionPolicy:
     def from_dict(cls, data: Mapping[str, Any]) -> DomainPermissionPolicy:
         unknown = set(data) - _POLICY_FIELDS
         if unknown:
-            raise DomainPermissionSerializationError(f"unknown fields: {sorted(unknown)}")
+            raise DomainPermissionSerializationError(
+                f"unknown fields: {sorted(unknown)}"
+            )
         values = dict(data)
-        values["autonomy_limits"] = DomainAutonomyLimits.from_dict(values.get("autonomy_limits", {}))
+        values["autonomy_limits"] = DomainAutonomyLimits.from_dict(
+            values.get("autonomy_limits", {})
+        )
         for name, contract_type in (
             ("source_requirement", ExternalSourceRequirement),
             ("egress_policy", ExternalProviderEgressPolicy),
@@ -306,20 +441,47 @@ class DomainPermissionRequest:
             object.__setattr__(self, name, _text(getattr(self, name), name))
         if not self.domain_id.startswith("domain:"):
             raise _error("domain_id must use domain: prefix", "domain_id")
-        object.__setattr__(self, "action", _enum(self.action, PermissionCapability, "action"))
-        for name in ("resource_id", "resource_kind", "operation_id", "operation_version", "workflow_id", "workflow_version", "source_domain", "target_domain"):
+        object.__setattr__(
+            self, "action", _enum(self.action, PermissionCapability, "action")
+        )
+        for name in (
+            "resource_id",
+            "resource_kind",
+            "operation_id",
+            "operation_version",
+            "workflow_id",
+            "workflow_version",
+            "source_domain",
+            "target_domain",
+        ):
             value = getattr(self, name)
-            object.__setattr__(self, name, None if value is None else _text(value, name))
+            object.__setattr__(
+                self, name, None if value is None else _text(value, name)
+            )
         if self.sensitivity_level is not None:
-            object.__setattr__(self, "sensitivity_level", _enum(self.sensitivity_level, SensitivityLevel, "sensitivity_level"))
-        if self.autonomy_level is not None and (isinstance(self.autonomy_level, bool) or not isinstance(self.autonomy_level, int) or self.autonomy_level < 0):
-            raise _error("autonomy_level must be a non-negative integer", "autonomy_level")
+            object.__setattr__(
+                self,
+                "sensitivity_level",
+                _enum(self.sensitivity_level, SensitivityLevel, "sensitivity_level"),
+            )
+        if self.autonomy_level is not None and (
+            isinstance(self.autonomy_level, bool)
+            or not isinstance(self.autonomy_level, int)
+            or self.autonomy_level < 0
+        ):
+            raise _error(
+                "autonomy_level must be a non-negative integer", "autonomy_level"
+            )
         object.__setattr__(
             self,
             "purpose",
             None if self.purpose is None else _text(self.purpose, "purpose"),
         )
-        object.__setattr__(self, "external_domain_trusted", _bool(self.external_domain_trusted, "external_domain_trusted"))
+        object.__setattr__(
+            self,
+            "external_domain_trusted",
+            _bool(self.external_domain_trusted, "external_domain_trusted"),
+        )
         for name, contract_type in (
             ("source_use", ExternalSourceUse),
             ("egress_request", ExternalProviderEgressRequest),
@@ -328,19 +490,40 @@ class DomainPermissionRequest:
             value = getattr(self, name)
             if value is not None and not isinstance(value, contract_type):
                 raise _error(f"{name} must be {contract_type.__name__}", name)
-        if self.action is PermissionCapability.OPERATION_EXECUTE and self.operation_id is None:
+        if (
+            self.action is PermissionCapability.OPERATION_EXECUTE
+            and self.operation_id is None
+        ):
             raise _error("operation.execute requires operation_id", "operation_id")
-        if self.action is PermissionCapability.WORKFLOW_EXECUTE and self.workflow_id is None:
+        if (
+            self.action is PermissionCapability.WORKFLOW_EXECUTE
+            and self.workflow_id is None
+        ):
             raise _error("workflow.execute requires workflow_id", "workflow_id")
-        if self.action is PermissionCapability.DOMAIN_CROSS_ACCESS and (self.source_domain is None or self.target_domain is None or self.source_domain == self.target_domain):
-            raise _error("domain.cross_access requires distinct source and target domains", "source_domain")
-        if self.action is PermissionCapability.RESOURCE_READ and self.resource_id is None and self.resource_kind is None:
-            raise _error("resource.read requires resource_id or resource_kind", "resource_id")
+        if self.action is PermissionCapability.DOMAIN_CROSS_ACCESS and (
+            self.source_domain is None
+            or self.target_domain is None
+            or self.source_domain == self.target_domain
+        ):
+            raise _error(
+                "domain.cross_access requires distinct source and target domains",
+                "source_domain",
+            )
+        if (
+            self.action is PermissionCapability.RESOURCE_READ
+            and self.resource_id is None
+            and self.resource_kind is None
+        ):
+            raise _error(
+                "resource.read requires resource_id or resource_kind", "resource_id"
+            )
         object.__setattr__(self, "context", _freeze(_json(self.context, "context")))
         object.__setattr__(self, "metadata", _freeze(_json(self.metadata, "metadata")))
 
     def to_dict(self) -> dict[str, Any]:
-        result = {name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__}
+        result = {
+            name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__
+        }
         result["action"] = self.action.value
         if self.sensitivity_level is not None:
             result["sensitivity_level"] = self.sensitivity_level.value
@@ -354,7 +537,9 @@ class DomainPermissionRequest:
         known = set(cls.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:
-            raise DomainPermissionSerializationError(f"unknown fields: {sorted(unknown)}")
+            raise DomainPermissionSerializationError(
+                f"unknown fields: {sorted(unknown)}"
+            )
         values = dict(data)
         for name, contract_type in (
             ("source_use", ExternalSourceUse),
@@ -389,39 +574,99 @@ class CrossDomainPermissionRequest:
     resource_kinds: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        for name in ("request_id", "source_domain", "target_domain", "reason", "actor_id", "session_id"):
+        for name in (
+            "request_id",
+            "source_domain",
+            "target_domain",
+            "reason",
+            "actor_id",
+            "session_id",
+        ):
             object.__setattr__(self, name, _text(getattr(self, name), name))
-        if not self.source_domain.startswith("domain:") or not self.target_domain.startswith("domain:") or self.source_domain == self.target_domain:
-            raise _error("source and target domains must be distinct canonical IDs", "target_domain")
-        object.__setattr__(self, "capability", _enum(self.capability, PermissionCapability, "capability"))
-        for name in ("resource_ids", "resource_kinds", "requested_operations", "requested_workflows"):
+        if (
+            not self.source_domain.startswith("domain:")
+            or not self.target_domain.startswith("domain:")
+            or self.source_domain == self.target_domain
+        ):
+            raise _error(
+                "source and target domains must be distinct canonical IDs",
+                "target_domain",
+            )
+        object.__setattr__(
+            self,
+            "capability",
+            _enum(self.capability, PermissionCapability, "capability"),
+        )
+        for name in (
+            "resource_ids",
+            "resource_kinds",
+            "requested_operations",
+            "requested_workflows",
+        ):
             object.__setattr__(self, name, _strings(getattr(self, name), name))
-        if self.capability is PermissionCapability.RESOURCE_READ and not (self.resource_ids or self.resource_kinds):
-            raise _error("resource.read requires resource_ids or resource_kinds", "resource_ids")
-        if self.capability is PermissionCapability.OPERATION_EXECUTE and not self.requested_operations:
-            raise _error("operation.execute requires requested_operations", "requested_operations")
-        if self.capability is PermissionCapability.WORKFLOW_EXECUTE and not self.requested_workflows:
-            raise _error("workflow.execute requires requested_workflows", "requested_workflows")
-        object.__setattr__(self, "duration", _enum(self.duration, CrossDomainDuration, "duration"))
-        object.__setattr__(self, "requires_approval", _bool(self.requires_approval, "requires_approval"))
+        if self.capability is PermissionCapability.RESOURCE_READ and not (
+            self.resource_ids or self.resource_kinds
+        ):
+            raise _error(
+                "resource.read requires resource_ids or resource_kinds", "resource_ids"
+            )
+        if (
+            self.capability is PermissionCapability.OPERATION_EXECUTE
+            and not self.requested_operations
+        ):
+            raise _error(
+                "operation.execute requires requested_operations",
+                "requested_operations",
+            )
+        if (
+            self.capability is PermissionCapability.WORKFLOW_EXECUTE
+            and not self.requested_workflows
+        ):
+            raise _error(
+                "workflow.execute requires requested_workflows", "requested_workflows"
+            )
+        object.__setattr__(
+            self, "duration", _enum(self.duration, CrossDomainDuration, "duration")
+        )
+        object.__setattr__(
+            self,
+            "requires_approval",
+            _bool(self.requires_approval, "requires_approval"),
+        )
         if self.sensitivity_level is not None:
-            object.__setattr__(self, "sensitivity_level", _enum(self.sensitivity_level, SensitivityLevel, "sensitivity_level"))
+            object.__setattr__(
+                self,
+                "sensitivity_level",
+                _enum(self.sensitivity_level, SensitivityLevel, "sensitivity_level"),
+            )
         if self.expires_at is not None:
-            object.__setattr__(self, "expires_at", _aware(self.expires_at, "expires_at"))
+            object.__setattr__(
+                self, "expires_at", _aware(self.expires_at, "expires_at")
+            )
         if not isinstance(self.constraints, Mapping):
             raise _error("constraints must be a mapping", "constraints")
         normalized_constraints = dict(self.constraints)
         set_constraints = {
-            "allowed_resources", "prohibited_resources",
-            "allowed_resource_kinds", "prohibited_resource_kinds",
-            "allowed_operations", "prohibited_operations",
-            "allowed_workflows", "prohibited_workflows",
-            "allowed_target_domains", "prohibited_target_domains",
-            "allowed_sensitivity_levels", "prohibited_sensitivity_levels", "scopes",
+            "allowed_resources",
+            "prohibited_resources",
+            "allowed_resource_kinds",
+            "prohibited_resource_kinds",
+            "allowed_operations",
+            "prohibited_operations",
+            "allowed_workflows",
+            "prohibited_workflows",
+            "allowed_target_domains",
+            "prohibited_target_domains",
+            "allowed_sensitivity_levels",
+            "prohibited_sensitivity_levels",
+            "scopes",
         }
         for name in set_constraints & set(normalized_constraints):
             normalized_constraints[name] = _strings(normalized_constraints[name], name)
-        for name in {"allowed_sensitivity_levels", "prohibited_sensitivity_levels"} & set(normalized_constraints):
+        for name in {
+            "allowed_sensitivity_levels",
+            "prohibited_sensitivity_levels",
+        } & set(normalized_constraints):
             normalized_constraints[name] = tuple(
                 _enum(item, SensitivityLevel, name).value
                 for item in normalized_constraints[name]
@@ -440,12 +685,16 @@ class CrossDomainPermissionRequest:
             normalized_constraints["expires_at"] = _aware(
                 normalized_constraints["expires_at"], "expires_at"
             ).isoformat()
-        object.__setattr__(self, "constraints", _freeze(_json(normalized_constraints, "constraints")))
+        object.__setattr__(
+            self, "constraints", _freeze(_json(normalized_constraints, "constraints"))
+        )
         for name in ("provenance", "metadata"):
             object.__setattr__(self, name, _freeze(_json(getattr(self, name), name)))
 
     def to_dict(self) -> dict[str, Any]:
-        result = {name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__}
+        result = {
+            name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__
+        }
         result["capability"] = self.capability.value
         result["duration"] = self.duration.value
         if self.sensitivity_level is not None:
@@ -459,7 +708,9 @@ class CrossDomainPermissionRequest:
         known = set(cls.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:
-            raise DomainPermissionSerializationError(f"unknown fields: {sorted(unknown)}")
+            raise DomainPermissionSerializationError(
+                f"unknown fields: {sorted(unknown)}"
+            )
         return cls(**dict(data))
 
 
@@ -478,25 +729,56 @@ class CrossDomainPermissionDecision:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "request_id", _text(self.request_id, "request_id"))
-        object.__setattr__(self, "decision", _enum(self.decision, PermissionOutcome, "decision"))
-        for name in ("granted_resources", "granted_operations", "granted_workflows", "reasons"):
+        object.__setattr__(
+            self, "decision", _enum(self.decision, PermissionOutcome, "decision")
+        )
+        for name in (
+            "granted_resources",
+            "granted_operations",
+            "granted_workflows",
+            "reasons",
+        ):
             object.__setattr__(self, name, _strings(getattr(self, name), name))
         requirements = tuple(self.approval_requirements)
-        if not all(isinstance(item, PermissionApprovalRequirement) for item in requirements):
-            raise _error("approval_requirements must contain PermissionApprovalRequirement values", "approval_requirements")
+        if not all(
+            isinstance(item, PermissionApprovalRequirement) for item in requirements
+        ):
+            raise _error(
+                "approval_requirements must contain PermissionApprovalRequirement values",
+                "approval_requirements",
+            )
         if len({item.requirement_id for item in requirements}) != len(requirements):
-            raise _error("approval_requirements must not contain duplicate IDs", "approval_requirements")
+            raise _error(
+                "approval_requirements must not contain duplicate IDs",
+                "approval_requirements",
+            )
         object.__setattr__(self, "approval_requirements", requirements)
-        if self.decision is PermissionOutcome.APPROVAL_REQUIRED and not self.approval_requirements:
-            raise _error("approval_required requires approval_requirements", "approval_requirements")
-        object.__setattr__(self, "constraints", _freeze(_json(self.constraints, "constraints")))
-        object.__setattr__(self, "trace_entries", tuple(_freeze(_json(item, "trace_entries")) for item in self.trace_entries))
+        if (
+            self.decision is PermissionOutcome.APPROVAL_REQUIRED
+            and not self.approval_requirements
+        ):
+            raise _error(
+                "approval_required requires approval_requirements",
+                "approval_requirements",
+            )
+        object.__setattr__(
+            self, "constraints", _freeze(_json(self.constraints, "constraints"))
+        )
+        object.__setattr__(
+            self,
+            "trace_entries",
+            tuple(_freeze(_json(item, "trace_entries")) for item in self.trace_entries),
+        )
         object.__setattr__(self, "metadata", _freeze(_json(self.metadata, "metadata")))
 
     def to_dict(self) -> dict[str, Any]:
-        result = {name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__}
+        result = {
+            name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__
+        }
         result["decision"] = self.decision.value
-        result["approval_requirements"] = [item.to_dict() for item in self.approval_requirements]
+        result["approval_requirements"] = [
+            item.to_dict() for item in self.approval_requirements
+        ]
         return result
 
 
@@ -511,24 +793,42 @@ class DomainPermissionConflict:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "action", _enum(self.action, PermissionCapability, "action"))
+        object.__setattr__(
+            self, "action", _enum(self.action, PermissionCapability, "action")
+        )
         for name in ("allowing_sources", "denying_sources", "approval_sources"):
             object.__setattr__(self, name, _strings(getattr(self, name), name))
-        object.__setattr__(self, "resolution", _enum(self.resolution, PermissionOutcome, "resolution"))
-        if self.resolution not in (PermissionOutcome.DENY, PermissionOutcome.APPROVAL_REQUIRED):
-            raise _error("conflict resolution must be deny or approval_required", "resolution")
+        object.__setattr__(
+            self, "resolution", _enum(self.resolution, PermissionOutcome, "resolution")
+        )
+        if self.resolution not in (
+            PermissionOutcome.DENY,
+            PermissionOutcome.APPROVAL_REQUIRED,
+        ):
+            raise _error(
+                "conflict resolution must be deny or approval_required", "resolution"
+            )
         object.__setattr__(self, "reason_code", _text(self.reason_code, "reason_code"))
         object.__setattr__(self, "metadata", _freeze(_json(self.metadata, "metadata")))
 
     def to_dict(self) -> dict[str, Any]:
-        result = {name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__}
+        result = {
+            name: _thaw(getattr(self, name)) for name in self.__dataclass_fields__
+        }
         result["action"] = self.action.value
         result["resolution"] = self.resolution.value
         return result
 
 
 __all__ = [
-    "CrossDomainDuration", "CrossDomainPermissionDecision", "CrossDomainPermissionRequest",
-    "DomainAutonomyLimits", "DomainPermissionConflict", "DomainPermissionPolicy", "DomainPermissionRequest",
-    "PermissionCapability", "PermissionOutcome", "SensitivityLevel",
+    "CrossDomainDuration",
+    "CrossDomainPermissionDecision",
+    "CrossDomainPermissionRequest",
+    "DomainAutonomyLimits",
+    "DomainPermissionConflict",
+    "DomainPermissionPolicy",
+    "DomainPermissionRequest",
+    "PermissionCapability",
+    "PermissionOutcome",
+    "SensitivityLevel",
 ]

@@ -33,17 +33,31 @@ class DomainWorkflowDefinition:
 
     def __post_init__(self) -> None:
         if not self.workflow_id or not self.domain_id.startswith("domain:"):
-            raise DomainWorkflowValidationError("workflow_id and canonical domain_id are required")
+            raise DomainWorkflowValidationError(
+                "workflow_id and canonical domain_id are required"
+            )
         if not self.nodes:
             raise DomainWorkflowValidationError("domain workflow requires nodes")
         object.__setattr__(self, "nodes", tuple(self.nodes))
-        object.__setattr__(self, "required_permissions", tuple(self.required_permissions))
+        object.__setattr__(
+            self, "required_permissions", tuple(self.required_permissions)
+        )
         object.__setattr__(self, "required_resources", tuple(self.required_resources))
-        object.__setattr__(self, "supporting_domain_ids", tuple(self.supporting_domain_ids))
-        object.__setattr__(self, "input_schema", MappingProxyType(dict(self.input_schema)))
-        object.__setattr__(self, "output_schema", MappingProxyType(dict(self.output_schema)))
+        object.__setattr__(
+            self, "supporting_domain_ids", tuple(self.supporting_domain_ids)
+        )
+        object.__setattr__(
+            self, "input_schema", MappingProxyType(dict(self.input_schema))
+        )
+        object.__setattr__(
+            self, "output_schema", MappingProxyType(dict(self.output_schema))
+        )
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
-        object.__setattr__(self, "completion_criteria", MappingProxyType(dict(self.completion_criteria)))
+        object.__setattr__(
+            self,
+            "completion_criteria",
+            MappingProxyType(dict(self.completion_criteria)),
+        )
         object.__setattr__(self, "approval_gates", tuple(self.approval_gates))
         if self.purpose is not None and (
             not isinstance(self.purpose, str) or not self.purpose.strip()
@@ -54,16 +68,23 @@ class DomainWorkflowDefinition:
         )
         try:
             sensitivity = (
-                None
-                if self.sensitivity is None
-                else SensitivityLevel(self.sensitivity)
+                None if self.sensitivity is None else SensitivityLevel(self.sensitivity)
             )
         except (TypeError, ValueError) as exc:
             raise DomainWorkflowValidationError("invalid workflow sensitivity") from exc
         object.__setattr__(self, "sensitivity", sensitivity)
 
     def to_common(self) -> WorkflowDefinition:
-        return WorkflowDefinition(self.workflow_id, self.version, self.name, self.description, self.nodes, self.enabled, self.metadata, self.completion_criteria)
+        return WorkflowDefinition(
+            self.workflow_id,
+            self.version,
+            self.name,
+            self.description,
+            self.nodes,
+            self.enabled,
+            self.metadata,
+            self.completion_criteria,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,7 +104,9 @@ class DomainWorkflowDefinition:
             "completion_criteria": dict(self.completion_criteria),
             "approval_gates": list(self.approval_gates),
             "purpose": self.purpose,
-            "sensitivity": self.sensitivity.value if self.sensitivity is not None else None,
+            "sensitivity": self.sensitivity.value
+            if self.sensitivity is not None
+            else None,
         }
 
     @classmethod
@@ -155,4 +178,8 @@ class DomainWorkflowResult:
         return self.common_result.run.run_id
 
     def to_dict(self) -> dict[str, Any]:
-        return {"common_result": self.common_result.to_dict(), "domain_id": self.domain_id, "provenance": dict(self.provenance)}
+        return {
+            "common_result": self.common_result.to_dict(),
+            "domain_id": self.domain_id,
+            "provenance": dict(self.provenance),
+        }

@@ -186,7 +186,10 @@ def test_every_validate_condition_has_a_direct_dependency_schema_property():
     for wf in build_concerns_workflow_definitions():
         nodes_by_id = {n.node_id: n for n in wf.nodes}
         for node in wf.nodes:
-            if node.node_type is not WorkflowNodeType.VALIDATE or not node.wait_condition:
+            if (
+                node.node_type is not WorkflowNodeType.VALIDATE
+                or not node.wait_condition
+            ):
                 continue
             for field in node.wait_condition:
                 # Immutable workflow policy fields (documented) may come from

@@ -114,7 +114,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateTrackingBoundary",
                 dependencies=("create_plan",),
-                wait_condition={"tracking_choice_resolved": True, "persistence_applied": False},
+                wait_condition={
+                    "tracking_choice_resolved": True,
+                    "persistence_applied": False,
+                },
             ),
             _node(
                 "complete",
@@ -360,7 +363,10 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
                 WorkflowNodeType.VALIDATE,
                 "ValidateNoCalendarMutation",
                 dependencies=("review_plan",),
-                wait_condition={"calendar_modified": False, "external_action_executed": False},
+                wait_condition={
+                    "calendar_modified": False,
+                    "external_action_executed": False,
+                },
             ),
             _node(
                 "complete",
@@ -450,10 +456,7 @@ def build_languages_workflow_definitions() -> tuple[DomainWorkflowDefinition, ..
         "languages.progress_checkpoint": progress,
     }
 
-    return tuple(
-        by_id[workflow_id]
-        for workflow_id in CANONICAL_LANGUAGES_WORKFLOW_IDS
-    )
+    return tuple(by_id[workflow_id] for workflow_id in CANONICAL_LANGUAGES_WORKFLOW_IDS)
 
 
 __all__ = [

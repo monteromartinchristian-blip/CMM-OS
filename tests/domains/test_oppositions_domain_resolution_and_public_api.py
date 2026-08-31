@@ -44,14 +44,19 @@ def test_bootstrap_exposes_resolver_with_general_fallback():
 def test_bootstrap_registers_all_opposition_parts():
     bootstrap = build_standard_oppositions_domain_bootstrap()
     resources = {
-        r.id for r in bootstrap.resource_registry.list_all()
+        r.id
+        for r in bootstrap.resource_registry.list_all()
         if r.domain_id == OPPOSITIONS_DOMAIN_ID
     }
     rules = {
-        r.definition.id for r in bootstrap.rule_registry.list_all()
+        r.definition.id
+        for r in bootstrap.rule_registry.list_all()
         if r.definition.domain_id == OPPOSITIONS_DOMAIN_ID
     }
-    workflows = {w.workflow_id for w in bootstrap.workflow_registry.list_for_domain(OPPOSITIONS_DOMAIN_ID)}
+    workflows = {
+        w.workflow_id
+        for w in bootstrap.workflow_registry.list_for_domain(OPPOSITIONS_DOMAIN_ID)
+    }
     assert resources == set(CANONICAL_OPPOSITION_RESOURCE_IDS)
     assert rules == set(CANONICAL_OPPOSITION_RULE_IDS)
     assert workflows == set(CANONICAL_OPPOSITION_WORKFLOW_IDS)

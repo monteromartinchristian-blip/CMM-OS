@@ -13,9 +13,19 @@ import json
 from cmm.domains.reflection.rules import map_interests
 
 
-def _mention(interest, source, *, source_kind="user_statement", explicit=False,
-             activity=False, mention=True, context=None, observed_at=None,
-             contradictory=False, recording=""):
+def _mention(
+    interest,
+    source,
+    *,
+    source_kind="user_statement",
+    explicit=False,
+    activity=False,
+    mention=True,
+    context=None,
+    observed_at=None,
+    contradictory=False,
+    recording="",
+):
     return {
         "interest": interest,
         "source": source,
@@ -33,7 +43,13 @@ def _mention(interest, source, *, source_kind="user_statement", explicit=False,
 def test_one_explicit_mention_candidate_only():
     result = map_interests(
         records=(
-            _mention("photography", "msg:1", explicit=True, context="hobby", observed_at="2026-05-01"),
+            _mention(
+                "photography",
+                "msg:1",
+                explicit=True,
+                context="hobby",
+                observed_at="2026-05-01",
+            ),
         )
     )
     assert len(result["interest_candidates"]) == 1
@@ -48,9 +64,27 @@ def test_one_explicit_mention_candidate_only():
 def test_repeated_grounded_activity_stronger_candidate():
     result = map_interests(
         records=(
-            _mention("photography", "msg:1", activity=True, mention=True, observed_at="2026-03-01"),
-            _mention("photography", "msg:2", activity=True, mention=True, observed_at="2026-06-01"),
-            _mention("photography", "msg:3", activity=True, mention=True, observed_at="2026-08-01"),
+            _mention(
+                "photography",
+                "msg:1",
+                activity=True,
+                mention=True,
+                observed_at="2026-03-01",
+            ),
+            _mention(
+                "photography",
+                "msg:2",
+                activity=True,
+                mention=True,
+                observed_at="2026-06-01",
+            ),
+            _mention(
+                "photography",
+                "msg:3",
+                activity=True,
+                mention=True,
+                observed_at="2026-08-01",
+            ),
         )
     )
     candidates = {c["interest"]: c for c in result["interest_candidates"]}
@@ -65,8 +99,12 @@ def test_repeated_grounded_activity_stronger_candidate():
 def test_duplicate_source_does_not_inflate_evidence():
     result = map_interests(
         records=(
-            _mention("photography", "same-src", explicit=True, observed_at="2026-05-01"),
-            _mention("photography", "same-src", explicit=True, observed_at="2026-05-01"),
+            _mention(
+                "photography", "same-src", explicit=True, observed_at="2026-05-01"
+            ),
+            _mention(
+                "photography", "same-src", explicit=True, observed_at="2026-05-01"
+            ),
         )
     )
     candidate = result["interest_candidates"][0]
@@ -79,9 +117,25 @@ def test_duplicate_source_does_not_inflate_evidence():
 def test_model_summary_is_not_independent_corroboration():
     result = map_interests(
         records=(
-            _mention("photography", "msg:1", source_kind="user_statement", explicit=True, observed_at="2026-05-01"),
-            _mention("photography", "summary:1", source_kind="model_summary", observed_at="2026-06-01"),
-            _mention("photography", "memory:1", source_kind="memory_summary", observed_at="2026-07-01"),
+            _mention(
+                "photography",
+                "msg:1",
+                source_kind="user_statement",
+                explicit=True,
+                observed_at="2026-05-01",
+            ),
+            _mention(
+                "photography",
+                "summary:1",
+                source_kind="model_summary",
+                observed_at="2026-06-01",
+            ),
+            _mention(
+                "photography",
+                "memory:1",
+                source_kind="memory_summary",
+                observed_at="2026-07-01",
+            ),
         )
     )
     candidate = result["interest_candidates"][0]
@@ -95,7 +149,9 @@ def test_contradictory_evidence_keeps_uncertainty():
     result = map_interests(
         records=(
             _mention("photography", "msg:1", explicit=True, observed_at="2026-05-01"),
-            _mention("photography", "msg:2", contradictory=True, observed_at="2026-06-01"),
+            _mention(
+                "photography", "msg:2", contradictory=True, observed_at="2026-06-01"
+            ),
         )
     )
     candidate = result["interest_candidates"][0]
@@ -105,9 +161,7 @@ def test_contradictory_evidence_keeps_uncertainty():
 
 
 def test_single_unrelated_mention_is_not_committed_interest():
-    result = map_interests(
-        records=(_mention("football", "msg:1", mention=True),)
-    )
+    result = map_interests(records=(_mention("football", "msg:1", mention=True),))
     candidate = result["interest_candidates"][0]
     assert candidate["persistent_confirmed"] is False
     assert candidate["uncertainty"] is True
@@ -137,7 +191,9 @@ def test_input_permutation_identical():
     )
     import itertools
 
-    results = [map_interests(records=tuple(order)) for order in itertools.permutations(records)]
+    results = [
+        map_interests(records=tuple(order)) for order in itertools.permutations(records)
+    ]
     canonical = {
         tuple(
             (c["interest"], c["grounded_evidence_count"], c["uncertainty"])
@@ -149,9 +205,7 @@ def test_input_permutation_identical():
 
 
 def test_json_safe_interest_result():
-    result = map_interests(
-        records=(_mention("photography", "msg:1", explicit=True),)
-    )
+    result = map_interests(records=(_mention("photography", "msg:1", explicit=True),))
     json.dumps(result, allow_nan=False)
 
 

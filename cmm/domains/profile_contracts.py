@@ -617,10 +617,9 @@ class DomainPresentationPolicy:
                 f"{sorted(unknown_preferred)}",
                 field="preferred_output_types",
             )
-        if (
-            self.allowed_output_types is not None
-            and not set(self.preferred_output_types).issubset(self.allowed_output_types)
-        ):
+        if self.allowed_output_types is not None and not set(
+            self.preferred_output_types
+        ).issubset(self.allowed_output_types):
             raise DomainProfileContractError(
                 "preferred_output_types must be allowed_output_types",
                 field="preferred_output_types",

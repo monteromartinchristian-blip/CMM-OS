@@ -63,8 +63,7 @@ CANONICAL_CONCERNS_RESOURCE_IDS: tuple[str, ...] = (
 )
 
 CONCERNS_RESOURCE_KINDS: tuple[str, ...] = tuple(
-    resource_id.split(".", 1)[1]
-    for resource_id in CANONICAL_CONCERNS_RESOURCE_IDS
+    resource_id.split(".", 1)[1] for resource_id in CANONICAL_CONCERNS_RESOURCE_IDS
 )
 
 # ── Canonical rule IDs ────────────────────────────────────────────────────────

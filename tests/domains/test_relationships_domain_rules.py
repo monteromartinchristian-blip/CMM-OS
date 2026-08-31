@@ -117,10 +117,7 @@ def test_do_not_infer_intent_keeps_unsupported_claim_as_hypothesis():
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert result.escalation is None
-    assert any(
-        finding.code == "INTENT_NOT_ESTABLISHED"
-        for finding in result.findings
-    )
+    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
 
 
 def test_do_not_infer_intent_allows_bare_tentative_hypothesis():
@@ -131,10 +128,7 @@ def test_do_not_infer_intent_allows_bare_tentative_hypothesis():
 
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert result.escalation is None
-    assert any(
-        finding.code == "INTENT_NOT_ESTABLISHED"
-        for finding in result.findings
-    )
+    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
 
 
 def test_do_not_infer_intent_allows_direct_evidence():

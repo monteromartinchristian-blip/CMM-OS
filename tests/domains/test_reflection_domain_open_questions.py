@@ -20,9 +20,18 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _question(identity, question, *, evidence=None, plausible_hypothesis=False,
-             future_behavior=False, motive_stated=None, timeline_complete=None,
-             source_grounded=None, answer=None):
+def _question(
+    identity,
+    question,
+    *,
+    evidence=None,
+    plausible_hypothesis=False,
+    future_behavior=False,
+    motive_stated=None,
+    timeline_complete=None,
+    source_grounded=None,
+    answer=None,
+):
     return {
         "identity": identity,
         "question": question,
@@ -47,8 +56,7 @@ def test_question_open_when_evidence_missing():
 
 def test_question_open_when_evidence_conflicting():
     result = evaluate_open_questions(
-        questions=(
-            _question("q1", "Are they interested?", evidence="conflicting"),)
+        questions=(_question("q1", "Are they interested?", evidence="conflicting"),)
     )
     assert result["questions"][0]["status"] == "open"
     assert "evidence_conflicting" in result["questions"][0]["reasons"]
@@ -57,8 +65,12 @@ def test_question_open_when_evidence_conflicting():
 def test_plausible_hypothesis_alone_does_not_close_question():
     result = evaluate_open_questions(
         questions=(
-            _question("q1", "Why am I avoiding this?", evidence=None,
-                      plausible_hypothesis=True),
+            _question(
+                "q1",
+                "Why am I avoiding this?",
+                evidence=None,
+                plausible_hypothesis=True,
+            ),
         )
     )
     assert result["questions"][0]["status"] == "open"
@@ -69,8 +81,9 @@ def test_plausible_hypothesis_alone_does_not_close_question():
 def test_future_behavior_unknowable():
     result = evaluate_open_questions(
         questions=(
-            _question("q1", "Will I still feel this way in a year?",
-                      future_behavior=True),
+            _question(
+                "q1", "Will I still feel this way in a year?", future_behavior=True
+            ),
         )
     )
     assert result["questions"][0]["status"] == "open"
@@ -79,8 +92,7 @@ def test_future_behavior_unknowable():
 
 def test_motive_not_stated():
     result = evaluate_open_questions(
-        questions=(
-            _question("q1", "Why did I react that way?", motive_stated=False),)
+        questions=(_question("q1", "Why did I react that way?", motive_stated=False),)
     )
     assert result["questions"][0]["status"] == "open"
     assert "motive_not_stated" in result["questions"][0]["reasons"]
@@ -88,8 +100,7 @@ def test_motive_not_stated():
 
 def test_incomplete_timeline_keeps_question_open():
     result = evaluate_open_questions(
-        questions=(
-            _question("q1", "When did this start?", timeline_complete=False),)
+        questions=(_question("q1", "When did this start?", timeline_complete=False),)
     )
     assert result["questions"][0]["status"] == "open"
     assert "timeline_incomplete" in result["questions"][0]["reasons"]
@@ -107,8 +118,12 @@ def test_no_invented_answer():
     result = evaluate_open_questions(
         questions=(
             _question("q1", "Why do I feel this way?", evidence=None),
-            _question("q2", "What do I actually want?",
-                      evidence="grounded", answer="user-said: distance"),
+            _question(
+                "q2",
+                "What do I actually want?",
+                evidence="grounded",
+                answer="user-said: distance",
+            ),
         )
     )
     assert result["invented_answers"] == ()
@@ -128,7 +143,9 @@ def test_input_permutation_identical():
         b["unresolved_count"],
         b["answered_count"],
     )
-    assert {q["identity"] for q in a["questions"]} == {q["identity"] for q in b["questions"]}
+    assert {q["identity"] for q in a["questions"]} == {
+        q["identity"] for q in b["questions"]
+    }
 
 
 def test_open_question_rule_applied():

@@ -21,7 +21,15 @@ def test_cognitive_rule_core_has_no_domain_dependency() -> None:
 
 
 def test_rule_services_have_no_runtime_io_or_future_phase_dependencies() -> None:
-    forbidden = ("agent_runtime", "workflow", "operation", "subprocess", "requests", "httpx", "socket")
+    forbidden = (
+        "agent_runtime",
+        "workflow",
+        "operation",
+        "subprocess",
+        "requests",
+        "httpx",
+        "socket",
+    )
     for path in Path("cmm/domains").glob("rule*.py"):
         source = path.read_text()
         assert not any(term in source for term in forbidden)

@@ -113,7 +113,9 @@ def test_permission_snapshot_read_capability_shape():
 
 
 def test_binding_content_binds_trace_and_view():
-    trace = DomainMemoryTraceSnapshot(trace_id="trace-c-9", primary_domain="domain:concerns")
+    trace = DomainMemoryTraceSnapshot(
+        trace_id="trace-c-9", primary_domain="domain:concerns"
+    )
     ref = _reference("ref:c-9", "item:c-9")
     request = build_concerns_memory_view_request(
         request_id="req-c-9",

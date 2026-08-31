@@ -124,9 +124,8 @@ def find_languages_runtime_purity_violations(
             return
         if isinstance(value, FunctionType):
             function_module = value.__module__ or ""
-            if (
-                function_module == root_module
-                or function_module.startswith(_LANGUAGES_MODULE_PREFIX)
+            if function_module == root_module or function_module.startswith(
+                _LANGUAGES_MODULE_PREFIX
             ):
                 pending.append(value)
             else:
@@ -135,19 +134,14 @@ def find_languages_runtime_purity_violations(
                 )
             return
         if isinstance(value, ModuleType):
-            if (
-                source != "global"
-                or _allowed_module_capabilities(value) is None
-            ):
+            if source != "global" or _allowed_module_capabilities(value) is None:
                 violations.add(RuntimePurityViolation("module", dependency, owner))
             return
-        if _is_allowed_identity(value, _ALLOWED_GLOBAL_IDENTITIES) or _is_allowed_identity(
-            value, _ALLOWED_BUILTINS
-        ):
+        if _is_allowed_identity(
+            value, _ALLOWED_GLOBAL_IDENTITIES
+        ) or _is_allowed_identity(value, _ALLOWED_BUILTINS):
             return
-        violations.add(
-            RuntimePurityViolation(f"{source}_object", dependency, owner)
-        )
+        violations.add(RuntimePurityViolation(f"{source}_object", dependency, owner))
 
     def inspect_code_dependencies(
         function: FunctionType,
@@ -231,11 +225,9 @@ def find_languages_runtime_purity_violations(
 
                 attribute_chain: list[str] = []
                 next_index = index + 1
-                while (
-                    next_index < len(instructions)
-                    and instructions[next_index].opname
-                    in {"LOAD_ATTR", "LOAD_METHOD"}
-                ):
+                while next_index < len(instructions) and instructions[
+                    next_index
+                ].opname in {"LOAD_ATTR", "LOAD_METHOD"}:
                     attribute_chain.append(str(instructions[next_index].argval))
                     next_index += 1
                 capability = tuple(attribute_chain)
@@ -274,9 +266,7 @@ def find_languages_runtime_purity_violations(
             )
         for dependency, value in closure.builtins.items():
             if not _is_allowed_identity(value, _ALLOWED_BUILTINS):
-                violations.add(
-                    RuntimePurityViolation("builtin", dependency, owner)
-                )
+                violations.add(RuntimePurityViolation("builtin", dependency, owner))
 
         positional_defaults = function.__defaults__ or ()
         for index, value in enumerate(positional_defaults):
@@ -311,6 +301,5 @@ def snapshot_languages_module_state(module: ModuleType) -> dict[str, Any]:
     return {
         name: deepcopy(value)
         for name, value in vars(module).items()
-        if not name.startswith("__")
-        and isinstance(value, _MUTABLE_RUNTIME_TYPES)
+        if not name.startswith("__") and isinstance(value, _MUTABLE_RUNTIME_TYPES)
     }

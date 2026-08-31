@@ -53,7 +53,9 @@ NOW = datetime(2026, 8, 20, 22, 0, tzinfo=timezone.utc)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _build_valid_reflection_chain(proposal_id: str = "prop-v4-1", *, approved: bool = True):
+def _build_valid_reflection_chain(
+    proposal_id: str = "prop-v4-1", *, approved: bool = True
+):
     ref = DomainMemoryReference(
         reference_id=f"ref:{proposal_id}",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -84,7 +86,11 @@ def _build_valid_reflection_chain(proposal_id: str = "prop-v4-1", *, approved: b
     )
     temp_inventory = DomainMemoryReferenceInventory(
         references=(ref,),
-        traces=(DomainMemoryTraceSnapshot(trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"),),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=f"trace:{proposal_id}", primary_domain="domain:reflection"
+            ),
+        ),
         permission_decisions=(permission,),
     )
     view = build_reflection_memory_view(request=view_request, inventory=temp_inventory)
@@ -148,9 +154,13 @@ def test_v4_diagnosis_safe_disclaimers_allowed():
     )
     for stmt in disclaimers:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-disc", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-disc", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is True, f"Expected disclaimer {stmt!r} to be safe (no_diagnosis=True)"
+        assert res["no_diagnosis"] is True, (
+            f"Expected disclaimer {stmt!r} to be safe (no_diagnosis=True)"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is False
         assert hyp["restricted_inference"] is False
@@ -173,15 +183,26 @@ def test_v4_diagnosis_tentative_diagnostic_labels_restricted():
     )
     for stmt in tentative_diagnoses:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-tent-diag", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {
+                    "identity": "h-tent-diag",
+                    "statement": stmt,
+                    "supporting_ids": ("s1",),
+                },
+            )
         )
-        assert res["no_diagnosis"] is False, f"Expected tentative diagnosis {stmt!r} to be RESTRICTED"
+        assert res["no_diagnosis"] is False, (
+            f"Expected tentative diagnosis {stmt!r} to be RESTRICTED"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is True
         assert hyp["restricted_inference"] is True
         assert hyp["relative_strength"] is None
         pres = present_reflection_result(res)
-        assert pres["hypotheses"][0]["statement"] == "[restricted: diagnostic/classifying claim withheld]"
+        assert (
+            pres["hypotheses"][0]["statement"]
+            == "[restricted: diagnostic/classifying claim withheld]"
+        )
 
 
 def test_v4_diagnosis_contextual_symptom_hypotheses_safe():
@@ -197,9 +218,13 @@ def test_v4_diagnosis_contextual_symptom_hypotheses_safe():
     )
     for stmt in contextual_hypotheses:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-ctx", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-ctx", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is True, f"Expected contextual symptom {stmt!r} to be SAFE"
+        assert res["no_diagnosis"] is True, (
+            f"Expected contextual symptom {stmt!r} to be SAFE"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is False
         assert hyp["restricted_inference"] is False
@@ -217,9 +242,13 @@ def test_v4_diagnosis_direct_assertions_restricted():
     )
     for stmt in direct_assertions:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-dir", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-dir", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is False, f"Expected direct assertion {stmt!r} to be RESTRICTED"
+        assert res["no_diagnosis"] is False, (
+            f"Expected direct assertion {stmt!r} to be RESTRICTED"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is True
         assert hyp["restricted_inference"] is True
@@ -235,9 +264,13 @@ def test_v4_diagnosis_mixed_disclaimer_plus_diagnosis_restricted():
     )
     for stmt in mixed_statements:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-mix", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-mix", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is False, f"Expected mixed statement {stmt!r} to be RESTRICTED"
+        assert res["no_diagnosis"] is False, (
+            f"Expected mixed statement {stmt!r} to be RESTRICTED"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is True
 
@@ -291,7 +324,9 @@ def test_v4_certainty_negated_certainty_safe():
     for text in negated_conclusions:
         res = {"unresolved": True, "conclusion": text}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is False, f"Expected negated certainty {text!r} to be SAFE"
+        assert policy["forced_conclusion"] is False, (
+            f"Expected negated certainty {text!r} to be SAFE"
+        )
         assert policy["valid_unresolved_completion"] is True
 
 
@@ -310,7 +345,9 @@ def test_v4_certainty_affirmative_certainty_blocked():
     for text in affirmative_conclusions:
         res = {"unresolved": True, "conclusion": text}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is True, f"Expected affirmative certainty {text!r} to be BLOCKED"
+        assert policy["forced_conclusion"] is True, (
+            f"Expected affirmative certainty {text!r} to be BLOCKED"
+        )
         assert policy["valid_unresolved_completion"] is False
 
 
@@ -325,7 +362,9 @@ def test_v4_certainty_mixed_polarity_blocked():
     for text in mixed_conclusions:
         res = {"unresolved": True, "conclusion": text}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is True, f"Expected mixed certainty {text!r} to be BLOCKED"
+        assert policy["forced_conclusion"] is True, (
+            f"Expected mixed certainty {text!r} to be BLOCKED"
+        )
         assert policy["valid_unresolved_completion"] is False
 
 
@@ -340,14 +379,19 @@ def test_v4_certainty_tentative_conclusions_safe():
     for text in tentative_conclusions:
         res = {"unresolved": True, "conclusion": text}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is False, f"Expected tentative conclusion {text!r} to be SAFE"
+        assert policy["forced_conclusion"] is False, (
+            f"Expected tentative conclusion {text!r} to be SAFE"
+        )
         assert policy["valid_unresolved_completion"] is True
 
 
 def test_v4_certainty_quoted_evidence_irrelevant():
     """Certainty language occurring only in evidence/observation/quotes does NOT force conclusion."""
     cases = (
-        {"unresolved": True, "evidence": ("El cliente dijo: 'sin duda alguna me voy'",)},
+        {
+            "unresolved": True,
+            "evidence": ("El cliente dijo: 'sin duda alguna me voy'",),
+        },
         {"unresolved": True, "observation": "Escribió: 'no hay duda de que es así'"},
         {"unresolved": True, "source": "Quote: 'there is no doubt I will be absent'"},
     )
@@ -370,7 +414,9 @@ def test_v4_certainty_structural_flags_enforce_blocked():
     ):
         res = {"unresolved": True, field: val, "conclusion": "No tengo certeza de nada"}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is True, f"Expected {field}={val} to block despite negated conclusion text"
+        assert policy["forced_conclusion"] is True, (
+            f"Expected {field}={val} to block despite negated conclusion text"
+        )
         assert policy["valid_unresolved_completion"] is False
 
 
@@ -382,9 +428,15 @@ def test_v4_no_forced_conclusion_rule_parity():
         timestamp=NOW,
         active_domains=("domain:reflection",),
         primary_domain="domain:reflection",
-        metadata={"result": {"unresolved": True, "conclusion": "No tengo certeza de la causa"}},
+        metadata={
+            "result": {"unresolved": True, "conclusion": "No tengo certeza de la causa"}
+        },
     )
-    rule = next(r for r in build_reflection_rules() if r.definition.id == "reflection.no_forced_conclusion")
+    rule = next(
+        r
+        for r in build_reflection_rules()
+        if r.definition.id == "reflection.no_forced_conclusion"
+    )
     res_safe = rule.evaluate(context_safe)
     assert res_safe.status is ReasoningRuleResultStatus.APPLIED
     assert res_safe.findings[0].metadata["forced_conclusion"] is False
@@ -395,7 +447,12 @@ def test_v4_no_forced_conclusion_rule_parity():
         timestamp=NOW,
         active_domains=("domain:reflection",),
         primary_domain="domain:reflection",
-        metadata={"result": {"unresolved": True, "conclusion": "Tengo certeza de que fue por rechazo"}},
+        metadata={
+            "result": {
+                "unresolved": True,
+                "conclusion": "Tengo certeza de que fue por rechazo",
+            }
+        },
     )
     res_forced = rule.evaluate(context_forced)
     assert res_forced.status is ReasoningRuleResultStatus.APPLIED
@@ -418,9 +475,17 @@ def test_v4_strict_json_all_outputs():
             confirmation_inventory=inventory,
         ),
         evaluate_hypotheses(
-            hypotheses=({"identity": "h1", "statement": "No puedo diagnosticar esto", "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {
+                    "identity": "h1",
+                    "statement": "No puedo diagnosticar esto",
+                    "supporting_ids": ("s1",),
+                },
+            )
         ),
-        no_forced_conclusion_policy({"unresolved": True, "conclusion": "No tengo certeza sobre la causa"}),
+        no_forced_conclusion_policy(
+            {"unresolved": True, "conclusion": "No tengo certeza sobre la causa"}
+        ),
         evaluate_ambivalence(records=()),
         evaluate_open_questions(questions=()),
         evaluate_persistence_basis({"pattern": "x", "sources": ("s1",)}),
@@ -435,7 +500,11 @@ def test_v4_strict_json_all_outputs():
 def test_v4_input_non_mutation():
     """Input structures must not be mutated by helper execution."""
     raw_hyp = [
-        {"identity": "h1", "statement": "No hay base para diagnosticar depresión", "supporting_ids": ["s1"]}
+        {
+            "identity": "h1",
+            "statement": "No hay base para diagnosticar depresión",
+            "supporting_ids": ["s1"],
+        }
     ]
     hyp_copy = copy.deepcopy(raw_hyp)
     evaluate_hypotheses(hypotheses=raw_hyp)

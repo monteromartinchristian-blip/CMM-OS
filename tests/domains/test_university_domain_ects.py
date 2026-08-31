@@ -35,10 +35,9 @@ def _record(subject_id, ects, state, *, source="record-1", **extra):
 
 
 def _canonical_result(*, records=(), degree_requirement=None, **legacy):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.ects_consistency"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.ects_consistency"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="ects-production",
         timestamp=T,
@@ -173,7 +172,11 @@ def test_canonical_rule_same_subject_completed_and_recognized_is_not_double_coun
             _record("subject-a", 6, "completed", source="record-complete"),
             _record("subject-a", 6, "recognized", source="record-recognized"),
         ),
-        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "degree-1",
+        },
     )
     finding = result.findings[0]
     assert finding.code == "ECTS_COMPLETION_BLOCKED"
@@ -185,7 +188,11 @@ def test_canonical_rule_same_subject_completed_and_recognized_is_not_double_coun
 def test_canonical_rule_enrolled_credits_do_not_count_as_completed():
     result = _canonical_result(
         records=(_record("subject-enrolled", 6, "enrolled"),),
-        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "degree-1",
+        },
     )
     finding = result.findings[0]
     assert finding.metadata["completed"] == 0
@@ -219,7 +226,11 @@ def test_canonical_rule_contradictory_current_credit_states_block_completion():
             _record("subject-a", 6, "completed", source="pass"),
             _record("subject-a", 6, "failed", source="fail"),
         ),
-        degree_requirement={"required_ects": 6, "grounded": True, "source_reference": "degree-1"},
+        degree_requirement={
+            "required_ects": 6,
+            "grounded": True,
+            "source_reference": "degree-1",
+        },
     )
     finding = result.findings[0]
     assert finding.code == "ECTS_COMPLETION_BLOCKED"
@@ -509,6 +520,8 @@ def test_canonical_rule_malformed_records_cannot_confirm_completion():
     assert finding.metadata["satisfied"] is False
     assert finding.metadata["records_malformed"] is True
     assert finding.metadata["credit_state_sufficiently_grounded"] is False
+
+
 # ── V9-B3.1: strict ECTS grounding.  Truthy != grounded. ─────────────────────
 
 

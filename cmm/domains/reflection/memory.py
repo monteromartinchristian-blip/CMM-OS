@@ -131,7 +131,9 @@ def validate_reflection_memory_binding(
     """Validate a proposal binding against a canonical memory reference inventory."""
     from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidator
 
-    return DefaultDomainMemoryIntegrationValidator().validate_binding(binding, inventory)
+    return DefaultDomainMemoryIntegrationValidator().validate_binding(
+        binding, inventory
+    )
 
 
 __all__ = [

@@ -36,7 +36,10 @@ from cmm.domains.reflection.rules import evaluate_hypotheses
 def test_exactly_nine_operations():
     operations = build_reflection_operation_definitions()
     assert len(operations) == 9
-    assert tuple(op.operation_id for op in operations) == CANONICAL_REFLECTION_OPERATION_IDS
+    assert (
+        tuple(op.operation_id for op in operations)
+        == CANONICAL_REFLECTION_OPERATION_IDS
+    )
 
 
 def test_operation_domain_and_prefix():
@@ -97,6 +100,7 @@ def test_unknown_operation_blocks():
     from cmm.domains.operation_registry import (
         DomainOperationRegistryError,
     )
+
     with pytest.raises(DomainOperationRegistryError):
         registry.get("reflection.unknown_operation", "1.0.0")
 
@@ -111,12 +115,24 @@ def test_structure_reflection_sections_preserved():
     result = structure_reflection_result(
         material=(
             {"level": "observation", "content": "They cancelled twice", "source": "s1"},
-            {"level": "belief", "content": "I believe they are avoiding me", "source": "s2"},
+            {
+                "level": "belief",
+                "content": "I believe they are avoiding me",
+                "source": "s2",
+            },
             {"level": "value", "content": "honesty matters", "source": "s3"},
             {"level": "emotion", "content": "sad", "source": "s4"},
             {"level": "need", "content": "I need clarity", "source": "s5"},
-            {"level": "conflict", "content": "I want closeness and distance", "source": "s6"},
-            {"level": "hypothesis", "content": "maybe they are overwhelmed", "source": "s7"},
+            {
+                "level": "conflict",
+                "content": "I want closeness and distance",
+                "source": "s6",
+            },
+            {
+                "level": "hypothesis",
+                "content": "maybe they are overwhelmed",
+                "source": "s7",
+            },
         ),
     )
     assert result["observations"]
@@ -181,8 +197,16 @@ def test_identify_open_questions_returns_reasons():
 def test_generate_hypotheses_multiple_prudent_no_diagnosis():
     result = generate_hypotheses_result(
         hypotheses=(
-            {"identity": "h1", "statement": "work stress drives the pattern", "supporting_ids": ("s1",)},
-            {"identity": "h2", "statement": "relationship conflict drives the pattern", "supporting_ids": ("s2",)},
+            {
+                "identity": "h1",
+                "statement": "work stress drives the pattern",
+                "supporting_ids": ("s1",),
+            },
+            {
+                "identity": "h2",
+                "statement": "relationship conflict drives the pattern",
+                "supporting_ids": ("s2",),
+            },
         ),
     )
     assert len(result["hypotheses"]) == 2
@@ -198,7 +222,11 @@ def test_generate_hypotheses_multiple_prudent_no_diagnosis():
 def test_build_personal_timeline_no_invented_dates():
     result = build_personal_timeline_result(
         events=(
-            {"event_id": "e1", "observed_at": "2026-01-01", "content": "started project"},
+            {
+                "event_id": "e1",
+                "observed_at": "2026-01-01",
+                "content": "started project",
+            },
             {"event_id": "e2", "observed_at": "2026-06-01", "content": "took break"},
             {"event_id": "e3", "observed_at": "not-a-date", "content": "unknown event"},
         ),

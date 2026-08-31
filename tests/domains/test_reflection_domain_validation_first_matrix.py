@@ -49,9 +49,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 

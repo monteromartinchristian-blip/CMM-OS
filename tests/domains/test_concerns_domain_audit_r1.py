@@ -81,11 +81,26 @@ def test_reassurance_stance_is_relative_to_target_claim():
     pro_target = evaluate_reassurance(
         target_claim="manager is cutting me",
         evidence=(
-            {"identity": "x", "claim": "c", "stance": "supports_target", "grounding": "s1"},
+            {
+                "identity": "x",
+                "claim": "c",
+                "stance": "supports_target",
+                "grounding": "s1",
+            },
         ),
         counterevidence=(
-            {"identity": "y", "claim": "d", "stance": "opposes_target", "grounding": "s2"},
-            {"identity": "z", "claim": "e", "stance": "opposes_target", "grounding": "s3"},
+            {
+                "identity": "y",
+                "claim": "d",
+                "stance": "opposes_target",
+                "grounding": "s2",
+            },
+            {
+                "identity": "z",
+                "claim": "e",
+                "stance": "opposes_target",
+                "grounding": "s3",
+            },
         ),
     )
     assert pro_target["assessment"] != REASSURANCE_SUPPORTED
@@ -369,18 +384,24 @@ def _representative_helper_inputs() -> dict:
         "concerns.map_lived_experience": lambda: map_lived_experience_result(
             material={"emotion_statements": ("I'm anxious",)}
         ),
-        "concerns.separate_reality_interpretation": lambda: separate_reality_interpretation_result(
-            statements=(
-                {
-                    "statement": "email sent Monday",
-                    "level": "fact",
-                    "evidence_references": ("m1",),
-                },
+        "concerns.separate_reality_interpretation": lambda: (
+            separate_reality_interpretation_result(
+                statements=(
+                    {
+                        "statement": "email sent Monday",
+                        "level": "fact",
+                        "evidence_references": ("m1",),
+                    },
+                )
             )
         ),
         "concerns.explore_hypotheses": lambda: explore_hypotheses_result(
             hypotheses=(
-                {"identity": "h1", "statement": "workload explains it", "supporting_ids": ("s1",)},
+                {
+                    "identity": "h1",
+                    "statement": "workload explains it",
+                    "supporting_ids": ("s1",),
+                },
             )
         ),
         "concerns.calibrate_uncertainty": lambda: calibrate_uncertainty_result(
@@ -409,7 +430,9 @@ def _representative_helper_inputs() -> dict:
             severity=None, evidence=()
         ),
         "concerns.identify_open_questions": lambda: identify_open_questions_result(
-            questions=({"question": "did others get replies?", "changes": ("interpretation",)},)
+            questions=(
+                {"question": "did others get replies?", "changes": ("interpretation",)},
+            )
         ),
         "concerns.explore_options": lambda: explore_options_result(
             options=({"option_id": "o1", "expected_benefit": "clarity"},)
@@ -423,8 +446,10 @@ def _representative_helper_inputs() -> dict:
             current={"topic": "t", "question": "q", "evidence_references": ["m1"]},
             previous=({"topic": "t", "question": "q", "evidence_references": ["m1"]},),
         ),
-        "concerns.prepare_professional_discussion": lambda: prepare_professional_discussion_result(
-            concern_summary="salary review silence",
+        "concerns.prepare_professional_discussion": lambda: (
+            prepare_professional_discussion_result(
+                concern_summary="salary review silence",
+            )
         ),
     }
 
@@ -453,7 +478,12 @@ def test_evaluate_reassurance_helper_output_satisfies_declared_operation_schema(
     output = evaluate_reassurance_result(
         target_claim="worst reading",
         evidence=(
-            {"identity": "e1", "claim": "benign sign", "stance": "opposes_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "benign sign",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
         ),
         uncertainty=({"identity": "u1", "unknown": "intent"},),
     )

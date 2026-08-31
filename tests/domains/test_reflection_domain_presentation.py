@@ -58,7 +58,9 @@ def test_present_state_mapping():
     assert present_state("unknown") == PRESENTATION_STATE_UNKNOWN
     assert present_state("conflicting") == PRESENTATION_STATE_CONFLICTING
     assert present_state("confirmed") == PRESENTATION_STATE_CONFIRMED
-    assert present_state("pending_confirmation") == PRESENTATION_STATE_PENDING_CONFIRMATION
+    assert (
+        present_state("pending_confirmation") == PRESENTATION_STATE_PENDING_CONFIRMATION
+    )
     # malformed/unknown states never widen certainty
     assert present_state(None) == PRESENTATION_STATE_UNKNOWN
     assert present_state(7) == PRESENTATION_STATE_UNKNOWN
@@ -75,7 +77,9 @@ def test_presentation_preserves_open_ended_result():
         "counterevidence": ("s3",),
         "ambivalence_present": True,
         "open_questions": ("why?",),
-        "interest_candidates": [{"interest": "photography", "persistent_confirmed": False}],
+        "interest_candidates": [
+            {"interest": "photography", "persistent_confirmed": False}
+        ],
         "persistent_confirmed": False,
         "decision_adopted": False,
         "chronology_state": "unknown",
@@ -101,9 +105,11 @@ def test_presentation_does_not_increase_certainty():
     assert any(
         h["presentation_state"] == PRESENTATION_STATE_HYPOTHETICAL
         for h in present_reflection_result(
-            {"unresolved": True,
-             "hypotheses": [{"identity": "h1", "status": "hypothesis"}],
-             "open_questions": []}
+            {
+                "unresolved": True,
+                "hypotheses": [{"identity": "h1", "status": "hypothesis"}],
+                "open_questions": [],
+            }
         )["hypotheses"]
     )
     json.dumps(presented, allow_nan=False)

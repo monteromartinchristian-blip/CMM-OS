@@ -167,6 +167,8 @@ def test_double_restore_idempotent():
 
     after = registry.snapshot_state()
     assert after.rules == before.rules
+
+
 def test_duplicate_rule_id_version_rejected():
     """A well-typed snapshot with duplicate (rule id, version) keys is rejected without mutation."""
     from cmm.cognitive.reasoning_rule_registry import ReasoningRuleRegistrySnapshot

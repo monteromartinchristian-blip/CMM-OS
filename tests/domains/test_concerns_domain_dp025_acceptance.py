@@ -91,7 +91,10 @@ class _Scenario:
     # Step 5: one external interpretation remains unverified.
     def step_5_interpretation_unverified(self):
         record = classify_concern_statement(
-            {"statement": "the silence means they're cutting me", "level": "interpretation"}
+            {
+                "statement": "the silence means they're cutting me",
+                "level": "interpretation",
+            }
         )
         assert record["grounded"] is False
         assert record["external_fact"] is False
@@ -139,7 +142,10 @@ class _Scenario:
                     "level": "fact",
                     "evidence_references": ("msg:2",),
                 },
-                {"statement": "my case is being handled badly", "level": "interpretation"},
+                {
+                    "statement": "my case is being handled badly",
+                    "level": "interpretation",
+                },
             ),
         )
         levels = {record["level"] for record in separation["statements"]}
@@ -155,8 +161,16 @@ class _Scenario:
 
         hypotheses = explore_hypotheses_result(
             hypotheses=(
-                {"identity": "h1", "statement": "busy week explains it", "supporting_ids": ("m1",)},
-                {"identity": "h2", "statement": "budget freeze explains it", "supporting_ids": ("m2",)},
+                {
+                    "identity": "h1",
+                    "statement": "busy week explains it",
+                    "supporting_ids": ("m1",),
+                },
+                {
+                    "identity": "h2",
+                    "statement": "budget freeze explains it",
+                    "supporting_ids": ("m2",),
+                },
             ),
         )
         assert len(hypotheses["hypotheses"]) == 2
@@ -168,8 +182,22 @@ class _Scenario:
     def step_12_partial_reassurance(self):
         reassurance = evaluate_reassurance_result(
             target_claim="worst reading",
-            evidence=({"identity": "e1", "claim": "worst reading", "stance": "opposes_target", "grounding": "s1"},),
-            counterevidence=({"identity": "c1", "claim": "worst reading", "stance": "supports_target", "grounding": "t"},),
+            evidence=(
+                {
+                    "identity": "e1",
+                    "claim": "worst reading",
+                    "stance": "opposes_target",
+                    "grounding": "s1",
+                },
+            ),
+            counterevidence=(
+                {
+                    "identity": "c1",
+                    "claim": "worst reading",
+                    "stance": "supports_target",
+                    "grounding": "t",
+                },
+            ),
             material_concerns=("the salary review itself remains unanswered",),
         )
         assert reassurance["assessment"] == "REASSURANCE_PARTIAL"
@@ -243,7 +271,8 @@ class _Scenario:
     # Step 18: no new risk invented from repetition.
     def step_18_no_new_risk_from_repetition(self):
         pattern = __import__(
-            "cmm.domains.concerns.rules", fromlist=["evaluate_repetitive_certainty_pattern"]
+            "cmm.domains.concerns.rules",
+            fromlist=["evaluate_repetitive_certainty_pattern"],
         ).evaluate_repetitive_certainty_pattern(
             turns=tuple({"turn": i, "same_question": True} for i in range(5))
         )
@@ -406,12 +435,18 @@ def test_understand_before_action_gate():
 
 
 def test_experience_fact_separation_gate():
-    experience = classify_concern_statement({"statement": "I feel small", "level": "experience", "fact": True})
+    experience = classify_concern_statement(
+        {"statement": "I feel small", "level": "experience", "fact": True}
+    )
     assert experience["level"] == "experience"
     assert experience["external_fact"] is False
     separation = separate_reality_interpretation_result(
         statements=(
-            {"statement": "meeting moved", "level": "fact", "evidence_references": ("c1",)},
+            {
+                "statement": "meeting moved",
+                "level": "fact",
+                "evidence_references": ("c1",),
+            },
             {"statement": "they avoid me", "level": "interpretation"},
         ),
     )
@@ -442,9 +477,19 @@ def test_reassurance_allowed_gate():
     record = evaluate_reassurance(
         target_claim="fear",
         evidence=(
-            {"identity": "e1", "claim": "fear", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "e2", "claim": "fear", "stance": "opposes_target", "grounding": "b"},
-        )
+            {
+                "identity": "e1",
+                "claim": "fear",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "e2",
+                "claim": "fear",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
+        ),
     )
     assert record["assessment"] in ("REASSURANCE_SUPPORTED", "REASSURANCE_PARTIAL")
 
@@ -456,7 +501,10 @@ def test_no_false_reassurance_gate():
     )
     assert check["false_reassurance"] is True
     absolute = detect_false_reassurance(
-        reassurance_state={"assessment": "REASSURANCE_SUPPORTED", "absolute_certainty": True},
+        reassurance_state={
+            "assessment": "REASSURANCE_SUPPORTED",
+            "absolute_certainty": True,
+        },
         material_concerns=(),
     )
     assert absolute["false_reassurance"] is True
@@ -481,8 +529,18 @@ def test_real_concern_acknowledgement_gate():
     reassurance = evaluate_reassurance(
         target_claim="decline",
         evidence=(
-            {"identity": "s1", "claim": "decline", "stance": "supports_target", "grounding": "a"},
-            {"identity": "s2", "claim": "decline", "stance": "supports_target", "grounding": "b"},
+            {
+                "identity": "s1",
+                "claim": "decline",
+                "stance": "supports_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "s2",
+                "claim": "decline",
+                "stance": "supports_target",
+                "grounding": "b",
+            },
         ),
         material_concerns=("decline documented",),
     )
@@ -507,10 +565,30 @@ def test_recurring_pattern_grounding_gate():
     from cmm.domains.concerns.rules import evaluate_repetitive_certainty_pattern
 
     full_turns = (
-        {"turn": 1, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 2, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 3, "same_question": True, "evidence_state": "unchanged", "impossible_certainty": True},
-        {"turn": 4, "same_question": True, "relief_followed_by_checking": True, "pursuing_certainty": True},
+        {
+            "turn": 1,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 2,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 3,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "impossible_certainty": True,
+        },
+        {
+            "turn": 4,
+            "same_question": True,
+            "relief_followed_by_checking": True,
+            "pursuing_certainty": True,
+        },
     )
     complete = evaluate_repetitive_certainty_pattern(turns=full_turns)
     incomplete = evaluate_repetitive_certainty_pattern(
@@ -544,9 +622,7 @@ def test_directness_gate():
 
 def test_no_forced_action_gate():
     none_needed = evaluate_action_state(options=())
-    waiting = evaluate_action_state(
-        options=("act",), user_request="I want to wait."
-    )
+    waiting = evaluate_action_state(options=("act",), user_request="I want to wait.")
     deciding_for_user = evaluate_action_state(
         options=("A", "B"), user_request="decide for me"
     )
@@ -587,7 +663,11 @@ def test_cross_domain_reflection_gate():
 
     record = explore_hypotheses_result(
         hypotheses=(
-            {"identity": "h1", "statement": "contextual workload explanation", "supporting_ids": ("s1",)},
+            {
+                "identity": "h1",
+                "statement": "contextual workload explanation",
+                "supporting_ids": ("s1",),
+            },
         ),
     )
     hypothesis = record["hypotheses"][0]
@@ -622,7 +702,12 @@ def test_input_order_invariance_gate():
         {"identity": "u3", "unknown": "cause"},
     )
     canonical = {
-        tuple(sorted(item["identity"] for item in evaluate_uncertainty(records=o)["uncertainties"]))
+        tuple(
+            sorted(
+                item["identity"]
+                for item in evaluate_uncertainty(records=o)["uncertainties"]
+            )
+        )
         for o in (records_a, tuple(reversed(records_a)))
     }
     assert len(canonical) == 1
@@ -640,16 +725,19 @@ def test_duplicate_evidence_gate_named():
         evidence=(
             *base,
             dict(base[0]),
-            {"identity": "c1-copy", "claim": "f", "stance": "opposes_target", "grounding": "x"},
-        )
+            {
+                "identity": "c1-copy",
+                "claim": "f",
+                "stance": "opposes_target",
+                "grounding": "x",
+            },
+        ),
     )["assessment"]
     assert duplicated == single
 
 
 def test_malformed_evidence_gate_named():
-    clean = evaluate_reassurance()[
-        "assessment"
-    ]
+    clean = evaluate_reassurance()["assessment"]
     dirty = evaluate_reassurance(evidence=(None, float("nan"), [], {}, 3))["assessment"]
     assert clean == dirty == "INSUFFICIENT_BASIS"
 
@@ -682,10 +770,20 @@ def test_package_boundary_gate():
     modules = sorted(p.name for p in package_dir.glob("*.py") if p.suffix == ".py")
     assert len(modules) == 14
     assert set(modules) == {
-        "__init__.py", "bootstrap.py", "catalog.py", "definition.py",
-        "integration.py", "memory.py", "operations.py", "permissions.py",
-        "presentation.py", "profile.py", "resources.py", "rules.py",
-        "trace.py", "workflows.py",
+        "__init__.py",
+        "bootstrap.py",
+        "catalog.py",
+        "definition.py",
+        "integration.py",
+        "memory.py",
+        "operations.py",
+        "permissions.py",
+        "presentation.py",
+        "profile.py",
+        "resources.py",
+        "rules.py",
+        "trace.py",
+        "workflows.py",
     }
 
 
@@ -698,9 +796,13 @@ def test_all_named_gates_pass_summary():
         "REASSURANCE_ALLOWED_GATE": _gate(test_reassurance_allowed_gate),
         "NO_FALSE_REASSURANCE_GATE": _gate(test_no_false_reassurance_gate),
         "NO_CATASTROPHIC_ESCALATION_GATE": _gate(test_no_catastrophic_escalation_gate),
-        "REAL_CONCERN_ACKNOWLEDGEMENT_GATE": _gate(test_real_concern_acknowledgement_gate),
+        "REAL_CONCERN_ACKNOWLEDGEMENT_GATE": _gate(
+            test_real_concern_acknowledgement_gate
+        ),
         "REPETITION_NOT_PATHOLOGY_GATE": _gate(test_repetition_not_pathology_gate),
-        "RECURRING_PATTERN_GROUNDING_GATE": _gate(test_recurring_pattern_grounding_gate),
+        "RECURRING_PATTERN_GROUNDING_GATE": _gate(
+            test_recurring_pattern_grounding_gate
+        ),
         "DIRECTNESS_GATE": _gate(test_directness_gate),
         "NO_FORCED_ACTION_GATE": _gate(test_no_forced_action_gate),
         "CROSS_DOMAIN_HEALTH_GATE": _gate(test_cross_domain_health_gate),
@@ -714,7 +816,9 @@ def test_all_named_gates_pass_summary():
         "STRICT_JSON_GATE": _gate(test_strict_json_gate_named),
         "PACKAGE_BOUNDARY_GATE": _gate(test_package_boundary_gate),
     }
-    lines = [f"{name}=PASS" if passed else f"{name}=FAIL" for name, passed in gates.items()]
+    lines = [
+        f"{name}=PASS" if passed else f"{name}=FAIL" for name, passed in gates.items()
+    ]
     summary = "\n".join(lines + [f"ALL_PASS={str(all(gates.values())).lower()}"])
     print(summary)
     assert all(gates.values()), summary

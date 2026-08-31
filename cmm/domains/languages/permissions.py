@@ -90,10 +90,9 @@ def persistence_confirmation_accepted(
     )
     record["chain_valid"] = bool(validation.is_valid)
 
-    binding_matches = (
-        proposal_id is not None
-        and tuple(confirmation_binding.memory_proposal_ids) == (proposal_id,)
-    )
+    binding_matches = proposal_id is not None and tuple(
+        confirmation_binding.memory_proposal_ids
+    ) == (proposal_id,)
     approvals = confirmation_inventory.approval_requests
     decisions = confirmation_inventory.approval_decisions
     linked = any(

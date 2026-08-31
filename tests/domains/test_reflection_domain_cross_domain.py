@@ -33,7 +33,11 @@ def test_general_fallback_reused():
 def test_relationship_event_consumed_only_via_authorized_projection():
     """A relationship event projection is consumed only when literally
     authorized; malformed/nonliteral authorization fails closed."""
-    projection = {"authorized": True, "event_type": "conflict", "source": "relationships:evt:1"}
+    projection = {
+        "authorized": True,
+        "event_type": "conflict",
+        "source": "relationships:evt:1",
+    }
     result = map_interests(
         records=(
             {
@@ -91,8 +95,7 @@ def test_no_concerns_domain_dependency():
         if module_name.startswith("cmm.domains.reflection"):
             assert not module_name.startswith("cmm.domains.concerns")
 
-    source = inspect.getsource(__import__("cmm.domains.reflection", fromlist=["*"
-    ]))
+    source = inspect.getsource(__import__("cmm.domains.reflection", fromlist=["*"]))
     assert "cmm.domains.concerns" not in source
 
     # rules module must not reference concerns
@@ -146,4 +149,7 @@ def test_registration_does_not_merge_relationships_state():
     # no relationships entries appear anywhere
     assert registries["domain_registry"].get("domain:relationships") is None
     assert registries["profile_registry"].get("relationships.profile") is None
-    assert all(res.id.startswith("reflection.") for res in registries["resource_registry"].list_all())
+    assert all(
+        res.id.startswith("reflection.")
+        for res in registries["resource_registry"].list_all()
+    )

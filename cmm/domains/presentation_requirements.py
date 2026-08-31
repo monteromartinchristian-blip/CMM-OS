@@ -100,7 +100,9 @@ def required_visibility_refs(request: DomainPresentationRequest) -> tuple[str, .
     """Return only references that must remain visible after presentation."""
     return tuple(
         item.ref_id
-        for item in sorted(request.items, key=lambda item: (item.source_order, item.ref_id))
+        for item in sorted(
+            request.items, key=lambda item: (item.source_order, item.ref_id)
+        )
         if _requires_visibility(item, request.policy)
     )
 

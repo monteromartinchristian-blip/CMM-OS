@@ -10,9 +10,7 @@ from cmm.domains.university.catalog import CANONICAL_UNIVERSITY_OPERATION_IDS
 def test_eleven_operations_and_canonical_order():
     ops = university.build_university_operation_definitions()
     assert len(ops) == 11
-    assert [op.operation_id for op in ops] == list(
-        CANONICAL_UNIVERSITY_OPERATION_IDS
-    )
+    assert [op.operation_id for op in ops] == list(CANONICAL_UNIVERSITY_OPERATION_IDS)
 
 
 def test_classification():
@@ -25,12 +23,10 @@ def test_classification():
         is DomainOperationType.ANALYSIS
     )
     assert (
-        ops["university.prepare_exam"].operation_type
-        is DomainOperationType.PREPARATION
+        ops["university.prepare_exam"].operation_type is DomainOperationType.PREPARATION
     )
     assert (
-        ops["university.plan_semester"].operation_type
-        is DomainOperationType.PLANNING
+        ops["university.plan_semester"].operation_type is DomainOperationType.PLANNING
     )
     # update_subject_status is INTERNAL Academic State only (MEMORY type).
     assert (
@@ -129,8 +125,7 @@ def test_no_autonomous_academic_action_operation():
     """No University operation encodes an autonomous send/submit/enrol/record-
     write action."""
     op_ids = {
-        op.operation_id
-        for op in university.build_university_operation_definitions()
+        op.operation_id for op in university.build_university_operation_definitions()
     }
     assert not any(
         word in op

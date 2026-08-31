@@ -48,15 +48,21 @@ def _resolve(primary: str, supporting: str | None = None):
         registry.enable(str(definition.id))
     signals = [
         DomainResolutionSignal(
-            kind="intent", source="user", value=f"{primary}-intent",
+            kind="intent",
+            source="user",
+            value=f"{primary}-intent",
             domain_ids=(f"domain:{primary}",),
         ),
         DomainResolutionSignal(
-            kind="objective", source="user", value=f"{primary}-objective",
+            kind="objective",
+            source="user",
+            value=f"{primary}-objective",
             domain_ids=(f"domain:{primary}",),
         ),
         DomainResolutionSignal(
-            kind="entity", source="user", value=f"{primary}-entity",
+            kind="entity",
+            source="user",
+            value=f"{primary}-entity",
             domain_ids=(f"domain:{primary}",),
         ),
     ]
@@ -64,11 +70,15 @@ def _resolve(primary: str, supporting: str | None = None):
         signals.extend(
             (
                 DomainResolutionSignal(
-                    kind="operation", source="system", value=f"{supporting}-operation",
+                    kind="operation",
+                    source="system",
+                    value=f"{supporting}-operation",
                     domain_ids=(f"domain:{supporting}",),
                 ),
                 DomainResolutionSignal(
-                    kind="entity", source="system", value=f"{supporting}-entity",
+                    kind="entity",
+                    source="system",
+                    value=f"{supporting}-entity",
                     domain_ids=(f"domain:{supporting}",),
                 ),
             )

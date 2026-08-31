@@ -1,6 +1,5 @@
 """Adversarial and fail-closed audit tests for Phase 10.18 Domain Memory Integration."""
 
-
 import pytest
 
 from cmm.domains.errors import (
@@ -97,10 +96,7 @@ def _make_view(
 
 
 _VIEW_DIGEST1 = "abc123def456" + ("0" * 52)
-_VID1 = (
-    "view:req:1:"
-    f"{_VIEW_DIGEST1[:_DIGEST_PREFIX_LENGTH]}"
-)
+_VID1 = f"view:req:1:{_VIEW_DIGEST1[:_DIGEST_PREFIX_LENGTH]}"
 
 
 def _make_binding_id(
@@ -123,9 +119,7 @@ def _make_binding_id(
             "view_id": view_id,
             "view_digest": view_digest,
             "memory_proposal_ids": sorted(set(memory_proposal_ids)),
-            "agent_knowledge_proposal_ids": sorted(
-                set(agent_knowledge_proposal_ids)
-            ),
+            "agent_knowledge_proposal_ids": sorted(set(agent_knowledge_proposal_ids)),
             "affected_reference_ids": sorted(set(affected_reference_ids)),
             "permission_decision_ids": sorted(set(permission_decision_ids)),
             "approval_request_ids": sorted(set(approval_request_ids)),
@@ -223,11 +217,13 @@ def test_audit_v4_approve_capability_enforced() -> None:
 # 4. View ID collision regression
 def test_audit_v4_view_id_content_bound() -> None:
     ref1 = _make_ref(
-        ref_id="ref:1", canonical_id="item:1",
+        ref_id="ref:1",
+        canonical_id="item:1",
         domain="domain:health",
     )
     ref2 = _make_ref(
-        ref_id="ref:2", canonical_id="item:2",
+        ref_id="ref:2",
+        canonical_id="item:2",
         domain="domain:health",
     )
     req1 = _make_view_request(candidates=(ref1,))
@@ -298,7 +294,9 @@ def test_audit_v4_stale_view_digest_rejected() -> None:
 # 7. Duplicate canonical identity rejected in request
 def test_audit_v4_duplicate_canonical_id_in_request_rejected() -> None:
     ref1 = _make_ref(ref_id="ref:1", canonical_id="item:1")
-    ref2 = _make_ref(ref_id="ref:2", canonical_id="item:1")  # Same canonical_id, different ref_id
+    ref2 = _make_ref(
+        ref_id="ref:2", canonical_id="item:1"
+    )  # Same canonical_id, different ref_id
     with pytest.raises(DomainMemoryContractError):
         _make_view_request(candidates=(ref1, ref2))
 

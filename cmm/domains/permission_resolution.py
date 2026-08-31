@@ -54,13 +54,19 @@ class DomainPermissionResolver:
         now: datetime | None = None,
     ) -> DomainPermissionResolution:
         domains = (request.domain_id, *tuple(sorted(set(supporting_domains))))
-        policies = tuple(policy for domain in domains if (policy := self._registry.active_for_domain(domain, now=now)) is not None)
+        policies = tuple(
+            policy
+            for domain in domains
+            if (policy := self._registry.active_for_domain(domain, now=now)) is not None
+        )
         evaluations = list(layer_evaluations)
         evaluations.extend(
             evaluate_domain_policy(
                 policy,
                 request,
-                domain_role="primary" if policy.domain_id == request.domain_id else "supporting",
+                domain_role="primary"
+                if policy.domain_id == request.domain_id
+                else "supporting",
                 now=now,
             )
             for policy in policies
@@ -81,21 +87,63 @@ class DomainPermissionResolver:
                         constraints={"maximum_autonomy_level": min(limits)},
                     )
                 )
-        effective = intersect_permission_layers(tuple(evaluations), request_id=request.request_id, action=request.action.value)
-        allowing = tuple(item.source_id for item in effective.layer_evaluations if item.effect is PermissionOutcome.ALLOW)
-        denying = tuple(item.source_id for item in effective.layer_evaluations if item.effect is PermissionOutcome.DENY)
-        approving = tuple(item.source_id for item in effective.layer_evaluations if item.effect is PermissionOutcome.APPROVAL_REQUIRED)
+        effective = intersect_permission_layers(
+            tuple(evaluations),
+            request_id=request.request_id,
+            action=request.action.value,
+        )
+        allowing = tuple(
+            item.source_id
+            for item in effective.layer_evaluations
+            if item.effect is PermissionOutcome.ALLOW
+        )
+        denying = tuple(
+            item.source_id
+            for item in effective.layer_evaluations
+            if item.effect is PermissionOutcome.DENY
+        )
+        approving = tuple(
+            item.source_id
+            for item in effective.layer_evaluations
+            if item.effect is PermissionOutcome.APPROVAL_REQUIRED
+        )
         conflicts_list: list[DomainPermissionConflict] = []
         if allowing and denying:
-            conflicts_list.append(DomainPermissionConflict(request.action, allowing, denying, approving, PermissionOutcome.DENY, "allow_deny_conflict"))
+            conflicts_list.append(
+                DomainPermissionConflict(
+                    request.action,
+                    allowing,
+                    denying,
+                    approving,
+                    PermissionOutcome.DENY,
+                    "allow_deny_conflict",
+                )
+            )
         if approving and denying:
-            conflicts_list.append(DomainPermissionConflict(request.action, allowing, denying, approving, PermissionOutcome.DENY, "approval_deny_conflict"))
+            conflicts_list.append(
+                DomainPermissionConflict(
+                    request.action,
+                    allowing,
+                    denying,
+                    approving,
+                    PermissionOutcome.DENY,
+                    "approval_deny_conflict",
+                )
+            )
         return DomainPermissionResolution(
             domain_policies=policies,
             effective_permissions=effective,
             conflicts=tuple(conflicts_list),
             approval_requirements=effective.approval_requirements,
-            trace_entries=tuple({"source": item.source.value, "effect": item.effect.value, "matched_rules": list(item.matched_rules), "reasons": list(item.reasons)} for item in effective.layer_evaluations),
+            trace_entries=tuple(
+                {
+                    "source": item.source.value,
+                    "effect": item.effect.value,
+                    "matched_rules": list(item.matched_rules),
+                    "reasons": list(item.reasons),
+                }
+                for item in effective.layer_evaluations
+            ),
             metadata={
                 "primary_domain": request.domain_id,
                 "legacy_approval_grants_ignored": len(approval_grants),
@@ -119,14 +167,24 @@ class DomainPermissionResolver:
         target = self._registry.active_for_domain(request.target_domain, now=now)
         reasons: list[str] = []
         if source is None or target is None:
-            return CrossDomainPermissionDecision(request.request_id, PermissionOutcome.DENY, reasons=("unknown_domain_policy",))
+            return CrossDomainPermissionDecision(
+                request.request_id,
+                PermissionOutcome.DENY,
+                reasons=("unknown_domain_policy",),
+            )
         if request.expires_at is not None:
             if now is None:
-                raise ValueError("now must be injected for expiring cross-domain requests")
+                raise ValueError(
+                    "now must be injected for expiring cross-domain requests"
+                )
             if now.tzinfo is None:
                 raise ValueError("now must be timezone-aware")
             if now >= request.expires_at:
-                return CrossDomainPermissionDecision(request.request_id, PermissionOutcome.DENY, reasons=("cross_domain_request_expired",))
+                return CrossDomainPermissionDecision(
+                    request.request_id,
+                    PermissionOutcome.DENY,
+                    reasons=("cross_domain_request_expired",),
+                )
         source_request = DomainPermissionRequest(
             request.request_id,
             PermissionCapability.DOMAIN_CROSS_ACCESS,
@@ -148,9 +206,15 @@ class DomainPermissionResolver:
                     capability_context["resource_id"] = request.resource_ids[0]
                 if request.resource_kinds:
                     capability_context["resource_kind"] = request.resource_kinds[0]
-            elif request.capability is PermissionCapability.OPERATION_EXECUTE and request.requested_operations:
+            elif (
+                request.capability is PermissionCapability.OPERATION_EXECUTE
+                and request.requested_operations
+            ):
                 capability_context["operation_id"] = request.requested_operations[0]
-            elif request.capability is PermissionCapability.WORKFLOW_EXECUTE and request.requested_workflows:
+            elif (
+                request.capability is PermissionCapability.WORKFLOW_EXECUTE
+                and request.requested_workflows
+            ):
                 capability_context["workflow_id"] = request.requested_workflows[0]
             capability_request = DomainPermissionRequest(
                 f"{request.request_id}:capability",
@@ -163,7 +227,9 @@ class DomainPermissionResolver:
                 target_domain=request.target_domain,
                 **capability_context,
             )
-            capability_evaluation = evaluate_domain_policy(source, capability_request, now=now)
+            capability_evaluation = evaluate_domain_policy(
+                source, capability_request, now=now
+            )
             if capability_evaluation.effect is PermissionOutcome.DENY:
                 reasons.append("source_capability_denied")
         else:
@@ -221,11 +287,17 @@ class DomainPermissionResolver:
             and request.capability not in target.allowed_capabilities
         ):
             reasons.append("target_capability_not_allowed")
-        if request.source_domain in target.prohibited_source_domains or (target.allowed_source_domains is not None and request.source_domain not in target.allowed_source_domains):
+        if request.source_domain in target.prohibited_source_domains or (
+            target.allowed_source_domains is not None
+            and request.source_domain not in target.allowed_source_domains
+        ):
             reasons.append("source_not_allowed_by_target")
         if request.sensitivity_level is None:
             reasons.append("unknown_sensitivity")
-        elif request.sensitivity_level in target.prohibited_sensitivity_levels or (target.allowed_sensitivity_levels is not None and request.sensitivity_level not in target.allowed_sensitivity_levels):
+        elif request.sensitivity_level in target.prohibited_sensitivity_levels or (
+            target.allowed_sensitivity_levels is not None
+            and request.sensitivity_level not in target.allowed_sensitivity_levels
+        ):
             reasons.append("target_sensitivity_denied")
         requested_kinds = set(request.resource_kinds)
         requested_resources = set(request.resource_ids)
@@ -238,9 +310,13 @@ class DomainPermissionResolver:
                 and not requested_resources.issubset(policy.allowed_resources)
             ):
                 reasons.append(f"{role}_resource_denied")
-            if request.resource_ids and not request.resource_kinds and (
-                policy.allowed_resource_kinds is not None
-                or policy.prohibited_resource_kinds
+            if (
+                request.resource_ids
+                and not request.resource_kinds
+                and (
+                    policy.allowed_resource_kinds is not None
+                    or policy.prohibited_resource_kinds
+                )
             ):
                 reasons.append(f"{role}_resource_scope_unverifiable")
             if requested_kinds & set(policy.prohibited_resource_kinds):
@@ -271,13 +347,22 @@ class DomainPermissionResolver:
                 reasons.append(f"{role}_workflow_denied")
         constraints = request.constraints
         supported_constraint_keys = {
-            "allowed_resources", "prohibited_resources",
-            "allowed_resource_kinds", "prohibited_resource_kinds",
-            "allowed_operations", "prohibited_operations",
-            "allowed_workflows", "prohibited_workflows",
-            "allowed_target_domains", "prohibited_target_domains",
-            "allowed_sensitivity_levels", "prohibited_sensitivity_levels",
-            "scopes", "maximum_operations", "maximum_workflows", "expires_at",
+            "allowed_resources",
+            "prohibited_resources",
+            "allowed_resource_kinds",
+            "prohibited_resource_kinds",
+            "allowed_operations",
+            "prohibited_operations",
+            "allowed_workflows",
+            "prohibited_workflows",
+            "allowed_target_domains",
+            "prohibited_target_domains",
+            "allowed_sensitivity_levels",
+            "prohibited_sensitivity_levels",
+            "scopes",
+            "maximum_operations",
+            "maximum_workflows",
+            "expires_at",
         }
         if set(constraints) - supported_constraint_keys:
             reasons.append("unsupported_cross_domain_constraint")
@@ -291,7 +376,9 @@ class DomainPermissionResolver:
             requested_set = set(requested)
             allowed_values = constraints.get(f"allowed_{suffix}")
             prohibited_values = constraints.get(f"prohibited_{suffix}")
-            if allowed_values is not None and not requested_set.issubset(allowed_values):
+            if allowed_values is not None and not requested_set.issubset(
+                allowed_values
+            ):
                 reasons.append(f"{suffix}_not_allowed_by_constraints")
             if prohibited_values is not None and requested_set & set(prohibited_values):
                 reasons.append(f"{suffix}_prohibited_by_constraints")
@@ -313,13 +400,22 @@ class DomainPermissionResolver:
         prohibited_targets = constraints.get("prohibited_target_domains")
         if allowed_targets is not None and request.target_domain not in allowed_targets:
             reasons.append("target_not_allowed_by_constraints")
-        if prohibited_targets is not None and request.target_domain in prohibited_targets:
+        if (
+            prohibited_targets is not None
+            and request.target_domain in prohibited_targets
+        ):
             reasons.append("target_prohibited_by_constraints")
         maximum_operations = constraints.get("maximum_operations")
-        if maximum_operations is not None and len(request.requested_operations) > maximum_operations:
+        if (
+            maximum_operations is not None
+            and len(request.requested_operations) > maximum_operations
+        ):
             reasons.append("maximum_operations_exceeded")
         maximum_workflows = constraints.get("maximum_workflows")
-        if maximum_workflows is not None and len(request.requested_workflows) > maximum_workflows:
+        if (
+            maximum_workflows is not None
+            and len(request.requested_workflows) > maximum_workflows
+        ):
             reasons.append("maximum_workflows_exceeded")
         scopes = constraints.get("scopes")
         if scopes is not None and request.duration.value not in scopes:
@@ -327,7 +423,9 @@ class DomainPermissionResolver:
         constraint_expiry = constraints.get("expires_at")
         if constraint_expiry is not None:
             if now is None:
-                raise ValueError("now must be injected for temporal cross-domain constraints")
+                raise ValueError(
+                    "now must be injected for temporal cross-domain constraints"
+                )
             if now.tzinfo is None:
                 raise ValueError("now must be timezone-aware")
             if now >= datetime.fromisoformat(constraint_expiry):
@@ -339,15 +437,17 @@ class DomainPermissionResolver:
                 constraints=request.constraints,
                 reasons=tuple(sorted(set(reasons))),
             )
-        requirements = tuple({
-            item.requirement_id: item
-            for item in (
-                *source_evaluation.approval_requirements,
-                *capability_evaluation.approval_requirements,
-                *target_evaluation.approval_requirements,
-                *target_capability_evaluation.approval_requirements,
-            )
-        }.values())
+        requirements = tuple(
+            {
+                item.requirement_id: item
+                for item in (
+                    *source_evaluation.approval_requirements,
+                    *capability_evaluation.approval_requirements,
+                    *target_evaluation.approval_requirements,
+                    *target_capability_evaluation.approval_requirements,
+                )
+            }.values()
+        )
         if request.requires_approval:
             requirement = PermissionApprovalRequirement(
                 requirement_id=f"cross-domain:{request.request_id}",
@@ -357,8 +457,12 @@ class DomainPermissionResolver:
                 domain_id=request.source_domain,
                 source_domain=request.source_domain,
                 target_domain=request.target_domain,
-                resource_id=request.resource_ids[0] if len(request.resource_ids) == 1 else None,
-                resource_kind=request.resource_kinds[0] if len(request.resource_kinds) == 1 else None,
+                resource_id=request.resource_ids[0]
+                if len(request.resource_ids) == 1
+                else None,
+                resource_kind=request.resource_kinds[0]
+                if len(request.resource_kinds) == 1
+                else None,
                 operation_id=request.requested_operations[0]
                 if len(request.requested_operations) == 1
                 else None,
@@ -368,13 +472,17 @@ class DomainPermissionResolver:
                 purpose=request.reason,
                 sensitivity=request.sensitivity_level,
                 fingerprint=f"{request.request_id}:{request.source_domain}:{request.target_domain}:{request.actor_id}:{request.session_id}",
-                expires_at=request.expires_at.isoformat() if request.expires_at else None,
+                expires_at=request.expires_at.isoformat()
+                if request.expires_at
+                else None,
                 scope="cross_domain",
-                one_time=request.duration in {
+                one_time=request.duration
+                in {
                     CrossDomainDuration.SINGLE_USE,
                     CrossDomainDuration.REQUEST,
                 },
-                reusable=request.duration in {
+                reusable=request.duration
+                in {
                     CrossDomainDuration.WORKFLOW_RUN,
                     CrossDomainDuration.SESSION,
                 },

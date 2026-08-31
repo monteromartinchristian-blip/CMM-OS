@@ -34,7 +34,14 @@ def test_policy_is_immutable_semver_and_round_trips():
 
 def test_policy_rejects_unknown_fields_and_non_json_metadata():
     with pytest.raises(ValueError):
-        DomainPermissionPolicy.from_dict({"policy_id": "p", "domain_id": "domain:x", "version": "1.0.0", "unknown": 1})
+        DomainPermissionPolicy.from_dict(
+            {
+                "policy_id": "p",
+                "domain_id": "domain:x",
+                "version": "1.0.0",
+                "unknown": 1,
+            }
+        )
     with pytest.raises(ValueError):
         DomainPermissionPolicy("p", "domain:x", "1.0.0", metadata={"bad": object()})
 
@@ -52,7 +59,9 @@ def test_request_requires_context_for_action_and_round_trips():
     )
     assert DomainPermissionRequest.from_dict(request.to_dict()) == request
     with pytest.raises(ValueError):
-        DomainPermissionRequest("r", PermissionCapability.OPERATION_EXECUTE, "domain:x", "a", "s")
+        DomainPermissionRequest(
+            "r", PermissionCapability.OPERATION_EXECUTE, "domain:x", "a", "s"
+        )
     with pytest.raises(ValueError):
         DomainPermissionRequest("r", "domain.cross_access", "domain:x", "a", "s")
 
@@ -72,24 +81,40 @@ def test_cross_domain_requires_distinct_domains_and_immutable_scope():
     )
     assert CrossDomainPermissionRequest.from_dict(request.to_dict()) == request
     with pytest.raises(ValueError):
-        CrossDomainPermissionRequest("x", "domain:a", "domain:a", reason="x", actor_id="a", session_id="s")
+        CrossDomainPermissionRequest(
+            "x", "domain:a", "domain:a", reason="x", actor_id="a", session_id="s"
+        )
 
 
 def test_cross_domain_capability_and_constraints_are_strictly_typed():
     with pytest.raises(ValueError, match="requested_operations"):
         CrossDomainPermissionRequest(
-            "x", "domain:a", "domain:b",
+            "x",
+            "domain:a",
+            "domain:b",
             capability=PermissionCapability.OPERATION_EXECUTE,
-            reason="x", actor_id="a", session_id="s",
+            reason="x",
+            actor_id="a",
+            session_id="s",
         )
     with pytest.raises(ValueError, match="allowed_operations"):
         CrossDomainPermissionRequest(
-            "x", "domain:a", "domain:b", reason="x", actor_id="a", session_id="s",
+            "x",
+            "domain:a",
+            "domain:b",
+            reason="x",
+            actor_id="a",
+            session_id="s",
             constraints={"allowed_operations": "operation:read"},
         )
     with pytest.raises(ValueError, match="maximum_operations"):
         CrossDomainPermissionRequest(
-            "x", "domain:a", "domain:b", reason="x", actor_id="a", session_id="s",
+            "x",
+            "domain:a",
+            "domain:b",
+            reason="x",
+            actor_id="a",
+            session_id="s",
             constraints={"maximum_operations": True},
         )
 
@@ -97,7 +122,9 @@ def test_cross_domain_capability_and_constraints_are_strictly_typed():
 def test_decision_invariants():
     with pytest.raises(ValueError):
         CrossDomainPermissionDecision("x", PermissionOutcome.APPROVAL_REQUIRED)
-    decision = CrossDomainPermissionDecision("x", PermissionOutcome.DENY, reasons=("target_denied",))
+    decision = CrossDomainPermissionDecision(
+        "x", PermissionOutcome.DENY, reasons=("target_denied",)
+    )
     assert decision.to_dict()["decision"] == "deny"
 
 

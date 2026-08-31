@@ -22,8 +22,18 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _record(identity, statement, kind, *, fact=False, inferred=False,
-            uncertain=False, contradicted=False, source=None, value=None):
+def _record(
+    identity,
+    statement,
+    kind,
+    *,
+    fact=False,
+    inferred=False,
+    uncertain=False,
+    contradicted=False,
+    source=None,
+    value=None,
+):
     return {
         "identity": identity,
         "statement": statement,
@@ -57,8 +67,11 @@ def test_interpretation_cannot_become_observation():
 
 def test_memory_entry_is_provenance_not_current_fact():
     result = classify_belief_evidence(
-        records=(_record("r3", "He never listens (memory summary)", kind="memory",
-                         fact=True),)
+        records=(
+            _record(
+                "r3", "He never listens (memory summary)", kind="memory", fact=True
+            ),
+        )
     )
     assert all(item["kind"] == "memory" for item in result["memories"])
     assert result["facts"] == ()
@@ -80,10 +93,12 @@ def test_duplicate_evidence_does_not_inflate():
 def test_conflicting_evidence_remains_conflict():
     result = classify_belief_evidence(
         records=(
-            _record("e1", "They called often", kind="evidence", value="high",
-                    source="s1"),
-            _record("e2", "They called rarely", kind="evidence", value="low",
-                    source="s1"),
+            _record(
+                "e1", "They called often", kind="evidence", value="high", source="s1"
+            ),
+            _record(
+                "e2", "They called rarely", kind="evidence", value="low", source="s1"
+            ),
         )
     )
     assert result["unresolved"] is True

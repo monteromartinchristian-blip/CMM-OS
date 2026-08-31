@@ -45,9 +45,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -334,7 +332,9 @@ def test_package_boundary_exactly_14_modules():
     from pathlib import Path
 
     package_dir = Path(__file__).resolve().parents[2] / "cmm" / "domains" / "concerns"
-    modules = sorted(path.name for path in package_dir.glob("*.py") if path.suffix == ".py")
+    modules = sorted(
+        path.name for path in package_dir.glob("*.py") if path.suffix == ".py"
+    )
     assert modules == [
         "__init__.py",
         "bootstrap.py",

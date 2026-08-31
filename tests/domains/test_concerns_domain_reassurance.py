@@ -67,8 +67,12 @@ def test_interpretation_is_not_fear_and_fear_is_not_prediction():
     interpretation = classify_concern_statement(
         {"statement": "They are excluding me", "level": "interpretation"}
     )
-    fear = classify_concern_statement({"statement": "maybe I'll lose them", "level": "fear"})
-    scenario = classify_concern_statement({"statement": "if this continues...", "level": "scenario"})
+    fear = classify_concern_statement(
+        {"statement": "maybe I'll lose them", "level": "fear"}
+    )
+    scenario = classify_concern_statement(
+        {"statement": "if this continues...", "level": "scenario"}
+    )
     assert interpretation["level"] == LEVEL_INTERPRETATION
     assert interpretation["is_fear"] is False
     assert fear["level"] == LEVEL_FEAR
@@ -78,7 +82,9 @@ def test_interpretation_is_not_fear_and_fear_is_not_prediction():
 
 
 def test_unknown_and_malformed_levels_fail_closed():
-    unknown = classify_concern_statement({"statement": "x", "level": "certainty_absolute"})
+    unknown = classify_concern_statement(
+        {"statement": "x", "level": "certainty_absolute"}
+    )
     assert unknown["level"] == LEVEL_UNKNOWN
     malformed = classify_concern_statement("not-a-mapping")
     assert malformed["malformed"] is True
@@ -179,14 +185,28 @@ def test_reassurance_can_coexist_with_uncertainty():
     record = evaluate_reassurance(
         target_claim="feared_meaning",
         evidence=(
-            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s2"},
+            {
+                "identity": "c1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "s2",
+            },
         ),
         counterevidence=(
-            {"identity": "e1", "claim": "feared_meaning", "stance": "supports_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "feared_meaning",
+                "stance": "supports_target",
+                "grounding": "s1",
+            },
         ),
         uncertainty=({"identity": "u1", "unknown": "their current intent"},),
     )
-    assert record["assessment"] in (REASSURANCE_SUPPORTED, REASSURANCE_PARTIAL, UNCERTAIN)
+    assert record["assessment"] in (
+        REASSURANCE_SUPPORTED,
+        REASSURANCE_PARTIAL,
+        UNCERTAIN,
+    )
     assert record["remaining_uncertainty"] == ("u1",)
     json.dumps(record, allow_nan=False)
 
@@ -195,8 +215,18 @@ def test_material_concern_blocks_reassurance_but_acknowledges():
     record = evaluate_reassurance(
         target_claim="deterioration",
         evidence=(
-            {"identity": "e1", "claim": "deterioration", "stance": "supports_target", "grounding": "s1"},
-            {"identity": "e2", "claim": "deterioration", "stance": "supports_target", "grounding": "s2"},
+            {
+                "identity": "e1",
+                "claim": "deterioration",
+                "stance": "supports_target",
+                "grounding": "s1",
+            },
+            {
+                "identity": "e2",
+                "claim": "deterioration",
+                "stance": "supports_target",
+                "grounding": "s2",
+            },
         ),
         material_concerns=("real performance decline documented twice",),
     )
@@ -216,10 +246,20 @@ def test_partial_reassessment_with_mixed_signals():
     record = evaluate_reassurance(
         target_claim="feared reading",
         evidence=(
-            {"identity": "e1", "claim": "benign reading", "stance": "opposes_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "benign reading",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
         ),
         counterevidence=(
-            {"identity": "c1", "claim": "feared reading", "stance": "supports_target", "grounding": "s2"},
+            {
+                "identity": "c1",
+                "claim": "feared reading",
+                "stance": "supports_target",
+                "grounding": "s2",
+            },
         ),
         material_concerns=("one concrete unresolved issue remains",),
     )
@@ -292,16 +332,42 @@ def test_all_five_canonical_states_exist_and_are_used():
         },  # concern supported
         {
             "target_claim": "x",
-            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
+            "evidence": (
+                {
+                    "identity": "e1",
+                    "claim": "x",
+                    "stance": "opposes_target",
+                    "grounding": "s1",
+                },
+            ),
             "material_concerns": ("one real issue",),
             "counterevidence": (
-                {"identity": "c1", "claim": "x", "stance": "supports_target", "grounding": "t"},
+                {
+                    "identity": "c1",
+                    "claim": "x",
+                    "stance": "supports_target",
+                    "grounding": "t",
+                },
             ),
         },  # partial
         {
             "target_claim": "x",
-            "evidence": ({"identity": "e1", "claim": "x", "stance": "opposes_target", "grounding": "s1"},),
-            "counterevidence": ({"identity": "c1", "claim": "x", "stance": "supports_target", "grounding": "t"},),
+            "evidence": (
+                {
+                    "identity": "e1",
+                    "claim": "x",
+                    "stance": "opposes_target",
+                    "grounding": "s1",
+                },
+            ),
+            "counterevidence": (
+                {
+                    "identity": "c1",
+                    "claim": "x",
+                    "stance": "supports_target",
+                    "grounding": "t",
+                },
+            ),
         },  # uncertain (mixed signals)
     ):
         seen.add(evaluate_reassurance(**kwargs)["assessment"])
@@ -313,23 +379,63 @@ def test_duplicate_evidence_does_not_inflate_reassurance():
     single = evaluate_reassurance(
         target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
         ),
         counterevidence=(
-            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "b"},
+            {
+                "identity": "c1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c2",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
         ),
     )
     duplicated = evaluate_reassurance(
         target_claim="feared_meaning",
         evidence=(
-            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
-            {"identity": "e1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
-            {"identity": "e1-dup", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
+            {
+                "identity": "e1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
+            {
+                "identity": "e1-dup",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
         ),
         counterevidence=(
-            {"identity": "c1", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c2", "claim": "feared_meaning", "stance": "opposes_target", "grounding": "b"},
+            {
+                "identity": "c1",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c2",
+                "claim": "feared_meaning",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
         ),
     )
     assert duplicated["assessment"] == single["assessment"]
@@ -362,7 +468,8 @@ def test_order_invariance_of_reassurance_inputs():
     )
     evidence_b = tuple(reversed(evidence_a))
     results = [
-        evaluate_reassurance(evidence=order)["assessment"] for order in (evidence_a, evidence_b)
+        evaluate_reassurance(evidence=order)["assessment"]
+        for order in (evidence_a, evidence_b)
     ]
     assert len(set(results)) == 1
 
@@ -446,7 +553,10 @@ def test_malformed_severity_never_triggers_high_risk():
 def test_possibility_to_probability_blocked():
     result = detect_catastrophic_escalation(
         source_state={"kind": "possibility", "description": "it could happen"},
-        proposed_state={"kind": "probability", "description": "it will probably happen"},
+        proposed_state={
+            "kind": "probability",
+            "description": "it will probably happen",
+        },
     )
     assert result["blocked"] is True
     assert result["promotion"] == "possibility_to_probability"

@@ -13,8 +13,20 @@ from cmm.domains.oppositions.rules import (
 
 # §33 adversarial values, used where they make sense per target contract.
 _VALUES = [
-    None, 7, True, False, "", "abc", [], (), {}, [7], [{}],
-    ({"valid": "claim"}, 7), ["unexpected"], {"unexpected": object()},
+    None,
+    7,
+    True,
+    False,
+    "",
+    "abc",
+    [],
+    (),
+    {},
+    [7],
+    [{}],
+    ({"valid": "claim"}, 7),
+    ["unexpected"],
+    {"unexpected": object()},
 ]
 
 
@@ -62,9 +74,7 @@ def test_mock_malformed_inputs_no_raise():
 
 def test_feasibility_malformed_numeric_no_raise():
     for value in _VALUES:
-        result = evaluate_study_feasibility(
-            remaining_hours=value, available_hours=10
-        )
+        result = evaluate_study_feasibility(remaining_hours=value, available_hours=10)
         assert isinstance(result, dict)
 
 

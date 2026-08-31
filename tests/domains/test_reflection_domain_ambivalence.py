@@ -21,8 +21,17 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _position(identity, statement, *, kind, polarity=0, context=None,
-              temporal=None, opposes=(), source=None):
+def _position(
+    identity,
+    statement,
+    *,
+    kind,
+    polarity=0,
+    context=None,
+    temporal=None,
+    opposes=(),
+    source=None,
+):
     return {
         "identity": identity,
         "statement": statement,
@@ -38,10 +47,22 @@ def _position(identity, statement, *, kind, polarity=0, context=None,
 def test_want_closeness_and_distance_preserved():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "I want closeness", kind="need", polarity=1,
-                      context="relationship", temporal="2026-08-01"),
-            _position("p2", "I want distance", kind="need", polarity=-1,
-                      context="relationship", temporal="2026-08-01"),
+            _position(
+                "p1",
+                "I want closeness",
+                kind="need",
+                polarity=1,
+                context="relationship",
+                temporal="2026-08-01",
+            ),
+            _position(
+                "p2",
+                "I want distance",
+                kind="need",
+                polarity=-1,
+                context="relationship",
+                temporal="2026-08-01",
+            ),
         )
     )
     assert result["ambivalence_present"] is True
@@ -52,10 +73,22 @@ def test_want_closeness_and_distance_preserved():
 def test_relief_and_sadness_preserved():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "relieved", kind="emotion", polarity=1,
-                      context="same", temporal="2026-08-01"),
-            _position("p2", "sad", kind="emotion", polarity=-1,
-                      context="same", temporal="2026-08-01"),
+            _position(
+                "p1",
+                "relieved",
+                kind="emotion",
+                polarity=1,
+                context="same",
+                temporal="2026-08-01",
+            ),
+            _position(
+                "p2",
+                "sad",
+                kind="emotion",
+                polarity=-1,
+                context="same",
+                temporal="2026-08-01",
+            ),
         )
     )
     assert result["ambivalence_present"] is True
@@ -65,10 +98,22 @@ def test_relief_and_sadness_preserved():
 def test_belief_and_doubt_preserved():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "I believe they mean well", kind="belief", polarity=1,
-                      context="same", temporal="2026-08-01"),
-            _position("p2", "part of me doubts it", kind="belief", polarity=-1,
-                      context="same", temporal="2026-08-01"),
+            _position(
+                "p1",
+                "I believe they mean well",
+                kind="belief",
+                polarity=1,
+                context="same",
+                temporal="2026-08-01",
+            ),
+            _position(
+                "p2",
+                "part of me doubts it",
+                kind="belief",
+                polarity=-1,
+                context="same",
+                temporal="2026-08-01",
+            ),
         )
     )
     assert result["ambivalence_present"] is True
@@ -78,10 +123,22 @@ def test_belief_and_doubt_preserved():
 def test_same_context_time_contradiction_is_ambivalence_not_winner():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "want to move", kind="need", polarity=1,
-                      context="job", temporal="2026-08-01"),
-            _position("p2", "want to stay", kind="need", polarity=-1,
-                      context="job", temporal="2026-08-01"),
+            _position(
+                "p1",
+                "want to move",
+                kind="need",
+                polarity=1,
+                context="job",
+                temporal="2026-08-01",
+            ),
+            _position(
+                "p2",
+                "want to stay",
+                kind="need",
+                polarity=-1,
+                context="job",
+                temporal="2026-08-01",
+            ),
         )
     )
     assert result["ambivalence_present"] is True
@@ -93,10 +150,16 @@ def test_same_context_time_contradiction_is_ambivalence_not_winner():
 def test_different_contexts_preserve_context_distinction():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "want closeness", kind="need", polarity=1,
-                      context="partnership"),
-            _position("p2", "want distance", kind="need", polarity=-1,
-                      context="work-relationship"),
+            _position(
+                "p1", "want closeness", kind="need", polarity=1, context="partnership"
+            ),
+            _position(
+                "p2",
+                "want distance",
+                kind="need",
+                polarity=-1,
+                context="work-relationship",
+            ),
         )
     )
     assert result["ambivalence_present"] is False
@@ -108,10 +171,12 @@ def test_different_contexts_preserve_context_distinction():
 def test_different_grounded_times_preserve_temporal_distinction():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "felt close", kind="emotion", polarity=1,
-                      temporal="2026-01-01"),
-            _position("p2", "felt distant", kind="emotion", polarity=-1,
-                      temporal="2026-06-01"),
+            _position(
+                "p1", "felt close", kind="emotion", polarity=1, temporal="2026-01-01"
+            ),
+            _position(
+                "p2", "felt distant", kind="emotion", polarity=-1, temporal="2026-06-01"
+            ),
         )
     )
     assert result["ambivalence_present"] is False
@@ -122,10 +187,22 @@ def test_different_grounded_times_preserve_temporal_distinction():
 def test_duplicate_identical_position_no_double_weight():
     result = evaluate_ambivalence(
         records=(
-            _position("p1", "relieved", kind="emotion", polarity=1,
-                      context="same", temporal="2026-08-01"),
-            _position("p1", "relieved", kind="emotion", polarity=1,
-                      context="same", temporal="2026-08-01"),
+            _position(
+                "p1",
+                "relieved",
+                kind="emotion",
+                polarity=1,
+                context="same",
+                temporal="2026-08-01",
+            ),
+            _position(
+                "p1",
+                "relieved",
+                kind="emotion",
+                polarity=1,
+                context="same",
+                temporal="2026-08-01",
+            ),
         )
     )
     assert len(result["positions"]) == 1
@@ -140,10 +217,22 @@ def test_ambivalence_preserving_rule_applied():
         primary_domain="domain:reflection",
         metadata={
             "records": (
-                _position("p1", "relieved", kind="emotion", polarity=1,
-                          context="same", temporal="2026-08-01"),
-                _position("p2", "sad", kind="emotion", polarity=-1,
-                          context="same", temporal="2026-08-01"),
+                _position(
+                    "p1",
+                    "relieved",
+                    kind="emotion",
+                    polarity=1,
+                    context="same",
+                    temporal="2026-08-01",
+                ),
+                _position(
+                    "p2",
+                    "sad",
+                    kind="emotion",
+                    polarity=-1,
+                    context="same",
+                    temporal="2026-08-01",
+                ),
             )
         },
     )

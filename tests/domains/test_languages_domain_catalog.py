@@ -92,7 +92,9 @@ def test_canonical_resources_and_kinds() -> None:
         "languages.domain_result",
     )
     assert CANONICAL_LANGUAGES_RESOURCE_IDS == expected_resources
-    assert LANGUAGES_RESOURCE_KINDS == tuple(r.split(".", 1)[1] for r in expected_resources)
+    assert LANGUAGES_RESOURCE_KINDS == tuple(
+        r.split(".", 1)[1] for r in expected_resources
+    )
 
 
 def test_canonical_rules_and_class_names() -> None:

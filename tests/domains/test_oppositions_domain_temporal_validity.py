@@ -108,9 +108,7 @@ def test_non_critical_gap_stays_explicit_without_blocking():
 
 
 def test_active_objective_stale_call_emits_monitoring():
-    requirement = opposition_call_monitoring(
-        objective_active=True, call_state="stale"
-    )
+    requirement = opposition_call_monitoring(objective_active=True, call_state="stale")
     assert requirement["monitoring_needed"] is True
     assert requirement["kind"] == "official_verification_requirement"
     assert requirement["scheduler_started"] is False
@@ -118,14 +116,14 @@ def test_active_objective_stale_call_emits_monitoring():
 
 
 def test_inactive_objective_no_monitoring():
-    requirement = opposition_call_monitoring(
-        objective_active=False, call_state="stale"
-    )
+    requirement = opposition_call_monitoring(objective_active=False, call_state="stale")
     assert requirement["monitoring_needed"] is False
 
 
 def test_current_call_no_monitoring():
-    requirement = opposition_call_monitoring(objective_active=True, call_state="current")
+    requirement = opposition_call_monitoring(
+        objective_active=True, call_state="current"
+    )
     assert requirement["monitoring_needed"] is False
 
 
@@ -136,16 +134,16 @@ def test_no_calendar_event_created():
 
 def test_strict_boolean_objective():
     # "true" is not literal True -> not active -> no monitoring
-    requirement = opposition_call_monitoring(objective_active="true", call_state="stale")
+    requirement = opposition_call_monitoring(
+        objective_active="true", call_state="stale"
+    )
     assert requirement["monitoring_needed"] is False
 
 
 def test_conflicting_temporal_state_preserved():
     """A grounded, decision-critical conflicting temporal state must not collapse
     to unknown."""
-    record = classify_opposition_temporal(
-        fact=_grounded_fact(temporal="conflicting")
-    )
+    record = classify_opposition_temporal(fact=_grounded_fact(temporal="conflicting"))
     assert record["state"] == "conflicting"
     assert record["current"] is False
     assert record["confirmed"] is False
@@ -155,9 +153,7 @@ def test_conflicting_temporal_state_preserved():
 def test_superseded_temporal_state_preserved():
     """A grounded superseded temporal state must be preserved as superseded, not
     collapsed to unknown, and never made current."""
-    record = classify_opposition_temporal(
-        fact=_grounded_fact(temporal="superseded")
-    )
+    record = classify_opposition_temporal(fact=_grounded_fact(temporal="superseded"))
     assert record["state"] == "superseded"
     assert record["current"] is False
     assert record["confirmed"] is False

@@ -116,9 +116,7 @@ def test_failure_during_resources_rolls_back_exact():
 
 def test_failure_during_rules_rolls_back_exact():
     registries = _registries()
-    registries["rule_registry"] = _FailAfterN(
-        registries["rule_registry"], fail_after=0
-    )
+    registries["rule_registry"] = _FailAfterN(registries["rule_registry"], fail_after=0)
     before = _snapshot(registries)
     with pytest.raises(RuntimeError, match="simulated post-mutation failure"):
         register_oppositions_domain(

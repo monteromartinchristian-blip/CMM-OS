@@ -23,10 +23,9 @@ T = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def _deadline_result(deadline, **extra):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.academic_deadline"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.academic_deadline"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="verification-production",
         timestamp=T,

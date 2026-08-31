@@ -34,7 +34,9 @@ class DomainPermissionRegistry:
         key = (policy.policy_id, policy.version)
         with self._lock:
             if key in self._policies:
-                raise DomainPermissionRegistryError("policy id/version already registered")
+                raise DomainPermissionRegistryError(
+                    "policy id/version already registered"
+                )
             self._policies[key] = policy
 
     def get(self, policy_id: str, version: str | None = None) -> DomainPermissionPolicy:
@@ -43,7 +45,9 @@ class DomainPermissionRegistry:
                 try:
                     return self._policies[(policy_id, version)]
                 except KeyError as exc:
-                    raise DomainPermissionRegistryError("permission policy not found") from exc
+                    raise DomainPermissionRegistryError(
+                        "permission policy not found"
+                    ) from exc
             matches = [p for (pid, _), p in self._policies.items() if pid == policy_id]
             if not matches:
                 raise DomainPermissionRegistryError("permission policy not found")
@@ -51,7 +55,12 @@ class DomainPermissionRegistry:
 
     def for_domain(self, domain_id: str) -> tuple[DomainPermissionPolicy, ...]:
         with self._lock:
-            return tuple(sorted((p for p in self._policies.values() if p.domain_id == domain_id), key=lambda p: (p.domain_id, parse_semver(p.version))))
+            return tuple(
+                sorted(
+                    (p for p in self._policies.values() if p.domain_id == domain_id),
+                    key=lambda p: (p.domain_id, parse_semver(p.version)),
+                )
+            )
 
     def active_for_domain(
         self, domain_id: str, *, now: datetime | None = None
@@ -61,13 +70,22 @@ class DomainPermissionRegistry:
         candidates = tuple(
             policy
             for policy in self.for_domain(domain_id)
-            if policy.enabled and (policy.expires_at is None or (now is not None and now < policy.expires_at))
+            if policy.enabled
+            and (
+                policy.expires_at is None
+                or (now is not None and now < policy.expires_at)
+            )
         )
         return max(candidates, key=lambda p: parse_semver(p.version), default=None)
 
     def list_policies(self) -> tuple[DomainPermissionPolicy, ...]:
         with self._lock:
-            return tuple(sorted(self._policies.values(), key=lambda p: (p.domain_id, parse_semver(p.version), p.policy_id)))
+            return tuple(
+                sorted(
+                    self._policies.values(),
+                    key=lambda p: (p.domain_id, parse_semver(p.version), p.policy_id),
+                )
+            )
 
     # ── Snapshot / restore ───────────────────────────────────────────────────
 
@@ -115,9 +133,7 @@ class DomainPermissionRegistry:
 
         # All validation passed — mutate
         with self._lock:
-            self._policies = {
-                (p.policy_id, p.version): p for p in snapshot.policies
-            }
+            self._policies = {(p.policy_id, p.version): p for p in snapshot.policies}
 
 
 __all__ = [

@@ -201,6 +201,8 @@ def test_registry_can_query_by_resolved_availability() -> None:
         resolver=DomainOperationAvailabilityResolver(),
         context=context,
     ) == (definition,)
+
+
 def test_unimplemented_operation_cannot_be_enabled() -> None:
     """Audit v2 P1: an operation without an implementation cannot be enabled."""
     registry = InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry())

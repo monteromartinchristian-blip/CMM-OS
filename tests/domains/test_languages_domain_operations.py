@@ -45,7 +45,11 @@ def _representative_helper_output(operation_id: str) -> dict:
         )
     elif operation_id == "languages.update_level_evidence":
         return update_level_evidence_result(
-            existing_record={"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"},
+            existing_record={
+                "kind": "ESTIMATED",
+                "level_or_score": "B1",
+                "skill_scope": "writing",
+            },
             assessment={"observed": "B2", "skill": "writing"},
             target_skill="writing",
         )
@@ -71,7 +75,11 @@ def _representative_helper_output(operation_id: str) -> dict:
         )
     elif operation_id == "languages.review_exercise":
         return review_exercise_result(
-            exercise_result={"exercise_id": "ex1", "user_answer": "went", "is_correct": True},
+            exercise_result={
+                "exercise_id": "ex1",
+                "user_answer": "went",
+                "is_correct": True,
+            },
             language="English",
         )
     elif operation_id == "languages.review_writing":
@@ -129,14 +137,19 @@ def test_build_languages_operation_definitions_count_and_types() -> None:
     """Verify exact 15 operations, domain, low risk, and types."""
     operations = build_languages_operation_definitions()
     assert len(operations) == 15
-    assert tuple(op.operation_id for op in operations) == CANONICAL_LANGUAGES_OPERATION_IDS
+    assert (
+        tuple(op.operation_id for op in operations) == CANONICAL_LANGUAGES_OPERATION_IDS
+    )
 
     for op in operations:
         assert str(op.domain_id) == "domain:languages"
         assert op.version == "1.0.0"
         assert op.risk_level is PolicyRiskLevel.LOW
         assert op.metadata.get("phase") == "10.26"
-        assert op.metadata.get("proposal_only", False) is True or op.metadata.get("no_external_mutation", False) is True
+        assert (
+            op.metadata.get("proposal_only", False) is True
+            or op.metadata.get("no_external_mutation", False) is True
+        )
 
 
 def test_languages_operation_required_resources() -> None:
@@ -146,11 +159,21 @@ def test_languages_operation_required_resources() -> None:
     assert operations["languages.assess_sample"].required_resources == ()
     assert operations["languages.update_level_evidence"].required_resources == ()
     assert operations["languages.create_learning_plan"].required_resources == ()
-    assert operations["languages.review_exercise"].required_resources == ("languages.exercise_result",)
-    assert operations["languages.review_writing"].required_resources == ("languages.writing_sample",)
-    assert operations["languages.generate_conversation_turn"].required_resources == ("languages.conversation",)
-    assert operations["languages.generate_roleplay_turn"].required_resources == ("languages.conversation",)
-    assert operations["languages.track_vocabulary"].required_resources == ("languages.vocabulary_list",)
+    assert operations["languages.review_exercise"].required_resources == (
+        "languages.exercise_result",
+    )
+    assert operations["languages.review_writing"].required_resources == (
+        "languages.writing_sample",
+    )
+    assert operations["languages.generate_conversation_turn"].required_resources == (
+        "languages.conversation",
+    )
+    assert operations["languages.generate_roleplay_turn"].required_resources == (
+        "languages.conversation",
+    )
+    assert operations["languages.track_vocabulary"].required_resources == (
+        "languages.vocabulary_list",
+    )
     assert operations["languages.review_speaking"].required_resources == ()
 
 
@@ -159,7 +182,9 @@ def test_languages_operation_schema_parity() -> None:
     for op in build_languages_operation_definitions():
         output = _representative_helper_output(op.operation_id)
         errors = validate_operation_schema(output, op.output_schema)
-        assert errors == (), f"Operation {op.operation_id} output schema validation failed: {errors}"
+        assert errors == (), (
+            f"Operation {op.operation_id} output schema validation failed: {errors}"
+        )
 
 
 def test_onboarding_learning_plan_fields() -> None:
@@ -190,9 +215,7 @@ def test_track_vocabulary_derives_mastery_for_each_frozen_candidate_state() -> N
             vocabulary_list={"items": [{"id": f"word-{state}", "state": state}]}
         )
 
-        assert result["candidate_updates"] == [
-            {"id": f"word-{state}", "state": state}
-        ]
+        assert result["candidate_updates"] == [{"id": f"word-{state}", "state": state}]
         assert result["total_items"] == 1
         assert result["mastery_summary"] == {
             "mastered": mastered,
@@ -241,8 +264,7 @@ def test_track_vocabulary_applies_grounded_review_evidence_to_candidate_items() 
     assert 0 <= result["mastery_summary"]["mastered"] <= result["total_items"]
     assert 0 <= result["mastery_summary"]["learning"] <= result["total_items"]
     assert (
-        result["mastery_summary"]["mastered"]
-        + result["mastery_summary"]["learning"]
+        result["mastery_summary"]["mastered"] + result["mastery_summary"]["learning"]
         == result["total_items"]
     )
 
@@ -250,7 +272,11 @@ def test_track_vocabulary_applies_grounded_review_evidence_to_candidate_items() 
 def test_update_level_operation_uses_canonical_evidence_semantics() -> None:
     """Operation aliases cannot bypass canonical provenance/comparability checks."""
     result = update_level_evidence_result(
-        existing_record={"kind": "ESTIMATED", "level_or_score": "B1", "skill_scope": "writing"},
+        existing_record={
+            "kind": "ESTIMATED",
+            "level_or_score": "B1",
+            "skill_scope": "writing",
+        },
         assessment={
             "id": "caller-a",
             "provenance_id": "sample-1",
@@ -319,9 +345,7 @@ def test_schema_valid_nested_null_collections_are_treated_as_empty() -> None:
     conversation = {"turns": None}
     transcript = {"transcript": "Hello", "observed_errors": None}
 
-    conversation_result = generate_conversation_turn_result(
-        conversation=conversation
-    )
+    conversation_result = generate_conversation_turn_result(conversation=conversation)
     roleplay_result = generate_roleplay_turn_result(conversation=conversation)
     speaking_result = review_speaking_result(audio_transcript=transcript)
 
@@ -413,8 +437,18 @@ def test_operation_outputs_expose_workflow_invariants() -> None:
 
     errors = review_errors_result(
         observed_errors=(
-            {"context_id": "one", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
-            {"context_id": "two", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
+            {
+                "context_id": "one",
+                "error_type": "inversion",
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
+            {
+                "context_id": "two",
+                "error_type": "inversion",
+                "comparable": True,
+                "comparison_key": "free-writing",
+            },
         ),
         language="English",
     )
@@ -437,11 +471,29 @@ def test_progress_review_exposes_valid_stable_progression_invariant() -> None:
         language="English",
         period="last_30_days",
         previous_evidence=(
-            {"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+            {
+                "provenance_id": "baseline",
+                "score": 0.6,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
         ),
         evidence=(
-            {"provenance_id": "current-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-            {"provenance_id": "current-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+            {
+                "provenance_id": "current-1",
+                "score": 0.85,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
+            {
+                "provenance_id": "current-2",
+                "score": 0.88,
+                "skill": "writing",
+                "comparable": True,
+                "comparison_key": "essay",
+            },
         ),
         skill="writing",
     )
@@ -527,14 +579,50 @@ def test_progress_review_non_finite_readiness_is_not_assessed() -> None:
 
 def test_progress_review_multiple_skills_uses_only_each_skills_evidence() -> None:
     previous = (
-        {"provenance_id": "w0", "score": 0.5, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "r0", "score": 0.55, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
+        {
+            "provenance_id": "w0",
+            "score": 0.5,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "r0",
+            "score": 0.55,
+            "skill": "reading",
+            "comparable": True,
+            "comparison_key": "reading-test",
+        },
     )
     current = (
-        {"provenance_id": "w1", "score": 0.8, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "w2", "score": 0.82, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-        {"provenance_id": "r1", "score": 0.78, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
-        {"provenance_id": "r2", "score": 0.8, "skill": "reading", "comparable": True, "comparison_key": "reading-test"},
+        {
+            "provenance_id": "w1",
+            "score": 0.8,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "w2",
+            "score": 0.82,
+            "skill": "writing",
+            "comparable": True,
+            "comparison_key": "essay",
+        },
+        {
+            "provenance_id": "r1",
+            "score": 0.78,
+            "skill": "reading",
+            "comparable": True,
+            "comparison_key": "reading-test",
+        },
+        {
+            "provenance_id": "r2",
+            "score": 0.8,
+            "skill": "reading",
+            "comparable": True,
+            "comparison_key": "reading-test",
+        },
     )
 
     result = generate_progress_review_result(
@@ -563,7 +651,9 @@ def test_certification_preparation_no_external_mutation() -> None:
     assert res["submission_performed"] is False
 
 
-def test_review_exercise_malformed_scores_without_correctness_remain_unassessed() -> None:
+def test_review_exercise_malformed_scores_without_correctness_remain_unassessed() -> (
+    None
+):
     malformed_scores = (
         float("nan"),
         float("inf"),
@@ -623,9 +713,30 @@ def test_review_exercise_preserves_each_kind_of_observed_outcome() -> None:
     """Catches deriving correctness from score or discarding valid outcome evidence."""
     cases = (
         ({"is_correct": True}, True, 1.0, 0, "Great job!", "maintain"),
-        ({"is_correct": False}, False, 0.0, 1, "Review the target structure.", "scaffold"),
-        ({"score": 0.8}, None, 0.8, 0, "Not assessed: missing exercise outcome.", "hold"),
-        ({"is_correct": False, "score": 0.2}, False, 0.2, 1, "Review the target structure.", "scaffold"),
+        (
+            {"is_correct": False},
+            False,
+            0.0,
+            1,
+            "Review the target structure.",
+            "scaffold",
+        ),
+        (
+            {"score": 0.8},
+            None,
+            0.8,
+            0,
+            "Not assessed: missing exercise outcome.",
+            "hold",
+        ),
+        (
+            {"is_correct": False, "score": 0.2},
+            False,
+            0.2,
+            1,
+            "Review the target structure.",
+            "scaffold",
+        ),
     )
 
     for exercise_result, correct, score, error_count, feedback, difficulty in cases:
@@ -660,9 +771,7 @@ def test_review_exercise_unassessed_output_matches_its_declared_schema() -> None
     result = review_exercise_result(exercise_result={})
     assert result["is_correct"] is None
     assert result["score"] is None
-    assert validate_operation_schema(
-        result, definition.output_schema
-    ) == ()
+    assert validate_operation_schema(result, definition.output_schema) == ()
 
 
 def test_other_numeric_operation_inputs_use_the_same_fail_closed_boundary() -> None:
@@ -789,8 +898,16 @@ def test_certification_source_status_requires_current_authoritative_source() -> 
 def test_certification_source_status_accepts_current_authoritative_sources() -> None:
     """Preserve the existing evaluator's current authoritative source boundary."""
     authoritative_sources = (
-        {"source_type": "official", "date_valid": True, "official_source_id": "official-src-1"},
-        {"source_type": "authoritative_secondary", "temporal_state": "current", "source_id": "sec-src-1"},
+        {
+            "source_type": "official",
+            "date_valid": True,
+            "official_source_id": "official-src-1",
+        },
+        {
+            "source_type": "authoritative_secondary",
+            "temporal_state": "current",
+            "source_id": "sec-src-1",
+        },
     )
 
     for official_source in authoritative_sources:

@@ -13,7 +13,9 @@ from cmm.domains.permission_contracts import (
 from cmm.domains.permission_registry import DomainPermissionRegistry
 
 
-def _policy(policy_id: str, domain_id: str, version: str = "1.0.0") -> DomainPermissionPolicy:
+def _policy(
+    policy_id: str, domain_id: str, version: str = "1.0.0"
+) -> DomainPermissionPolicy:
     return DomainPermissionPolicy(
         policy_id=policy_id,
         domain_id=domain_id,

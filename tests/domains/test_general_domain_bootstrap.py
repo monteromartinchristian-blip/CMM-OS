@@ -179,14 +179,15 @@ def test_operations_accept_injected_implementations():
         def execute(self, request):
             return {
                 "success": True,
-                "output": {"status": "completed", "operation_id": self.definition.operation_id},
+                "output": {
+                    "status": "completed",
+                    "operation_id": self.definition.operation_id,
+                },
                 "effects": (),
             }
 
     operations = build_general_operation_definitions()
-    implementations = {
-        op.operation_id: _RealDelegate(op) for op in operations
-    }
+    implementations = {op.operation_id: _RealDelegate(op) for op in operations}
     bootstrap = build_standard_general_domain_bootstrap(
         operation_implementations=implementations
     )
@@ -200,6 +201,8 @@ def test_operations_accept_injected_implementations():
         assert result["success"] is True
         assert "output" in result
         assert "effects" in result
+
+
 def test_bootstrap_exposes_configured_general_resolver():
     """The canonical bootstrap exposes a DefaultDomainResolver with General fallback."""
     from cmm.domains.identifiers import DomainId
@@ -224,6 +227,8 @@ def test_standard_general_unimplemented_operation_cannot_be_enabled():
     # Remains disabled / unavailable and unexecutable.
     definition = operation_registry.get("general.create_task", "1.0.0")
     assert definition.enabled is False
-    assert operation_registry.resolve_active("general.create_task", required=False) is None
+    assert (
+        operation_registry.resolve_active("general.create_task", required=False) is None
+    )
     with pytest.raises(DomainOperationRegistryError):
         operation_registry.get_implementation("general.create_task", "1.0.0")

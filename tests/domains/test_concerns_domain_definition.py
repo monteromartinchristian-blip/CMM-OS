@@ -48,7 +48,10 @@ def test_definition_metadata():
     d = build_concerns_domain_definition()
     assert d.id == "domain:concerns"
     assert d.name == "concerns"
-    assert str(d.kind) in ("personal", "DomainKind.PERSONAL") or d.kind == DomainKind.PERSONAL
+    assert (
+        str(d.kind) in ("personal", "DomainKind.PERSONAL")
+        or d.kind == DomainKind.PERSONAL
+    )
     assert d.version == CONCERNS_DOMAIN_VERSION
     assert d.manifest_id == CONCERNS_MANIFEST_ID
     assert d.reasoning_profile == CONCERNS_PROFILE_NAME

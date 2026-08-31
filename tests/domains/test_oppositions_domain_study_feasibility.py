@@ -40,9 +40,7 @@ def test_preferences_only_after_hard_constraints():
 
 def test_malformed_numeric_does_not_raise():
 
-    record = evaluate_study_feasibility(
-        remaining_hours="100", available_hours=10
-    )
+    record = evaluate_study_feasibility(remaining_hours="100", available_hours=10)
     # numeric strings are not silently coerced
     assert record["unresolved"] is True
 

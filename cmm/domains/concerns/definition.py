@@ -26,9 +26,7 @@ CONCERNS_RULE_IDS: tuple[str, ...] = CANONICAL_CONCERNS_RULE_IDS
 CONCERNS_OPERATION_IDS: tuple[str, ...] = CANONICAL_CONCERNS_OPERATION_IDS
 CONCERNS_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_CONCERNS_WORKFLOW_IDS
 
-CONCERNS_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:concerns:1.0.0",
-)
+CONCERNS_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:concerns:1.0.0",)
 
 
 def build_concerns_domain_definition() -> DomainDefinition:

@@ -76,7 +76,12 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.conversation": _resource(
             "languages.conversation",
             adapter="cognitive.conversation",
-            entity_types=("language", "language_variety", "practice_session", "observed_error"),
+            entity_types=(
+                "language",
+                "language_variety",
+                "practice_session",
+                "observed_error",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.6,
             metadata={"provenance": True, "practice_session": True},
@@ -84,7 +89,12 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.writing_sample": _resource(
             "languages.writing_sample",
             adapter="cognitive.note",
-            entity_types=("language", "practice_session", "assessment_evidence", "observed_error"),
+            entity_types=(
+                "language",
+                "practice_session",
+                "assessment_evidence",
+                "observed_error",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.7,
             metadata={"provenance": True, "user_production": True},
@@ -92,7 +102,12 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.audio_transcript": _resource(
             "languages.audio_transcript",
             adapter="cognitive.note",
-            entity_types=("language", "practice_session", "assessment_evidence", "observed_error"),
+            entity_types=(
+                "language",
+                "practice_session",
+                "assessment_evidence",
+                "observed_error",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.6,
             metadata={
@@ -112,11 +127,19 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.assessment_result": _resource(
             "languages.assessment_result",
             adapter="cognitive.event",
-            entity_types=("proficiency_record", "assessment_evidence", "skill_dimension"),
+            entity_types=(
+                "proficiency_record",
+                "assessment_evidence",
+                "skill_dimension",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.75,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "epistemic_distinction": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "epistemic_distinction": True,
+            },
         ),
         "languages.language_plan": _resource(
             "languages.language_plan",
@@ -146,7 +169,12 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.language_reference": _resource(
             "languages.language_reference",
             adapter="cognitive.note",
-            entity_types=("language", "language_variety", "grammar_topic", "vocabulary_item"),
+            entity_types=(
+                "language",
+                "language_variety",
+                "grammar_topic",
+                "vocabulary_item",
+            ),
             sensitivity=SensitivityLevel.INTERNAL,
             reliability=0.85,
             metadata={"linguistic_reference": True, "variety_aware": True},
@@ -175,12 +203,22 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.7,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "schedule_proposal_only": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "schedule_proposal_only": True,
+            },
         ),
         "languages.memory_entry": _resource(
             "languages.memory_entry",
             adapter="cognitive.memory",
-            entity_types=("proficiency_record", "language_goal", "error_pattern", "review_item", "learning_plan"),
+            entity_types=(
+                "proficiency_record",
+                "language_goal",
+                "error_pattern",
+                "review_item",
+                "learning_plan",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.7,
             metadata={
@@ -192,7 +230,12 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
         "languages.domain_result": _resource(
             "languages.domain_result",
             adapter="cognitive.event",
-            entity_types=("language_goal", "proficiency_record", "certification_target", "assessment_evidence"),
+            entity_types=(
+                "language_goal",
+                "proficiency_record",
+                "certification_target",
+                "assessment_evidence",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.75,
             effective_date_required=True,
@@ -205,7 +248,4 @@ def build_languages_resource_definitions() -> tuple[DomainResourceDefinition, ..
             },
         ),
     }
-    return tuple(
-        by_id[resource_id]
-        for resource_id in CANONICAL_LANGUAGES_RESOURCE_IDS
-    )
+    return tuple(by_id[resource_id] for resource_id in CANONICAL_LANGUAGES_RESOURCE_IDS)

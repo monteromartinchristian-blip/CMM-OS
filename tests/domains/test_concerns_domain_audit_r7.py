@@ -95,7 +95,10 @@ def test_presenting_real_reassurance_with_material_concern_hides_nothing():
     presented = present_concerns_result(reassurance)
     assert presented["reassurance_assessment"] == "CONCERN_SUPPORTED"
     assert "decline documented" in presented["material_concerns"]
-    assert presented["unresolved"] is True or presented["conclusion_presented"] in (True, False)
+    assert presented["unresolved"] is True or presented["conclusion_presented"] in (
+        True,
+        False,
+    )
     json.dumps(presented, allow_nan=False)
 
 
@@ -129,7 +132,11 @@ def _helper_results() -> dict:
         ),
         "concerns.explore_hypotheses": explore_hypotheses_result(
             hypotheses=(
-                {"identity": "h1", "statement": "workload explains it", "supporting_ids": ("s1",)},
+                {
+                    "identity": "h1",
+                    "statement": "workload explains it",
+                    "supporting_ids": ("s1",),
+                },
             )
         ),
         "concerns.calibrate_uncertainty": calibrate_uncertainty_result(
@@ -151,7 +158,9 @@ def _helper_results() -> dict:
         ),
         "concerns.evaluate_risk": evaluate_risk_result(severity=None, evidence=()),
         "concerns.identify_open_questions": identify_open_questions_result(
-            questions=({"question": "did others get replies?", "changes": ("interpretation",)},)
+            questions=(
+                {"question": "did others get replies?", "changes": ("interpretation",)},
+            )
         ),
         "concerns.explore_options": explore_options_result(
             options=({"option_id": "o1"},)
@@ -172,7 +181,9 @@ def _helper_results() -> dict:
 
 
 @pytest.mark.parametrize("operation_id", CANONICAL_CONCERNS_OPERATION_IDS)
-def test_presenting_every_operation_helper_output_is_json_safe_and_never_raises(operation_id):
+def test_presenting_every_operation_helper_output_is_json_safe_and_never_raises(
+    operation_id,
+):
     """The presentation layer consumes each canonical helper's REAL output
     without raising and remains JSON-safe."""
     result = _helper_results()[operation_id]

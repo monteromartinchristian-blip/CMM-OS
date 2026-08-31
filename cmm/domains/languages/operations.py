@@ -89,7 +89,11 @@ _LESSON_MODE_BEHAVIORS: dict[str, dict[str, str | tuple[str, ...]]] = {
         "input_material": "A concise model that leaves most time for active use.",
         "guided_practice": "Active use rehearsal with minimal flow interruption.",
         "active_production": "Sustain a meaningful response before selective feedback.",
-        "feedback_criteria": ("Communicative effectiveness", "Priority accuracy", "Flow"),
+        "feedback_criteria": (
+            "Communicative effectiveness",
+            "Priority accuracy",
+            "Flow",
+        ),
         "next_step": "Review selective feedback after the useful interaction unit.",
     },
     "assess": {
@@ -113,7 +117,11 @@ _LESSON_MODE_BEHAVIORS: dict[str, dict[str, str | tuple[str, ...]]] = {
         "input_material": "Current certification criteria and task-specific models.",
         "guided_practice": "Rehearse the official format without equating it to broad proficiency.",
         "active_production": "Complete a certification-style response under relevant constraints.",
-        "feedback_criteria": ("Official rubric", "Format readiness", "General-skill boundary"),
+        "feedback_criteria": (
+            "Official rubric",
+            "Format readiness",
+            "General-skill boundary",
+        ),
         "next_step": "Separate exam-format readiness from broader proficiency needs.",
     },
     "immersion": {
@@ -121,7 +129,11 @@ _LESSON_MODE_BEHAVIORS: dict[str, dict[str, str | tuple[str, ...]]] = {
         "input_material": "Comprehensible target-language material with minimal fallback.",
         "guided_practice": "Use target-language scaffolding while preserving comprehension.",
         "active_production": "Respond in the target language with user-controlled fallback.",
-        "feedback_criteria": ("Comprehensibility", "Target-language use", "Naturalness"),
+        "feedback_criteria": (
+            "Comprehensibility",
+            "Target-language use",
+            "Naturalness",
+        ),
         "next_step": "Increase target-language use while keeping the task comprehensible.",
     },
 }
@@ -149,9 +161,9 @@ def _normalize_vocabulary_item_id(value: Any) -> str | None:
 
 def _vocabulary_item_identity(item: Mapping[str, Any]) -> str | None:
     """Read an item's stable identity, preferring item_id over id."""
-    return _normalize_vocabulary_item_id(item.get("item_id")) or _normalize_vocabulary_item_id(
-        item.get("id")
-    )
+    return _normalize_vocabulary_item_id(
+        item.get("item_id")
+    ) or _normalize_vocabulary_item_id(item.get("id"))
 
 
 def _normalize_vocabulary_item(item: Any) -> dict[str, Any] | None:
@@ -178,8 +190,12 @@ def _candidate_vocabulary_items(
     new_items: tuple[Any, ...] | list[Any] | None,
 ) -> list[dict[str, Any]]:
     """Normalize and deterministically deduplicate vocabulary candidates."""
-    existing_items = vocabulary_list.get("items", ()) if isinstance(vocabulary_list, Mapping) else ()
-    raw_items = list(existing_items) if isinstance(existing_items, (tuple, list)) else []
+    existing_items = (
+        vocabulary_list.get("items", ()) if isinstance(vocabulary_list, Mapping) else ()
+    )
+    raw_items = (
+        list(existing_items) if isinstance(existing_items, (tuple, list)) else []
+    )
     if isinstance(new_items, (tuple, list)):
         raw_items.extend(new_items)
 
@@ -238,6 +254,7 @@ def _candidate_review_states(
         if identity is not None and candidate_state is not None:
             transitions[identity] = candidate_state
     return transitions
+
 
 LANGUAGES_OPERATION_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_OPERATION_IDS
 
@@ -389,7 +406,10 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
         {
             "audio_transcript": {"type": "object"},
             "target_language": _STR,
-            "pronunciation_evidence": {"type": ["array", "null"], "items": {"type": "object"}},
+            "pronunciation_evidence": {
+                "type": ["array", "null"],
+                "items": {"type": "object"},
+            },
         },
     ),
     "languages.review_errors": _schema(
@@ -433,7 +453,10 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "period": _STR,
             "evidence": {"type": ["array", "null"], "items": {"type": "object"}},
             "goals": {"type": ["array", "null"], "items": {"type": "object"}},
-            "previous_evidence": {"type": ["array", "null"], "items": {"type": "object"}},
+            "previous_evidence": {
+                "type": ["array", "null"],
+                "items": {"type": "object"},
+            },
             "skill": _STR_OR_NULL,
             "patterns": {"type": ["array", "null"], "items": {"type": "object"}},
             "certification_profile": {"type": ["object", "null"]},
@@ -824,6 +847,7 @@ def build_languages_operation_definitions() -> tuple[DomainOperationDefinition, 
 
 # ── Result Helpers ────────────────────────────────────────────────────────────
 
+
 def assess_sample_result(
     *,
     sample: Mapping[str, Any] | None = None,
@@ -842,19 +866,25 @@ def assess_sample_result(
     valid_alts: list[dict[str, Any]] = []
 
     # Check variety
-    if preferred_variety and "colour" in text.lower() and "american" in preferred_variety.lower():
+    if (
+        preferred_variety
+        and "colour" in text.lower()
+        and "american" in preferred_variety.lower()
+    ):
         v_class = classify_language_variety(
             preferred_variety=preferred_variety,
             observed_variety="British English",
             form_status="valid",
         )
         if v_class.get("is_valid_alternative"):
-            valid_alts.append({
-                "id": "alt-1",
-                "token": "colour",
-                "variety": "British English",
-                "classification": "valid_alternative",
-            })
+            valid_alts.append(
+                {
+                    "id": "alt-1",
+                    "token": "colour",
+                    "variety": "British English",
+                    "classification": "valid_alternative",
+                }
+            )
 
     # Missing evidence check (e.g. speaking when assessing writing)
     missing = (
@@ -867,15 +897,17 @@ def assess_sample_result(
         "assessment_id": f"as-{uuid.uuid4().hex[:8]}",
         "language": target_language,
         "skill_scope": skill_scope,
-        "observed_performance": (
-            "B2" if len(text) > 10 else "A2"
-        ) if has_sample_evidence else "unknown",
+        "observed_performance": ("B2" if len(text) > 10 else "A2")
+        if has_sample_evidence
+        else "unknown",
         "confidence": 0.75 if has_sample_evidence else 0.0,
         "strengths": (
             ["Clear expression", "Good lexical choice"]
             if len(text) > 10
             else ["Initial production"]
-        ) if has_sample_evidence else [],
+        )
+        if has_sample_evidence
+        else [],
         "errors": errors,
         "valid_alternatives": valid_alts,
         "missing_evidence": missing,
@@ -932,11 +964,19 @@ def create_learning_plan_result(
     raw_goals = [dict(normalize_json_value(g)) for g in goals if isinstance(g, Mapping)]
     phases = [
         {"phase_number": 1, "title": "Diagnostic & Foundations", "duration_weeks": 2},
-        {"phase_number": 2, "title": "Active Practice & Consolidation", "duration_weeks": 6},
+        {
+            "phase_number": 2,
+            "title": "Active Practice & Consolidation",
+            "duration_weeks": 6,
+        },
     ]
 
     tracking_resolved = tracking_consent is not None
-    choice = "opt_in" if tracking_consent is True else ("opt_out" if tracking_consent is False else "unresolved")
+    choice = (
+        "opt_in"
+        if tracking_consent is True
+        else ("opt_out" if tracking_consent is False else "unresolved")
+    )
 
     return {
         "plan_id": f"lp-{uuid.uuid4().hex[:8]}",
@@ -995,13 +1035,12 @@ def generate_exercises_result(
     clean_difficulty_value = _finite_number(difficulty)
     clean_difficulty = (
         int(clean_difficulty_value)
-        if clean_difficulty_value is not None
-        and clean_difficulty_value.is_integer()
+        if clean_difficulty_value is not None and clean_difficulty_value.is_integer()
         else 1
     )
     exercises = [
         {
-            "exercise_id": f"ex-{i+1}",
+            "exercise_id": f"ex-{i + 1}",
             "prompt": f"Complete the sentence using correct {target_topic}.",
             "target_skill": skill,
             "difficulty": clean_difficulty,
@@ -1042,16 +1081,18 @@ def review_exercise_result(
 
     errors = []
     if is_correct is False:
-        errors.append({
-            "id": f"err-{uuid.uuid4().hex[:6]}",
-            "provenance_id": review_id,
-            "topic": target_topic or "general",
-            "error_type": "target_structure",
-            "comparable": True,
-            "comparison_key": target_topic or "general",
-            "user_answer": er.get("user_answer", ""),
-            "category": "observed_error",
-        })
+        errors.append(
+            {
+                "id": f"err-{uuid.uuid4().hex[:6]}",
+                "provenance_id": review_id,
+                "topic": target_topic or "general",
+                "error_type": "target_structure",
+                "comparable": True,
+                "comparison_key": target_topic or "general",
+                "user_answer": er.get("user_answer", ""),
+                "category": "observed_error",
+            }
+        )
 
     return {
         "review_id": review_id,
@@ -1059,13 +1100,17 @@ def review_exercise_result(
         "is_correct": is_correct,
         "observed_errors": errors,
         "feedback": (
-            "Great job!" if is_correct is True
-            else "Review the target structure." if is_correct is False
+            "Great job!"
+            if is_correct is True
+            else "Review the target structure."
+            if is_correct is False
             else "Not assessed: missing exercise outcome."
         ),
         "difficulty_adjustment": (
-            "maintain" if is_correct is True
-            else "scaffold" if is_correct is False
+            "maintain"
+            if is_correct is True
+            else "scaffold"
+            if is_correct is False
             else "hold"
         ),
         "pattern_candidate": False,
@@ -1089,12 +1134,18 @@ def review_writing_result(
     has_writing_evidence = word_count > 0
 
     valid_alts = []
-    if preferred_variety and "colour" in text.lower() and "british" in preferred_variety.lower():
-        valid_alts.append({
-            "token": "colour",
-            "variety": "British English",
-            "status": "valid_alternative",
-        })
+    if (
+        preferred_variety
+        and "colour" in text.lower()
+        and "british" in preferred_variety.lower()
+    ):
+        valid_alts.append(
+            {
+                "token": "colour",
+                "variety": "British English",
+                "status": "valid_alternative",
+            }
+        )
 
     return {
         "review_id": f"wr-{uuid.uuid4().hex[:8]}",
@@ -1107,10 +1158,12 @@ def review_writing_result(
         ),
         "observed_errors": [],
         "valid_alternatives": valid_alts,
-        "register_feedback": "Formal and appropriate." if has_writing_evidence else "not_assessed",
-        "estimated_level": (
-            "B2" if word_count > 10 else "A2"
-        ) if has_writing_evidence else "unknown",
+        "register_feedback": "Formal and appropriate."
+        if has_writing_evidence
+        else "not_assessed",
+        "estimated_level": ("B2" if word_count > 10 else "A2")
+        if has_writing_evidence
+        else "unknown",
         "score": 0.85 if has_writing_evidence else 0.0,
         "valid_variety_misclassified": False,
         "proficiency_upgraded_without_evidence": False,
@@ -1137,7 +1190,9 @@ def generate_conversation_turn_result(
         "speaker": role or "tutor",
         "utterance": f"That is very interesting! Tell me more about your experience with {topic or 'languages'}.",
         "pedagogical_intent": "encourage_production",
-        "scaffolding_hint": "Try using connectors like 'however' or 'furthermore'." if target_level == "B2" else None,
+        "scaffolding_hint": "Try using connectors like 'however' or 'furthermore'."
+        if target_level == "B2"
+        else None,
         "turn_count": turn_count,
     }
 
@@ -1302,7 +1357,9 @@ def prepare_certification_result(
     official_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prepare for certification exam, keeping readiness distinct from general proficiency and never registering/paying."""
-    src_eval = evaluate_certification_source(sources=[official_source] if official_source else [], decision_critical=True)
+    src_eval = evaluate_certification_source(
+        sources=[official_source] if official_source else [], decision_critical=True
+    )
     source_verified = (
         src_eval["selected_source"] is not None
         and src_eval["needs_verification"] is False
@@ -1320,24 +1377,33 @@ def prepare_certification_result(
         else {}
     )
     estimated_level = profile.get("estimated_level")
-    if not skill_levels and isinstance(estimated_level, str) and estimated_level.strip():
+    if (
+        not skill_levels
+        and isinstance(estimated_level, str)
+        and estimated_level.strip()
+    ):
         skill_levels = {"general": estimated_level.strip().upper()}
 
     cefr_rank = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
     target_level = next(
-        (level for level in reversed(tuple(cefr_rank)) if level in target_certification.upper()),
+        (
+            level
+            for level in reversed(tuple(cefr_rank))
+            if level in target_certification.upper()
+        ),
         None,
     )
     grounded_levels = {
-        skill: level
-        for skill, level in skill_levels.items()
-        if level in cefr_rank
+        skill: level for skill, level in skill_levels.items() if level in cefr_rank
     }
     has_profile_evidence = bool(grounded_levels) and target_level is not None
     target_rank = cefr_rank[target_level] if target_level is not None else 0
     readiness_score = (
         round(
-            sum(min(cefr_rank[level] / target_rank, 1.0) for level in grounded_levels.values())
+            sum(
+                min(cefr_rank[level] / target_rank, 1.0)
+                for level in grounded_levels.values()
+            )
             / len(grounded_levels),
             2,
         )

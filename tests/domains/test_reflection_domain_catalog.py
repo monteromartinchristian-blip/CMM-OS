@@ -132,9 +132,7 @@ def test_package_boundary_exactly_14_modules():
     """Production package contains exactly the 14 frozen modules (spec §3)."""
     package_dir = Path(__file__).resolve().parents[2] / "cmm" / "domains" / "reflection"
     modules = sorted(
-        path.name
-        for path in package_dir.glob("*.py")
-        if path.name != "__pycache__"
+        path.name for path in package_dir.glob("*.py") if path.name != "__pycache__"
     )
     assert modules == [
         "__init__.py",

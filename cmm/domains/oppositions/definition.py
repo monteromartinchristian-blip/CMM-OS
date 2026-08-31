@@ -26,9 +26,7 @@ OPPOSITIONS_RULE_IDS: tuple[str, ...] = CANONICAL_OPPOSITION_RULE_IDS
 OPPOSITIONS_OPERATION_IDS: tuple[str, ...] = CANONICAL_OPPOSITION_OPERATION_IDS
 OPPOSITIONS_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_OPPOSITION_WORKFLOW_IDS
 
-OPPOSITIONS_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:oppositions:1.0.0",
-)
+OPPOSITIONS_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:oppositions:1.0.0",)
 
 
 def build_oppositions_domain_definition() -> DomainDefinition:

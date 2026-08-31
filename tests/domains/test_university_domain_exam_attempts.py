@@ -70,10 +70,9 @@ def _regulation(*, temporal="valid", max_attempts=3):
 
 
 def _canonical_result(*, attempts=(), regulation=None):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.exam_attempt"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.exam_attempt"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="exam-attempt-production",
         timestamp=T,
@@ -338,7 +337,9 @@ def test_canonical_rule_scalar_attempts_collection_does_not_crash():
 def test_canonical_rule_malformed_attempts_remain_unknown(malformed):
     """Malformed attempts evidence is not authoritative zero-attempt evidence
     and cannot produce a definite evaluated finding."""
-    result = _canonical_result(attempts=malformed, regulation=_regulation(max_attempts=1))
+    result = _canonical_result(
+        attempts=malformed, regulation=_regulation(max_attempts=1)
+    )
     finding = result.findings[0]
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert finding.code != "EXAM_ATTEMPT_EVALUATED"
@@ -356,6 +357,8 @@ def test_canonical_rule_empty_attempts_remain_valid_zero_attempts():
     assert finding.metadata["attempts_malformed"] is False
     assert finding.metadata["attempt_evidence_unknown"] is False
     assert finding.metadata["within_limits"] is True
+
+
 # ── V9-B3.2: strict ExamAttempt grounding.  Truthy != grounded. ──────────────
 
 

@@ -14,15 +14,21 @@ def test_twelve_resources_and_sorted_ids():
 
 
 def test_sensitivity_contracts():
-    resources = {
-        r.id: r for r in university.build_university_resource_definitions()
-    }
+    resources = {r.id: r for r in university.build_university_resource_definitions()}
     # Official-capable academic state records are SENSITIVE.
-    assert resources["university.academic_record"].default_sensitivity is SensitivityLevel.SENSITIVE
-    assert resources["university.grade"].default_sensitivity is SensitivityLevel.SENSITIVE
+    assert (
+        resources["university.academic_record"].default_sensitivity
+        is SensitivityLevel.SENSITIVE
+    )
+    assert (
+        resources["university.grade"].default_sensitivity is SensitivityLevel.SENSITIVE
+    )
     # Non-official, user-reported resources are PERSONAL (never HIGHLY_SENSITIVE).
     assert resources["university.note"].default_sensitivity is SensitivityLevel.PERSONAL
-    assert resources["university.memory_entry"].default_sensitivity is SensitivityLevel.PERSONAL
+    assert (
+        resources["university.memory_entry"].default_sensitivity
+        is SensitivityLevel.PERSONAL
+    )
 
 
 def test_domain_and_kind():
@@ -42,9 +48,7 @@ def test_entity_types_subset_of_catalog():
 def test_email_resource_no_authorization_send():
     """university.email represents an existing email/email context; it must
     never authorize sending."""
-    resources = {
-        r.id: r for r in university.build_university_resource_definitions()
-    }
+    resources = {r.id: r for r in university.build_university_resource_definitions()}
     email = resources["university.email"]
     assert email.metadata.get("no_authorization_send") is True
     assert email.metadata.get("preparation_only") is True
@@ -53,9 +57,7 @@ def test_email_resource_no_authorization_send():
 def test_memory_entry_never_overrides_academic_state():
     """university.memory_entry represents personal memory and must never be
     Academic State."""
-    resources = {
-        r.id: r for r in university.build_university_resource_definitions()
-    }
+    resources = {r.id: r for r in university.build_university_resource_definitions()}
     memory_entry = resources["university.memory_entry"]
     assert memory_entry.metadata.get("not_academic_state") is True
     assert memory_entry.metadata.get("proposal_only") is True
@@ -63,9 +65,7 @@ def test_memory_entry_never_overrides_academic_state():
 
 def test_academic_record_is_academic_state_official_capable():
     """university.academic_record is Academic State and official-capable."""
-    resources = {
-        r.id: r for r in university.build_university_resource_definitions()
-    }
+    resources = {r.id: r for r in university.build_university_resource_definitions()}
     academic_record = resources["university.academic_record"]
     assert academic_record.metadata.get("academic_state") is True
     assert academic_record.metadata.get("official_capable") is True
@@ -73,9 +73,7 @@ def test_academic_record_is_academic_state_official_capable():
 
 def test_regulation_has_expiration_required():
     """university.regulation is a temporal regulation with expiration."""
-    resources = {
-        r.id: r for r in university.build_university_resource_definitions()
-    }
+    resources = {r.id: r for r in university.build_university_resource_definitions()}
     regulation = resources["university.regulation"]
     assert regulation.temporal_policy.expiration_required is True
     assert regulation.temporal_policy.effective_date_required is True

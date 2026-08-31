@@ -112,9 +112,7 @@ def persistence_confirmation_accepted(
         record["authorization_malformed"] = True
         return normalize_record(record)
 
-    if (
-        confirmation_binding is None or confirmation_inventory is None
-    ):
+    if confirmation_binding is None or confirmation_inventory is None:
         record["authorization_malformed"] = (
             confirmation_binding is not None or confirmation_inventory is not None
         )
@@ -127,10 +125,9 @@ def persistence_confirmation_accepted(
     )
     record["chain_valid"] = bool(validation.is_valid)
 
-    binding_matches = (
-        proposal_id is not None
-        and tuple(confirmation_binding.memory_proposal_ids) == (proposal_id,)
-    )
+    binding_matches = proposal_id is not None and tuple(
+        confirmation_binding.memory_proposal_ids
+    ) == (proposal_id,)
     approvals = confirmation_inventory.approval_requests
     decisions = confirmation_inventory.approval_decisions
     linked = any(

@@ -44,11 +44,16 @@ def _context(metadata):
 
 # ── A. Open-ended analysis ────────────────────────────────────────────────────
 
+
 def test_open_ended_analysis_succeeds_unresolved():
     structured = structure_reflection_result(
         material=(
             {"level": "observation", "content": "they cancelled twice", "source": "s1"},
-            {"level": "belief", "content": "I believe they are withdrawing", "source": "s2"},
+            {
+                "level": "belief",
+                "content": "I believe they are withdrawing",
+                "source": "s2",
+            },
             {"level": "emotion", "content": "sad and relieved", "source": "s3"},
         )
     )
@@ -61,22 +66,50 @@ def test_open_ended_analysis_succeeds_unresolved():
 def test_open_ended_analysis_retains_multiple_hypotheses():
     hypotheses = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h1", "statement": "work pressure explains it", "supporting_ids": ("s1",)},
-            {"identity": "h2", "statement": "relationship strains explain it", "supporting_ids": ("s2",)},
-            {"identity": "h3", "statement": "health explains it", "supporting_ids": ("s3",)},
+            {
+                "identity": "h1",
+                "statement": "work pressure explains it",
+                "supporting_ids": ("s1",),
+            },
+            {
+                "identity": "h2",
+                "statement": "relationship strains explain it",
+                "supporting_ids": ("s2",),
+            },
+            {
+                "identity": "h3",
+                "statement": "health explains it",
+                "supporting_ids": ("s3",),
+            },
         )
     )
     assert len(hypotheses["hypotheses"]) == 3
     assert hypotheses["winner_selected"] is False
     assert hypotheses["forced_conclusion"] is False
-    assert hypotheses["unresolved"] is False  # multiple grounded supports; no forced winner
+    assert (
+        hypotheses["unresolved"] is False
+    )  # multiple grounded supports; no forced winner
 
 
 def test_open_ended_analysis_preserves_ambivalence():
     ambivalence = evaluate_ambivalence(
         records=(
-            {"identity": "p1", "statement": "relieved", "kind": "emotion", "polarity": 1, "context": "same", "temporal": "2026-08-01"},
-            {"identity": "p2", "statement": "sad", "kind": "emotion", "polarity": -1, "context": "same", "temporal": "2026-08-01"},
+            {
+                "identity": "p1",
+                "statement": "relieved",
+                "kind": "emotion",
+                "polarity": 1,
+                "context": "same",
+                "temporal": "2026-08-01",
+            },
+            {
+                "identity": "p2",
+                "statement": "sad",
+                "kind": "emotion",
+                "polarity": -1,
+                "context": "same",
+                "temporal": "2026-08-01",
+            },
         )
     )
     assert ambivalence["ambivalence_present"] is True
@@ -87,7 +120,11 @@ def test_open_ended_analysis_retains_open_questions():
     questions = evaluate_open_questions(
         questions=(
             {"identity": "q1", "question": "why did it happen?", "evidence": None},
-            {"identity": "q2", "question": "what do I want?", "evidence": "conflicting"},
+            {
+                "identity": "q2",
+                "question": "what do I want?",
+                "evidence": "conflicting",
+            },
         )
     )
     assert questions["unresolved_count"] == 2
@@ -96,6 +133,7 @@ def test_open_ended_analysis_retains_open_questions():
 
 
 # ── B. Prudent hypotheses ─────────────────────────────────────────────────────
+
 
 def test_prudent_hypotheses_never_become_facts():
     result = generate_hypotheses_result(
@@ -121,7 +159,9 @@ def test_prudent_hypotheses_never_become_facts():
     for hypothesis in result["hypotheses"]:
         assert hypothesis["status"] == "hypothesis"
         assert hypothesis["fact"] is False
-        assert hypothesis["statement"].startswith("the pattern may")  # tentative framing
+        assert hypothesis["statement"].startswith(
+            "the pattern may"
+        )  # tentative framing
     assert result["winner_selected"] is False
     assert result["no_diagnosis"] is True
 
@@ -129,7 +169,11 @@ def test_prudent_hypotheses_never_become_facts():
 def test_psychological_hypothesis_is_never_a_diagnosis():
     hypotheses = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h1", "statement": "possible avoidance tendency", "supporting_ids": ("s1",)},
+            {
+                "identity": "h1",
+                "statement": "possible avoidance tendency",
+                "supporting_ids": ("s1",),
+            },
         )
     )
     output = json.dumps(hypotheses, allow_nan=False)
@@ -141,7 +185,9 @@ def test_psychological_hypothesis_is_never_a_diagnosis():
         assert hypothesis.get("diagnostic") is False
         import re
 
-        assert not re.search(r"\bdisorder\b|\bnarcissis|\bbipolar\b", hypothesis["statement"].lower())
+        assert not re.search(
+            r"\bdisorder\b|\bnarcissis|\bbipolar\b", hypothesis["statement"].lower()
+        )
 
 
 def test_identity_hypothesis_remains_hypothetical():
@@ -164,10 +210,17 @@ def test_identity_hypothesis_remains_hypothetical():
 
 # ── C. Interest mapping grounded in sources ───────────────────────────────────
 
+
 def test_interest_candidate_requires_source_basis():
     result = map_interests(
         records=(
-            {"interest": "photography", "source": "msg:1", "explicit": True, "mention": True, "observed_at": "2026-05-01"},
+            {
+                "interest": "photography",
+                "source": "msg:1",
+                "explicit": True,
+                "mention": True,
+                "observed_at": "2026-05-01",
+            },
         )
     )
     candidate = result["interest_candidates"][0]
@@ -180,8 +233,18 @@ def test_interest_candidate_requires_source_basis():
 def test_duplicate_source_does_not_inflate_interest_evidence():
     result = map_interests(
         records=(
-            {"interest": "photography", "source": "same", "explicit": True, "observed_at": "2026-05-01"},
-            {"interest": "photography", "source": "same", "explicit": True, "observed_at": "2026-05-01"},
+            {
+                "interest": "photography",
+                "source": "same",
+                "explicit": True,
+                "observed_at": "2026-05-01",
+            },
+            {
+                "interest": "photography",
+                "source": "same",
+                "explicit": True,
+                "observed_at": "2026-05-01",
+            },
         )
     )
     candidate = result["interest_candidates"][0]
@@ -192,9 +255,24 @@ def test_duplicate_source_does_not_inflate_interest_evidence():
 def test_model_inference_is_not_independent_corroboration():
     result = map_interests(
         records=(
-            {"interest": "photography", "source": "msg:1", "explicit": True, "observed_at": "2026-05-01"},
-            {"interest": "photography", "source": "summary:1", "source_kind": "model_summary", "observed_at": "2026-06-01"},
-            {"interest": "photography", "source": "mem:1", "source_kind": "memory_summary", "observed_at": "2026-07-01"},
+            {
+                "interest": "photography",
+                "source": "msg:1",
+                "explicit": True,
+                "observed_at": "2026-05-01",
+            },
+            {
+                "interest": "photography",
+                "source": "summary:1",
+                "source_kind": "model_summary",
+                "observed_at": "2026-06-01",
+            },
+            {
+                "interest": "photography",
+                "source": "mem:1",
+                "source_kind": "memory_summary",
+                "observed_at": "2026-07-01",
+            },
         )
     )
     candidate = result["interest_candidates"][0]
@@ -206,8 +284,18 @@ def test_model_inference_is_not_independent_corroboration():
 def test_contradictory_interest_evidence_keeps_uncertainty():
     result = map_interests(
         records=(
-            {"interest": "photography", "source": "msg:1", "explicit": True, "observed_at": "2026-05-01"},
-            {"interest": "photography", "source": "msg:2", "contradictory": True, "observed_at": "2026-06-01"},
+            {
+                "interest": "photography",
+                "source": "msg:1",
+                "explicit": True,
+                "observed_at": "2026-05-01",
+            },
+            {
+                "interest": "photography",
+                "source": "msg:2",
+                "contradictory": True,
+                "observed_at": "2026-06-01",
+            },
         )
     )
     candidate = result["interest_candidates"][0]
@@ -217,6 +305,7 @@ def test_contradictory_interest_evidence_keeps_uncertainty():
 
 
 # ── D. Confirmed persistence ──────────────────────────────────────────────────
+
 
 def test_candidate_pattern_is_not_confirmed_persistence():
     record = classify_persistence(
@@ -339,7 +428,11 @@ def _valid_dp024_chain(proposal_id: str = "prop-dp024-1", *, approved: bool = Tr
 def test_only_valid_confirmation_authorizes_persistence_proposal():
     binding, inventory = _valid_dp024_chain(proposal_id="dp024-prop-1", approved=True)
     record = classify_persistence(
-        {"proposal_id": "dp024-prop-1", "pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "dp024-prop-1",
+            "pattern": "avoids intimacy",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )
@@ -349,7 +442,11 @@ def test_only_valid_confirmation_authorizes_persistence_proposal():
 
     # Standalone snapshot alone is reference data and does not authorize
     standalone_snap = classify_persistence(
-        {"proposal_id": "dp024-prop-1", "pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "dp024-prop-1",
+            "pattern": "avoids intimacy",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation=DomainMemoryApprovalDecisionSnapshot(
             decision_id="d-abc", request_id="r-abc", approved=True
         ),

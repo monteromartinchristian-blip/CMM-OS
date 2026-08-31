@@ -542,10 +542,7 @@ def _source_speaks_about(source: Mapping, attribute: str) -> bool:
     supplied = source.get("supplied_attributes", ())
     if isinstance(supplied, (list, tuple)) and attribute in supplied:
         return True
-    return (
-        isinstance(source.get("attribute"), str)
-        and source["attribute"] == attribute
-    )
+    return isinstance(source.get("attribute"), str) and source["attribute"] == attribute
 
 
 def _source_relationship(source: Mapping, attribute: str) -> str:
@@ -758,10 +755,7 @@ def _valid_supersession(candidate: Mapping, target: Mapping) -> bool:
         and candidate["grounded"]
         and target["grounded"]
         and candidate["current"]
-        and (
-            target["current"]
-            or target["temporal"] == TEMPORAL_UNKNOWN
-        )
+        and (target["current"] or target["temporal"] == TEMPORAL_UNKNOWN)
         and candidate["rank"] > 0
         and target["rank"] > 0
         and (
@@ -858,9 +852,7 @@ def classify_academic_source_authority(
         current = temporal in _CURRENT_TEMPORAL_STATES
         rank = _source_rank(source, attribute)
         supersedes_evidence = _normalize_reference_field(source, "supersedes")
-        superseded_by_evidence = _normalize_reference_field(
-            source, "superseded_by"
-        )
+        superseded_by_evidence = _normalize_reference_field(source, "superseded_by")
         evaluated.append(
             {
                 "source_id": _usable_scalar_string(source.get("source_id")),
@@ -874,9 +866,7 @@ def classify_academic_source_authority(
                 "rank": rank,
                 "value": source.get("value"),
                 "supersedes": (
-                    ()
-                    if supersedes_evidence.malformed
-                    else supersedes_evidence.items
+                    () if supersedes_evidence.malformed else supersedes_evidence.items
                 ),
                 "supersedes_malformed": supersedes_evidence.malformed,
                 "superseded_by": (
@@ -1031,16 +1021,14 @@ def classify_academic_source_authority(
     for candidate in candidates:
         for target in candidate["supersedes"]:
             target_candidate = by_source_id.get(target)
-            if (
-                target_candidate is not None
-                and _valid_supersession(candidate, target_candidate)
+            if target_candidate is not None and _valid_supersession(
+                candidate, target_candidate
             ):
                 superseded_ids.add(target)
         for target in supersession_candidates:
-            if (
-                candidate["source_id"] in target["superseded_by"]
-                and _valid_supersession(candidate, target)
-            ):
+            if candidate["source_id"] in target[
+                "superseded_by"
+            ] and _valid_supersession(candidate, target):
                 superseded_ids.add(target["source_id"])
 
     active = [e for e in candidates if e["source_id"] not in superseded_ids]
@@ -1051,11 +1039,7 @@ def classify_academic_source_authority(
     best_rank = max(e["rank"] for e in active)
     best = [e for e in active if e["rank"] == best_rank]
     best_specificity = max(_SPECIFICITY_RANK[e["specificity"]] for e in best)
-    top = [
-        e
-        for e in best
-        if _SPECIFICITY_RANK[e["specificity"]] == best_specificity
-    ]
+    top = [e for e in best if _SPECIFICITY_RANK[e["specificity"]] == best_specificity]
 
     # Unknown temporality is not known non-current.  A grounded unknown source
     # that could outrank the selected value (or tie it at the same specificity)
@@ -1068,8 +1052,7 @@ def classify_academic_source_authority(
             candidate["rank"] > best_rank
             or (
                 candidate["rank"] == best_rank
-                and _SPECIFICITY_RANK[candidate["specificity"]]
-                >= best_specificity
+                and _SPECIFICITY_RANK[candidate["specificity"]] >= best_specificity
             )
         )
         and any(
@@ -1311,7 +1294,11 @@ def evaluate_academic_contradiction(
     # unresolved (never silently clean).
     if material_flag and not material and any(value is None for value in material_flag):
         unresolved = True
-    if unresolved_flag and not unresolved and any(value is None for value in unresolved_flag):
+    if (
+        unresolved_flag
+        and not unresolved
+        and any(value is None for value in unresolved_flag)
+    ):
         unresolved = True
     return {
         "state": (
@@ -1360,9 +1347,7 @@ def _scope_matches(claim: Mapping, effective_scope: str | None) -> bool:
         return False
     claim_scope = _claim_scope(claim)
     return (
-        effective_scope is None
-        or claim_scope is None
-        or claim_scope == effective_scope
+        effective_scope is None or claim_scope is None or claim_scope == effective_scope
     )
 
 
@@ -1537,9 +1522,7 @@ def resolve_academic_conflict(
         attr_claims = sorted(grouped[attribute], key=_claim_sort_key)
         for effective_scope in _effective_scopes(attr_claims, scope):
             relevant_claims = [
-                claim
-                for claim in attr_claims
-                if _scope_matches(claim, effective_scope)
+                claim for claim in attr_claims if _scope_matches(claim, effective_scope)
             ]
             conflict_claims = [
                 claim
@@ -1595,15 +1578,13 @@ def resolve_academic_conflict(
     # corroborate, contradict, or differ.  Either way the conflict stays
     # unresolved rather than resolving cleanly.
     incomplete_claim = any(
-        isinstance(claim, Mapping) and _claim_is_incomplete(claim)
-        for claim in claims
+        isinstance(claim, Mapping) and _claim_is_incomplete(claim) for claim in claims
     )
     # V13-B2: a malformed claim scope is relationship-unknown.  The pair loop
     # already excludes it from any scoped reach (never global), and its presence
     # keeps the conflict conservatively unresolved.
     malformed_scope_claim = any(
-        isinstance(claim, Mapping) and _claim_scope_malformed(claim)
-        for claim in claims
+        isinstance(claim, Mapping) and _claim_scope_malformed(claim) for claim in claims
     )
     # V14-B1: a claim with a fact value but an unusable id (absent, blank,
     # None, collection, non-string) cannot simply disappear from the conflict
@@ -1724,9 +1705,7 @@ def check_ects_consistency(
     records = records_evidence.items
     records_malformed = records_malformed or records_evidence.malformed
     double_counted_collection = _normalize_collection_value(double_counted)
-    double_counted_evidence = _normalize_references(
-        double_counted_collection.items
-    )
+    double_counted_evidence = _normalize_references(double_counted_collection.items)
     double_counted = double_counted_evidence.items
     double_counted_malformed = (
         double_counted_malformed
@@ -1734,9 +1713,7 @@ def check_ects_consistency(
         or double_counted_evidence.malformed
     )
     contradictory_collection = _normalize_collection_value(contradictory)
-    contradictory_evidence = _normalize_references(
-        contradictory_collection.items
-    )
+    contradictory_evidence = _normalize_references(contradictory_collection.items)
     contradictory = contradictory_evidence.items
     contradictory_malformed = (
         contradictory_malformed
@@ -1766,7 +1743,9 @@ def check_ects_consistency(
                 "credit_id",
                 "id",
             )
-            amount = record.get("ects", record.get("credit_amount", record.get("credits")))
+            amount = record.get(
+                "ects", record.get("credit_amount", record.get("credits"))
+            )
             state = _usable_scalar_string(
                 record.get("state", record.get("status", "unknown"))
             )
@@ -1824,7 +1803,9 @@ def check_ects_consistency(
     requirement_grounded = required is not None
     requirement_temporal = TEMPORAL_UNKNOWN
     if isinstance(degree_requirement, Mapping):
-        candidate = degree_requirement.get("required_ects", degree_requirement.get("required"))
+        candidate = degree_requirement.get(
+            "required_ects", degree_requirement.get("required")
+        )
         required_value = _parse_ects_integer(candidate, minimum=1)
         requirement_grounded = _grants_trust(degree_requirement.get("grounded"))
         requirement_reference = _scalar_reference_from(
@@ -1832,9 +1813,7 @@ def check_ects_consistency(
             "source_reference",
             "source_ref",
         )
-        requirement_temporal = _normalize_temporal(
-            degree_requirement.get("temporal")
-        )
+        requirement_temporal = _normalize_temporal(degree_requirement.get("temporal"))
         requirement_grounded = bool(
             requirement_grounded
             and requirement_reference is not None
@@ -1908,9 +1887,7 @@ def check_ects_consistency(
     )
 
     satisfied = bool(
-        required_known
-        and not completion_blocked
-        and recognized_total >= required
+        required_known and not completion_blocked and recognized_total >= required
     )
 
     return {
@@ -1938,9 +1915,7 @@ def check_ects_consistency(
         "completion_determinable": not completion_blocked,
         "satisfied": satisfied,
         "scenario_if_recognized": (
-            recognized_total + int(pending_recognition)
-            if required_known
-            else None
+            recognized_total + int(pending_recognition) if required_known else None
         ),
         "unknown_records": tuple(sorted(set(unknown_records))),
         "flagged": (
@@ -2007,7 +1982,8 @@ def evaluate_exam_attempt(
         regulation_current = bool(
             regulation_grounded
             and regulation_reference
-            and regulation_class in {
+            and regulation_class
+            in {
                 SOURCE_CLASS_REGULATION,
                 SOURCE_CLASS_OFFICIAL_ACT_RESOLUTION,
             }
@@ -2134,8 +2110,7 @@ def evaluate_exam_attempt(
         "regulation_unknown": False,
         "regulation_stale": False,
         "within_limits": within_limits,
-        "limit_exceeded": not within_limits
-        and not (limit_unknown or unknown_attempts),
+        "limit_exceeded": not within_limits and not (limit_unknown or unknown_attempts),
     }
 
 
@@ -2233,9 +2208,7 @@ def _evaluate_structured_workload(
 ) -> dict:
     total_ect_number = _parse_non_negative_number(total_ect)
     full_time_ect_number = _parse_non_negative_number(full_time_ect)
-    numeric_metadata_unknown = (
-        total_ect_number is None or full_time_ect_number is None
-    )
+    numeric_metadata_unknown = total_ect_number is None or full_time_ect_number is None
     scenario_records = tuple(
         item
         for item in scenarios
@@ -2243,17 +2216,16 @@ def _evaluate_structured_workload(
         and _usable_scalar_string(item.get("id")) is not None
     )
     anonymous_scenario_present = any(
-        not isinstance(item, Mapping)
-        or _usable_scalar_string(item.get("id")) is None
+        not isinstance(item, Mapping) or _usable_scalar_string(item.get("id")) is None
         for item in scenarios
     )
     scenarios_malformed = scenarios_malformed or anonymous_scenario_present
     malformed_preferences = []
     for item in preferences:
-        if not isinstance(item, Mapping) or not _usable_scalar_string(
-            item.get("dimension")
-        ) or (
-            "id" in item and _usable_scalar_string(item.get("id")) is None
+        if (
+            not isinstance(item, Mapping)
+            or not _usable_scalar_string(item.get("dimension"))
+            or ("id" in item and _usable_scalar_string(item.get("id")) is None)
         ):
             malformed_preferences.append(item)
     preferences_malformed = preferences_malformed or bool(malformed_preferences)
@@ -2304,9 +2276,7 @@ def _evaluate_structured_workload(
         scenario_constraints = ()
         if scenario_constraints_present and not scenario_constraints_malformed:
             scenario_constraints = tuple(
-                item
-                for item in scenario_constraints_value
-                if isinstance(item, Mapping)
+                item for item in scenario_constraints_value if isinstance(item, Mapping)
             )
         constraints = (*global_constraints, *scenario_constraints)
         if (
@@ -2513,9 +2483,7 @@ def evaluate_academic_workload(
 
     total_ect_number = _parse_non_negative_number(total_ect)
     full_time_ect_number = _parse_non_negative_number(full_time_ect)
-    numeric_metadata_unknown = (
-        total_ect_number is None or full_time_ect_number is None
-    )
+    numeric_metadata_unknown = total_ect_number is None or full_time_ect_number is None
     selected_scenario_value = _usable_scalar_string(selected_scenario)
     selected_scenario_malformed = selected_scenario_malformed or (
         selected_scenario is not None and selected_scenario_value is None
@@ -2547,16 +2515,13 @@ def evaluate_academic_workload(
         for item in hard_constraints
     )
     preferences_semantically_malformed = any(
-        isinstance(item, Mapping)
-        and _usable_scalar_string(item.get("id")) is None
+        isinstance(item, Mapping) and _usable_scalar_string(item.get("id")) is None
         for item in preferences
     )
     hard_constraints_malformed = (
         hard_constraints_malformed or hard_constraints_semantically_malformed
     )
-    preferences_malformed = (
-        preferences_malformed or preferences_semantically_malformed
-    )
+    preferences_malformed = preferences_malformed or preferences_semantically_malformed
 
     if numeric_metadata_unknown:
         return {
@@ -2714,7 +2679,9 @@ def evaluate_academic_workload(
         }
     ranks = sorted(set(parsed_ranks))
     conflicted_ranks = {
-        rank for rank in ranks if sum(parsed_rank == rank for parsed_rank in parsed_ranks) > 1
+        rank
+        for rank in ranks
+        if sum(parsed_rank == rank for parsed_rank in parsed_ranks) > 1
     }
     tradeoffs = tuple(f"pref-rank-{rank}" for rank in sorted(conflicted_ranks))
     if tradeoffs:
@@ -2823,8 +2790,7 @@ def _resolve_dependency_credit_evidence(records: tuple) -> dict:
                 )
             )
             current = (
-                _normalize_temporal(record.get("temporal"))
-                in _CURRENT_TEMPORAL_STATES
+                _normalize_temporal(record.get("temporal")) in _CURRENT_TEMPORAL_STATES
             )
             amount_i = _parse_ects_integer(
                 record.get("ects", record.get("credit_amount", 0))
@@ -2913,9 +2879,7 @@ def evaluate_academic_dependency(
         require_mapping_elements=True,
     )
     dependencies = dependencies_evidence.items
-    prerequisites_malformed = (
-        prerequisites_malformed or dependencies_evidence.malformed
-    )
+    prerequisites_malformed = prerequisites_malformed or dependencies_evidence.malformed
     academic_records_evidence = _normalize_collection_value(
         academic_records,
         require_mapping_elements=True,
@@ -2938,14 +2902,11 @@ def evaluate_academic_dependency(
             )
             if record_id is not None:
                 records_by_subject.setdefault(record_id, []).append(record)
-        credit_evidence = _resolve_dependency_credit_evidence(
-            tuple(academic_records)
-        )
+        credit_evidence = _resolve_dependency_credit_evidence(tuple(academic_records))
         completed_credits = credit_evidence["completed_credits"]
         pending_credits = credit_evidence["pending_credits"]
         credit_evidence_unknown = (
-            credit_evidence["credit_evidence_unknown"]
-            or academic_records_malformed
+            credit_evidence["credit_evidence_unknown"] or academic_records_malformed
         )
 
         satisfied: list[str] = []
@@ -3007,7 +2968,9 @@ def evaluate_academic_dependency(
 
             evidence = dep.get("academic_state")
             evidence_records = (
-                (evidence,) if isinstance(evidence, Mapping) else records_by_subject.get(dep_id, ())
+                (evidence,)
+                if isinstance(evidence, Mapping)
+                else records_by_subject.get(dep_id, ())
             )
             passed = False
             failed = False
@@ -3021,7 +2984,10 @@ def evaluate_academic_dependency(
                         "source_ref",
                     )
                 )
-                current = _normalize_temporal(evidence_record.get("temporal")) in _CURRENT_TEMPORAL_STATES
+                current = (
+                    _normalize_temporal(evidence_record.get("temporal"))
+                    in _CURRENT_TEMPORAL_STATES
+                )
                 status = _usable_scalar_string(
                     evidence_record.get(
                         "status",
@@ -3039,7 +3005,9 @@ def evaluate_academic_dependency(
             else:
                 unknown_prereqs.append(dep_id)
 
-        blocked_ids = tuple(dict.fromkeys((*open_prereqs, *unknown_prereqs, *conditional_prereqs)))
+        blocked_ids = tuple(
+            dict.fromkeys((*open_prereqs, *unknown_prereqs, *conditional_prereqs))
+        )
         return {
             "subject_id": subject_id,
             "satisfied_prerequisites": tuple(satisfied),
@@ -3050,9 +3018,7 @@ def evaluate_academic_dependency(
             "anonymous_prerequisite_count": anonymous_prerequisite_count,
             "credit_thresholds": credit_thresholds,
             "credit_evidence_unknown": credit_evidence_unknown,
-            "unknown_credit_identities": credit_evidence[
-                "unknown_credit_identities"
-            ],
+            "unknown_credit_identities": credit_evidence["unknown_credit_identities"],
             "contradictory_credit_identities": credit_evidence[
                 "contradictory_credit_identities"
             ],
@@ -3087,10 +3053,7 @@ def evaluate_academic_dependency(
         if dep.get("grounded_passed") is True:
             satisfied.append(dep_id)
             continue
-        if (
-            dep.get("caller_passed") is True
-            and dep.get("grounded_passed") is not True
-        ):
+        if dep.get("caller_passed") is True and dep.get("grounded_passed") is not True:
             caller_passed_ignored.append(dep_id)
         status = dep.get("status")
         if status in ("passed", "failed", "pending"):
@@ -3204,9 +3167,7 @@ def evaluate_academic_integrity(
     if isinstance(grounded_restriction, Mapping):
         status = grounded_restriction.get("status")
         grounded = _grants_trust(grounded_restriction.get("grounded"))
-        source_class = _usable_scalar_string(
-            grounded_restriction.get("source_class")
-        )
+        source_class = _usable_scalar_string(grounded_restriction.get("source_class"))
         temporal = _usable_scalar_string(grounded_restriction.get("temporal"))
         source_reference = _scalar_reference_from(
             grounded_restriction,
@@ -3225,9 +3186,7 @@ def evaluate_academic_integrity(
         superseded_by_evidence = _normalize_reference_field(
             grounded_restriction, "superseded_by"
         )
-        scope_evidence = _normalize_reference_field(
-            grounded_restriction, "scope"
-        )
+        scope_evidence = _normalize_reference_field(grounded_restriction, "scope")
         prohibited_actions_evidence = _normalize_reference_field(
             grounded_restriction, "prohibited_actions"
         )
@@ -3643,10 +3602,11 @@ def classify_deadline_grounding(
 
     # Verification need: missing, stale, conflicting, or decision-critical and
     # insufficiently grounded.
-    verification_needed = (
-        state in (DEADLINE_STALE, DEADLINE_CONFLICTING, DEADLINE_UNKNOWN)
-        or (critical and not confirmed)
-    )
+    verification_needed = state in (
+        DEADLINE_STALE,
+        DEADLINE_CONFLICTING,
+        DEADLINE_UNKNOWN,
+    ) or (critical and not confirmed)
 
     return {
         "state": state,
@@ -3846,8 +3806,8 @@ class AcademicSourceAuthorityRule:
                 message="No academic claims supplied.",
             )
         claims = claims_evidence.items
-        malformed_evidence = (
-            claims_evidence.malformed or _semantic_evidence_malformed(claims)
+        malformed_evidence = claims_evidence.malformed or _semantic_evidence_malformed(
+            claims
         )
         # V13-B1/B2: a claim whose relationship to a known attribute is unknown
         # (missing / blank / non-string attribute) or whose scope is malformed is
@@ -3878,9 +3838,7 @@ class AcademicSourceAuthorityRule:
                     for claim in attribute_claims
                     if _scope_matches(claim, effective_scope)
                 )
-                scoped_sources = tuple(
-                    _claim_source(claim) for claim in scoped_claims
-                )
+                scoped_sources = tuple(_claim_source(claim) for claim in scoped_claims)
                 # V12-B2: a same-attribute claim with no usable fact value is
                 # incomplete evidence.  It cannot corroborate or be ignored, so
                 # it preserves the uncertain/unknown authority posture for the
@@ -3955,9 +3913,7 @@ class AcademicSourceAuthorityRule:
                 verification_need = (
                     conditional_verification_trigger(
                         fact_state=(
-                            "conflicting"
-                            if authority["conflict"]
-                            else "unknown"
+                            "conflicting" if authority["conflict"] else "unknown"
                         ),
                         decision_critical=decision_critical,
                         attribute=attribute,
@@ -3979,18 +3935,18 @@ class AcademicSourceAuthorityRule:
                     )
                 )
                 metadata = {
-                "attribute": attribute,
+                    "attribute": attribute,
                     "source_type": (
-                    authoritative_claim.get("source_type")
-                    if authoritative_claim is not None
-                    else next(
-                        (
-                            claim.get("source_type")
-                            for claim in attribute_claims
-                            if claim.get("source_type") is not None
-                        ),
-                        SOURCE_AUTHORITY_UNKNOWN,
-                    )
+                        authoritative_claim.get("source_type")
+                        if authoritative_claim is not None
+                        else next(
+                            (
+                                claim.get("source_type")
+                                for claim in attribute_claims
+                                if claim.get("source_type") is not None
+                            ),
+                            SOURCE_AUTHORITY_UNKNOWN,
+                        )
                     ),
                     "scope": effective_scope,
                     "supplies_attribute": True,
@@ -4002,9 +3958,9 @@ class AcademicSourceAuthorityRule:
                     "fact_value_known": authority["fact_value_known"],
                     "fact_resolved": authority["fact_resolved"],
                     "authoritative_value": (
-                    authoritative_claim.get("value")
-                    if authoritative_claim is not None
-                    else authority.get("authoritative_value")
+                        authoritative_claim.get("value")
+                        if authoritative_claim is not None
+                        else authority.get("authoritative_value")
                     ),
                     "supporting_source_ids": supporting_source_ids,
                     "historical_source_ids": historical_ids,
@@ -4016,17 +3972,17 @@ class AcademicSourceAuthorityRule:
                     ReasoningFinding(
                         code="ATTRIBUTE_AUTHORITY",
                         message=(
-                        f"Attribute {attribute} authority resolved by grounded "
-                        "source class, provenance, temporal validity, specificity "
-                        "and scope."
-                        if authority["authority_resolved"]
-                        else f"Authority for attribute {attribute} remains unknown; "
-                        "no unsupported source is selected."
+                            f"Attribute {attribute} authority resolved by grounded "
+                            "source class, provenance, temporal validity, specificity "
+                            "and scope."
+                            if authority["authority_resolved"]
+                            else f"Authority for attribute {attribute} remains unknown; "
+                            "no unsupported source is selected."
                         ),
                         severity=(
-                        ReasoningSeverity.INFO
-                        if authority["authority_resolved"]
-                        else ReasoningSeverity.WARNING
+                            ReasoningSeverity.INFO
+                            if authority["authority_resolved"]
+                            else ReasoningSeverity.WARNING
                         ),
                         rule_id=self.definition.id,
                         domain_id=self.definition.domain_id,
@@ -4063,11 +4019,7 @@ class AcademicSourceAuthorityRule:
                     },
                 )
             )
-        if (
-            malformed_evidence
-            or relation_unknown_evidence
-            or attribute_incomplete_seen
-        ):
+        if malformed_evidence or relation_unknown_evidence or attribute_incomplete_seen:
             gaps.append(
                 ReasoningGap(
                     code="SOURCE_AUTHORITY_EVIDENCE_MALFORMED",
@@ -4117,8 +4069,7 @@ class AcademicContradictionRule:
             )
         statements = statements_evidence.items
         malformed_evidence = (
-            statements_evidence.malformed
-            or _semantic_evidence_malformed(statements)
+            statements_evidence.malformed or _semantic_evidence_malformed(statements)
         )
         record = resolve_academic_conflict(claims=tuple(statements))
         if malformed_evidence:
@@ -4259,17 +4210,17 @@ class AcademicDeadlineRule:
                 severity=ReasoningSeverity.WARNING,
                 rule_id=self.definition.id,
                 domain_id=self.definition.domain_id,
-                    metadata={
-                        "state": DEADLINE_UNKNOWN,
-                        "confirmed": False,
-                        "verification_needed": True,
-                        "verification_need": conditional_verification_trigger(
-                            fact_state="missing",
-                            decision_critical=True,
-                            attribute="deadline",
-                        ),
-                        "malformed_mapping_evidence": True,
-                    },
+                metadata={
+                    "state": DEADLINE_UNKNOWN,
+                    "confirmed": False,
+                    "verification_needed": True,
+                    "verification_need": conditional_verification_trigger(
+                        fact_state="missing",
+                        decision_critical=True,
+                        attribute="deadline",
+                    ),
+                    "malformed_mapping_evidence": True,
+                },
             )
             return _result(
                 self.definition,
@@ -4470,9 +4421,7 @@ class EctsConsistencyRule:
             ),
             records=records,
             degree_requirement=(
-                degree_requirement
-                if isinstance(degree_requirement, Mapping)
-                else None
+                degree_requirement if isinstance(degree_requirement, Mapping) else None
             ),
             derive_from_records=True,
             records_malformed=records_evidence.malformed,
@@ -5010,7 +4959,9 @@ class AcademicDependencyRule:
             )
         )
         if record["dependency_blocked"]:
-            blocked_summary = ", ".join(blocked_ids) or "unidentified prerequisite evidence"
+            blocked_summary = (
+                ", ".join(blocked_ids) or "unidentified prerequisite evidence"
+            )
             finding = ReasoningFinding(
                 code="DEPENDENCY_BLOCKED",
                 message=(
@@ -5145,9 +5096,7 @@ class ObservedPerformanceCapacityRule:
                 message="Performance evidence unknown; capacity not inferred.",
             )
         references = (
-            (record["performance_ref"],)
-            if record.get("performance_ref")
-            else ()
+            (record["performance_ref"],) if record.get("performance_ref") else ()
         )
         finding = ReasoningFinding(
             code="PERFORMANCE_NOT_CAPACITY",
@@ -5235,9 +5184,7 @@ class AcademicIntegrityRule:
             current_assessment=integrity.get(
                 "assessment", integrity.get("current_assessment")
             ),
-            requested_action=integrity.get(
-                "requested_action", integrity.get("action")
-            ),
+            requested_action=integrity.get("requested_action", integrity.get("action")),
         )
         # Academic Integrity Mode C is permissive-by-default (spec §16): the
         # domain does not police academic conduct; it preserves the user's

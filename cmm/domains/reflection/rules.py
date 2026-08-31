@@ -66,6 +66,7 @@ REFLECTION_RULE_IDS: tuple[str, ...] = CANONICAL_REFLECTION_RULE_IDS
 
 # ── Strict literal gates ──────────────────────────────────────────────────────
 
+
 def _boolean_true(value: Any) -> bool:
     """Strict runtime boolean: only the literal ``True`` counts (not truthiness)."""
     return isinstance(value, bool) and value is True
@@ -437,9 +438,7 @@ def _split_semantic_clauses(text: str) -> list[str]:
         return []
     import re
 
-    split_pattern = (
-        r"[;\.\!\?\n]+|\b(?:pero|aunque|sin embargo|no obstante|but|however|although|though|while)\b"
-    )
+    split_pattern = r"[;\.\!\?\n]+|\b(?:pero|aunque|sin embargo|no obstante|but|however|although|though|while)\b"
     raw_clauses = re.split(split_pattern, norm, flags=re.IGNORECASE)
     clauses: list[str] = []
     for raw in raw_clauses:
@@ -980,9 +979,11 @@ def classify_statement_level(value: Any) -> dict:
             "labeled_fact": False,
             "malformed": True,
         }
-    labeled_fact = _boolean_true(value.get("fact")) or _boolean_true(
-        value.get("confirmed")
-    ) or _boolean_true(value.get("official"))
+    labeled_fact = (
+        _boolean_true(value.get("fact"))
+        or _boolean_true(value.get("confirmed"))
+        or _boolean_true(value.get("official"))
+    )
     level = value.get("level")
     if isinstance(level, str) and level in _KNOWN_LEVELS:
         normalized_level = level
@@ -1092,15 +1093,28 @@ def no_forced_conclusion_policy(result: Any) -> dict:
     structural_markers: list[str] = []
     if unresolved:
         status = result.get("conclusion_status")
-        if isinstance(status, str) and status.lower() in {"final", "resolved", "certain", "fact"}:
+        if isinstance(status, str) and status.lower() in {
+            "final",
+            "resolved",
+            "certain",
+            "fact",
+        }:
             forced_structural = True
             structural_markers.append(f"status:{status}")
         cert_state = result.get("certainty_state")
-        if isinstance(cert_state, str) and cert_state.lower() in {"certain", "definitive", "absolute"}:
+        if isinstance(cert_state, str) and cert_state.lower() in {
+            "certain",
+            "definitive",
+            "absolute",
+        }:
             forced_structural = True
             structural_markers.append(f"state:{cert_state}")
         cert_level = result.get("certainty_level")
-        if isinstance(cert_level, str) and cert_level.lower() in {"certain", "definitive", "absolute"}:
+        if isinstance(cert_level, str) and cert_level.lower() in {
+            "certain",
+            "definitive",
+            "absolute",
+        }:
             forced_structural = True
             structural_markers.append(f"level:{cert_level}")
         if result.get("fact") is True:
@@ -1127,7 +1141,13 @@ def no_forced_conclusion_policy(result: Any) -> dict:
                 if isinstance(item, str):
                     conclusion_texts.append(item)
                 elif isinstance(item, Mapping):
-                    for sub_field in ("statement", "text", "summary", "decision", "conclusion"):
+                    for sub_field in (
+                        "statement",
+                        "text",
+                        "summary",
+                        "decision",
+                        "conclusion",
+                    ):
                         sub_val = item.get(sub_field)
                         if isinstance(sub_val, str):
                             conclusion_texts.append(sub_val)
@@ -1169,8 +1189,16 @@ CONFLICT_DISTINCT_TIMES = "distinct_times"
 CONFLICT_NONE = "none"
 
 _EVIDENCE_KINDS: frozenset[str] = frozenset(
-    {"belief", "evidence", "counterevidence", "experience", "interpretation",
-     "memory", "observation", "hypothesis"}
+    {
+        "belief",
+        "evidence",
+        "counterevidence",
+        "experience",
+        "interpretation",
+        "memory",
+        "observation",
+        "hypothesis",
+    }
 )
 
 
@@ -1448,9 +1476,11 @@ def classify_belief_evidence(
             continue
         seen_keys.add(key)
 
-        labeled_fact = _boolean_true(entry.get("fact")) or _boolean_true(
-            entry.get("confirmed")
-        ) or _boolean_true(entry.get("official"))
+        labeled_fact = (
+            _boolean_true(entry.get("fact"))
+            or _boolean_true(entry.get("confirmed"))
+            or _boolean_true(entry.get("official"))
+        )
         labeled_observation = _boolean_true(entry.get("observation"))
         inferred = _boolean_true(entry.get("inferred"))
         uncertain = _boolean_true(entry.get("uncertain"))
@@ -1458,8 +1488,10 @@ def classify_belief_evidence(
 
         target = kind
         if target in ("memory", "observation", "hypothesis"):
-            target = "memories" if kind == "memory" else (
-                "observations" if kind == "observation" else "hypotheses"
+            target = (
+                "memories"
+                if kind == "memory"
+                else ("observations" if kind == "observation" else "hypotheses")
             )
         projection = {
             "identity": identity,
@@ -1487,7 +1519,9 @@ def classify_belief_evidence(
             continue
 
         if kind in ("evidence", "counterevidence"):
-            projections[("counterevidence" if kind == "counterevidence" else "evidence")].append(projection)
+            projections[
+                ("counterevidence" if kind == "counterevidence" else "evidence")
+            ].append(projection)
             continue
         if kind == "experience":
             if labeled_fact:
@@ -1550,7 +1584,8 @@ def classify_belief_evidence(
             "type_promotion": bool(promotions_blocked),
             "malformed_records": tuple(malformed_records),
             "duplicates_ignored": tuple(duplicates_ignored),
-            "unresolved": bool(malformed) or conflict_state == CONFLICT_UNRESOLVED
+            "unresolved": bool(malformed)
+            or conflict_state == CONFLICT_UNRESOLVED
             or conflict_state == CONFLICT_CONFLICTING,
             "conflict_state": conflict_state,
             "evidence_state": (
@@ -1667,9 +1702,7 @@ def evaluate_open_questions(
         )
 
     return {
-        "questions": tuple(
-            sorted(questions_out, key=lambda item: item["identity"])
-        ),
+        "questions": tuple(sorted(questions_out, key=lambda item: item["identity"])),
         "unresolved_count": unresolved_count,
         "answered_count": answered_count,
         "invented_answers": tuple(invented),
@@ -1853,11 +1886,30 @@ def compare_reflection_versions(
         else:
             rephrase_candidate = False
         _NEGATION_TOKENS = frozenset(
-            {"no", "not", "never", "don't", "dont", "doesn't", "doesnt",
-             "no longer", "stop", "quit", "refuse", "cannot", "can't"}
+            {
+                "no",
+                "not",
+                "never",
+                "don't",
+                "dont",
+                "doesn't",
+                "doesnt",
+                "no longer",
+                "stop",
+                "quit",
+                "refuse",
+                "cannot",
+                "can't",
+            }
         )
-        left_negated = bool(left_tokens & _NEGATION_TOKENS) or " no " in f" {left['content'].lower()} "
-        right_negated = bool(right_tokens & _NEGATION_TOKENS) or " no " in f" {right['content'].lower()} "
+        left_negated = (
+            bool(left_tokens & _NEGATION_TOKENS)
+            or " no " in f" {left['content'].lower()} "
+        )
+        right_negated = (
+            bool(right_tokens & _NEGATION_TOKENS)
+            or " no " in f" {right['content'].lower()} "
+        )
         negation_present = left_negated or right_negated
         rephrased = (same_tokens or rephrase_candidate) and not negation_present
         changed = not (same_tokens or rephrase_candidate) or negation_present
@@ -1999,9 +2051,9 @@ def map_interests(
             # by the allowlist/denylist (case-insensitively); unknown or
             # unsupported kinds fail closed to ungrounded.
             source_kind = _normalize_source_kind(provided_source_kind)
-        recording = _usable_scalar_string(entry.get("recording")) or _usable_scalar_string(
-            entry.get("statement")
-        )
+        recording = _usable_scalar_string(
+            entry.get("recording")
+        ) or _usable_scalar_string(entry.get("statement"))
         key = (source, source_kind, recording)
         records_for_interest = grouped.setdefault(interest, [])
         if any(existing["_key"] == key for existing in records_for_interest):
@@ -2107,7 +2159,11 @@ def map_interests(
     # Relative strength: strictly more grounded evidence than every other
     # candidate with grounded evidence, with no contradictions.
     max_grounded = max(
-        (c["grounded_evidence_count"] for c in candidates if c["grounded_evidence_count"] > 0),
+        (
+            c["grounded_evidence_count"]
+            for c in candidates
+            if c["grounded_evidence_count"] > 0
+        ),
         default=None,
     )
     strong_candidates = [
@@ -2146,7 +2202,11 @@ def map_interests(
 
 def format_timestamp(epoch: float) -> str:
     """Format a UTC epoch scalar as an ISO string (public/serialization-safe)."""
-    return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.fromtimestamp(epoch, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2192,10 +2252,9 @@ def _is_independent_source(source: str) -> bool:
     lowered = (source or "").strip().lower()
     if not lowered:
         return False
-    return not any(lowered.startswith(prefix) for prefix in _NON_INDEPENDENT_SOURCE_PREFIXES)
-
-
-
+    return not any(
+        lowered.startswith(prefix) for prefix in _NON_INDEPENDENT_SOURCE_PREFIXES
+    )
 
 
 def evaluate_persistence_basis(record: Any) -> dict:
@@ -2221,9 +2280,7 @@ def evaluate_persistence_basis(record: Any) -> dict:
     pattern = _usable_scalar_string(record.get("pattern")) or _usable_scalar_string(
         record.get("identity")
     )
-    sources = tuple(
-        sorted(set(_usable_string_items(record.get("sources"))))
-    )
+    sources = tuple(sorted(set(_usable_string_items(record.get("sources")))))
     repetition = _finite_number(record.get("repetition_count")) or 0
     model_inferred = _boolean_true(record.get("model_inferred"))
     duplicate_summaries = tuple(
@@ -2234,22 +2291,28 @@ def evaluate_persistence_basis(record: Any) -> dict:
     # Model/memory/model-inference/llm/summary provenance is never independent
     # grounded corroboration; only non-model, non-summary user-anchored sources
     # count toward the independent basis.
-    independent_sources = {source for source in sources if _is_independent_source(source)}
+    independent_sources = {
+        source for source in sources if _is_independent_source(source)
+    }
     summary_overlap = len(set(sources) & set(duplicate_summaries))
     independent_grounded = max(0, len(independent_sources) - summary_overlap)
     model_inference_count = 1 if model_inferred else 0
-    basis_sufficient = independent_grounded >= 1 and not single_conversation and not model_inferred
-    return normalize_json_value({
-        "pattern": pattern,
-        "sources": sources,
-        "independent_grounded_sources": independent_grounded,
-        "duplicate_summaries_ignored": len(duplicate_summaries),
-        "model_inference_count": model_inference_count,
-        "repetition_count": int(repetition),
-        "single_conversation": single_conversation,
-        "basis_sufficient": basis_sufficient,
-        "malformed": False,
-    })
+    basis_sufficient = (
+        independent_grounded >= 1 and not single_conversation and not model_inferred
+    )
+    return normalize_json_value(
+        {
+            "pattern": pattern,
+            "sources": sources,
+            "independent_grounded_sources": independent_grounded,
+            "duplicate_summaries_ignored": len(duplicate_summaries),
+            "model_inference_count": model_inference_count,
+            "repetition_count": int(repetition),
+            "single_conversation": single_conversation,
+            "basis_sufficient": basis_sufficient,
+            "malformed": False,
+        }
+    )
 
 
 def classify_persistence(
@@ -2369,18 +2432,20 @@ def classify_persistence(
     authorization_accepted = confirmation_approved
     authorization_malformed = confirmation_malformed or malformed
 
-    return normalize_json_value({
-        "persistence_state": state,
-        "confirmed": confirmed,
-        "eligible_for_confirmation": authorization_accepted and not malformed,
-        "authorization_accepted": authorization_accepted,
-        "authorization_malformed": authorization_malformed,
-        "excluded_reasons": tuple(excluded),
-        "basis_sufficient": basis["basis_sufficient"],
-        "pattern": basis["pattern"],
-        "repetition_count": basis["repetition_count"],
-        "malformed": malformed,
-    })
+    return normalize_json_value(
+        {
+            "persistence_state": state,
+            "confirmed": confirmed,
+            "eligible_for_confirmation": authorization_accepted and not malformed,
+            "authorization_accepted": authorization_accepted,
+            "authorization_malformed": authorization_malformed,
+            "excluded_reasons": tuple(excluded),
+            "basis_sufficient": basis["basis_sufficient"],
+            "pattern": basis["pattern"],
+            "repetition_count": basis["repetition_count"],
+            "malformed": malformed,
+        }
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2626,7 +2691,9 @@ class ReflectionTemporalEvolutionRule:
                 "temporally_ordered": record["temporally_ordered"],
                 "changes": record["changes"],
                 "input_order_not_chronology": record["input_order_not_chronology"],
-                "equal_timestamps_no_evolution": record["equal_timestamps_no_evolution"],
+                "equal_timestamps_no_evolution": record[
+                    "equal_timestamps_no_evolution"
+                ],
                 "malformed_datetime_ignored_for_direction": record[
                     "malformed_datetime_ignored_for_direction"
                 ],

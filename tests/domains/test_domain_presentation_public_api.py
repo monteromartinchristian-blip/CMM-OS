@@ -7,13 +7,22 @@ from cmm import domains
 
 def test_expected_phase_10_16_exports_present():
     expected = (
-        "DomainOutputIntent", "DomainOutputIntentType", "DomainPresentationRequest",
-        "DomainPresentationItemRef", "DomainPresentationSectionPlan",
-        "DomainPresentationComponentDescriptor", "DomainPresentationPlan",
-        "DomainPresentationValidationCode", "DomainPresentationValidationResult", "DomainPresentationPlanner",
-        "DefaultDomainPresentationPlanner", "DomainPresentationPreservationValidator",
-        "DefaultDomainPresentationPreservationValidator", "DomainPresentationError",
-        "DomainPresentationContractError", "DomainPresentationPreservationError",
+        "DomainOutputIntent",
+        "DomainOutputIntentType",
+        "DomainPresentationRequest",
+        "DomainPresentationItemRef",
+        "DomainPresentationSectionPlan",
+        "DomainPresentationComponentDescriptor",
+        "DomainPresentationPlan",
+        "DomainPresentationValidationCode",
+        "DomainPresentationValidationResult",
+        "DomainPresentationPlanner",
+        "DefaultDomainPresentationPlanner",
+        "DomainPresentationPreservationValidator",
+        "DefaultDomainPresentationPreservationValidator",
+        "DomainPresentationError",
+        "DomainPresentationContractError",
+        "DomainPresentationPreservationError",
     )
     for name in expected:
         assert hasattr(domains, name), f"missing export: {name}"
@@ -22,9 +31,12 @@ def test_expected_phase_10_16_exports_present():
 
 def test_forbidden_renderer_and_cognitive_surfaces_are_absent():
     for name in (
-        "DomainPresentationRenderer", "DomainPresentationPdfRenderer",
-        "DomainPresentationQuestionDecider", "DomainPresentationUrgencyClassifier",
-        "DomainPresentationWorkflowExecutor", "DomainPresentationMemoryStore",
+        "DomainPresentationRenderer",
+        "DomainPresentationPdfRenderer",
+        "DomainPresentationQuestionDecider",
+        "DomainPresentationUrgencyClassifier",
+        "DomainPresentationWorkflowExecutor",
+        "DomainPresentationMemoryStore",
     ):
         assert not hasattr(domains, name)
 

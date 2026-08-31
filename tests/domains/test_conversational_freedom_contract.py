@@ -47,10 +47,7 @@ def _context(domain_id: str, **metadata: object) -> ReasoningRuleContext:
 
 
 def _relationship_rules():
-    return {
-        rule.definition.id: rule
-        for rule in build_relationships_rules()
-    }
+    return {rule.definition.id: rule for rule in build_relationships_rules()}
 
 
 def test_relationships_allows_sensitive_analysis_but_not_persistence() -> None:
@@ -58,8 +55,7 @@ def test_relationships_allows_sensitive_analysis_but_not_persistence() -> None:
 
     assert PermissionCapability.SENSITIVE_INFERENCE in policy.allowed_capabilities
     assert (
-        PermissionCapability.SENSITIVE_INFERENCE
-        not in policy.prohibited_capabilities
+        PermissionCapability.SENSITIVE_INFERENCE not in policy.prohibited_capabilities
     )
     assert policy.allow_sensitive_inference is True
 
@@ -93,10 +89,7 @@ def test_unsupported_intent_remains_hypothesis_instead_of_blocking() -> None:
     )
 
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "INTENT_NOT_ESTABLISHED"
-        for finding in result.findings
-    )
+    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
     assert result.escalation is None
 
 
@@ -105,8 +98,7 @@ def test_health_allows_sensitive_analysis_but_not_persistence() -> None:
 
     assert PermissionCapability.SENSITIVE_INFERENCE in policy.allowed_capabilities
     assert (
-        PermissionCapability.SENSITIVE_INFERENCE
-        not in policy.prohibited_capabilities
+        PermissionCapability.SENSITIVE_INFERENCE not in policy.prohibited_capabilities
     )
     assert policy.allow_sensitive_inference is True
 
@@ -131,10 +123,7 @@ def test_claimed_direct_evidence_without_reference_remains_blocked() -> None:
     )
 
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert any(
-        finding.code == "INTENT_NOT_ESTABLISHED"
-        for finding in result.findings
-    )
+    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
     assert result.escalation is not None
     assert result.escalation.code == "INTENT_BLOCKED"
 
@@ -153,13 +142,9 @@ def test_claimed_sourced_statement_without_reference_remains_blocked() -> None:
     )
 
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert any(
-        finding.code == "INTENT_NOT_ESTABLISHED"
-        for finding in result.findings
-    )
+    assert any(finding.code == "INTENT_NOT_ESTABLISHED" for finding in result.findings)
     assert result.escalation is not None
     assert result.escalation.code == "INTENT_BLOCKED"
-
 
 
 # PRESENTATION CONVERSATIONAL-FREEDOM CONTRACT
@@ -200,10 +185,7 @@ def test_human_readable_does_not_manufacture_empty_disclaimer_section() -> None:
 
     plan = DefaultDomainPresentationPlanner().plan(request)
 
-    assert "disclaimers" not in {
-        section.section_id
-        for section in plan.sections
-    }
+    assert "disclaimers" not in {section.section_id for section in plan.sections}
 
 
 def test_human_readable_validator_accepts_absent_empty_disclaimer_section() -> None:
@@ -213,9 +195,7 @@ def test_human_readable_validator_accepts_absent_empty_disclaimer_section() -> N
     plan_without_empty_disclaimer = replace(
         plan,
         sections=tuple(
-            section
-            for section in plan.sections
-            if section.section_id != "disclaimers"
+            section for section in plan.sections if section.section_id != "disclaimers"
         ),
     )
 
@@ -240,9 +220,7 @@ def test_structured_output_keeps_required_disclaimer_structure() -> None:
     )
 
     disclaimer = next(
-        section
-        for section in plan.sections
-        if section.section_id == "disclaimers"
+        section for section in plan.sections if section.section_id == "disclaimers"
     )
 
     assert disclaimer.required is True
@@ -270,9 +248,7 @@ def test_human_readable_keeps_real_warning_visible() -> None:
     plan = DefaultDomainPresentationPlanner().plan(request)
 
     warning_section = next(
-        section
-        for section in plan.sections
-        if section.section_id == "warnings"
+        section for section in plan.sections if section.section_id == "warnings"
     )
 
     assert warning_section.visible is True

@@ -74,12 +74,9 @@ def test_registers_all_parts():
     assert r["profile_registry"].get("university.profile") is not None
     assert len(r["resource_registry"].list_all()) == 12
     assert len(r["rule_registry"].list_all()) == 10
+    assert len(r["workflow_registry"].list_for_domain(UNIVERSITY_DOMAIN_ID)) == 7
     assert (
-        len(r["workflow_registry"].list_for_domain(UNIVERSITY_DOMAIN_ID)) == 7
-    )
-    assert (
-        r["permission_registry"].get("domain-permission:university:1.0.0")
-        is not None
+        r["permission_registry"].get("domain-permission:university:1.0.0") is not None
     )
 
 

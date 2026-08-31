@@ -51,17 +51,35 @@ def test_languages_resources_key_invariants() -> None:
     """Verify specific metadata, reliability, and sensitivity requirements."""
     by_id = {d.id: d for d in build_languages_resource_definitions()}
 
-    assert by_id["languages.audio_transcript"].metadata["pronunciation_evidence"] is False
-    assert by_id["languages.domain_result"].metadata["minimal_authorized_projection"] is True
+    assert (
+        by_id["languages.audio_transcript"].metadata["pronunciation_evidence"] is False
+    )
+    assert (
+        by_id["languages.domain_result"].metadata["minimal_authorized_projection"]
+        is True
+    )
     assert by_id["languages.memory_entry"].metadata["provenance_not_truth"] is True
     assert (
         by_id["languages.official_certification_source"].default_reliability
         > by_id["languages.certification_guide"].default_reliability
     )
-    assert by_id["languages.assessment_result"].temporal_policy.effective_date_required is True
-    assert by_id["languages.official_certification_source"].temporal_policy.effective_date_required is True
-    assert by_id["languages.calendar_event"].temporal_policy.effective_date_required is True
-    assert by_id["languages.language_plan"].temporal_policy.effective_date_required is True
+    assert (
+        by_id["languages.assessment_result"].temporal_policy.effective_date_required
+        is True
+    )
+    assert (
+        by_id[
+            "languages.official_certification_source"
+        ].temporal_policy.effective_date_required
+        is True
+    )
+    assert (
+        by_id["languages.calendar_event"].temporal_policy.effective_date_required
+        is True
+    )
+    assert (
+        by_id["languages.language_plan"].temporal_policy.effective_date_required is True
+    )
 
 
 def test_languages_resources_serialization_roundtrip() -> None:

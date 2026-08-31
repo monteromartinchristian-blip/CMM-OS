@@ -26,9 +26,7 @@ LANGUAGES_RULE_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_RULE_IDS
 LANGUAGES_OPERATION_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_OPERATION_IDS
 LANGUAGES_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_LANGUAGES_WORKFLOW_IDS
 
-LANGUAGES_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:languages:1.0.0",
-)
+LANGUAGES_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:languages:1.0.0",)
 
 
 def build_languages_domain_definition() -> DomainDefinition:

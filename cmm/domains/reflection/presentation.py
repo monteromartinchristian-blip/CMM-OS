@@ -113,9 +113,11 @@ def present_reflection_result(result: Mapping) -> dict:
         if not isinstance(hypothesis, Mapping):
             continue
         statement = hypothesis.get("statement", "")
-        diagnostic = bool(hypothesis.get("diagnostic", False)) or bool(
-            hypothesis.get("restricted_inference", False)
-        ) or _diagnostic_signal(statement)
+        diagnostic = (
+            bool(hypothesis.get("diagnostic", False))
+            or bool(hypothesis.get("restricted_inference", False))
+            or _diagnostic_signal(statement)
+        )
         # A diagnostic/identity-classifying statement must never be presented
         # verbatim as a safe non-diagnostic hypothesis; it is represented
         # structurally as prohibited and its wording is withheld.
@@ -178,7 +180,12 @@ def present_reflection_result(result: Mapping) -> dict:
     decision_state = "adopted" if decision_adopted else "not-adopted"
 
     chronology = result.get("chronology_state")
-    temporally_ambiguous = chronology in ("malformed", "unknown", "equal_timestamps", None)
+    temporally_ambiguous = chronology in (
+        "malformed",
+        "unknown",
+        "equal_timestamps",
+        None,
+    )
 
     return {
         "unresolved": unresolved,

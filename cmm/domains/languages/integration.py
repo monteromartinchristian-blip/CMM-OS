@@ -91,8 +91,7 @@ def _validate_operation_implementations(
 def _validate_no_duplicate_operations(operation_registry: Any, operations: Any) -> None:
     """Validate that no operation key is already registered in the domain or nested common registry."""
     existing_ids = {
-        definition.operation_id
-        for definition in operation_registry.list_definitions()
+        definition.operation_id for definition in operation_registry.list_definitions()
     }
     duplicates = tuple(
         operation.operation_id

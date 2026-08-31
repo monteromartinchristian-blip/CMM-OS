@@ -134,7 +134,9 @@ def test_agency_rule_blocks_forced_action():
         },
     )
     rule = AgencyWithoutPressureRule(
-        definition=_definition("concerns.agency_without_pressure", "AgencyWithoutPressureRule")
+        definition=_definition(
+            "concerns.agency_without_pressure", "AgencyWithoutPressureRule"
+        )
     )
     result = rule.evaluate(context)
     finding = result.findings[0]

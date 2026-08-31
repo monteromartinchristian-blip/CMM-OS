@@ -25,7 +25,10 @@ def test_structural_policy_round_trips_and_preserves_old_payloads():
     )
 
     assert DomainPresentationPolicy.from_dict(policy.to_dict()) == policy
-    assert DomainPresentationPolicy.from_dict({"detail_level": "standard"}).detail_level == "standard"
+    assert (
+        DomainPresentationPolicy.from_dict({"detail_level": "standard"}).detail_level
+        == "standard"
+    )
 
 
 def test_required_sections_cannot_be_suppressible():

@@ -45,7 +45,9 @@ def _reference(reference_id: str, canonical_id: str) -> DomainMemoryReference:
     )
 
 
-def _inventory(*references: DomainMemoryReference, traces=()) -> DomainMemoryReferenceInventory:
+def _inventory(
+    *references: DomainMemoryReference, traces=()
+) -> DomainMemoryReferenceInventory:
     return DomainMemoryReferenceInventory(references=references, traces=tuple(traces))
 
 
@@ -55,6 +57,7 @@ def test_memory_proposal_always_requires_confirmation():
     assert proposal.proposal_kind is DomainMemoryProposalKind.MEMORY_UPDATE
     assert proposal.requires_confirmation is True
     from cmm.domains.memory_contracts import DomainMemoryCapability
+
     assert DomainMemoryCapability.PROPOSE in proposal.required_capabilities
 
 
@@ -99,7 +102,9 @@ def test_memory_view_request_and_binding():
 
 
 def test_memory_view_validation():
-    trace = DomainMemoryTraceSnapshot(trace_id="trace-2", primary_domain="domain:reflection")
+    trace = DomainMemoryTraceSnapshot(
+        trace_id="trace-2", primary_domain="domain:reflection"
+    )
     ref = _reference("ref:2", "item:2")
     permission = DomainMemoryPermissionDecisionSnapshot(
         decision_id="perm-2",

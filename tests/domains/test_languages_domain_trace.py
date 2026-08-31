@@ -137,10 +137,13 @@ def test_assemble_languages_trace_carries_global_presentation_results() -> None:
         presentation_result_ids=("presentation-result-1",),
     )
 
-    assert DomainTraceReference(
-        "presentation-result-1",
-        DomainTraceReferenceKind.PRESENTATION_RESULT,
-    ) in trace.all_references()
+    assert (
+        DomainTraceReference(
+            "presentation-result-1",
+            DomainTraceReferenceKind.PRESENTATION_RESULT,
+        )
+        in trace.all_references()
+    )
 
 
 def test_assemble_languages_trace_preserves_caller_metadata() -> None:

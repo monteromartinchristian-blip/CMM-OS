@@ -185,9 +185,7 @@ def test_3_existing_profile_for_university_domain_rejected_before_mutation():
 
 def test_4_duplicate_resource_rejected_before_mutation():
     registries, counting = _spy_registries()
-    registries["resource_registry"].register(
-        build_university_resource_definitions()[0]
-    )
+    registries["resource_registry"].register(build_university_resource_definitions()[0])
 
     baseline = _baseline(registries)
     with pytest.raises(DomainResourceRegistryError):
@@ -296,9 +294,7 @@ def test_10_common_operation_collision_rejected_before_mutation():
 
 def test_11_duplicate_university_workflow_rejected_before_mutation():
     registries, counting = _spy_registries()
-    registries["workflow_registry"].register(
-        build_university_workflow_definitions()[0]
-    )
+    registries["workflow_registry"].register(build_university_workflow_definitions()[0])
 
     baseline = _baseline(registries)
     with pytest.raises(WorkflowRegistryError):

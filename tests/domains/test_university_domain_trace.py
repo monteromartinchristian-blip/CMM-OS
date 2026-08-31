@@ -109,9 +109,7 @@ def _trace_and_inventory():
 
 def test_trace_valid_with_full_inventory():
     trace, inventory = _trace_and_inventory()
-    result = university.validate_university_trace(
-        trace=trace, inventory=inventory
-    )
+    result = university.validate_university_trace(trace=trace, inventory=inventory)
     assert result.valid is True
 
 
@@ -119,7 +117,5 @@ def test_trace_invalid_when_inventory_has_unknown_reference():
     trace, inventory = _trace_and_inventory()
     extra = _ref("ghost:1", DomainTraceReferenceKind.FINDING)
     bad_inventory = replace(inventory, references=(*inventory.references, extra))
-    result = university.validate_university_trace(
-        trace=trace, inventory=bad_inventory
-    )
+    result = university.validate_university_trace(trace=trace, inventory=bad_inventory)
     assert result.valid is False

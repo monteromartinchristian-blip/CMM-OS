@@ -37,7 +37,8 @@ class _Resolver:
     def __init__(
         self,
         outcomes: dict[PermissionCapability, PermissionOutcome] | None = None,
-        requirements: dict[PermissionCapability, PermissionApprovalRequirement] | None = None,
+        requirements: dict[PermissionCapability, PermissionApprovalRequirement]
+        | None = None,
         *,
         cross_domain_outcome: PermissionOutcome = PermissionOutcome.ALLOW,
     ) -> None:
@@ -66,8 +67,12 @@ class _Resolver:
                 action=request.action,
                 decision=outcome,
                 layer_evaluations=(layer,),
-                denied_by=(layer.source_id,) if outcome is PermissionOutcome.DENY else (),
-                allowed_by=(layer.source_id,) if outcome is PermissionOutcome.ALLOW else (),
+                denied_by=(layer.source_id,)
+                if outcome is PermissionOutcome.DENY
+                else (),
+                allowed_by=(layer.source_id,)
+                if outcome is PermissionOutcome.ALLOW
+                else (),
                 unresolved_by=(),
                 reasons=layer.reasons,
                 approval_requirements=approval_requirements,
@@ -96,7 +101,9 @@ class _Ids:
         return f"generated-{self.value}"
 
 
-def _workflow(*, nodes: tuple[WorkflowNode, ...] | None = None, **changes) -> DomainWorkflowDefinition:
+def _workflow(
+    *, nodes: tuple[WorkflowNode, ...] | None = None, **changes
+) -> DomainWorkflowDefinition:
     values = {
         "workflow_id": "x.flow",
         "domain_id": "domain:x",
@@ -122,8 +129,9 @@ def test_global_required_permission_deny_blocks_before_workflow_start() -> None:
     executor = DomainWorkflowExecutor(
         id_factory=_Ids(),
         permission_gate=DomainPermissionGate(resolver),
-        operation_adapter=lambda node, run: adapter_calls.append(node.node_id)
-        or NodeExecution.complete({}),
+        operation_adapter=lambda node, run: (
+            adapter_calls.append(node.node_id) or NodeExecution.complete({})
+        ),
     )
 
     with pytest.raises(DomainWorkflowUnavailableError) as error:
@@ -166,7 +174,9 @@ def test_node_scoped_approval_is_consumed_only_when_node_is_reached() -> None:
         scope="node",
         reason_code="workflow_approval_gate",
     )
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     definition = _workflow(
         nodes=(
@@ -212,7 +222,9 @@ def test_unreached_node_does_not_consume_its_approval() -> None:
         scope="node",
         reason_code="workflow_approval_gate",
     )
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     definition = _workflow(
         nodes=(
@@ -229,9 +241,11 @@ def test_unreached_node_does_not_consume_its_approval() -> None:
     executor = DomainWorkflowExecutor(
         id_factory=ids,
         permission_gate=DomainPermissionGate(_Resolver(), service),
-        operation_adapter=lambda node, run: NodeExecution.failure("expected")
-        if node.node_id == "fail"
-        else NodeExecution.complete({}),
+        operation_adapter=lambda node, run: (
+            NodeExecution.failure("expected")
+            if node.node_id == "fail"
+            else NodeExecution.complete({})
+        ),
     )
 
     run = executor.execute(
@@ -282,9 +296,7 @@ def test_pending_node_approval_resumes_and_consumes_immediately_before_node() ->
     waiting = executor.execute(
         definition,
         _context(
-            approval_request_ids={
-                requirement.requirement_id: security_approval.id
-            }
+            approval_request_ids={requirement.requirement_id: security_approval.id}
         ),
         {},
     )
@@ -322,7 +334,9 @@ def _workflow_start_requirement() -> PermissionApprovalRequirement:
 def test_workflow_scoped_approval_is_consumed_at_start_once() -> None:
     requirement = _workflow_start_requirement()
     service = ApprovalService(InMemoryApprovalRepository())
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     resolver = _Resolver(
         {PermissionCapability.WORKFLOW_EXECUTE: PermissionOutcome.APPROVAL_REQUIRED},
@@ -435,7 +449,9 @@ def test_workflow_scope_does_not_authorize_extra_required_capability() -> None:
 def test_target_domain_current_deny_blocks_before_start_approval_consumption() -> None:
     requirement = _workflow_start_requirement()
     service = ApprovalService(InMemoryApprovalRepository())
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     child = DomainWorkflowDefinition(
         workflow_id="y.child",

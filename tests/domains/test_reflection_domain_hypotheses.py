@@ -20,8 +20,16 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _hypothesis(identity, statement, *, support=(), against=(), uncertainty=0.5,
-                scope=None, temporal=None):
+def _hypothesis(
+    identity,
+    statement,
+    *,
+    support=(),
+    against=(),
+    uncertainty=0.5,
+    scope=None,
+    temporal=None,
+):
     return {
         "identity": identity,
         "statement": statement,

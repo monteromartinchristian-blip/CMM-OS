@@ -66,8 +66,12 @@ def test_no_forbidden_parallel_infrastructure():
     """No forbidden parallel subsystem exists in the package."""
     import pathlib
 
-    package_dir = pathlib.Path(__file__).resolve().parents[3] / "cmm" / "domains" / "oppositions"
-    concatenated = "\n".join(p.read_text(encoding="utf-8") for p in package_dir.glob("*.py"))
+    package_dir = (
+        pathlib.Path(__file__).resolve().parents[3] / "cmm" / "domains" / "oppositions"
+    )
+    concatenated = "\n".join(
+        p.read_text(encoding="utf-8") for p in package_dir.glob("*.py")
+    )
     for name in FORBIDDEN_PARALLEL_INFRASTRUCTURE:
         assert f"class {name}" not in concatenated, (
             f"Forbidden parallel infrastructure {name} declared"
@@ -108,9 +112,7 @@ def test_no_duplicate_ids():
     assert len(CANONICAL_OPPOSITION_OPERATION_IDS) == len(
         set(CANONICAL_OPPOSITION_OPERATION_IDS)
     )
-    assert len(CANONICAL_OPPOSITION_RULE_IDS) == len(
-        set(CANONICAL_OPPOSITION_RULE_IDS)
-    )
+    assert len(CANONICAL_OPPOSITION_RULE_IDS) == len(set(CANONICAL_OPPOSITION_RULE_IDS))
     assert len(CANONICAL_OPPOSITION_RESOURCE_IDS) == len(
         set(CANONICAL_OPPOSITION_RESOURCE_IDS)
     )
@@ -151,9 +153,7 @@ def test_canonical_order_deterministic():
     assert CANONICAL_OPPOSITION_OPERATION_IDS == tuple(
         sorted(CANONICAL_OPPOSITION_OPERATION_IDS)
     )
-    assert CANONICAL_OPPOSITION_RULE_IDS == tuple(
-        sorted(CANONICAL_OPPOSITION_RULE_IDS)
-    )
+    assert CANONICAL_OPPOSITION_RULE_IDS == tuple(sorted(CANONICAL_OPPOSITION_RULE_IDS))
     assert CANONICAL_OPPOSITION_RESOURCE_IDS == tuple(
         sorted(CANONICAL_OPPOSITION_RESOURCE_IDS)
     )

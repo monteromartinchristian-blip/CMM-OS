@@ -57,9 +57,7 @@ def _permission_stack() -> tuple[
     return registry, service, gate
 
 
-def _approved_request(
-    service: ApprovalService, pending: object
-) -> tuple[object, str]:
+def _approved_request(service: ApprovalService, pending: object) -> tuple[object, str]:
     from cmm.agent_runtime.domain_permission_contracts import (
         PermissionApprovalRequirement,
     )
@@ -79,7 +77,11 @@ def test_build_languages_permission_policy_structure() -> None:
     """Verify standard Languages permission policy."""
     policy = build_languages_permission_policy()
     assert isinstance(policy, DomainPermissionPolicy)
-    assert policy.policy_id == LANGUAGES_PERMISSION_POLICY_ID == "domain-permission:languages:1.0.0"
+    assert (
+        policy.policy_id
+        == LANGUAGES_PERMISSION_POLICY_ID
+        == "domain-permission:languages:1.0.0"
+    )
     assert policy.domain_id == "domain:languages"
 
     # Memory write must be in allowed and approval capabilities, NOT prohibited

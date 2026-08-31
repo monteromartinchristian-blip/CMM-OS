@@ -77,11 +77,20 @@ def build_university_resource_definitions() -> tuple[DomainResourceDefinition, .
         "university.subject_guide": _resource(
             "university.subject_guide",
             adapter="cognitive.document",
-            entity_types=("subject", "examination", "assignment", "academic_requirement"),
+            entity_types=(
+                "subject",
+                "examination",
+                "assignment",
+                "academic_requirement",
+            ),
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.85,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "official_capable": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "official_capable": True,
+            },
         ),
         "university.university_calendar": _resource(
             "university.university_calendar",
@@ -90,7 +99,11 @@ def build_university_resource_definitions() -> tuple[DomainResourceDefinition, .
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.8,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "official_capable": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "official_capable": True,
+            },
         ),
         "university.examination_schedule": _resource(
             "university.examination_schedule",
@@ -113,7 +126,11 @@ def build_university_resource_definitions() -> tuple[DomainResourceDefinition, .
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.8,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "official_capable": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "official_capable": True,
+            },
         ),
         "university.grade": _resource(
             "university.grade",

@@ -123,7 +123,9 @@ def _build_valid_reflection_chain(
     )
 
     req_prop_id = wrong_request_prop_id if wrong_request_prop_id else proposal_id
-    dec_req_id = wrong_decision_req_id if wrong_decision_req_id else f"appr-req:{proposal_id}"
+    dec_req_id = (
+        wrong_decision_req_id if wrong_decision_req_id else f"appr-req:{proposal_id}"
+    )
 
     requests = (
         DomainMemoryApprovalRequestSnapshot(
@@ -193,8 +195,20 @@ def _run_validate_nodes(nodes, node_outputs, metadata=None):
 def test_v3_validate_unrelated_node_cannot_satisfy_missing_dependency():
     """An unrelated completed node with safe=True must NOT satisfy a gate."""
     nodes = (
-        WorkflowNode("unrelated", "execute_operation", "Unrelated", operation_id="op.u", operation_version="1.0.0"),
-        WorkflowNode("producer", "execute_operation", "Producer", operation_id="op.p", operation_version="1.0.0"),
+        WorkflowNode(
+            "unrelated",
+            "execute_operation",
+            "Unrelated",
+            operation_id="op.u",
+            operation_version="1.0.0",
+        ),
+        WorkflowNode(
+            "producer",
+            "execute_operation",
+            "Producer",
+            operation_id="op.p",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -218,8 +232,20 @@ def test_v3_validate_unrelated_node_cannot_satisfy_missing_dependency():
 def test_v3_validate_unrelated_node_cannot_manufacture_conflict():
     """An unrelated completed node with safe=False must NOT conflict with declared dependency."""
     nodes = (
-        WorkflowNode("unrelated", "execute_operation", "Unrelated", operation_id="op.u", operation_version="1.0.0"),
-        WorkflowNode("producer", "execute_operation", "Producer", operation_id="op.p", operation_version="1.0.0"),
+        WorkflowNode(
+            "unrelated",
+            "execute_operation",
+            "Unrelated",
+            operation_id="op.u",
+            operation_version="1.0.0",
+        ),
+        WorkflowNode(
+            "producer",
+            "execute_operation",
+            "Producer",
+            operation_id="op.p",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -242,8 +268,20 @@ def test_v3_validate_unrelated_node_cannot_manufacture_conflict():
 def test_v3_validate_declared_dependency_conflict_fails_closed():
     """Two declared dependencies disagreeing on safe must fail closed."""
     nodes = (
-        WorkflowNode("producer_a", "execute_operation", "ProducerA", operation_id="op.a", operation_version="1.0.0"),
-        WorkflowNode("producer_z", "execute_operation", "ProducerZ", operation_id="op.z", operation_version="1.0.0"),
+        WorkflowNode(
+            "producer_a",
+            "execute_operation",
+            "ProducerA",
+            operation_id="op.a",
+            operation_version="1.0.0",
+        ),
+        WorkflowNode(
+            "producer_z",
+            "execute_operation",
+            "ProducerZ",
+            operation_id="op.z",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -267,8 +305,20 @@ def test_v3_validate_declared_dependency_conflict_fails_closed():
 def test_v3_validate_declared_dependencies_agree_passes():
     """Two declared dependencies agreeing on safe=True pass the gate."""
     nodes = (
-        WorkflowNode("producer_a", "execute_operation", "ProducerA", operation_id="op.a", operation_version="1.0.0"),
-        WorkflowNode("producer_z", "execute_operation", "ProducerZ", operation_id="op.z", operation_version="1.0.0"),
+        WorkflowNode(
+            "producer_a",
+            "execute_operation",
+            "ProducerA",
+            operation_id="op.a",
+            operation_version="1.0.0",
+        ),
+        WorkflowNode(
+            "producer_z",
+            "execute_operation",
+            "ProducerZ",
+            operation_id="op.z",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -291,7 +341,13 @@ def test_v3_validate_declared_dependencies_agree_passes():
 def test_v3_validate_strict_boolean_semantics():
     """Numeric 1, 0, string 'true', 'false' are denied for boolean expectations."""
     nodes = (
-        WorkflowNode("producer", "execute_operation", "Producer", operation_id="op.p", operation_version="1.0.0"),
+        WorkflowNode(
+            "producer",
+            "execute_operation",
+            "Producer",
+            operation_id="op.p",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -312,7 +368,13 @@ def test_v3_validate_strict_boolean_semantics():
 def test_v3_validate_preserves_metadata_and_input_defaults():
     """Metadata default is used when no dependency overrides, but dependency is authoritative."""
     nodes = (
-        WorkflowNode("producer", "execute_operation", "Producer", operation_id="op.p", operation_version="1.0.0"),
+        WorkflowNode(
+            "producer",
+            "execute_operation",
+            "Producer",
+            operation_id="op.p",
+            operation_version="1.0.0",
+        ),
         WorkflowNode(
             "validate",
             "validate",
@@ -452,7 +514,11 @@ def test_v3_persistence_unlinked_extra_approval_denied():
         views=inv.views,
     )
     rec1 = classify_persistence(
-        {"proposal_id": "prop-extra-req", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-extra-req",
+            "pattern": "x",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=b,
         confirmation_inventory=bad_inv1,
     )
@@ -469,7 +535,11 @@ def test_v3_persistence_unlinked_extra_approval_denied():
         views=inv.views,
     )
     rec2 = classify_persistence(
-        {"proposal_id": "prop-extra-req", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-extra-req",
+            "pattern": "x",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=b,
         confirmation_inventory=bad_inv2,
     )
@@ -482,7 +552,11 @@ def test_v3_persistence_wrong_domain_denied():
         "prop-wrong-dom", domain_id="domain:health", approved=True
     )
     record = classify_persistence(
-        {"proposal_id": "prop-wrong-dom", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-wrong-dom",
+            "pattern": "x",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=b,
         confirmation_inventory=inv,
     )
@@ -525,7 +599,11 @@ def test_v3_persistence_valid_chain_accepted_when_grounded():
     assert val_res.is_valid is True
 
     record = classify_persistence(
-        {"proposal_id": "prop-valid-1", "pattern": "avoids intimacy", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-valid-1",
+            "pattern": "avoids intimacy",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )
@@ -572,9 +650,13 @@ def test_v3_diagnosis_unseen_spanish_direct_classifications_restricted():
     )
     for stmt in unseen_spanish:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-es", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-es", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is False, f"Expected {stmt!r} to be flagged as diagnostic"
+        assert res["no_diagnosis"] is False, (
+            f"Expected {stmt!r} to be flagged as diagnostic"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is True
         assert hyp["restricted_inference"] is True
@@ -591,9 +673,13 @@ def test_v3_diagnosis_unseen_english_direct_classifications_restricted():
     )
     for stmt in unseen_english:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-en", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-en", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is False, f"Expected {stmt!r} to be flagged as diagnostic"
+        assert res["no_diagnosis"] is False, (
+            f"Expected {stmt!r} to be flagged as diagnostic"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is True
         assert hyp["restricted_inference"] is True
@@ -611,9 +697,13 @@ def test_v3_diagnosis_tentative_safe_controls_allowed():
     )
     for stmt in tentative_controls:
         res = evaluate_hypotheses(
-            hypotheses=({"identity": "h-safe", "statement": stmt, "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h-safe", "statement": stmt, "supporting_ids": ("s1",)},
+            )
         )
-        assert res["no_diagnosis"] is True, f"Expected tentative {stmt!r} to NOT be diagnostic"
+        assert res["no_diagnosis"] is True, (
+            f"Expected tentative {stmt!r} to NOT be diagnostic"
+        )
         hyp = res["hypotheses"][0]
         assert hyp["diagnostic"] is False
         assert hyp["restricted_inference"] is False
@@ -652,14 +742,21 @@ def test_v3_diagnosis_presentation_parity():
     """Restricted classifications are withheld and presented as [restricted: claim withheld]."""
     raw_eval = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h-pres", "statement": "Padeces depresión mayor", "supporting_ids": ("s1",)},
+            {
+                "identity": "h-pres",
+                "statement": "Padeces depresión mayor",
+                "supporting_ids": ("s1",),
+            },
         )
     )
     presented = present_reflection_result(raw_eval)
     presented_hyp = presented["hypotheses"][0]
     assert presented_hyp["diagnosis"] is True
     assert presented_hyp["restricted_inference"] is True
-    assert presented_hyp["statement"] == "[restricted: diagnostic/classifying claim withheld]"
+    assert (
+        presented_hyp["statement"]
+        == "[restricted: diagnostic/classifying claim withheld]"
+    )
     assert "Padeces" not in presented_hyp["statement"]
 
 
@@ -683,21 +780,37 @@ def test_v3_no_forced_conclusion_unseen_certainty_conclusions_flagged():
             "conclusion": cert_text,
         }
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is True, f"Expected {cert_text!r} to be flagged"
+        assert policy["forced_conclusion"] is True, (
+            f"Expected {cert_text!r} to be flagged"
+        )
         assert policy["valid_unresolved_completion"] is False
 
 
 def test_v3_no_forced_conclusion_quoted_evidence_not_flagged():
     """Certainty wording occurring ONLY in evidence/observations/quotes is NOT a forced conclusion."""
     cases = (
-        {"unresolved": True, "evidence": ("La otra persona dijo: 'obviamente no iba a venir'",)},
-        {"unresolved": True, "observation": "Escribió literalmente: 'está claro que no quiero hablar'"},
-        {"unresolved": True, "counterevidence": ("Un amigo aseguró que era definitivamente imposible",)},
-        {"unresolved": True, "source": "User quote: 'there is no doubt I will be late'"},
+        {
+            "unresolved": True,
+            "evidence": ("La otra persona dijo: 'obviamente no iba a venir'",),
+        },
+        {
+            "unresolved": True,
+            "observation": "Escribió literalmente: 'está claro que no quiero hablar'",
+        },
+        {
+            "unresolved": True,
+            "counterevidence": ("Un amigo aseguró que era definitivamente imposible",),
+        },
+        {
+            "unresolved": True,
+            "source": "User quote: 'there is no doubt I will be late'",
+        },
     )
     for case in cases:
         policy = no_forced_conclusion_policy(case)
-        assert policy["forced_conclusion"] is False, f"Expected quoted certainty in {case} to NOT be forced"
+        assert policy["forced_conclusion"] is False, (
+            f"Expected quoted certainty in {case} to NOT be forced"
+        )
         assert policy["valid_unresolved_completion"] is True
 
 
@@ -715,7 +828,9 @@ def test_v3_no_forced_conclusion_tentative_conclusions_allowed():
             "conclusion": stmt,
         }
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is False, f"Expected tentative {stmt!r} to NOT be forced"
+        assert policy["forced_conclusion"] is False, (
+            f"Expected tentative {stmt!r} to NOT be forced"
+        )
         assert policy["valid_unresolved_completion"] is True
 
 
@@ -733,7 +848,9 @@ def test_v3_no_forced_conclusion_structural_state_enforcement():
     ):
         res = {"unresolved": True, field: val}
         policy = no_forced_conclusion_policy(res)
-        assert policy["forced_conclusion"] is True, f"Expected {field}={val} to flag forced conclusion"
+        assert policy["forced_conclusion"] is True, (
+            f"Expected {field}={val} to flag forced conclusion"
+        )
         assert policy["valid_unresolved_completion"] is False
 
 
@@ -751,7 +868,9 @@ def test_v3_no_forced_conclusion_rule_and_presentation_parity():
         metadata={"result": res_forced},
     )
     rule = next(
-        r for r in build_reflection_rules() if r.definition.id == "reflection.no_forced_conclusion"
+        r
+        for r in build_reflection_rules()
+        if r.definition.id == "reflection.no_forced_conclusion"
     )
     rule_res = rule.evaluate(context)
     assert rule_res.status is ReasoningRuleResultStatus.APPLIED
@@ -778,7 +897,9 @@ def test_v3_strict_json_all_outputs():
             confirmation_inventory=inventory,
         ),
         evaluate_hypotheses(
-            hypotheses=({"identity": "h1", "statement": "test stmt", "supporting_ids": ("s1",)},)
+            hypotheses=(
+                {"identity": "h1", "statement": "test stmt", "supporting_ids": ("s1",)},
+            )
         ),
         no_forced_conclusion_policy({"unresolved": True, "conclusion": "safe"}),
         evaluate_ambivalence(records=()),
@@ -806,7 +927,11 @@ def test_v3_input_non_mutation():
     assert raw_record == raw_copy
 
     raw_hyp = [
-        {"identity": "h1", "statement": "Padeces depresión mayor", "supporting_ids": ["s1"]}
+        {
+            "identity": "h1",
+            "statement": "Padeces depresión mayor",
+            "supporting_ids": ["s1"],
+        }
     ]
     hyp_copy = copy.deepcopy(raw_hyp)
     evaluate_hypotheses(hypotheses=raw_hyp)

@@ -47,9 +47,7 @@ class DomainFixtureLoader:
                 break
 
         if target_path is None:
-            raise DomainFixtureError(
-                f"Fixture {fixture!r} not found in pack at {root}"
-            )
+            raise DomainFixtureError(f"Fixture {fixture!r} not found in pack at {root}")
 
         try:
             target_path.relative_to(root)

@@ -139,10 +139,14 @@ def test_malformed_member_preserved():
 
 def test_order_invariance():
     a = evaluate_syllabus_coverage(
-        topics=(_topic("t2"), _topic("t1")), syllabus_version="v2", syllabus_current=True
+        topics=(_topic("t2"), _topic("t1")),
+        syllabus_version="v2",
+        syllabus_current=True,
     )
     b = evaluate_syllabus_coverage(
-        topics=(_topic("t1"), _topic("t2")), syllabus_version="v2", syllabus_current=True
+        topics=(_topic("t1"), _topic("t2")),
+        syllabus_version="v2",
+        syllabus_current=True,
     )
     # normalized semantic meaning, not just a count + boolean
     key = (

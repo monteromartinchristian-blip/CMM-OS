@@ -9,11 +9,32 @@ from cmm.workflows.enums import WorkflowAvailabilityStatus
 
 def test_supporting_domain_cannot_expand_permissions_and_unknown_domain_blocks():
     definition = DomainWorkflowDefinition(
-        "x.cross", "domain:x", "1.0.0", "Cross",
+        "x.cross",
+        "domain:x",
+        "1.0.0",
+        "Cross",
         nodes=(WorkflowNode("done", "complete", "Done"),),
-        supporting_domain_ids=("domain:y",), required_permissions=("read:x",),
+        supporting_domain_ids=("domain:y",),
+        required_permissions=("read:x",),
     )
-    unknown = resolve_domain_workflow(definition, DomainWorkflowContext("domain:x", supporting_domain_ids=("domain:y",), known_domain_ids=frozenset({"domain:x"}), available_permissions=frozenset({"read:x"})))
+    unknown = resolve_domain_workflow(
+        definition,
+        DomainWorkflowContext(
+            "domain:x",
+            supporting_domain_ids=("domain:y",),
+            known_domain_ids=frozenset({"domain:x"}),
+            available_permissions=frozenset({"read:x"}),
+        ),
+    )
     assert unknown.status is WorkflowAvailabilityStatus.BLOCKED
-    denied = resolve_domain_workflow(definition, DomainWorkflowContext("domain:x", supporting_domain_ids=("domain:y",), known_domain_ids=frozenset({"domain:x", "domain:y"}), authorized_domain_ids=frozenset({"domain:x"}), available_permissions=frozenset({"read:x"})))
+    denied = resolve_domain_workflow(
+        definition,
+        DomainWorkflowContext(
+            "domain:x",
+            supporting_domain_ids=("domain:y",),
+            known_domain_ids=frozenset({"domain:x", "domain:y"}),
+            authorized_domain_ids=frozenset({"domain:x"}),
+            available_permissions=frozenset({"read:x"}),
+        ),
+    )
     assert denied.status is WorkflowAvailabilityStatus.BLOCKED

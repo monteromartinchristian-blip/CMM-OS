@@ -27,7 +27,11 @@ from cmm.domains.concerns.rules import (
 
 def test_fact_is_not_interpretation():
     grounded = classify_concern_statement(
-        {"statement": "email sent Monday", "level": "fact", "evidence_references": ("m1",)}
+        {
+            "statement": "email sent Monday",
+            "level": "fact",
+            "evidence_references": ("m1",),
+        }
     )
     interpreted = classify_concern_statement(
         {"statement": "they are avoiding me", "level": "interpretation"}
@@ -44,14 +48,18 @@ def test_interpretation_is_not_fear():
 
 
 def test_fear_is_not_prediction():
-    record = classify_concern_statement({"statement": "maybe disaster", "level": "fear"})
+    record = classify_concern_statement(
+        {"statement": "maybe disaster", "level": "fear"}
+    )
     assert record["level"] == LEVEL_FEAR
     assert record["prediction"] is False
     assert record["probability_claim"] is False
 
 
 def test_scenario_is_not_probability():
-    record = classify_concern_statement({"statement": "if X then Y", "level": "scenario"})
+    record = classify_concern_statement(
+        {"statement": "if X then Y", "level": "scenario"}
+    )
     assert record["level"] == LEVEL_SCENARIO
     assert record["probability_claim"] is False
 
@@ -90,9 +98,7 @@ def test_duplicates_cannot_inflate_reassurance_strength():
         {"identity": "c1", "against": "f", "grounding": "a"},
         {"identity": "c2", "against": "f", "grounding": "b"},
     )
-    duplicated = base_records + tuple(
-        dict(record) for record in base_records
-    )
+    duplicated = base_records + tuple(dict(record) for record in base_records)
     single_assessment = evaluate_reassessment(base_records)
     duplicate_assessment = evaluate_reassessment(duplicated)
     assert duplicate_assessment == single_assessment
@@ -117,10 +123,20 @@ def test_conflict_stays_conflict():
     record = evaluate_reassurance(
         target_claim="feared reading",
         evidence=(
-            {"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "s1"},
+            {
+                "identity": "e1",
+                "claim": "benign",
+                "stance": "opposes_target",
+                "grounding": "s1",
+            },
         ),
         counterevidence=(
-            {"identity": "c1", "claim": "feared reading", "stance": "supports_target", "grounding": "s2"},
+            {
+                "identity": "c1",
+                "claim": "feared reading",
+                "stance": "supports_target",
+                "grounding": "s2",
+            },
         ),
     )
     assert record["assessment"] in ("UNCERTAIN",)

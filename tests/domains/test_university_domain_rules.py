@@ -89,8 +89,16 @@ def test_source_authority_does_not_compete_for_unsupplied_attribute():
     resolved = resolve_source_authority_by_attribute(
         attribute="grade",
         sources=(
-            {"source_id": "s1", "source_type": "official", "supplied_attributes": ("grade",)},
-            {"source_id": "s2", "source_type": "official", "supplied_attributes": ("other",)},
+            {
+                "source_id": "s1",
+                "source_type": "official",
+                "supplied_attributes": ("grade",),
+            },
+            {
+                "source_id": "s2",
+                "source_type": "official",
+                "supplied_attributes": ("other",),
+            },
         ),
     )
     assert resolved["authority"] == "official"
@@ -147,10 +155,7 @@ def test_resolved_contradiction_allows_proceeding():
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "CONTRADICTION_STATE"
-        for finding in result.findings
-    )
+    assert any(finding.code == "CONTRADICTION_STATE" for finding in result.findings)
 
 
 def test_performance_never_capacity():
@@ -207,9 +212,7 @@ def test_integrity_unknown_mode_blocked():
     rule = _by_id()["university.academic_integrity"]
     result = rule.evaluate(_context(integrity={"mode": "mode_x"}))
     assert result.status is ReasoningRuleResultStatus.BLOCKED
-    assert any(
-        finding.code == "INTEGRITY_MODE_REJECTED" for finding in result.findings
-    )
+    assert any(finding.code == "INTEGRITY_MODE_REJECTED" for finding in result.findings)
 
 
 def test_decision_support_never_adopts():
@@ -241,9 +244,7 @@ def test_deadline_never_auto_scheduled():
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "DEADLINE_FACT" for finding in result.findings
-    )
+    assert any(finding.code == "DEADLINE_FACT" for finding in result.findings)
     assert all(
         finding.metadata.get("auto_scheduled") is not True
         for finding in result.findings
@@ -257,8 +258,7 @@ def test_deadline_undergrounded_triggers_verification_need():
     result = rule.evaluate(_context(deadline={"value": "2026-09-15"}))
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "DEADLINE_VERIFICATION_NEEDED"
-        for finding in result.findings
+        finding.code == "DEADLINE_VERIFICATION_NEEDED" for finding in result.findings
     )
 
 
@@ -275,68 +275,66 @@ def test_ects_double_counting_blocks_completion():
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "ECTS_COMPLETION_BLOCKED" for finding in result.findings
-    )
+    assert any(finding.code == "ECTS_COMPLETION_BLOCKED" for finding in result.findings)
 
 
 def test_exam_attempt_limit_reported_not_acted_on():
     rule = _by_id()["university.exam_attempt"]
     result = rule.evaluate(
         _context(
-                exam_attempt={
-                    "attempts": (
-                        {
-                            "id": "attempt-1",
-                            "exam_id": "exam-1",
-                            "date": "2026-07-01",
-                            "source_reference": "record-1",
-                            "kind": "ordinary",
-                            "outcome": "failed",
-                            "grounded": True,
-                            "status": "consumed",
-                        },
-                        {
-                            "id": "attempt-2",
-                            "exam_id": "exam-1",
-                            "date": "2026-07-02",
-                            "source_reference": "record-2",
-                            "kind": "ordinary",
-                            "outcome": "failed",
-                            "grounded": True,
-                            "status": "consumed",
-                        },
-                        {
-                            "id": "attempt-3",
-                            "exam_id": "exam-1",
-                            "date": "2026-07-03",
-                            "source_reference": "record-3",
-                            "kind": "ordinary",
-                            "outcome": "failed",
-                            "grounded": True,
-                            "status": "consumed",
-                        },
-                        {
-                            "id": "attempt-4",
-                            "exam_id": "exam-1",
-                            "date": "2026-07-04",
-                            "source_reference": "record-4",
-                            "kind": "ordinary",
-                            "outcome": "failed",
-                            "grounded": True,
-                            "status": "consumed",
-                        },
-                    ),
-                    "regulation": {
-                        "id": "reg-1",
-                        "source_reference": "regulation-1",
-                        "source_class": "regulation",
-                        "temporal": "valid",
+            exam_attempt={
+                "attempts": (
+                    {
+                        "id": "attempt-1",
+                        "exam_id": "exam-1",
+                        "date": "2026-07-01",
+                        "source_reference": "record-1",
+                        "kind": "ordinary",
+                        "outcome": "failed",
                         "grounded": True,
-                        "max_attempts": 3,
+                        "status": "consumed",
                     },
+                    {
+                        "id": "attempt-2",
+                        "exam_id": "exam-1",
+                        "date": "2026-07-02",
+                        "source_reference": "record-2",
+                        "kind": "ordinary",
+                        "outcome": "failed",
+                        "grounded": True,
+                        "status": "consumed",
+                    },
+                    {
+                        "id": "attempt-3",
+                        "exam_id": "exam-1",
+                        "date": "2026-07-03",
+                        "source_reference": "record-3",
+                        "kind": "ordinary",
+                        "outcome": "failed",
+                        "grounded": True,
+                        "status": "consumed",
+                    },
+                    {
+                        "id": "attempt-4",
+                        "exam_id": "exam-1",
+                        "date": "2026-07-04",
+                        "source_reference": "record-4",
+                        "kind": "ordinary",
+                        "outcome": "failed",
+                        "grounded": True,
+                        "status": "consumed",
+                    },
+                ),
+                "regulation": {
+                    "id": "reg-1",
+                    "source_reference": "regulation-1",
+                    "source_class": "regulation",
+                    "temporal": "valid",
+                    "grounded": True,
                     "max_attempts": 3,
-                }
+                },
+                "max_attempts": 3,
+            }
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
@@ -357,9 +355,7 @@ def test_workload_infeasibility_blocks_pipeline():
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
-    assert any(
-        finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings
-    )
+    assert any(finding.code == "WORKLOAD_INFEASIBLE" for finding in result.findings)
     assert all(
         finding.metadata.get("clinical_details_consumed") is False
         for finding in result.findings
@@ -372,16 +368,13 @@ def test_dependency_blocked_no_auto_enrolment():
         _context(
             dependency={
                 "subject_id": "subj-2",
-                "prerequisites": (
-                    {"id": "subj-1", "passed": False},
-                ),
+                "prerequisites": ({"id": "subj-1", "passed": False},),
             }
         )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "DEPENDENCY_BLOCKED"
-        and "subj-1" in finding.references
+        finding.code == "DEPENDENCY_BLOCKED" and "subj-1" in finding.references
         for finding in result.findings
     )
 
@@ -398,8 +391,16 @@ def test_deterministic_helpers():
     resolved = resolve_source_authority_by_attribute(
         attribute="grade",
         sources=(
-            {"source_id": "s1", "source_type": "user_reported", "supplied_attributes": ("grade",)},
-            {"source_id": "s2", "source_type": "official", "supplied_attributes": ("grade",)},
+            {
+                "source_id": "s1",
+                "source_type": "user_reported",
+                "supplied_attributes": ("grade",),
+            },
+            {
+                "source_id": "s2",
+                "source_type": "official",
+                "supplied_attributes": ("grade",),
+            },
         ),
     )
     assert resolved["authority"] == "official"
@@ -408,16 +409,23 @@ def test_deterministic_helpers():
     unresolved = resolve_source_authority_by_attribute(
         attribute="credit",
         sources=(
-            {"source_id": "s1", "source_type": "official", "supplied_attributes": ("grade",)},
+            {
+                "source_id": "s1",
+                "source_type": "official",
+                "supplied_attributes": ("grade",),
+            },
         ),
     )
     assert unresolved["authority_resolved"] is False
 
     # evaluate_academic_contradiction: material + unresolved fails closed.
     assert evaluate_academic_contradiction(statements=())["state"] == "unresolved"
-    assert evaluate_academic_contradiction(
-        statements=({"material": True, "unresolved": True},)
-    )["state"] == "material"
+    assert (
+        evaluate_academic_contradiction(
+            statements=({"material": True, "unresolved": True},)
+        )["state"]
+        == "material"
+    )
     resolved_contradiction = evaluate_academic_contradiction(
         statements=({"material": False, "unresolved": False},)
     )
@@ -437,8 +445,18 @@ def test_deterministic_helpers():
     # retake; reassessment and non-consumed attempts do not count.
     within = evaluate_exam_attempt(
         attempts=(
-            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-            {"kind": "reassessment", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {
+                "kind": "ordinary",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
+            {
+                "kind": "reassessment",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
         ),
         max_attempts=1,
     )
@@ -446,10 +464,30 @@ def test_deterministic_helpers():
     assert within["reassessment_count"] == 1
     exceeded = evaluate_exam_attempt(
         attempts=(
-            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
-            {"kind": "ordinary", "outcome": "failed", "grounded": True, "status": "consumed"},
+            {
+                "kind": "ordinary",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
+            {
+                "kind": "ordinary",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
+            {
+                "kind": "ordinary",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
+            {
+                "kind": "ordinary",
+                "outcome": "failed",
+                "grounded": True,
+                "status": "consumed",
+            },
         ),
         max_attempts=3,
     )

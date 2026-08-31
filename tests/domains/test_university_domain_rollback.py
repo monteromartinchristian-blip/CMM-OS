@@ -84,9 +84,7 @@ def _assert_no_university_entries(registries):
     assert registries["resource_registry"].list_all() == ()
     assert registries["rule_registry"].list_all() == ()
     assert registries["operation_registry"].list_definitions() == ()
-    assert (
-        registries["workflow_registry"].list_for_domain(UNIVERSITY_DOMAIN_ID) == ()
-    )
+    assert registries["workflow_registry"].list_for_domain(UNIVERSITY_DOMAIN_ID) == ()
 
 
 def test_failure_after_definition_rolls_back():

@@ -190,14 +190,16 @@ def test_exact_imported_helper_identity_is_recursively_audited(
         assert any(
             violation.kind == "global_object"
             and violation.dependency == "_RULES_HIDDEN_CALENDAR_CLIENT"
-            and violation.owner
-            == f"cmm.domains.languages.rules.{helper.__name__}"
+            and violation.owner == f"cmm.domains.languages.rules.{helper.__name__}"
             for violation in violations
         )
 
-    assert runtime_state.find_languages_runtime_purity_violations(
-        plan_review_schedule_result
-    ) == ()
+    assert (
+        runtime_state.find_languages_runtime_purity_violations(
+            plan_review_schedule_result
+        )
+        == ()
+    )
 
 
 @pytest.mark.parametrize(

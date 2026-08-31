@@ -55,9 +55,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -71,10 +69,7 @@ def _implementations():
 
 def _snapshot_all(registries):
     """Capture snapshots of all registries."""
-    return {
-        name: registry.snapshot_state()
-        for name, registry in registries.items()
-    }
+    return {name: registry.snapshot_state() for name, registry in registries.items()}
 
 
 def _assert_snapshots_equal(a, b):
@@ -97,7 +92,9 @@ def _assert_no_general_entries(registries):
 def test_failure_after_definition_rolls_back():
     """Failure after domain definition registration rolls back all registries."""
     registries = _registries()
-    registries["domain_registry"] = _FailAfterN(registries["domain_registry"], fail_after=0)
+    registries["domain_registry"] = _FailAfterN(
+        registries["domain_registry"], fail_after=0
+    )
 
     before = _snapshot_all(registries)
 
@@ -116,7 +113,9 @@ def test_failure_during_resources_rolls_back():
     """Failure during resource registration rolls back all registries."""
     registries = _registries()
     # Allow domain + profile to register, fail on first resource
-    registries["resource_registry"] = _FailAfterN(registries["resource_registry"], fail_after=0)
+    registries["resource_registry"] = _FailAfterN(
+        registries["resource_registry"], fail_after=0
+    )
 
     before = _snapshot_all(registries)
 
@@ -135,7 +134,9 @@ def test_failure_after_profile_rolls_back():
     """Failure after profile registration rolls back all registries."""
     registries = _registries()
     # Allow domain + profile to register, fail on first resource
-    registries["resource_registry"] = _FailAfterN(registries["resource_registry"], fail_after=0)
+    registries["resource_registry"] = _FailAfterN(
+        registries["resource_registry"], fail_after=0
+    )
 
     before = _snapshot_all(registries)
 

@@ -93,7 +93,10 @@ def test_presentation_preserves_full_result():
         item for item in presented["hypotheses"] if isinstance(item, dict)
     ]
     fear_items = [item for item in presented["fears"] if isinstance(item, dict)]
-    assert all(item["presentation_state"] == PRESENTATION_STATE_KNOWN_FACT for item in fact_items)
+    assert all(
+        item["presentation_state"] == PRESENTATION_STATE_KNOWN_FACT
+        for item in fact_items
+    )
     assert all(
         item["presentation_state"] == PRESENTATION_STATE_INTERPRETATION
         for item in interpretation_items
@@ -187,7 +190,9 @@ def test_presentation_section_order_is_semantic():
 
 # ── Trace ────────────────────────────────────────────────────────────────────
 
-NOW = __import__("datetime").datetime(2026, 8, 21, 15, 0, tzinfo=__import__("datetime").timezone.utc)
+NOW = __import__("datetime").datetime(
+    2026, 8, 21, 15, 0, tzinfo=__import__("datetime").timezone.utc
+)
 
 _CALLER_KINDS = (
     (DomainTraceReferenceKind.RESOURCE_RESOLUTION, "res:1"),
@@ -271,7 +276,9 @@ def test_trace_validates_against_inventory():
         cross_domain_results=trace.references.cross_domain_results,
         expected_primary_domain=CONCERNS_DOMAIN_ID,
         expected_supporting_domains=(),
-        resolution_result_domains=DomainTraceDomainSelection("rr:2", CONCERNS_DOMAIN_ID),
+        resolution_result_domains=DomainTraceDomainSelection(
+            "rr:2", CONCERNS_DOMAIN_ID
+        ),
         composition_domains=DomainTraceDomainSelection("c:2", CONCERNS_DOMAIN_ID),
     )
     result = validate_concerns_trace(trace=trace, inventory=inventory)

@@ -86,4 +86,8 @@ def build_health_permission_policy() -> DomainPermissionPolicy:
     )
 
 
-__all__ = ["HEALTH_PERMISSION_POLICY_ID", "HEALTH_PROHIBITED_CAPABILITIES", "build_health_permission_policy"]
+__all__ = [
+    "HEALTH_PERMISSION_POLICY_ID",
+    "HEALTH_PROHIBITED_CAPABILITIES",
+    "build_health_permission_policy",
+]

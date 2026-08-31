@@ -245,10 +245,7 @@ def test_domain_memory_view_order_independent_hashing() -> None:
             "selected_references": [ref1.to_dict(), ref2.to_dict()],
         }
     )
-    view_id = (
-        "view:req:1:"
-        f"{content_digest[:_DIGEST_PREFIX_LENGTH]}"
-    )
+    view_id = f"view:req:1:{content_digest[:_DIGEST_PREFIX_LENGTH]}"
 
     view1 = DomainMemoryView(
         view_id=view_id,
@@ -288,7 +285,10 @@ def test_domain_memory_validation_result_rejects_contradictory_combinations() ->
         DomainMemoryValidationResult(
             is_valid=True,
             code=DomainMemoryValidationCode.VALID,
-            codes=(DomainMemoryValidationCode.VALID, DomainMemoryValidationCode.INVALID_STRUCTURE),
+            codes=(
+                DomainMemoryValidationCode.VALID,
+                DomainMemoryValidationCode.INVALID_STRUCTURE,
+            ),
         )
 
     with pytest.raises(
@@ -353,10 +353,7 @@ def _make_empty_content_bound_view() -> DomainMemoryView:
         }
     )
     return DomainMemoryView(
-        view_id=(
-            "view:req:identity:"
-            f"{content_digest[:_DIGEST_PREFIX_LENGTH]}"
-        ),
+        view_id=(f"view:req:identity:{content_digest[:_DIGEST_PREFIX_LENGTH]}"),
         request_id="req:identity",
         primary_domain="domain:health",
         request_digest=dummy_req_digest,
@@ -568,7 +565,9 @@ def test_permission_from_dict_rejects_invalid_target_domain(bad_domain: Any) -> 
 
 
 @pytest.mark.parametrize("bad_reason", (1, True, [1, 2], {"a": 1}))
-def test_temporal_constructor_rejects_non_string_invalidation_reason(bad_reason: Any) -> None:
+def test_temporal_constructor_rejects_non_string_invalidation_reason(
+    bad_reason: Any,
+) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemoryContractError,
         DomainMemoryTemporalKind,
@@ -599,7 +598,9 @@ def test_temporal_constructor_rejects_free_text_invalidation_reason() -> None:
 
 
 @pytest.mark.parametrize("bad_superseded", (1, True, "free text narrative with spaces"))
-def test_temporal_constructor_rejects_invalid_superseded_by(bad_superseded: Any) -> None:
+def test_temporal_constructor_rejects_invalid_superseded_by(
+    bad_superseded: Any,
+) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemoryContractError,
         DomainMemoryTemporalKind,
@@ -614,7 +615,9 @@ def test_temporal_constructor_rejects_invalid_superseded_by(bad_superseded: Any)
 
 
 @pytest.mark.parametrize("bad_collections", (0, False, 123, "not_a_list"))
-def test_view_from_dict_rejects_non_sequence_selection_decisions(bad_collections: Any) -> None:
+def test_view_from_dict_rejects_non_sequence_selection_decisions(
+    bad_collections: Any,
+) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemorySerializationError,
         DomainMemoryView,
@@ -716,41 +719,53 @@ def test_no_implicit_coercion_for_collections_from_dict(bad_val: Any) -> None:
     )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryViewRequest.from_dict({
-            "request_id": "req:1",
-            "primary_domain": "domain:health",
-            "supporting_domains": bad_val,
-        })
+        DomainMemoryViewRequest.from_dict(
+            {
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "supporting_domains": bad_val,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryViewRequest.from_dict({
-            "request_id": "req:1",
-            "primary_domain": "domain:health",
-            "permission_decision_ids": bad_val,
-        })
+        DomainMemoryViewRequest.from_dict(
+            {
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "permission_decision_ids": bad_val,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryPermissionDecisionSnapshot.from_dict({
-            "decision_id": "perm:1",
-            "allowed": True,
-            "capabilities": bad_val,
-        })
+        DomainMemoryPermissionDecisionSnapshot.from_dict(
+            {
+                "decision_id": "perm:1",
+                "allowed": True,
+                "capabilities": bad_val,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryReferenceInventory.from_dict({
-            "references": bad_val,
-        })
+        DomainMemoryReferenceInventory.from_dict(
+            {
+                "references": bad_val,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryProposalSnapshot.from_dict({
-            "proposal_id": "prop:1",
-            "proposal_kind": "memory_update",
-            "affected_reference_ids": bad_val,
-            "required_capabilities": ["propose"],
-        })
+        DomainMemoryProposalSnapshot.from_dict(
+            {
+                "proposal_id": "prop:1",
+                "proposal_kind": "memory_update",
+                "affected_reference_ids": bad_val,
+                "required_capabilities": ["propose"],
+            }
+        )
 
 
-@pytest.mark.parametrize("bad_val", ("", b"", {}, False, 0, 1, ["list_instead_of_tuple"]))
+@pytest.mark.parametrize(
+    "bad_val", ("", b"", {}, False, 0, 1, ["list_instead_of_tuple"])
+)
 def test_no_implicit_coercion_for_collections_direct_constructor(bad_val: Any) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemoryContractError,
@@ -791,7 +806,9 @@ def test_no_implicit_coercion_for_collections_direct_constructor(bad_val: Any) -
         "freeTextNarrative",
     ),
 )
-def test_temporal_constructor_rejects_narrative_invalidation_reason(bad_reason: str) -> None:
+def test_temporal_constructor_rejects_narrative_invalidation_reason(
+    bad_reason: str,
+) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemoryContractError,
         DomainMemoryTemporalKind,
@@ -815,7 +832,9 @@ def test_temporal_constructor_rejects_narrative_invalidation_reason(bad_reason: 
         "freeTextNarrative",
     ),
 )
-def test_temporal_constructor_rejects_narrative_superseded_by(bad_superseded: str) -> None:
+def test_temporal_constructor_rejects_narrative_superseded_by(
+    bad_superseded: str,
+) -> None:
     from cmm.domains.memory_contracts import (
         DomainMemoryContractError,
         DomainMemoryTemporalKind,
@@ -844,22 +863,44 @@ def test_direct_construction_with_none_raises_contract_error() -> None:
     )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryViewRequest(request_id="req:1", primary_domain="domain:health", supporting_domains=None)
+        DomainMemoryViewRequest(
+            request_id="req:1", primary_domain="domain:health", supporting_domains=None
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryPermissionDecisionSnapshot(decision_id="perm:1", allowed=True, capabilities=None)
+        DomainMemoryPermissionDecisionSnapshot(
+            decision_id="perm:1", allowed=True, capabilities=None
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryProposalSnapshot(proposal_id="prop:1", proposal_kind="memory_update", affected_reference_ids=None)
+        DomainMemoryProposalSnapshot(
+            proposal_id="prop:1",
+            proposal_kind="memory_update",
+            affected_reference_ids=None,
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryReference(reference_id="ref:1", canonical_id="item:1", domain_id="domain:health", kind="knowledge_item", evidence_ids=None)
+        DomainMemoryReference(
+            reference_id="ref:1",
+            canonical_id="item:1",
+            domain_id="domain:health",
+            kind="knowledge_item",
+            evidence_ids=None,
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemorySelectionDecision(reference_id="ref:1", code="selected", related_reference_ids=None)
+        DomainMemorySelectionDecision(
+            reference_id="ref:1", code="selected", related_reference_ids=None
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryProposalBinding(binding_id="binding:domain:health:trace:1:view:req:1:abc:123", domain_id="domain:health", trace_id="trace:1", view_id="view:req:1:abc", memory_proposal_ids=None)
+        DomainMemoryProposalBinding(
+            binding_id="binding:domain:health:trace:1:view:req:1:abc:123",
+            domain_id="domain:health",
+            trace_id="trace:1",
+            view_id="view:req:1:abc",
+            memory_proposal_ids=None,
+        )
 
     with pytest.raises(DomainMemoryContractError):
         DomainMemoryReferenceInventory(references=None)
@@ -868,10 +909,22 @@ def test_direct_construction_with_none_raises_contract_error() -> None:
         DomainMemoryValidationResult(is_valid=True, code="valid", codes=None)
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryView(view_id="view:1", request_id="req:1", primary_domain="domain:health", request_digest="a" * 64, selection_decisions=None)
+        DomainMemoryView(
+            view_id="view:1",
+            request_id="req:1",
+            primary_domain="domain:health",
+            request_digest="a" * 64,
+            selection_decisions=None,
+        )
 
     with pytest.raises(DomainMemoryContractError):
-        DomainMemoryView(view_id="view:1", request_id="req:1", primary_domain="domain:health", request_digest="a" * 64, selected_references=None)
+        DomainMemoryView(
+            view_id="view:1",
+            request_id="req:1",
+            primary_domain="domain:health",
+            request_digest="a" * 64,
+            selected_references=None,
+        )
 
 
 def test_from_dict_with_null_collection_raises_serialization_error() -> None:
@@ -887,34 +940,76 @@ def test_from_dict_with_null_collection_raises_serialization_error() -> None:
     )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryViewRequest.from_dict({"request_id": "req:1", "primary_domain": "domain:health", "supporting_domains": None})
+        DomainMemoryViewRequest.from_dict(
+            {
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "supporting_domains": None,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryViewRequest.from_dict({"request_id": "req:1", "primary_domain": "domain:health", "permission_decision_ids": None})
+        DomainMemoryViewRequest.from_dict(
+            {
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "permission_decision_ids": None,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryPermissionDecisionSnapshot.from_dict({"decision_id": "perm:1", "allowed": True, "capabilities": None})
+        DomainMemoryPermissionDecisionSnapshot.from_dict(
+            {"decision_id": "perm:1", "allowed": True, "capabilities": None}
+        )
 
     with pytest.raises(DomainMemorySerializationError):
         DomainMemoryReferenceInventory.from_dict({"references": None})
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemorySelectionDecision.from_dict({"reference_id": "ref:1", "code": "selected", "related_reference_ids": None})
+        DomainMemorySelectionDecision.from_dict(
+            {"reference_id": "ref:1", "code": "selected", "related_reference_ids": None}
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryValidationResult.from_dict({"is_valid": True, "code": "valid", "codes": None})
+        DomainMemoryValidationResult.from_dict(
+            {"is_valid": True, "code": "valid", "codes": None}
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryProposalSnapshot.from_dict({"proposal_id": "prop:1", "proposal_kind": "memory_update", "affected_reference_ids": None})
+        DomainMemoryProposalSnapshot.from_dict(
+            {
+                "proposal_id": "prop:1",
+                "proposal_kind": "memory_update",
+                "affected_reference_ids": None,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryValidationResult.from_dict({"is_valid": True, "code": "valid", "affected_object_ids": None})
+        DomainMemoryValidationResult.from_dict(
+            {"is_valid": True, "code": "valid", "affected_object_ids": None}
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryView.from_dict({"view_id": "view:1", "request_id": "req:1", "primary_domain": "domain:health", "request_digest": "a" * 64, "selection_decisions": None})
+        DomainMemoryView.from_dict(
+            {
+                "view_id": "view:1",
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "request_digest": "a" * 64,
+                "selection_decisions": None,
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryView.from_dict({"view_id": "view:1", "request_id": "req:1", "primary_domain": "domain:health", "request_digest": "a" * 64, "selected_references": None})
+        DomainMemoryView.from_dict(
+            {
+                "view_id": "view:1",
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "request_digest": "a" * 64,
+                "selected_references": None,
+            }
+        )
 
 
 def test_from_dict_rejects_non_list_and_subclass_collections() -> None:
@@ -927,24 +1022,28 @@ def test_from_dict_rejects_non_list_and_subclass_collections() -> None:
         pass
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryView.from_dict({
-            "view_id": "view:1",
-            "request_id": "req:1",
-            "primary_domain": "domain:health",
-            "request_digest": "a" * 64,
-            "selection_decisions": (),
-            "selected_references": [],
-        })
+        DomainMemoryView.from_dict(
+            {
+                "view_id": "view:1",
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "request_digest": "a" * 64,
+                "selection_decisions": (),
+                "selected_references": [],
+            }
+        )
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryView.from_dict({
-            "view_id": "view:1",
-            "request_id": "req:1",
-            "primary_domain": "domain:health",
-            "request_digest": "a" * 64,
-            "selection_decisions": [],
-            "selected_references": CustomList(),
-        })
+        DomainMemoryView.from_dict(
+            {
+                "view_id": "view:1",
+                "request_id": "req:1",
+                "primary_domain": "domain:health",
+                "request_digest": "a" * 64,
+                "selection_decisions": [],
+                "selected_references": CustomList(),
+            }
+        )
 
 
 def test_from_dict_rejects_preconstructed_snapshot_instances() -> None:
@@ -973,9 +1072,11 @@ def test_from_dict_rejects_preconstructed_snapshot_instances() -> None:
         DomainMemoryReference.from_dict(ref_dict)
 
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryReferenceInventory.from_dict({
-            "references": [ref],
-        })
+        DomainMemoryReferenceInventory.from_dict(
+            {
+                "references": [ref],
+            }
+        )
 
 
 def test_from_dict_rejects_dict_subclass_for_nested_objects() -> None:
@@ -1015,9 +1116,11 @@ def test_from_dict_rejects_dict_subclass_for_nested_objects() -> None:
     # 2. DomainMemoryReferenceInventory.from_dict with reference as DictSubclass
     ref_json = ref.to_dict()
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryReferenceInventory.from_dict({
-            "references": [DictSubclass(ref_json)],
-        })
+        DomainMemoryReferenceInventory.from_dict(
+            {
+                "references": [DictSubclass(ref_json)],
+            }
+        )
 
     # 3. DomainMemoryReferenceInventory.from_dict with proposal as DictSubclass
     prop_json = {
@@ -1027,14 +1130,18 @@ def test_from_dict_rejects_dict_subclass_for_nested_objects() -> None:
         "required_capabilities": ["PROPOSE"],
     }
     with pytest.raises(DomainMemorySerializationError):
-        DomainMemoryReferenceInventory.from_dict({
-            "proposals": [DictSubclass(prop_json)],
-        })
+        DomainMemoryReferenceInventory.from_dict(
+            {
+                "proposals": [DictSubclass(prop_json)],
+            }
+        )
 
     # Positive control: exact dict in inventory is accepted
-    inv = DomainMemoryReferenceInventory.from_dict({
-        "references": [ref_json],
-        "proposals": [prop_json],
-    })
+    inv = DomainMemoryReferenceInventory.from_dict(
+        {
+            "references": [ref_json],
+            "proposals": [prop_json],
+        }
+    )
     assert len(inv.references) == 1
     assert len(inv.proposals) == 1

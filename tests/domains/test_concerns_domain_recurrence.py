@@ -91,9 +91,7 @@ def test_changed_impact_is_visible():
 
 def test_single_repeat_never_triggers_pattern():
     record = evaluate_repetitive_certainty_pattern(
-        turns=(
-            {"turn": 1, "same_question": True, "relief_then_checking": True},
-        )
+        turns=({"turn": 1, "same_question": True, "relief_then_checking": True},)
     )
     assert record["pattern_detected"] is False
     assert record["pathology_inferred"] is False
@@ -106,10 +104,30 @@ def test_multi_turn_impossible_certainty_requires_all_grounds():
     certainty pursuit) cannot be invented.  ``same_question`` alone never
     implies impossible-certainty pursuit (I-002)."""
     full_turns = (
-        {"turn": 1, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 2, "same_question": True, "evidence_state": "unchanged", "pursuing_certainty": True},
-        {"turn": 3, "same_question": True, "evidence_state": "unchanged", "impossible_certainty": True},
-        {"turn": 4, "same_question": True, "relief_followed_by_checking": True, "pursuing_certainty": True},
+        {
+            "turn": 1,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 2,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "pursuing_certainty": True,
+        },
+        {
+            "turn": 3,
+            "same_question": True,
+            "evidence_state": "unchanged",
+            "impossible_certainty": True,
+        },
+        {
+            "turn": 4,
+            "same_question": True,
+            "relief_followed_by_checking": True,
+            "pursuing_certainty": True,
+        },
     )
     complete = evaluate_repetitive_certainty_pattern(turns=full_turns)
     assert complete["pattern_detected"] is True
@@ -121,8 +139,13 @@ def test_multi_turn_impossible_certainty_requires_all_grounds():
     assert complete["unresolved_uncertainty_visible"] is True
 
     missing_relief = evaluate_repetitive_certainty_pattern(
-        turns=tuple(turn for turn in full_turns if "relief_followed_by_checking" not in turn)
-        + ({"turn": 9, "same_question": True, "pursuing_certainty": True}, {"turn": 10, "same_question": True, "pursuing_certainty": True})
+        turns=tuple(
+            turn for turn in full_turns if "relief_followed_by_checking" not in turn
+        )
+        + (
+            {"turn": 9, "same_question": True, "pursuing_certainty": True},
+            {"turn": 10, "same_question": True, "pursuing_certainty": True},
+        )
     )
     assert missing_relief["pattern_detected"] is False
 
@@ -164,7 +187,8 @@ def test_no_action_is_valid_outcome():
 
 def test_user_wants_to_wait_preserves_agency():
     record = evaluate_action_state(
-        options=("talk to manager",), urgency=None,
+        options=("talk to manager",),
+        urgency=None,
         user_request="I want to wait and observe a bit.",
     )
     # Explicit wait is respected (I-003): NO_ACTION_NEEDED exactly.
@@ -280,7 +304,12 @@ def test_ungrounded_opinion_is_not_stated_as_grounded():
 
 
 def test_ordinary_sadness_is_not_escalated():
-    for signal in ("ordinary sadness", "fear", "relationship conflict", "repeated worry"):
+    for signal in (
+        "ordinary sadness",
+        "fear",
+        "relationship conflict",
+        "repeated worry",
+    ):
         record = evaluate_immediate_risk_escalation(
             risk_state={"described_signal": signal, "emotional_intensity": "very high"}
         )

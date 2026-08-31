@@ -45,8 +45,7 @@ def test_relational_effects_and_sensitive_persistence_denied():
     policy = build_relationships_permission_policy()
 
     assert (
-        PermissionCapability.SENSITIVE_INFERENCE
-        not in policy.prohibited_capabilities
+        PermissionCapability.SENSITIVE_INFERENCE not in policy.prohibited_capabilities
     )
 
     for capability in _SENSITIVE_RELATIONAL - {

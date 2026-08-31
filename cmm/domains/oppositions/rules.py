@@ -135,11 +135,7 @@ def _value_missing(value: Any) -> bool:
 
 
 def _values_compatible(left: Any, right: Any) -> bool:
-    return (
-        not _value_missing(left)
-        and not _value_missing(right)
-        and left == right
-    )
+    return not _value_missing(left) and not _value_missing(right) and left == right
 
 
 def _incompatible(left: Any, right: Any) -> bool:
@@ -234,7 +230,9 @@ TEMPORAL_TIMELESS = "timeless"
 TEMPORAL_CONFLICTING = "conflicting"
 TEMPORAL_SUPERSEDED = "superseded"
 
-_CURRENT_TEMPORAL_STATES: frozenset[str] = frozenset({TEMPORAL_VALID, TEMPORAL_TIMELESS})
+_CURRENT_TEMPORAL_STATES: frozenset[str] = frozenset(
+    {TEMPORAL_VALID, TEMPORAL_TIMELESS}
+)
 
 
 def _normalize_source_class(value: Any) -> str:
@@ -422,10 +420,7 @@ def _source_speaks_about(source: Mapping, attribute: str) -> bool:
     supplied = source.get("supplied_attributes", ())
     if isinstance(supplied, (list, tuple)) and attribute in supplied:
         return True
-    return (
-        isinstance(source.get("attribute"), str)
-        and source["attribute"] == attribute
-    )
+    return isinstance(source.get("attribute"), str) and source["attribute"] == attribute
 
 
 _MAPPING_IDENTITY_KEYS = frozenset(
@@ -751,9 +746,7 @@ def classify_opposition_source_authority(
                 "rank": rank,
                 "value": source.get("value"),
                 "supersedes": (
-                    ()
-                    if supersedes_evidence.malformed
-                    else supersedes_evidence.items
+                    () if supersedes_evidence.malformed else supersedes_evidence.items
                 ),
                 "supersedes_malformed": supersedes_evidence.malformed,
                 "superseded_by": (
@@ -803,7 +796,9 @@ def classify_opposition_source_authority(
             isinstance(source, Mapping)
             and _source_speaks_about(source, attribute)
             and not _value_missing(source.get("value"))
-            and _usable_reference(source.get("source_reference", source.get("source_ref")))
+            and _usable_reference(
+                source.get("source_reference", source.get("source_ref"))
+            )
             is None
             for source in sources
         )
@@ -901,16 +896,14 @@ def classify_opposition_source_authority(
     for candidate in candidates:
         for target in candidate["supersedes"]:
             target_candidate = by_source_id.get(target)
-            if (
-                target_candidate is not None
-                and _valid_supersession(candidate, target_candidate)
+            if target_candidate is not None and _valid_supersession(
+                candidate, target_candidate
             ):
                 superseded_ids.add(target)
         for target in supersession_candidates:
-            if (
-                candidate["source_id"] in target["superseded_by"]
-                and _valid_supersession(candidate, target)
-            ):
+            if candidate["source_id"] in target[
+                "superseded_by"
+            ] and _valid_supersession(candidate, target):
                 superseded_ids.add(target["source_id"])
 
     active = [e for e in candidates if e["source_id"] not in superseded_ids]
@@ -920,10 +913,7 @@ def classify_opposition_source_authority(
     best_rank = max(e["rank"] for e in active)
     best = [e for e in active if e["rank"] == best_rank]
     best_specificity = max(_SPECIFICITY_RANK[e["specificity"]] for e in best)
-    top = [
-        e for e in best
-        if _SPECIFICITY_RANK[e["specificity"]] == best_specificity
-    ]
+    top = [e for e in best if _SPECIFICITY_RANK[e["specificity"]] == best_specificity]
 
     potentially_current_unknown = [
         candidate
@@ -933,8 +923,7 @@ def classify_opposition_source_authority(
             candidate["rank"] > best_rank
             or (
                 candidate["rank"] == best_rank
-                and _SPECIFICITY_RANK[candidate["specificity"]]
-                >= best_specificity
+                and _SPECIFICITY_RANK[candidate["specificity"]] >= best_specificity
             )
         )
         and any(
@@ -966,8 +955,7 @@ def classify_opposition_source_authority(
                 sorted(
                     source_id
                     for source_id in (
-                        _usable_scalar_string(source["source_id"])
-                        for source in top
+                        _usable_scalar_string(source["source_id"]) for source in top
                     )
                     if source_id is not None
                 )
@@ -1152,7 +1140,8 @@ def classify_opposition_temporal(
     verification_needed = bool(
         critical
         and (
-            state in (
+            state
+            in (
                 "missing",
                 "stale",
                 "conflicting",
@@ -1203,9 +1192,7 @@ def opposition_call_monitoring(
     """
     active = _boolean_true(objective_active)
     due_states = ("missing", "stale", "conflicting", "unknown", "undergrounded")
-    monitoring_needed = bool(
-        active and call_state in due_states
-    )
+    monitoring_needed = bool(active and call_state in due_states)
     return {
         "monitoring_needed": monitoring_needed,
         "objective_active": active,
@@ -1315,9 +1302,7 @@ def evaluate_syllabus_coverage(
     forgetting; an aggregate percentage can never override contradictory
     topic-level evidence.
     """
-    topics_evidence = _normalize_collection_value(
-        topics, require_mapping_elements=True
-    )
+    topics_evidence = _normalize_collection_value(topics, require_mapping_elements=True)
     topic_list = topics_evidence.items
     version_usable = _usable_scalar_string(syllabus_version)
     version_is_current = _boolean_true(syllabus_current)
@@ -1404,8 +1389,7 @@ def evaluate_syllabus_coverage(
     # forgetting.
     retention_risk = bool(review_due_count > 0)
     elapsed_time_cue = (
-        _parse_non_negative_int(past_minutes) is not None
-        and int(past_minutes) > 0
+        _parse_non_negative_int(past_minutes) is not None and int(past_minutes) > 0
     )
     forgetting_proven = False  # never proven by elapsed time alone
     review_cue = bool(retention_risk or elapsed_time_cue)
@@ -1671,9 +1655,7 @@ def evaluate_study_feasibility(
             {
                 "feasible": True,
                 "class": "best_fit",
-                "daily_hours": round(
-                    required_work / (target if target else 1), 2
-                )
+                "daily_hours": round(required_work / (target if target else 1), 2)
                 if required_work > 0 and target
                 else None,
                 "adopted": False,
@@ -1776,9 +1758,7 @@ def evaluate_mock_performance(
     Never infers intelligence, fixed capacity, or a guaranteed official-exam
     result.  Speed and knowledge remain separate where evidence permits.
     """
-    mocks_evidence = _normalize_collection_value(
-        mocks, require_mapping_elements=True
-    )
+    mocks_evidence = _normalize_collection_value(mocks, require_mapping_elements=True)
     records = mocks_evidence.items
     malformed = mocks_evidence.malformed or _semantic_evidence_malformed(records)
 
@@ -1921,8 +1901,7 @@ def evaluate_mock_performance(
         # pick the start/end score.  Exact duplicates at one instant corroborate
         # but never prove temporal progression by themselves.
         ambiguous_instant = any(
-            len({obs["score"] for obs in group}) > 1
-            for group in by_instant.values()
+            len({obs["score"] for obs in group}) > 1 for group in by_instant.values()
         )
         if distinct_instants >= 2 and not ambiguous_instant:
             # sorted by instant, then a deterministic identity tie-break so a
@@ -2089,7 +2068,9 @@ def compare_alternative_routes(
             "target_changed": False,
         }
 
-    primary_id = _usable_scalar_string(primary_route.get("id", primary_route.get("body_id")))
+    primary_id = _usable_scalar_string(
+        primary_route.get("id", primary_route.get("body_id"))
+    )
     if primary_id is None:
         return {
             "resolved": False,
@@ -2171,16 +2152,16 @@ def compare_alternative_routes(
     # Prefer best-fit by syllabus overlap (a preference) only after hard
     # constraints are met; eligibility != "eligible" is a hard blocker.
     eligible_routes = [
-        route
-        for route in evaluated_routes
-        if route["eligibility"] == "eligible"
+        route for route in evaluated_routes if route["eligibility"] == "eligible"
     ]
     best_eligible = None
     if eligible_routes:
         best_eligible = max(
             eligible_routes,
             key=lambda route: (
-                route["syllabus_overlap"] if route["syllabus_overlap"] is not None else -1
+                route["syllabus_overlap"]
+                if route["syllabus_overlap"] is not None
+                else -1
             ),
         )
     # A conflicting alternative identity OR an unresolved conditional route
@@ -2207,11 +2188,7 @@ def compare_alternative_routes(
             }
         )
 
-    resolved = (
-        not malformed_route_member
-        and not has_conflict
-        and not has_conditional
-    )
+    resolved = not malformed_route_member and not has_conflict and not has_conditional
 
     return {
         "resolved": resolved,
@@ -2227,9 +2204,7 @@ def compare_alternative_routes(
         "stale_route_ids": tuple(sorted(stale_route_ids)),
         "trade_offs": tuple(trade_offs),
         "recommendation": (
-            best_eligible["route_id"]
-            if best_eligible is not None
-            else None
+            best_eligible["route_id"] if best_eligible is not None else None
         ),
         "hard_constraints_before_preferences": True,
     }
@@ -2401,20 +2376,20 @@ class OfficialCallPriorityRule:
                 for claim in attribute_claims
                 if (ref := _usable_scalar_string(claim.get("id"))) is not None
             )
-            verification_need = conditional_verification_trigger(
-                fact_state=(
-                    "conflicting"
-                    if authority["conflict"]
-                    else "unknown"
-                ),
-                decision_critical=decision_critical,
-                attribute=attribute,
-                scope=request_scope,
-            ) if not authority["authority_resolved"] else conditional_verification_trigger(
-                fact_state="confirmed_official",
-                decision_critical=False,
-                attribute=attribute,
-                scope=request_scope,
+            verification_need = (
+                conditional_verification_trigger(
+                    fact_state=("conflicting" if authority["conflict"] else "unknown"),
+                    decision_critical=decision_critical,
+                    attribute=attribute,
+                    scope=request_scope,
+                )
+                if not authority["authority_resolved"]
+                else conditional_verification_trigger(
+                    fact_state="confirmed_official",
+                    decision_critical=False,
+                    attribute=attribute,
+                    scope=request_scope,
+                )
             )
             findings.append(
                 ReasoningFinding(
@@ -2568,7 +2543,10 @@ class SyllabusCoverageRule:
     definition: DomainReasoningRuleDefinition
 
     def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
-        if "topics" not in context.metadata and "syllabus_version" not in context.metadata:
+        if (
+            "topics" not in context.metadata
+            and "syllabus_version" not in context.metadata
+        ):
             return _result(
                 self.definition,
                 context,
@@ -2902,7 +2880,13 @@ def _claim_source(claim: Mapping) -> Mapping:
         "supplied_attributes": (_claim_attribute(claim),),
         "value": _claim_value(claim),
     }
-    for key in ("scope", "supersedes", "superseded_by", "source_reference", "source_ref"):
+    for key in (
+        "scope",
+        "supersedes",
+        "superseded_by",
+        "source_reference",
+        "source_ref",
+    ):
         if key in claim:
             source[key] = claim[key]
     return source

@@ -363,12 +363,18 @@ def test_f2_1_question_gate_allows_correct_suppression_and_requires_all_emitted_
 
     # Check workflow gate
     wfs = build_concerns_workflow_definitions()
-    open_concern = next(w for w in wfs if w.workflow_id == "concerns.open_concern_conversation")
-    gate_node = next(n for n in open_concern.nodes if n.node_id == "material_question_gate")
+    open_concern = next(
+        w for w in wfs if w.workflow_id == "concerns.open_concern_conversation"
+    )
+    gate_node = next(
+        n for n in open_concern.nodes if n.node_id == "material_question_gate"
+    )
 
     # Gate condition must match producer field
     for k, v in gate_node.wait_condition.items():
-        assert result.get(k) == v, f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+        assert result.get(k) == v, (
+            f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+        )
 
 
 def test_f2_2_catastrophic_escalation_all_seven_transitions():
@@ -404,7 +410,9 @@ def test_f2_2_catastrophic_escalation_all_seven_transitions():
             transitions=[{"source_kind": src, "proposed_kind": prop}]
         )
         assert op_res["catastrophic_promotions_detected"] >= 1
-        assert op_res["catastrophic_escalation_present"] is False  # Safely caught & blocked!
+        assert (
+            op_res["catastrophic_escalation_present"] is False
+        )  # Safely caught & blocked!
 
 
 def test_f2_2_safely_blocked_fact_label_promotion_passes_catastrophic_gate():
@@ -425,11 +433,17 @@ def test_f2_2_safely_blocked_fact_label_promotion_passes_catastrophic_gate():
 
     # Check workflow gate
     wfs = build_concerns_workflow_definitions()
-    reality_check = next(w for w in wfs if w.workflow_id == "concerns.reassurance_review")
-    prop_gate = next(n for n in reality_check.nodes if n.node_id == "proportionality_gate")
+    reality_check = next(
+        w for w in wfs if w.workflow_id == "concerns.reassurance_review"
+    )
+    prop_gate = next(
+        n for n in reality_check.nodes if n.node_id == "proportionality_gate"
+    )
 
     for k, v in prop_gate.wait_condition.items():
-        assert result.get(k) == v, f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+        assert result.get(k) == v, (
+            f"Workflow gate condition {k}={v} must match producer result {result.get(k)}"
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -476,7 +490,10 @@ def test_f3_caveat_stacking_enforced_by_rule_and_presentation():
     finding = rule_res.findings[0]
     assert finding.metadata["suppressed_caveats_count"] == 1
     assert len(finding.metadata["retained_caveats"]) == 1
-    assert finding.metadata["retained_caveats"][0]["caveat"] == "there is a severe storm warning in effect today"
+    assert (
+        finding.metadata["retained_caveats"][0]["caveat"]
+        == "there is a severe storm warning in effect today"
+    )
     assert finding.metadata["remote_possibilities_not_stacked"] is True
 
     # 2. Presentation path filters remote caveats
@@ -620,7 +637,11 @@ def test_f5_connected_dp025_standard_resolver_and_workflow():
     context = builder.build(
         registry_snapshot=registry.snapshot(),
         user_input="My partner didn't reply to my message and I'm afraid they are losing interest",
-        authorized_domains=("domain:concerns", "domain:relationships", "domain:general"),
+        authorized_domains=(
+            "domain:concerns",
+            "domain:relationships",
+            "domain:general",
+        ),
         resources=(
             DomainResolutionResource(
                 id="res:msg:1",
@@ -676,7 +697,9 @@ def test_f5_connected_dp025_standard_resolver_and_workflow():
     # 3. Real workflow execution
     all_wfs = build_concerns_workflow_definitions()
     all_ops = build_concerns_operation_definitions()
-    open_concern_wf = next(w for w in all_wfs if w.workflow_id == "concerns.open_concern_conversation")
+    open_concern_wf = next(
+        w for w in all_wfs if w.workflow_id == "concerns.open_concern_conversation"
+    )
 
     def adapter(node, run):
         if node.operation_id == "concerns.understand_concern":
@@ -723,7 +746,10 @@ def test_f5_connected_dp025_standard_resolver_and_workflow():
     wf_run = executor.execute(
         open_concern_wf,
         wf_context,
-        inputs={"concern": "silence", "specialized_domain_result": relationships_projection},
+        inputs={
+            "concern": "silence",
+            "specialized_domain_result": relationships_projection,
+        },
     )
     assert wf_run.common_run.status is WorkflowRunStatus.COMPLETED
 
@@ -820,7 +846,9 @@ def test_f6_presentation_parity_across_all_13_operations():
     from cmm.domains.concerns.presentation import present_concerns_result
 
     # 1. understand_concern
-    op1 = understand_concern_result(material={"situation": "late reply", "what_matters": "friendship"})
+    op1 = understand_concern_result(
+        material={"situation": "late reply", "what_matters": "friendship"}
+    )
     p1 = present_concerns_result(op1)
     assert "section_order" in p1
 
@@ -835,7 +863,9 @@ def test_f6_presentation_parity_across_all_13_operations():
     assert len(p3["experiences"]) == 1
 
     # 4. separate_reality_interpretation
-    op4 = separate_reality_interpretation_result(statements=({"statement": "they are angry", "level": "interpretation"},))
+    op4 = separate_reality_interpretation_result(
+        statements=({"statement": "they are angry", "level": "interpretation"},)
+    )
     p4 = present_concerns_result(op4)
     assert len(p4["interpretations"]) == 1
 
@@ -850,7 +880,11 @@ def test_f6_presentation_parity_across_all_13_operations():
     assert "section_order" in p6
 
     # 7. evaluate_reassurance
-    op7 = evaluate_reassurance_result(target_claim="they are safe", evidence=(), uncertainty=({"unknown": "whereabouts"},))
+    op7 = evaluate_reassurance_result(
+        target_claim="they are safe",
+        evidence=(),
+        uncertainty=({"unknown": "whereabouts"},),
+    )
     p7 = present_concerns_result(op7)
     assert p7["reassurance_assessment"] == op7["assessment"]
 
@@ -860,17 +894,23 @@ def test_f6_presentation_parity_across_all_13_operations():
     assert p8["risk"]["risk_level"] == op8["risk_level"]
 
     # 9. identify_open_questions
-    op9 = identify_open_questions_result(questions=({"question": "When did you last speak?", "changes": ("meaning",)},))
+    op9 = identify_open_questions_result(
+        questions=({"question": "When did you last speak?", "changes": ("meaning",)},)
+    )
     p9 = present_concerns_result(op9)
     assert "section_order" in p9
 
     # 10. explore_options
-    op10 = explore_options_result(options=({"option_id": "opt1", "expected_benefit": "clarity"},))
+    op10 = explore_options_result(
+        options=({"option_id": "opt1", "expected_benefit": "clarity"},)
+    )
     p10 = present_concerns_result(op10)
     assert len(p10["options"]) == 1
 
     # 11. prepare_next_step
-    op11 = prepare_next_step_result(desired_outcome="clarity", options=("opt1",), user_request="What to do?")
+    op11 = prepare_next_step_result(
+        desired_outcome="clarity", options=("opt1",), user_request="What to do?"
+    )
     p11 = present_concerns_result(op11)
     assert p11["next_step"] is not None
 
@@ -880,6 +920,8 @@ def test_f6_presentation_parity_across_all_13_operations():
     assert "section_order" in p12
 
     # 13. prepare_professional_discussion
-    op13 = prepare_professional_discussion_result(concern_summary="health symptoms", key_facts=("bp 120/80",))
+    op13 = prepare_professional_discussion_result(
+        concern_summary="health symptoms", key_facts=("bp 120/80",)
+    )
     p13 = present_concerns_result(op13)
     assert "section_order" in p13

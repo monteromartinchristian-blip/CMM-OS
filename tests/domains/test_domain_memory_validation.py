@@ -22,13 +22,9 @@ from cmm.domains.memory_validation import (
     DomainMemoryIntegrationValidator,
 )
 
-_VIEW_DIGEST_1 = _sha256_digest(
-    {"fixture_id": "view:req:1"}
-)
-_VID1 = (
-    "view:req:1:"
-    f"{_VIEW_DIGEST_1[:_DIGEST_PREFIX_LENGTH]}"
-)
+_VIEW_DIGEST_1 = _sha256_digest({"fixture_id": "view:req:1"})
+_VID1 = f"view:req:1:{_VIEW_DIGEST_1[:_DIGEST_PREFIX_LENGTH]}"
+
 
 def _make_binding_id(
     *,
@@ -50,9 +46,7 @@ def _make_binding_id(
             "view_id": view_id,
             "view_digest": view_digest,
             "memory_proposal_ids": sorted(set(memory_proposal_ids)),
-            "agent_knowledge_proposal_ids": sorted(
-                set(agent_knowledge_proposal_ids)
-            ),
+            "agent_knowledge_proposal_ids": sorted(set(agent_knowledge_proposal_ids)),
             "affected_reference_ids": sorted(set(affected_reference_ids)),
             "permission_decision_ids": sorted(set(permission_decision_ids)),
             "approval_request_ids": sorted(set(approval_request_ids)),
@@ -98,13 +92,9 @@ def _make_view_id(
     payload = {
         "request_id": request_id,
         "primary_domain": primary_domain,
-        "selection_decisions": [
-            decision.to_dict()
-            for decision in selection_decisions
-        ],
+        "selection_decisions": [decision.to_dict() for decision in selection_decisions],
         "selected_references": [
-            reference.to_dict()
-            for reference in selected_references
+            reference.to_dict() for reference in selected_references
         ],
     }
     if request_digest is not None:
@@ -115,10 +105,7 @@ def _make_view_id(
         payload["temporal_reference"] = temporal_reference
 
     digest = _sha256_digest(payload)
-    return (
-        f"view:{request_id}:"
-        f"{digest[:_DIGEST_PREFIX_LENGTH]}"
-    )
+    return f"view:{request_id}:{digest[:_DIGEST_PREFIX_LENGTH]}"
 
 
 def test_validate_view_valid() -> None:
@@ -431,6 +418,7 @@ def test_validate_binding_missing_approval_rejected() -> None:
     assert result.is_valid is False
     assert result.code == DomainMemoryValidationCode.INVALID_APPROVAL_REQUIRED
 
+
 def test_validate_view_rejects_declared_unknown_permission_id() -> None:
     from cmm.domains.memory_view import DefaultDomainMemoryViewResolver
 
@@ -525,9 +513,8 @@ def test_validate_binding_rejects_declared_unknown_permission_id() -> None:
 
 
 def test_validate_binding_rejects_mismatched_full_view_digest() -> None:
-    tampered_view_digest = (
-        _VIEW_DIGEST_1[:_DIGEST_PREFIX_LENGTH]
-        + ("f" * (64 - _DIGEST_PREFIX_LENGTH))
+    tampered_view_digest = _VIEW_DIGEST_1[:_DIGEST_PREFIX_LENGTH] + (
+        "f" * (64 - _DIGEST_PREFIX_LENGTH)
     )
     assert tampered_view_digest != _VIEW_DIGEST_1
 
@@ -705,7 +692,9 @@ def test_validate_view_rejects_post_construction_tampering_temporal_reference() 
     )
 
 
-def test_validate_view_rejects_post_construction_tampering_selection_decisions() -> None:
+def test_validate_view_rejects_post_construction_tampering_selection_decisions() -> (
+    None
+):
     from cmm.domains.memory_contracts import (
         DomainMemoryPermissionDecisionSnapshot,
         DomainMemoryReference,
@@ -836,7 +825,9 @@ def test_validate_binding_rejects_post_construction_tampering_fields() -> None:
     assert validator.validate_binding(binding, inventory).is_valid is True
 
     # 1. Tamper permission_decision_ids (with known IDs in inventory)
-    object.__setattr__(binding, "permission_decision_ids", ("perm:write:1", "perm:write:2"))
+    object.__setattr__(
+        binding, "permission_decision_ids", ("perm:write:1", "perm:write:2")
+    )
     res_perm = validator.validate_binding(binding, inventory)
     assert res_perm.is_valid is False
     assert res_perm.code == DomainMemoryValidationCode.INVALID_DIGEST_TAMPERED

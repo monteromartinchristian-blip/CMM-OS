@@ -25,8 +25,7 @@ from cmm.domains.resource_contracts import (
 )
 
 REFLECTION_RESOURCE_KINDS: tuple[str, ...] = tuple(
-    resource_id.split(".", 1)[1]
-    for resource_id in CANONICAL_REFLECTION_RESOURCE_IDS
+    resource_id.split(".", 1)[1] for resource_id in CANONICAL_REFLECTION_RESOURCE_IDS
 )
 
 
@@ -174,8 +173,7 @@ def build_reflection_resource_definitions() -> tuple[DomainResourceDefinition, .
         ),
     }
     return tuple(
-        by_id[resource_id]
-        for resource_id in CANONICAL_REFLECTION_RESOURCE_IDS
+        by_id[resource_id] for resource_id in CANONICAL_REFLECTION_RESOURCE_IDS
     )
 
 

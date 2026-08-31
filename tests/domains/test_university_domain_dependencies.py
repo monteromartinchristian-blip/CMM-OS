@@ -51,10 +51,9 @@ def _academic_record(subject_id, status, *, ects=0, source="record-1", grounded=
 
 
 def _canonical_result(dependency):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.academic_dependency"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.academic_dependency"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="dependency-production",
         timestamp=T,
@@ -249,7 +248,6 @@ def test_direct_helper_credit_threshold_numeric_string_does_not_satisfy():
     assert result["dependency_blocked"] is True
 
 
-
 def test_canonical_rule_grounded_subject_state_satisfies_prerequisite():
     result = _canonical_result(
         {
@@ -270,11 +268,14 @@ def test_canonical_rule_credit_threshold_uses_grounded_completed_records():
         {
             "subject_id": "tfg",
             "prerequisites": (
-                {"id": "degree-credits", "kind": "credit_threshold", "required_credits": 180},
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
             ),
             "academic_records": tuple(
-                _academic_record(f"subject-{i}", "completed", ects=29)
-                for i in range(6)
+                _academic_record(f"subject-{i}", "completed", ects=29) for i in range(6)
             ),
         }
     )
@@ -288,7 +289,11 @@ def test_canonical_rule_pending_recognition_is_conditional_not_currently_satisfi
         {
             "subject_id": "tfg",
             "prerequisites": (
-                {"id": "degree-credits", "kind": "tfg_eligibility", "required_credits": 180},
+                {
+                    "id": "degree-credits",
+                    "kind": "tfg_eligibility",
+                    "required_credits": 180,
+                },
             ),
             "academic_records": (
                 _academic_record("completed", "completed", ects=174),
@@ -308,7 +313,11 @@ def test_canonical_rule_conditional_prerequisite_is_in_blocked_ids():
         {
             "subject_id": "tfg",
             "prerequisites": (
-                {"id": "degree-credits", "kind": "credit_threshold", "required_credits": 180},
+                {
+                    "id": "degree-credits",
+                    "kind": "credit_threshold",
+                    "required_credits": 180,
+                },
             ),
             "academic_records": (
                 _academic_record("completed", "completed", ects=174),
@@ -398,7 +407,9 @@ def test_canonical_rule_identityless_credits_cannot_satisfy_threshold():
     )
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_BLOCKED"
-    assert finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+    assert (
+        finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+    )
     assert finding.metadata["satisfied_prerequisites"] == ()
 
 
@@ -418,7 +429,9 @@ def test_canonical_rule_unknown_credit_state_cannot_satisfy_threshold():
     )
     finding = result.findings[0]
     assert finding.code == "DEPENDENCY_BLOCKED"
-    assert finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+    assert (
+        finding.metadata["credit_thresholds"]["degree-credits"]["status"] == "unknown"
+    )
 
 
 def test_canonical_rule_valid_identified_credits_satisfy_valid_threshold():
@@ -701,6 +714,8 @@ def test_canonical_rule_malformed_academic_records_cannot_confirm_credit(malform
     assert finding.metadata["academic_records_malformed"] is True
     assert finding.metadata["credit_evidence_unknown"] is True
     assert finding.metadata["satisfied_prerequisites"] == ()
+
+
 # ── V9-B3.3: strict Dependency credit grounding.  Truthy != grounded. ────────
 
 
@@ -718,7 +733,9 @@ def test_canonical_rule_ungrounded_credit_record_cannot_satisfy_threshold():
                 },
             ),
             "academic_records": (
-                _academic_record("degree-credits", "completed", ects=180, grounded="false"),
+                _academic_record(
+                    "degree-credits", "completed", ects=180, grounded="false"
+                ),
             ),
         }
     )
@@ -742,7 +759,9 @@ def test_canonical_rule_strict_grounded_true_credit_satisfies_threshold():
                 },
             ),
             "academic_records": (
-                _academic_record("degree-credits", "completed", ects=180, grounded=True),
+                _academic_record(
+                    "degree-credits", "completed", ects=180, grounded=True
+                ),
             ),
         }
     )
@@ -761,9 +780,7 @@ def test_v16_dependency_record_identity_collection_cannot_satisfy(
     result = evaluate_academic_dependency(
         subject_id="target",
         dependencies=({"id": "pre1", "kind": "subject"},),
-        academic_records=(
-            _academic_record(malformed_identity, "passed", ects=6),
-        ),
+        academic_records=(_academic_record(malformed_identity, "passed", ects=6),),
         derive_from_academic_state=True,
     )
     assert result["satisfied_prerequisites"] == ()
@@ -810,9 +827,7 @@ def test_v16_canonical_dependency_collection_identity_never_satisfies():
         {
             "subject_id": "target",
             "prerequisites": ({"id": "pre1", "kind": "subject"},),
-            "academic_records": (
-                _academic_record(["pre1"], "passed", ects=6),
-            ),
+            "academic_records": (_academic_record(["pre1"], "passed", ects=6),),
         }
     )
     finding = result.findings[0]

@@ -21,9 +21,7 @@ UNIVERSITY_RULE_IDS: tuple[str, ...] = CANONICAL_UNIVERSITY_RULE_IDS
 UNIVERSITY_OPERATION_IDS: tuple[str, ...] = CANONICAL_UNIVERSITY_OPERATION_IDS
 UNIVERSITY_WORKFLOW_IDS: tuple[str, ...] = CANONICAL_UNIVERSITY_WORKFLOW_IDS
 
-UNIVERSITY_PERMISSION_IDS: tuple[str, ...] = (
-    "domain-permission:university:1.0.0",
-)
+UNIVERSITY_PERMISSION_IDS: tuple[str, ...] = ("domain-permission:university:1.0.0",)
 
 
 def build_university_domain_definition() -> DomainDefinition:

@@ -45,13 +45,10 @@ def test_medical_effects_and_sensitive_persistence_denied():
     policy = build_health_permission_policy()
 
     assert (
-        PermissionCapability.SENSITIVE_INFERENCE
-        not in policy.prohibited_capabilities
+        PermissionCapability.SENSITIVE_INFERENCE not in policy.prohibited_capabilities
     )
 
-    for capability in _SENSITIVE_MEDICAL - {
-        PermissionCapability.SENSITIVE_INFERENCE
-    }:
+    for capability in _SENSITIVE_MEDICAL - {PermissionCapability.SENSITIVE_INFERENCE}:
         assert capability in policy.prohibited_capabilities
         assert capability not in policy.allowed_capabilities
 

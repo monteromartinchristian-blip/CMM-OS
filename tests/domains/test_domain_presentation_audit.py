@@ -58,12 +58,16 @@ def _request(
 
 def _validate(request: DomainPresentationRequest):
     plan = DefaultDomainPresentationPlanner().plan(request)
-    return plan, DefaultDomainPresentationPreservationValidator().validate(request, plan)
+    return plan, DefaultDomainPresentationPreservationValidator().validate(
+        request, plan
+    )
 
 
 @pytest.mark.parametrize("item_type", ("WARNING", "CONTRADICTION", "ESCALATION"))
 def test_always_visible_reference_hidden_is_blocked(item_type: str):
-    request = _request(items=(DomainPresentationItemRef("item-1", item_type, 0, visible=False),))
+    request = _request(
+        items=(DomainPresentationItemRef("item-1", item_type, 0, visible=False),)
+    )
 
     _, result = _validate(request)
 
@@ -112,7 +116,9 @@ def test_required_reference_without_section_is_blocked():
 def test_required_reference_duplicated_in_sections_is_blocked():
     request = _request(items=(DomainPresentationItemRef("warning-1", "WARNING", 0),))
     plan = DefaultDomainPresentationPlanner().plan(request)
-    duplicate_section = replace(plan.sections[0], section_id="duplicate", item_refs=("warning-1",))
+    duplicate_section = replace(
+        plan.sections[0], section_id="duplicate", item_refs=("warning-1",)
+    )
     plan = replace(plan, sections=plan.sections + (duplicate_section,))
 
     result = DefaultDomainPresentationPreservationValidator().validate(request, plan)
@@ -123,7 +129,9 @@ def test_required_reference_duplicated_in_sections_is_blocked():
 def test_completed_workflow_and_discarded_memory_proposal_are_not_forced_visible():
     request = _request(
         items=(
-            DomainPresentationItemRef("workflow-1", "WORKFLOW", 0, pending=False, visible=False),
+            DomainPresentationItemRef(
+                "workflow-1", "WORKFLOW", 0, pending=False, visible=False
+            ),
             DomainPresentationItemRef(
                 "memory-1", "MEMORY_PROPOSAL", 1, pending=False, visible=False
             ),
@@ -190,7 +198,9 @@ def test_effective_required_section_cannot_be_removed():
 
 
 def test_escalation_in_hidden_section_is_blocked():
-    request = _request(items=(DomainPresentationItemRef("escalation-1", "ESCALATION", 0),))
+    request = _request(
+        items=(DomainPresentationItemRef("escalation-1", "ESCALATION", 0),)
+    )
     plan = DefaultDomainPresentationPlanner().plan(request)
     hidden_sections = tuple(
         replace(section, visible=False)
@@ -208,10 +218,19 @@ def test_escalation_in_hidden_section_is_blocked():
 
 def test_mapping_order_does_not_change_effective_required_sections():
     policy = DomainPresentationPolicy(required_sections=("warnings",))
-    first = _request(policy=policy, composition={"required_sections": ["contradictions"], "views": ["summary"]})
-    second = _request(policy=policy, composition={"views": ["summary"], "required_sections": ["contradictions"]})
+    first = _request(
+        policy=policy,
+        composition={"required_sections": ["contradictions"], "views": ["summary"]},
+    )
+    second = _request(
+        policy=policy,
+        composition={"views": ["summary"], "required_sections": ["contradictions"]},
+    )
 
-    assert DefaultDomainPresentationPlanner().plan(first).sections == DefaultDomainPresentationPlanner().plan(second).sections
+    assert (
+        DefaultDomainPresentationPlanner().plan(first).sections
+        == DefaultDomainPresentationPlanner().plan(second).sections
+    )
 
 
 def test_inherited_uncertainty_and_provenance_require_visible_qualified_refs():
@@ -249,10 +268,7 @@ def test_human_readable_omits_empty_disclaimer_scaffold_but_keeps_other_structur
     )
     plan, result = _validate(request)
 
-    assert "disclaimers" not in {
-        section.section_id
-        for section in plan.sections
-    }
+    assert "disclaimers" not in {section.section_id for section in plan.sections}
     assert plan.sections[-1].section_id == "warnings"
     assert plan.detail_level == "detailed"
     assert result.valid is True
@@ -270,7 +286,9 @@ def test_preferred_output_is_used_only_when_request_has_no_resolved_intent():
     )
 
     assert inherited_plan.output_intent.output_type is DomainOutputIntentType.STRUCTURED
-    assert explicit_plan.output_intent.output_type is DomainOutputIntentType.HUMAN_READABLE
+    assert (
+        explicit_plan.output_intent.output_type is DomainOutputIntentType.HUMAN_READABLE
+    )
     assert explicit_plan.preferred_output_type is DomainOutputIntentType.STRUCTURED
 
 
@@ -326,7 +344,9 @@ def test_typed_groups_components_and_visibility_obligations_are_validated():
         memory_proposal_refs=("finding-1",),
         visibility_obligations=plan.visibility_obligations + ("unknown-1",),
         components=(
-            DomainPresentationComponentDescriptor("panel", "summary", "missing-section"),
+            DomainPresentationComponentDescriptor(
+                "panel", "summary", "missing-section"
+            ),
         ),
     )
 

@@ -134,11 +134,15 @@ def _actual_operation_outputs() -> dict[str, dict]:
             language="English", goals=({"target": "C1"},), tracking_consent=True
         ),
         "lesson": generate_lesson_result(
-            language="English", target_skill="writing", current_level="B1",
+            language="English",
+            target_skill="writing",
+            current_level="B1",
             topic="argumentative essays",
         ),
         "exercises": generate_exercises_result(
-            language="English", skill="grammar", difficulty=2,
+            language="English",
+            skill="grammar",
+            difficulty=2,
             target_topic="inversion",
         ),
         "exercise_review": review_exercise_result(
@@ -158,9 +162,7 @@ def _actual_operation_outputs() -> dict[str, dict]:
             audio_transcript={"transcript": "Good morning"}
         ),
         "error_review": review_errors_result(
-            observed_errors=(
-                {"provenance_id": "error-1", "error_type": "inversion"},
-            )
+            observed_errors=({"provenance_id": "error-1", "error_type": "inversion"},)
         ),
         "vocabulary": track_vocabulary_result(
             vocabulary_list={"items": ({"id": "word-1", "due": True},)}
@@ -176,11 +178,29 @@ def _actual_operation_outputs() -> dict[str, dict]:
             language="English",
             period="last_30_days",
             previous_evidence=(
-                {"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                {
+                    "provenance_id": "baseline",
+                    "score": 0.6,
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
             ),
             evidence=(
-                {"provenance_id": "current-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-                {"provenance_id": "current-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                {
+                    "provenance_id": "current-1",
+                    "score": 0.85,
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
+                {
+                    "provenance_id": "current-2",
+                    "score": 0.88,
+                    "skill": "writing",
+                    "comparable": True,
+                    "comparison_key": "essay",
+                },
             ),
             skill="writing",
         ),
@@ -199,9 +219,15 @@ def test_all_actual_operation_outputs_preserve_epistemic_boundaries() -> None:
     assert presented["assess_sample"]["proficiency_kind"] == "OBSERVED_PERFORMANCE"
     assert presented["update_level"]["is_certified"] is True
     assert presented["update_level"]["certificate_overwritten"] is False
-    assert presented["writing_review"]["valid_alternatives"][0]["status"] == "valid_alternative"
+    assert (
+        presented["writing_review"]["valid_alternatives"][0]["status"]
+        == "valid_alternative"
+    )
     assert presented["speaking_review"]["pronunciation_assessed"] is False
-    assert presented["speaking_review"]["pronunciation_inferred_from_transcript_only"] is False
+    assert (
+        presented["speaking_review"]["pronunciation_inferred_from_transcript_only"]
+        is False
+    )
     assert presented["error_review"]["error_patterns"] == []
     assert presented["schedule"]["calendar_modified"] is False
     assert presented["schedule"]["external_action_executed"] is False

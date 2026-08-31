@@ -91,7 +91,9 @@ def test_source_reliability_with_provenance():
     rules = build_general_rules()
     rule = next(r for r in rules if r.definition.id == "general.source_reliability")
     result = rule.evaluate(
-        _context(sources=[{"id": "src1", "type": "external_source", "provenance": "ref:1"}])
+        _context(
+            sources=[{"id": "src1", "type": "external_source", "provenance": "ref:1"}]
+        )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert not result.gaps
@@ -151,7 +153,9 @@ def test_duplication_detected():
     rules = build_general_rules()
     rule = next(r for r in rules if r.definition.id == "general.duplication")
     result = rule.evaluate(
-        _context(items=[{"id": "a", "canonical_id": "x"}, {"id": "b", "canonical_id": "x"}])
+        _context(
+            items=[{"id": "a", "canonical_id": "x"}, {"id": "b", "canonical_id": "x"}]
+        )
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(f.code == "DUPLICATE_DETECTED" for f in result.findings)

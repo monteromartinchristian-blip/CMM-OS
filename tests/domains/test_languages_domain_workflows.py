@@ -79,7 +79,9 @@ def _run_workflow(workflow_id: str, operation_outputs: dict[str, dict]):
         known_domain_ids=frozenset({"domain:languages", "domain:general"}),
         authorized_domain_ids=frozenset({"domain:languages"}),
         available_resources=frozenset(workflow.required_resources),
-        available_operations=frozenset(operation.operation_id for operation in operations),
+        available_operations=frozenset(
+            operation.operation_id for operation in operations
+        ),
     )
     executor = DomainWorkflowExecutor(id_factory=_Ids(), operation_adapter=adapter)
     return executor.execute(workflow, context, inputs={"language": "English"})
@@ -96,7 +98,9 @@ def test_build_languages_workflow_definitions_count_and_names() -> None:
         assert str(w.domain_id) == "domain:languages"
         assert w.version == "1.0.0"
         node_ids = [n.node_id for n in w.nodes]
-        assert len(node_ids) == len(set(node_ids)), f"Duplicate node IDs in {w.workflow_id}"
+        assert len(node_ids) == len(set(node_ids)), (
+            f"Duplicate node IDs in {w.workflow_id}"
+        )
 
         # First 3 nodes must be load -> profile -> reason
         assert node_ids[:3] == ["load", "profile", "reason"]
@@ -119,7 +123,9 @@ def test_workflow_validate_nodes_consume_real_producer_fields() -> None:
         for node in w.nodes:
             if node.node_type is not WorkflowNodeType.VALIDATE:
                 continue
-            assert node.wait_condition, f"Validate node {node.node_id} in {w.workflow_id} has empty wait_condition"
+            assert node.wait_condition, (
+                f"Validate node {node.node_id} in {w.workflow_id} has empty wait_condition"
+            )
 
             # Check each key in wait_condition
             for condition_key in node.wait_condition:
@@ -128,7 +134,9 @@ def test_workflow_validate_nodes_consume_real_producer_fields() -> None:
                     dep_node = nodes_by_id.get(dep_id)
                     if dep_node and dep_node.operation_id:
                         op = operations.get(dep_node.operation_id)
-                        if op and condition_key in op.output_schema.get("properties", {}):
+                        if op and condition_key in op.output_schema.get(
+                            "properties", {}
+                        ):
                             found_producer = True
                             break
                 assert found_producer, (
@@ -162,19 +170,29 @@ def test_all_nine_workflows_complete_with_real_variable_operation_outputs() -> N
             ),
             "languages.update_level_evidence": update_level_evidence_result(
                 existing_record={"kind": "CERTIFIED", "level_or_score": "B1"},
-                assessment={"observed_performance": "A2", "assessment_id": "assessment-1"},
+                assessment={
+                    "observed_performance": "A2",
+                    "assessment_id": "assessment-1",
+                },
                 target_skill="writing",
             ),
         },
         "languages.adaptive_language_lesson": {
             "languages.generate_lesson": generate_lesson_result(
-                language="English", target_skill="grammar", current_level="A2", topic="past tense"
+                language="English",
+                target_skill="grammar",
+                current_level="A2",
+                topic="past tense",
             ),
             "languages.generate_exercises": generate_exercises_result(
-                language="English", skill="grammar", difficulty=2, target_topic="past tense"
+                language="English",
+                skill="grammar",
+                difficulty=2,
+                target_topic="past tense",
             ),
             "languages.review_exercise": review_exercise_result(
-                exercise_result={"user_answer": "go", "is_correct": False}, language="English"
+                exercise_result={"user_answer": "go", "is_correct": False},
+                language="English",
             ),
         },
         "languages.conversation_roleplay_practice": {
@@ -200,21 +218,37 @@ def test_all_nine_workflows_complete_with_real_variable_operation_outputs() -> N
         "languages.error_remediation": {
             "languages.review_errors": review_errors_result(
                 observed_errors=(
-                    {"context_id": "one", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
-                    {"context_id": "two", "error_type": "inversion", "comparable": True, "comparison_key": "free-writing"},
+                    {
+                        "context_id": "one",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "free-writing",
+                    },
+                    {
+                        "context_id": "two",
+                        "error_type": "inversion",
+                        "comparable": True,
+                        "comparison_key": "free-writing",
+                    },
                 ),
                 language="English",
             ),
             "languages.generate_exercises": generate_exercises_result(
-                language="English", skill="grammar", difficulty=3, target_topic="inversion"
+                language="English",
+                skill="grammar",
+                difficulty=3,
+                target_topic="inversion",
             ),
             "languages.review_exercise": review_exercise_result(
-                exercise_result={"is_correct": False}, language="English", target_topic="inversion"
+                exercise_result={"is_correct": False},
+                language="English",
+                target_topic="inversion",
             ),
         },
         "languages.vocabulary_spaced_review": {
             "languages.track_vocabulary": track_vocabulary_result(
-                vocabulary_list={"items": [{"id": "word-1", "due": True}]}, language="English"
+                vocabulary_list={"items": [{"id": "word-1", "due": True}]},
+                language="English",
             ),
             "languages.plan_review_schedule": plan_review_schedule_result(
                 review_items=({"id": "word-1", "due": True},)
@@ -231,11 +265,29 @@ def test_all_nine_workflows_complete_with_real_variable_operation_outputs() -> N
                 language="English",
                 period="last_30_days",
                 previous_evidence=(
-                    {"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                    {
+                        "provenance_id": "baseline",
+                        "score": 0.6,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
                 ),
                 evidence=(
-                    {"provenance_id": "current-1", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
-                    {"provenance_id": "current-2", "score": 0.88, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                    {
+                        "provenance_id": "current-1",
+                        "score": 0.85,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
+                    {
+                        "provenance_id": "current-2",
+                        "score": 0.88,
+                        "skill": "writing",
+                        "comparable": True,
+                        "comparison_key": "essay",
+                    },
                 ),
                 skill="writing",
             ),
@@ -258,7 +310,9 @@ def test_workflow_invariant_violations_fail_closed() -> None:
     vocabulary_run = _run_workflow(
         "languages.vocabulary_spaced_review",
         {
-            "languages.track_vocabulary": track_vocabulary_result(vocabulary_list={"items": []}),
+            "languages.track_vocabulary": track_vocabulary_result(
+                vocabulary_list={"items": []}
+            ),
             "languages.plan_review_schedule": schedule,
         },
     )
@@ -325,7 +379,8 @@ def test_additional_legitimate_pedagogical_outcomes_complete() -> None:
                 conversation={"turns": []}, language="English", scenario="interview"
             ),
             "languages.review_speaking": review_speaking_result(
-                audio_transcript={"transcript": "Transcript only"}, target_language="English"
+                audio_transcript={"transcript": "Transcript only"},
+                target_language="English",
             ),
         },
     )
@@ -333,7 +388,9 @@ def test_additional_legitimate_pedagogical_outcomes_complete() -> None:
         "languages.writing_review",
         {
             "languages.review_writing": review_writing_result(
-                writing_sample={"text": "This longer colour sample contains enough words to produce a B2 review result safely."},
+                writing_sample={
+                    "text": "This longer colour sample contains enough words to produce a B2 review result safely."
+                },
                 language="English",
                 preferred_variety="British English",
             )
@@ -346,7 +403,10 @@ def test_additional_legitimate_pedagogical_outcomes_complete() -> None:
                 observed_errors=({"context_id": "only-one", "error_type": "inversion"},)
             ),
             "languages.generate_exercises": generate_exercises_result(
-                language="English", skill="grammar", difficulty=2, target_topic="inversion"
+                language="English",
+                skill="grammar",
+                difficulty=2,
+                target_topic="inversion",
             ),
             "languages.review_exercise": review_exercise_result(
                 exercise_result={"is_correct": True}, language="English"
@@ -378,10 +438,22 @@ def test_additional_legitimate_pedagogical_outcomes_complete() -> None:
                     language="English",
                     period="month",
                     previous_evidence=(
-                        {"provenance_id": "baseline", "score": 0.6, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                        {
+                            "provenance_id": "baseline",
+                            "score": 0.6,
+                            "skill": "writing",
+                            "comparable": True,
+                            "comparison_key": "essay",
+                        },
                     ),
                     evidence=(
-                        {"provenance_id": "current", "score": 0.85, "skill": "writing", "comparable": True, "comparison_key": "essay"},
+                        {
+                            "provenance_id": "current",
+                            "score": 0.85,
+                            "skill": "writing",
+                            "comparable": True,
+                            "comparison_key": "essay",
+                        },
                     ),
                     skill="writing",
                 )
@@ -417,7 +489,9 @@ def test_certification_preparation_gates() -> None:
     """Verify certification prep workflow contains gates reading from prepare_certification."""
     workflows = {w.workflow_id: w for w in build_languages_workflow_definitions()}
     cert_wf = workflows["languages.certification_preparation"]
-    val_node = next(n for n in cert_wf.nodes if n.node_type is WorkflowNodeType.VALIDATE)
+    val_node = next(
+        n for n in cert_wf.nodes if n.node_type is WorkflowNodeType.VALIDATE
+    )
     assert "registration_performed" in val_node.wait_condition
     assert "payment_performed" in val_node.wait_condition
     assert "submission_performed" in val_node.wait_condition

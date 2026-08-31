@@ -37,7 +37,9 @@ _COMPOSITION_EXCEPTIONS = {"bootstrap.py"}
 
 
 def _concerns_modules() -> list[Path]:
-    return sorted(path for path in _CONCERNS_PACKAGE.glob("*.py") if path.suffix == ".py")
+    return sorted(
+        path for path in _CONCERNS_PACKAGE.glob("*.py") if path.suffix == ".py"
+    )
 
 
 def test_concerns_package_has_no_import_from_any_specialized_domain_package():
@@ -53,8 +55,10 @@ def test_concerns_package_has_no_import_from_any_specialized_domain_package():
                 for alias in node.names:
                     if alias.name.startswith(_SPECIALIZED_DOMAIN_PACKAGES):
                         violations.append(f"{module.name}: import {alias.name}")
-            elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith(
-                _SPECIALIZED_DOMAIN_PACKAGES
+            elif (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith(_SPECIALIZED_DOMAIN_PACKAGES)
             ):
                 violations.append(f"{module.name}: from {node.module} import ...")
     assert violations == [], "\n".join(violations)
@@ -70,11 +74,21 @@ def test_concerns_hypothesis_exploration_uses_shared_generic_contract():
     from cmm.domains.concerns.operations import explore_hypotheses_result
 
     hypotheses = (
-        {"identity": "h1", "statement": "fatigue explains it", "supporting_ids": ("s1",)},
-        {"identity": "h2", "statement": "stress explains it", "supporting_ids": ("s2",)},
+        {
+            "identity": "h1",
+            "statement": "fatigue explains it",
+            "supporting_ids": ("s1",),
+        },
+        {
+            "identity": "h2",
+            "statement": "stress explains it",
+            "supporting_ids": ("s2",),
+        },
     )
     concerns_view = explore_hypotheses_result(hypotheses=hypotheses)
-    canonical = shared_evaluate_hypotheses(hypotheses=hypotheses, diagnostic_signal=None)
+    canonical = shared_evaluate_hypotheses(
+        hypotheses=hypotheses, diagnostic_signal=None
+    )
     assert concerns_view["winner_selected"] == canonical["winner_selected"]
     assert len(concerns_view["hypotheses"]) == len(canonical["hypotheses"])
     assert concerns_view["no_diagnosis"] is True
@@ -89,7 +103,11 @@ def test_shared_evaluator_preserves_diagnostic_hook_for_reflection():
 
     flagged = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h1", "statement": "I think I have depression", "supporting_ids": ("a",)},
+            {
+                "identity": "h1",
+                "statement": "I think I have depression",
+                "supporting_ids": ("a",),
+            },
         ),
         diagnostic_signal=lambda statement: "depression" in str(statement),
     )
@@ -99,7 +117,11 @@ def test_shared_evaluator_preserves_diagnostic_hook_for_reflection():
 
     default = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h1", "statement": "I think I have depression", "supporting_ids": ("a",)},
+            {
+                "identity": "h1",
+                "statement": "I think I have depression",
+                "supporting_ids": ("a",),
+            },
         ),
         diagnostic_signal=None,
     )

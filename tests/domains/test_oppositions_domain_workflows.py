@@ -92,4 +92,6 @@ def test_syllabus_revision_no_forgetting_inference():
     workflows = {w.workflow_id: w for w in build_oppositions_workflow_definitions()}
     revision = workflows["oppositions.syllabus_revision"]
     # revision plan is grounded in coverage; proposal-only/validate tail
-    assert any(n.operation_id == "oppositions.generate_revision_plan" for n in revision.nodes)
+    assert any(
+        n.operation_id == "oppositions.generate_revision_plan" for n in revision.nodes
+    )

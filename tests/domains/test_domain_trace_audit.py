@@ -36,23 +36,56 @@ def _request(status: DomainTraceStatus = DomainTraceStatus.COMPLETED):
         supporting_domains=("domain:health",),
         contributions=(
             DomainTraceContribution(
-                "domain:life-plan", DomainTraceRole.PRIMARY,
+                "domain:life-plan",
+                DomainTraceRole.PRIMARY,
                 (
-                    DomainTraceReference("domain-result:life", DomainTraceReferenceKind.DOMAIN_RESULT, "domain:life-plan"),
-                    DomainTraceReference("operation:1", DomainTraceReferenceKind.OPERATION_RESULT, "domain:life-plan"),
-                    DomainTraceReference("workflow:1", DomainTraceReferenceKind.WORKFLOW_RESULT, "domain:life-plan"),
-                    DomainTraceReference("permission:1", DomainTraceReferenceKind.PERMISSION_DECISION, "domain:life-plan"),
-                    DomainTraceReference("approval-request:1", DomainTraceReferenceKind.APPROVAL_REQUEST, "domain:life-plan"),
-                    DomainTraceReference("approval-decision:1", DomainTraceReferenceKind.APPROVAL_DECISION, "domain:life-plan"),
+                    DomainTraceReference(
+                        "domain-result:life",
+                        DomainTraceReferenceKind.DOMAIN_RESULT,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "operation:1",
+                        DomainTraceReferenceKind.OPERATION_RESULT,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "workflow:1",
+                        DomainTraceReferenceKind.WORKFLOW_RESULT,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "permission:1",
+                        DomainTraceReferenceKind.PERMISSION_DECISION,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "approval-request:1",
+                        DomainTraceReferenceKind.APPROVAL_REQUEST,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "approval-decision:1",
+                        DomainTraceReferenceKind.APPROVAL_DECISION,
+                        "domain:life-plan",
+                    ),
                 ),
             ),
             DomainTraceContribution("domain:health", DomainTraceRole.SUPPORTING),
         ),
         references=DomainTraceReferences(
-            "resolution-context:1", "resolution-result:1", "composition:1",
-            cross_domain_results=(CrossDomainTraceReference("cross-domain-result:1", "cross-trace:upstream"),),
+            "resolution-context:1",
+            "resolution-result:1",
+            "composition:1",
+            cross_domain_results=(
+                CrossDomainTraceReference(
+                    "cross-domain-result:1", "cross-trace:upstream"
+                ),
+            ),
         ),
-        domain_results=(DomainResultTraceReference("domain-result:life", "domain:life-plan"),),
+        domain_results=(
+            DomainResultTraceReference("domain-result:life", "domain:life-plan"),
+        ),
         started_at=now,
         completed_at=now.replace(second=1),
         status=status,
@@ -67,13 +100,19 @@ def _trace_and_inventory(status: DomainTraceStatus = DomainTraceStatus.COMPLETED
         cross_domain_results=trace.references.cross_domain_results,
         expected_primary_domain="domain:life-plan",
         expected_supporting_domains=("domain:health",),
-        resolution_result_domains=DomainTraceDomainSelection("resolution-result:1", "domain:life-plan", ("domain:health",)),
-        composition_domains=DomainTraceDomainSelection("composition:1", "domain:life-plan", ("domain:health",)),
+        resolution_result_domains=DomainTraceDomainSelection(
+            "resolution-result:1", "domain:life-plan", ("domain:health",)
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            "composition:1", "domain:life-plan", ("domain:health",)
+        ),
     )
     return trace, inventory
 
 
-def test_validator_rejects_a_self_consistent_trace_with_false_upstream_primary() -> None:
+def test_validator_rejects_a_self_consistent_trace_with_false_upstream_primary() -> (
+    None
+):
     trace, inventory = _trace_and_inventory()
     object.__setattr__(trace, "primary_domain", trace.supporting_domains[0])
     object.__setattr__(trace, "supporting_domains", ("domain:life-plan",))
@@ -87,26 +126,42 @@ def test_validator_rejects_a_self_consistent_trace_with_false_upstream_primary()
     "references",
     (
         (
-            DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:health"),
-            DomainTraceReference("shared:1", DomainTraceReferenceKind.WARNING, "domain:health"),
+            DomainTraceReference(
+                "shared:1", DomainTraceReferenceKind.FINDING, "domain:health"
+            ),
+            DomainTraceReference(
+                "shared:1", DomainTraceReferenceKind.WARNING, "domain:health"
+            ),
         ),
         (
-            DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:health"),
-            DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"),
+            DomainTraceReference(
+                "shared:1", DomainTraceReferenceKind.FINDING, "domain:health"
+            ),
+            DomainTraceReference(
+                "shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"
+            ),
         ),
         (
             DomainTraceReference("shared:1", DomainTraceReferenceKind.COGNITIVE_RESULT),
-            DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"),
+            DomainTraceReference(
+                "shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"
+            ),
         ),
     ),
 )
-def test_inventory_rejects_one_reference_id_in_two_categories_or_domains(references) -> None:
+def test_inventory_rejects_one_reference_id_in_two_categories_or_domains(
+    references,
+) -> None:
     with pytest.raises(DomainTraceContractError):
         DomainTraceReferenceInventory(
             references=references,
             expected_primary_domain="domain:life-plan",
-            resolution_result_domains=DomainTraceDomainSelection("resolution-result:1", "domain:life-plan"),
-            composition_domains=DomainTraceDomainSelection("composition:1", "domain:life-plan"),
+            resolution_result_domains=DomainTraceDomainSelection(
+                "resolution-result:1", "domain:life-plan"
+            ),
+            composition_domains=DomainTraceDomainSelection(
+                "composition:1", "domain:life-plan"
+            ),
         )
 
 
@@ -123,10 +178,13 @@ def test_validator_rejects_a_duplicate_domain_result_reference() -> None:
     trace, inventory = _trace_and_inventory()
     contribution = trace.contributions[0]
     result_reference = next(
-        item for item in contribution.references
+        item
+        for item in contribution.references
         if item.kind is DomainTraceReferenceKind.DOMAIN_RESULT
     )
-    object.__setattr__(contribution, "references", contribution.references + (result_reference,))
+    object.__setattr__(
+        contribution, "references", contribution.references + (result_reference,)
+    )
 
     result = DefaultDomainTraceReferenceValidator().validate(trace, inventory)
 
@@ -168,7 +226,9 @@ def test_validator_fails_closed_when_role_or_kind_are_mutated() -> None:
         ("digest", "bad", DomainTraceValidationCode.INVALID_TRACE_DIGEST),
     ),
 )
-def test_validator_fails_closed_for_corrupt_top_level_fields(field, value, code) -> None:
+def test_validator_fails_closed_for_corrupt_top_level_fields(
+    field, value, code
+) -> None:
     trace, inventory = _trace_and_inventory()
     object.__setattr__(trace, field, value)
 
@@ -193,12 +253,26 @@ def test_reconstruction_references_resolve_by_their_category_and_domain() -> Non
     expected = {
         ("operation:1", DomainTraceReferenceKind.OPERATION_RESULT, "domain:life-plan"),
         ("workflow:1", DomainTraceReferenceKind.WORKFLOW_RESULT, "domain:life-plan"),
-        ("permission:1", DomainTraceReferenceKind.PERMISSION_DECISION, "domain:life-plan"),
-        ("approval-request:1", DomainTraceReferenceKind.APPROVAL_REQUEST, "domain:life-plan"),
-        ("approval-decision:1", DomainTraceReferenceKind.APPROVAL_DECISION, "domain:life-plan"),
+        (
+            "permission:1",
+            DomainTraceReferenceKind.PERMISSION_DECISION,
+            "domain:life-plan",
+        ),
+        (
+            "approval-request:1",
+            DomainTraceReferenceKind.APPROVAL_REQUEST,
+            "domain:life-plan",
+        ),
+        (
+            "approval-decision:1",
+            DomainTraceReferenceKind.APPROVAL_DECISION,
+            "domain:life-plan",
+        ),
     }
 
-    actual = {(item.ref_id, item.kind, str(item.domain_id)) for item in inventory.references}
+    actual = {
+        (item.ref_id, item.kind, str(item.domain_id)) for item in inventory.references
+    }
 
     assert expected <= actual
     assert trace.all_references() == inventory.references
@@ -207,45 +281,76 @@ def test_reconstruction_references_resolve_by_their_category_and_domain() -> Non
 def test_full_reference_inventory_reconstructs_every_execution_category_by_id() -> None:
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
     domain_kinds = (
-        DomainTraceReferenceKind.RESOURCE_RESOLUTION, DomainTraceReferenceKind.PROFILE,
-        DomainTraceReferenceKind.PROFILE_TRACE, DomainTraceReferenceKind.RULE_PLAN,
-        DomainTraceReferenceKind.RULE_RESULT, DomainTraceReferenceKind.APPLIED_RULE_TRACE,
-        DomainTraceReferenceKind.OPERATION_RESULT, DomainTraceReferenceKind.WORKFLOW_RUN,
-        DomainTraceReferenceKind.WORKFLOW_RESULT, DomainTraceReferenceKind.PERMISSION_DECISION,
-        DomainTraceReferenceKind.APPROVAL_REQUEST, DomainTraceReferenceKind.APPROVAL_DECISION,
-        DomainTraceReferenceKind.FINDING, DomainTraceReferenceKind.GAP,
-        DomainTraceReferenceKind.CONTRADICTION, DomainTraceReferenceKind.WARNING,
+        DomainTraceReferenceKind.RESOURCE_RESOLUTION,
+        DomainTraceReferenceKind.PROFILE,
+        DomainTraceReferenceKind.PROFILE_TRACE,
+        DomainTraceReferenceKind.RULE_PLAN,
+        DomainTraceReferenceKind.RULE_RESULT,
+        DomainTraceReferenceKind.APPLIED_RULE_TRACE,
+        DomainTraceReferenceKind.OPERATION_RESULT,
+        DomainTraceReferenceKind.WORKFLOW_RUN,
+        DomainTraceReferenceKind.WORKFLOW_RESULT,
+        DomainTraceReferenceKind.PERMISSION_DECISION,
+        DomainTraceReferenceKind.APPROVAL_REQUEST,
+        DomainTraceReferenceKind.APPROVAL_DECISION,
+        DomainTraceReferenceKind.FINDING,
+        DomainTraceReferenceKind.GAP,
+        DomainTraceReferenceKind.CONTRADICTION,
+        DomainTraceReferenceKind.WARNING,
         DomainTraceReferenceKind.DOMAIN_RESULT,
     )
     contribution = DomainTraceContribution(
-        "domain:life-plan", DomainTraceRole.PRIMARY,
-        tuple(DomainTraceReference(f"reference:{kind.value}", kind, "domain:life-plan") for kind in domain_kinds),
+        "domain:life-plan",
+        DomainTraceRole.PRIMARY,
+        tuple(
+            DomainTraceReference(f"reference:{kind.value}", kind, "domain:life-plan")
+            for kind in domain_kinds
+        ),
     )
     request = DomainTraceAssemblyRequest(
-        request_id="request:reconstruction", primary_domain="domain:life-plan", contributions=(contribution,),
+        request_id="request:reconstruction",
+        primary_domain="domain:life-plan",
+        contributions=(contribution,),
         references=DomainTraceReferences(
-            "resolution-context:all", "resolution-result:all", "composition:all", agent_trace_id="agent-trace:1",
-            cognitive_result_ids=("cognitive-result:1",), reasoning_trace_ids=("reasoning-trace:1",),
-            knowledge_package_ids=("knowledge-package:1",), presentation_plan_ids=("presentation-plan:1",),
+            "resolution-context:all",
+            "resolution-result:all",
+            "composition:all",
+            agent_trace_id="agent-trace:1",
+            cognitive_result_ids=("cognitive-result:1",),
+            reasoning_trace_ids=("reasoning-trace:1",),
+            knowledge_package_ids=("knowledge-package:1",),
+            presentation_plan_ids=("presentation-plan:1",),
             presentation_validation_result_ids=("presentation-validation:1",),
         ),
-        domain_results=(DomainResultTraceReference("reference:domain_result", "domain:life-plan"),),
-        started_at=now, completed_at=now,
+        domain_results=(
+            DomainResultTraceReference("reference:domain_result", "domain:life-plan"),
+        ),
+        started_at=now,
+        completed_at=now,
     )
     trace = DomainTraceAssembler().assemble(request)
     inventory = DomainTraceReferenceInventory(
-        references=trace.all_references(), domain_results=trace.domain_results,
+        references=trace.all_references(),
+        domain_results=trace.domain_results,
         expected_primary_domain="domain:life-plan",
-        resolution_result_domains=DomainTraceDomainSelection("resolution-result:all", "domain:life-plan"),
-        composition_domains=DomainTraceDomainSelection("composition:all", "domain:life-plan"),
+        resolution_result_domains=DomainTraceDomainSelection(
+            "resolution-result:all", "domain:life-plan"
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            "composition:all", "domain:life-plan"
+        ),
     )
 
     assert DefaultDomainTraceReferenceValidator().validate(trace, inventory).valid
     assert {item.kind for item in inventory.references} == set(domain_kinds) | {
-        DomainTraceReferenceKind.RESOLUTION_CONTEXT, DomainTraceReferenceKind.RESOLUTION_RESULT,
-        DomainTraceReferenceKind.COMPOSITION, DomainTraceReferenceKind.AGENT_TRACE,
-        DomainTraceReferenceKind.COGNITIVE_RESULT, DomainTraceReferenceKind.REASONING_TRACE,
-        DomainTraceReferenceKind.KNOWLEDGE_PACKAGE, DomainTraceReferenceKind.PRESENTATION_PLAN,
+        DomainTraceReferenceKind.RESOLUTION_CONTEXT,
+        DomainTraceReferenceKind.RESOLUTION_RESULT,
+        DomainTraceReferenceKind.COMPOSITION,
+        DomainTraceReferenceKind.AGENT_TRACE,
+        DomainTraceReferenceKind.COGNITIVE_RESULT,
+        DomainTraceReferenceKind.REASONING_TRACE,
+        DomainTraceReferenceKind.KNOWLEDGE_PACKAGE,
+        DomainTraceReferenceKind.PRESENTATION_PLAN,
         DomainTraceReferenceKind.PRESENTATION_VALIDATION_RESULT,
     }
 
@@ -260,17 +365,33 @@ def test_domain_result_order_does_not_change_trace_identity() -> None:
         contribution,
         "references",
         contribution.references
-        + (DomainTraceReference(first.result_id, DomainTraceReferenceKind.DOMAIN_RESULT, first.domain_id),),
+        + (
+            DomainTraceReference(
+                first.result_id, DomainTraceReferenceKind.DOMAIN_RESULT, first.domain_id
+            ),
+        ),
     )
     object.__setattr__(
         supporting,
         "references",
-        (DomainTraceReference(second.result_id, DomainTraceReferenceKind.DOMAIN_RESULT, second.domain_id),),
+        (
+            DomainTraceReference(
+                second.result_id,
+                DomainTraceReferenceKind.DOMAIN_RESULT,
+                second.domain_id,
+            ),
+        ),
     )
     payload = request.to_dict()
     # Include the original domain-result:life plus the two new ones
-    original_result = DomainResultTraceReference("domain-result:life", "domain:life-plan")
-    payload["domain_results"] = [original_result.to_dict(), first.to_dict(), second.to_dict()]
+    original_result = DomainResultTraceReference(
+        "domain-result:life", "domain:life-plan"
+    )
+    payload["domain_results"] = [
+        original_result.to_dict(),
+        first.to_dict(),
+        second.to_dict(),
+    ]
     request = DomainTraceAssemblyRequest.from_dict(payload)
     payload["domain_results"].reverse()
     reversed_request = DomainTraceAssemblyRequest.from_dict(payload)
@@ -292,7 +413,9 @@ def test_domain_result_order_does_not_change_trace_identity() -> None:
         (None, object(), "invalid"),
     ),
 )
-def test_validator_sanitizes_corrupt_reference_diagnostics(ref_id, domain_id, kind) -> None:
+def test_validator_sanitizes_corrupt_reference_diagnostics(
+    ref_id, domain_id, kind
+) -> None:
     trace, inventory = _trace_and_inventory()
     reference = trace.contributions[0].references[0]
     object.__setattr__(reference, "ref_id", ref_id)
@@ -310,12 +433,12 @@ def test_validator_sanitizes_corrupt_reference_diagnostics(ref_id, domain_id, ki
 def test_cross_domain_trace_id_is_a_typed_resolvable_reference() -> None:
     trace, inventory = _trace_and_inventory()
 
-    typed = {
-        (item.ref_id, item.kind)
-        for item in inventory.references
-    }
+    typed = {(item.ref_id, item.kind) for item in inventory.references}
 
-    assert ("cross-trace:upstream", DomainTraceReferenceKind.CROSS_DOMAIN_TRACE) in typed
+    assert (
+        "cross-trace:upstream",
+        DomainTraceReferenceKind.CROSS_DOMAIN_TRACE,
+    ) in typed
     assert DefaultDomainTraceReferenceValidator().validate(trace, inventory).valid
 
 
@@ -385,14 +508,18 @@ def _refresh_trace_identity(trace: DomainTrace) -> None:
 @pytest.mark.parametrize("key", ("promptText", "secretValue", "chainOfThoughtData"))
 def test_audit_v3_rejects_exact_camel_case_private_keys(key: str) -> None:
     with pytest.raises(DomainTraceSerializationError):
-        DomainTraceAssemblyRequest.from_dict({
-            **_request().to_dict(),
-            "metadata": {"outer": {key: "safe-id"}},
-        })
+        DomainTraceAssemblyRequest.from_dict(
+            {
+                **_request().to_dict(),
+                "metadata": {"outer": {key: "safe-id"}},
+            }
+        )
 
 
 @pytest.mark.parametrize("field", ("request_id", "goal_id"))
-def test_validator_detects_inline_content_even_with_refreshed_identity(field: str) -> None:
+def test_validator_detects_inline_content_even_with_refreshed_identity(
+    field: str,
+) -> None:
     trace, inventory = _trace_and_inventory()
     object.__setattr__(trace, field, "prompt secret text")
     _refresh_trace_identity(trace)
@@ -432,8 +559,16 @@ def test_domain_trace_is_intrinsically_canonical_for_direct_and_mapping_input() 
                 "domain:life-plan",
                 DomainTraceRole.PRIMARY,
                 (
-                    DomainTraceReference("warning:z", DomainTraceReferenceKind.WARNING, "domain:life-plan"),
-                    DomainTraceReference("warning:a", DomainTraceReferenceKind.WARNING, "domain:life-plan"),
+                    DomainTraceReference(
+                        "warning:z",
+                        DomainTraceReferenceKind.WARNING,
+                        "domain:life-plan",
+                    ),
+                    DomainTraceReference(
+                        "warning:a",
+                        DomainTraceReferenceKind.WARNING,
+                        "domain:life-plan",
+                    ),
                 ),
             ),
             DomainTraceContribution("domain:work", DomainTraceRole.SUPPORTING),
@@ -451,7 +586,10 @@ def test_domain_trace_is_intrinsically_canonical_for_direct_and_mapping_input() 
     canonical = DomainTraceAssembler().assemble(request)
     payload = canonical.to_dict()
     payload["supporting_domains"].reverse()
-    payload["contributions"] = [payload["contributions"][0], *reversed(payload["contributions"][1:])]
+    payload["contributions"] = [
+        payload["contributions"][0],
+        *reversed(payload["contributions"][1:]),
+    ]
     payload["contributions"][0]["references"].reverse()
     payload["references"]["cognitive_result_ids"].reverse()
 
@@ -463,7 +601,10 @@ def test_domain_trace_is_intrinsically_canonical_for_direct_and_mapping_input() 
         goal_id=canonical.goal_id,
         primary_domain=canonical.primary_domain,
         supporting_domains=tuple(reversed(canonical.supporting_domains)),
-        contributions=(canonical.contributions[0], *reversed(canonical.contributions[1:])),
+        contributions=(
+            canonical.contributions[0],
+            *reversed(canonical.contributions[1:]),
+        ),
         references=canonical.references,
         domain_results=canonical.domain_results,
         status=canonical.status,
@@ -483,11 +624,13 @@ def test_domain_trace_is_intrinsically_canonical_for_direct_and_mapping_input() 
 def test_final_trace_rejects_primary_repeated_as_supporting() -> None:
     payload = DomainTraceAssembler().assemble(_request()).to_dict()
     payload["supporting_domains"].append("domain:life-plan")
-    payload["contributions"].append({
-        "domain_id": "domain:life-plan",
-        "role": "supporting",
-        "references": [],
-    })
+    payload["contributions"].append(
+        {
+            "domain_id": "domain:life-plan",
+            "role": "supporting",
+            "references": [],
+        }
+    )
 
     with pytest.raises(DomainTraceSerializationError):
         DomainTrace.from_dict(payload)
@@ -533,12 +676,16 @@ def test_validator_fails_closed_for_multiple_simultaneous_mutations() -> None:
 
 def test_safe_reference_ids_do_not_trigger_inline_content_detection() -> None:
     request = _request()
-    object.__setattr__(request, "metadata", {
-        "reasoning_trace_id": "reasoning-trace:1",
-        "knowledge_package_id": "knowledge-package:1",
-        "provider_audit_id": "provider-audit:1",
-        "cross_domain_trace_id": "cross-domain-trace:1",
-    })
+    object.__setattr__(
+        request,
+        "metadata",
+        {
+            "reasoning_trace_id": "reasoning-trace:1",
+            "knowledge_package_id": "knowledge-package:1",
+            "provider_audit_id": "provider-audit:1",
+            "cross_domain_trace_id": "cross-domain-trace:1",
+        },
+    )
     trace = DomainTraceAssembler().assemble(request)
     inventory = DomainTraceReferenceInventory(
         references=trace.all_references(),
@@ -563,26 +710,38 @@ def test_safe_reference_ids_do_not_trigger_inline_content_detection() -> None:
 def test_v4_request_rejects_domain_result_ref_without_pairing() -> None:
     """DOMAIN_RESULT in contribution but domain_results is empty."""
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"):
+    with pytest.raises(
+        DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:coverage",
             primary_domain="domain:life-plan",
             contributions=(
                 DomainTraceContribution(
-                    "domain:life-plan", DomainTraceRole.PRIMARY,
-                    (DomainTraceReference("domain-result:1", DomainTraceReferenceKind.DOMAIN_RESULT, "domain:life-plan"),),
+                    "domain:life-plan",
+                    DomainTraceRole.PRIMARY,
+                    (
+                        DomainTraceReference(
+                            "domain-result:1",
+                            DomainTraceReferenceKind.DOMAIN_RESULT,
+                            "domain:life-plan",
+                        ),
+                    ),
                 ),
             ),
             references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
             domain_results=(),
-            started_at=now, completed_at=now,
+            started_at=now,
+            completed_at=now,
         )
 
 
 def test_v4_request_rejects_pairing_without_domain_result_ref() -> None:
     """Pairing in domain_results without matching DOMAIN_RESULT contribution reference."""
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"):
+    with pytest.raises(
+        DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:coverage",
             primary_domain="domain:life-plan",
@@ -590,8 +749,11 @@ def test_v4_request_rejects_pairing_without_domain_result_ref() -> None:
                 DomainTraceContribution("domain:life-plan", DomainTraceRole.PRIMARY),
             ),
             references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
-            domain_results=(DomainResultTraceReference("domain-result:1", "domain:life-plan"),),
-            started_at=now, completed_at=now,
+            domain_results=(
+                DomainResultTraceReference("domain-result:1", "domain:life-plan"),
+            ),
+            started_at=now,
+            completed_at=now,
         )
 
 
@@ -605,14 +767,24 @@ def test_v4_request_rejects_domain_id_mismatch_between_ref_and_pairing() -> None
             supporting_domains=("domain:health",),
             contributions=(
                 DomainTraceContribution(
-                    "domain:life-plan", DomainTraceRole.PRIMARY,
-                    (DomainTraceReference("domain-result:1", DomainTraceReferenceKind.DOMAIN_RESULT, "domain:life-plan"),),
+                    "domain:life-plan",
+                    DomainTraceRole.PRIMARY,
+                    (
+                        DomainTraceReference(
+                            "domain-result:1",
+                            DomainTraceReferenceKind.DOMAIN_RESULT,
+                            "domain:life-plan",
+                        ),
+                    ),
                 ),
                 DomainTraceContribution("domain:health", DomainTraceRole.SUPPORTING),
             ),
             references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
-            domain_results=(DomainResultTraceReference("domain-result:1", "domain:health"),),
-            started_at=now, completed_at=now,
+            domain_results=(
+                DomainResultTraceReference("domain-result:1", "domain:health"),
+            ),
+            started_at=now,
+            completed_at=now,
         )
 
 
@@ -633,11 +805,18 @@ def test_v4_assembler_rejects_coverage_mismatch() -> None:
             DomainTraceContribution("domain:life-plan", DomainTraceRole.PRIMARY),
         ),
         references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
-        started_at=now, completed_at=now,
+        started_at=now,
+        completed_at=now,
     )
     # Force a domain_results entry without the matching contribution ref
-    object.__setattr__(request, "domain_results", (DomainResultTraceReference("domain-result:orphan", "domain:life-plan"),))
-    with pytest.raises(DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"):
+    object.__setattr__(
+        request,
+        "domain_results",
+        (DomainResultTraceReference("domain-result:orphan", "domain:life-plan"),),
+    )
+    with pytest.raises(
+        DomainTraceContractError, match="DOMAIN_RESULT references must exactly match"
+    ):
         DomainTraceAssembler().assemble(request)
 
 
@@ -646,7 +825,10 @@ def test_v4_assembler_rejects_coverage_mismatch() -> None:
 
 def test_v4_request_rejects_same_id_as_resolution_context_and_result() -> None:
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="reference IDs must resolve to a single identity"):
+    with pytest.raises(
+        DomainTraceContractError,
+        match="reference IDs must resolve to a single identity",
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:collision",
             primary_domain="domain:life-plan",
@@ -654,13 +836,17 @@ def test_v4_request_rejects_same_id_as_resolution_context_and_result() -> None:
                 DomainTraceContribution("domain:life-plan", DomainTraceRole.PRIMARY),
             ),
             references=DomainTraceReferences("same:1", "same:1", "comp:1"),
-            started_at=now, completed_at=now,
+            started_at=now,
+            completed_at=now,
         )
 
 
 def test_v4_request_rejects_same_id_as_cross_domain_result_and_trace() -> None:
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="reference IDs must resolve to a single identity"):
+    with pytest.raises(
+        DomainTraceContractError,
+        match="reference IDs must resolve to a single identity",
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:collision",
             primary_domain="domain:life-plan",
@@ -668,52 +854,88 @@ def test_v4_request_rejects_same_id_as_cross_domain_result_and_trace() -> None:
                 DomainTraceContribution("domain:life-plan", DomainTraceRole.PRIMARY),
             ),
             references=DomainTraceReferences(
-                "ctx:1", "res:1", "comp:1",
-                cross_domain_results=(CrossDomainTraceReference("shared:1", "shared:1"),),
+                "ctx:1",
+                "res:1",
+                "comp:1",
+                cross_domain_results=(
+                    CrossDomainTraceReference("shared:1", "shared:1"),
+                ),
             ),
-            started_at=now, completed_at=now,
+            started_at=now,
+            completed_at=now,
         )
 
 
 def test_v4_request_rejects_same_id_as_finding_and_warning() -> None:
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="reference IDs must resolve to a single identity"):
+    with pytest.raises(
+        DomainTraceContractError,
+        match="reference IDs must resolve to a single identity",
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:collision",
             primary_domain="domain:life-plan",
             contributions=(
                 DomainTraceContribution(
-                    "domain:life-plan", DomainTraceRole.PRIMARY,
+                    "domain:life-plan",
+                    DomainTraceRole.PRIMARY,
                     (
-                        DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"),
-                        DomainTraceReference("shared:1", DomainTraceReferenceKind.WARNING, "domain:life-plan"),
+                        DomainTraceReference(
+                            "shared:1",
+                            DomainTraceReferenceKind.FINDING,
+                            "domain:life-plan",
+                        ),
+                        DomainTraceReference(
+                            "shared:1",
+                            DomainTraceReferenceKind.WARNING,
+                            "domain:life-plan",
+                        ),
                     ),
                 ),
             ),
             references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
-            started_at=now, completed_at=now,
+            started_at=now,
+            completed_at=now,
         )
 
 
 def test_v4_request_rejects_same_id_attributed_to_two_domains() -> None:
     now = datetime(2026, 8, 2, 12, 0, tzinfo=timezone.utc)
-    with pytest.raises(DomainTraceContractError, match="reference IDs must resolve to a single identity"):
+    with pytest.raises(
+        DomainTraceContractError,
+        match="reference IDs must resolve to a single identity",
+    ):
         DomainTraceAssemblyRequest(
             request_id="request:collision",
             primary_domain="domain:life-plan",
             supporting_domains=("domain:health",),
             contributions=(
                 DomainTraceContribution(
-                    "domain:life-plan", DomainTraceRole.PRIMARY,
-                    (DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:life-plan"),),
+                    "domain:life-plan",
+                    DomainTraceRole.PRIMARY,
+                    (
+                        DomainTraceReference(
+                            "shared:1",
+                            DomainTraceReferenceKind.FINDING,
+                            "domain:life-plan",
+                        ),
+                    ),
                 ),
                 DomainTraceContribution(
-                    "domain:health", DomainTraceRole.SUPPORTING,
-                    (DomainTraceReference("shared:1", DomainTraceReferenceKind.FINDING, "domain:health"),),
+                    "domain:health",
+                    DomainTraceRole.SUPPORTING,
+                    (
+                        DomainTraceReference(
+                            "shared:1",
+                            DomainTraceReferenceKind.FINDING,
+                            "domain:health",
+                        ),
+                    ),
                 ),
             ),
             references=DomainTraceReferences("ctx:1", "res:1", "comp:1"),
-            started_at=now, completed_at=now,
+            started_at=now,
+            completed_at=now,
         )
 
 
@@ -727,10 +949,13 @@ def test_v4_request_allows_distinct_global_refs() -> None:
             DomainTraceContribution("domain:life-plan", DomainTraceRole.PRIMARY),
         ),
         references=DomainTraceReferences(
-            "ctx:1", "res:1", "comp:1",
+            "ctx:1",
+            "res:1",
+            "comp:1",
             cognitive_result_ids=("cog:1",),
         ),
-        started_at=now, completed_at=now,
+        started_at=now,
+        completed_at=now,
     )
     assert request.references.cognitive_result_ids == ("cog:1",)
 
@@ -811,7 +1036,11 @@ def test_v4_valid_set_passes_global_uniqueness() -> None:
     (
         (
             DomainTraceDomainSelection,
-            {"source_id": "src:1", "primary_domain": "domain:life-plan", "supporting_domains": []},
+            {
+                "source_id": "src:1",
+                "primary_domain": "domain:life-plan",
+                "supporting_domains": [],
+            },
         ),
         (
             DomainTraceReference,
@@ -828,11 +1057,16 @@ def test_v4_valid_set_passes_global_uniqueness() -> None:
         (
             DomainTraceReferences,
             {
-                "resolution_context_id": "ctx:1", "resolution_result_id": "res:1",
-                "composition_id": "comp:1", "agent_trace_id": None,
-                "cognitive_result_ids": [], "reasoning_trace_ids": [],
-                "knowledge_package_ids": [], "cross_domain_results": [],
-                "presentation_plan_ids": [], "presentation_validation_result_ids": [],
+                "resolution_context_id": "ctx:1",
+                "resolution_result_id": "res:1",
+                "composition_id": "comp:1",
+                "agent_trace_id": None,
+                "cognitive_result_ids": [],
+                "reasoning_trace_ids": [],
+                "knowledge_package_ids": [],
+                "cross_domain_results": [],
+                "presentation_plan_ids": [],
+                "presentation_validation_result_ids": [],
             },
         ),
     ),
@@ -877,21 +1111,26 @@ class TestV4ClosedFromDict:
 
 def test_v4_domain_trace_reference_from_dict_rejects_unknown_enum() -> None:
     with pytest.raises(DomainTraceSerializationError):
-        DomainTraceReference.from_dict({"ref_id": "ref:1", "kind": "nonexistent_kind", "domain_id": None})
+        DomainTraceReference.from_dict(
+            {"ref_id": "ref:1", "kind": "nonexistent_kind", "domain_id": None}
+        )
 
 
 def test_v4_contribution_from_dict_rejects_invalid_nested_reference() -> None:
     with pytest.raises(DomainTraceSerializationError):
-        DomainTraceContribution.from_dict({
-            "domain_id": "domain:life-plan",
-            "role": "primary",
-            "references": [{"invalid": "structure"}],
-        })
+        DomainTraceContribution.from_dict(
+            {
+                "domain_id": "domain:life-plan",
+                "role": "primary",
+                "references": [{"invalid": "structure"}],
+            }
+        )
 
 
 def test_v4_references_from_dict_rejects_missing_required_fields() -> None:
     with pytest.raises(DomainTraceSerializationError):
         DomainTraceReferences.from_dict({"resolution_context_id": "ctx:1"})
+
 
 # ── Audit v5: top-level from_dict() error normalization ──────────────────────
 

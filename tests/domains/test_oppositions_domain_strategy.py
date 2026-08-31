@@ -48,8 +48,12 @@ def test_proposal_does_not_equal_adoption():
 
 def test_explicit_adoption_requires_fields():
     proposal = create_strategy_proposal(
-        current_version="1", proposed_change=None, reason=None,
-        evidence=None, actor=None, target_id=None,
+        current_version="1",
+        proposed_change=None,
+        reason=None,
+        evidence=None,
+        actor=None,
+        target_id=None,
     )
     # no proposed change -> no pending strategy decision
     assert proposal["decision_pending"] is False

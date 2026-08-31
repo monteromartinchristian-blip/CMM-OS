@@ -195,6 +195,7 @@ def test_full_chain_validation_and_no_private_memory_store() -> None:
 
     # Confirm no private memory store in domain package
     import cmm.domains.languages
+
     for forbidden in (
         "LanguageMemoryStore",
         "LanguagesMemoryStore",
@@ -259,7 +260,11 @@ def test_proposal_and_binding_do_not_consume_real_memory_write_approval() -> Non
     )
     base_inventory = DomainMemoryReferenceInventory(
         references=(reference,),
-        traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID
+            ),
+        ),
         permission_decisions=(memory_permission,),
     )
     view = build_languages_memory_view(request=request, inventory=base_inventory)
@@ -289,7 +294,11 @@ def test_proposal_and_binding_do_not_consume_real_memory_write_approval() -> Non
                 decision_id=decision_id, request_id=approval.id, approved=True
             ),
         ),
-        traces=(DomainMemoryTraceSnapshot(trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID),),
+        traces=(
+            DomainMemoryTraceSnapshot(
+                trace_id=trace_id, primary_domain=LANGUAGES_DOMAIN_ID
+            ),
+        ),
         views=(
             DomainMemoryViewSnapshot(
                 view_id=view.view_id,
@@ -302,7 +311,9 @@ def test_proposal_and_binding_do_not_consume_real_memory_write_approval() -> Non
     )
 
     assert proposal.requires_confirmation is True
-    assert validate_languages_memory_binding(binding=binding, inventory=inventory).is_valid
+    assert validate_languages_memory_binding(
+        binding=binding, inventory=inventory
+    ).is_valid
     assert service.repository.is_consumed(approval.id) is False
 
     applied = gate.evaluate_operation_definition(

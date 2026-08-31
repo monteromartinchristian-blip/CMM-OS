@@ -22,14 +22,30 @@ from cmm.domains.profile_contracts import DomainPresentationPolicy
 
 def _request() -> DomainPresentationRequest:
     return DomainPresentationRequest(
-        request_id="request-1", upstream_result_id="result-1", composition_id="composition-1", policy_id="profile-1",
+        request_id="request-1",
+        upstream_result_id="result-1",
+        composition_id="composition-1",
+        policy_id="profile-1",
         presentation=PresentationComposition(values={}, provenance={}),
-        policy=DomainPresentationPolicy(required_sections=("warnings",), protected_terms=("risk",), term_glosses={"risk": "risk_gloss"}),
+        policy=DomainPresentationPolicy(
+            required_sections=("warnings",),
+            protected_terms=("risk",),
+            term_glosses={"risk": "risk_gloss"},
+        ),
         output_intent=DomainOutputIntent(DomainOutputIntentType.HUMAN_READABLE),
         items=(
             DomainPresentationItemRef("warning-1", "WARNING", 0, warning_priority=0),
-            DomainPresentationItemRef("finding-1", "FINDING", 1, epistemic_kind="hypothesis", confidence=0.3, requires_provenance=True),
-            DomainPresentationItemRef("recommendation-1", "RECOMMENDATION", 2, epistemic_kind="recommendation"),
+            DomainPresentationItemRef(
+                "finding-1",
+                "FINDING",
+                1,
+                epistemic_kind="hypothesis",
+                confidence=0.3,
+                requires_provenance=True,
+            ),
+            DomainPresentationItemRef(
+                "recommendation-1", "RECOMMENDATION", 2, epistemic_kind="recommendation"
+            ),
         ),
         primary_domain_id="domain:general",
     )
@@ -62,10 +78,16 @@ def test_validator_blocks_confidence_epistemic_and_recommendation_mutations():
     request = _request()
     plan = DefaultDomainPresentationPlanner().plan(request)
     changed_finding = replace(
-        plan.item_refs[1], confidence=0.9, epistemic_kind=DomainPresentationEpistemicKind.DIAGNOSIS
+        plan.item_refs[1],
+        confidence=0.9,
+        epistemic_kind=DomainPresentationEpistemicKind.DIAGNOSIS,
     )
-    changed_recommendation = replace(plan.item_refs[2], item_type=DomainPresentationItemType.DECISION)
-    mutated = replace(plan, item_refs=(plan.item_refs[0], changed_finding, changed_recommendation))
+    changed_recommendation = replace(
+        plan.item_refs[2], item_type=DomainPresentationItemType.DECISION
+    )
+    mutated = replace(
+        plan, item_refs=(plan.item_refs[0], changed_finding, changed_recommendation)
+    )
 
     result = DefaultDomainPresentationPreservationValidator().validate(request, mutated)
 

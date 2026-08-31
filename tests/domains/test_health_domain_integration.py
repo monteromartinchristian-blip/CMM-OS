@@ -40,9 +40,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -63,9 +61,7 @@ def test_registers_all_parts():
     assert len(r["resource_registry"].list_all()) == 12
     assert len(r["rule_registry"].list_all()) == 8
     assert len(r["workflow_registry"].list_for_domain(HEALTH_DOMAIN_ID)) == 8
-    assert r["permission_registry"].get(
-        "domain-permission:health:1.0.0"
-    ) is not None
+    assert r["permission_registry"].get("domain-permission:health:1.0.0") is not None
 
 
 def _implementations_wrapped(r):

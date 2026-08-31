@@ -671,9 +671,8 @@ class DoNotInferIntentRule:
         # or a sourced statement, the corresponding reference is mandatory:
         # missing provenance is an invalid grounding claim, not uncertainty.
         grounding_claim_invalid = (
-            (has_direct_evidence and direct_reference is None)
-            or (is_sourced_statement and source_reference is None)
-        )
+            has_direct_evidence and direct_reference is None
+        ) or (is_sourced_statement and source_reference is None)
         if grounding_claim_invalid:
             escalation = ReasoningEscalation(
                 code="INTENT_BLOCKED",

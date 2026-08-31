@@ -57,10 +57,9 @@ def _deadline(
 
 
 def _canonical_result(deadline):
-    rule = {
-        rule.definition.id: rule
-        for rule in build_university_rules()
-    }["university.academic_deadline"]
+    rule = {rule.definition.id: rule for rule in build_university_rules()}[
+        "university.academic_deadline"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="deadline-production",
         timestamp=T,
@@ -72,10 +71,9 @@ def _canonical_result(deadline):
 
 
 def _canonical_context_result(metadata):
-    rule = {
-        rule.definition.id: rule
-        for rule in build_university_rules()
-    }["university.academic_deadline"]
+    rule = {rule.definition.id: rule for rule in build_university_rules()}[
+        "university.academic_deadline"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="deadline-production",
         timestamp=T,
@@ -127,9 +125,7 @@ def test_stale_official_source_is_stale_not_current_confirmation():
 
 
 def test_conflicting_current_authoritative_deadlines_is_conflicting():
-    result = classify_deadline_grounding(
-        deadline=_deadline(conflicting=True)
-    )
+    result = classify_deadline_grounding(deadline=_deadline(conflicting=True))
     assert result["state"] == "conflicting"
     assert result["confirmed"] is False
 
@@ -366,9 +362,7 @@ def test_v11_b2_deadline_conflicting_string_false_not_conflict():
 
 def test_v11_b2_deadline_critical_string_false_not_critical():
     """critical='false' must not be treated as decision-critical."""
-    result = classify_deadline_grounding(
-        deadline={**_deadline(), "critical": "false"}
-    )
+    result = classify_deadline_grounding(deadline={**_deadline(), "critical": "false"})
     # A confirmed official deadline is not decision-critical from a malformed flag.
     assert result["confirmed"] is True
     assert result["state"] != "conflicting"
@@ -376,9 +370,7 @@ def test_v11_b2_deadline_critical_string_false_not_critical():
 
 def test_v11_b2_deadline_conflicting_int_one_not_conflict():
     """conflicting=1 must not be interpreted as a real conflicting state."""
-    result = classify_deadline_grounding(
-        deadline={**_deadline(), "conflicting": 1}
-    )
+    result = classify_deadline_grounding(deadline={**_deadline(), "conflicting": 1})
     assert result["state"] != "conflicting"
 
 
@@ -413,8 +405,7 @@ def test_v12_b1_deadline_required_truthy_never_critical(value):
     result = _canonical_context_result({"deadline_required": value})
     assert result.status is ReasoningRuleResultStatus.NOT_APPLICABLE
     assert not any(
-        finding.code == "DEADLINE_VERIFICATION_NEEDED"
-        for finding in result.findings
+        finding.code == "DEADLINE_VERIFICATION_NEEDED" for finding in result.findings
     )
 
 
@@ -423,8 +414,7 @@ def test_v12_b1_deadline_literal_true_context_critical():
     result = _canonical_context_result({"deadline_decision_critical": True})
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert any(
-        finding.code == "DEADLINE_VERIFICATION_NEEDED"
-        for finding in result.findings
+        finding.code == "DEADLINE_VERIFICATION_NEEDED" for finding in result.findings
     )
 
 
@@ -490,18 +480,14 @@ def test_v14_b1_deadline_value_collection_not_accepted(malformed_value):
 def test_v14_b1_deadline_scalar_source_reference_still_works():
     """Positive control: a proper scalar source_reference must remain
     confirmed."""
-    result = classify_deadline_grounding(
-        deadline=_deadline(source_reference="d1")
-    )
+    result = classify_deadline_grounding(deadline=_deadline(source_reference="d1"))
     assert result["state"] == "confirmed_official"
     assert result["confirmed"] is True
 
 
 def test_v14_b1_deadline_scalar_value_still_works():
     """Positive control: a proper scalar deadline value must remain usable."""
-    result = classify_deadline_grounding(
-        deadline=_deadline(value="2026-09-01")
-    )
+    result = classify_deadline_grounding(deadline=_deadline(value="2026-09-01"))
     assert result["confirmed"] is True
 
 

@@ -53,9 +53,7 @@ def test_no_duplicate_ids():
     assert len(CANONICAL_UNIVERSITY_OPERATION_IDS) == len(
         set(CANONICAL_UNIVERSITY_OPERATION_IDS)
     )
-    assert len(CANONICAL_UNIVERSITY_RULE_IDS) == len(
-        set(CANONICAL_UNIVERSITY_RULE_IDS)
-    )
+    assert len(CANONICAL_UNIVERSITY_RULE_IDS) == len(set(CANONICAL_UNIVERSITY_RULE_IDS))
     assert len(CANONICAL_UNIVERSITY_RESOURCE_IDS) == len(
         set(CANONICAL_UNIVERSITY_RESOURCE_IDS)
     )
@@ -101,9 +99,7 @@ def test_canonical_order_deterministic():
     assert CANONICAL_UNIVERSITY_OPERATION_IDS == tuple(
         sorted(CANONICAL_UNIVERSITY_OPERATION_IDS)
     )
-    assert CANONICAL_UNIVERSITY_RULE_IDS == tuple(
-        sorted(CANONICAL_UNIVERSITY_RULE_IDS)
-    )
+    assert CANONICAL_UNIVERSITY_RULE_IDS == tuple(sorted(CANONICAL_UNIVERSITY_RULE_IDS))
     assert CANONICAL_UNIVERSITY_RESOURCE_IDS == tuple(
         sorted(CANONICAL_UNIVERSITY_RESOURCE_IDS)
     )

@@ -109,9 +109,7 @@ def test_search_external_allowed_for_official_only_source():
     result = resolver.resolve(
         _university_request(
             PermissionCapability.SEARCH_EXTERNAL,
-            source_use=ExternalSourceUse(
-                ExternalSourceClass.OFFICIAL_ONLY, "gov.acme"
-            ),
+            source_use=ExternalSourceUse(ExternalSourceClass.OFFICIAL_ONLY, "gov.acme"),
         ),
         now=NOW,
     )
@@ -187,7 +185,9 @@ def test_schedule_modify_denied_by_default_without_approval():
     )
     assert result.effective_permissions.decision.name == "APPROVAL_REQUIRED"
     assert len(result.approval_requirements) == 1
-    assert result.approval_requirements[0].action is PermissionCapability.SCHEDULE_MODIFY
+    assert (
+        result.approval_requirements[0].action is PermissionCapability.SCHEDULE_MODIFY
+    )
 
 
 def test_legacy_allow_bools_do_not_auto_grant():
@@ -253,9 +253,7 @@ def test_cross_domain_no_permission_is_denied():
 
 
 def test_cross_domain_minimal_projection_is_approval_gated():
-    resolver = _resolver(
-        _scoped_health_peering(), build_university_permission_policy()
-    )
+    resolver = _resolver(_scoped_health_peering(), build_university_permission_policy())
     decision = resolver.resolve_cross_domain(_cross_domain_request(), now=NOW)
     # The authorized narrow path exists and is approval-gated, not hard-denied.
     assert decision.decision.name == "APPROVAL_REQUIRED"
@@ -269,9 +267,7 @@ def test_cross_domain_detailed_clinical_is_denied():
     # Even with the Health->University path open, detailed clinical material
     # (laboratory results, medical reports) is scoped out of the peering and
     # denied.
-    resolver = _resolver(
-        _scoped_health_peering(), build_university_permission_policy()
-    )
+    resolver = _resolver(_scoped_health_peering(), build_university_permission_policy())
     for clinical_kind in ("laboratory_result", "medical_report", "treatment_plan"):
         decision = resolver.resolve_cross_domain(
             _cross_domain_request(

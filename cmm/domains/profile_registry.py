@@ -113,7 +113,10 @@ class InMemoryDomainProfileRegistry:
         )
         by_domain = tuple(
             sorted(
-                ((domain_id, profile_id) for domain_id, profile_id in self._by_domain.items()),
+                (
+                    (domain_id, profile_id)
+                    for domain_id, profile_id in self._by_domain.items()
+                ),
                 key=lambda item: (item[0].slug, item[1]),
             )
         )
@@ -209,8 +212,7 @@ class InMemoryDomainProfileRegistry:
             profile = profiles_by_id[profile_id]
             if profile.domain_id != domain_id:
                 raise DomainProfileRegistryError(
-                    "snapshot.by_domain maps a profile to a domain that is not "
-                    "its own",
+                    "snapshot.by_domain maps a profile to a domain that is not its own",
                     field="snapshot.by_domain",
                     details={
                         "profile_id": profile_id,
@@ -221,7 +223,9 @@ class InMemoryDomainProfileRegistry:
 
         # All validation passed — mutate
         self._profiles = {p.id: p for p in snapshot.profiles}
-        self._by_domain = {domain_id: profile_id for domain_id, profile_id in snapshot.by_domain}
+        self._by_domain = {
+            domain_id: profile_id for domain_id, profile_id in snapshot.by_domain
+        }
 
 
 __all__ = [

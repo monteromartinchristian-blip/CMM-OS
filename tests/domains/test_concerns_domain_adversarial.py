@@ -45,8 +45,23 @@ from cmm.domains.concerns.rules import (
 )
 
 _PRIMITIVES = [
-    None, True, False, 0, 1, -1, 2.75, float("nan"), float("inf"), -float("inf"),
-    "", "arbitrary-string", {}, [], (), [{}], {"nested": {"deep": [1, {"x": None}]}},
+    None,
+    True,
+    False,
+    0,
+    1,
+    -1,
+    2.75,
+    float("nan"),
+    float("inf"),
+    -float("inf"),
+    "",
+    "arbitrary-string",
+    {},
+    [],
+    (),
+    [{}],
+    {"nested": {"deep": [1, {"x": None}]}},
     {"statement": "probe", "level": "interpretation", "fact": True},
 ]
 
@@ -69,36 +84,60 @@ def test_no_exception_gate_primitive_matrix():
     for value in _PRIMITIVES:
         probes.append(_probe(lambda v=value: understand_concern(v)))
         probes.append(_probe(lambda v=value: map_lived_experience(v)))
-        probes.append(_probe(
-            lambda v=value: infer_support_need(explicit_request=v, current_signal=v)
-        ))
-        probes.append(_probe(
-            lambda v=value: evaluate_question_materiality(question=v, changes=v)
-        ))
+        probes.append(
+            _probe(
+                lambda v=value: infer_support_need(explicit_request=v, current_signal=v)
+            )
+        )
+        probes.append(
+            _probe(lambda v=value: evaluate_question_materiality(question=v, changes=v))
+        )
         probes.append(_probe(lambda v=value: classify_concern_statement(v)))
         probes.append(_probe(lambda v=value: evaluate_uncertainty(records=v)))
-        probes.append(_probe(
-            lambda v=value: evaluate_reassurance(evidence=v, counterevidence=v)
-        ))
-        probes.append(_probe(
-            lambda v=value: evaluate_proportional_risk(severity=v, immediacy=v)
-        ))
-        probes.append(_probe(
-            lambda v=value: detect_catastrophic_escalation(source_state=v, proposed_state=v)
-        ))
-        probes.append(_probe(lambda v=value: detect_false_reassurance(reassurance_state=v)))
+        probes.append(
+            _probe(lambda v=value: evaluate_reassurance(evidence=v, counterevidence=v))
+        )
+        probes.append(
+            _probe(lambda v=value: evaluate_proportional_risk(severity=v, immediacy=v))
+        )
+        probes.append(
+            _probe(
+                lambda v=value: detect_catastrophic_escalation(
+                    source_state=v, proposed_state=v
+                )
+            )
+        )
+        probes.append(
+            _probe(lambda v=value: detect_false_reassurance(reassurance_state=v))
+        )
         probes.append(_probe(lambda v=value: review_recurring_concern_state(current=v)))
-        probes.append(_probe(lambda v=value: evaluate_repetitive_certainty_pattern(turns=v)))
-        probes.append(_probe(lambda v=value: evaluate_action_state(options=v, urgency=v)))
-        probes.append(_probe(
-            lambda v=value: evaluate_grounded_directness(assessment=v, evidence=v)
-        ))
-        probes.append(_probe(lambda v=value: evaluate_immediate_risk_escalation(risk_state=v)))
-        probes.append(_probe(lambda v=value: separate_reality_interpretation_result(statements=v)))
+        probes.append(
+            _probe(lambda v=value: evaluate_repetitive_certainty_pattern(turns=v))
+        )
+        probes.append(
+            _probe(lambda v=value: evaluate_action_state(options=v, urgency=v))
+        )
+        probes.append(
+            _probe(
+                lambda v=value: evaluate_grounded_directness(assessment=v, evidence=v)
+            )
+        )
+        probes.append(
+            _probe(lambda v=value: evaluate_immediate_risk_escalation(risk_state=v))
+        )
+        probes.append(
+            _probe(lambda v=value: separate_reality_interpretation_result(statements=v))
+        )
         probes.append(_probe(lambda v=value: evaluate_reassurance_result(evidence=v)))
-        probes.append(_probe(lambda v=value: identify_open_questions_result(questions=v)))
-        probes.append(_probe(lambda v=value: review_recurring_concern_result(current=v)))
-        probes.append(_probe(lambda v=value: persistence_confirmation_accepted(confirmation=v)))
+        probes.append(
+            _probe(lambda v=value: identify_open_questions_result(questions=v))
+        )
+        probes.append(
+            _probe(lambda v=value: review_recurring_concern_result(current=v))
+        )
+        probes.append(
+            _probe(lambda v=value: persistence_confirmation_accepted(confirmation=v))
+        )
         probes.append(_probe(lambda v=value: permission_authorization_allows(v)))
         probes.append(_probe(lambda v=value: is_persistence_restricted_content(v)))
     assert all(probes), "primitive matrix raised or produced non-JSON-safe output"
@@ -122,7 +161,10 @@ def test_no_certainty_inflation_from_primitive_matrix():
             assert with_garbage == baseline
         else:
             assert with_garbage == baseline or with_garbage == "UNCERTAIN"
-            assert with_garbage != "REASSURANCE_SUPPORTED" or baseline != "INSUFFICIENT_BASIS"
+            assert (
+                with_garbage != "REASSURANCE_SUPPORTED"
+                or baseline != "INSUFFICIENT_BASIS"
+            )
 
 
 def test_no_authorization_widening_from_mappings():
@@ -142,9 +184,24 @@ def test_no_authorization_widening_from_mappings():
 
 def test_permutation_gate_equivalent_sets_identical_semantics():
     evidence_set = (
-        {"identity": "e1", "claim": "benign", "stance": "opposes_target", "grounding": "g1"},
-        {"identity": "e2", "claim": "benign", "stance": "opposes_target", "grounding": "g2"},
-        {"identity": "e3", "claim": "benign", "stance": "opposes_target", "grounding": "g3"},
+        {
+            "identity": "e1",
+            "claim": "benign",
+            "stance": "opposes_target",
+            "grounding": "g1",
+        },
+        {
+            "identity": "e2",
+            "claim": "benign",
+            "stance": "opposes_target",
+            "grounding": "g2",
+        },
+        {
+            "identity": "e3",
+            "claim": "benign",
+            "stance": "opposes_target",
+            "grounding": "g3",
+        },
     )
     canonical = {
         (
@@ -160,7 +217,12 @@ def test_permutation_gate_equivalent_sets_identical_semantics():
         {"identity": "u2", "unknown": "timing"},
     )
     u_canonical = {
-        tuple(sorted(item["identity"] for item in evaluate_uncertainty(records=order)["uncertainties"]))
+        tuple(
+            sorted(
+                item["identity"]
+                for item in evaluate_uncertainty(records=order)["uncertainties"]
+            )
+        )
         for order in itertools.permutations(uncertainty_set)
     }
     assert len(u_canonical) == 1
@@ -171,7 +233,14 @@ def test_permutation_gate_equivalent_sets_identical_semantics():
         {"statement": "a fear", "level": "fear"},
     )
     s_canonical = {
-        tuple(sorted(r["level"] for r in separate_reality_interpretation_result(statements=o)["statements"]))
+        tuple(
+            sorted(
+                r["level"]
+                for r in separate_reality_interpretation_result(statements=o)[
+                    "statements"
+                ]
+            )
+        )
         for o in itertools.permutations(statements)
     }
     assert len(s_canonical) == 1
@@ -179,17 +248,39 @@ def test_permutation_gate_equivalent_sets_identical_semantics():
 
 def test_duplicate_evidence_gate():
     base = (
-        {"identity": "c1", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
-        {"identity": "c2", "claim": "feared reading", "stance": "opposes_target", "grounding": "b"},
+        {
+            "identity": "c1",
+            "claim": "feared reading",
+            "stance": "opposes_target",
+            "grounding": "a",
+        },
+        {
+            "identity": "c2",
+            "claim": "feared reading",
+            "stance": "opposes_target",
+            "grounding": "b",
+        },
     )
-    single_assessment = evaluate_reassurance(target_claim="feared reading", evidence=base)["assessment"]
+    single_assessment = evaluate_reassurance(
+        target_claim="feared reading", evidence=base
+    )["assessment"]
     duplicated = evaluate_reassurance(
         target_claim="feared reading",
         evidence=(
             *base,
-            {"identity": "c1-dup", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c1-dup", "claim": "feared reading", "stance": "opposes_target", "grounding": "a"},
-        )
+            {
+                "identity": "c1-dup",
+                "claim": "feared reading",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c1-dup",
+                "claim": "feared reading",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+        ),
     )["assessment"]
     assert duplicated == single_assessment
 
@@ -198,18 +289,48 @@ def test_malformed_evidence_gate_never_increases_anything():
     clean = evaluate_reassurance(
         target_claim="x",
         counterevidence=(
-            {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
-            {"identity": "c3", "claim": "x", "stance": "opposes_target", "grounding": "c"},
-        )
+            {
+                "identity": "c1",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c2",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
+            {
+                "identity": "c3",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "c",
+            },
+        ),
     )
     dirty = evaluate_reassurance(
         target_claim="x",
         evidence=(float("nan"), {"no_claim": True}, 7, [1, 2], "junk"),
         counterevidence=(
-            {"identity": "c1", "claim": "x", "stance": "opposes_target", "grounding": "a"},
-            {"identity": "c2", "claim": "x", "stance": "opposes_target", "grounding": "b"},
-            {"identity": "c3", "claim": "x", "stance": "opposes_target", "grounding": "c"},
+            {
+                "identity": "c1",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "a",
+            },
+            {
+                "identity": "c2",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "b",
+            },
+            {
+                "identity": "c3",
+                "claim": "x",
+                "stance": "opposes_target",
+                "grounding": "c",
+            },
         ),
     )
     assert dirty["malformed_count"] >= 4
@@ -225,7 +346,11 @@ def test_input_non_mutation_gate():
     }
     statements = [{"statement": "x", "level": "interpretation"}]
     current = {"topic": "t", "question": "q"}
-    snapshots = [copy.deepcopy(material), copy.deepcopy(statements), copy.deepcopy(current)]
+    snapshots = [
+        copy.deepcopy(material),
+        copy.deepcopy(statements),
+        copy.deepcopy(current),
+    ]
     understand_concern(material)
     separate_reality_interpretation_result(statements=statements)
     review_recurring_concern_state(current=current)
@@ -240,8 +365,12 @@ def test_strict_json_gate_all_public_helpers():
     outputs = (
         normalize_json_value({"x": nan}),
         classify_concern_statement({"statement": "s", "value": nan}),
-        evaluate_uncertainty(records=({"identity": "u", "unknown": "x", "value": nan},)),
-        evaluate_reassurance(evidence=({"identity": "e", "supports": "x", "value": inf},)),
+        evaluate_uncertainty(
+            records=({"identity": "u", "unknown": "x", "value": nan},)
+        ),
+        evaluate_reassurance(
+            evidence=({"identity": "e", "supports": "x", "value": inf},)
+        ),
         evaluate_proportional_risk(severity=nan),
         detect_false_reassurance(reassurance_state={"assessment": "X", "v": nan}),
         review_recurring_concern_state(current={"topic": nan}),
@@ -255,11 +384,26 @@ def test_strict_json_gate_all_public_helpers():
 def test_gate_summary_all_named_adversarial_gates_pass():
     gates = {
         "NO_EXCEPTION_GATE": (
-            all(_probe(lambda v=p: understand_concern(v)) for p in (None, 1, "s", {}, []))
-            and all(_probe(lambda v=p: classify_concern_statement(v)) for p in (None, 1, "s", {}, []))
-            and all(_probe(lambda v=p: evaluate_uncertainty(records=v)) for p in (None, 1, "s", {}, []))
-            and all(_probe(lambda v=p: evaluate_reassurance(evidence=v)) for p in (None, 1, "s", {}, []))
-            and all(_probe(lambda v=p: review_recurring_concern_state(current=v)) for p in (None, 1, "s", {}, []))
+            all(
+                _probe(lambda v=p: understand_concern(v))
+                for p in (None, 1, "s", {}, [])
+            )
+            and all(
+                _probe(lambda v=p: classify_concern_statement(v))
+                for p in (None, 1, "s", {}, [])
+            )
+            and all(
+                _probe(lambda v=p: evaluate_uncertainty(records=v))
+                for p in (None, 1, "s", {}, [])
+            )
+            and all(
+                _probe(lambda v=p: evaluate_reassurance(evidence=v))
+                for p in (None, 1, "s", {}, [])
+            )
+            and all(
+                _probe(lambda v=p: review_recurring_concern_state(current=v))
+                for p in (None, 1, "s", {}, [])
+            )
         ),
         "PERMISSION_GATE": all(
             permission_authorization_allows(raw) is False
@@ -270,10 +414,25 @@ def test_gate_summary_all_named_adversarial_gates_pass():
             lambda: evaluate_reassurance(
                 target_claim="f",
                 evidence=(
-                    {"identity": "d", "claim": "f", "stance": "opposes_target", "grounding": "g"},
-                    {"identity": "d", "claim": "f", "stance": "opposes_target", "grounding": "g"},
-                    {"identity": "d2", "claim": "f", "stance": "opposes_target", "grounding": "g2"},
-                )
+                    {
+                        "identity": "d",
+                        "claim": "f",
+                        "stance": "opposes_target",
+                        "grounding": "g",
+                    },
+                    {
+                        "identity": "d",
+                        "claim": "f",
+                        "stance": "opposes_target",
+                        "grounding": "g",
+                    },
+                    {
+                        "identity": "d2",
+                        "claim": "f",
+                        "stance": "opposes_target",
+                        "grounding": "g2",
+                    },
+                ),
             )
         ),
         "MALFORMED_EVIDENCE_GATE": _probe(
@@ -290,8 +449,18 @@ def test_gate_summary_all_named_adversarial_gates_pass():
                 evaluate_reassurance(target_claim="b", evidence=order)["assessment"]
                 for order in itertools.permutations(
                     (
-                        {"identity": "p1", "claim": "b", "stance": "opposes_target", "grounding": "1"},
-                        {"identity": "p2", "claim": "b", "stance": "opposes_target", "grounding": "2"},
+                        {
+                            "identity": "p1",
+                            "claim": "b",
+                            "stance": "opposes_target",
+                            "grounding": "1",
+                        },
+                        {
+                            "identity": "p2",
+                            "claim": "b",
+                            "stance": "opposes_target",
+                            "grounding": "2",
+                        },
                     )
                 )
             }

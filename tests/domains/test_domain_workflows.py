@@ -1,4 +1,3 @@
-
 from cmm.domains.workflow_catalog import initial_domain_workflows
 from cmm.domains.workflow_contracts import (
     DomainWorkflowContext,
@@ -18,7 +17,13 @@ def test_domain_workflow_definition_security_fields_round_trip():
 
 
 def definition(**kwargs):
-    values = {"workflow_id": "x.flow", "domain_id": "domain:x", "version": "1.0.0", "name": "X", "nodes": (WorkflowNode("n", "complete", "N"),)}
+    values = {
+        "workflow_id": "x.flow",
+        "domain_id": "domain:x",
+        "version": "1.0.0",
+        "name": "X",
+        "nodes": (WorkflowNode("n", "complete", "N"),),
+    }
     values.update(kwargs)
     return DomainWorkflowDefinition(**values)
 
@@ -33,7 +38,15 @@ def test_domain_registry_filters_domain_but_common_registry_does_not():
 
 def test_resolution_uses_deny_wins_and_is_pure():
     item = definition(required_permissions=("read",), required_resources=("record",))
-    result = resolve_domain_workflow(item, DomainWorkflowContext("domain:x", available_permissions=frozenset({"read"}), denied_permissions=frozenset({"read"}), available_resources=frozenset({"record"})))
+    result = resolve_domain_workflow(
+        item,
+        DomainWorkflowContext(
+            "domain:x",
+            available_permissions=frozenset({"read"}),
+            denied_permissions=frozenset({"read"}),
+            available_resources=frozenset({"record"}),
+        ),
+    )
     assert result.status is WorkflowAvailabilityStatus.BLOCKED
 
 
@@ -48,12 +61,16 @@ def test_execution_uses_common_run_as_source_of_truth():
 def test_catalog_contains_exact_four_conservative_workflows():
     catalog = initial_domain_workflows()
     assert {item.workflow_id for item in catalog} == {
-        "health.medical_follow_up", "university.semester_planning",
-        "relationships.timeline_analysis", "project.architecture_review",
+        "health.medical_follow_up",
+        "university.semester_planning",
+        "relationships.timeline_analysis",
+        "project.architecture_review",
     }
 
 
 def test_catalog_workflows_do_not_claim_completion_without_capabilities():
     for item in initial_domain_workflows():
-        result = DomainWorkflowExecutor(id_factory=lambda: "run").execute(item, DomainWorkflowContext(item.domain_id), {})
+        result = DomainWorkflowExecutor(id_factory=lambda: "run").execute(
+            item, DomainWorkflowContext(item.domain_id), {}
+        )
         assert result.status is not WorkflowRunStatus.COMPLETED

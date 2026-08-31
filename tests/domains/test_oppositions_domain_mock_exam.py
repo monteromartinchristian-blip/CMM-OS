@@ -67,8 +67,20 @@ def test_malformed_score_does_not_promote_certainty():
 def test_unknown_chronology_prevents_temporal_trend():
     record = evaluate_mock_performance(
         mocks=(
-            {"id": "m1", "score": 20, "total": 50, "scoring": "standard", "format": "test"},
-            {"id": "m2", "score": 30, "total": 50, "scoring": "standard", "format": "test"},
+            {
+                "id": "m1",
+                "score": 20,
+                "total": 50,
+                "scoring": "standard",
+                "format": "test",
+            },
+            {
+                "id": "m2",
+                "score": 30,
+                "total": 50,
+                "scoring": "standard",
+                "format": "test",
+            },
         )
     )
     assert record["chronology_unknown"] is True
@@ -76,20 +88,14 @@ def test_unknown_chronology_prevents_temporal_trend():
 
 
 def test_duplicate_mock_identity_not_double_counted():
-    record = evaluate_mock_performance(
-        mocks=(_mock("m1", 20, 50), _mock("m1", 30, 50))
-    )
+    record = evaluate_mock_performance(mocks=(_mock("m1", 20, 50), _mock("m1", 30, 50)))
     assert record["duplicates_ignored"] == 1
     assert record["observation_count"] == 1
 
 
 def test_order_invariance():
-    a = evaluate_mock_performance(
-        mocks=(_mock("m2", 30, 50), _mock("m1", 20, 50))
-    )
-    b = evaluate_mock_performance(
-        mocks=(_mock("m1", 20, 50), _mock("m2", 30, 50))
-    )
+    a = evaluate_mock_performance(mocks=(_mock("m2", 30, 50), _mock("m1", 20, 50)))
+    b = evaluate_mock_performance(mocks=(_mock("m1", 20, 50), _mock("m2", 30, 50)))
     # normalized semantic meaning, not just a weak boolean
     assert (
         a["trend_inferred"],
@@ -109,9 +115,7 @@ def test_order_invariance():
 
 
 def test_speed_separate_from_knowledge():
-    record = evaluate_mock_performance(
-        mocks=(_mock("m1", 30, 50, speed_score=10),)
-    )
+    record = evaluate_mock_performance(mocks=(_mock("m1", 30, 50, speed_score=10),))
     assert record["speed_dimension_present"] is True
     assert record["has_scores"] is True
     assert record["speed_knowledge_separated"] is True
@@ -158,12 +162,30 @@ def test_malformed_chronology_blocks_trend():
 def test_conflicting_duplicate_mock_order_invariance():
     """Conflicting duplicate mock identities must produce the same normalized
     semantics regardless of input order and must not drive a trend."""
-    a1 = {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
-          "scoring": "standard", "format": "test"}
-    a2 = {"id": "m1", "date": "2026-03-01", "score": 5, "total": 10,
-          "scoring": "standard", "format": "test"}
-    b = {"id": "m2", "date": "2026-02-01", "score": 10, "total": 10,
-         "scoring": "standard", "format": "test"}
+    a1 = {
+        "id": "m1",
+        "date": "2026-01-01",
+        "score": 5,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
+    a2 = {
+        "id": "m1",
+        "date": "2026-03-01",
+        "score": 5,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
+    b = {
+        "id": "m2",
+        "date": "2026-02-01",
+        "score": 10,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
     forward = evaluate_mock_performance(mocks=(a1, a2, b))
     reverse = evaluate_mock_performance(mocks=(a2, a1, b))
     # the conflicting duplicate m1 is unresolved, and no trend is inferred from
@@ -187,10 +209,22 @@ import json
 def test_mixed_naive_aware_chronology_never_raises():
     record = evaluate_mock_performance(
         mocks=(
-            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-01-01"},
-            {"id": "m2", "score": 6, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-02-01T00:00:00+00:00"},
+            {
+                "id": "m1",
+                "score": 5,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-01-01",
+            },
+            {
+                "id": "m2",
+                "score": 6,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-02-01T00:00:00+00:00",
+            },
         )
     )
     assert record["trend_state"] == "trend"
@@ -200,10 +234,22 @@ def test_mixed_naive_aware_chronology_never_raises():
 def test_z_and_explicit_offset_chronology_never_raises():
     record = evaluate_mock_performance(
         mocks=(
-            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-01-01T12:00:00Z"},
-            {"id": "m2", "score": 6, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-01-02T12:00:00+02:00"},
+            {
+                "id": "m1",
+                "score": 5,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-01-01T12:00:00Z",
+            },
+            {
+                "id": "m2",
+                "score": 6,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-01-02T12:00:00+02:00",
+            },
         )
     )
     assert record["trend_state"] == "trend"
@@ -213,20 +259,44 @@ def test_z_and_explicit_offset_chronology_never_raises():
 def test_mock_helper_result_json_serializable():
     record = evaluate_mock_performance(
         mocks=(
-            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-01-01"},
+            {
+                "id": "m1",
+                "score": 5,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-01-01",
+            },
         )
     )
     json.dumps(record)
 
 
 def test_conflicting_mock_public_result_permutation_invariant():
-    a1 = {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
-          "scoring": "standard", "format": "test"}
-    a2 = {"id": "m1", "date": "2026-03-01", "score": 8, "total": 10,
-          "scoring": "standard", "format": "test"}
-    b = {"id": "m2", "date": "2026-02-01", "score": 10, "total": 10,
-         "scoring": "standard", "format": "test"}
+    a1 = {
+        "id": "m1",
+        "date": "2026-01-01",
+        "score": 5,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
+    a2 = {
+        "id": "m1",
+        "date": "2026-03-01",
+        "score": 8,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
+    b = {
+        "id": "m2",
+        "date": "2026-02-01",
+        "score": 10,
+        "total": 10,
+        "scoring": "standard",
+        "format": "test",
+    }
     forward = evaluate_mock_performance(mocks=(a1, a2, b))
     reverse = evaluate_mock_performance(mocks=(a2, a1, b))
     # conflicting identity must not expose a first-wins representative

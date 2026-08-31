@@ -21,8 +21,7 @@ from cmm.domains.resource_contracts import (
 )
 
 OPPOSITIONS_RESOURCE_KINDS: tuple[str, ...] = tuple(
-    resource_id.split(".", 1)[1]
-    for resource_id in CANONICAL_OPPOSITION_RESOURCE_IDS
+    resource_id.split(".", 1)[1] for resource_id in CANONICAL_OPPOSITION_RESOURCE_IDS
 )
 
 
@@ -87,7 +86,11 @@ def build_oppositions_resource_definitions() -> tuple[DomainResourceDefinition, 
             sensitivity=SensitivityLevel.PERSONAL,
             reliability=0.85,
             effective_date_required=True,
-            metadata={"provenance": True, "temporality": True, "official_capable": True},
+            metadata={
+                "provenance": True,
+                "temporality": True,
+                "official_capable": True,
+            },
         ),
         "oppositions.regulation": _resource(
             "oppositions.regulation",
@@ -192,8 +195,7 @@ def build_oppositions_resource_definitions() -> tuple[DomainResourceDefinition, 
         ),
     }
     return tuple(
-        by_id[resource_id]
-        for resource_id in CANONICAL_OPPOSITION_RESOURCE_IDS
+        by_id[resource_id] for resource_id in CANONICAL_OPPOSITION_RESOURCE_IDS
     )
 
 

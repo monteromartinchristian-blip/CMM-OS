@@ -22,8 +22,17 @@ from cmm.domains.reflection.rules import (
 NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _version(version_id, identity, observed_at, content, *, source=None,
-             grounded=None, contradiction=False, uncertain=False):
+def _version(
+    version_id,
+    identity,
+    observed_at,
+    content,
+    *,
+    source=None,
+    grounded=None,
+    contradiction=False,
+    uncertain=False,
+):
     return {
         "version_id": version_id,
         "identity": identity,
@@ -39,10 +48,22 @@ def _version(version_id, identity, observed_at, content, *, source=None,
 def test_valid_ordered_dates_allow_directional_evolution():
     result = compare_reflection_versions(
         versions=(
-            _version("v1", "belief:trust", "2026-01-01", "I trust them",
-                     source="note:1", grounded=True),
-            _version("v2", "belief:trust", "2026-08-01", "I no longer trust them",
-                     source="note:2", grounded=True),
+            _version(
+                "v1",
+                "belief:trust",
+                "2026-01-01",
+                "I trust them",
+                source="note:1",
+                grounded=True,
+            ),
+            _version(
+                "v2",
+                "belief:trust",
+                "2026-08-01",
+                "I no longer trust them",
+                source="note:2",
+                grounded=True,
+            ),
         )
     )
     assert result["chronology_state"] == "ordered"

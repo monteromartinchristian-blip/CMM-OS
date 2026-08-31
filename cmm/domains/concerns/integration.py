@@ -94,8 +94,7 @@ def _validate_no_duplicate_operations(operation_registry, operations) -> None:
     """Validate that no operation key is already registered in the domain or
     nested common registry, deterministically before the first mutation."""
     existing_ids = {
-        definition.operation_id
-        for definition in operation_registry.list_definitions()
+        definition.operation_id for definition in operation_registry.list_definitions()
     }
     duplicates = tuple(
         operation.operation_id

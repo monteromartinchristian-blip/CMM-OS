@@ -89,10 +89,22 @@ def test_all_touched_helpers_json_serializable():
 def test_mock_timeline_json_serializable_with_mixed_chronology():
     record = evaluate_mock_performance(
         mocks=(
-            {"id": "m1", "score": 5, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-01-01"},
-            {"id": "m2", "score": 6, "total": 10, "scoring": "standard",
-             "format": "test", "date": "2026-02-01T00:00:00+00:00"},
+            {
+                "id": "m1",
+                "score": 5,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-01-01",
+            },
+            {
+                "id": "m2",
+                "score": 6,
+                "total": 10,
+                "scoring": "standard",
+                "format": "test",
+                "date": "2026-02-01T00:00:00+00:00",
+            },
         )
     )
     json.dumps(record)
@@ -102,8 +114,27 @@ def test_mock_timeline_json_serializable_with_mixed_chronology():
 
 
 def test_study_feasibility_primitive_matrix_no_exception():
-    for value in (None, True, False, 0, 1, -1, 1.0, float("nan"), float("inf"),
-                  "", "0", "1", "true", "false", "unknown", {}, [], (), [{}]):
+    for value in (
+        None,
+        True,
+        False,
+        0,
+        1,
+        -1,
+        1.0,
+        float("nan"),
+        float("inf"),
+        "",
+        "0",
+        "1",
+        "true",
+        "false",
+        "unknown",
+        {},
+        [],
+        (),
+        [{}],
+    ):
         # malformed target-date values must fail closed without raising
         record = evaluate_study_feasibility(
             remaining_hours=10, available_hours=30, target_days=value
@@ -113,8 +144,25 @@ def test_study_feasibility_primitive_matrix_no_exception():
 
 
 def test_syllabus_primitive_matrix_no_exception():
-    for value in (None, True, False, 0, 1, -1, 1.0, "", "0", "1", "true",
-                  "false", "unknown", {}, [], (), [{}]):
+    for value in (
+        None,
+        True,
+        False,
+        0,
+        1,
+        -1,
+        1.0,
+        "",
+        "0",
+        "1",
+        "true",
+        "false",
+        "unknown",
+        {},
+        [],
+        (),
+        [{}],
+    ):
         record = evaluate_syllabus_coverage(
             topics=({"id": "t1", "studied": "yes", "depth": value},),
             syllabus_version="v2",
@@ -124,8 +172,27 @@ def test_syllabus_primitive_matrix_no_exception():
 
 
 def test_mock_primitive_matrix_no_exception():
-    for value in (None, True, False, 0, 1, -1, 1.0, float("nan"), float("inf"),
-                  "", "0", "1", "true", "false", "unknown", {}, [], (), [{}]):
+    for value in (
+        None,
+        True,
+        False,
+        0,
+        1,
+        -1,
+        1.0,
+        float("nan"),
+        float("inf"),
+        "",
+        "0",
+        "1",
+        "true",
+        "false",
+        "unknown",
+        {},
+        [],
+        (),
+        [{}],
+    ):
         record = evaluate_mock_performance(
             mocks=({"id": "m1", "score": value, "total": 10},)
         )
@@ -133,8 +200,25 @@ def test_mock_primitive_matrix_no_exception():
 
 
 def test_alternative_primitive_matrix_no_exception():
-    for value in (None, True, False, 0, 1, -1, 1.0, "", "0", "1", "true",
-                  "false", "unknown", {}, [], (), [{}]):
+    for value in (
+        None,
+        True,
+        False,
+        0,
+        1,
+        -1,
+        1.0,
+        "",
+        "0",
+        "1",
+        "true",
+        "false",
+        "unknown",
+        {},
+        [],
+        (),
+        [{}],
+    ):
         result = compare_alternative_routes(
             primary={"id": "primary"},
             alternatives=({"id": "alt1", "eligibility": value},),
@@ -177,12 +261,30 @@ def test_syllabus_permutation_invariant_full_semantics():
 
 def test_mock_permutation_invariant_full_semantics():
     records = [
-        {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
-         "scoring": "standard", "format": "test"},
-        {"id": "m1", "date": "2026-03-01", "score": 8, "total": 10,
-         "scoring": "standard", "format": "test"},
-        {"id": "m2", "date": "2026-02-01", "score": 10, "total": 10,
-         "scoring": "standard", "format": "test"},
+        {
+            "id": "m1",
+            "date": "2026-01-01",
+            "score": 5,
+            "total": 10,
+            "scoring": "standard",
+            "format": "test",
+        },
+        {
+            "id": "m1",
+            "date": "2026-03-01",
+            "score": 8,
+            "total": 10,
+            "scoring": "standard",
+            "format": "test",
+        },
+        {
+            "id": "m2",
+            "date": "2026-02-01",
+            "score": 10,
+            "total": 10,
+            "scoring": "standard",
+            "format": "test",
+        },
     ]
     keys = (
         "observation_count",
@@ -205,12 +307,27 @@ def test_mock_permutation_invariant_full_semantics():
 
 def test_alternative_permutation_invariant_full_semantics():
     records = [
-        {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.9,
-         "effort_hours": 200, "call_state": "current"},
-        {"id": "alt1", "eligibility": "ineligible", "syllabus_overlap": 0.1,
-         "effort_hours": 200, "call_state": "current"},
-        {"id": "alt2", "eligibility": "eligible", "syllabus_overlap": 0.5,
-         "effort_hours": 200, "call_state": "current"},
+        {
+            "id": "alt1",
+            "eligibility": "eligible",
+            "syllabus_overlap": 0.9,
+            "effort_hours": 200,
+            "call_state": "current",
+        },
+        {
+            "id": "alt1",
+            "eligibility": "ineligible",
+            "syllabus_overlap": 0.1,
+            "effort_hours": 200,
+            "call_state": "current",
+        },
+        {
+            "id": "alt2",
+            "eligibility": "eligible",
+            "syllabus_overlap": 0.5,
+            "effort_hours": 200,
+            "call_state": "current",
+        },
     ]
     keys = (
         "resolved",
@@ -274,10 +391,22 @@ def test_mock_rule_preserves_conflict():
     result = rule.evaluate(
         _context(
             mocks=[
-                {"id": "m1", "date": "2026-01-01", "score": 5, "total": 10,
-                 "scoring": "standard", "format": "test"},
-                {"id": "m1", "date": "2026-03-01", "score": 8, "total": 10,
-                 "scoring": "standard", "format": "test"},
+                {
+                    "id": "m1",
+                    "date": "2026-01-01",
+                    "score": 5,
+                    "total": 10,
+                    "scoring": "standard",
+                    "format": "test",
+                },
+                {
+                    "id": "m1",
+                    "date": "2026-03-01",
+                    "score": 8,
+                    "total": 10,
+                    "scoring": "standard",
+                    "format": "test",
+                },
             ]
         )
     )
@@ -317,8 +446,11 @@ def test_cross_domain_most_restrictive_composition():
         available_hours=8,
         target_days=30,
         health_constraint={"authorized": True, "functional_cap_hours": 20},
-        university_projection={"authorized": True, "available_hours": 10,
-                               "workload_hours": 2},
+        university_projection={
+            "authorized": True,
+            "available_hours": 10,
+            "workload_hours": 2,
+        },
     )
     assert record["capacity_hours"] == 6
     # V3-M1: provenance must be truthful.  The user 8 is the binding base and
@@ -366,13 +498,17 @@ def test_helpers_do_not_mutate_inputs():
     alternatives_snapshot = json.dumps(alternatives)
     university_snapshot = json.dumps(university)
 
-    evaluate_syllabus_coverage(topics=topics, syllabus_version="v2",
-                               syllabus_current=True)
+    evaluate_syllabus_coverage(
+        topics=topics, syllabus_version="v2", syllabus_current=True
+    )
     evaluate_mock_performance(mocks=mocks)
-    compare_alternative_routes(primary={"id": "primary"},
-                               alternatives=alternatives)
-    evaluate_study_feasibility(remaining_hours=5, available_hours=8,
-                               target_days=30, university_projection=university)
+    compare_alternative_routes(primary={"id": "primary"}, alternatives=alternatives)
+    evaluate_study_feasibility(
+        remaining_hours=5,
+        available_hours=8,
+        target_days=30,
+        university_projection=university,
+    )
 
     assert json.dumps(topics) == topics_snapshot
     assert json.dumps(mocks) == mocks_snapshot

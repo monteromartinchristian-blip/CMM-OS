@@ -31,7 +31,14 @@ def test_build_languages_profile_structure() -> None:
 
 def test_languages_profile_pedagogical_modes() -> None:
     """Verify pedagogical modes configured in profile."""
-    expected_modes = ("teach", "practice", "assess", "review", "certification", "immersion")
+    expected_modes = (
+        "teach",
+        "practice",
+        "assess",
+        "review",
+        "certification",
+        "immersion",
+    )
     assert LANGUAGES_PEDAGOGICAL_MODES == expected_modes
     profile = build_languages_profile()
     assert tuple(profile.metadata["pedagogical_modes"]) == expected_modes

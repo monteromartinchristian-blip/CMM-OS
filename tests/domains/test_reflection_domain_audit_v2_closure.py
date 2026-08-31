@@ -47,15 +47,31 @@ from cmm.workflows.enums import WorkflowRunStatus
 
 def _make_two_producer_definition(*, validate_condition):
     return WorkflowDefinition(
-        "validate.gate.v2.closure", "1.0.0", "ValidateGateV2Closure",
+        "validate.gate.v2.closure",
+        "1.0.0",
+        "ValidateGateV2Closure",
         nodes=(
-            WorkflowNode("producer_a", "execute_operation", "ProducerA",
-                         operation_id="op.a", operation_version="1.0.0"),
-            WorkflowNode("producer_z", "execute_operation", "ProducerZ",
-                         operation_id="op.z", operation_version="1.0.0"),
-            WorkflowNode("validate", "validate", "Validate",
-                         dependencies=("producer_a", "producer_z"),
-                         wait_condition=validate_condition),
+            WorkflowNode(
+                "producer_a",
+                "execute_operation",
+                "ProducerA",
+                operation_id="op.a",
+                operation_version="1.0.0",
+            ),
+            WorkflowNode(
+                "producer_z",
+                "execute_operation",
+                "ProducerZ",
+                operation_id="op.z",
+                operation_version="1.0.0",
+            ),
+            WorkflowNode(
+                "validate",
+                "validate",
+                "Validate",
+                dependencies=("producer_a", "producer_z"),
+                wait_condition=validate_condition,
+            ),
             WorkflowNode("finish", "complete", "Finish", dependencies=("validate",)),
         ),
         metadata={},
@@ -73,7 +89,9 @@ def _run_two_producers(validate_condition, *, a_output, z_output):
     engine = WorkflowEngine(
         _make_two_producer_definition(validate_condition=validate_condition),
         id_factory=lambda: "run-v2-closure",
-        clock=lambda: __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+        clock=lambda: __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ),
         node_adapter=adapter,
     )
     return engine.start({})
@@ -238,7 +256,9 @@ def _valid_confirmation_chain(
     return binding, inventory
 
 
-def _authoritative_approval(approved: bool = True) -> DomainMemoryApprovalDecisionSnapshot:
+def _authoritative_approval(
+    approved: bool = True,
+) -> DomainMemoryApprovalDecisionSnapshot:
     return DomainMemoryApprovalDecisionSnapshot(
         decision_id="d-v2-closure", request_id="r-v2-closure", approved=approved
     )
@@ -269,9 +289,15 @@ def test_raw_true_is_not_a_shared_confirmation():
 
 
 def test_authoritative_shared_confirmation_authorizes_when_grounded():
-    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v2-closure", approved=True)
+    binding, inventory = _valid_confirmation_chain(
+        proposal_id="prop-v2-closure", approved=True
+    )
     record = classify_persistence(
-        {"proposal_id": "prop-v2-closure", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-v2-closure",
+            "pattern": "x",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )
@@ -281,9 +307,15 @@ def test_authoritative_shared_confirmation_authorizes_when_grounded():
 
 
 def test_authoritative_rejection_does_not_confirm():
-    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v2-closure", approved=False)
+    binding, inventory = _valid_confirmation_chain(
+        proposal_id="prop-v2-closure", approved=False
+    )
     record = classify_persistence(
-        {"proposal_id": "prop-v2-closure", "pattern": "x", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-v2-closure",
+            "pattern": "x",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )

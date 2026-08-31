@@ -383,9 +383,7 @@ def test_binding_valid_with_full_inventory():
 def test_binding_invalid_when_permission_missing():
     """A referenced permission decision absent from the inventory is INVALID."""
     ref, view, proposal, binding = _full_parts()
-    inventory = _canonical_inventory(
-        ref, view, proposal, include_permission=False
-    )
+    inventory = _canonical_inventory(ref, view, proposal, include_permission=False)
     result = validate_general_memory_binding(binding=binding, inventory=inventory)
     assert result.is_valid is False
     assert result.code is DomainMemoryValidationCode.INVALID_PERMISSION_DENIED

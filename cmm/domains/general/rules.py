@@ -95,7 +95,9 @@ class GeneralTemporalValidityRule:
         temporal = context.metadata.get("temporal")
         if not isinstance(temporal, Mapping):
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No temporal metadata supplied.",
             )
@@ -109,8 +111,11 @@ class GeneralTemporalValidityRule:
                 domain_id=self.definition.domain_id,
             )
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
-                gaps=(gap,), code="TEMPORAL_UNKNOWN_RECORDED",
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                gaps=(gap,),
+                code="TEMPORAL_UNKNOWN_RECORDED",
                 message="Unknown temporality recorded as gap.",
             )
         if kind == "expired":
@@ -122,12 +127,17 @@ class GeneralTemporalValidityRule:
                 domain_id=self.definition.domain_id,
             )
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.APPLIED,
-                findings=(finding,), code="TEMPORAL_EXPIRED_RECORDED",
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.APPLIED,
+                findings=(finding,),
+                code="TEMPORAL_EXPIRED_RECORDED",
                 message="Expired temporality recorded.",
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
             code="TEMPORAL_VALID",
             message="Temporal validity confirmed.",
         )
@@ -141,7 +151,9 @@ class GeneralSourceReliabilityRule:
         sources = context.metadata.get("sources")
         if not isinstance(sources, (list, tuple)):
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No source metadata supplied.",
             )
@@ -174,8 +186,11 @@ class GeneralSourceReliabilityRule:
                 )
                 findings.append(finding)
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=tuple(findings), gaps=tuple(gaps),
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=tuple(findings),
+            gaps=tuple(gaps),
             code="SOURCE_RELIABILITY_EVALUATED",
             message="Source reliability evaluated.",
         )
@@ -189,7 +204,9 @@ class GeneralAmbiguityRule:
         ambiguous = context.metadata.get("ambiguous_terms")
         if not isinstance(ambiguous, (list, tuple)) or not ambiguous:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No ambiguous terms supplied.",
             )
@@ -205,8 +222,11 @@ class GeneralAmbiguityRule:
             for term in ambiguous
         )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            gaps=gaps, code="AMBIGUITY_DETECTED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            gaps=gaps,
+            code="AMBIGUITY_DETECTED",
             message="Ambiguity detected; clarification required.",
         )
 
@@ -219,7 +239,9 @@ class GeneralPermissionRule:
         requested = context.metadata.get("requested_permissions")
         if not isinstance(requested, (list, tuple)):
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No requested permissions supplied.",
             )
@@ -246,13 +268,18 @@ class GeneralPermissionRule:
                 references=missing,
             )
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.BLOCKED,
-                findings=(finding,), escalation=escalation,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.BLOCKED,
+                findings=(finding,),
+                escalation=escalation,
                 code="RULE_BLOCKED",
                 message="Permission check failed; blocked.",
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
             code="PERMISSIONS_OK",
             message="All required permissions present.",
         )
@@ -266,7 +293,9 @@ class GeneralGoalClarificationRule:
         goal = context.metadata.get("goal")
         if not isinstance(goal, Mapping):
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="No goal metadata supplied.",
             )
@@ -292,8 +321,11 @@ class GeneralGoalClarificationRule:
                 )
             )
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            gaps=tuple(gaps), code="GOAL_CLARIFICATION_EVALUATED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            gaps=tuple(gaps),
+            code="GOAL_CLARIFICATION_EVALUATED",
             message="Goal clarification evaluated.",
         )
 
@@ -306,7 +338,9 @@ class GeneralDuplicationRule:
         items = context.metadata.get("items")
         if not isinstance(items, (list, tuple)) or len(items) < 2:
             return _result(
-                self.definition, context, ReasoningRuleResultStatus.NOT_APPLICABLE,
+                self.definition,
+                context,
+                ReasoningRuleResultStatus.NOT_APPLICABLE,
                 code="RULE_NOT_APPLICABLE",
                 message="Insufficient items for duplication check.",
             )
@@ -330,8 +364,11 @@ class GeneralDuplicationRule:
             else:
                 seen[canonical] = item_id
         return _result(
-            self.definition, context, ReasoningRuleResultStatus.APPLIED,
-            findings=tuple(findings), code="DUPLICATION_EVALUATED",
+            self.definition,
+            context,
+            ReasoningRuleResultStatus.APPLIED,
+            findings=tuple(findings),
+            code="DUPLICATION_EVALUATED",
             message="Duplication evaluated.",
         )
 
@@ -341,38 +378,50 @@ def build_general_rules() -> tuple[Any, ...]:
     by_id = {
         "general.ambiguity": GeneralAmbiguityRule(
             definition=_definition(
-                "general.ambiguity", "GeneralAmbiguityRule",
-                ReasoningRuleCategory.INFERENCE.value, 780,
+                "general.ambiguity",
+                "GeneralAmbiguityRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                780,
             )
         ),
         "general.duplication": GeneralDuplicationRule(
             definition=_definition(
-                "general.duplication", "GeneralDuplicationRule",
-                ReasoningRuleCategory.CONSISTENCY.value, 750,
+                "general.duplication",
+                "GeneralDuplicationRule",
+                ReasoningRuleCategory.CONSISTENCY.value,
+                750,
             )
         ),
         "general.goal_clarification": GeneralGoalClarificationRule(
             definition=_definition(
-                "general.goal_clarification", "GeneralGoalClarificationRule",
-                ReasoningRuleCategory.INFERENCE.value, 760,
+                "general.goal_clarification",
+                "GeneralGoalClarificationRule",
+                ReasoningRuleCategory.INFERENCE.value,
+                760,
             )
         ),
         "general.permission": GeneralPermissionRule(
             definition=_definition(
-                "general.permission", "GeneralPermissionRule",
-                ReasoningRuleCategory.SAFETY.value, 770,
+                "general.permission",
+                "GeneralPermissionRule",
+                ReasoningRuleCategory.SAFETY.value,
+                770,
             )
         ),
         "general.source_reliability": GeneralSourceReliabilityRule(
             definition=_definition(
-                "general.source_reliability", "GeneralSourceReliabilityRule",
-                ReasoningRuleCategory.EPISTEMIC.value, 790,
+                "general.source_reliability",
+                "GeneralSourceReliabilityRule",
+                ReasoningRuleCategory.EPISTEMIC.value,
+                790,
             )
         ),
         "general.temporal_validity": GeneralTemporalValidityRule(
             definition=_definition(
-                "general.temporal_validity", "GeneralTemporalValidityRule",
-                ReasoningRuleCategory.TEMPORALITY.value, 800,
+                "general.temporal_validity",
+                "GeneralTemporalValidityRule",
+                ReasoningRuleCategory.TEMPORALITY.value,
+                800,
             )
         ),
     }

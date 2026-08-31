@@ -19,30 +19,51 @@ NOW = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
 def test_resolved_profile_becomes_real_execution_without_reresolution() -> None:
-    profile = DefaultDomainProfileResolver(
-        clock=lambda: NOW, id_factory=lambda: "resolution", profile_id_factory=lambda: "profile",
-        trace_id_factory=lambda: "trace",
-    ).resolve(
-        request=DomainProfileResolutionRequest(id="request", primary_domain=DomainId("health")),
-        global_profile=DomainProfileDefinition(id="g", domain_id=DomainId("general"), profile_name="GeneralProfile"),
-        primary_profile=DomainProfileDefinition(
-            id="h", domain_id=DomainId("health"), profile_name="HealthProfile",
-            required_rules=("health.red_flags",), optional_rules=("global.preserve_provenance",),
-            permissions=("knowledge.health.read",),
-        ),
-    ).profile
+    profile = (
+        DefaultDomainProfileResolver(
+            clock=lambda: NOW,
+            id_factory=lambda: "resolution",
+            profile_id_factory=lambda: "profile",
+            trace_id_factory=lambda: "trace",
+        )
+        .resolve(
+            request=DomainProfileResolutionRequest(
+                id="request", primary_domain=DomainId("health")
+            ),
+            global_profile=DomainProfileDefinition(
+                id="g", domain_id=DomainId("general"), profile_name="GeneralProfile"
+            ),
+            primary_profile=DomainProfileDefinition(
+                id="h",
+                domain_id=DomainId("health"),
+                profile_name="HealthProfile",
+                required_rules=("health.red_flags",),
+                optional_rules=("global.preserve_provenance",),
+                permissions=("knowledge.health.read",),
+            ),
+        )
+        .profile
+    )
     registry = build_initial_reasoning_rule_catalog()
-    plan = DefaultDomainRuleSelector(clock=lambda: NOW, id_factory=lambda: "plan").select(
-        registry=registry, profile=profile,
+    plan = DefaultDomainRuleSelector(
+        clock=lambda: NOW, id_factory=lambda: "plan"
+    ).select(
+        registry=registry,
+        profile=profile,
         global_mandatory_rules=("global.distinguish_fact_inference_hypothesis",),
         security_rules=("security.respect_sensitivity",),
         effective_permissions=("knowledge.health.read",),
     )
-    result = DefaultDomainRuleExecutor(clock=lambda: NOW, id_factory=lambda: "execution").execute(
+    result = DefaultDomainRuleExecutor(
+        clock=lambda: NOW, id_factory=lambda: "execution"
+    ).execute(
         plan=plan,
         context=ReasoningRuleContext(
-            reasoning_id="r", active_domains=("domain:health",), primary_domain="domain:health",
-            effective_permissions=("knowledge.health.read",), timestamp=NOW,
+            reasoning_id="r",
+            active_domains=("domain:health",),
+            primary_domain="domain:health",
+            effective_permissions=("knowledge.health.read",),
+            timestamp=NOW,
         ),
         registry=registry,
     )

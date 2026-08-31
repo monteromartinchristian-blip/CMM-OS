@@ -49,20 +49,33 @@ from cmm.workflows.enums import WorkflowRunStatus
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _run_validate_workflow(condition, *, producer_output=None, metadata=None,
-                           inputs=None):
+def _run_validate_workflow(
+    condition, *, producer_output=None, metadata=None, inputs=None
+):
     def adapter(node, run):
         if node.node_id == "producer":
             return NodeExecution.complete(producer_output or {"ok": True})
         return NodeExecution.complete({"ok": True})
 
     definition = WorkflowDefinition(
-        "validate.flow", "1.0.0", "ValidateFlow",
+        "validate.flow",
+        "1.0.0",
+        "ValidateFlow",
         nodes=(
-            WorkflowNode("producer", "execute_operation", "Producer",
-                         operation_id="op.x", operation_version="1.0.0"),
-            WorkflowNode("validate", "validate", "Validate",
-                         dependencies=("producer",), wait_condition=condition),
+            WorkflowNode(
+                "producer",
+                "execute_operation",
+                "Producer",
+                operation_id="op.x",
+                operation_version="1.0.0",
+            ),
+            WorkflowNode(
+                "validate",
+                "validate",
+                "Validate",
+                dependencies=("producer",),
+                wait_condition=condition,
+            ),
             WorkflowNode("finish", "complete", "Finish", dependencies=("validate",)),
         ),
         metadata=metadata or {},
@@ -103,8 +116,11 @@ def test_hypothesis_collision_order_invariant():
                 for i, s in order
             )
         )
-        return (result["unresolved"], result["evidence_state"],
-                frozenset(result["collision_ids"]))
+        return (
+            result["unresolved"],
+            result["evidence_state"],
+            frozenset(result["collision_ids"]),
+        )
 
     a = (("h1", "A"), ("h1", "NOT A"))
     b = (("h1", "NOT A"), ("h1", "A"))
@@ -114,10 +130,22 @@ def test_hypothesis_collision_order_invariant():
 def test_ambivalence_identity_collision_fails_closed():
     result = evaluate_ambivalence(
         records=(
-            {"identity": "p1", "statement": "want closeness", "kind": "need",
-             "context": "c", "temporal": "t", "polarity": 1},
-            {"identity": "p1", "statement": "want distance", "kind": "need",
-             "context": "c", "temporal": "t", "polarity": -1},
+            {
+                "identity": "p1",
+                "statement": "want closeness",
+                "kind": "need",
+                "context": "c",
+                "temporal": "t",
+                "polarity": 1,
+            },
+            {
+                "identity": "p1",
+                "statement": "want distance",
+                "kind": "need",
+                "context": "c",
+                "temporal": "t",
+                "polarity": -1,
+            },
         )
     )
     assert "p1" in result["collision_ids"]
@@ -128,9 +156,24 @@ def test_ambivalence_identity_collision_fails_closed():
 def test_counterevidence_not_bypassed_by_evidence_count():
     result = classify_belief_evidence(
         records=(
-            {"identity": "e1", "kind": "evidence", "statement": "supports", "source": "s1"},
-            {"identity": "e2", "kind": "evidence", "statement": "supports", "source": "s2"},
-            {"identity": "c1", "kind": "counterevidence", "statement": "against", "source": "s3"},
+            {
+                "identity": "e1",
+                "kind": "evidence",
+                "statement": "supports",
+                "source": "s1",
+            },
+            {
+                "identity": "e2",
+                "kind": "evidence",
+                "statement": "supports",
+                "source": "s2",
+            },
+            {
+                "identity": "c1",
+                "kind": "counterevidence",
+                "statement": "against",
+                "source": "s3",
+            },
         )
     )
     assert result["conflict_state"] == "conflicting"
@@ -146,9 +189,21 @@ def test_counterevidence_not_bypassed_by_evidence_count():
 def test_equal_time_subgroup_remains_ambiguous():
     result = compare_reflection_versions(
         versions=(
-            {"version_id": "v1", "observed_at": "2029-01-15T00:00:00Z", "content": "alpha"},
-            {"version_id": "v2", "observed_at": "2029-01-15T03:00:00+03:00", "content": "beta"},
-            {"version_id": "v3", "observed_at": "2029-01-16T00:00:00Z", "content": "gamma"},
+            {
+                "version_id": "v1",
+                "observed_at": "2029-01-15T00:00:00Z",
+                "content": "alpha",
+            },
+            {
+                "version_id": "v2",
+                "observed_at": "2029-01-15T03:00:00+03:00",
+                "content": "beta",
+            },
+            {
+                "version_id": "v3",
+                "observed_at": "2029-01-16T00:00:00Z",
+                "content": "gamma",
+            },
         )
     )
     # v1 and v2 are the same instant; no directional change inside that subgroup
@@ -173,7 +228,11 @@ def test_timeline_orders_by_normalized_instant_not_raw_text():
 def test_temporal_permutation_identical():
     versions = (
         {"version_id": "v1", "observed_at": "2029-01-15T00:00:00Z", "content": "a"},
-        {"version_id": "v2", "observed_at": "2029-01-15T00:00:00+00:00", "content": "b"},
+        {
+            "version_id": "v2",
+            "observed_at": "2029-01-15T00:00:00+00:00",
+            "content": "b",
+        },
         {"version_id": "v3", "observed_at": "2029-01-16T00:00:00Z", "content": "c"},
     )
     canonical = {
@@ -194,8 +253,14 @@ def test_temporal_permutation_identical():
 
 
 def test_unsupported_source_kinds_not_grounded():
-    for kind in ("synthetic_model_output", "MEMORY_SUMMARY", "memory_summary",
-                 "memory_entry", "unknown", "model_summary"):
+    for kind in (
+        "synthetic_model_output",
+        "MEMORY_SUMMARY",
+        "memory_summary",
+        "memory_entry",
+        "unknown",
+        "model_summary",
+    ):
         result = map_interests(
             records=({"interest": "x", "source": "s1", "source_kind": kind},)
         )
@@ -233,7 +298,13 @@ def test_duplicate_valid_source_no_corroboration():
 
 def test_model_only_interest_not_grounded_top_level():
     result = map_interests(
-        records=({"interest": "photography", "source": "model:1", "source_kind": "model_summary"},)
+        records=(
+            {
+                "interest": "photography",
+                "source": "model:1",
+                "source_kind": "model_summary",
+            },
+        )
     )
     assert result["interest_candidates"][0]["grounded_evidence_count"] == 0
     assert result["evidence_state"] != "grounded"
@@ -358,9 +429,15 @@ def _valid_confirmation_chain(
 
 
 def test_shared_confirmation_reference_plus_grounded_provenance_confirms():
-    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v1-1", approved=True)
+    binding, inventory = _valid_confirmation_chain(
+        proposal_id="prop-v1-1", approved=True
+    )
     record = classify_persistence(
-        {"proposal_id": "prop-v1-1", "pattern": "fixed identity", "sources": ("msg:1", "msg:2")},
+        {
+            "proposal_id": "prop-v1-1",
+            "pattern": "fixed identity",
+            "sources": ("msg:1", "msg:2"),
+        },
         confirmation_binding=binding,
         confirmation_inventory=inventory,
     )
@@ -379,7 +456,9 @@ def test_nonliteral_confirmation_denied():
 
 
 def test_model_or_memory_summary_provenance_not_independently_grounded():
-    binding, inventory = _valid_confirmation_chain(proposal_id="prop-v1-2", approved=True)
+    binding, inventory = _valid_confirmation_chain(
+        proposal_id="prop-v1-2", approved=True
+    )
     for sources in (("model:1",), ("memory:summary:1",), ("memory:1",), ("summary:1",)):
         record = classify_persistence(
             {"proposal_id": "prop-v1-2", "pattern": "x", "sources": sources},
@@ -422,9 +501,12 @@ def test_presentation_primitive_matrix_fail_closed():
         assert presented["persistent_confirmed"] is False
         assert presented["decision_adopted"] is False
     # literal True still maps
-    assert present_reflection_result(
-        {"persistent_confirmed": True, "decision_adopted": True}
-    )["persistent_confirmed"] is True
+    assert (
+        present_reflection_result(
+            {"persistent_confirmed": True, "decision_adopted": True}
+        )["persistent_confirmed"]
+        is True
+    )
 
 
 def test_interest_candidate_state_not_contradictory():
@@ -432,8 +514,11 @@ def test_interest_candidate_state_not_contradictory():
         {
             "unresolved": False,
             "interest_candidates": [
-                {"interest": "photography", "persistent_confirmed": "false",
-                 "sources": ("m",)}
+                {
+                    "interest": "photography",
+                    "persistent_confirmed": "false",
+                    "sources": ("m",),
+                }
             ],
             "persistent_confirmed": False,
         }
@@ -451,8 +536,11 @@ def test_interest_candidate_state_not_contradictory():
 def test_diagnostic_hypothesis_is_not_safe_non_diagnostic():
     result = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "dx1", "statement": "You have bipolar disorder",
-             "supporting_ids": ("msg:1",)},
+            {
+                "identity": "dx1",
+                "statement": "You have bipolar disorder",
+                "supporting_ids": ("msg:1",),
+            },
         )
     )
     hypothesis = result["hypotheses"][0]
@@ -469,10 +557,13 @@ def test_identity_classification_forms_detected():
         "You are a psychopath",
     ):
         result = evaluate_hypotheses(
-            hypotheses=({
-                "identity": "dx", "statement": statement,
-                "supporting_ids": ("s",),
-            },)
+            hypotheses=(
+                {
+                    "identity": "dx",
+                    "statement": statement,
+                    "supporting_ids": ("s",),
+                },
+            )
         )
         assert result["hypotheses"][0]["diagnostic"] is True
 
@@ -495,8 +586,11 @@ def test_diagnostic_statement_not_presented_verbatim():
 def test_prudent_hypothesis_still_possible():
     result = evaluate_hypotheses(
         hypotheses=(
-            {"identity": "h1", "statement": "maybe I am avoiding conflict",
-             "supporting_ids": ("s1",)},
+            {
+                "identity": "h1",
+                "statement": "maybe I am avoiding conflict",
+                "supporting_ids": ("s1",),
+            },
         )
     )
     assert result["hypotheses"][0]["diagnostic"] is False
@@ -565,9 +659,7 @@ def test_workflow_validate_gate_unknown_condition_fails_closed():
 
 
 def test_workflow_validate_gate_metadata_condition():
-    result = _run_validate_workflow(
-        {"meta_true": True}, metadata={"meta_true": True}
-    )
+    result = _run_validate_workflow({"meta_true": True}, metadata={"meta_true": True})
     assert result.run.status is WorkflowRunStatus.COMPLETED
 
 
@@ -589,7 +681,8 @@ def _run_reflection_workflow_blocking(workflow_id, producer_node_id, producer_ou
     from cmm.domains.workflow_execution import DomainWorkflowExecutor
 
     wf = next(
-        w for w in build_reflection_workflow_definitions()
+        w
+        for w in build_reflection_workflow_definitions()
         if w.workflow_id == workflow_id
     )
 
@@ -635,7 +728,9 @@ def test_reflection_no_identity_classification_blocks():
         {"identity_not_classified": False},
     )
     assert run.status is not WorkflowRunStatus.COMPLETED
-    assert run.execution_result.node_results["no_classification"].status.value == "failed"
+    assert (
+        run.execution_result.node_results["no_classification"].status.value == "failed"
+    )
 
 
 def test_reflection_grounded_chronology_only_blocks():
@@ -645,7 +740,10 @@ def test_reflection_grounded_chronology_only_blocks():
         {"grounded_chronology_required": False},
     )
     assert run.status is not WorkflowRunStatus.COMPLETED
-    assert run.execution_result.node_results["grounded_chronology"].status.value == "failed"
+    assert (
+        run.execution_result.node_results["grounded_chronology"].status.value
+        == "failed"
+    )
 
 
 def test_reflection_validate_unresolved_completion_blocks():
@@ -666,8 +764,13 @@ def test_reflection_validate_unresolved_completion_blocks():
 def test_nan_inf_never_escape_public_output():
     result = classify_belief_evidence(
         records=(
-            {"identity": "e", "kind": "evidence", "statement": "x",
-             "source": "s", "value": float("nan")},
+            {
+                "identity": "e",
+                "kind": "evidence",
+                "statement": "x",
+                "source": "s",
+                "value": float("nan"),
+            },
         )
     )
     assert result["evidence"][0]["value"] is None
@@ -703,46 +806,173 @@ def test_all_public_helpers_strict_json_everywhere():
     inf = float("inf")
     checks = []
     # rules.py public helpers
-    checks.append(("evaluate_hypotheses", lambda: evaluate_hypotheses(
-        hypotheses=({"identity": "h", "statement": "x", "value": nan},))))
-    checks.append(("evaluate_ambivalence", lambda: evaluate_ambivalence(
-        records=({"identity": "p", "statement": "x", "kind": "need",
-                  "context": "c", "temporal": "t", "polarity": 1, "value": inf},))))
-    checks.append(("no_forced_conclusion_policy", lambda: no_forced_conclusion_policy(
-        {"unresolved": True, "x": inf})))
-    checks.append(("classify_belief_evidence", lambda: classify_belief_evidence(
-        records=({"identity": "e", "kind": "evidence", "statement": "x",
-                  "source": "s", "value": nan},))))
-    checks.append(("compare_reflection_versions", lambda: compare_reflection_versions(
-        versions=({"version_id": "v", "observed_at": "2029-01-01T00:00:00Z",
-                   "content": inf, "value": nan},))))
-    checks.append(("map_interests", lambda: map_interests(
-        records=({"interest": "x", "source": "s", "source_kind": "user_statement",
-                  "observed_at": inf},))))
-    checks.append(("classify_persistence", lambda: classify_persistence(
-        {"pattern": "x", "sources": ("msg:1",), "value": nan},
-        confirmation={"decision_id": "d", "approved": True})))
-    checks.append(("evaluate_open_questions", lambda: evaluate_open_questions(
-        questions=({"question": nan},))))
-    checks.append(("evaluate_persistence_basis", lambda: evaluate_persistence_basis(
-        {"pattern": "x", "sources": ("msg:1",), "value": nan})))
-    checks.append(("present_reflection_result", lambda: present_reflection_result(
-        {"unresolved": True, "value": nan,
-         "hypotheses": ({"statement": 1},), "interest_candidates": ({"x": inf},)})))
+    checks.append(
+        (
+            "evaluate_hypotheses",
+            lambda: evaluate_hypotheses(
+                hypotheses=({"identity": "h", "statement": "x", "value": nan},)
+            ),
+        )
+    )
+    checks.append(
+        (
+            "evaluate_ambivalence",
+            lambda: evaluate_ambivalence(
+                records=(
+                    {
+                        "identity": "p",
+                        "statement": "x",
+                        "kind": "need",
+                        "context": "c",
+                        "temporal": "t",
+                        "polarity": 1,
+                        "value": inf,
+                    },
+                )
+            ),
+        )
+    )
+    checks.append(
+        (
+            "no_forced_conclusion_policy",
+            lambda: no_forced_conclusion_policy({"unresolved": True, "x": inf}),
+        )
+    )
+    checks.append(
+        (
+            "classify_belief_evidence",
+            lambda: classify_belief_evidence(
+                records=(
+                    {
+                        "identity": "e",
+                        "kind": "evidence",
+                        "statement": "x",
+                        "source": "s",
+                        "value": nan,
+                    },
+                )
+            ),
+        )
+    )
+    checks.append(
+        (
+            "compare_reflection_versions",
+            lambda: compare_reflection_versions(
+                versions=(
+                    {
+                        "version_id": "v",
+                        "observed_at": "2029-01-01T00:00:00Z",
+                        "content": inf,
+                        "value": nan,
+                    },
+                )
+            ),
+        )
+    )
+    checks.append(
+        (
+            "map_interests",
+            lambda: map_interests(
+                records=(
+                    {
+                        "interest": "x",
+                        "source": "s",
+                        "source_kind": "user_statement",
+                        "observed_at": inf,
+                    },
+                )
+            ),
+        )
+    )
+    checks.append(
+        (
+            "classify_persistence",
+            lambda: classify_persistence(
+                {"pattern": "x", "sources": ("msg:1",), "value": nan},
+                confirmation={"decision_id": "d", "approved": True},
+            ),
+        )
+    )
+    checks.append(
+        (
+            "evaluate_open_questions",
+            lambda: evaluate_open_questions(questions=({"question": nan},)),
+        )
+    )
+    checks.append(
+        (
+            "evaluate_persistence_basis",
+            lambda: evaluate_persistence_basis(
+                {"pattern": "x", "sources": ("msg:1",), "value": nan}
+            ),
+        )
+    )
+    checks.append(
+        (
+            "present_reflection_result",
+            lambda: present_reflection_result(
+                {
+                    "unresolved": True,
+                    "value": nan,
+                    "hypotheses": ({"statement": 1},),
+                    "interest_candidates": ({"x": inf},),
+                }
+            ),
+        )
+    )
     # operations.py public helpers
-    checks.append(("structure_reflection_result", lambda: structure_reflection_result(
-        material=({"level": "belief", "content": inf},))))
-    checks.append(("extract_beliefs_result", lambda: extract_beliefs_result(
-        statements=({"statement": "x", "kind": "belief", "value": nan},))))
-    checks.append(("build_personal_timeline_result", lambda: build_personal_timeline_result(
-        events=({"event_id": "e", "observed_at": "2029-01-01T00:00:00Z",
-                 "content": nan},))))
-    checks.append(("prepare_notion_entry_result", lambda: prepare_notion_entry_result(
-        title=nan, sections=(nan, nan), raw_notes=inf)))
-    checks.append(("generate_summary_result", lambda: generate_summary_result(
-        source={"unresolved": True, "value": nan})))
-    checks.append(("review_decision_result", lambda: review_decision_result(
-        decision_candidate={"idea": "x", "value": inf})))
+    checks.append(
+        (
+            "structure_reflection_result",
+            lambda: structure_reflection_result(
+                material=({"level": "belief", "content": inf},)
+            ),
+        )
+    )
+    checks.append(
+        (
+            "extract_beliefs_result",
+            lambda: extract_beliefs_result(
+                statements=({"statement": "x", "kind": "belief", "value": nan},)
+            ),
+        )
+    )
+    checks.append(
+        (
+            "build_personal_timeline_result",
+            lambda: build_personal_timeline_result(
+                events=(
+                    {
+                        "event_id": "e",
+                        "observed_at": "2029-01-01T00:00:00Z",
+                        "content": nan,
+                    },
+                )
+            ),
+        )
+    )
+    checks.append(
+        (
+            "prepare_notion_entry_result",
+            lambda: prepare_notion_entry_result(
+                title=nan, sections=(nan, nan), raw_notes=inf
+            ),
+        )
+    )
+    checks.append(
+        (
+            "generate_summary_result",
+            lambda: generate_summary_result(source={"unresolved": True, "value": nan}),
+        )
+    )
+    checks.append(
+        (
+            "review_decision_result",
+            lambda: review_decision_result(
+                decision_candidate={"idea": "x", "value": inf}
+            ),
+        )
+    )
 
     results = {}
     for name, call in checks:
@@ -787,16 +1017,34 @@ def test_all_v1_closure_gates_pass():
             _try(test_hypothesis_identity_collision_fails_closed)
             and _try(test_ambivalence_identity_collision_fails_closed)
         ),
-        "COUNTEREVIDENCE_GATE": _gate(_try(test_counterevidence_not_bypassed_by_evidence_count)),
-        "TEMPORAL_EQUAL_GROUP_GATE": _gate(_try(test_equal_time_subgroup_remains_ambiguous)),
-        "TIMELINE_ORDER_GATE": _gate(_try(test_timeline_orders_by_normalized_instant_not_raw_text)),
-        "INTEREST_SOURCE_GROUNDING_GATE": _gate(_try(test_unsupported_source_kinds_not_grounded)),
-        "PERSISTENCE_CONFIRMATION_GATE": _gate(_try(test_raw_true_alone_is_not_complete_confirmation)),
-        "PRESENTATION_LITERAL_STATE_GATE": _gate(_try(test_presentation_malformed_persistence_decision_fail_closed)),
-        "DIAGNOSIS_BOUNDARY_GATE": _gate(_try(test_diagnostic_hypothesis_is_not_safe_non_diagnostic)),
-        "NO_FORCED_CONCLUSION_GATE": _gate(_try(test_unsupported_certainty_variants_cannot_close_unresolved)),
+        "COUNTEREVIDENCE_GATE": _gate(
+            _try(test_counterevidence_not_bypassed_by_evidence_count)
+        ),
+        "TEMPORAL_EQUAL_GROUP_GATE": _gate(
+            _try(test_equal_time_subgroup_remains_ambiguous)
+        ),
+        "TIMELINE_ORDER_GATE": _gate(
+            _try(test_timeline_orders_by_normalized_instant_not_raw_text)
+        ),
+        "INTEREST_SOURCE_GROUNDING_GATE": _gate(
+            _try(test_unsupported_source_kinds_not_grounded)
+        ),
+        "PERSISTENCE_CONFIRMATION_GATE": _gate(
+            _try(test_raw_true_alone_is_not_complete_confirmation)
+        ),
+        "PRESENTATION_LITERAL_STATE_GATE": _gate(
+            _try(test_presentation_malformed_persistence_decision_fail_closed)
+        ),
+        "DIAGNOSIS_BOUNDARY_GATE": _gate(
+            _try(test_diagnostic_hypothesis_is_not_safe_non_diagnostic)
+        ),
+        "NO_FORCED_CONCLUSION_GATE": _gate(
+            _try(test_unsupported_certainty_variants_cannot_close_unresolved)
+        ),
         "STRICT_JSON_GATE": _gate(_try(test_nan_inf_never_escape_public_output)),
-        "PUBLIC_HELPER_NO_EXCEPTION_GATE": _gate(_try(test_public_helper_no_accidental_exception)),
+        "PUBLIC_HELPER_NO_EXCEPTION_GATE": _gate(
+            _try(test_public_helper_no_accidental_exception)
+        ),
         "WORKFLOW_VALIDATE_GATE": _gate(_try(test_workflow_validate_gate_executable)),
     }
     assert all(value == "PASS" for value in gates.values()), gates

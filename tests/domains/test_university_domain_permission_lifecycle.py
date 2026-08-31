@@ -94,8 +94,11 @@ def _health_university_gate() -> tuple[
     registry.register(build_university_permission_policy())
     resolver = DomainPermissionResolver(registry)
     service = ApprovalService(InMemoryApprovalRepository())
-    return registry, resolver, service, DomainPermissionGate(
-        resolver, service, clock=lambda: NOW
+    return (
+        registry,
+        resolver,
+        service,
+        DomainPermissionGate(resolver, service, clock=lambda: NOW),
     )
 
 
@@ -197,9 +200,7 @@ def test_task_create_request_approval_required_then_succeeds():
 def test_schedule_modify_request_approval_required_then_succeeds():
     """schedule_modify follows the same request->approve->consume->grant path."""
     resolver = _resolver()
-    result = resolver.resolve(
-        _request(PermissionCapability.SCHEDULE_MODIFY), now=NOW
-    )
+    result = resolver.resolve(_request(PermissionCapability.SCHEDULE_MODIFY), now=NOW)
     assert result.effective_permissions.decision.name == "APPROVAL_REQUIRED"
     requirement = result.approval_requirements[0]
 
@@ -250,7 +251,9 @@ def test_health_to_university_minimal_projection_approval_lifecycle_is_scoped():
         approval,
         requested_by="agent-runtime",
     )
-    service.approve(approval_request.id, "human-approver", comment="Minimal projection approved")
+    service.approve(
+        approval_request.id, "human-approver", comment="Minimal projection approved"
+    )
     permitted = gate.evaluate_cross_domain(
         request,
         approval_request_id=approval_request.id,
@@ -294,7 +297,9 @@ def test_cross_domain_gate_rejects_forged_gate_evidence_and_missing_approval():
         ("session", lambda request: dataclasses.replace(request, session_id="sess-2")),
         (
             "target",
-            lambda request: dataclasses.replace(request, target_domain="domain:unknown"),
+            lambda request: dataclasses.replace(
+                request, target_domain="domain:unknown"
+            ),
         ),
         (
             "resource",

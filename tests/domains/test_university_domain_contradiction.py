@@ -56,10 +56,7 @@ def _claim(
 
 
 def _canonical_result(*claims):
-    rules = {
-        rule.definition.id: rule
-        for rule in build_university_rules()
-    }
+    rules = {rule.definition.id: rule for rule in build_university_rules()}
     context = ReasoningRuleContext(
         reasoning_id="contradiction-production",
         timestamp=T,
@@ -244,9 +241,7 @@ def test_canonical_rule_attribute_specific_authority_resolves_current_value():
         ),
     )
     finding = next(
-        finding
-        for finding in result.findings
-        if finding.code == "CONTRADICTION_STATE"
+        finding for finding in result.findings if finding.code == "CONTRADICTION_STATE"
     )
     assert result.status is ReasoningRuleResultStatus.APPLIED
     assert finding.metadata["current_value"] == "18"
@@ -259,7 +254,8 @@ def _canonical_contradiction_finding(result):
     return next(
         finding
         for finding in result.findings
-        if finding.code in {
+        if finding.code
+        in {
             "CONTRADICTION_STATE",
             "CONTRADICTION_UNRESOLVED",
             "MATERIAL_CONTRADICTION_UNRESOLVED",
@@ -522,6 +518,8 @@ def test_canonical_rule_unknown_temporal_conflict_remains_unresolved():
     assert verification["needed"] is True
     assert verification["source_class"] == "official_only"
     assert verification["read_only"] is True
+
+
 # ── V9-B2: malformed contradiction evidence never resolves confidently ───────
 # ── and never falls through to RULE_NOT_APPLICABLE. ──────────────────────────
 
@@ -693,11 +691,11 @@ def test_v11_b3_canonical_contradiction_opaque_statement_unresolved():
         {},
     )
     assert any(
-        finding.code == "CONTRADICTION_UNRESOLVED"
-        for finding in result.findings
+        finding.code == "CONTRADICTION_UNRESOLVED" for finding in result.findings
     )
     assert not any(
-        finding.code == "CONTRADICTION_EVALUATED" and finding.metadata.get("resolved") is True
+        finding.code == "CONTRADICTION_EVALUATED"
+        and finding.metadata.get("resolved") is True
         for finding in result.findings
     )
 
@@ -947,7 +945,9 @@ def test_v13_b1_canonical_missing_or_invalid_attribute_unresolved(partial):
         for finding in result.findings
     )
     unresolved_finding = next(
-        finding for finding in result.findings if finding.code == "CONTRADICTION_UNRESOLVED"
+        finding
+        for finding in result.findings
+        if finding.code == "CONTRADICTION_UNRESOLVED"
     )
     assert unresolved_finding.metadata["resolved"] is False
     assert unresolved_finding.metadata["unresolved"] is True
@@ -1023,7 +1023,9 @@ def test_v13_b2_canonical_contradiction_malformed_scope_unresolved():
     codes = [finding.code for finding in result.findings]
     assert "CONTRADICTION_UNRESOLVED" in codes
     unresolved_finding = next(
-        finding for finding in result.findings if finding.code == "CONTRADICTION_UNRESOLVED"
+        finding
+        for finding in result.findings
+        if finding.code == "CONTRADICTION_UNRESOLVED"
     )
     assert unresolved_finding.metadata["resolved"] is False
     assert unresolved_finding.metadata["unresolved"] is True
@@ -1243,6 +1245,5 @@ def test_v14_b1_canonical_conflicting_claim_unusable_id_unresolved(conflicting_i
     result = _canonical_result(valid_claim, conflicting_claim)
     codes = [finding.code for finding in result.findings]
     assert "CONTRADICTION_UNRESOLVED" in codes or any(
-        finding.metadata.get("unresolved") is True
-        for finding in result.findings
+        finding.metadata.get("unresolved") is True for finding in result.findings
     )

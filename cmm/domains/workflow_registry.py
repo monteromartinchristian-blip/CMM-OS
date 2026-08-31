@@ -35,7 +35,12 @@ class InMemoryDomainWorkflowRegistry:
         return self.get(common.workflow_id, common.version)
 
     def list_for_domain(self, domain_id: str) -> tuple[DomainWorkflowDefinition, ...]:
-        return tuple(sorted((d for d in self._definitions.values() if d.domain_id == domain_id), key=lambda d: (d.workflow_id, d.version)))
+        return tuple(
+            sorted(
+                (d for d in self._definitions.values() if d.domain_id == domain_id),
+                key=lambda d: (d.workflow_id, d.version),
+            )
+        )
 
     # ── Snapshot / restore ───────────────────────────────────────────────────
 
@@ -89,8 +94,7 @@ class InMemoryDomainWorkflowRegistry:
             (d.workflow_id, d.version): d.to_common() for d in snapshot.definitions
         }
         actual_common_by_key = {
-            (c.workflow_id, c.version): c
-            for c in snapshot.common_registry.definitions
+            (c.workflow_id, c.version): c for c in snapshot.common_registry.definitions
         }
         expected_keys = set(expected_common_by_key)
         actual_keys = set(actual_common_by_key)

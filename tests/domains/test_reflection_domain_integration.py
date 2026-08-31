@@ -48,9 +48,7 @@ def _registries():
         "operation_registry": InMemoryDomainOperationRegistry(
             InMemoryAgentOperationRegistry()
         ),
-        "workflow_registry": InMemoryDomainWorkflowRegistry(
-            InMemoryWorkflowRegistry()
-        ),
+        "workflow_registry": InMemoryDomainWorkflowRegistry(InMemoryWorkflowRegistry()),
         "permission_registry": DomainPermissionRegistry(),
     }
 
@@ -63,7 +61,9 @@ def test_registers_complete_pack():
     assert len(registries["resource_registry"].list_all()) == 9
     assert len(registries["rule_registry"].list_all()) == 6
     assert len(registries["operation_registry"].list_definitions()) == 9
-    assert len(registries["workflow_registry"].list_for_domain(REFLECTION_DOMAIN_ID)) == 6
+    assert (
+        len(registries["workflow_registry"].list_for_domain(REFLECTION_DOMAIN_ID)) == 6
+    )
     assert registries["profile_registry"].get("reflection.profile") is not None
     assert (
         registries["permission_registry"].get(REFLECTION_PERMISSION_IDS[0]).policy_id

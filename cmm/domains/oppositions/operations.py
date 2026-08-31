@@ -126,15 +126,11 @@ _INPUT_SCHEMAS = {
             "alternatives": _ids(1),
         },
     ),
-    "oppositions.review_call": _schema(
-        ("call_id",), {"call_id": {"type": "string"}}
-    ),
+    "oppositions.review_call": _schema(("call_id",), {"call_id": {"type": "string"}}),
     "oppositions.generate_weekly_review": _schema(
         ("source_ids",), {"source_ids": _ids(1)}
     ),
-    "oppositions.identify_risks": _schema(
-        ("source_ids",), {"source_ids": _ids(1)}
-    ),
+    "oppositions.identify_risks": _schema(("source_ids",), {"source_ids": _ids(1)}),
     "oppositions.generate_revision_plan": _schema(
         ("syllabus_id", "target_date"),
         {
@@ -259,21 +255,15 @@ _OUTPUT_SCHEMAS = {
     "oppositions.track_progress": _schema(
         ("tracking",), {"tracking": _PROGRESS_TRACKING}
     ),
-    "oppositions.review_mock_exam": _schema(
-        ("review",), {"review": _MOCK_REVIEW}
-    ),
+    "oppositions.review_mock_exam": _schema(("review",), {"review": _MOCK_REVIEW}),
     "oppositions.compare_bodies": _schema(
         ("comparison",), {"comparison": _BODY_COMPARISON}
     ),
-    "oppositions.review_call": _schema(
-        ("review",), {"review": _CALL_REVIEW}
-    ),
+    "oppositions.review_call": _schema(("review",), {"review": _CALL_REVIEW}),
     "oppositions.generate_weekly_review": _schema(
         ("weekly_review",), {"weekly_review": _WEEKLY_REVIEW}
     ),
-    "oppositions.identify_risks": _schema(
-        ("risks",), {"risks": _EXPLICIT_RISKS}
-    ),
+    "oppositions.identify_risks": _schema(("risks",), {"risks": _EXPLICIT_RISKS}),
     "oppositions.generate_revision_plan": _schema(
         ("revision_plan",), {"revision_plan": _REVISION_PLAN}
     ),
@@ -283,9 +273,7 @@ _OUTPUT_SCHEMAS = {
 }
 
 
-def build_oppositions_operation_definitions() -> tuple[
-    DomainOperationDefinition, ...
-]:
+def build_oppositions_operation_definitions() -> tuple[DomainOperationDefinition, ...]:
     """Build the ten Opposition Domain operation definitions deterministically."""
     result = []
     for operation_id in OPPOSITIONS_OPERATION_IDS:

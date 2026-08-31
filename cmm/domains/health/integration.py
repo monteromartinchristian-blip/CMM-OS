@@ -71,9 +71,7 @@ def _validate_operation_implementations(
     runs during ``_validate_all()``, i.e. before the first registry mutation.
     """
     implementations = operation_implementations or {}
-    operations_by_id = {
-        operation.operation_id: operation for operation in operations
-    }
+    operations_by_id = {operation.operation_id: operation for operation in operations}
     unknown = tuple(
         operation_id
         for operation_id in implementations
@@ -99,8 +97,7 @@ def _validate_no_duplicate_operations(
     before the first mutation (see General Domain for the rationale).
     """
     existing_ids = {
-        definition.operation_id
-        for definition in operation_registry.list_definitions()
+        definition.operation_id for definition in operation_registry.list_definitions()
     }
     duplicates = tuple(
         operation.operation_id
@@ -245,11 +242,11 @@ def _validate_all(
             )
 
     if rule_registry is not None:
-        existing_rule_ids = {
-            rule.definition.id for rule in rule_registry.list_all()
-        }
+        existing_rule_ids = {rule.definition.id for rule in rule_registry.list_all()}
         duplicates = tuple(
-            rule.definition.id for rule in rules if rule.definition.id in existing_rule_ids
+            rule.definition.id
+            for rule in rules
+            if rule.definition.id in existing_rule_ids
         )
         if duplicates:
             from cmm.cognitive.errors import ReasoningRuleRegistryError

@@ -38,7 +38,9 @@ def present_languages_result(result: Mapping[str, Any] | None) -> dict[str, Any]
 
     # Pronunciation analysis status
     pron_assessed = data.get("pronunciation_assessed", False)
-    pron_badge = "Pronunciation assessed" if pron_assessed else "Audio evidence not provided"
+    pron_badge = (
+        "Pronunciation assessed" if pron_assessed else "Audio evidence not provided"
+    )
 
     projected: dict[str, Any] = {
         **data,

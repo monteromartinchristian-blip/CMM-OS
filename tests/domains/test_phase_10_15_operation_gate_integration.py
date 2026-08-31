@@ -37,7 +37,12 @@ class _Resolution:
 
 
 class _Resolver:
-    def __init__(self, outcomes: dict[PermissionCapability, PermissionOutcome], approval_requirement: PermissionApprovalRequirement | None = None, effective_constraints: dict[str, object] | None = None) -> None:
+    def __init__(
+        self,
+        outcomes: dict[PermissionCapability, PermissionOutcome],
+        approval_requirement: PermissionApprovalRequirement | None = None,
+        effective_constraints: dict[str, object] | None = None,
+    ) -> None:
         self.outcomes = outcomes
         self.approval_requirement = approval_requirement
         self.effective_constraints = effective_constraints or {}
@@ -66,8 +71,12 @@ class _Resolver:
                 action=request.action,
                 decision=outcome,
                 layer_evaluations=(layer,),
-                denied_by=(layer.source_id,) if outcome is PermissionOutcome.DENY else (),
-                allowed_by=(layer.source_id,) if outcome is PermissionOutcome.ALLOW else (),
+                denied_by=(layer.source_id,)
+                if outcome is PermissionOutcome.DENY
+                else (),
+                allowed_by=(layer.source_id,)
+                if outcome is PermissionOutcome.ALLOW
+                else (),
                 unresolved_by=(),
                 reasons=layer.reasons,
                 approval_requirements=requirements,
@@ -234,7 +243,9 @@ def _approval_requirement() -> PermissionApprovalRequirement:
 def test_valid_operation_approval_is_consumed_once() -> None:
     requirement = _approval_requirement()
     service = ApprovalService(InMemoryApprovalRepository())
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     resolver = _Resolver(
         {PermissionCapability.OPERATION_EXECUTE: PermissionOutcome.APPROVAL_REQUIRED},
@@ -254,9 +265,13 @@ def test_valid_operation_approval_is_consumed_once() -> None:
 def test_current_deny_blocks_without_consuming_prior_approval() -> None:
     requirement = _approval_requirement()
     service = ApprovalService(InMemoryApprovalRepository())
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
-    resolver = _Resolver({PermissionCapability.OPERATION_EXECUTE: PermissionOutcome.DENY})
+    resolver = _Resolver(
+        {PermissionCapability.OPERATION_EXECUTE: PermissionOutcome.DENY}
+    )
     orchestrator, implementation = _system(resolver, service)
 
     result = orchestrator.execute(_request(approval_request_id=approval.id))
@@ -269,11 +284,15 @@ def test_current_deny_blocks_without_consuming_prior_approval() -> None:
 def test_operation_preview_validates_but_does_not_consume() -> None:
     requirement = _approval_requirement()
     service = ApprovalService(InMemoryApprovalRepository())
-    approval = service.create_request_from_requirement(to_approval_requirement(requirement))
+    approval = service.create_request_from_requirement(
+        to_approval_requirement(requirement)
+    )
     service.approve(approval.id, "reviewer")
     gate = DomainPermissionGate(
         _Resolver(
-            {PermissionCapability.OPERATION_EXECUTE: PermissionOutcome.APPROVAL_REQUIRED},
+            {
+                PermissionCapability.OPERATION_EXECUTE: PermissionOutcome.APPROVAL_REQUIRED
+            },
             requirement,
         ),
         service,

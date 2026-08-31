@@ -48,8 +48,14 @@ def test_domain_definition_and_result_specialize_common_contracts() -> None:
 def test_domain_specializations_require_domain_identity() -> None:
     with pytest.raises(DomainRuleContractError, match="domain"):
         DomainReasoningRuleDefinition(
-            id="global.rule", name="Rule", version="1.0.0", scope="global",
-            category="epistemic", status="enabled", priority=1, risk_level="low",
+            id="global.rule",
+            name="Rule",
+            version="1.0.0",
+            scope="global",
+            category="epistemic",
+            status="enabled",
+            priority=1,
+            risk_level="low",
         )
 
 
@@ -62,7 +68,9 @@ def test_selection_and_execution_policies_are_strict() -> None:
         DomainRuleExecutionPolicy(aggregate_confidence_limit=float("nan"))
 
 
-@pytest.mark.parametrize("confidence_delta", (-1.000001, 1.000001, float("nan"), float("inf")))
+@pytest.mark.parametrize(
+    "confidence_delta", (-1.000001, 1.000001, float("nan"), float("inf"))
+)
 def test_execution_result_rejects_invalid_aggregate_confidence_delta(
     confidence_delta: float,
 ) -> None:

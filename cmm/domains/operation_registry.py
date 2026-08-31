@@ -354,7 +354,9 @@ class InMemoryDomainOperationRegistry:
                 field="snapshot.definitions",
             )
         definition_key_set = set(definition_keys)
-        implementation_keys = [(op_id, version) for op_id, version, _ in snapshot.implementations]
+        implementation_keys = [
+            (op_id, version) for op_id, version, _ in snapshot.implementations
+        ]
         if len(implementation_keys) != len(set(implementation_keys)):
             raise DomainOperationRegistryError(
                 "snapshot.implementations contains duplicate (operation_id, version) keys",

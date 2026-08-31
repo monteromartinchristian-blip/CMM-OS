@@ -194,10 +194,14 @@ def _enum(value: Any, enum_type: type[Enum], field_name: str) -> Any:
     try:
         return enum_type(value)
     except (TypeError, ValueError) as exc:
-        raise _error(f"{field_name} is not a valid {enum_type.__name__}", field_name) from exc
+        raise _error(
+            f"{field_name} is not a valid {enum_type.__name__}", field_name
+        ) from exc
 
 
-def _safe_metadata(value: Any) -> MappingProxyType[str, str | int | float | bool | None]:
+def _safe_metadata(
+    value: Any,
+) -> MappingProxyType[str, str | int | float | bool | None]:
     if not isinstance(value, Mapping):
         raise _error("safe_metadata must be a mapping", "safe_metadata")
     result: dict[str, str | int | float | bool | None] = {}
@@ -219,7 +223,10 @@ def _safe_metadata(value: Any) -> MappingProxyType[str, str | int | float | bool
             continue
         if isinstance(item, str):
             if not _TOKEN_RE.fullmatch(item):
-                raise _error("safe_metadata strings must be safe identifier tokens", "safe_metadata")
+                raise _error(
+                    "safe_metadata strings must be safe identifier tokens",
+                    "safe_metadata",
+                )
             result[key] = item
             continue
         if item is not None:
@@ -227,9 +234,13 @@ def _safe_metadata(value: Any) -> MappingProxyType[str, str | int | float | bool
     return MappingProxyType(result)
 
 
-def _strict_mapping(data: Any, expected: frozenset[str], name: str) -> Mapping[str, Any]:
+def _strict_mapping(
+    data: Any, expected: frozenset[str], name: str
+) -> Mapping[str, Any]:
     if not isinstance(data, Mapping):
-        raise DomainPresentationSerializationError(f"{name}.from_dict requires a mapping", field="data")
+        raise DomainPresentationSerializationError(
+            f"{name}.from_dict requires a mapping", field="data"
+        )
     unknown = set(data) - expected
     if unknown:
         raise DomainPresentationSerializationError(
@@ -258,23 +269,39 @@ class DomainOutputIntent:
     artifact_format: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "output_type", _enum(self.output_type, DomainOutputIntentType, "output_type"))
+        object.__setattr__(
+            self,
+            "output_type",
+            _enum(self.output_type, DomainOutputIntentType, "output_type"),
+        )
         if self.artifact_format is not None:
-            artifact_format = _enum(self.artifact_format, _ArtifactFormat, "artifact_format").value
+            artifact_format = _enum(
+                self.artifact_format, _ArtifactFormat, "artifact_format"
+            ).value
             object.__setattr__(self, "artifact_format", artifact_format)
-        if self.artifact_format is not None and self.output_type is not DomainOutputIntentType.ARTIFACT_REQUEST:
+        if (
+            self.artifact_format is not None
+            and self.output_type is not DomainOutputIntentType.ARTIFACT_REQUEST
+        ):
             raise _error("artifact_format requires ARTIFACT_REQUEST", "artifact_format")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"output_type": self.output_type.value, "artifact_format": self.artifact_format}
+        return {
+            "output_type": self.output_type.value,
+            "artifact_format": self.artifact_format,
+        }
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainOutputIntent:
-        data = _strict_mapping(data, frozenset({"output_type", "artifact_format"}), cls.__name__)
+        data = _strict_mapping(
+            data, frozenset({"output_type", "artifact_format"}), cls.__name__
+        )
         try:
             return cls(**data)
         except DomainPresentationContractError as exc:
-            raise DomainPresentationSerializationError(exc.message, field=exc.field) from exc
+            raise DomainPresentationSerializationError(
+                exc.message, field=exc.field
+            ) from exc
 
 
 class _ArtifactFormat(str, Enum):
@@ -302,18 +329,49 @@ class DomainPresentationItemRef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "ref_id", _token(self.ref_id, "ref_id"))
-        object.__setattr__(self, "item_type", _enum(self.item_type, DomainPresentationItemType, "item_type"))
-        object.__setattr__(self, "source_order", _non_negative_int(self.source_order, "source_order"))
-        object.__setattr__(self, "domain_ids", _tuple_of_tokens(self.domain_ids, "domain_ids"))
+        object.__setattr__(
+            self,
+            "item_type",
+            _enum(self.item_type, DomainPresentationItemType, "item_type"),
+        )
+        object.__setattr__(
+            self, "source_order", _non_negative_int(self.source_order, "source_order")
+        )
+        object.__setattr__(
+            self, "domain_ids", _tuple_of_tokens(self.domain_ids, "domain_ids")
+        )
         if self.epistemic_kind is not None:
-            object.__setattr__(self, "epistemic_kind", _enum(self.epistemic_kind, DomainPresentationEpistemicKind, "epistemic_kind"))
-        object.__setattr__(self, "confidence", _float_opt(self.confidence, "confidence"))
-        object.__setattr__(self, "requires_provenance", _bool(self.requires_provenance, "requires_provenance"))
+            object.__setattr__(
+                self,
+                "epistemic_kind",
+                _enum(
+                    self.epistemic_kind,
+                    DomainPresentationEpistemicKind,
+                    "epistemic_kind",
+                ),
+            )
+        object.__setattr__(
+            self, "confidence", _float_opt(self.confidence, "confidence")
+        )
+        object.__setattr__(
+            self,
+            "requires_provenance",
+            _bool(self.requires_provenance, "requires_provenance"),
+        )
         object.__setattr__(self, "visible", _bool(self.visible, "visible"))
         if self.warning_priority is not None:
-            object.__setattr__(self, "warning_priority", _non_negative_int(self.warning_priority, "warning_priority"))
-        if self.item_type is not DomainPresentationItemType.WARNING and self.warning_priority is not None:
-            raise _error("warning_priority is only valid for WARNING", "warning_priority")
+            object.__setattr__(
+                self,
+                "warning_priority",
+                _non_negative_int(self.warning_priority, "warning_priority"),
+            )
+        if (
+            self.item_type is not DomainPresentationItemType.WARNING
+            and self.warning_priority is not None
+        ):
+            raise _error(
+                "warning_priority is only valid for WARNING", "warning_priority"
+            )
         for name in (
             "pending",
             "requires_user_interaction",
@@ -325,10 +383,17 @@ class DomainPresentationItemRef:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "ref_id": self.ref_id, "item_type": self.item_type.value, "source_order": self.source_order,
-            "domain_ids": list(self.domain_ids), "epistemic_kind": self.epistemic_kind.value if self.epistemic_kind else None,
-            "confidence": self.confidence, "requires_provenance": self.requires_provenance,
-            "visible": self.visible, "warning_priority": self.warning_priority,
+            "ref_id": self.ref_id,
+            "item_type": self.item_type.value,
+            "source_order": self.source_order,
+            "domain_ids": list(self.domain_ids),
+            "epistemic_kind": self.epistemic_kind.value
+            if self.epistemic_kind
+            else None,
+            "confidence": self.confidence,
+            "requires_provenance": self.requires_provenance,
+            "visible": self.visible,
+            "warning_priority": self.warning_priority,
             "pending": self.pending,
             "requires_user_interaction": self.requires_user_interaction,
             "requires_approval": self.requires_approval,
@@ -342,7 +407,9 @@ class DomainPresentationItemRef:
         try:
             return cls(**data)
         except DomainPresentationContractError as exc:
-            raise DomainPresentationSerializationError(exc.message, field=exc.field) from exc
+            raise DomainPresentationSerializationError(
+                exc.message, field=exc.field
+            ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,24 +424,47 @@ class DomainPresentationRequest:
     primary_domain_id: str
     output_intent: DomainOutputIntent | None = None
     supporting_domain_ids: tuple[str, ...] = ()
-    safe_metadata: MappingProxyType[str, str | int | float | bool | None] = field(default_factory=lambda: MappingProxyType({}))
+    safe_metadata: MappingProxyType[str, str | int | float | bool | None] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def __post_init__(self) -> None:
-        for name in ("request_id", "upstream_result_id", "composition_id", "policy_id", "primary_domain_id"):
+        for name in (
+            "request_id",
+            "upstream_result_id",
+            "composition_id",
+            "policy_id",
+            "primary_domain_id",
+        ):
             object.__setattr__(self, name, _token(getattr(self, name), name))
         if not isinstance(self.presentation, PresentationComposition):
-            raise _error("presentation must be a PresentationComposition", "presentation")
+            raise _error(
+                "presentation must be a PresentationComposition", "presentation"
+            )
         if not isinstance(self.policy, DomainPresentationPolicy):
             raise _error("policy must be a DomainPresentationPolicy", "policy")
-        if self.output_intent is not None and not isinstance(self.output_intent, DomainOutputIntent):
-            object.__setattr__(self, "output_intent", DomainOutputIntent.from_dict(self.output_intent))
-        object.__setattr__(self, "supporting_domain_ids", _tuple_of_tokens(self.supporting_domain_ids, "supporting_domain_ids"))
+        if self.output_intent is not None and not isinstance(
+            self.output_intent, DomainOutputIntent
+        ):
+            object.__setattr__(
+                self, "output_intent", DomainOutputIntent.from_dict(self.output_intent)
+            )
+        object.__setattr__(
+            self,
+            "supporting_domain_ids",
+            _tuple_of_tokens(self.supporting_domain_ids, "supporting_domain_ids"),
+        )
         if self.primary_domain_id in self.supporting_domain_ids:
-            raise _error("primary_domain_id must not appear in supporting_domain_ids", "supporting_domain_ids")
+            raise _error(
+                "primary_domain_id must not appear in supporting_domain_ids",
+                "supporting_domain_ids",
+            )
         if isinstance(self.items, (str, bytes)) or not isinstance(self.items, Sequence):
             raise _error("items must be a sequence", "items")
         items = tuple(
-            item if isinstance(item, DomainPresentationItemRef) else DomainPresentationItemRef.from_dict(item)
+            item
+            if isinstance(item, DomainPresentationItemRef)
+            else DomainPresentationItemRef.from_dict(item)
             for item in self.items
         )
         if len({item.ref_id for item in items}) != len(items):
@@ -384,11 +474,18 @@ class DomainPresentationRequest:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "request_id": self.request_id, "upstream_result_id": self.upstream_result_id,
-            "composition_id": self.composition_id, "policy_id": self.policy_id,
-            "presentation": self.presentation.to_dict(), "policy": self.policy.to_dict(),
-            "output_intent": self.output_intent.to_dict() if self.output_intent else None, "items": [item.to_dict() for item in self.items],
-            "primary_domain_id": self.primary_domain_id, "supporting_domain_ids": list(self.supporting_domain_ids),
+            "request_id": self.request_id,
+            "upstream_result_id": self.upstream_result_id,
+            "composition_id": self.composition_id,
+            "policy_id": self.policy_id,
+            "presentation": self.presentation.to_dict(),
+            "policy": self.policy.to_dict(),
+            "output_intent": self.output_intent.to_dict()
+            if self.output_intent
+            else None,
+            "items": [item.to_dict() for item in self.items],
+            "primary_domain_id": self.primary_domain_id,
+            "supporting_domain_ids": list(self.supporting_domain_ids),
             "safe_metadata": dict(self.safe_metadata),
         }
 
@@ -397,16 +494,28 @@ class DomainPresentationRequest:
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationRequest:
-        data = dict(_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
+        data = dict(
+            _strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
         try:
-            data["presentation"] = PresentationComposition.from_dict(data["presentation"])
+            data["presentation"] = PresentationComposition.from_dict(
+                data["presentation"]
+            )
             data["policy"] = DomainPresentationPolicy.from_dict(data["policy"])
             if data["output_intent"] is not None:
-                data["output_intent"] = DomainOutputIntent.from_dict(data["output_intent"])
-            data["items"] = tuple(DomainPresentationItemRef.from_dict(item) for item in data["items"])
+                data["output_intent"] = DomainOutputIntent.from_dict(
+                    data["output_intent"]
+                )
+            data["items"] = tuple(
+                DomainPresentationItemRef.from_dict(item) for item in data["items"]
+            )
             return cls(**data)
         except (DomainPresentationContractError, KeyError) as exc:
-            message = exc.message if isinstance(exc, DomainPresentationContractError) else f"missing field: {exc.args[0]}"
+            message = (
+                exc.message
+                if isinstance(exc, DomainPresentationContractError)
+                else f"missing field: {exc.args[0]}"
+            )
             raise DomainPresentationSerializationError(message, field="data") from exc
 
 
@@ -419,12 +528,19 @@ class DomainPresentationSectionPlan:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "section_id", _token(self.section_id, "section_id"))
-        object.__setattr__(self, "item_refs", _tuple_of_tokens(self.item_refs, "item_refs"))
+        object.__setattr__(
+            self, "item_refs", _tuple_of_tokens(self.item_refs, "item_refs")
+        )
         object.__setattr__(self, "required", _bool(self.required, "required"))
         object.__setattr__(self, "visible", _bool(self.visible, "visible"))
 
     def to_dict(self) -> dict[str, Any]:
-        return {"section_id": self.section_id, "item_refs": list(self.item_refs), "required": self.required, "visible": self.visible}
+        return {
+            "section_id": self.section_id,
+            "item_refs": list(self.item_refs),
+            "required": self.required,
+            "visible": self.visible,
+        }
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationSectionPlan:
@@ -439,17 +555,27 @@ class DomainPresentationComponentDescriptor:
     section_id: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "component_id", _token(self.component_id, "component_id"))
+        object.__setattr__(
+            self, "component_id", _token(self.component_id, "component_id")
+        )
         object.__setattr__(self, "view_id", _token(self.view_id, "view_id"))
         if self.section_id is not None:
-            object.__setattr__(self, "section_id", _token(self.section_id, "section_id"))
+            object.__setattr__(
+                self, "section_id", _token(self.section_id, "section_id")
+            )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"component_id": self.component_id, "view_id": self.view_id, "section_id": self.section_id}
+        return {
+            "component_id": self.component_id,
+            "view_id": self.view_id,
+            "section_id": self.section_id,
+        }
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationComponentDescriptor:
-        return cls(**_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
+        return cls(
+            **_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,15 +584,21 @@ class DomainPresentationConflict:
     related_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "code", _enum(self.code, DomainPresentationConflictCode, "code"))
-        object.__setattr__(self, "related_ids", _tuple_of_tokens(self.related_ids, "related_ids"))
+        object.__setattr__(
+            self, "code", _enum(self.code, DomainPresentationConflictCode, "code")
+        )
+        object.__setattr__(
+            self, "related_ids", _tuple_of_tokens(self.related_ids, "related_ids")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {"code": self.code.value, "related_ids": list(self.related_ids)}
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationConflict:
-        return cls(**_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
+        return cls(
+            **_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,15 +607,21 @@ class DomainPresentationDecision:
     related_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "code", _enum(self.code, DomainPresentationDecisionCode, "code"))
-        object.__setattr__(self, "related_ids", _tuple_of_tokens(self.related_ids, "related_ids"))
+        object.__setattr__(
+            self, "code", _enum(self.code, DomainPresentationDecisionCode, "code")
+        )
+        object.__setattr__(
+            self, "related_ids", _tuple_of_tokens(self.related_ids, "related_ids")
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {"code": self.code.value, "related_ids": list(self.related_ids)}
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationDecision:
-        return cls(**_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
+        return cls(
+            **_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,7 +639,9 @@ class DomainPresentationPlan:
     item_refs: tuple[DomainPresentationItemRef, ...] = ()
     components: tuple[DomainPresentationComponentDescriptor, ...] = ()
     protected_terms: tuple[str, ...] = ()
-    term_glosses: MappingProxyType[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    term_glosses: MappingProxyType[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     warning_refs: tuple[str, ...] = ()
     conflicts: tuple[DomainPresentationConflict, ...] = ()
     decisions: tuple[DomainPresentationDecision, ...] = ()
@@ -511,14 +651,20 @@ class DomainPresentationPlan:
     escalation_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
     memory_proposal_refs: tuple[str, ...] = ()
-    validation_state: DomainPresentationValidationState = DomainPresentationValidationState.PLANNED
-    safe_metadata: MappingProxyType[str, str | int | float | bool | None] = field(default_factory=lambda: MappingProxyType({}))
+    validation_state: DomainPresentationValidationState = (
+        DomainPresentationValidationState.PLANNED
+    )
+    safe_metadata: MappingProxyType[str, str | int | float | bool | None] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def __post_init__(self) -> None:
         for name in ("plan_id", "request_id", "composition_id", "policy_id"):
             object.__setattr__(self, name, _token(getattr(self, name), name))
         if not isinstance(self.output_intent, DomainOutputIntent):
-            object.__setattr__(self, "output_intent", DomainOutputIntent.from_dict(self.output_intent))
+            object.__setattr__(
+                self, "output_intent", DomainOutputIntent.from_dict(self.output_intent)
+            )
         if self.preferred_output_type is not None:
             object.__setattr__(
                 self,
@@ -530,38 +676,97 @@ class DomainPresentationPlan:
                 ),
             )
         if self.detail_level is not None:
-            object.__setattr__(self, "detail_level", _token(self.detail_level, "detail_level"))
+            object.__setattr__(
+                self, "detail_level", _token(self.detail_level, "detail_level")
+            )
         if self.warning_position is not None:
             object.__setattr__(
-                self, "warning_position", _token(self.warning_position, "warning_position")
+                self,
+                "warning_position",
+                _token(self.warning_position, "warning_position"),
             )
-        for name, cls in (("sections", DomainPresentationSectionPlan), ("item_refs", DomainPresentationItemRef), ("components", DomainPresentationComponentDescriptor), ("conflicts", DomainPresentationConflict), ("decisions", DomainPresentationDecision)):
+        for name, cls in (
+            ("sections", DomainPresentationSectionPlan),
+            ("item_refs", DomainPresentationItemRef),
+            ("components", DomainPresentationComponentDescriptor),
+            ("conflicts", DomainPresentationConflict),
+            ("decisions", DomainPresentationDecision),
+        ):
             value = getattr(self, name)
             if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
                 raise _error(f"{name} must be a sequence", name)
-            object.__setattr__(self, name, tuple(item if isinstance(item, cls) else cls.from_dict(item) for item in value))
+            object.__setattr__(
+                self,
+                name,
+                tuple(
+                    item if isinstance(item, cls) else cls.from_dict(item)
+                    for item in value
+                ),
+            )
         if len({section.section_id for section in self.sections}) != len(self.sections):
-            raise _error("sections must not contain duplicate section_id values", "sections")
+            raise _error(
+                "sections must not contain duplicate section_id values", "sections"
+            )
         if len({item.ref_id for item in self.item_refs}) != len(self.item_refs):
-            raise _error("item_refs must not contain duplicate ref_id values", "item_refs")
-        for name in ("protected_terms", "warning_refs", "visibility_obligations", "question_refs", "approval_refs", "escalation_refs", "workflow_refs", "memory_proposal_refs", "qualified_hypothesis_refs"):
+            raise _error(
+                "item_refs must not contain duplicate ref_id values", "item_refs"
+            )
+        for name in (
+            "protected_terms",
+            "warning_refs",
+            "visibility_obligations",
+            "question_refs",
+            "approval_refs",
+            "escalation_refs",
+            "workflow_refs",
+            "memory_proposal_refs",
+            "qualified_hypothesis_refs",
+        ):
             object.__setattr__(self, name, _tuple_of_tokens(getattr(self, name), name))
         glosses = _validate_glosses(self.term_glosses)
         if not set(glosses).issubset(self.protected_terms):
             raise _error("term_glosses keys must be protected_terms", "term_glosses")
         object.__setattr__(self, "term_glosses", glosses)
-        object.__setattr__(self, "validation_state", _enum(self.validation_state, DomainPresentationValidationState, "validation_state"))
+        object.__setattr__(
+            self,
+            "validation_state",
+            _enum(
+                self.validation_state,
+                DomainPresentationValidationState,
+                "validation_state",
+            ),
+        )
         object.__setattr__(self, "safe_metadata", _safe_metadata(self.safe_metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "plan_id": self.plan_id, "request_id": self.request_id, "composition_id": self.composition_id, "policy_id": self.policy_id,
-            "output_intent": self.output_intent.to_dict(), "sections": [v.to_dict() for v in self.sections], "preferred_output_type": self.preferred_output_type.value if self.preferred_output_type else None, "detail_level": self.detail_level, "warning_position": self.warning_position, "qualified_hypothesis_refs": list(self.qualified_hypothesis_refs), "item_refs": [v.to_dict() for v in self.item_refs],
-            "components": [v.to_dict() for v in self.components], "protected_terms": list(self.protected_terms), "term_glosses": dict(self.term_glosses),
-            "warning_refs": list(self.warning_refs), "conflicts": [v.to_dict() for v in self.conflicts], "decisions": [v.to_dict() for v in self.decisions],
-            "visibility_obligations": list(self.visibility_obligations), "question_refs": list(self.question_refs), "approval_refs": list(self.approval_refs),
-            "escalation_refs": list(self.escalation_refs), "workflow_refs": list(self.workflow_refs), "memory_proposal_refs": list(self.memory_proposal_refs),
-            "validation_state": self.validation_state.value, "safe_metadata": dict(self.safe_metadata),
+            "plan_id": self.plan_id,
+            "request_id": self.request_id,
+            "composition_id": self.composition_id,
+            "policy_id": self.policy_id,
+            "output_intent": self.output_intent.to_dict(),
+            "sections": [v.to_dict() for v in self.sections],
+            "preferred_output_type": self.preferred_output_type.value
+            if self.preferred_output_type
+            else None,
+            "detail_level": self.detail_level,
+            "warning_position": self.warning_position,
+            "qualified_hypothesis_refs": list(self.qualified_hypothesis_refs),
+            "item_refs": [v.to_dict() for v in self.item_refs],
+            "components": [v.to_dict() for v in self.components],
+            "protected_terms": list(self.protected_terms),
+            "term_glosses": dict(self.term_glosses),
+            "warning_refs": list(self.warning_refs),
+            "conflicts": [v.to_dict() for v in self.conflicts],
+            "decisions": [v.to_dict() for v in self.decisions],
+            "visibility_obligations": list(self.visibility_obligations),
+            "question_refs": list(self.question_refs),
+            "approval_refs": list(self.approval_refs),
+            "escalation_refs": list(self.escalation_refs),
+            "workflow_refs": list(self.workflow_refs),
+            "memory_proposal_refs": list(self.memory_proposal_refs),
+            "validation_state": self.validation_state.value,
+            "safe_metadata": dict(self.safe_metadata),
         }
 
     def calculate_digest(self) -> str:
@@ -569,11 +774,21 @@ class DomainPresentationPlan:
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationPlan:
-        data = dict(_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
+        data = dict(
+            _strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
         data["output_intent"] = DomainOutputIntent.from_dict(data["output_intent"])
         if data["preferred_output_type"] is not None:
-            data["preferred_output_type"] = DomainOutputIntentType(data["preferred_output_type"])
-        for name, item_cls in (("sections", DomainPresentationSectionPlan), ("item_refs", DomainPresentationItemRef), ("components", DomainPresentationComponentDescriptor), ("conflicts", DomainPresentationConflict), ("decisions", DomainPresentationDecision)):
+            data["preferred_output_type"] = DomainOutputIntentType(
+                data["preferred_output_type"]
+            )
+        for name, item_cls in (
+            ("sections", DomainPresentationSectionPlan),
+            ("item_refs", DomainPresentationItemRef),
+            ("components", DomainPresentationComponentDescriptor),
+            ("conflicts", DomainPresentationConflict),
+            ("decisions", DomainPresentationDecision),
+        ):
             data[name] = tuple(item_cls.from_dict(item) for item in data[name])
         return cls(**data)
 
@@ -584,7 +799,9 @@ def _validate_glosses(value: Any) -> MappingProxyType[str, str]:
     result: dict[str, str] = {}
     for key, item in value.items():
         if not isinstance(item, str) or not item or len(item) > 512:
-            raise _error("term_glosses values must be non-empty bounded strings", "term_glosses")
+            raise _error(
+                "term_glosses values must be non-empty bounded strings", "term_glosses"
+            )
         result[_token(key, "term_glosses")] = item
     return MappingProxyType(result)
 
@@ -603,7 +820,9 @@ class DomainPresentationValidationResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "valid", _bool(self.valid, "valid"))
-        object.__setattr__(self, "state", _enum(self.state, DomainPresentationValidationState, "state"))
+        object.__setattr__(
+            self, "state", _enum(self.state, DomainPresentationValidationState, "state")
+        )
         if isinstance(self.codes, (str, bytes)) or not isinstance(self.codes, Sequence):
             raise _error("codes must be a sequence", "codes")
         object.__setattr__(
@@ -616,30 +835,68 @@ class DomainPresentationValidationResult:
         )
         for name in ("missing_refs", "unexpected_refs", "invariants"):
             object.__setattr__(self, name, _tuple_of_tokens(getattr(self, name), name))
-        object.__setattr__(self, "conflicts", tuple(item if isinstance(item, DomainPresentationConflict) else DomainPresentationConflict.from_dict(item) for item in self.conflicts))
+        object.__setattr__(
+            self,
+            "conflicts",
+            tuple(
+                item
+                if isinstance(item, DomainPresentationConflict)
+                else DomainPresentationConflict.from_dict(item)
+                for item in self.conflicts
+            ),
+        )
         for name in ("upstream_digest", "plan_digest"):
             digest = getattr(self, name)
             if not isinstance(digest, str) or not _DIGEST_RE.fullmatch(digest):
                 raise _error(f"{name} must be a SHA-256 hex digest", name)
             object.__setattr__(self, name, digest)
-        expected_state = DomainPresentationValidationState.VALID if self.valid else DomainPresentationValidationState.BLOCKED
+        expected_state = (
+            DomainPresentationValidationState.VALID
+            if self.valid
+            else DomainPresentationValidationState.BLOCKED
+        )
         if self.state is not expected_state:
             raise _error("state must match valid", "state")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"valid": self.valid, "state": self.state.value, "codes": [code.value for code in self.codes], "conflicts": [v.to_dict() for v in self.conflicts], "missing_refs": list(self.missing_refs), "unexpected_refs": list(self.unexpected_refs), "invariants": list(self.invariants), "upstream_digest": self.upstream_digest, "plan_digest": self.plan_digest}
+        return {
+            "valid": self.valid,
+            "state": self.state.value,
+            "codes": [code.value for code in self.codes],
+            "conflicts": [v.to_dict() for v in self.conflicts],
+            "missing_refs": list(self.missing_refs),
+            "unexpected_refs": list(self.unexpected_refs),
+            "invariants": list(self.invariants),
+            "upstream_digest": self.upstream_digest,
+            "plan_digest": self.plan_digest,
+        }
 
     @classmethod
     def from_dict(cls, data: Any) -> DomainPresentationValidationResult:
-        data = dict(_strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__))
-        data["conflicts"] = tuple(DomainPresentationConflict.from_dict(item) for item in data["conflicts"])
+        data = dict(
+            _strict_mapping(data, frozenset(cls.__dataclass_fields__), cls.__name__)
+        )
+        data["conflicts"] = tuple(
+            DomainPresentationConflict.from_dict(item) for item in data["conflicts"]
+        )
         return cls(**data)
 
 
 __all__ = [
-    "DomainOutputIntent", "DomainOutputIntentType", "DomainPresentationComponentDescriptor",
-    "DomainPresentationConflict", "DomainPresentationConflictCode", "DomainPresentationDecision",
-    "DomainPresentationDecisionCode", "DomainPresentationEpistemicKind", "DomainPresentationItemRef",
-    "DomainPresentationItemType", "DomainPresentationPlan", "DomainPresentationRequest",
-    "DomainPresentationSectionPlan", "DomainPresentationValidationCode", "DomainPresentationValidationResult", "DomainPresentationValidationState",
+    "DomainOutputIntent",
+    "DomainOutputIntentType",
+    "DomainPresentationComponentDescriptor",
+    "DomainPresentationConflict",
+    "DomainPresentationConflictCode",
+    "DomainPresentationDecision",
+    "DomainPresentationDecisionCode",
+    "DomainPresentationEpistemicKind",
+    "DomainPresentationItemRef",
+    "DomainPresentationItemType",
+    "DomainPresentationPlan",
+    "DomainPresentationRequest",
+    "DomainPresentationSectionPlan",
+    "DomainPresentationValidationCode",
+    "DomainPresentationValidationResult",
+    "DomainPresentationValidationState",
 ]

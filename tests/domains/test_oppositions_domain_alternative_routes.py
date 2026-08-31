@@ -36,9 +36,7 @@ def test_multiple_alternatives():
 
 def test_missing_official_requirements_leave_comparison_conditional():
     alt = {"id": "alt1", "eligibility": None, "syllabus_overlap": 0.6}
-    result = compare_alternative_routes(
-        primary=_route("primary"), alternatives=(alt,)
-    )
+    result = compare_alternative_routes(primary=_route("primary"), alternatives=(alt,))
     assert "alt1" in result["conditional_requirements"]
     # a decision-relevant route with missing eligibility keeps the comparison
     # unresolved; no definitive recommendation may be emitted from the known
@@ -76,9 +74,7 @@ def test_comparison_does_not_mark_primary_abandoned():
 
 
 def test_malformed_route_identity_does_not_merge():
-    result = compare_alternative_routes(
-        primary=7, alternatives=(_route("alt1"),)
-    )
+    result = compare_alternative_routes(primary=7, alternatives=(_route("alt1"),))
     assert result["resolved"] is False
 
 
@@ -156,20 +152,40 @@ def test_conflicting_duplicate_route_order_invariance():
 
 
 def test_conflicting_alternative_sets_resolved_false():
-    a = {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.9,
-         "effort_hours": 200, "call_state": "current"}
-    b = {"id": "alt1", "eligibility": "ineligible", "syllabus_overlap": 0.1,
-         "effort_hours": 200, "call_state": "current"}
+    a = {
+        "id": "alt1",
+        "eligibility": "eligible",
+        "syllabus_overlap": 0.9,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
+    b = {
+        "id": "alt1",
+        "eligibility": "ineligible",
+        "syllabus_overlap": 0.1,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
     result = compare_alternative_routes(primary=_route("primary"), alternatives=(a, b))
     assert result["resolved"] is False
     assert result["conflicting_route_ids"] == ("alt1",)
 
 
 def test_conflicting_alternative_suppresses_recommendation():
-    a = {"id": "alt1", "eligibility": "eligible", "syllabus_overlap": 0.9,
-         "effort_hours": 200, "call_state": "current"}
-    b = {"id": "alt1", "eligibility": "ineligible", "syllabus_overlap": 0.1,
-         "effort_hours": 200, "call_state": "current"}
+    a = {
+        "id": "alt1",
+        "eligibility": "eligible",
+        "syllabus_overlap": 0.9,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
+    b = {
+        "id": "alt1",
+        "eligibility": "ineligible",
+        "syllabus_overlap": 0.1,
+        "effort_hours": 200,
+        "call_state": "current",
+    }
     alt2 = _route("alt2", overlap=0.5)
     result = compare_alternative_routes(
         primary=_route("primary"), alternatives=(a, b, alt2)

@@ -26,10 +26,9 @@ def _scenario(scenario_id, **values):
 
 
 def _canonical_result(workload):
-    rule = {
-        r.definition.id: r
-        for r in build_university_rules()
-    }["university.academic_workload"]
+    rule = {r.definition.id: r for r in build_university_rules()}[
+        "university.academic_workload"
+    ]
     context = ReasoningRuleContext(
         reasoning_id="workload-production",
         timestamp=T,
@@ -418,6 +417,8 @@ def test_canonical_rule_empty_hard_constraints_remain_feasible():
     assert finding.code == "WORKLOAD_ASSESSED"
     assert finding.metadata["feasibility_uncertain"] is False
     assert finding.metadata["feasible"] is True
+
+
 # ── V9-B1: element-aware collection validation.  A valid list/tuple container ──
 # ── with a malformed member is NOT fully valid evidence. ─────────────────────
 
@@ -834,9 +835,7 @@ def test_v16_workload_constraint_collection_id_is_not_exposed_as_scalar(
 
 
 def test_v16_canonical_workload_collection_scenario_id_stays_uncertain():
-    result = _canonical_result(
-        {"scenarios": ({"id": ["s1"], "credit_load": 10},)}
-    )
+    result = _canonical_result({"scenarios": ({"id": ["s1"], "credit_load": 10},)})
     finding = result.findings[0]
     assert finding.code == "WORKLOAD_FEASIBILITY_UNCERTAIN"
     assert finding.metadata["scenarios_malformed"] is True

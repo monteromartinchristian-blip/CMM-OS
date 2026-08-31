@@ -44,7 +44,10 @@ def test_all_13_operation_input_output_contract_parity():
         ),
         "concerns.infer_support_need": (
             infer_support_need_result,
-            {"explicit_request": "Tell me what you think.", "current_signal": "anxious"},
+            {
+                "explicit_request": "Tell me what you think.",
+                "current_signal": "anxious",
+            },
         ),
         "concerns.map_lived_experience": (
             map_lived_experience_result,
@@ -53,7 +56,9 @@ def test_all_13_operation_input_output_contract_parity():
         "concerns.separate_reality_interpretation": (
             separate_reality_interpretation_result,
             {
-                "statements": [{"statement": "they are angry", "level": "interpretation"}],
+                "statements": [
+                    {"statement": "they are angry", "level": "interpretation"}
+                ],
                 "transitions": [],
                 "caveats": [],
             },
@@ -109,7 +114,11 @@ def test_all_13_operation_input_output_contract_parity():
         ),
         "concerns.identify_open_questions": (
             identify_open_questions_result,
-            {"questions": [{"question": "When did you speak?", "changes": ["meaning"]}]},
+            {
+                "questions": [
+                    {"question": "When did you speak?", "changes": ["meaning"]}
+                ]
+            },
         ),
         "concerns.explore_options": (
             explore_options_result,
@@ -148,7 +157,9 @@ def test_all_13_operation_input_output_contract_parity():
         op_def = ops[op_id]
         # 1. Input validates against input_schema
         in_issues = validate_operation_schema(req_input, op_def.input_schema)
-        assert in_issues == (), f"Operation {op_id} input failed input_schema validation: {in_issues}"
+        assert in_issues == (), (
+            f"Operation {op_id} input failed input_schema validation: {in_issues}"
+        )
 
         # 2. Same validated input invokes helper
         output = helper_fn(**req_input)
@@ -156,7 +167,9 @@ def test_all_13_operation_input_output_contract_parity():
 
         # 3. Helper output validates against output_schema
         out_issues = validate_operation_schema(output, op_def.output_schema)
-        assert out_issues == (), f"Operation {op_id} output failed output_schema validation: {out_issues}"
+        assert out_issues == (), (
+            f"Operation {op_id} output failed output_schema validation: {out_issues}"
+        )
 
 
 def test_reassurance_request_with_target_and_specialized_result_validates():
@@ -437,7 +450,11 @@ def test_caveats_preserve_unrelated_ordinary_scenarios():
             {"statement": "meteor hits the communication satellite"},
         ],
         "caveats": [
-            {"caveat": "meteor hits the communication satellite", "remote": True, "suppress_scenario": True}
+            {
+                "caveat": "meteor hits the communication satellite",
+                "remote": True,
+                "suppress_scenario": True,
+            }
         ],
     }
     presented = present_concerns_result(input_data)
@@ -462,7 +479,10 @@ def test_understand_concern_preserves_actual_concern_in_presentation():
     )
     presented = present_concerns_result(res)
     assert len(presented["actual_concern"]) > 0
-    assert "fear of losing contact" in presented["actual_concern"] or "late reply from friend" in presented["actual_concern"]
+    assert (
+        "fear of losing contact" in presented["actual_concern"]
+        or "late reply from friend" in presented["actual_concern"]
+    )
     assert presented["presentation_state"] != PRESENTATION_STATE_UNKNOWN
 
 
@@ -472,7 +492,11 @@ def test_calibrate_uncertainty_preserves_calibrations_and_uncertainty_in_present
 
     res = calibrate_uncertainty_result(
         records=[
-            {"identity": "rec1", "claim": "workload caused delay", "status": "plausible"},
+            {
+                "identity": "rec1",
+                "claim": "workload caused delay",
+                "status": "plausible",
+            },
             {"identity": "rec2", "claim": "deliberate snub", "status": "unresolved"},
         ]
     )
@@ -488,7 +512,10 @@ def test_identify_open_questions_preserves_questions_and_rationale_in_presentati
 
     res = identify_open_questions_result(
         questions=[
-            {"question": "Has this pattern happened before?", "changes": ("meaning", "interpretation")},
+            {
+                "question": "Has this pattern happened before?",
+                "changes": ("meaning", "interpretation"),
+            },
         ]
     )
     presented = present_concerns_result(res)
@@ -515,34 +542,57 @@ def test_all_13_operations_have_detailed_presentation_semantic_parity():
     from cmm.domains.concerns.presentation import present_concerns_result
 
     # 1. understand_concern
-    p1 = present_concerns_result(understand_concern_result(material={"situation": "late reply"}))
+    p1 = present_concerns_result(
+        understand_concern_result(material={"situation": "late reply"})
+    )
     assert "late reply" in p1["actual_concern"]
 
     # 2. infer_support_need
-    p2 = present_concerns_result(infer_support_need_result(explicit_request="Tell me what you think."))
+    p2 = present_concerns_result(
+        infer_support_need_result(explicit_request="Tell me what you think.")
+    )
     assert p2["support_need"] in ("PERSPECTIVE", "REALITY_CHECK")
 
     # 3. map_lived_experience
-    p3 = present_concerns_result(map_lived_experience_result(material={"emotion_statements": ("worried",)}))
+    p3 = present_concerns_result(
+        map_lived_experience_result(material={"emotion_statements": ("worried",)})
+    )
     assert len(p3["experiences"]) == 1
     assert p3["experiences"][0]["statement"] == "worried"
 
     # 4. separate_reality_interpretation
-    p4 = present_concerns_result(separate_reality_interpretation_result(statements=({"statement": "fact1", "level": "fact"}, {"statement": "interp1", "level": "interpretation"})))
+    p4 = present_concerns_result(
+        separate_reality_interpretation_result(
+            statements=(
+                {"statement": "fact1", "level": "fact"},
+                {"statement": "interp1", "level": "interpretation"},
+            )
+        )
+    )
     assert len(p4["facts"]) == 1
     assert len(p4["interpretations"]) == 1
 
     # 5. explore_hypotheses
-    p5 = present_concerns_result(explore_hypotheses_result(hypotheses=({"statement": "they were busy"},)))
+    p5 = present_concerns_result(
+        explore_hypotheses_result(hypotheses=({"statement": "they were busy"},))
+    )
     assert len(p5["hypotheses"]) == 1
     assert p5["hypotheses"][0]["statement"] == "they were busy"
 
     # 6. calibrate_uncertainty
-    p6 = present_concerns_result(calibrate_uncertainty_result(records=({"identity": "c1", "claim": "weather", "status": "plausible"},)))
+    p6 = present_concerns_result(
+        calibrate_uncertainty_result(
+            records=({"identity": "c1", "claim": "weather", "status": "plausible"},)
+        )
+    )
     assert len(p6["calibrations"]) == 1
 
     # 7. evaluate_reassurance
-    p7 = present_concerns_result(evaluate_reassurance_result(target_claim="safe", evidence=(), uncertainty=({"unknown": "where"},)))
+    p7 = present_concerns_result(
+        evaluate_reassurance_result(
+            target_claim="safe", evidence=(), uncertainty=({"unknown": "where"},)
+        )
+    )
     assert p7["reassurance_assessment"] == "INSUFFICIENT_BASIS"
 
     # 8. evaluate_risk
@@ -561,25 +611,43 @@ def test_all_13_operations_have_detailed_presentation_semantic_parity():
     assert p8["risk"]["risk_level"] == op8["risk_level"]
 
     # 9. identify_open_questions
-    p9 = present_concerns_result(identify_open_questions_result(questions=({"question": "When?", "changes": ("meaning",)},)))
+    p9 = present_concerns_result(
+        identify_open_questions_result(
+            questions=({"question": "When?", "changes": ("meaning",)},)
+        )
+    )
     assert len(p9["open_questions"]) == 1
     assert p9["open_questions"][0]["question"] == "When?"
 
     # 10. explore_options
-    p10 = present_concerns_result(explore_options_result(options=({"option_id": "opt1", "expected_benefit": "clarity"},)))
+    p10 = present_concerns_result(
+        explore_options_result(
+            options=({"option_id": "opt1", "expected_benefit": "clarity"},)
+        )
+    )
     assert len(p10["options"]) == 1
     assert p10["options"][0]["option_id"] == "opt1"
 
     # 11. prepare_next_step
-    p11 = present_concerns_result(prepare_next_step_result(desired_outcome="clarity", options=("opt1",), user_request="What to do?"))
+    p11 = present_concerns_result(
+        prepare_next_step_result(
+            desired_outcome="clarity", options=("opt1",), user_request="What to do?"
+        )
+    )
     assert p11["next_step"] is not None
 
     # 12. review_recurring_concern
-    p12 = present_concerns_result(review_recurring_concern_result(current={"topic": "t1"}, previous=()))
+    p12 = present_concerns_result(
+        review_recurring_concern_result(current={"topic": "t1"}, previous=())
+    )
     assert p12["recurrence"] == "first_time"
 
     # 13. prepare_professional_discussion
-    p13 = present_concerns_result(prepare_professional_discussion_result(concern_summary="health", key_facts=("bp 120/80",)))
+    p13 = present_concerns_result(
+        prepare_professional_discussion_result(
+            concern_summary="health", key_facts=("bp 120/80",)
+        )
+    )
     assert "health" in p13["actual_concern"]
     assert len(p13["facts"]) == 1
 
@@ -611,7 +679,9 @@ def test_missing_quality_target_support_cannot_produce_concern_supported():
             "temporal_relevance": "current",
         },
     )
-    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="they are cutting contact", evidence=records
+    )
     assert res["assessment"] != CONCERN_SUPPORTED
 
 
@@ -637,7 +707,9 @@ def test_unknown_quality_target_support_cannot_produce_concern_supported():
             "temporal_relevance": "current",
         },
     )
-    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="they are cutting contact", evidence=records
+    )
     assert res["assessment"] != CONCERN_SUPPORTED
 
 
@@ -663,7 +735,9 @@ def test_missing_temporal_target_support_cannot_produce_concern_supported():
             "temporal_relevance": None,
         },
     )
-    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="they are cutting contact", evidence=records
+    )
     assert res["assessment"] != CONCERN_SUPPORTED
 
 
@@ -689,7 +763,9 @@ def test_unknown_temporal_target_support_cannot_produce_concern_supported():
             "temporal_relevance": "nonsense",
         },
     )
-    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="they are cutting contact", evidence=records
+    )
     assert res["assessment"] != CONCERN_SUPPORTED
 
 
@@ -715,7 +791,9 @@ def test_weak_target_support_remains_visible_in_counterevidence_without_upgradin
             "temporal_relevance": "historical_only",
         },
     )
-    res = evaluate_reassurance(target_claim="they are cutting contact", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="they are cutting contact", evidence=records
+    )
     assert res["assessment"] != CONCERN_SUPPORTED
     # Weak/stale records stay visible in counterevidence
     counter_claims = {c["claim"] for c in res["counterevidence"]}
@@ -745,7 +823,9 @@ def test_two_strong_current_target_support_records_can_produce_concern_supported
             "temporal_relevance": "current",
         },
     )
-    res = evaluate_reassurance(target_claim="employment is terminating", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="employment is terminating", evidence=records
+    )
     assert res["assessment"] == CONCERN_SUPPORTED
 
 
@@ -759,7 +839,10 @@ def test_explicit_material_concern_still_produces_concern_supported_without_eras
     )
     assert res["assessment"] == CONCERN_SUPPORTED
     assert res["material_concern"] is True
-    assert "rent payment due tomorrow with insufficient funds" in res["acknowledged_concerns"]
+    assert (
+        "rent payment due tomorrow with insufficient funds"
+        in res["acknowledged_concerns"]
+    )
 
 
 def test_authorized_specialized_concern_preserved_without_downgrade():
@@ -802,7 +885,9 @@ def test_duplicate_provenance_cannot_create_second_strong_concern_signal():
             "temporal_relevance": "current",
         },
     )
-    res = evaluate_reassurance(target_claim="employment is terminating", evidence=records)
+    res = evaluate_reassurance(
+        target_claim="employment is terminating", evidence=records
+    )
     # Deduplicated to 1 record: cannot reach CONCERN_SUPPORTED
     assert res["assessment"] != CONCERN_SUPPORTED
 

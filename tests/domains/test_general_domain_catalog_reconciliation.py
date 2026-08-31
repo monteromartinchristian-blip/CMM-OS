@@ -45,10 +45,16 @@ def test_canonical_workflows_exact():
 
 def test_no_duplicate_ids():
     """No duplicate IDs within any canonical set."""
-    assert len(CANONICAL_GENERAL_OPERATION_IDS) == len(set(CANONICAL_GENERAL_OPERATION_IDS))
+    assert len(CANONICAL_GENERAL_OPERATION_IDS) == len(
+        set(CANONICAL_GENERAL_OPERATION_IDS)
+    )
     assert len(CANONICAL_GENERAL_RULE_IDS) == len(set(CANONICAL_GENERAL_RULE_IDS))
-    assert len(CANONICAL_GENERAL_RESOURCE_IDS) == len(set(CANONICAL_GENERAL_RESOURCE_IDS))
-    assert len(CANONICAL_GENERAL_WORKFLOW_IDS) == len(set(CANONICAL_GENERAL_WORKFLOW_IDS))
+    assert len(CANONICAL_GENERAL_RESOURCE_IDS) == len(
+        set(CANONICAL_GENERAL_RESOURCE_IDS)
+    )
+    assert len(CANONICAL_GENERAL_WORKFLOW_IDS) == len(
+        set(CANONICAL_GENERAL_WORKFLOW_IDS)
+    )
 
 
 def test_initial_operation_catalog_imports_canonical():
@@ -56,7 +62,9 @@ def test_initial_operation_catalog_imports_canonical():
     # The 4 historical general.* IDs in INITIAL_DOMAIN_OPERATION_IDS are placeholders
     # from Phase 10.13 with different semantics. They must not collide with the
     # 8 canonical Phase 10.19 operations.
-    historical = {op for op in INITIAL_DOMAIN_OPERATION_IDS if op.startswith("general.")}
+    historical = {
+        op for op in INITIAL_DOMAIN_OPERATION_IDS if op.startswith("general.")
+    }
     canonical = set(CANONICAL_GENERAL_OPERATION_IDS)
     assert historical.isdisjoint(canonical), (
         f"Historical general.* IDs collide with canonical: {historical & canonical}"
@@ -65,8 +73,12 @@ def test_initial_operation_catalog_imports_canonical():
 
 def test_initial_rule_catalog_has_no_general_rules():
     """The initial rule catalog has no general.* rules (no collision)."""
-    historical = {r for r in INITIAL_DOMAIN_REASONING_RULE_IDS if r.startswith("general.")}
-    assert historical == set(), f"Unexpected general.* rules in initial catalog: {historical}"
+    historical = {
+        r for r in INITIAL_DOMAIN_REASONING_RULE_IDS if r.startswith("general.")
+    }
+    assert historical == set(), (
+        f"Unexpected general.* rules in initial catalog: {historical}"
+    )
 
 
 def test_bootstrap_exposes_same_sets():
@@ -78,14 +90,10 @@ def test_bootstrap_exposes_same_sets():
     }
     assert bootstrap_ops == set(CANONICAL_GENERAL_OPERATION_IDS)
 
-    bootstrap_rules = {
-        r.definition.id for r in bootstrap.rule_registry.list_all()
-    }
+    bootstrap_rules = {r.definition.id for r in bootstrap.rule_registry.list_all()}
     assert bootstrap_rules == set(CANONICAL_GENERAL_RULE_IDS)
 
-    bootstrap_resources = {
-        r.id for r in bootstrap.resource_registry.list_all()
-    }
+    bootstrap_resources = {r.id for r in bootstrap.resource_registry.list_all()}
     assert bootstrap_resources == set(CANONICAL_GENERAL_RESOURCE_IDS)
 
     bootstrap_wf = {
@@ -97,10 +105,16 @@ def test_bootstrap_exposes_same_sets():
 
 def test_canonical_order_deterministic():
     """Canonical sets are in deterministic sorted order."""
-    assert CANONICAL_GENERAL_OPERATION_IDS == tuple(sorted(CANONICAL_GENERAL_OPERATION_IDS))
+    assert CANONICAL_GENERAL_OPERATION_IDS == tuple(
+        sorted(CANONICAL_GENERAL_OPERATION_IDS)
+    )
     assert CANONICAL_GENERAL_RULE_IDS == tuple(sorted(CANONICAL_GENERAL_RULE_IDS))
-    assert CANONICAL_GENERAL_RESOURCE_IDS == tuple(sorted(CANONICAL_GENERAL_RESOURCE_IDS))
-    assert CANONICAL_GENERAL_WORKFLOW_IDS == tuple(sorted(CANONICAL_GENERAL_WORKFLOW_IDS))
+    assert CANONICAL_GENERAL_RESOURCE_IDS == tuple(
+        sorted(CANONICAL_GENERAL_RESOURCE_IDS)
+    )
+    assert CANONICAL_GENERAL_WORKFLOW_IDS == tuple(
+        sorted(CANONICAL_GENERAL_WORKFLOW_IDS)
+    )
 
 
 def test_general_profile_is_canonical():

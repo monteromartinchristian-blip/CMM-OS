@@ -62,9 +62,7 @@ def test_symptom_proposal_confirmation_invariant_not_overridable():
     proposal = build_health_symptom_proposal(proposal_id="prop1")
     assert proposal.requires_confirmation is True
     with pytest.raises(TypeError):
-        build_health_symptom_proposal(
-            proposal_id="prop1", requires_confirmation=False
-        )
+        build_health_symptom_proposal(proposal_id="prop1", requires_confirmation=False)
 
 
 def test_proposal_is_reference_only_and_never_applied():
