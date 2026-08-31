@@ -5,7 +5,7 @@ Intelligence subsystems. The facade owns coordination and public ergonomics
 only; every method delegates to an existing canonical owner:
 
 - registry / inspection  -> ``DomainRegistry``
-- discovery              -> ``FileSystemDomainDiscovery`` (non-executing)
+- discovery              -> ``DomainDiscovery`` protocol (non-executing)
 - validation             -> ``PipelineDomainValidator``
 - installation           -> ``DeclarativeDomainLoader.load`` (runtime load +
   registration only; NOT durable filesystem installation, publication,
@@ -18,7 +18,7 @@ only; every method delegates to an existing canonical owner:
   ``DomainSessionResumer`` (shared ``SessionStore`` remains authoritative)
 - conflicts              -> pure ``DomainConflictResolver``
 - traces                 -> ``DomainTraceAssembler`` +
-  ``DefaultDomainTraceReferenceValidator`` (reference-only)
+  ``DomainTraceReferenceValidator`` protocol (reference-only)
 
 The facade retains references to injected collaborators and owns no shadow
 runtime state, no caches, no stores, and no registries. Canonical subsystem
@@ -36,8 +36,8 @@ from cmm.domains.conflict_resolution_contracts import (
     DomainConflictResolution,
     DomainConflictResolutionPolicy,
 )
-from cmm.domains.contracts import DomainDefinition
-from cmm.domains.discovery import FileSystemDomainDiscovery
+from cmm.domains.contracts import DomainCapability, DomainDefinition
+from cmm.domains.discovery import DomainDiscovery
 from cmm.domains.discovery_contracts import (
     DomainCandidate,
     DomainDiscoveryResult,
@@ -53,7 +53,7 @@ from cmm.domains.operation_contracts import (
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainQuery
 from cmm.domains.resolution_contracts import DomainResolutionContext
-from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.resolver import DomainResolver
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_contracts import (
     DomainSessionContext,
@@ -69,7 +69,7 @@ from cmm.domains.trace_contracts import (
     DomainTraceReferenceInventory,
     DomainTraceValidationResult,
 )
-from cmm.domains.trace_validation import DefaultDomainTraceReferenceValidator
+from cmm.domains.trace_validation import DomainTraceReferenceValidator
 from cmm.domains.validation import PipelineDomainValidator
 from cmm.domains.validation_contracts import (
     DomainValidationRequest,
@@ -127,7 +127,7 @@ class DomainAPI(Protocol):
 
     def get_capabilities(
         self, domain_id: str, version: str | None = None
-    ) -> tuple[Any, ...]: ...
+    ) -> tuple[DomainCapability, ...]: ...
 
     def get_resources(
         self, domain_id: str, version: str | None = None
@@ -205,10 +205,10 @@ class DefaultDomainAPI:
         self,
         *,
         domain_registry: DomainRegistry,
-        discovery: FileSystemDomainDiscovery,
+        discovery: DomainDiscovery,
         validator: PipelineDomainValidator,
         loader: DeclarativeDomainLoader,
-        resolver: DefaultDomainResolver,
+        resolver: DomainResolver,
         operation_orchestrator: DefaultDomainOperationOrchestrator,
         workflow_registry: InMemoryDomainWorkflowRegistry,
         workflow_executor: DomainWorkflowExecutor,
@@ -216,7 +216,7 @@ class DefaultDomainAPI:
         session_resumer: DomainSessionResumer,
         conflict_resolver: DomainConflictResolver,
         trace_assembler: DomainTraceAssembler,
-        trace_validator: DefaultDomainTraceReferenceValidator,
+        trace_validator: DomainTraceReferenceValidator,
     ) -> None:
         for name in _REQUIRED_COLLABORATORS:
             if locals()[name] is None:
@@ -253,7 +253,7 @@ class DefaultDomainAPI:
 
     def get_capabilities(
         self, domain_id: str, version: str | None = None
-    ) -> tuple[Any, ...]:
+    ) -> tuple[DomainCapability, ...]:
         """Return the capabilities declared by the canonical definition."""
         definition = self._domain_registry.get_required(domain_id, version)
         return definition.capabilities

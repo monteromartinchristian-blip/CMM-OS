@@ -9,20 +9,25 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from cmm.domains.api import DefaultDomainAPI, DomainAPI
 from cmm.domains.conflict_resolution import DomainConflictResolver
-from cmm.domains.discovery import FileSystemDomainDiscovery
+from cmm.domains.contracts import DomainCapability
+from cmm.domains.discovery import DomainDiscovery, FileSystemDomainDiscovery
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.registry import DomainRegistry
-from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.resolver import DefaultDomainResolver, DomainResolver
 from cmm.domains.session_persistence import SharedSessionDomainAdapter
 from cmm.domains.session_resumer import DomainSessionResumer
 from cmm.domains.trace_assembler import DomainTraceAssembler
-from cmm.domains.trace_validation import DefaultDomainTraceReferenceValidator
+from cmm.domains.trace_validation import (
+    DefaultDomainTraceReferenceValidator,
+    DomainTraceReferenceValidator,
+)
 from cmm.domains.validation import PipelineDomainValidator
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
@@ -191,3 +196,68 @@ class TestPublicExports:
 
         assert "DomainAPI" in domains_pkg.__all__
         assert "DefaultDomainAPI" in domains_pkg.__all__
+
+
+class TestCanonicalProtocolTyping:
+    """MAJOR-01 remediation — stable public boundary uses canonical protocols."""
+
+    def test_constructor_annotations_use_canonical_protocols(self) -> None:
+        import typing
+
+        from cmm.domains.operation_execution import DefaultDomainOperationOrchestrator
+
+        # ``DefaultDomainOperationOrchestrator`` is imported under TYPE_CHECKING
+        # in api.py; supply it so get_type_hints can evaluate all annotations.
+        hints = typing.get_type_hints(
+            DefaultDomainAPI.__init__,
+            localns={
+                "DefaultDomainOperationOrchestrator": DefaultDomainOperationOrchestrator
+            },
+        )
+        assert hints["discovery"] is DomainDiscovery
+        assert hints["resolver"] is DomainResolver
+        assert hints["trace_validator"] is DomainTraceReferenceValidator
+
+    def test_constructor_signature_parameter_names_present(self) -> None:
+        import inspect
+
+        params = inspect.signature(DefaultDomainAPI.__init__).parameters
+        for name in ("discovery", "resolver", "trace_validator"):
+            assert name in params, name
+
+    def test_get_capabilities_annotation_is_canonical_capability_tuple(self) -> None:
+        import typing
+
+        for owner in (DomainAPI, DefaultDomainAPI):
+            hints = typing.get_type_hints(owner.get_capabilities)
+            assert hints["return"] == tuple[DomainCapability, ...], owner
+            assert hints["return"] != tuple[Any, ...], owner
+
+    def test_alternate_protocol_implementations_are_injectable(self) -> None:
+        class _AltDiscovery:
+            def discover(self, sources):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
+        class _AltResolver:
+            def resolve(self, context):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
+        class _AltTraceValidator:
+            def validate(self, trace, inventory):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
+        collaborators = _make_collaborators()
+        collaborators["discovery"] = _AltDiscovery()
+        collaborators["resolver"] = _AltResolver()
+        collaborators["trace_validator"] = _AltTraceValidator()
+        api = DefaultDomainAPI(**collaborators)
+        assert api._discovery is collaborators["discovery"]
+        assert api._resolver is collaborators["resolver"]
+        assert api._trace_validator is collaborators["trace_validator"]
+
+    def test_concrete_defaults_still_satisfy_constructor_boundary(self) -> None:
+        collaborators = _make_collaborators()
+        api = DefaultDomainAPI(**collaborators)
+        assert isinstance(api._discovery, FileSystemDomainDiscovery)
+        assert isinstance(api._resolver, DefaultDomainResolver)
+        assert isinstance(api._trace_validator, DefaultDomainTraceReferenceValidator)

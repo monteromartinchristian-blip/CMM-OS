@@ -5191,17 +5191,23 @@ Delivered surface
 * `DomainAPI` — runtime-checkable protocol.
 * `DefaultDomainAPI` — dependency-injected implementation.
 
+The stable collaborator contract is typed against the canonical protocols
+(`DomainDiscovery`, `DomainResolver`, `DomainTraceReferenceValidator`);
+concrete defaults (`FileSystemDomainDiscovery`, `DefaultDomainResolver`,
+`DefaultDomainTraceReferenceValidator`) are injection examples, not the
+public boundary. `get_capabilities` returns `tuple[DomainCapability, ...]`.
+
 Both are exported from `cmm.domains`. Fresh imports are side-effect free.
 
 Approved public methods (canonical owner):
 
 * `list_domains` — `DomainRegistry.list`
 * `get_domain` — `DomainRegistry.get`
-* `discover_domains` — `FileSystemDomainDiscovery.discover` (non-executing, non-registering)
+* `discover_domains` — `DomainDiscovery.discover` (stable protocol boundary; default example: `FileSystemDomainDiscovery`; non-executing, non-registering)
 * `validate_domain` — `PipelineDomainValidator.validate` (never installs or enables)
 * `install_domain` — `DeclarativeDomainLoader.load` (canonical runtime load + registration only; `install != enable`, `install != authorization`, no durable package store)
 * `enable_domain` / `disable_domain` — `DomainRegistry.enable` / `DomainRegistry.disable`
-* `resolve_domain` — `DefaultDomainResolver.resolve` (no API-side scoring or selection policy)
+* `resolve_domain` — `DomainResolver.resolve` (stable protocol boundary; default example: `DefaultDomainResolver`; no API-side scoring or selection policy)
 * `get_capabilities` — `DomainDefinition.capabilities` via `DomainRegistry.get_required`
 * `get_resources` / `get_rules` / `get_operations` / `get_workflows` — `DomainRegistry.list_*`
 * `execute_operation` — `DefaultDomainOperationOrchestrator.execute` (permission/approval/transaction/rollback boundaries remain authoritative; no implementation bypass)
@@ -5210,7 +5216,7 @@ Approved public methods (canonical owner):
 * `resume_session` — `DomainSessionResumer.resume` (fail-closed current-state revalidation; persisted state is not current authorization)
 * `resolve_conflict` — pure `DomainConflictResolver.resolve` (input never mutated)
 * `assemble_trace` — `DomainTraceAssembler.assemble` (reference-only)
-* `validate_trace` — `DefaultDomainTraceReferenceValidator.validate`
+* `validate_trace` — `DomainTraceReferenceValidator.validate` (stable protocol boundary; default example: `DefaultDomainTraceReferenceValidator`)
 
 Not invented by Phase 10.36
 

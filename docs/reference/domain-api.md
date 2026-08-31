@@ -41,7 +41,27 @@ execution, session creation, file creation, or runtime startup.
 ## Constructor collaborators
 
 `DefaultDomainAPI` receives every collaborator explicitly (keyword-only). No
-hidden runtime assembly, global singleton lookup, or import-time bootstrap:
+hidden runtime assembly, global singleton lookup, or import-time bootstrap.
+
+The stable collaborator contract is typed against the existing canonical
+protocols, so alternate implementations satisfying those protocols can be
+injected without changing the facade:
+
+```text
+discovery:       DomainDiscovery                  (cmm.domains.discovery)
+resolver:        DomainResolver                   (cmm.domains.resolver)
+trace_validator: DomainTraceReferenceValidator    (cmm.domains.trace_validation)
+```
+
+The remaining collaborators are typed against their existing canonical
+contracts (`DomainRegistry`, `PipelineDomainValidator`,
+`DeclarativeDomainLoader`, `DefaultDomainOperationOrchestrator`,
+`InMemoryDomainWorkflowRegistry`, `DomainWorkflowExecutor`,
+`SharedSessionDomainAdapter`, `DomainSessionResumer`,
+`DomainConflictResolver`, `DomainTraceAssembler`).
+
+Default concrete implementation examples (used by tests, examples, and future
+application composition; not part of the stable public boundary):
 
 ```python
 DefaultDomainAPI(
@@ -71,12 +91,12 @@ domain state, no caches, and no shadow registries.
 | --- | --- | --- |
 | `list_domains` | `(query: DomainQuery \| None = None) -> tuple[DomainDefinition, ...]` | `DomainRegistry.list` |
 | `get_domain` | `(domain_id: str, version: str \| None = None) -> DomainDefinition \| None` | `DomainRegistry.get` |
-| `discover_domains` | `(sources: tuple[DomainSource, ...]) -> DomainDiscoveryResult` | `FileSystemDomainDiscovery.discover` |
+| `discover_domains` | `(sources: tuple[DomainSource, ...]) -> DomainDiscoveryResult` | `DomainDiscovery.discover` (default: `FileSystemDomainDiscovery`) |
 | `validate_domain` | `(request: DomainValidationRequest) -> DomainValidationResult` | `PipelineDomainValidator.validate` |
 | `install_domain` | `(candidate: DomainCandidate, *, allow_untrusted: bool = False) -> DomainLoadResult` | `DeclarativeDomainLoader.load` |
 | `enable_domain` | `(domain_id: str, version: str \| None = None) -> DomainDefinition` | `DomainRegistry.enable` |
 | `disable_domain` | `(domain_id: str, version: str \| None = None) -> DomainDefinition` | `DomainRegistry.disable` |
-| `resolve_domain` | `(context: DomainResolutionContext) -> DomainResolutionResult` | `DefaultDomainResolver.resolve` |
+| `resolve_domain` | `(context: DomainResolutionContext) -> DomainResolutionResult` | `DomainResolver.resolve` (default: `DefaultDomainResolver`) |
 | `get_capabilities` | `(domain_id: str, version: str \| None = None) -> tuple[DomainCapability, ...]` | `DomainDefinition.capabilities` via `DomainRegistry.get_required` |
 | `get_resources` | `(domain_id: str, version: str \| None = None) -> tuple[str, ...]` | `DomainRegistry.list_resources` |
 | `get_rules` | `(domain_id: str, version: str \| None = None) -> tuple[str, ...]` | `DomainRegistry.list_rules` |
@@ -88,7 +108,7 @@ domain state, no caches, and no shadow registries.
 | `resume_session` | `(request: DomainSessionResumeRequest) -> DomainSessionResumeResult` | `DomainSessionResumer.resume` |
 | `resolve_conflict` | `(case, *, policy=None, primary_domain=None, highest_risk_domain=None, evidence_scores=None, reliability_scores=None, temporal_scores=None) -> DomainConflictResolution` | `DomainConflictResolver.resolve` |
 | `assemble_trace` | `(request: DomainTraceAssemblyRequest) -> DomainTrace` | `DomainTraceAssembler.assemble` |
-| `validate_trace` | `(trace: DomainTrace, inventory: DomainTraceReferenceInventory) -> DomainTraceValidationResult` | `DefaultDomainTraceReferenceValidator.validate` |
+| `validate_trace` | `(trace: DomainTrace, inventory: DomainTraceReferenceInventory) -> DomainTraceValidationResult` | `DomainTraceReferenceValidator.validate` (default: `DefaultDomainTraceReferenceValidator`) |
 
 ## Install semantics
 
@@ -200,6 +220,8 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.validation import PipelineDomainValidator
 
+# The stable boundary accepts any DomainDiscovery / DomainResolver /
+# DomainTraceReferenceValidator; the concrete defaults below are examples.
 registry = DomainRegistry()
 api = DefaultDomainAPI(
     domain_registry=registry,
