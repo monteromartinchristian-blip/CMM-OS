@@ -5179,55 +5179,61 @@ Implemented template
 
 10.36 - Domain API
 
-Objective
+Status
 
-Expand domain capabilities with stable contracts.
+Implementation complete — independent audit pending.
+`DP-036 = IMPLEMENTED_PENDING_AUDIT`; `AT-DP-036 = PASS`.
 
-The API should allow:
+Delivered surface
 
-* list domains
-* consult domains;
-* descubrir;
-* validate;
-* instalar;
-* habilitar;
-* deshabilitar;
-* to solve domains;
-* query capabilities;
-* to consult resources;
-* to consult rules;
-* query operations;
-* query workflows;
-* execute operations;
-* iniciar workflows;
-* To consult sessions;
-* query conflicts;
-* query traces;
-* to consult permissions;
-* responder approvals;
-* generate memory proposals.
+`cmm.domains.api` exposes the stable public coordination facade:
 
-Endpoints conceptuales
+* `DomainAPI` — runtime-checkable protocol.
+* `DefaultDomainAPI` — dependency-injected implementation.
 
-GET /domains
-GET /domains/{domain_id}
-POST /domains/resolve
-POST /domains/validate
-POST /domains/{domain_id}/enable
-POST /domains/{domain_id}/disable
-GET /domains/{domain_id}/capabilities
-GET /domains/{domain_id}/operations
-GET /domains/{domain_id}/workflows
-POST /domains/{domain_id}/operations/{operation_id}
-POST /domains/{domain_id}/workflows/{workflow_id}
-GET /domain-sessions/{session_id}
-GET /domain-traces/{trace_id}
-GET /domain-conflicts
-POST /domain-approvals/{approval_id}
+Both are exported from `cmm.domains`. Fresh imports are side-effect free.
 
-The API and CLI should use the same internal services.
+Approved public methods (canonical owner):
 
-No parallel implementations are required.
+* `list_domains` — `DomainRegistry.list`
+* `get_domain` — `DomainRegistry.get`
+* `discover_domains` — `FileSystemDomainDiscovery.discover` (non-executing, non-registering)
+* `validate_domain` — `PipelineDomainValidator.validate` (never installs or enables)
+* `install_domain` — `DeclarativeDomainLoader.load` (canonical runtime load + registration only; `install != enable`, `install != authorization`, no durable package store)
+* `enable_domain` / `disable_domain` — `DomainRegistry.enable` / `DomainRegistry.disable`
+* `resolve_domain` — `DefaultDomainResolver.resolve` (no API-side scoring or selection policy)
+* `get_capabilities` — `DomainDefinition.capabilities` via `DomainRegistry.get_required`
+* `get_resources` / `get_rules` / `get_operations` / `get_workflows` — `DomainRegistry.list_*`
+* `execute_operation` — `DefaultDomainOperationOrchestrator.execute` (permission/approval/transaction/rollback boundaries remain authoritative; no implementation bypass)
+* `start_workflow` — `InMemoryDomainWorkflowRegistry.resolve_active` + `DomainWorkflowExecutor.execute_result` (no API-side workflow engine)
+* `get_session` — `SharedSessionDomainAdapter.load_domain_session` (shared `SessionStore` remains authoritative)
+* `resume_session` — `DomainSessionResumer.resume` (fail-closed current-state revalidation; persisted state is not current authorization)
+* `resolve_conflict` — pure `DomainConflictResolver.resolve` (input never mutated)
+* `assemble_trace` — `DomainTraceAssembler.assemble` (reference-only)
+* `validate_trace` — `DefaultDomainTraceReferenceValidator.validate`
+
+Not invented by Phase 10.36
+
+* No session enumeration (`list_all_domain_sessions`, `search_domain_sessions`).
+* No trace store, trace repository, trace cache, `get_trace`/`get_trace_by_id`, or `list_traces`.
+* No durable package installation, publication, uninstall, or permission-grant APIs.
+* No generic `DomainAPIError` hierarchy — canonical subsystem exceptions propagate unchanged.
+
+Canonical shared fix
+
+`DomainMetadata.from_dict` now honors the empty-mapping factory default for the
+nested `metadata` field instead of producing `None` (regression:
+`tests/domains/test_domain_contracts.py::TestDomainDefinition::test_metadata_from_dict_without_nested_metadata_uses_empty_mapping`).
+Declarative Domain Pack manifests with author/license-only metadata previously
+crashed typed-metadata consumers during session recomposition.
+
+Reference
+
+* Design: `docs/superpowers/specs/2026-08-31-domain-api-design.md`
+* Plan: `docs/superpowers/plans/2026-08-31-domain-api-implementation-plan.md`
+* Implementation reference: `docs/reference/domain-api.md`
+* Acceptance: `tests/domains/test_domain_api_dp036_acceptance.py` (AT-DP-036)
+* Adversarial boundaries: `tests/domains/test_domain_api_adversarial.py`
 
 ⸻
 
