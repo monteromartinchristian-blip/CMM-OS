@@ -89,7 +89,14 @@ def _set_main_roadmap_state(
         )
     _replace_once(path, r"^> \*\*Implemented:\*\*.*$", implemented)
     _replace_once(path, r"^\*\*Current progress:\*\*.*$", progress)
-    _replace_once(path, r"^\*\*Implemented through:\*\*.*$", implemented_through)
+    # The canonical roadmap label evolved from "**Implemented through:**" to
+    # "**Implemented and audited through:**" when Phase 10.35 closed. Accept
+    # exactly these two canonical forms; anything else must fail closed.
+    _replace_once(
+        path,
+        r"^\*\*Implemented(?: and audited)? through:\*\*.*$",
+        implemented_through,
+    )
     _replace_once(
         path,
         r"^remains closed\. Phases? 10\.33.*final planned Domain Packs\.$",

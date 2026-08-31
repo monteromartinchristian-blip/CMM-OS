@@ -190,7 +190,8 @@ introduces no conflict policy of its own.
 ## Reference-only trace boundary
 
 `assemble_trace` delegates to `DomainTraceAssembler.assemble`;
-`validate_trace` delegates to `DefaultDomainTraceReferenceValidator.validate`.
+`validate_trace` delegates to the injected `DomainTraceReferenceValidator`;
+`DefaultDomainTraceReferenceValidator` is the standard concrete implementation.
 `DomainTrace` remains reference-only, immutable, and persistence-independent.
 No `TraceStore`, `DomainTraceRepository`, trace cache, trace lookup by ID, or
 trace listing exists, and no credentials or private payloads are copied into
