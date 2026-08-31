@@ -221,14 +221,20 @@ def _permission_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
 
 
 def _approval_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:
+    """Occurrence identity for one canonical approval evidence element.
+
+    ``PermissionApprovalRequirement.requirement_id`` is a canonical
+    non-empty validated string, so it is the stable identity. There is no
+    class-name fallback: unrelated approval requirements of the same class
+    must never merge merely because they share a type. An approval element
+    without a ``requirement_id`` cannot share an occurrence key at all (its
+    key set is empty), which keeps it distinct instead of pretending an
+    identity exists.
+    """
     requirement_id = getattr(result, "requirement_id", None)
-    return frozenset(
-        {
-            ("approval", requirement_id)
-            if requirement_id
-            else ("approval", type(result).__name__)
-        }
-    )
+    if not requirement_id:
+        return frozenset()
+    return frozenset({("approval", requirement_id)})
 
 
 def _session_occurrence_keys(result: Any) -> _OCCURRENCE_KEY:

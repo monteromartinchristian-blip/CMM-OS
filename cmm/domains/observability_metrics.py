@@ -196,8 +196,69 @@ def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> N
     canonical element contract exists must reject malformed elements in
     ``__post_init__``: invalid elements fail closed with a safe
     ``InvalidDomainObservabilityEvidenceError`` instead of silently passing a
-    hint-only declared type. Malformed content is never echoed.
+    hint-only declared type and raising unrelated ``AttributeError``/
+    ``TypeError`` from later normalization. Malformed content is never echoed.
     """
+    _check_elements(
+        evidence.registry_definitions,
+        (DomainDefinition,),
+        field="registry_definitions",
+        source_type="DomainDefinition",
+    )
+    _check_elements(
+        evidence.registry_records,
+        (DomainRegistryRecord,),
+        field="registry_records",
+        source_type="DomainRegistryRecord",
+    )
+    _check_elements(
+        evidence.load_results,
+        (DomainLoadResult,),
+        field="load_results",
+        source_type="DomainLoadResult",
+    )
+    _check_elements(
+        evidence.resolution_results,
+        (DomainResolutionResult,),
+        field="resolution_results",
+        source_type="DomainResolutionResult",
+    )
+    _check_elements(
+        evidence.compositions,
+        (DomainComposition,),
+        field="compositions",
+        source_type="DomainComposition",
+    )
+    _check_elements(
+        evidence.conflict_results,
+        (DomainConflictCase,),
+        field="conflict_results",
+        source_type="DomainConflictCase",
+    )
+    _check_elements(
+        evidence.events,
+        (DomainEvent,),
+        field="events",
+        source_type="DomainEvent",
+    )
+    _check_elements(
+        evidence.traces,
+        (DomainTrace,),
+        field="traces",
+        source_type="DomainTrace",
+    )
+    _check_elements(
+        evidence.sessions,
+        (DomainSessionContext,),
+        field="sessions",
+        source_type="DomainSessionContext",
+    )
+    _check_elements(
+        evidence.session_resume_results,
+        (DomainSessionResumeResult,),
+        field="session_resume_results",
+        source_type="DomainSessionResumeResult",
+    )
     _check_elements(
         evidence.permission_evidence,
         (DomainOperationPermissionDecision,),
@@ -209,18 +270,6 @@ def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> N
         (PermissionApprovalRequirement,),
         field="approval_evidence",
         source_type="PermissionApprovalRequirement",
-    )
-    _check_elements(
-        evidence.resource_evidence,
-        (DomainResourceResolution, DomainResourceBinding),
-        field="resource_evidence",
-        source_type="DomainResourceResolution|DomainResourceBinding",
-    )
-    _check_elements(
-        evidence.cross_domain_transfers,
-        (CrossDomainContextTransfer,),
-        field="cross_domain_transfers",
-        source_type="CrossDomainContextTransfer",
     )
     _check_elements(
         evidence.operation_evidence,
@@ -241,23 +290,56 @@ def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> N
         source_type="DomainRuleExecutionResult",
     )
     _check_elements(
-        evidence.conflict_results,
-        (DomainConflictCase,),
-        field="conflict_results",
-        source_type="DomainConflictCase",
+        evidence.resource_evidence,
+        (DomainResourceResolution, DomainResourceBinding),
+        field="resource_evidence",
+        source_type="DomainResourceResolution|DomainResourceBinding",
     )
     _check_elements(
-        evidence.sessions,
-        (DomainSessionContext,),
-        field="sessions",
-        source_type="DomainSessionContext",
+        evidence.cross_domain_transfers,
+        (CrossDomainContextTransfer,),
+        field="cross_domain_transfers",
+        source_type="CrossDomainContextTransfer",
     )
-    _check_elements(
-        evidence.session_resume_results,
-        (DomainSessionResumeResult,),
-        field="session_resume_results",
-        source_type="DomainSessionResumeResult",
-    )
+    _validate_permission_identity_conflicts(evidence.permission_evidence)
+
+
+def _validate_permission_identity_conflicts(
+    decisions: Sequence[Any],
+) -> None:
+    """Fail closed on contradictory decisions for one canonical identity.
+
+    The synthetic canonical observability identity of a
+    ``DomainOperationPermissionDecision`` is ``operation_id`` +
+    ``operation_version``. Two canonical decisions carrying that same
+    identity but contradictory ``decision`` values (for example ALLOW and
+    DENY) are conflicting evidence for one identity and must be rejected
+    before any projection/occurrence grouping. Identical duplicates collapse
+    to one; distinct versions remain distinct identities. The error carries
+    only the safe source type and identity — never the decision value or
+    reason text.
+    """
+    decision_by_identity: dict[tuple[str, str], PermissionOutcome] = {}
+    for index, decision in enumerate(decisions):
+        if not isinstance(decision, DomainOperationPermissionDecision):
+            continue  # element type failures are reported by _check_elements
+        identity = (decision.operation_id, decision.operation_version)
+        seen = decision_by_identity.get(identity)
+        if seen is not None and seen is not decision.decision:
+            raise InvalidDomainObservabilityEvidenceError(
+                "conflicting permission decision evidence for the same "
+                "canonical identity "
+                f"(source=DomainOperationPermissionDecision "
+                f"id={decision.operation_id}@{decision.operation_version})",
+                field="permission_evidence",
+                details={
+                    "source_type": "DomainOperationPermissionDecision",
+                    "source_id": (
+                        f"{decision.operation_id}@{decision.operation_version}"
+                    ),
+                },
+            )
+        decision_by_identity[identity] = decision.decision
 
 
 def _check_elements(
