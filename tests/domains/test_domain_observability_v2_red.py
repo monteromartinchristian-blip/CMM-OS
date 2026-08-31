@@ -528,7 +528,9 @@ def test_same_source_duplicate_evidence_produces_one_log_entry() -> None:
 
 def test_report_is_deterministic_after_normalization() -> None:
     """Reordered equivalent evidence → same log_entries/report/digest."""
-    event = _event_with_reference("evt-major3-det", "operation_run", "op-res-major3-det")
+    event = _event_with_reference(
+        "evt-major3-det", "operation_run", "op-res-major3-det"
+    )
     trace = _trace_referencing_operation("trace-major3-det", "op-res-major3-det")
     operation = _operation_result("op-res-major3-det", "op-det")
 
