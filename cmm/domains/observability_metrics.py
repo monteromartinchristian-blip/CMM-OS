@@ -805,19 +805,27 @@ class DomainMetricsCalculator:
                         item.id
                         for item in resolution_results
                         if item.fallback_used is True
-                        and item.primary_domain is not None
-                        and item.primary_domain != DomainId.from_str("domain:general")
                     }
                 )
             )
-            measurements.append(
-                _observed_scalar(
-                    "resolution.fallback",
-                    _COUNT,
-                    len(explicit_fallback_ids),
-                    evidence_reference_ids=explicit_fallback_ids,
+            # Only results that explicitly claim fallback are fallback
+            # evidence. A primary domain of ``domain:general`` is NOT
+            # fallback evidence, and supporting domains are NOT transfer
+            # evidence. If no fallback evidence category exists at all, the
+            # metric is UNAVAILABLE — absence of a fallback is not zero.
+            if any(item.fallback_used is True for item in resolution_results):
+                measurements.append(
+                    _observed_scalar(
+                        "resolution.fallback",
+                        _COUNT,
+                        len(explicit_fallback_ids),
+                        evidence_reference_ids=explicit_fallback_ids,
+                    )
                 )
-            )
+            else:
+                measurements.append(
+                    _unavailable("resolution.fallback", _COUNT, NO_FALLBACK_EVIDENCE)
+                )
         else:
             measurements.append(
                 _unavailable("resolution.fallback", _COUNT, NO_FALLBACK_EVIDENCE)
