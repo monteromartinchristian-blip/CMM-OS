@@ -20,6 +20,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionOutcome,
+)
 from cmm.domains.composition_contracts import (
     DomainComposition,
     DomainCompositionStatus,
@@ -42,8 +46,13 @@ from cmm.domains.observability_contracts import (
     DomainMetricStatus,
 )
 from cmm.domains.operation_contracts import DomainOperationResult
+from cmm.domains.permission_adapters import DomainOperationPermissionDecision
 from cmm.domains.registry_contracts import DomainRegistryRecord
 from cmm.domains.resolver_contracts import DomainResolutionResult
+from cmm.domains.resource_contracts import (
+    DomainResourceBinding,
+    DomainResourceResolution,
+)
 from cmm.domains.rule_contracts import DomainRuleExecutionResult
 from cmm.domains.session_contracts import (
     DomainSessionContext,
@@ -140,12 +149,12 @@ class DomainObservabilityEvidence:
     traces: tuple[DomainTrace, ...] = ()
     sessions: tuple[DomainSessionContext, ...] = ()
     session_resume_results: tuple[DomainSessionResumeResult, ...] = ()
-    permission_evidence: tuple[Any, ...] = ()
-    approval_evidence: tuple[Any, ...] = ()
+    permission_evidence: tuple[DomainOperationPermissionDecision, ...] = ()
+    approval_evidence: tuple[PermissionApprovalRequirement, ...] = ()
     operation_evidence: tuple[DomainOperationResult, ...] = ()
     workflow_evidence: tuple[DomainWorkflowResult, ...] = ()
     rule_evidence: tuple[DomainRuleExecutionResult, ...] = ()
-    resource_evidence: tuple[Any, ...] = ()
+    resource_evidence: tuple[DomainResourceResolution | DomainResourceBinding, ...] = ()
     cross_domain_transfers: tuple[CrossDomainContextTransfer, ...] = ()
 
     def __post_init__(self) -> None:
@@ -221,6 +230,10 @@ class _EvidenceIdentity:
     @staticmethod
     def resume_id(result: DomainSessionResumeResult) -> str:
         return result.session_id
+
+    @staticmethod
+    def transfer_id(transfer: CrossDomainContextTransfer) -> str:
+        return transfer.identifier
 
 
 def _canonical_domain_id(value: DomainId | str | None) -> str | None:
@@ -396,7 +409,8 @@ def _deduplicate_generic(
             expected = seen[identity]
             if expected != item:
                 raise InvalidDomainObservabilityEvidenceError(
-                    "duplicate evidence ID with materially different public content",
+                    f"duplicate evidence ID with materially different public "
+                    f"content (source={source_type} id={identity})",
                     field=field_name,
                     details={
                         "source_type": source_type,
@@ -405,7 +419,7 @@ def _deduplicate_generic(
                 )
             continue
         seen[identity] = item
-    return tuple(items)
+    return tuple(sorted(seen.values(), key=lambda item: str(identity_fn(item))))
 
 
 def _deduplicate_conflicts(
@@ -474,6 +488,37 @@ def _deduplicate_resumes(
     )
 
 
+def _deduplicate_transfers(
+    transfers: Sequence[CrossDomainContextTransfer],
+) -> tuple[CrossDomainContextTransfer, ...]:
+    """Deduplicate transfers by their canonical occurrence identity.
+
+    The stable occurrence identity of a CrossDomainContextTransfer is its
+    ``identifier`` field (an explicitly unique canonical reference). Two
+    transfers with the same source/target/kind but distinct identifiers are
+    distinct occurrences and are both retained.
+    """
+    seen: dict[str, CrossDomainContextTransfer] = {}
+    for transfer in transfers:
+        identity = transfer.identifier
+        if identity in seen:
+            expected = seen[identity]
+            if expected != transfer:
+                raise InvalidDomainObservabilityEvidenceError(
+                    "duplicate transfer identifier with materially different public content",
+                    field="cross_domain_transfers",
+                    details={
+                        "source_type": "CrossDomainContextTransfer",
+                        "source_id": identity,
+                    },
+                )
+            continue
+        seen[identity] = transfer
+    return tuple(
+        sorted(seen.values(), key=lambda item: (item.identifier, item.iteration))
+    )
+
+
 def _normalize_evidence(
     evidence: DomainObservabilityEvidence,
 ) -> DomainObservabilityEvidence:
@@ -495,7 +540,7 @@ def _normalize_evidence(
         workflow_evidence=_deduplicate_workflows(evidence.workflow_evidence),
         rule_evidence=_deduplicate_rules(evidence.rule_evidence),
         resource_evidence=evidence.resource_evidence,
-        cross_domain_transfers=evidence.cross_domain_transfers,
+        cross_domain_transfers=_deduplicate_transfers(evidence.cross_domain_transfers),
     )
 
 
@@ -684,7 +729,7 @@ class DomainMetricsCalculator:
             failed_loads = tuple(
                 sorted(
                     {
-                        load.candidate.candidate_id
+                        f"{load.candidate.candidate_id}@{load.loaded_at.isoformat()}"
                         for load in load_results
                         if load.status
                         in (DomainLoadStatus.FAILED, DomainLoadStatus.REJECTED)
@@ -1033,37 +1078,43 @@ class DomainMetricsCalculator:
                     for result in normalized.rule_evidence
                 )
             )
-            measurements.append(
-                _observed_buckets(
-                    "rules.applied_by_domain",
-                    _COUNT,
-                    _buckets_from_counts(rule_counts),
-                    evidence_reference_ids=tuple(
-                        sorted({item.id for item in normalized.rule_evidence})
-                    ),
+            if rule_counts:
+                measurements.append(
+                    _observed_buckets(
+                        "rules.applied_by_domain",
+                        _COUNT,
+                        _buckets_from_counts(rule_counts),
+                        evidence_reference_ids=tuple(
+                            sorted({item.id for item in normalized.rule_evidence})
+                        ),
+                    )
                 )
-            )
-        elif normalized.traces:
-            # Derive applied-rule references from DomainTrace contributions.
-            rule_counts_by_domain: dict[str, int] = {}
-            for trace in normalized.traces:
-                for contribution in trace.contributions:
-                    domain_slug = _canonical_domain_id(contribution.domain_id)
-                    if domain_slug is None:
-                        continue
-                    applied = (
-                        reference
-                        for reference in contribution.references
-                        if reference.kind
-                        in (
-                            DomainTraceReferenceKind.RULE_RESULT,
-                            DomainTraceReferenceKind.APPLIED_RULE_TRACE,
+            else:
+                # Direct rule evidence exists but none can be attributed to a
+                # Domain. No bucket may be fabricated: the trace-derived path
+                # (the authoritative route) is attempted next, otherwise the
+                # metric is UNAVAILABLE.
+                rule_counts_by_domain = _rule_counts_from_traces(normalized.traces)
+                if rule_counts_by_domain:
+                    measurements.append(
+                        _observed_buckets(
+                            "rules.applied_by_domain",
+                            _COUNT,
+                            _buckets_from_counts(rule_counts_by_domain),
+                            evidence_reference_ids=tuple(
+                                sorted({trace.id for trace in normalized.traces})
+                            ),
                         )
                     )
-                    count = sum(1 for _ in applied)
-                    rule_counts_by_domain[domain_slug] = (
-                        rule_counts_by_domain.get(domain_slug, 0) + count
+                else:
+                    measurements.append(
+                        _unavailable(
+                            "rules.applied_by_domain", _COUNT, NO_RULE_EVIDENCE
+                        )
                     )
+        elif normalized.traces:
+            # Derive applied-rule references from DomainTrace contributions.
+            rule_counts_by_domain = _rule_counts_from_traces(normalized.traces)
             if rule_counts_by_domain:
                 measurements.append(
                     _observed_buckets(
@@ -1085,27 +1136,32 @@ class DomainMetricsCalculator:
             )
 
         # resources.loaded_by_domain
-        if normalized.resource_evidence:
+        # Canonical attribution lives in accepted DomainResourceBinding
+        # (domain_id). A DomainResourceResolution contributes the domains of
+        # its accepted bindings; a bare DomainResourceBinding contributes its
+        # own domain. Bindings are deduplicated by binding id.
+        bound_by_id: dict[str, DomainResourceBinding] = {}
+        for item in normalized.resource_evidence:
+            if isinstance(item, DomainResourceResolution):
+                for binding in item.bindings:
+                    bound_by_id[binding.id] = binding
+            elif isinstance(item, DomainResourceBinding):
+                bound_by_id.setdefault(item.id, item)
+        if bound_by_id:
             resource_counts = _counts_by_domain(
-                tuple(
-                    _resource_evidence_domain(item)
-                    for item in normalized.resource_evidence
-                )
+                tuple(str(binding.domain_id) for binding in bound_by_id.values())
             )
             measurements.append(
                 _observed_buckets(
                     "resources.loaded_by_domain",
                     _COUNT,
                     _buckets_from_counts(resource_counts),
-                    evidence_reference_ids=tuple(
-                        sorted(
-                            {
-                                _resource_evidence_id(item)
-                                for item in normalized.resource_evidence
-                            }
-                        )
-                    ),
+                    evidence_reference_ids=tuple(sorted(bound_by_id)),
                 )
+            )
+        elif normalized.resource_evidence:
+            measurements.append(
+                _unavailable("resources.loaded_by_domain", _COUNT, NO_RESOURCE_EVIDENCE)
             )
         else:
             measurements.append(
@@ -1117,7 +1173,7 @@ class DomainMetricsCalculator:
             transfer_ids = tuple(
                 sorted(
                     {
-                        f"{_canonical_domain_id(transfer.source_domain)}:{_canonical_domain_id(transfer.target_domain)}:{transfer.kind}"
+                        _EvidenceIdentity.transfer_id(transfer)
                         for transfer in normalized.cross_domain_transfers
                     }
                 )
@@ -1210,9 +1266,11 @@ class DomainMetricsCalculator:
             )
 
         # sessions.degraded
+        # Degradation evidence is explicit: a session is degraded only through
+        # canonical degradation-bearing resume statuses. References such as
+        # approval_refs / pending_domain_question_refs are NOT degradation
+        # evidence. The metric counts unique degraded sessions.
         degraded_session_ids: list[str] = []
-        for session in normalized.sessions:
-            degraded_session_ids.extend(_degraded_session_ids(session))
         for resume in normalized.session_resume_results:
             if resume.status in (
                 DomainSessionResumeStatus.BLOCKED,
@@ -1220,10 +1278,8 @@ class DomainMetricsCalculator:
                 DomainSessionResumeStatus.FAILED,
                 DomainSessionResumeStatus.WAITING_FOR_APPROVAL,
             ):
-                degraded_session_ids.append(
-                    f"resume:{resume.session_id}:{resume.resumed_revision}"
-                )
-        if normalized.sessions or normalized.session_resume_results:
+                degraded_session_ids.append(resume.session_id)
+        if degraded_session_ids:
             degraded_unique = tuple(sorted(set(degraded_session_ids)))
             measurements.append(
                 _observed_scalar(
@@ -1232,6 +1288,11 @@ class DomainMetricsCalculator:
                     len(degraded_unique),
                     evidence_reference_ids=degraded_unique,
                 )
+            )
+        elif normalized.sessions or normalized.session_resume_results:
+            # Session evidence exists but no explicit degradation evidence.
+            measurements.append(
+                _unavailable("sessions.degraded", _COUNT, NO_SESSION_EVIDENCE)
             )
         else:
             measurements.append(
@@ -1277,21 +1338,17 @@ class DomainMetricsCalculator:
 
 
 def _permission_rejected_ids(evidence: Any) -> tuple[str, ...]:
-    """Extract denied permission decision IDs from canonical decision types."""
-    if evidence is None:
+    """Extract denied permission decision IDs from canonical decision types.
+
+    The canonical ``DomainOperationPermissionDecision`` contract carries no
+    ``decision_id``/``id``; its stable occurrence identity is the pair
+    ``operation_id`` + ``operation_version``. Only that canonical form is
+    accepted. No generic duck-typed fallback is allowed.
+    """
+    if isinstance(evidence, DomainOperationPermissionDecision):
+        if evidence.decision is PermissionOutcome.DENY:
+            return (evidence.operation_id,)
         return ()
-    outcome = getattr(evidence, "outcome", None)
-    if outcome is None:
-        outcome = getattr(evidence, "decision", None)
-    outcome_value = outcome.value if hasattr(outcome, "value") else str(outcome)
-    if outcome_value in ("deny", "denied"):
-        decision_id = getattr(
-            evidence,
-            "decision_id",
-            getattr(evidence, "id", None),
-        )
-        if decision_id:
-            return (str(decision_id),)
     return ()
 
 
@@ -1315,12 +1372,71 @@ def _rule_execution_domain(result: DomainRuleExecutionResult) -> str | None:
     return None
 
 
+def _rule_counts_from_traces(
+    traces: Sequence[DomainTrace],
+) -> dict[str, int]:
+    """Derive applied-rule counts per Domain from DomainTrace contributions.
+
+    Only explicit canonical rule references (RULE_RESULT / APPLIED_RULE_TRACE)
+    are counted. This is the authoritative trace-owned path for
+    ``rules.applied_by_domain``.
+    """
+    rule_counts_by_domain: dict[str, int] = {}
+    for trace in traces:
+        for contribution in trace.contributions:
+            domain_slug = _canonical_domain_id(contribution.domain_id)
+            if domain_slug is None:
+                continue
+            applied = (
+                reference
+                for reference in contribution.references
+                if reference.kind
+                in (
+                    DomainTraceReferenceKind.RULE_RESULT,
+                    DomainTraceReferenceKind.APPLIED_RULE_TRACE,
+                )
+            )
+            count = sum(1 for _ in applied)
+            rule_counts_by_domain[domain_slug] = (
+                rule_counts_by_domain.get(domain_slug, 0) + count
+            )
+    return rule_counts_by_domain
+
+
 def _resource_evidence_domain(item: Any) -> str | None:
-    return getattr(item, "domain_id", None)
+    """Attribution domain for a resource evidence item.
+
+    Canonical attribution is carried by accepted ``DomainResourceBinding``
+    (``domain_id``). A ``DomainResourceResolution`` contributes the domain of
+    each of its bindings. No top-level ``domain_id`` duck-typing is used.
+    """
+    if isinstance(item, DomainResourceBinding):
+        return str(item.domain_id)
+    if isinstance(item, DomainResourceResolution):
+        return None  # attribution comes from its bindings, not the resolution
+    return None
+
+
+def _resource_evidence_ids(item: Any) -> tuple[str, ...]:
+    """Stable public reference IDs for a resource evidence item."""
+    if isinstance(item, DomainResourceBinding):
+        return (item.id,)
+    if isinstance(item, DomainResourceResolution):
+        return tuple(binding.id for binding in item.bindings)
+    return ()
 
 
 def _resource_evidence_id(item: Any) -> str:
-    return str(getattr(item, "id", id(item)))
+    """Deprecated single-id helper; kept for compatibility but never falls
+    back to ``id(item)`` -- process-memory addresses are forbidden as public
+    evidence identity."""
+    ids = _resource_evidence_ids(item)
+    if ids:
+        return ids[0]
+    raise InvalidDomainObservabilityEvidenceError(
+        "resource evidence without a canonical reference identity",
+        field="resource_evidence",
+    )
 
 
 def _has_knowledge_reuse_evidence(items: Sequence[Any]) -> bool:
@@ -1328,11 +1444,12 @@ def _has_knowledge_reuse_evidence(items: Sequence[Any]) -> bool:
 
 
 def _is_knowledge_reuse_evidence(item: Any) -> bool:
-    reused = getattr(item, "reused", None)
-    if isinstance(reused, bool):
-        return reused
-    metric = getattr(item, "reuse_count", None)
-    return isinstance(metric, (int, float)) and metric > 0
+    """There is no stable canonical knowledge-reuse contract in the repository.
+
+    Duck-typed ``reused``/``reuse_count`` objects are NOT acceptable reuse
+    evidence, so this always returns False: the metric stays UNAVAILABLE.
+    """
+    return False
 
 
 def _load_error_buckets(
@@ -1348,14 +1465,13 @@ def _load_error_buckets(
 
 
 def _degraded_session_ids(session: DomainSessionContext) -> tuple[str, ...]:
-    blocked_approvals = tuple(getattr(session, "approval_refs", ()) or ())
-    pending_questions = tuple(
-        getattr(session, "pending_domain_question_refs", ()) or ()
-    )
-    if blocked_approvals:
-        return tuple(sorted(blocked_approvals))
-    if pending_questions:
-        return tuple(sorted(pending_questions))
+    """Extract degradation evidence for a session context.
+
+    ``approval_refs`` and ``pending_domain_question_refs`` are references, not
+    degradation status. A session is degraded only through explicit canonical
+    degradation evidence; a plain session carrying only references is not
+    degraded.
+    """
     return ()
 
 
