@@ -17,10 +17,18 @@ from cmm.domains.contracts import DomainId
 from cmm.domains.enums import DomainOperationStatus
 from cmm.domains.errors import InvalidDomainObservabilityEvidenceError
 from cmm.domains.event_contracts import DomainEvent
+from cmm.domains.health.bootstrap import (
+    build_standard_health_domain_bootstrap,
+)
+from cmm.domains.observability_contracts import (
+    DomainObservabilityReport,
+)
+from cmm.domains.observability_health import DomainHealthChecker
 from cmm.domains.observability_metrics import (
     DomainMetricsCalculator,
     DomainObservabilityEvidence,
 )
+from cmm.domains.observability_service import DomainObservabilityService
 from cmm.domains.operation_contracts import DomainOperationResult
 from cmm.domains.resolver_contracts import (
     DomainResolutionResult,
@@ -178,3 +186,94 @@ def test_event_and_operation_result_with_shared_reference_count_once() -> None:
         "domain:health": 1
     }
     assert "event-op-1" in snapshot.evidence_event_ids
+
+
+# ── DomainObservabilityService projection ───────────────────────────────────
+
+
+def _service() -> DomainObservabilityService:
+    bootstrap = build_standard_health_domain_bootstrap()
+    health_checker = DomainHealthChecker(
+        domain_registry=bootstrap.domain_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+        manifest_validation_lookup=lambda domain_id: None,
+        clock=lambda: NOW,
+    )
+    return DomainObservabilityService(
+        metrics_calculator=DomainMetricsCalculator(),
+        health_checker=health_checker,
+        clock=lambda: NOW,
+    )
+
+
+def test_service_builds_report_with_event_log_entries() -> None:
+    event = DomainEvent(
+        event_id="event-log-1",
+        event_type="domain.resolution.completed",
+        schema_version="1.0",
+        domain_id=DomainId.from_str("domain:health"),
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+        payload={"objective": "arbitrary upstream payload content blocks"},
+        metadata={"cross_reference": "arbitrary upstream metadata value"},
+    )
+
+    service = _service()
+    report = service.build_report(
+        DomainObservabilityEvidence(events=(event,)),
+        health_domain_ids=("domain:health",),
+    )
+
+    assert isinstance(report, DomainObservabilityReport)
+    assert len(report.log_entries) == 1
+    entry = report.log_entries[0]
+    assert entry.source_kind == "domain_event"
+    assert entry.source_id == "event-log-1"
+    assert entry.primary_domain == "domain:health"
+    # Raw payload/metadata must never be copied wholesale.
+    assert "arbitrary upstream payload content blocks" not in str(report.to_dict())
+    assert "arbitrary upstream metadata value" not in str(report.to_dict())
+
+
+def test_service_calculates_metrics_and_health() -> None:
+    resolved = _resolution("res-service-1")
+    service = _service()
+
+    snapshot = service.calculate_metrics(
+        DomainObservabilityEvidence(resolution_results=(resolved,))
+    )
+    assert len(snapshot.measurements) == 25
+
+    health = service.check_domain_health("domain:health")
+    assert health.domain_id == "domain:health"
+
+
+def test_service_report_includes_health_results() -> None:
+    service = _service()
+    report = service.build_report(
+        DomainObservabilityEvidence(),
+        health_domain_ids=("domain:health",),
+    )
+
+    assert len(report.health_results) == 1
+    assert report.health_results[0].domain_id == "domain:health"
+
+
+def test_service_report_digest_is_deterministic() -> None:
+    service = _service()
+    first = service.build_report(
+        DomainObservabilityEvidence(),
+        health_domain_ids=("domain:health",),
+    )
+    second = service.build_report(
+        DomainObservabilityEvidence(),
+        health_domain_ids=("domain:health",),
+    )
+
+    assert first.digest == second.digest
+    assert first.to_dict() == second.to_dict()
