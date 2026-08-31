@@ -112,7 +112,9 @@ def _operation_result(
     )
 
 
-def _workflow_result(run_id: str, workflow_id: str = "wf-summary") -> DomainWorkflowResult:
+def _workflow_result(
+    run_id: str, workflow_id: str = "wf-summary"
+) -> DomainWorkflowResult:
     """Two real canonical runs of the same workflow definition."""
     run = WorkflowRun(
         run_id=run_id,
@@ -162,9 +164,7 @@ def _trace_referencing_operation(trace_id: str, ref_id: str) -> DomainTrace:
     )
 
 
-def _event_with_reference(
-    event_id: str, kind: str, reference_id: str
-):
+def _event_with_reference(event_id: str, kind: str, reference_id: str):
     from cmm.domains.event_contracts import DomainEvent
 
     return DomainEvent(
@@ -225,9 +225,7 @@ def test_two_operation_executions_same_definition_metric_counts_two() -> None:
         generated_at=NOW,
     )
     operations = next(
-        item
-        for item in snapshot.measurements
-        if item.name == "operations.by_domain"
+        item for item in snapshot.measurements if item.name == "operations.by_domain"
     )
     buckets = {bucket.key: bucket.value for bucket in operations.buckets}
     assert buckets == {"domain:health": 2}
@@ -254,9 +252,7 @@ def test_adapted_operation_events_do_not_merge_two_executions() -> None:
     # The canonical event remains its own (highest-precedence) entry; it was
     # not used to suppress either execution.
     event_entries = [
-        entry
-        for entry in report.log_entries
-        if entry.source_kind == "domain_event"
+        entry for entry in report.log_entries if entry.source_kind == "domain_event"
     ]
     assert len(event_entries) == 1
 
@@ -288,9 +284,7 @@ def test_two_workflow_runs_same_definition_metric_counts_two() -> None:
         generated_at=NOW,
     )
     workflows = next(
-        item
-        for item in snapshot.measurements
-        if item.name == "workflows.by_domain"
+        item for item in snapshot.measurements if item.name == "workflows.by_domain"
     )
     buckets = {bucket.key: bucket.value for bucket in workflows.buckets}
     assert buckets == {"domain:health": 2}
@@ -343,14 +337,10 @@ def test_linked_event_and_trace_merge_result_stays_distinct() -> None:
 
     assert len(report.log_entries) == 2
     event_entries = [
-        entry
-        for entry in report.log_entries
-        if entry.source_kind == "domain_event"
+        entry for entry in report.log_entries if entry.source_kind == "domain_event"
     ]
     trace_entries = [
-        entry
-        for entry in report.log_entries
-        if entry.source_kind == "domain_trace"
+        entry for entry in report.log_entries if entry.source_kind == "domain_trace"
     ]
     # Precedence inside the genuinely linked pair: DomainEvent wins.
     assert len(event_entries) == 1

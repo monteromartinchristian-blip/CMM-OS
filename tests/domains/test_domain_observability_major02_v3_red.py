@@ -193,9 +193,9 @@ def test_valid_canonical_core_elements_remain_accepted() -> None:
     # The definition ID ("health") and the registry record ("domain:health")
     # are distinct canonical ID forms; both are counted as installed evidence.
     assert names["domains.installed"].value == 2
-    assert {b.key: b.value for b in names["resolution.decisions_by_domain"].buckets} == {
-        "domain:health": 1
-    }
+    assert {
+        b.key: b.value for b in names["resolution.decisions_by_domain"].buckets
+    } == {"domain:health": 1}
 
 
 def _registry_definition():
