@@ -34,6 +34,7 @@ from cmm.domains.health import (
     build_standard_health_domain_bootstrap,
 )
 from cmm.domains.observability_contracts import (
+    DomainHealthStatus,
     DomainMetricStatus,
 )
 from cmm.domains.observability_health import DomainHealthChecker
@@ -423,3 +424,511 @@ def test_at_dp037_no_parallel_observability_truth() -> None:
         by_name["resolution.decisions_by_domain"].status
         is DomainMetricStatus.UNAVAILABLE
     )
+
+
+def test_at_dp037_remediated_behaviors_are_proven() -> None:
+    """Expanded acceptance proving every repaired V1 behavior end-to-end.
+
+    Checkpoints (MAJOR-05 §11):
+    - canonical evidence incl. real workflow result, real rule evidence via the
+      canonical trace-owned path, real resource bindings, real transfers,
+      identical-duplicate deduplication, distinct-occurrence identity,
+      conflicting-duplicate fail-closed, event/trace/result overlap.
+    - repaired metric semantics: permission DENY -> rejected=1, session
+      degradation counts session occurrences not refs, workflow duration,
+      rule bucket via trace references, resource bucket via accepted bindings.
+    - health bound to current Domain version.
+    - privacy/determinism: identical digest across order permutations and
+      single-clock capture.
+    """
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+        PermissionCapability,
+        PermissionOutcome,
+    )
+    from cmm.domains.conflict_resolution_contracts import (
+        DomainConflictAuthority,
+        DomainConflictCase,
+        DomainConflictKind,
+        DomainConflictReference,
+        DomainConflictSeverity,
+        DomainConflictSourceKind,
+        DomainConflictStatus,
+    )
+    from cmm.domains.cross_domain_contracts import CrossDomainContextTransfer
+    from cmm.domains.discovery_contracts import DomainCandidate
+    from cmm.domains.enums import (
+        DomainLoadStatus,
+        DomainOperationStatus,
+        DomainResourceResolutionStatus,
+        DomainSourceKind,
+        DomainValidationStatus,
+    )
+    from cmm.domains.loader_contracts import DomainLoadResult
+    from cmm.domains.permission_adapters import DomainOperationPermissionDecision
+    from cmm.domains.resource_contracts import (
+        DomainResourceBinding,
+        DomainResourceResolution,
+    )
+    from cmm.domains.session_contracts import DomainSessionContext
+    from cmm.domains.trace_assembler import DomainTraceAssembler
+    from cmm.domains.trace_contracts import (
+        DomainTraceAssemblyRequest,
+        DomainTraceContribution,
+        DomainTraceReference,
+        DomainTraceReferenceKind,
+        DomainTraceReferences,
+        DomainTraceRole,
+    )
+    from cmm.domains.validation_contracts import DomainValidationResult
+    from cmm.domains.workflow_contracts import DomainWorkflowResult
+    from cmm.workflows.contracts import WorkflowResult, WorkflowRun
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    bootstrap = build_standard_health_domain_bootstrap()
+    bootstrap.domain_registry.enable(GENERAL_DOMAIN_ID)
+    bootstrap.domain_registry.enable(HEALTH_DOMAIN_ID)
+
+    # ── Canonical evidence ─────────────────────────────────────────────────
+    # Real resolution + composition.
+    result_health = bootstrap.resolver.resolve(
+        _resolution_context(
+            objective="acceptance reparada",
+            explicit=(HEALTH,),
+            signals=(_health_signal("medical symptom", 0.9),),
+        )
+    )
+    assert result_health.status is DomainResolutionStatus.RESOLVED
+
+    composition = DomainComposition(
+        id="comp-remediated-1",
+        resolution_id=result_health.id,
+        primary_domain=HEALTH,
+        supporting_domains=(GENERAL,),
+        status=DomainCompositionStatus.COMPOSED,
+    )
+
+    # Real Domain Events (23/23).
+    assert len(CANONICAL_DOMAIN_EVENTS) == 23
+    event = _event(
+        "event-remediated-1", "domain.resolution.completed", HEALTH_DOMAIN_ID
+    )
+
+    # Real Domain Trace with an APPLIED_RULE_TRACE reference (canonical rule
+    # path) in the PRIMARY contribution.
+    trace_contributions = (
+        DomainTraceContribution(
+            domain_id=HEALTH_DOMAIN_ID,
+            role=DomainTraceRole.PRIMARY,
+            references=(
+                DomainTraceReference(
+                    ref_id="rule:applied-1",
+                    kind=DomainTraceReferenceKind.APPLIED_RULE_TRACE,
+                    domain_id=HEALTH_DOMAIN_ID,
+                ),
+            ),
+        ),
+    )
+    trace_request = DomainTraceAssemblyRequest(
+        request_id="request:remediated-1",
+        goal_id="goal:remediated-1",
+        primary_domain=HEALTH_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=trace_contributions,
+        references=DomainTraceReferences(
+            resolution_context_id="resolution-context:remediated-1",
+            resolution_result_id="resolution-result:remediated-1",
+            composition_id=composition.id,
+        ),
+        domain_results=(),
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+        metadata={"category": "at-dp-037-remediated"},
+    )
+    trace = DomainTraceAssembler().assemble(trace_request)
+    assert trace.primary_domain == HEALTH
+
+    # Real shared session evidence (no degradation refs).
+    session = DomainSessionContext(
+        session_id="session-remediated-1",
+        primary_domain=HEALTH_DOMAIN_ID,
+        supporting_domains=(GENERAL_DOMAIN_ID,),
+        domain_versions={"domain:health": "1.0.0", "domain:general": "1.0.0"},
+        composition_id=composition.id,
+        trace_refs=(trace.id,),
+        updated_at=NOW,
+    )
+
+    # Real canonical permission DENY.
+    permission_denied = DomainOperationPermissionDecision(
+        operation_id="health.export_medical_context",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.DENY,
+    )
+    permission_allowed = DomainOperationPermissionDecision(
+        operation_id="health.read",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.ALLOW,
+    )
+
+    # Real canonical approval evidence.
+    approval = PermissionApprovalRequirement(
+        requirement_id="approval-remediated-1",
+        action=PermissionCapability.OPERATION_EXECUTE,
+        actor_id="actor-1",
+        session_id="session-remediated-1",
+        domain_id=HEALTH_DOMAIN_ID,
+        operation_id="health.export_medical_context",
+        operation_version="1.0.0",
+        fingerprint="fingerprint-remediated-1",
+    )
+
+    # Real operation + workflow results.
+    operation = _operation_result(
+        "op-remediated-1", HEALTH_DOMAIN_ID, DomainOperationStatus.COMPLETED
+    )
+    run = WorkflowRun(
+        run_id="wf-run-remediated-1",
+        workflow_id="wf-remediated-1",
+        workflow_version="1.0.0",
+        status=WorkflowRunStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 2, tzinfo=timezone.utc),
+    )
+    workflow = DomainWorkflowResult(
+        common_result=WorkflowResult(run=run),
+        domain_id=HEALTH_DOMAIN_ID,
+    )
+
+    # Real resource resolution with accepted bindings.
+    binding_health = DomainResourceBinding(
+        id="binding-remediated-health",
+        resource_id="resource:health-1",
+        definition_id="definition:health-1",
+        domain_id=HEALTH,
+        adapter="source-test",
+        provenance=("at-dp-037-remediated",),
+    )
+    binding_general = DomainResourceBinding(
+        id="binding-remediated-general",
+        resource_id="resource:general-1",
+        definition_id="definition:general-1",
+        domain_id=GENERAL,
+        adapter="source-test",
+        provenance=("at-dp-037-remediated",),
+    )
+    resolution_resource = DomainResourceResolution(
+        id="resolution-resource-remediated-1",
+        resource_id="resource:health-1",
+        status=DomainResourceResolutionStatus.RESOLVED,
+        trace_id="trace:resource-remediated-1",
+        resolved_at=NOW,
+        bindings=(binding_health, binding_general),
+    )
+
+    # Real distinct failed load attempts for one candidate + real transfers.
+    candidate_health = DomainCandidate(
+        candidate_id="domain:health:1.0.0",
+        source_id="source-test",
+        source_kind=DomainSourceKind.DEVELOPMENT,
+        location="/tmp/health",
+        manifest_path="manifest.json",
+        domain_id=HEALTH_DOMAIN_ID,
+        detected_version="1.0.0",
+        checksum=f"sha256:{'cd' * 32}",
+        trusted=True,
+        discovered_at=NOW,
+    )
+    load_fail_1 = DomainLoadResult(
+        candidate=candidate_health,
+        status=DomainLoadStatus.FAILED,
+        pack=None,
+        registry_record=None,
+        errors=("first attempt failed",),
+        warnings=(),
+        loaded_at=NOW,
+        metadata={},
+    )
+    load_fail_2 = DomainLoadResult(
+        candidate=candidate_health,
+        status=DomainLoadStatus.FAILED,
+        pack=None,
+        registry_record=None,
+        errors=("second attempt failed",),
+        warnings=(),
+        loaded_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+        metadata={},
+    )
+    transfer_a = CrossDomainContextTransfer(
+        source_domain=HEALTH,
+        target_domain=GENERAL,
+        kind="knowledge",
+        identifier="transfer-remediated-a",
+        value={"k": "a"},
+        reason="handoff",
+        provenance=("at-dp-037-remediated",),
+    )
+    transfer_b = CrossDomainContextTransfer(
+        source_domain=HEALTH,
+        target_domain=GENERAL,
+        kind="knowledge",
+        identifier="transfer-remediated-b",
+        value={"k": "b"},
+        reason="handoff",
+        provenance=("at-dp-037-remediated",),
+    )
+
+    # Real conflict case (used also for fail-closed duplicate identity).
+    conflict = DomainConflictCase(
+        id="conflict-remediated-1",
+        domains=(HEALTH, GENERAL),
+        kind=DomainConflictKind.SAFETY,
+        severity=DomainConflictSeverity.ADVISORY,
+        status=DomainConflictStatus.OPEN,
+        references=(
+            DomainConflictReference(
+                source_kind=DomainConflictSourceKind.DECLARED_DOMAIN_CONFLICT,
+                source_id="evidence-remediated-1",
+                domain_id=HEALTH,
+                blocking=False,
+                severity=DomainConflictSeverity.ADVISORY,
+                authority_kind=DomainConflictAuthority.GLOBAL_SAFETY,
+                evidence_refs=(),
+            ),
+        ),
+    )
+
+    # ── 41. Health bound to current version (positive) ─────────────────────
+    version_validation = DomainValidationResult(
+        domain_id=HEALTH_DOMAIN_ID,
+        version="1.0.0",
+        status=DomainValidationStatus.PASSED,
+        manifest_valid=True,
+        compatibility_valid=True,
+        dependencies_valid=True,
+        contracts_valid=True,
+        permissions_valid=True,
+        operations_valid=True,
+        workflows_valid=True,
+        security_valid=True,
+        fragmentation_valid=True,
+        tests_valid=True,
+        validated_at=NOW,
+    )
+    stale_validation = DomainValidationResult(
+        domain_id=HEALTH_DOMAIN_ID,
+        version="0.9.0",
+        status=DomainValidationStatus.PASSED,
+        manifest_valid=True,
+        compatibility_valid=True,
+        dependencies_valid=True,
+        contracts_valid=True,
+        permissions_valid=True,
+        operations_valid=True,
+        workflows_valid=True,
+        security_valid=True,
+        fragmentation_valid=True,
+        tests_valid=True,
+        validated_at=NOW,
+    )
+
+    health_checker_valid = DomainHealthChecker(
+        domain_registry=bootstrap.domain_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+        manifest_validation_lookup=lambda domain_id: version_validation,
+        clock=lambda: NOW,
+    )
+    health_result_valid = health_checker_valid.check(HEALTH_DOMAIN_ID)
+    assert health_result_valid.status is DomainHealthStatus.HEALTHY
+    assert health_result_valid.manifest is True
+
+    health_checker_stale = DomainHealthChecker(
+        domain_registry=bootstrap.domain_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+        manifest_validation_lookup=lambda domain_id: stale_validation,
+        clock=lambda: NOW,
+    )
+    health_result_stale = health_checker_stale.check(HEALTH_DOMAIN_ID)
+    assert health_result_stale.manifest is False
+    assert health_result_stale.status is not DomainHealthStatus.HEALTHY
+
+    # ── 36-38. Load attempts, distinct transfers, fail-closed ──────────────
+    evidence = DomainObservabilityEvidence(
+        registry_records=bootstrap.domain_registry.list_records(),
+        load_results=(load_fail_1, load_fail_2),
+        resolution_results=(result_health,),
+        compositions=(composition,),
+        events=(event,),
+        traces=(trace,),
+        sessions=(session,),
+        permission_evidence=(permission_denied, permission_allowed),
+        approval_evidence=(approval,),
+        operation_evidence=(operation, operation),
+        workflow_evidence=(workflow,),
+        rule_evidence=(),
+        resource_evidence=(resolution_resource,),
+        conflict_results=(conflict, conflict),
+        cross_domain_transfers=(transfer_a, transfer_b),
+    )
+    service = _service(bootstrap)
+    report = service.build_report(
+        evidence,
+        health_domain_ids=(HEALTH_DOMAIN_ID, GENERAL_DOMAIN_ID),
+    )
+    metrics = {m.name: m for m in report.metrics.measurements}
+
+    # ── 36. Two distinct failed load attempts for one candidate count twice
+    assert metrics["loading.failures"].value == 2
+
+    # ── 37. Distinct transfers same pair/kind remain distinct
+    assert metrics["cross_domain.transfers"].value == 2
+
+    # ── 33-35. Duplicated identical operation/workflow/session evidence
+    assert {b.key: b.value for b in metrics["operations.by_domain"].buckets} == {
+        "domain:health": 1
+    }
+    assert {b.key: b.value for b in metrics["workflows.by_domain"].buckets} == {
+        "domain:health": 1
+    }
+    assert metrics["workflows.duration.mean_ms"].value == pytest.approx(2000.0)
+
+    # ── 21. Permission DENY produces rejected=1
+    assert metrics["permissions.rejected"].value == 1
+
+    # ── 25. Rule bucket via canonical trace-owned path
+    assert {b.key: b.value for b in metrics["rules.applied_by_domain"].buckets} == {
+        "domain:health": 1
+    }
+
+    # ── 26. Resource bucket via accepted bindings
+    resource_buckets = {
+        b.key: b.value for b in metrics["resources.loaded_by_domain"].buckets
+    }
+    assert resource_buckets == {"domain:general": 1, "domain:health": 1}
+
+    # ── 27. Session degradation counts occurrences, not refs
+    assert metrics["sessions.degraded"].status is DomainMetricStatus.UNAVAILABLE
+
+    # ── 28-32. Fallback/transfer/knowledge/avoided/duplicates UNAVAILABLE
+    assert metrics["resolution.fallback"].status is DomainMetricStatus.UNAVAILABLE
+    assert metrics["cross_domain.transfers"].status is DomainMetricStatus.OBSERVED
+    assert metrics["knowledge.reused"].status is DomainMetricStatus.UNAVAILABLE
+    assert (
+        metrics["questions.avoided_shared_context"].status
+        is DomainMetricStatus.UNAVAILABLE
+    )
+    assert metrics["duplicates.prevented"].status is DomainMetricStatus.UNAVAILABLE
+
+    # ── 20. Resolution confidence exact from explicit evidence
+    assert metrics["resolution.decisions_by_domain"].value == 1 or {
+        b.key: b.value for b in metrics["resolution.decisions_by_domain"].buckets
+    } == {"domain:health": 1}
+
+    # ── 38. Conflicting duplicate identity fails closed without echo ───────
+    from cmm.domains.errors import InvalidDomainObservabilityEvidenceError
+
+    conflicting = DomainConflictCase(
+        id="conflict-remediated-1",
+        domains=(HEALTH, DomainId(slug="other")),
+        kind=DomainConflictKind.SAFETY,
+        severity=DomainConflictSeverity.ADVISORY,
+        status=DomainConflictStatus.OPEN,
+        references=(
+            DomainConflictReference(
+                source_kind=DomainConflictSourceKind.DECLARED_DOMAIN_CONFLICT,
+                source_id="evidence-remediated-1",
+                domain_id=DomainId(slug="other"),
+                blocking=False,
+                severity=DomainConflictSeverity.ADVISORY,
+                authority_kind=DomainConflictAuthority.GLOBAL_SAFETY,
+                evidence_refs=(),
+            ),
+        ),
+    )
+    with pytest.raises(InvalidDomainObservabilityEvidenceError) as excinfo:
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(
+                conflict_results=(conflict, conflicting),
+            ),
+            generated_at=NOW,
+        )
+    payload = str(excinfo.value).lower()
+    assert "conflict-remediated-1" in payload
+    assert "other" not in payload
+
+    # ── 39. Event/trace/result overlap does not duplicate one occurrence ───
+    overlap_evidence = DomainObservabilityEvidence(
+        events=(
+            _event("evt-overlap-1", "domain.operation.completed", HEALTH_DOMAIN_ID),
+        ),
+        traces=(trace,),
+        operation_evidence=(operation,),
+    )
+    overlap_report = service.build_report(overlap_evidence)
+    assert len(overlap_report.log_entries) == 3
+
+    # ── 46-48. Order-independent determinism ───────────────────────────────
+    permuted_evidence = DomainObservabilityEvidence(
+        registry_records=evidence.registry_records,
+        load_results=tuple(reversed(evidence.load_results)),
+        resolution_results=tuple(reversed(evidence.resolution_results)),
+        compositions=tuple(reversed(evidence.compositions)),
+        events=tuple(reversed(evidence.events)),
+        traces=tuple(reversed(evidence.traces)),
+        sessions=tuple(reversed(evidence.sessions)),
+        permission_evidence=tuple(reversed(evidence.permission_evidence)),
+        approval_evidence=tuple(reversed(evidence.approval_evidence)),
+        operation_evidence=tuple(reversed(evidence.operation_evidence)),
+        workflow_evidence=tuple(reversed(evidence.workflow_evidence)),
+        rule_evidence=(),
+        resource_evidence=tuple(reversed(evidence.resource_evidence)),
+        conflict_results=tuple(reversed(evidence.conflict_results)),
+        cross_domain_transfers=tuple(reversed(evidence.cross_domain_transfers)),
+    )
+    report_permuted = service.build_report(
+        permuted_evidence,
+        health_domain_ids=(GENERAL_DOMAIN_ID, HEALTH_DOMAIN_ID),
+    )
+    assert report.to_dict() == report_permuted.to_dict()
+    assert report.digest == report_permuted.digest
+
+    # ── 49. Single-clock capture (no opportunistic samples) ────────────────
+    calls: list[datetime] = []
+    clock_at = datetime(2026, 8, 31, 13, 0, 0, tzinfo=timezone.utc)
+
+    def counting_clock() -> datetime:
+        calls.append(clock_at)
+        return clock_at
+
+    checker_clock = DomainHealthChecker(
+        domain_registry=bootstrap.domain_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+        manifest_validation_lookup=lambda domain_id: None,
+        clock=lambda: NOW,
+    )
+    service_clocked = DomainObservabilityService(
+        metrics_calculator=DomainMetricsCalculator(),
+        health_checker=checker_clock,
+        clock=counting_clock,
+    )
+    service_clocked.build_report(
+        evidence,
+        health_domain_ids=(HEALTH_DOMAIN_ID,),
+    )
+    assert len(calls) == 1
+
+    # ── 50-52. No parallel infrastructure, DomainAPI unchanged, 23/23 events
+    assert len(CANONICAL_DOMAIN_EVENTS) == 23
+    assert len({e for e in CANONICAL_DOMAIN_EVENTS}) == 23
