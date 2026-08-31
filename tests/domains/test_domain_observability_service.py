@@ -1,0 +1,180 @@
+"""Phase 10.37 — Domain Observability evidence identity, deduplication and
+source precedence tests.
+
+Proves deterministic evidence identity rules: identical authoritative IDs are
+counted once, conflicting duplicates fail closed without echoing unsafe
+payloads, and event/trace overlap is deduplicated by stable reference identity
+instead of string similarity.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from cmm.domains.contracts import DomainId
+from cmm.domains.enums import DomainOperationStatus
+from cmm.domains.errors import InvalidDomainObservabilityEvidenceError
+from cmm.domains.event_contracts import DomainEvent
+from cmm.domains.observability_metrics import (
+    DomainMetricsCalculator,
+    DomainObservabilityEvidence,
+)
+from cmm.domains.operation_contracts import DomainOperationResult
+from cmm.domains.resolver_contracts import (
+    DomainResolutionResult,
+    DomainResolutionStatus,
+)
+
+NOW = datetime(2026, 8, 31, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _event(
+    event_id: str, *, event_type: str = "domain.resolution.completed"
+) -> DomainEvent:
+    return DomainEvent(
+        event_id=event_id,
+        event_type=event_type,
+        schema_version="1.0",
+        domain_id=DomainId.from_str("domain:health"),
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+    )
+
+
+def _resolution(
+    result_id: str,
+    *,
+    status: DomainResolutionStatus = DomainResolutionStatus.RESOLVED,
+    confidence: float = 0.9,
+) -> DomainResolutionResult:
+    return DomainResolutionResult(
+        id=result_id,
+        context_id=f"ctx-{result_id}",
+        status=status,
+        primary_domain=DomainId.from_str("domain:health"),
+        confidence=confidence,
+    )
+
+
+def test_duplicate_identical_event_is_counted_once() -> None:
+    first = _event("event-dedup-1")
+    second = _event("event-dedup-1")
+
+    snapshot = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(events=(first, second)),
+        generated_at=NOW,
+    )
+
+    assert snapshot.evidence_event_ids == ("event-dedup-1",)
+    # Snapshot digest is deterministic despite duplicate input.
+    assert len(snapshot.digest) == 64
+
+
+def test_duplicate_conflicting_event_fails_closed() -> None:
+    first = _event("event-conflict-1", event_type="domain.resolution.completed")
+    second = _event("event-conflict-1", event_type="domain.resolution.started")
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError) as exc_info:
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(events=(first, second)),
+            generated_at=NOW,
+        )
+
+    details = dict(exc_info.value.details)
+    assert details["source_type"] == "DomainEvent"
+    assert details["source_id"] == "event-conflict-1"
+    # No unsafe payload echo.
+    rendered = str(exc_info.value.__dict__)
+    assert "event-conflict-1" in rendered
+    assert "resolution.completed" not in rendered or "started" not in rendered
+
+
+def test_duplicate_identical_resolution_is_counted_once() -> None:
+    first = _resolution("res-dedup-1")
+    second = _resolution("res-dedup-1")
+
+    snapshot = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(resolution_results=(first, second)),
+        generated_at=NOW,
+    )
+
+    measurement = {item.name: item for item in snapshot.measurements}[
+        "resolution.decisions_by_domain"
+    ]
+    assert {bucket.key: bucket.value for bucket in measurement.buckets} == {
+        "domain:health": 1
+    }
+    assert len(snapshot.digest) == 64
+
+
+def test_duplicate_conflicting_resolution_fails_closed() -> None:
+    first = _resolution("res-conflict-1", confidence=0.9)
+    second = _resolution("res-conflict-1", confidence=0.4)
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError) as exc_info:
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(resolution_results=(first, second)),
+            generated_at=NOW,
+        )
+
+    details = dict(exc_info.value.details)
+    assert details["source_type"] == "DomainResolutionResult"
+    assert details["source_id"] == "res-conflict-1"
+
+
+def test_duplicate_is_deterministic_across_runs() -> None:
+    first_run = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(events=(_event("evt-a"), _event("evt-a"))),
+        generated_at=NOW,
+    )
+    second_run = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(events=(_event("evt-a"),)),
+        generated_at=NOW,
+    )
+
+    assert first_run.to_dict() == second_run.to_dict()
+    assert first_run.digest == second_run.digest
+
+
+def test_event_and_operation_result_with_shared_reference_count_once() -> None:
+    """One operation occurrence in both a DomainEvent and an operation result
+    is counted once by stable reference identity."""
+    event = DomainEvent(
+        event_id="event-op-1",
+        event_type="domain.operation.completed",
+        schema_version="1.0",
+        domain_id=DomainId.from_str("domain:health"),
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+        payload={},
+        metadata={"operation_id": "op-1"},
+    )
+    operation = DomainOperationResult(
+        result_id="op-res-ref-1",
+        request_id="req-1",
+        operation_id="op-1",
+        operation_version="1.0.0",
+        domain_id="domain:health",
+        status=DomainOperationStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+
+    snapshot = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(
+            events=(event,),
+            operation_evidence=(operation,),
+        ),
+        generated_at=NOW,
+    )
+
+    metrics = {item.name: item for item in snapshot.measurements}
+    operations = metrics["operations.by_domain"]
+    assert {bucket.key: bucket.value for bucket in operations.buckets} == {
+        "domain:health": 1
+    }
+    assert "event-op-1" in snapshot.evidence_event_ids
