@@ -15,6 +15,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
+from cmm.domains.enums import DomainValidationStatus
 from cmm.domains.observability_contracts import (
     DomainHealthFinding,
     DomainHealthResult,
@@ -24,6 +25,7 @@ from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resource_registry import InMemoryDomainResourceRegistry
+from cmm.domains.validation_contracts import DomainValidationResult
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 
 # Stable finding codes.
@@ -127,9 +129,13 @@ class DomainHealthChecker:
 
         # manifest
         validation = self._manifest_validation_lookup(domain_id)
-        if validation is not None and getattr(validation, "status", None) in (
-            "passed",
-            "valid",
+        current_version = getattr(definition, "version", None)
+        if (
+            validation is not None
+            and isinstance(validation, DomainValidationResult)
+            and validation.status is DomainValidationStatus.PASSED
+            and getattr(validation, "domain_id", None) == domain_id
+            and getattr(validation, "version", None) == current_version
         ):
             dimensions["manifest"] = True
         else:
@@ -154,7 +160,8 @@ class DomainHealthChecker:
                         component="manifest",
                         severity="warning",
                         message=(
-                            "Canonical manifest validation did not pass; "
+                            "Canonical manifest validation did not positively "
+                            "bind the current registered Domain definition; "
                             "manifest could not be positively verified"
                         ),
                         reference_ids=(domain_id,),
