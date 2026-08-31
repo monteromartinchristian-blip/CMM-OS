@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
 from cmm.domains.contracts import DomainId
 from cmm.domains.enums import (
@@ -120,7 +122,8 @@ def test_permission_deny_canonical_decision_counts_one() -> None:
     metric = _metric(snapshot, "permissions.rejected")
     assert metric.status.value == "observed"
     assert metric.value == 1
-    assert metric.evidence_reference_ids == ("op-deny-1",)
+    # The stable rejection identity binds operation_id + operation_version.
+    assert metric.evidence_reference_ids == ("op-deny-1@1.0.0",)
 
 
 def test_permission_allow_counts_zero() -> None:
@@ -278,15 +281,19 @@ def test_resources_identical_binding_counts_once() -> None:
 
 
 def test_knowledge_reuse_duck_typing_is_not_accepted() -> None:
-    """An object with reused=True/reuse_count>0 must NOT be reuse evidence."""
+    """A dict passed through a typed canonical resource field is malformed and
+    MUST fail closed with InvalidDomainObservabilityEvidenceError.
+
+    Phase 10.37 runtime-validates typed evidence tuple elements: type
+    annotations are not runtime validation, and a dictionary is not canonical
+    ``DomainResourceResolution | DomainResourceBinding`` evidence.
+    """
+    from cmm.domains.errors import InvalidDomainObservabilityEvidenceError
+
     fake_reuse = {"reused": True, "reuse_count": 3}
 
-    snapshot = DomainMetricsCalculator().calculate(
-        DomainObservabilityEvidence(resource_evidence=(fake_reuse,)),
-        generated_at=NOW,
-    )
-
-    assert _metric(snapshot, "knowledge.reused").status.value == "unavailable"
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(resource_evidence=(fake_reuse,))
 
 
 def test_knowledge_reuse_without_canonical_evidence_is_unavailable() -> None:

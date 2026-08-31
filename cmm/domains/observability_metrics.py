@@ -183,9 +183,101 @@ class DomainObservabilityEvidence:
                     f"{name} must be a tuple", field=name
                 )
             object.__setattr__(self, name, tuple(value))
+        _validate_evidence_element_types(self)
 
 
 # ── Evidence identity helpers ────────────────────────────────────────────────
+
+
+def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> None:
+    """Runtime-validate evidence tuple element types against canonical contracts.
+
+    Type annotations are not runtime validation. Every evidence field whose
+    canonical element contract exists must reject malformed elements in
+    ``__post_init__``: invalid elements fail closed with a safe
+    ``InvalidDomainObservabilityEvidenceError`` instead of silently passing a
+    hint-only declared type. Malformed content is never echoed.
+    """
+    _check_elements(
+        evidence.permission_evidence,
+        (DomainOperationPermissionDecision,),
+        field="permission_evidence",
+        source_type="DomainOperationPermissionDecision",
+    )
+    _check_elements(
+        evidence.approval_evidence,
+        (PermissionApprovalRequirement,),
+        field="approval_evidence",
+        source_type="PermissionApprovalRequirement",
+    )
+    _check_elements(
+        evidence.resource_evidence,
+        (DomainResourceResolution, DomainResourceBinding),
+        field="resource_evidence",
+        source_type="DomainResourceResolution|DomainResourceBinding",
+    )
+    _check_elements(
+        evidence.cross_domain_transfers,
+        (CrossDomainContextTransfer,),
+        field="cross_domain_transfers",
+        source_type="CrossDomainContextTransfer",
+    )
+    _check_elements(
+        evidence.operation_evidence,
+        (DomainOperationResult,),
+        field="operation_evidence",
+        source_type="DomainOperationResult",
+    )
+    _check_elements(
+        evidence.workflow_evidence,
+        (DomainWorkflowResult,),
+        field="workflow_evidence",
+        source_type="DomainWorkflowResult",
+    )
+    _check_elements(
+        evidence.rule_evidence,
+        (DomainRuleExecutionResult,),
+        field="rule_evidence",
+        source_type="DomainRuleExecutionResult",
+    )
+    _check_elements(
+        evidence.conflict_results,
+        (DomainConflictCase,),
+        field="conflict_results",
+        source_type="DomainConflictCase",
+    )
+    _check_elements(
+        evidence.sessions,
+        (DomainSessionContext,),
+        field="sessions",
+        source_type="DomainSessionContext",
+    )
+    _check_elements(
+        evidence.session_resume_results,
+        (DomainSessionResumeResult,),
+        field="session_resume_results",
+        source_type="DomainSessionResumeResult",
+    )
+
+
+def _check_elements(
+    items: Sequence[Any],
+    allowed: tuple[type, ...],
+    *,
+    field: str,
+    source_type: str,
+) -> None:
+    for index, item in enumerate(items):
+        if isinstance(item, allowed):
+            continue
+        raise InvalidDomainObservabilityEvidenceError(
+            f"{field} element {index} is not valid canonical {source_type} evidence",
+            field=field,
+            details={
+                "source_type": source_type,
+                "source_id": f"{field}[{index}]",
+            },
+        )
 
 
 class _EvidenceIdentity:
@@ -233,7 +325,7 @@ class _EvidenceIdentity:
 
     @staticmethod
     def transfer_id(transfer: CrossDomainContextTransfer) -> str:
-        return transfer.identifier
+        return _transfer_occurrence_id(transfer)
 
 
 def _canonical_domain_id(value: DomainId | str | None) -> str | None:
@@ -488,34 +580,74 @@ def _deduplicate_resumes(
     )
 
 
+def _transfer_occurrence_id(transfer: CrossDomainContextTransfer) -> str:
+    """Deterministic occurrence identity for one canonical transfer.
+
+    The canonical engine reuses the same finding/reference ``identifier``
+    across coordination iterations (``iteration`` distinguishes transfer
+    occurrences). The identity therefore binds the canonical occurrence
+    dimensions exposed by ``CrossDomainContextTransfer``:
+
+    ``source_domain / target_domain / kind / identifier / iteration``
+
+    Raw ``value``, free-text ``reason`` and private payload content are never
+    part of a public occurrence identity.
+    """
+    return "|".join(
+        (
+            "transfer",
+            str(transfer.source_domain),
+            str(transfer.target_domain),
+            transfer.kind,
+            transfer.identifier,
+            str(transfer.iteration),
+        )
+    )
+
+
 def _deduplicate_transfers(
     transfers: Sequence[CrossDomainContextTransfer],
 ) -> tuple[CrossDomainContextTransfer, ...]:
     """Deduplicate transfers by their canonical occurrence identity.
 
-    The stable occurrence identity of a CrossDomainContextTransfer is its
-    ``identifier`` field (an explicitly unique canonical reference). Two
-    transfers with the same source/target/kind but distinct identifiers are
-    distinct occurrences and are both retained.
+    The stable occurrence identity of a CrossDomainContextTransfer is the
+    derived occurrence identity over
+    ``source_domain / target_domain / kind / identifier / iteration`` — NOT
+    the `identifier` alone, because the canonical engine reuses an identifier
+    across iterations. Two transfers with the same identifier but distinct
+    iterations are distinct occurrences and are both retained; two transfers
+    with the same occurrence identity but conflicting canonical content fail
+    closed.
     """
     seen: dict[str, CrossDomainContextTransfer] = {}
     for transfer in transfers:
-        identity = transfer.identifier
+        identity = _transfer_occurrence_id(transfer)
         if identity in seen:
             expected = seen[identity]
             if expected != transfer:
                 raise InvalidDomainObservabilityEvidenceError(
-                    "duplicate transfer identifier with materially different public content",
+                    f"duplicate transfer occurrence with materially different "
+                    f"public content (source=CrossDomainContextTransfer "
+                    f"id={transfer.identifier})",
                     field="cross_domain_transfers",
                     details={
                         "source_type": "CrossDomainContextTransfer",
-                        "source_id": identity,
+                        "source_id": transfer.identifier,
                     },
                 )
             continue
         seen[identity] = transfer
     return tuple(
-        sorted(seen.values(), key=lambda item: (item.identifier, item.iteration))
+        sorted(
+            seen.values(),
+            key=lambda item: (
+                str(item.source_domain),
+                str(item.target_domain),
+                item.kind,
+                item.identifier,
+                item.iteration,
+            ),
+        )
     )
 
 
@@ -1342,12 +1474,14 @@ def _permission_rejected_ids(evidence: Any) -> tuple[str, ...]:
 
     The canonical ``DomainOperationPermissionDecision`` contract carries no
     ``decision_id``/``id``; its stable occurrence identity is the pair
-    ``operation_id`` + ``operation_version``. Only that canonical form is
-    accepted. No generic duck-typed fallback is allowed.
+    ``operation_id`` + ``operation_version``. Two DENY decisions for the same
+    operation at distinct semantic versions are distinct canonical decisions.
+    Only that canonical form is accepted; no generic duck-typed fallback is
+    allowed.
     """
     if isinstance(evidence, DomainOperationPermissionDecision):
         if evidence.decision is PermissionOutcome.DENY:
-            return (evidence.operation_id,)
+            return (f"{evidence.operation_id}@{evidence.operation_version}",)
         return ()
     return ()
 
