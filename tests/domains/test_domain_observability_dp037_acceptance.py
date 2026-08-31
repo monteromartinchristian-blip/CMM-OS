@@ -401,6 +401,26 @@ def _result_like_denied_permission():
     )
 
 
+def _result_like_denied_permission_allow():
+    """Construct a canonical permission evidence object whose outcome is ALLOW."""
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_adapters import DomainOperationPermissionDecision
+
+    return DomainOperationPermissionDecision(
+        operation_id="health.read",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.ALLOW,
+        reasons=("allowed by policy",),
+    )
+
+
+def _metric(snapshot, name: str):
+    for measurement in snapshot.measurements:
+        if measurement.name == name:
+            return measurement
+    raise AssertionError(f"metric {name} missing from snapshot")
+
+
 def test_at_dp037_no_parallel_observability_truth() -> None:
     """Observability derives everything from canonical evidence at runtime."""
     bootstrap = build_standard_health_domain_bootstrap()
@@ -864,16 +884,258 @@ def test_at_dp037_remediated_behaviors_are_proven() -> None:
     assert "conflict-remediated-1" in payload
     assert "other" not in payload
 
-    # ── 39. Event/trace/result overlap does not duplicate one occurrence ───
-    overlap_evidence = DomainObservabilityEvidence(
-        events=(
-            _event("evt-overlap-1", "domain.operation.completed", HEALTH_DOMAIN_ID),
-        ),
-        traces=(trace,),
-        operation_evidence=(operation,),
+    # ── 39. Real source precedence: linked Event/Trace/result → one logical
+    # occurrence ────────────────────────────────────────────────────────────
+    from cmm.domains.event_contracts import DomainEventReference
+    from cmm.domains.trace_contracts import (
+        DomainTraceReference,
+        DomainTraceReferenceKind,
     )
-    overlap_report = service.build_report(overlap_evidence)
-    assert len(overlap_report.log_entries) == 3
+
+    linked_operation = DomainOperationResult(
+        result_id="op-overlap-linked",
+        request_id="req-overlap-linked",
+        operation_id="op-overlap-linked-op",
+        operation_version="1.0.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        status=DomainOperationStatus.COMPLETED,
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    linked_event = DomainEvent(
+        event_id="evt-overlap-linked",
+        event_type="domain.operation.completed",
+        schema_version="1.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+        provenance=(
+            DomainEventReference(
+                kind="operation_run",
+                reference_id="op-overlap-linked-op",
+                domain_id=HEALTH_DOMAIN_ID,
+            ),
+        ),
+    )
+    linked_trace_contributions = (
+        DomainTraceContribution(
+            domain_id=HEALTH_DOMAIN_ID,
+            role=DomainTraceRole.PRIMARY,
+            references=(
+                DomainTraceReference(
+                    ref_id="op-overlap-linked-op",
+                    kind=DomainTraceReferenceKind.OPERATION_RESULT,
+                    domain_id=HEALTH_DOMAIN_ID,
+                ),
+            ),
+        ),
+    )
+    linked_trace_request = DomainTraceAssemblyRequest(
+        request_id="request:overlap-linked",
+        goal_id="goal:overlap-linked",
+        primary_domain=HEALTH_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=linked_trace_contributions,
+        references=DomainTraceReferences(
+            resolution_context_id="resolution-context:overlap-linked",
+            resolution_result_id="resolution-result:overlap-linked",
+            composition_id="composition:overlap-linked",
+        ),
+        domain_results=(),
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+        metadata={"category": "at-dp-037-overlap-linked"},
+    )
+    linked_trace = DomainTraceAssembler().assemble(linked_trace_request)
+    overlap_report = service.build_report(
+        DomainObservabilityEvidence(
+            events=(linked_event,),
+            traces=(linked_trace,),
+            operation_evidence=(linked_operation,),
+        )
+    )
+    # Genuinely linked Event/Trace/result share one explicit canonical
+    # operation reference → exactly one logical log occurrence.
+    assert len(overlap_report.log_entries) == 1
+    overlap_entry = overlap_report.log_entries[0]
+    assert overlap_entry.source_kind == "domain_event"
+    assert "op-overlap-linked-op" in overlap_entry.reference_ids
+
+    # Unlinked Event/Trace/result (no shared canonical reference) must remain
+    # distinct: co-location is not shared identity.
+    unlinked_event = DomainEvent(
+        event_id="evt-overlap-unlinked",
+        event_type="domain.operation.completed",
+        schema_version="1.0",
+        domain_id=HEALTH_DOMAIN_ID,
+        actor="orchestrator",
+        occurred_at=NOW,
+        sensitivity="internal",
+        provenance=(
+            DomainEventReference(
+                kind="operation_run",
+                reference_id="op-unlinked-event",
+                domain_id=HEALTH_DOMAIN_ID,
+            ),
+        ),
+    )
+    unlinked_trace_request = DomainTraceAssemblyRequest(
+        request_id="request:overlap-unlinked",
+        goal_id="goal:overlap-unlinked",
+        primary_domain=HEALTH_DOMAIN_ID,
+        supporting_domains=(),
+        contributions=(
+            DomainTraceContribution(
+                domain_id=HEALTH_DOMAIN_ID,
+                role=DomainTraceRole.PRIMARY,
+                references=(
+                    DomainTraceReference(
+                        ref_id="op-unlinked-trace",
+                        kind=DomainTraceReferenceKind.OPERATION_RESULT,
+                        domain_id=HEALTH_DOMAIN_ID,
+                    ),
+                ),
+            ),
+        ),
+        references=DomainTraceReferences(
+            resolution_context_id="resolution-context:overlap-unlinked",
+            resolution_result_id="resolution-result:overlap-unlinked",
+            composition_id="composition:overlap-unlinked",
+        ),
+        domain_results=(),
+        started_at=NOW,
+        completed_at=datetime(2026, 8, 31, 12, 0, 1, tzinfo=timezone.utc),
+        metadata={"category": "at-dp-037-overlap-unlinked"},
+    )
+    unlinked_trace = DomainTraceAssembler().assemble(unlinked_trace_request)
+    unlinked_operation = _operation_result(
+        "op-overlap-unlinked", HEALTH_DOMAIN_ID, DomainOperationStatus.COMPLETED
+    )
+    unlinked_report = service.build_report(
+        DomainObservabilityEvidence(
+            events=(unlinked_event,),
+            traces=(unlinked_trace,),
+            operation_evidence=(unlinked_operation,),
+        )
+    )
+    assert len(unlinked_report.log_entries) == 3
+    # No fuzzy suppression: distinct source IDs stay distinct.
+    unlinked_ids = sorted(entry.source_id for entry in unlinked_report.log_entries)
+    assert "evt-overlap-unlinked" in unlinked_ids
+    assert "op-overlap-unlinked" in unlinked_ids
+
+    # ── 53. Transfer occurrence identity (same identifier, iterations 0/1) ──
+    transfer_iter_0 = CrossDomainContextTransfer(
+        source_domain=HEALTH,
+        target_domain=GENERAL,
+        kind="finding",
+        identifier="finding-iterated",
+        value={"k": "iteration-0"},
+        reason="handoff",
+        iteration=0,
+        provenance=("at-dp-037-iterations",),
+    )
+    transfer_iter_1 = CrossDomainContextTransfer(
+        source_domain=HEALTH,
+        target_domain=GENERAL,
+        kind="finding",
+        identifier="finding-iterated",
+        value={"k": "iteration-1"},
+        reason="handoff",
+        iteration=1,
+        provenance=("at-dp-037-iterations",),
+    )
+    transfer_metric = _metric(
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(
+                cross_domain_transfers=(transfer_iter_0, transfer_iter_1)
+            ),
+            generated_at=NOW,
+        ),
+        "cross_domain.transfers",
+    )
+    assert transfer_metric.status is DomainMetricStatus.OBSERVED
+    assert transfer_metric.value == 2
+
+    # Same exact transfer duplicated → one occurrence.
+    same_transfer = _metric(
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(
+                cross_domain_transfers=(transfer_iter_0, transfer_iter_0)
+            ),
+            generated_at=NOW,
+        ),
+        "cross_domain.transfers",
+    )
+    assert same_transfer.value == 1
+
+    # ── 54. Permission identity (same operation ID, versions 1.0.0/2.0.0) ──
+    deny_v1 = DomainOperationPermissionDecision(
+        operation_id="health.export_medical_context",
+        operation_version="1.0.0",
+        decision=PermissionOutcome.DENY,
+    )
+    deny_v2 = DomainOperationPermissionDecision(
+        operation_id="health.export_medical_context",
+        operation_version="2.0.0",
+        decision=PermissionOutcome.DENY,
+    )
+    permission_version_metric = _metric(
+        DomainMetricsCalculator().calculate(
+            DomainObservabilityEvidence(permission_evidence=(deny_v1, deny_v2)),
+            generated_at=NOW,
+        ),
+        "permissions.rejected",
+    )
+    assert permission_version_metric.status is DomainMetricStatus.OBSERVED
+    assert permission_version_metric.value == 2
+
+    # ── 55. Canonical permission log status and stable source identity ──────
+    permission_log_report = service.build_report(
+        DomainObservabilityEvidence(
+            permission_evidence=(
+                deny_v1,
+                deny_v2,
+                _result_like_denied_permission_allow(),
+            )
+        )
+    )
+    permission_entries = [
+        entry
+        for entry in permission_log_report.log_entries
+        if entry.source_kind == "permission_decision"
+    ]
+    permission_statuses = {entry.status for entry in permission_entries}
+    assert permission_statuses == {"deny", "allow"}
+    permission_source_ids = {entry.source_id for entry in permission_entries}
+    assert len(permission_source_ids) == 3
+    assert any("1.0.0" in sid for sid in permission_source_ids)
+    assert any("2.0.0" in sid for sid in permission_source_ids)
+    assert all(
+        "DomainOperationPermissionDecision" not in sid for sid in permission_source_ids
+    )
+
+    # ── 56. Malformed typed evidence fails closed (resource + permission) ───
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(resource_evidence=({"reused": True},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(permission_evidence=({"decision": "deny"},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(approval_evidence=({"requested": True},))
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(
+            cross_domain_transfers=({"source_domain": "domain:a"},)
+        )
+
+    # ── 57. Valid canonical evidence remains accepted (no over-validation) ──
+    valid_evidence = DomainObservabilityEvidence(
+        resource_evidence=(resolution_resource,),
+        permission_evidence=(deny_v1,),
+        approval_evidence=(approval,),
+        cross_domain_transfers=(transfer_iter_0,),
+    )
+    assert len(valid_evidence.resource_evidence) == 1
 
     # ── 46-48. Order-independent determinism ───────────────────────────────
     permuted_evidence = DomainObservabilityEvidence(
