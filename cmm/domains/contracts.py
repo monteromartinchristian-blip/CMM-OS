@@ -418,7 +418,7 @@ class DomainMetadata:
             tags=tuple(data.get("tags", ())),
             experimental=experimental,
             deprecated=deprecated,
-            metadata=_deep_freeze(data.get("metadata")),
+            metadata=_deep_freeze(data.get("metadata") or {}),
         )
 
 

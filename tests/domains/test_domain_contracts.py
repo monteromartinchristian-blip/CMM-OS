@@ -710,6 +710,27 @@ class TestDomainDefinition:
         assert isinstance(ddef.metadata, DomainMetadata)
         assert ddef.metadata.author == "A"
 
+    def test_metadata_from_dict_without_nested_metadata_uses_empty_mapping(
+        self,
+    ) -> None:
+        """Phase 10.36 regression: ``DomainMetadata.from_dict`` without a
+        nested ``metadata`` key must honor the dataclass factory default
+        (empty mapping), never ``None``.
+
+        A declarative Domain Pack manifest (author/license only) produced
+        ``DomainMetadata.metadata is None``, which crashed typed-metadata
+        consumers such as ``_get_reasoning_profile_metadata`` during
+        session recomposition and ``DomainRegistry`` metadata queries.
+        """
+        md = DomainMetadata.from_dict({"author": "A", "license": "MIT"})
+        assert md.metadata is not None
+        assert dict(md.metadata) == {}
+
+        # Round trip must preserve the empty mapping.
+        md2 = DomainMetadata.from_dict(md.to_dict())
+        assert md2.metadata is not None
+        assert dict(md2.metadata) == {}
+
 
 # ── DomainResult ──────────────────────────────────────────────────────────────
 
