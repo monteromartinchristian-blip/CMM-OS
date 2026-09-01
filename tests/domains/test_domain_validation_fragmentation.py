@@ -328,3 +328,71 @@ def test_domain_local_noncanonical_contractish_name_is_not_automatically_blocked
     assert "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION" not in {
         str(item["code"]) for item in findings
     }
+
+
+# ── Phase 10.39 – Direct persistence and direct writes ────────────────────────
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "import sqlite3\n",
+        "from sqlalchemy import create_engine\n",
+        "import redis\n",
+        "import psycopg\n",
+        "import shelve\n",
+    ),
+)
+def test_direct_persistence_import_is_detected(source: str) -> None:
+    findings = analyze_fragmentation(source, "persistence.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS" in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "import sqlite3\nconn = sqlite3.connect('domain.db')\n",
+        "from sqlalchemy import create_engine\nengine = create_engine('sqlite:///x.db')\n",
+        "import psycopg\nconn = psycopg.connect('dsn')\n",
+        "import redis\nclient = redis.Redis()\n",
+    ),
+)
+def test_direct_persistence_backend_call_is_detected(source: str) -> None:
+    findings = analyze_fragmentation(source, "backend.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS" in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "open('state.json', 'w').write('{}')\n",
+        "open('state.json', 'a').write('{}')\n",
+        "from pathlib import Path\nPath('state.json').write_text('{}')\n",
+        "from pathlib import Path\nPath('state.bin').write_bytes(b'x')\n",
+    ),
+)
+def test_direct_domain_write_is_detected(source: str) -> None:
+    findings = analyze_fragmentation(source, "writer.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "open('resource.txt', 'r').read()\n",
+        "open('resource.txt').read()\n",
+        "from pathlib import Path\nPath('resource.txt').read_text()\n",
+        "from pathlib import Path\nPath('resource.bin').read_bytes()\n",
+    ),
+)
+def test_read_only_resource_access_is_not_direct_write(source: str) -> None:
+    findings = analyze_fragmentation(source, "reader.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" not in {
+        str(item["code"]) for item in findings
+    }

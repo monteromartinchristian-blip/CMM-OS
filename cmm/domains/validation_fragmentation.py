@@ -317,6 +317,176 @@ def detect_policy_bypass(content: str, rel_path: str) -> list[dict[str, object]]
     return findings
 
 
+# ── Phase 10.39 – Direct persistence / direct-write detection ─────────────────
+
+_PERSISTENCE_IMPORT_MODULES = frozenset(
+    {
+        "sqlite3",
+        "redis",
+        "psycopg",
+        "shelve",
+    }
+)
+
+_PERSISTENCE_IMPORT_FROM_MODULES = frozenset(
+    {
+        "sqlalchemy",
+    }
+)
+
+_PERSISTENCE_BACKEND_CALL_NAMES = frozenset(
+    {
+        "connect",
+        "create_engine",
+        "Redis",
+    }
+)
+
+
+def detect_direct_persistence_access(
+    content: str,
+    rel_path: str,
+) -> list[dict[str, object]]:
+    """Detect Domain Packs bypassing canonical persistence boundaries.
+
+    Uses AST inspection for:
+    - ``import sqlite3``, ``import redis``, etc.
+    - ``from sqlalchemy import create_engine``
+    - ``sqlite3.connect(...)``, ``create_engine(...)``, ``redis.Redis(...)``, etc.
+    """
+    findings: list[dict[str, object]] = []
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in _PERSISTENCE_IMPORT_MODULES:
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "code": "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+                            "path": rel_path,
+                            "detail": alias.name,
+                        }
+                    )
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top = node.module.split(".")[0]
+            if top in _PERSISTENCE_IMPORT_FROM_MODULES:
+                findings.append(
+                    {
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+                        "path": rel_path,
+                        "detail": node.module,
+                    }
+                )
+        elif isinstance(node, ast.Call):
+            func_name = _resolve_call_name(node.func)
+            if func_name and func_name.rsplit(".", 1)[-1] in _PERSISTENCE_BACKEND_CALL_NAMES:
+                # Avoid duplicate: already caught by import-level detection
+                if not any(
+                    f["line"] == node.lineno
+                    and f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS"
+                    for f in findings
+                ):
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "code": "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+                            "path": rel_path,
+                            "detail": func_name,
+                        }
+                    )
+
+    return findings
+
+
+def detect_direct_write(
+    content: str,
+    rel_path: str,
+) -> list[dict[str, object]]:
+    """Detect Domain Packs writing directly to the filesystem.
+
+    Uses AST inspection for:
+    - ``open(path, 'w')``, ``open(path, 'a')``, ``open(path, 'x')``, ``open(path, mode='w+')``
+    - ``Path(...).write_text(...)``
+    - ``Path(...).write_bytes(...)``
+    - Read-only ``open(path)`` and ``open(path, 'r')`` are NOT flagged.
+    """
+    findings: list[dict[str, object]] = []
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            # Check open(...) calls
+            if isinstance(node.func, ast.Name) and node.func.id == "open":
+                if _is_write_mode_open(node):
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
+                            "path": rel_path,
+                            "detail": "open(...)",
+                        }
+                    )
+            # Check Path(...).write_text(...) and Path(...).write_bytes(...)
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in (
+                "write_text",
+                "write_bytes",
+            ):
+                findings.append(
+                    {
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
+                        "path": rel_path,
+                        "detail": f".{node.func.attr}(...)",
+                    }
+                )
+
+    return findings
+
+
+def _resolve_call_name(node: ast.expr) -> str | None:
+    """Resolve a Call func expression to a dotted name string."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _resolve_call_name(node.value)
+        if parent:
+            return f"{parent}.{node.attr}"
+    return None
+
+
+def _is_write_mode_open(call: ast.Call) -> bool:
+    """Check if an open(...) call uses a write-capable mode.
+
+    Returns True for modes containing 'w', 'a', 'x', or '+'.
+    Returns False for read-only open calls (no mode, 'r', 'rb', etc.).
+    """
+    write_chars = {"w", "a", "x", "+"}
+
+    # Check positional args (second arg is mode)
+    if len(call.args) >= 2:
+        mode_node = call.args[1]
+        if isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+            return any(c in mode_node.value for c in write_chars)
+
+    # Check keyword args
+    for kw in call.keywords:
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+            if isinstance(kw.value.value, str):
+                return any(c in kw.value.value for c in write_chars)
+
+    return False
+
+
 def analyze_fragmentation(
     content: str,
     rel_path: str,
@@ -338,6 +508,8 @@ def analyze_fragmentation(
     findings.extend(detect_class_duplication(content, rel_path, pack_module_prefixes))
     findings.extend(detect_contract_redefinition(content, rel_path))
     findings.extend(detect_backend_bypass(content, rel_path))
+    findings.extend(detect_direct_persistence_access(content, rel_path))
+    findings.extend(detect_direct_write(content, rel_path))
     findings.extend(detect_provenance_omission(content, rel_path))
     findings.extend(detect_policy_bypass(content, rel_path))
 
@@ -362,6 +534,8 @@ __all__ = [
     "detect_backend_bypass",
     "detect_class_duplication",
     "detect_contract_redefinition",
+    "detect_direct_persistence_access",
+    "detect_direct_write",
     "detect_policy_bypass",
     "detect_provenance_omission",
 ]
