@@ -28,7 +28,6 @@ from cmm.domains.validation import (
 from cmm.domains.validation_contracts import DomainValidationRequest
 from tests.domains._loader_helpers import make_pack
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -77,9 +76,7 @@ def test_at_dp039_canonical_reuse_passes_fragmentation_and_install_gate(
     assert result.fragmentation_valid is True
 
     frag_findings = [
-        f
-        for f in result.findings
-        if (f.code or "").startswith("DOMAIN_FRAGMENTATION_")
+        f for f in result.findings if (f.code or "").startswith("DOMAIN_FRAGMENTATION_")
     ]
     assert len(frag_findings) == 0
 
@@ -156,9 +153,7 @@ def test_at_dp039_fragmented_pack_fails_closed_at_install_gate(
     expected_code: str,
 ) -> None:
     """Every representative violation blocks fragmentation and the install gate."""
-    result = PipelineDomainValidator().validate(
-        _validation_request(tmp_path, source)
-    )
+    result = PipelineDomainValidator().validate(_validation_request(tmp_path, source))
 
     codes = {finding.code for finding in result.findings}
 
@@ -193,13 +188,8 @@ def test_at_dp039_pack_code_is_not_executed_during_validation(tmp_path) -> None:
 
 def test_at_dp039_validation_does_not_touch_filesystem(tmp_path) -> None:
     """Validation must not execute code that creates filesystem side effects."""
-    source = (
-        "from pathlib import Path\n"
-        "Path('EXECUTED_MARKER').touch()\n"
-    )
-    result = PipelineDomainValidator().validate(
-        _validation_request(tmp_path, source)
-    )
+    source = "from pathlib import Path\nPath('EXECUTED_MARKER').touch()\n"
+    result = PipelineDomainValidator().validate(_validation_request(tmp_path, source))
     domain_dir = tmp_path / "test-domain"
     assert not (domain_dir / "EXECUTED_MARKER").exists()
     assert result.fragmentation_valid is True

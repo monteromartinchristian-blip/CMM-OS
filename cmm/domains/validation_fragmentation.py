@@ -243,16 +243,18 @@ def detect_contract_redefinition(
         return []
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            if node.name in _PROTECTED_CANONICAL_CONTRACT_NAMES:
-                findings.append(
-                    {
-                        "line": node.lineno,
-                        "code": "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION",
-                        "path": rel_path,
-                        "class_name": node.name,
-                    }
-                )
+        if (
+            isinstance(node, ast.ClassDef)
+            and node.name in _PROTECTED_CANONICAL_CONTRACT_NAMES
+        ):
+            findings.append(
+                {
+                    "line": node.lineno,
+                    "code": "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION",
+                    "path": rel_path,
+                    "class_name": node.name,
+                }
+            )
     return findings
 
 
@@ -308,28 +310,30 @@ def detect_policy_bypass(content: str, rel_path: str) -> list[dict[str, object]]
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 name = _extract_assign_target_name(target)
-                if name in _POLICY_BYPASS_IDENTIFIERS:
-                    if _is_truthy_value(node.value):
-                        findings.append(
-                            {
-                                "line": node.lineno,
-                                "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
-                                "path": rel_path,
-                                "detail": name,
-                            }
-                        )
+                if name in _POLICY_BYPASS_IDENTIFIERS and _is_truthy_value(node.value):
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+                            "path": rel_path,
+                            "detail": name,
+                        }
+                    )
         elif isinstance(node, ast.Call):
             for kw in node.keywords:
-                if kw.arg in _POLICY_BYPASS_IDENTIFIERS:
-                    if kw.value is not None and _is_truthy_value(kw.value):
-                        findings.append(
-                            {
-                                "line": node.lineno,
-                                "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
-                                "path": rel_path,
-                                "detail": kw.arg,
-                            }
-                        )
+                if (
+                    kw.arg in _POLICY_BYPASS_IDENTIFIERS
+                    and kw.value is not None
+                    and _is_truthy_value(kw.value)
+                ):
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+                            "path": rel_path,
+                            "detail": kw.arg,
+                        }
+                    )
 
     return findings
 
@@ -421,21 +425,23 @@ def detect_direct_persistence_access(
                 )
         elif isinstance(node, ast.Call):
             func_name = _resolve_call_name(node.func)
-            if func_name and func_name.rsplit(".", 1)[-1] in _PERSISTENCE_BACKEND_CALL_NAMES:
-                # Avoid duplicate: already caught by import-level detection
-                if not any(
+            if (
+                func_name
+                and func_name.rsplit(".", 1)[-1] in _PERSISTENCE_BACKEND_CALL_NAMES
+                and not any(
                     f["line"] == node.lineno
                     and f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS"
                     for f in findings
-                ):
-                    findings.append(
-                        {
-                            "line": node.lineno,
-                            "code": "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
-                            "path": rel_path,
-                            "detail": func_name,
-                        }
-                    )
+                )
+            ):
+                findings.append(
+                    {
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+                        "path": rel_path,
+                        "detail": func_name,
+                    }
+                )
 
     return findings
 
@@ -515,9 +521,12 @@ def _is_write_mode_open(call: ast.Call) -> bool:
 
     # Check keyword args
     for kw in call.keywords:
-        if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
-            if isinstance(kw.value.value, str):
-                return any(c in kw.value.value for c in write_chars)
+        if (
+            kw.arg == "mode"
+            and isinstance(kw.value, ast.Constant)
+            and isinstance(kw.value.value, str)
+        ):
+            return any(c in kw.value.value for c in write_chars)
 
     return False
 

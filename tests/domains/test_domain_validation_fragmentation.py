@@ -101,8 +101,7 @@ class TestDomainFragmentationValidator:
             result = validator.validate(None, step)
             # Phase 10.39: canonical adapters are recognized as reuse, not duplication
             fragmentation_findings = [
-                f for f in result.findings
-                if "FRAGMENTATION" in (f.code or "").upper()
+                f for f in result.findings if "FRAGMENTATION" in (f.code or "").upper()
             ]
             assert len(fragmentation_findings) == 0
 
@@ -211,9 +210,7 @@ def test_phase1039_missing_core_component_duplications_are_detected(
 ) -> None:
     findings = analyze_fragmentation(source, "domain_component.py")
     codes = {str(item["code"]) for item in findings}
-    assert expected_code in codes, (
-        f"Expected {expected_code} but found only {codes}"
-    )
+    assert expected_code in codes, f"Expected {expected_code} but found only {codes}"
 
 
 # ── Phase 10.39 – Canonical adapter recognition ───────────────────────────────
@@ -222,14 +219,11 @@ def test_phase1039_missing_core_component_duplications_are_detected(
 def test_canonical_imported_adapter_does_not_block_fragmentation() -> None:
     """Adapters that extend a canonical imported base must not be blocked."""
     source = (
-        "from cmm.planner import BasePlanner\n"
-        "class MyPlanner(BasePlanner):\n"
-        "    pass\n"
+        "from cmm.planner import BasePlanner\nclass MyPlanner(BasePlanner):\n    pass\n"
     )
     findings = analyze_fragmentation(source, "my_planner.py")
     assert not any(
-        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION"
-        for item in findings
+        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" for item in findings
     )
 
 
@@ -242,19 +236,13 @@ def test_canonical_module_alias_adapter_does_not_block_fragmentation() -> None:
     )
     findings = analyze_fragmentation(source, "my_planner.py")
     assert not any(
-        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION"
-        for item in findings
+        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" for item in findings
     )
 
 
 def test_local_fake_base_does_not_make_duplicate_planner_an_adapter() -> None:
     """A local fake base class must NOT receive canonical-adapter immunity."""
-    source = (
-        "class BasePlanner:\n"
-        "    pass\n"
-        "class MyPlanner(BasePlanner):\n"
-        "    pass\n"
-    )
+    source = "class BasePlanner:\n    pass\nclass MyPlanner(BasePlanner):\n    pass\n"
     findings = analyze_fragmentation(source, "my_planner.py")
     assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" in {
         str(item["code"]) for item in findings
@@ -290,7 +278,10 @@ def test_protected_canonical_contract_redefinition_is_detected(
 @pytest.mark.parametrize(
     ("protected_name", "expected_dedup_code"),
     (
-        ("DomainSessionContext", "DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION"),
+        (
+            "DomainSessionContext",
+            "DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION",
+        ),
         ("DomainOperationResult", "DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION"),
     ),
 )
