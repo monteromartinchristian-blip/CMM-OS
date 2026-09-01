@@ -84,6 +84,30 @@ _BLOCKING_VALIDATION_STATUSES = frozenset(
     }
 )
 
+# Only a terminal validation outcome may serve as activation evidence.
+# PENDING/RUNNING are non-terminal: they describe in-progress work, not a
+# finished validation decision.  FAILED/ERROR are terminal rejections.
+# V1 MAJOR-01: activation evidence requires an explicit terminal allowlist,
+# never a failure-only blacklist.
+_TERMINAL_VALIDATION_STATUSES: frozenset[DomainValidationStatus] = frozenset(
+    {
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    }
+)
+
+
+def is_terminal_validation_evidence(
+    validation_status: DomainValidationStatus,
+) -> bool:
+    """Return True only for a terminal validation status usable as activation evidence.
+
+    Allowed: ``PASSED`` and ``WARNING``.
+    Everything else (``PENDING``, ``RUNNING``, ``FAILED``, ``ERROR``, or any
+    unknown status) fails closed.
+    """
+    return validation_status in _TERMINAL_VALIDATION_STATUSES
+
 
 def _denied_capabilities_for(policy: DomainTrustPolicy) -> tuple[str, ...]:
     """Deterministic denied canonical capabilities derived from the policy."""
@@ -144,7 +168,7 @@ def evaluate_domain_trust(
 
     # ── Canonical validation evidence ───────────────────────────────────
     validation_ok = True
-    if validation.status in _BLOCKING_VALIDATION_STATUSES:
+    if not is_terminal_validation_evidence(validation.status):
         validation_ok = False
     if validation.has_blocking_findings:
         validation_ok = False

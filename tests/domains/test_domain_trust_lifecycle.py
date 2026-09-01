@@ -23,6 +23,7 @@ from cmm.domains.enums import (
     DomainLoadStatus,
     DomainSourceKind,
     DomainTrustLevel,
+    DomainValidationStatus,
 )
 from cmm.domains.errors import DomainError
 from cmm.domains.loader import DeclarativeDomainLoader
@@ -354,3 +355,110 @@ class TestNoPartialState:
         # Loaded state remains coherent and the pack is still queryable.
         assert api.get_domain("ext", "1.0.0") is not None
         assert api.get_domain("ext", "1.0.0").enabled is False
+
+
+class _NonTerminalValidationValidator:
+    """Validator collaborator that always returns a non-terminal result.
+
+    The result is structurally coherent (all flags true, no blocking
+    findings, security_valid=True) so any permissive activation path that
+    ignores terminality would accept it — exactly the V1 MAJOR-01 defect.
+    """
+
+    def __init__(self, status) -> None:
+        self._status = status
+
+    def validate(self, request: DomainValidationRequest):
+        from cmm.domains.validation_contracts import DomainValidationResult
+
+        return DomainValidationResult(
+            domain_id=request.candidate.domain_id,
+            version=request.candidate.detected_version,
+            status=self._status,
+            manifest_valid=True,
+            compatibility_valid=True,
+            dependencies_valid=True,
+            contracts_valid=True,
+            permissions_valid=True,
+            operations_valid=True,
+            workflows_valid=True,
+            security_valid=True,
+            fragmentation_valid=True,
+            tests_valid=True,
+        )
+
+
+class TestNonTerminalValidation:
+    """V1 MAJOR-01: PENDING/RUNNING are never terminal activation evidence.
+
+    Both the explicit trust-policy path and the trusted-INTERNAL/no-policy
+    compatibility path must reject non-terminal validation before registry
+    enablement.
+    """
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            DomainValidationStatus.PENDING,
+            DomainValidationStatus.RUNNING,
+        ],
+    )
+    def test_non_terminal_validation_denied_explicit_policy(
+        self, tmp_path: Path, status
+    ) -> None:
+        api, registry = _make_api(
+            trust_policy_lookup=lambda _: DomainTrustPolicy(
+                domain_id="domain:ext",
+                trust_level=DomainTrustLevel.COMMUNITY,
+                authorized_source_ids=("lifecycle-source",),
+            )
+        )
+        api._validator = _NonTerminalValidationValidator(status)  # type: ignore[assignment]
+        domain_dir = _write_pack(tmp_path, "ext", "1.0.0")
+        candidate = make_candidate(
+            domain_dir,
+            "ext",
+            "1.0.0",
+            trusted=True,
+            source_id="lifecycle-source",
+        )
+        result = api.install_domain(candidate)
+        assert result.status == DomainLoadStatus.LOADED
+        before = registry.snapshot_state()
+        with pytest.raises(DomainError) as excinfo:
+            api.enable_domain("ext", "1.0.0")
+        assert "trust.validation_failed" in excinfo.value.details["reason_codes"]
+        assert registry.snapshot_state() == before
+        assert registry.get("ext", "1.0.0").enabled is False
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            DomainValidationStatus.PENDING,
+            DomainValidationStatus.RUNNING,
+        ],
+    )
+    def test_non_terminal_validation_denied_internal_compat(
+        self, tmp_path: Path, status
+    ) -> None:
+        from dataclasses import replace
+
+        api, registry = _make_api()  # no trust lookup -> internal compat path
+        api._validator = _NonTerminalValidationValidator(status)  # type: ignore[assignment]
+        domain_dir = _write_pack(tmp_path, "internal", "1.0.0")
+        candidate = make_candidate(
+            domain_dir,
+            "internal",
+            "1.0.0",
+            trusted=True,
+            source_id="s1",
+        )
+        candidate = replace(candidate, source_kind=DomainSourceKind.INTERNAL)
+        result = api.install_domain(candidate)
+        assert result.status == DomainLoadStatus.LOADED
+        before = registry.snapshot_state()
+        with pytest.raises(DomainError) as excinfo:
+            api.enable_domain("internal", "1.0.0")
+        assert "trust.validation_failed" in excinfo.value.details["reason_codes"]
+        assert registry.snapshot_state() == before
+        assert registry.get("internal", "1.0.0").enabled is False

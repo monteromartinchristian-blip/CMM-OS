@@ -211,6 +211,30 @@ class TestValidationIdentity:
         assert decision.activation_allowed is False
         assert "trust.validation_failed" in decision.reason_codes
 
+    def test_pending_validation_status_fails_closed(self) -> None:
+        # V1 MAJOR-01: non-terminal PENDING must never be activation evidence.
+        decision = evaluate_domain_trust(
+            candidate=_candidate(),
+            manifest=_manifest(),
+            validation=_validation(status=DomainValidationStatus.PENDING),
+            policy=_policy(),
+            manual_enable_requested=True,
+        )
+        assert decision.activation_allowed is False
+        assert "trust.validation_failed" in decision.reason_codes
+
+    def test_running_validation_status_fails_closed(self) -> None:
+        # V1 MAJOR-01: non-terminal RUNNING must never be activation evidence.
+        decision = evaluate_domain_trust(
+            candidate=_candidate(),
+            manifest=_manifest(),
+            validation=_validation(status=DomainValidationStatus.RUNNING),
+            policy=_policy(),
+            manual_enable_requested=True,
+        )
+        assert decision.activation_allowed is False
+        assert "trust.validation_failed" in decision.reason_codes
+
     def test_blocking_finding_fails_closed(self) -> None:
         decision = evaluate_domain_trust(
             candidate=_candidate(),

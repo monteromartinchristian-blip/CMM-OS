@@ -75,7 +75,10 @@ from cmm.domains.trace_contracts import (
 )
 from cmm.domains.trace_validation import DomainTraceReferenceValidator
 from cmm.domains.trust_contracts import DomainTrustPolicy
-from cmm.domains.trust_evaluator import evaluate_domain_trust
+from cmm.domains.trust_evaluator import (
+    evaluate_domain_trust,
+    is_terminal_validation_evidence,
+)
 from cmm.domains.validation import PipelineDomainValidator
 from cmm.domains.validation_contracts import (
     DomainValidationRequest,
@@ -362,6 +365,22 @@ class DefaultDomainAPI:
                 excluded_steps=("domain.tests",),
             )
         )
+        # V1 MAJOR-01: only terminal validation evidence may activate.  A
+        # structurally coherent PENDING/RUNNING result is not a finished
+        # decision and must fail closed on every activation path, including
+        # the trusted-INTERNAL/no-policy compatibility path below.
+        if not is_terminal_validation_evidence(validation.status):
+            raise DomainRegistryValidationError(
+                "Domain activation requires terminal validation evidence",
+                field="domain_id",
+                details={
+                    "domain_id": candidate.domain_id,
+                    "candidate_id": candidate.candidate_id,
+                    "source_id": candidate.source_id,
+                    "trust_level": None,
+                    "reason_codes": ["trust.validation_failed"],
+                },
+            )
         if not validation.is_install_allowed:
             raise DomainRegistryValidationError(
                 "Domain activation blocked by canonical validation",
