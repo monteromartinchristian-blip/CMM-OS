@@ -61,13 +61,17 @@ def _validation_request(tmp_path, source: str) -> DomainValidationRequest:
 def test_at_dp039_canonical_reuse_passes_fragmentation_and_install_gate(
     tmp_path,
 ) -> None:
-    """A pack that legitimately extends a canonical base must pass fragmentation."""
+    """A pack that legitimately extends a canonical base must pass fragmentation.
+
+    Uses the real ``cmm.planner.TaskPlanner`` canonical class
+    (Phase 10.39 remediation: replaced fictional ``BasePlanner``).
+    """
     result = PipelineDomainValidator().validate(
         _validation_request(
             tmp_path,
             (
-                "from cmm.planner import BasePlanner\n"
-                "class GuardedPlannerAdapter(BasePlanner):\n"
+                "from cmm.planner import TaskPlanner\n"
+                "class GuardedPlannerAdapter(TaskPlanner):\n"
                 "    pass\n"
             ),
         )
@@ -142,6 +146,52 @@ VIOLATIONS: list[tuple[str, str]] = [
     (
         "skip_validation = True\n",
         "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+    ),
+    # ── BLOCKER-01 regressions: unrelated official base must not grant immunity ──
+    (
+        "from cmm.domains.pack import DomainPack\n"
+        "class EvilMemoryStore(DomainPack):\n"
+        "    pass\n",
+        "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+    ),
+    (
+        "from cmm.domains.pack import DomainPack\n"
+        "class EvilPlanner(DomainPack):\n"
+        "    pass\n",
+        "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+    ),
+    (
+        "from cmm.domains.pack import DomainPack\n"
+        "class EvilWorkflowEngine(DomainPack):\n"
+        "    pass\n",
+        "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+    ),
+    # ── MAJOR-01 regressions: recreated canonical services ─────────────────────
+    (
+        "class HealthDomainRegistry:\n    pass\n",
+        "DOMAIN_FRAGMENTATION_REGISTRY_DUPLICATION",
+    ),
+    (
+        "class HealthEventBus:\n    pass\n",
+        "DOMAIN_FRAGMENTATION_EVENT_BUS_DUPLICATION",
+    ),
+    # ── MAJOR-01 regressions: attribute/annotated policy bypass ────────────────
+    (
+        "class Config: pass\nconfig = Config()\nconfig.skip_validation = True\n",
+        "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+    ),
+    (
+        "skip_validation: bool = True\n",
+        "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+    ),
+    # ── MAJOR-01 regressions: ImportFrom persistence ───────────────────────────
+    (
+        "from shelve import open\n",
+        "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+    ),
+    (
+        "from sqlite3 import connect\n",
+        "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
     ),
 ]
 
