@@ -10,9 +10,9 @@ The roadmap distinguishes clearly between:
 
 > **Current release:** `v0.8.0`<br>
 > **Implemented:** Phases 0–9 plus Phase 10 through 10.38<br>
-> **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.37<br>
+> **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.38<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** Phase 10.38 — Security (implemented; V1 findings remediated; independent re-audit V2 pending)
+> **Next milestone:** **Phase 10.39**
 
 ---
 
@@ -462,22 +462,22 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.37 are complete and independently audited. Phase 10.38 — Security (Domain Pack Authority Boundary) is implemented; Independent Audit V1 = FAIL; V1 findings remediated; independent re-audit V2 pending: `DP-038=IMPLEMENTED_PENDING_REAUDIT`, `AT-DP-038=PASS_PENDING_INDEPENDENT_VERIFICATION`.
+**Current progress:** Phase 10.19–10.38 are complete, independently audited and closed. **Phase 10.38 — Security** (Domain Pack Authority Boundary) closed after final independent re-audit **V3** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-038=VERIFIED_EXISTING`; `AT-DP-038=PASS` (34 connected checkpoints).
 The Phase 10.37 — Domain Observability closure stands at audited implementation HEAD `a17326421daa2479f58d7ab45b6a66b1bef75936`; audit V6 bundle SHA-256 `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 
-**Implemented and audited through:** Phase 10.37 — Domain Observability (final independent re-audit V6 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`; closed).
-**Next implementation milestone:** Phase 10.38 — Security (implemented; `DP-038=IMPLEMENTED_PENDING_REAUDIT`; `AT-DP-038=PASS_PENDING_INDEPENDENT_VERIFICATION`; V2 re-audit pending).
-Phase 10.37 — Domain Observability is independently audited and closed; Phase 10.38 — Security is implemented, Independent Audit V1 = FAIL, V1 findings remediated, and independent re-audit V2 is pending.
+**Implemented and audited through:** **Phase 10.38 — Security** / Domain Pack Authority Boundary (final independent re-audit V3 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-038=VERIFIED_EXISTING`; `AT-DP-038=PASS`; closed).
+**Next implementation milestone:** **Phase 10.39**.
+**Phase 10.37 — Domain Observability** and **Phase 10.38 — Security** are independently audited and closed. Phase 10.38 final independent re-audit **V3** = `PASS`.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 
-The canonical requirements matrix records Phases 10.16–10.38 plus the later 10.52–10.53 Domain Packs. Phase 10.37 — Domain Observability is independently audited and closed; Phase 10.38 — Security (Domain Pack Authority Boundary) is implemented, Independent Audit V1 = FAIL with findings remediated, and independent re-audit V2 is pending. The matrix is the
+The **canonical requirements matrix records** Phases 10.16–10.38 plus the later 10.52–10.53 Domain Packs. **Phase 10.37 — Domain Observability** and **Phase 10.38 — Security** are independently audited and closed. Phase 10.38 closed after final independent re-audit **V3** `PASS` with `DP-038=VERIFIED_EXISTING` and `AT-DP-038=PASS`. The matrix is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
 supported by the
 [Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
 The Phase 10.16 implementation boundary is documented in
 [Domain Presentation](docs/reference/domain-presentation.md). Phase 10.15
-remains closed. Phases 10.33–10.37 are independently audited and closed; Phase 10.38 — Security (Domain Pack Authority Boundary, implementation reference [Domain Security](docs/reference/domain-security.md)) is implemented with V1 findings remediated and independent re-audit V2 pending; 10.52–10.53 remain the final planned Domain Packs.
+remains closed. Phases 10.33–10.38 are independently audited and closed; **Phase 10.38 — Security** (Domain Pack Authority Boundary, implementation reference [Domain Security](docs/reference/domain-security.md)) closed after final independent re-audit **V3** `PASS`; 10.52–10.53 remain the final planned Domain Packs.
 
 ### Objective
 
@@ -625,7 +625,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through 10.37. Phase 10.37 — Domain Observability is closed after final independent re-audit V6 `PASS` with `DP-037=VERIFIED_EXISTING` and `AT-DP-037=PASS`. Phase 10.38 — Security has been implemented and remediated after Independent Audit V1; independent re-audit V2 is pending. Phases 10.52–10.53 remain the final planned Domain Packs.
+The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through 10.38. **Phase 10.38 — Security** is closed after final independent re-audit **V3** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-038=VERIFIED_EXISTING`, `AT-DP-038=PASS`, audited implementation HEAD `dcf2a058c9ab849642291c44842e1efe53d57906`, and audit V3 bundle SHA-256 `dae36ab2b50bd3d09861eb3ea090be8edddc9e905ee720049171a350205300e0`. Phase 10.39 is the next milestone; Phases 10.52–10.53 remain the final planned Domain Packs.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 

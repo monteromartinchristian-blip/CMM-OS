@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* Next milestone: Phase 10.38 — Security (implemented; V1 findings remediated; independent re-audit V2 pending).
+* Next milestone: **Phase 10.39**.
 
 ⸻
 
@@ -5367,13 +5367,11 @@ health → ephemeral deterministic report.
 
 Status
 
-Phase 10.38 — Security — Domain Pack Authority Boundary is **implementation
-complete; Independent Audit V1 = FAIL; V1 findings remediated; independent
-re-audit V2 pending**.
+**Phase 10.38** — Security — Domain Pack Authority Boundary is **complete, independently audited and closed**. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
 
 ```text
-DP-038 = IMPLEMENTED_PENDING_REAUDIT
-AT-DP-038 = PASS_PENDING_INDEPENDENT_VERIFICATION
+**DP-038** = VERIFIED_EXISTING
+**AT-DP-038** = PASS
 ```
 
 Implemented boundary
@@ -5415,9 +5413,10 @@ Implemented boundary
   OS/container sandbox; Phase 11 platform security remains out of scope.
 
 * Implementation reference: `docs/reference/domain-security.md`
-* Acceptance: `tests/domains/test_domain_security_dp038_acceptance.py`
-  (AT-DP-038; strengthened V1 atomicity proof)
-* Independent audit: V1 = FAIL; findings remediated; re-audit V2 pending.
+* Acceptance: `tests/domains/test_domain_security_dp038_acceptance.py` (AT-DP-038; `PASS`; 34 connected checkpoints; final evidence clean).
+* Final independent re-audit: `docs/audits/phase-10.38-independent-reaudit-v3.md` — **V3** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`.
+* Audited implementation HEAD: `dcf2a058c9ab849642291c44842e1efe53d57906`.
+* Audit V3 bundle SHA-256: `dae36ab2b50bd3d09861eb3ea090be8edddc9e905ee720049171a350205300e0`.
 
 Objective
 

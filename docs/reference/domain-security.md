@@ -1,11 +1,11 @@
 # Domain Security — Domain Pack Authority Boundary (Phase 10.38)
 
-**Status:** Phase 10.38 — Security — implementation complete; Independent Audit V1 = FAIL; V1 findings remediated; independent re-audit V2 pending. This reference describes only what has been implemented and tested in Phase 10.38.
+**Status:** **Phase 10.38** — Security — complete, independently audited and closed. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-038=VERIFIED_EXISTING`; `AT-DP-038=PASS` (34 connected checkpoints).
 
 | Design Point | Status |
 | --- | --- |
-| `DP-038` — Domain Pack Authority Boundary | `IMPLEMENTED_PENDING_REAUDIT` |
-| `AT-DP-038` | `PASS_PENDING_INDEPENDENT_VERIFICATION` |
+| `**DP-038**` — Domain Pack Authority Boundary | `VERIFIED_EXISTING` |
+| `**AT-DP-038**` | `PASS` — 34 connected checkpoints |
 
 The canonical design is
 `docs/superpowers/specs/2026-09-01-phase-10.38-domain-pack-authority-boundary-design.md`.
@@ -371,8 +371,10 @@ tests/domains/test_domain_security_dp038_acceptance.py  (AT-DP-038)
 
 ## 18. Status
 
-Phase 10.38 — Security — implementation complete; Independent Audit V1 = FAIL;
-V1 findings remediated; independent re-audit V2 pending. DP-038 =
-`IMPLEMENTED_PENDING_REAUDIT`; AT-DP-038 =
-`PASS_PENDING_INDEPENDENT_VERIFICATION`. Closure eligibility is decided only by
-the subsequent independent audit.
+**Phase 10.38** — Security — complete, independently audited and closed. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-038=VERIFIED_EXISTING`; `AT-DP-038=PASS`; `AT-DP-038_CHECKPOINTS=34`; `CLOSURE_ELIGIBLE=YES`.
+
+Final independent audit report: `docs/audits/phase-10.38-independent-reaudit-v3.md`.
+
+Audited implementation HEAD: `dcf2a058c9ab849642291c44842e1efe53d57906`.
+
+Audit V3 bundle SHA-256: `dae36ab2b50bd3d09861eb3ea090be8edddc9e905ee720049171a350205300e0`.

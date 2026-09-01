@@ -8,7 +8,7 @@
 **Audited implementation HEAD:** `a17326421daa2479f58d7ab45b6a66b1bef75936`
 **Audit V6 bundle SHA-256:** `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`
 **Closure gates:** `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`
-**Next milestone:** Phase 10.38 — Security (not started)
+**Next milestone:** **Phase 10.39**.
 
 ## 1. Overview
 
