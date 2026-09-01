@@ -302,6 +302,64 @@ def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> N
         source_type="CrossDomainContextTransfer",
     )
     _validate_permission_identity_conflicts(evidence.permission_evidence)
+    _validate_approval_identity_conflicts(evidence.approval_evidence)
+
+
+def _validate_approval_identity_conflicts(
+    requirements: Sequence[Any],
+) -> None:
+    """Fail closed on materially conflicting approvals for one requirement_id.
+
+    The canonical observability occurrence identity of a
+    ``PermissionApprovalRequirement`` is ``requirement_id``. Two canonical
+    requirements carrying that same identity but materially different public
+    approval semantics (action, actor, session, domain, resource, operation,
+    workflow, node, scope, one-time/reusable, expiry, fingerprint) are
+    conflicting evidence for one identity and must be rejected before any
+    projection/occurrence grouping. Identical duplicates collapse to one;
+    different requirement_ids remain distinct occurrences. The error carries
+    only the safe source type and identity — never actor/session payload or
+    fingerprint contents.
+    """
+    seen: dict[str, tuple[Any, ...]] = {}
+    for requirement in requirements:
+        if not isinstance(requirement, PermissionApprovalRequirement):
+            continue  # element type failures are reported by _check_elements
+        identity = requirement.requirement_id
+        material = (
+            requirement.action,
+            requirement.actor_id,
+            requirement.session_id,
+            requirement.domain_id,
+            requirement.resource_id,
+            requirement.resource_kind,
+            requirement.operation_id,
+            requirement.operation_version,
+            requirement.workflow_id,
+            requirement.workflow_version,
+            requirement.node_id,
+            requirement.source_domain,
+            requirement.target_domain,
+            requirement.fingerprint,
+            requirement.expires_at,
+            requirement.scope,
+            requirement.one_time,
+            requirement.reusable,
+        )
+        previous = seen.get(identity)
+        if previous is not None and previous != material:
+            raise InvalidDomainObservabilityEvidenceError(
+                "conflicting approval requirement evidence for the same "
+                "canonical identity "
+                f"(source=PermissionApprovalRequirement "
+                f"id={identity})",
+                field="approval_evidence",
+                details={
+                    "source_type": "PermissionApprovalRequirement",
+                    "source_id": identity,
+                },
+            )
+        seen[identity] = material
 
 
 def _validate_permission_identity_conflicts(
