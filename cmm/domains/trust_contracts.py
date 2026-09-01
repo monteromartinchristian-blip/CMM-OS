@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
-from cmm.domains.contracts import _reject_unknown_fields
+from cmm.domains.contracts import _deep_unfreeze, _reject_unknown_fields
 from cmm.domains.enums import DomainTrustLevel
 from cmm.domains.errors import (
     DomainContractValidationError,
@@ -287,7 +287,7 @@ class DomainTrustPolicy:
             "allow_destructive_operations": self.allow_destructive_operations,
             "require_manual_enable": self.require_manual_enable,
             "require_signature": self.require_signature,
-            "metadata": dict(self.metadata),
+            "metadata": _deep_unfreeze(self.metadata),
         }
 
     @classmethod
@@ -349,7 +349,10 @@ class DomainTrustDecision:
     reason_codes: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    _BLOCKING_REASON_CODES: frozenset[str] = frozenset(
+    # V1 MINOR-01: the blocking-reason universe is immutable class-level
+    # configuration, not an instance field.  Callers can never override it
+    # through the dataclass constructor.
+    _BLOCKING_REASON_CODES: ClassVar[frozenset[str]] = frozenset(
         {
             "trust.blocked",
             "trust.source_not_authorized",
@@ -420,7 +423,7 @@ class DomainTrustDecision:
             "manual_enable_required": self.manual_enable_required,
             "denied_capabilities": list(self.denied_capabilities),
             "reason_codes": list(self.reason_codes),
-            "metadata": dict(self.metadata),
+            "metadata": _deep_unfreeze(self.metadata),
         }
 
     @classmethod

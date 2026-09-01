@@ -204,6 +204,43 @@ class TestDomainTrustPolicy:
         restored = DomainTrustPolicy.from_dict(policy.to_dict())
         assert restored == policy
 
+    # ── V1 MINOR-02: Policy nested metadata must be deeply JSON-safe ──────
+    def test_policy_nested_metadata_round_trip_through_json(self) -> None:
+        import json
+
+        policy = DomainTrustPolicy(
+            domain_id="domain:example",
+            trust_level=DomainTrustLevel.COMMUNITY,
+            authorized_source_ids=("source:community",),
+            metadata={
+                "outer": {
+                    "list": [
+                        {"value": 1},
+                        {"value": 2},
+                    ]
+                }
+            },
+        )
+        payload = policy.to_dict()
+        # Standard json.dumps must serialize the nested frozen metadata.
+        json.dumps(payload)
+        restored = DomainTrustPolicy.from_dict(payload)
+        assert restored == policy
+
+    def test_policy_nested_metadata_deep_immutability(self) -> None:
+        # Deep immutability must be preserved from caller-owned nested input.
+        nested = {"outer": {"list": [{"value": 1}, {"value": 2}]}}
+        policy = DomainTrustPolicy(
+            domain_id="domain:example",
+            trust_level=DomainTrustLevel.COMMUNITY,
+            authorized_source_ids=("source:community",),
+            metadata=nested,
+        )
+        # Caller mutates the original; contract must not observe the change.
+        nested["outer"]["list"][0]["value"] = 999
+        inner = policy.metadata["outer"]["list"][0]
+        assert inner["value"] == 1
+
     def test_to_dict_is_json_safe(self) -> None:
         policy = DomainTrustPolicy(
             domain_id="domain:example",
@@ -304,6 +341,48 @@ class TestDomainTrustDecision:
                 reason_codes=("trust.blocked",),
             )
 
+    # ── V1 MINOR-01: blocking reason codes must be non-instance config ────
+    def test_blocking_reason_codes_cannot_be_overridden_by_constructor(
+        self,
+    ) -> None:
+        # The blocking-reason universe is class configuration.  A caller
+        # cannot pass a different ``_BLOCKING_REASON_CODES`` value (for
+        # example an empty set) to weaken the invariant that forbids
+        # ``activation_allowed=True`` alongside an activation-blocking reason.
+        # Because the field is a ``ClassVar``, the dataclass constructor
+        # rejects it outright.
+        with pytest.raises(TypeError):
+            DomainTrustDecision(
+                domain_id="domain:example",
+                candidate_id="candidate-x",
+                source_id="source:community",
+                trust_level=DomainTrustLevel.BLOCKED,
+                activation_allowed=True,
+                manual_enable_required=True,
+                reason_codes=("trust.blocked",),
+                _BLOCKING_REASON_CODES=frozenset(),  # type: ignore[call-arg]
+            )
+        # And the invariant itself still holds: an allowed decision carrying
+        # an activation-blocking reason is always rejected.
+        with pytest.raises(DomainContractValidationError):
+            DomainTrustDecision(
+                domain_id="domain:example",
+                candidate_id="candidate-x",
+                source_id="source:community",
+                trust_level=DomainTrustLevel.BLOCKED,
+                activation_allowed=True,
+                manual_enable_required=True,
+                reason_codes=("trust.blocked",),
+            )
+
+    def test_blocking_reason_codes_are_class_level_immutable(self) -> None:
+        assert isinstance(DomainTrustDecision._BLOCKING_REASON_CODES, frozenset)
+        assert "trust.blocked" in DomainTrustDecision._BLOCKING_REASON_CODES
+        assert "trust.validation_failed" in DomainTrustDecision._BLOCKING_REASON_CODES
+        assert "trust.manual_enable_required" in (
+            DomainTrustDecision._BLOCKING_REASON_CODES
+        )
+
     def test_denied_capabilities_must_be_canonical_capability_values(self) -> None:
         with pytest.raises(DomainContractValidationError):
             DomainTrustDecision(
@@ -345,6 +424,50 @@ class TestDomainTrustDecision:
         )
         restored = DomainTrustDecision.from_dict(decision.to_dict())
         assert restored == decision
+
+    # ── V1 MINOR-02: Decision nested metadata must be deeply JSON-safe ────
+    def test_decision_nested_metadata_round_trip_through_json(self) -> None:
+        import json
+
+        decision = DomainTrustDecision(
+            domain_id="domain:example",
+            candidate_id="candidate-x",
+            source_id="source:community",
+            trust_level=DomainTrustLevel.COMMUNITY,
+            activation_allowed=False,
+            manual_enable_required=True,
+            reason_codes=("trust.manual_enable_required",),
+            metadata={
+                "outer": {
+                    "list": [
+                        {"value": 1},
+                        {"value": 2},
+                    ]
+                }
+            },
+        )
+        payload = decision.to_dict()
+        # Standard json.dumps must serialize the nested frozen metadata.
+        json.dumps(payload)
+        restored = DomainTrustDecision.from_dict(payload)
+        assert restored == decision
+
+    def test_decision_nested_metadata_deep_immutability(self) -> None:
+        nested = {"outer": {"list": [{"value": 1}, {"value": 2}]}}
+        decision = DomainTrustDecision(
+            domain_id="domain:example",
+            candidate_id="candidate-x",
+            source_id="source:community",
+            trust_level=DomainTrustLevel.COMMUNITY,
+            activation_allowed=False,
+            manual_enable_required=True,
+            reason_codes=("trust.manual_enable_required",),
+            metadata=nested,
+        )
+        # Caller mutates the original; contract must not observe the change.
+        nested["outer"]["list"][0]["value"] = 999
+        inner = decision.metadata["outer"]["list"][0]
+        assert inner["value"] == 1
 
     def test_from_dict_rejects_unknown_fields(self) -> None:
         data = DomainTrustDecision(
