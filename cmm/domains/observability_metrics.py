@@ -305,6 +305,21 @@ def _validate_evidence_element_types(evidence: DomainObservabilityEvidence) -> N
     _validate_approval_identity_conflicts(evidence.approval_evidence)
 
 
+def _approval_constraints_items(
+    constraints: Mapping[str, Any],
+) -> tuple[tuple[str, Any], ...]:
+    """Deterministic canonical comparison payload for approval constraints.
+
+    ``PermissionApprovalRequirement.constraints`` is validated, canonicalized
+    and frozen by the public contract; the public ``to_dict()`` materializes
+    plain JSON-safe contents (frozensets/sets become sorted lists in canonical
+    order), so key-sorting the items compares canonical normalized contents —
+    never object identity and never ``repr()``. Keys are unique strings, so
+    the key sort is deterministic and never compares mixed-type values.
+    """
+    return tuple(sorted(constraints.items()))
+
+
 def _validate_approval_identity_conflicts(
     requirements: Sequence[Any],
 ) -> None:
@@ -314,12 +329,14 @@ def _validate_approval_identity_conflicts(
     ``PermissionApprovalRequirement`` is ``requirement_id``. Two canonical
     requirements carrying that same identity but materially different public
     approval semantics (action, actor, session, domain, resource, operation,
-    workflow, node, scope, one-time/reusable, expiry, fingerprint) are
-    conflicting evidence for one identity and must be rejected before any
+    workflow, node, scope, one-time/reusable, expiry, fingerprint,
+    reason_code, risk, purpose, sensitivity, constraints) are conflicting
+    evidence for one identity and must be rejected before any
     projection/occurrence grouping. Identical duplicates collapse to one;
     different requirement_ids remain distinct occurrences. The error carries
-    only the safe source type and identity — never actor/session payload or
-    fingerprint contents.
+    only the safe source type and identity — never actor/session payload,
+    fingerprint contents, risk/sensitivity/purpose/constraint detail or a
+    repr of the object.
     """
     seen: dict[str, tuple[Any, ...]] = {}
     for requirement in requirements:
@@ -345,6 +362,11 @@ def _validate_approval_identity_conflicts(
             requirement.scope,
             requirement.one_time,
             requirement.reusable,
+            requirement.reason_code,
+            requirement.risk,
+            requirement.purpose,
+            requirement.sensitivity,
+            _approval_constraints_items(requirement.constraints),
         )
         previous = seen.get(identity)
         if previous is not None and previous != material:

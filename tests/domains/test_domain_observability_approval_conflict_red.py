@@ -42,16 +42,16 @@ NOW = datetime(2026, 8, 31, 12, 0, 0, tzinfo=timezone.utc)
 
 def _approval(requirement_id: str, **overrides) -> PermissionApprovalRequirement:
     """A valid canonical approval requirement, with material overrides."""
-    defaults = dict(
-        requirement_id=requirement_id,
-        action=PermissionCapability.OPERATION_EXECUTE,
-        actor_id="actor-1",
-        session_id="session-1",
-        domain_id="domain:health",
-        operation_id="health.op_a",
-        operation_version="1.0.0",
-        fingerprint=f"fingerprint-{requirement_id}",
-    )
+    defaults = {
+        "requirement_id": requirement_id,
+        "action": PermissionCapability.OPERATION_EXECUTE,
+        "actor_id": "actor-1",
+        "session_id": "session-1",
+        "domain_id": "domain:health",
+        "operation_id": "health.op_a",
+        "operation_version": "1.0.0",
+        "fingerprint": f"fingerprint-{requirement_id}",
+    }
     defaults.update(overrides)
     return PermissionApprovalRequirement(**defaults)
 
@@ -93,12 +93,11 @@ def test_same_requirement_id_conflicting_action_fails_closed() -> None:
 def test_identical_duplicate_approval_remains_admissible() -> None:
     """Same exact canonical approval object duplicated → accepted, and the
     downstream report shows one logical approval log occurrence."""
-    from cmm.domains.observability_service import DomainObservabilityService
-
     from cmm.domains.health.bootstrap import (
         build_standard_health_domain_bootstrap,
     )
     from cmm.domains.observability_health import DomainHealthChecker
+    from cmm.domains.observability_service import DomainObservabilityService
 
     bootstrap = build_standard_health_domain_bootstrap()
     service = DomainObservabilityService(
@@ -139,12 +138,11 @@ def test_different_requirement_ids_remain_distinct() -> None:
     """Two canonical approval requirements with different requirement_ids
     (same class) produce two distinct approval occurrences — the accepted V4
     class-name fallback removal is preserved."""
-    from cmm.domains.observability_service import DomainObservabilityService
-
     from cmm.domains.health.bootstrap import (
         build_standard_health_domain_bootstrap,
     )
     from cmm.domains.observability_health import DomainHealthChecker
+    from cmm.domains.observability_service import DomainObservabilityService
 
     bootstrap = build_standard_health_domain_bootstrap()
     service = DomainObservabilityService(
@@ -201,3 +199,91 @@ def test_conflict_error_is_reference_safe() -> None:
     assert "fingerprint-" not in message
     assert "actor-1" not in message
     assert "session-1" not in message
+
+
+# ── RED V5 — complete canonical approval material comparison ────────────────
+
+
+def test_same_requirement_id_different_risk_fails_closed() -> None:
+    """Same requirement_id + different canonical risk must fail closed (V5
+    MAJOR-01: risk is validated canonical approval semantics)."""
+    first = _approval("approval-req-risk")
+    conflicting = _approval("approval-req-risk", risk="high")
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError) as err:
+        DomainObservabilityEvidence(approval_evidence=(first, conflicting))
+
+    # Safe error: source type and requirement_id only — never risk detail.
+    message = str(err.value)
+    assert "PermissionApprovalRequirement" in message
+    assert "approval-req-risk" in message
+    assert "high" not in message
+
+
+def test_same_requirement_id_different_sensitivity_fails_closed() -> None:
+    """Same requirement_id + different canonical sensitivity must fail
+    closed."""
+    from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+
+    first = _approval("approval-req-sensitivity")
+    conflicting = _approval(
+        "approval-req-sensitivity", sensitivity=SensitivityLevel.RESTRICTED
+    )
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(approval_evidence=(first, conflicting))
+
+
+def test_same_requirement_id_different_constraints_fails_closed() -> None:
+    """Same requirement_id + materially different canonical constraints must
+    fail closed (canonical constraint contents compared, not identity)."""
+    first = _approval(
+        "approval-req-constraints", constraints={"allow_external_access": True}
+    )
+    conflicting = _approval(
+        "approval-req-constraints", constraints={"allow_external_access": False}
+    )
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(approval_evidence=(first, conflicting))
+
+
+def test_same_requirement_id_different_reason_code_fails_closed() -> None:
+    """Same requirement_id + different canonical reason_code must fail
+    closed."""
+    first = _approval("approval-req-reason")
+    conflicting = _approval("approval-req-reason", reason_code="policy_override")
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(approval_evidence=(first, conflicting))
+
+
+def test_same_requirement_id_different_purpose_fails_closed() -> None:
+    """Same requirement_id + different canonical purpose must fail closed."""
+    first = _approval("approval-req-purpose", purpose="routine")
+    conflicting = _approval("approval-req-purpose", purpose="emergency")
+
+    with pytest.raises(InvalidDomainObservabilityEvidenceError):
+        DomainObservabilityEvidence(approval_evidence=(first, conflicting))
+
+
+def test_identical_duplicate_with_full_semantic_fields_remains_admissible() -> None:
+    """The complete semantic comparison must not reject two genuinely
+    equivalent canonical requirements: identical risk/sensitivity/purpose/
+    reason_code/constraints on both copies is one identity."""
+    from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+
+    kwargs = {
+        "risk": "high",
+        "sensitivity": SensitivityLevel.CONFIDENTIAL,
+        "purpose": "export",
+        "reason_code": "policy_approval_required",
+        "constraints": {
+            "allow_external_access": True,
+            "allowed_resources": ("res:a", "res:b"),
+        },
+    }
+    first = _approval("approval-req-full-dup", **kwargs)
+    duplicate = _approval("approval-req-full-dup", **kwargs)
+
+    DomainObservabilityEvidence(approval_evidence=(first, duplicate))
