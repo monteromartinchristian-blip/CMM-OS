@@ -74,30 +74,23 @@ _PROVENANCE_OMISSION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
 ]
 
-# Policy bypass patterns
-_POLICY_BYPASS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (
-        re.compile(
-            r"\bbypass\s+(validation|verification|check|policy)\b",
-            re.IGNORECASE,
-        ),
-        "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
-    ),
-    (
-        re.compile(
-            r"\bdisable\s+(validation|verification|check|policy)\b",
-            re.IGNORECASE,
-        ),
-        "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
-    ),
-    (
-        re.compile(
-            r"\bskip\s+(validation|verification|check|policy)\b",
-            re.IGNORECASE,
-        ),
-        "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
-    ),
-]
+# Policy bypass patterns (Phase 10.39: replaced by AST detection)
+_POLICY_BYPASS_PATTERNS: list[tuple[re.Pattern[str], str]] = []
+
+# Protected canonical bypass identifiers (Phase 10.39)
+_POLICY_BYPASS_IDENTIFIERS = frozenset(
+    {
+        "skip_validation",
+        "disable_validation",
+        "bypass_validation",
+        "skip_verification",
+        "disable_verification",
+        "bypass_verification",
+        "skip_policy",
+        "disable_policy",
+        "bypass_policy",
+    }
+)
 
 # Official CMM module prefixes — importing from these is OK (not duplication)
 _OFFICIAL_CMM_PREFIXES = frozenset(
@@ -300,21 +293,63 @@ def detect_provenance_omission(content: str, rel_path: str) -> list[dict[str, ob
 
 
 def detect_policy_bypass(content: str, rel_path: str) -> list[dict[str, object]]:
-    """Detect patterns that bypass CMM global policies."""
+    """Detect statically explicit validation/policy bypass identifiers.
+
+    Phase 10.39: Uses AST inspection to detect explicit truthy bypass
+    assignments and keyword arguments. Comments and docstrings are not flagged.
+    """
     findings: list[dict[str, object]] = []
-    lines = content.split("\n")
-    for line_no, line in enumerate(lines, start=1):
-        for pattern, code in _POLICY_BYPASS_PATTERNS:
-            if pattern.search(line):
-                findings.append(
-                    {
-                        "line": line_no,
-                        "code": code,
-                        "path": rel_path,
-                        "match": line.strip()[:120],
-                    }
-                )
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                name = _extract_assign_target_name(target)
+                if name in _POLICY_BYPASS_IDENTIFIERS:
+                    if _is_truthy_value(node.value):
+                        findings.append(
+                            {
+                                "line": node.lineno,
+                                "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+                                "path": rel_path,
+                                "detail": name,
+                            }
+                        )
+        elif isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg in _POLICY_BYPASS_IDENTIFIERS:
+                    if kw.value is not None and _is_truthy_value(kw.value):
+                        findings.append(
+                            {
+                                "line": node.lineno,
+                                "code": "DOMAIN_FRAGMENTATION_POLICY_BYPASS",
+                                "path": rel_path,
+                                "detail": kw.arg,
+                            }
+                        )
+
     return findings
+
+
+def _extract_assign_target_name(target: ast.expr) -> str:
+    """Extract the simple name from an assignment target."""
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        parent = _extract_assign_target_name(target.value)
+        if parent:
+            return f"{parent}.{target.attr}"
+    return ""
+
+
+def _is_truthy_value(node: ast.expr) -> bool:
+    """Check if an AST expression is a truthy constant."""
+    if isinstance(node, ast.Constant):
+        return bool(node.value)
+    return False
 
 
 # ── Phase 10.39 – Direct persistence / direct-write detection ─────────────────

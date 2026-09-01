@@ -396,3 +396,50 @@ def test_read_only_resource_access_is_not_direct_write(source: str) -> None:
     assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" not in {
         str(item["code"]) for item in findings
     }
+
+
+# ── Phase 10.39 – Structural policy bypass detection ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "# do not skip validation in production\nx = 1\n",
+        '"""Never bypass validation or disable policy."""\nx = 1\n',
+    ),
+)
+def test_policy_words_in_comments_or_docstrings_do_not_block(source: str) -> None:
+    findings = analyze_fragmentation(source, "safe.py")
+    assert "DOMAIN_FRAGMENTATION_POLICY_BYPASS" not in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "skip_validation = True\n",
+        "disable_validation = True\n",
+        "bypass_validation = True\n",
+        "skip_policy = True\n",
+        "disable_policy = True\n",
+        "bypass_policy = True\n",
+        "skip_verification = True\n",
+        "disable_verification = True\n",
+        "bypass_verification = True\n",
+        "run_domain(enable=True, skip_validation=True)\n",
+    ),
+)
+def test_explicit_policy_bypass_flag_is_detected(source: str) -> None:
+    findings = analyze_fragmentation(source, "unsafe.py")
+    assert "DOMAIN_FRAGMENTATION_POLICY_BYPASS" in {
+        str(item["code"]) for item in findings
+    }
+
+
+def test_explicit_false_bypass_is_not_blocked() -> None:
+    """skip_validation = False must not trigger a bypass finding."""
+    findings = analyze_fragmentation("skip_validation = False\n", "safe.py")
+    assert "DOMAIN_FRAGMENTATION_POLICY_BYPASS" not in {
+        str(item["code"]) for item in findings
+    }
