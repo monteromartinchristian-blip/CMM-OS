@@ -491,6 +491,11 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
             allowed_operations=("external_pack.harmless_operation",),
         )
     )
+    # Stable permission-registry baseline captured after the last legitimate
+    # permission-policy registration (Scenario E).  Used by the I3 summary
+    # assertion to verify the registry is unchanged after every rejected path
+    # and across subsequent scenarios F-H.
+    permission_baseline = stack.permission_snapshot()
     resolver_with_trust = DomainPermissionResolver(
         stack.permission_registry,
         trust_policy_lookup=lambda _: _policy(allow_code_execution=False),
@@ -652,7 +657,7 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     # V1 MAJOR-02: I3 must assert exact permission-registry equivalence, and
     # I4 must assert no approval was created or consumed across the whole
     # connected scenario.
-    assert stack.permission_snapshot() == stack.permission_snapshot()
+    assert stack.permission_snapshot() == permission_baseline
     checkpoints("I3-permission-registry-unchanged")
     assert stack.approval_request_ids() == frozenset()
     assert stack.consumed_approval_ids() == frozenset()
