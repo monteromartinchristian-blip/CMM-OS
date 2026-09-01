@@ -28,15 +28,21 @@ _FRAGMENTATION_CLASS_NAMES: dict[str, str] = {
 }
 
 # Regex patterns for contract redefinition
-_CONTRACT_REDEFINITION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (
-        re.compile(
-            r"\bclass\s+\w*(Contract|Protocol|Interface|Abstract)\w*\b",
-            re.IGNORECASE,
-        ),
-        "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION",
-    ),
-]
+_CONTRACT_REDEFINITION_PATTERNS: list[tuple[re.Pattern[str], str]] = []
+
+# Protected canonical contract/model names (Phase 10.39)
+_PROTECTED_CANONICAL_CONTRACT_NAMES = frozenset(
+    {
+        "KnowledgeItem",
+        "Evidence",
+        "TemporalScope",
+        "Resource",
+        "ResourceProvenance",
+        "MemoryUpdateProposal",
+        "DomainSessionContext",
+        "DomainOperationResult",
+    }
+)
 
 # Backend bypass patterns
 _BACKEND_BYPASS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -232,18 +238,26 @@ def _resolve_attribute_path(node: ast.Attribute) -> str | None:
 def detect_contract_redefinition(
     content: str, rel_path: str
 ) -> list[dict[str, object]]:
-    """Detect classes that redefine CMM contracts (Protocol, Contract, Interface)."""
+    """Detect classes that redefine protected CMM canonical contracts/models.
+
+    Phase 10.39: Uses exact AST class-name matching against a protected
+    canonical names set rather than broad regex heuristics.
+    """
     findings: list[dict[str, object]] = []
-    lines = content.split("\n")
-    for line_no, line in enumerate(lines, start=1):
-        for pattern, code in _CONTRACT_REDEFINITION_PATTERNS:
-            if pattern.search(line):
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            if node.name in _PROTECTED_CANONICAL_CONTRACT_NAMES:
                 findings.append(
                     {
-                        "line": line_no,
-                        "code": code,
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION",
                         "path": rel_path,
-                        "match": line.strip()[:120],
+                        "class_name": node.name,
                     }
                 )
     return findings
@@ -327,7 +341,20 @@ def analyze_fragmentation(
     findings.extend(detect_provenance_omission(content, rel_path))
     findings.extend(detect_policy_bypass(content, rel_path))
 
-    return findings
+    # De-duplicate: if a class is already caught by component duplication,
+    # suppress the redundant contract-redefinition finding for the same class.
+    seen_classes: set[str] = set()
+    deduped: list[dict[str, object]] = []
+    for f in findings:
+        cls = str(f.get("class_name", ""))
+        code = str(f.get("code", ""))
+        if code == "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION" and cls in seen_classes:
+            continue
+        if cls and code.endswith("_DUPLICATION"):
+            seen_classes.add(cls)
+        deduped.append(f)
+
+    return deduped
 
 
 __all__ = [

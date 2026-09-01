@@ -259,3 +259,72 @@ def test_local_fake_base_does_not_make_duplicate_planner_an_adapter() -> None:
     assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" in {
         str(item["code"]) for item in findings
     }
+
+
+# ── Phase 10.39 – Protected canonical contract redefinition ───────────────────
+
+
+@pytest.mark.parametrize(
+    "protected_name",
+    (
+        "KnowledgeItem",
+        "Evidence",
+        "TemporalScope",
+        "Resource",
+        "ResourceProvenance",
+        "MemoryUpdateProposal",
+    ),
+)
+def test_protected_canonical_contract_redefinition_is_detected(
+    protected_name: str,
+) -> None:
+    findings = analyze_fragmentation(
+        f"class {protected_name}:\n    pass\n",
+        "contracts.py",
+    )
+    assert "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION" in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    ("protected_name", "expected_dedup_code"),
+    (
+        ("DomainSessionContext", "DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION"),
+        ("DomainOperationResult", "DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION"),
+    ),
+)
+def test_protected_canonical_contract_deduped_by_component_duplication(
+    protected_name: str,
+    expected_dedup_code: str,
+) -> None:
+    """Names that match both contract and component rules produce the more
+    specific component-duplication finding; contract redefinition is suppressed."""
+    findings = analyze_fragmentation(
+        f"class {protected_name}:\n    pass\n",
+        "contracts.py",
+    )
+    codes = {str(item["code"]) for item in findings}
+    assert expected_dedup_code in codes
+    assert "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION" not in codes
+
+
+@pytest.mark.parametrize(
+    "local_name",
+    (
+        "HealthPresentationContract",
+        "RelationshipProtocolRule",
+        "AbstractStudyStrategy",
+        "ResourceConstraintRule",
+    ),
+)
+def test_domain_local_noncanonical_contractish_name_is_not_automatically_blocked(
+    local_name: str,
+) -> None:
+    findings = analyze_fragmentation(
+        f"class {local_name}:\n    pass\n",
+        "domain_types.py",
+    )
+    assert "DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION" not in {
+        str(item["code"]) for item in findings
+    }
