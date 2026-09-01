@@ -5326,10 +5326,10 @@ metadata={},
 
 Implementation status
 
-Phase 10.37 — Domain Observability is **implemented, pending independent audit**.
+Phase 10.37 — Domain Observability is **complete, independently audited and closed**.
 
 ```text
-DP-037 = IMPLEMENTED_PENDING_AUDIT
+DP-037 = VERIFIED_EXISTING
 AT-DP-037 = PASS
 ```
 
@@ -5354,8 +5354,12 @@ health → ephemeral deterministic report.
 * Implementation reference: `docs/reference/domain-observability.md`
 * Acceptance: `tests/domains/test_domain_observability_dp037_acceptance.py`
   (AT-DP-037)
-* The independently audited boundary remains Phase 10.36 until the independent
-  ChatGPT audit completes.
+* Final independent re-audit: `docs/audits/phase-10.37-independent-reaudit-v6.md` — `PASS`.
+* Audited implementation HEAD: `a17326421daa2479f58d7ab45b6a66b1bef75936`.
+* Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
+* Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
+* The independently audited boundary now extends through Phase 10.37.
+* Next milestone: Phase 10.38 — Security (not started).
 
 ⸻
 

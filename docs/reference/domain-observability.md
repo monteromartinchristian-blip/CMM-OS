@@ -1,8 +1,14 @@
 # Domain Observability Reference
 
-**Status:** Phase 10.37 — Implemented, pending independent audit
-`DP-037 = IMPLEMENTED_PENDING_AUDIT`
+**Status:** Phase 10.37 — Complete, independently audited and **closed**
+`DP-037 = VERIFIED_EXISTING`
 `AT-DP-037 = PASS`
+
+**Final independent audit:** `docs/audits/phase-10.37-independent-reaudit-v6.md` — `PASS`
+**Audited implementation HEAD:** `a17326421daa2479f58d7ab45b6a66b1bef75936`
+**Audit V6 bundle SHA-256:** `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`
+**Closure gates:** `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`
+**Next milestone:** Phase 10.38 — Security (not started)
 
 ## 1. Overview
 
