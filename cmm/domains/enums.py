@@ -117,6 +117,23 @@ class DomainValidationStatus(str, Enum):
     ERROR = "error"
 
 
+class DomainTrustLevel(str, Enum):
+    """Explicit trust posture for a Domain Pack (Phase 10.38).
+
+    These values describe trust posture for the Domain Pack authority
+    boundary. They are evidence used by trust evaluation only — they never
+    grant permissions, activation rights, or broader authority by
+    themselves, and their declaration order carries no numeric authority.
+    """
+
+    TRUSTED = "trusted"
+    VERIFIED = "verified"
+    INTERNAL = "internal"
+    COMMUNITY = "community"
+    UNTRUSTED = "untrusted"
+    BLOCKED = "blocked"
+
+
 class DomainResolutionStatus(str, Enum):
     """Status of a domain resolution operation (Phase 10.7).
 
