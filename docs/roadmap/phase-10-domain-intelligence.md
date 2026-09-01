@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* Next milestone: Phase 10.38 — Security (implemented; independent audit pending).
+* Next milestone: Phase 10.38 — Security (implemented; V1 findings remediated; independent re-audit V2 pending).
 
 ⸻
 
@@ -5368,11 +5368,12 @@ health → ephemeral deterministic report.
 Status
 
 Phase 10.38 — Security — Domain Pack Authority Boundary is **implementation
-complete; independent audit pending**.
+complete; Independent Audit V1 = FAIL; V1 findings remediated; independent
+re-audit V2 pending**.
 
 ```text
-DP-038 = IMPLEMENTED_PENDING_AUDIT
-AT-DP-038 = PASS
+DP-038 = IMPLEMENTED_PENDING_REAUDIT
+AT-DP-038 = PASS_PENDING_INDEPENDENT_VERIFICATION
 ```
 
 Implemented boundary
@@ -5400,7 +5401,13 @@ Implemented boundary
 * Pack prompts/configuration are data, never authorization evidence; the
   canonical static `domain.security` scanner remains the only prompt scanner.
 * Rejected activation is atomic: no registry mutation, no permission grant, no
-  approval consumed.
+  approval created/consumed; exact loader-result coherence proven through
+  `DeclarativeDomainLoader.get_loaded`.
+* Cross-domain trust ceilings evaluate the actual transferred capability
+  (memory write / code execution / sensitive resources / destructive
+  operations), not only `DOMAIN_CROSS_ACCESS`.
+* Activation requires terminal validation evidence: `PENDING`/`RUNNING`
+  validation can never enable a Domain.
 * No parallel security infrastructure: no trust store/registry, no security
   engine/runtime/loader/event bus/trace store; canonical owners unchanged;
   Domain Events remain 23/23.
@@ -5409,8 +5416,8 @@ Implemented boundary
 
 * Implementation reference: `docs/reference/domain-security.md`
 * Acceptance: `tests/domains/test_domain_security_dp038_acceptance.py`
-  (AT-DP-038)
-* Independent audit: pending.
+  (AT-DP-038; strengthened V1 atomicity proof)
+* Independent audit: V1 = FAIL; findings remediated; re-audit V2 pending.
 
 Objective
 

@@ -1,13 +1,11 @@
 # Domain Security — Domain Pack Authority Boundary (Phase 10.38)
 
-**Status:** Phase 10.38 — Security — implementation complete; independent audit
-pending. This reference describes only what has been implemented and tested in
-Phase 10.38.
+**Status:** Phase 10.38 — Security — implementation complete; Independent Audit V1 = FAIL; V1 findings remediated; independent re-audit V2 pending. This reference describes only what has been implemented and tested in Phase 10.38.
 
 | Design Point | Status |
 | --- | --- |
-| `DP-038` — Domain Pack Authority Boundary | `IMPLEMENTED_PENDING_AUDIT` |
-| `AT-DP-038` | `PASS` |
+| `DP-038` — Domain Pack Authority Boundary | `IMPLEMENTED_PENDING_REAUDIT` |
+| `AT-DP-038` | `PASS_PENDING_INDEPENDENT_VERIFICATION` |
 
 The canonical design is
 `docs/superpowers/specs/2026-09-01-phase-10.38-domain-pack-authority-boundary-design.md`.
@@ -238,7 +236,11 @@ validation.version
 manifest domain_id / package_version
 ```
 
-A failed or security-invalid validation cannot be overridden by trust.
+Only **terminal** validation evidence may activate: `PASSED` or `WARNING`.
+A structurally coherent `PENDING` or `RUNNING` result is not a finished
+validation decision and fails closed on every activation path (including the
+trusted-INTERNAL/no-policy compatibility path). A failed or security-invalid
+validation cannot be overridden by trust.
 
 ## 12. Trust is a permission ceiling
 
@@ -266,8 +268,18 @@ Trust may remove authority. Trust never adds it (no synthetic grants, no
 permission-registry mutation from trust, no approval consumption inside trust
 evaluation). A canonical permission DENY cannot be widened by trust.
 
-Cross-domain resolution trusts only restrict; a trust deny can never make a
-denied transfer succeed.
+Cross-domain resolution applies two independent trust boundaries:
+
+1. whether cross-domain/external access itself is allowed
+   (`DOMAIN_CROSS_ACCESS` against `allow_external_access`); and
+2. whether the **actual transferred capability** is allowed by the trust
+   ceiling (code execution, memory write, sensitive resources, destructive
+   operations) when the requested capability differs from
+   `DOMAIN_CROSS_ACCESS`.
+
+Cross-domain trust restrictions can only make the canonical cross-domain
+result more restrictive; a trust deny can never make a denied transfer
+succeed.
 
 ## 13. Prompt/configuration is data, not policy
 
@@ -359,6 +371,8 @@ tests/domains/test_domain_security_dp038_acceptance.py  (AT-DP-038)
 
 ## 18. Status
 
-Phase 10.38 — Security — implementation complete; **independent audit
-pending**. DP-038 = `IMPLEMENTED_PENDING_AUDIT`; AT-DP-038 = `PASS`. Closure
-eligibility is decided only by the subsequent independent audit.
+Phase 10.38 — Security — implementation complete; Independent Audit V1 = FAIL;
+V1 findings remediated; independent re-audit V2 pending. DP-038 =
+`IMPLEMENTED_PENDING_REAUDIT`; AT-DP-038 =
+`PASS_PENDING_INDEPENDENT_VERIFICATION`. Closure eligibility is decided only by
+the subsequent independent audit.
