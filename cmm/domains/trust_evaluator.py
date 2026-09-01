@@ -12,12 +12,22 @@ consumes already-canonical evidence:
 It never accesses the network, reads or writes files, queries a store,
 mutates a registry/loader, consumes approval, caches authorization, or
 executes code. It returns immutable ``DomainTrustDecision`` evidence.
+
+``evaluate_domain_trust_permission`` is the pure trust permission ceiling:
+it may return only DENY or ABSTAIN, and it never grants authority.
 """
 
 from __future__ import annotations
 
-from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionCapability,
+    PermissionLayer,
+    PermissionLayerEvaluation,
+    PermissionOutcome,
+)
 from cmm.domains.enums import DomainTrustLevel, DomainValidationStatus
+from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.trust_contracts import DomainTrustDecision, DomainTrustPolicy
 
 # Canonical capability ceilings. Trust may only deny existing canonical
@@ -217,4 +227,94 @@ def evaluate_domain_trust(
     )
 
 
-__all__ = ["evaluate_domain_trust"]
+def evaluate_domain_trust_permission(
+    policy: DomainTrustPolicy,
+    request: DomainPermissionRequest,
+) -> PermissionLayerEvaluation:
+    """Evaluate one request against the trust permission ceiling.
+
+    Returns exactly:
+
+    - ``DENY`` when the requested authority is outside the trust ceiling;
+    - ``ABSTAIN`` when the trust policy does not deny the request.
+
+    It never returns ``ALLOW`` or ``APPROVAL_REQUIRED``: the canonical
+    Domain permission policy and gate remain responsible for those outcomes.
+    """
+    reasons: list[str] = []
+    denied = False
+
+    if request.action is PermissionCapability.OPERATION_EXECUTE or (
+        request.action is PermissionCapability.WORKFLOW_EXECUTE
+    ):
+        if not policy.allow_code_execution:
+            denied = True
+            reasons.append("trust.code_execution_denied")
+    elif request.action is PermissionCapability.MEMORY_WRITE:
+        if not policy.allow_memory_write:
+            denied = True
+            reasons.append("trust.memory_write_denied")
+    elif request.action in (
+        PermissionCapability.SEARCH_EXTERNAL,
+        PermissionCapability.MODEL_EXTERNAL,
+        PermissionCapability.COMMUNICATION_EXTERNAL,
+        PermissionCapability.EXPORT,
+        PermissionCapability.DOMAIN_CROSS_ACCESS,
+    ):
+        if not policy.allow_external_access:
+            denied = True
+            reasons.append("trust.external_access_denied")
+    elif request.action in (
+        PermissionCapability.SENSITIVE_INFERENCE,
+        PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
+    ):
+        if not policy.allow_sensitive_resources:
+            denied = True
+            reasons.append("trust.sensitive_resource_denied")
+    elif request.action is PermissionCapability.RESOURCE_READ:
+        if (
+            request.sensitivity_level is not None
+            and request.sensitivity_level is not SensitivityLevel.PUBLIC
+            and not policy.allow_sensitive_resources
+        ):
+            denied = True
+            reasons.append("trust.sensitive_resource_denied")
+    elif (
+        request.action
+        in (
+            PermissionCapability.FILE_MODIFY,
+            PermissionCapability.TASK_CREATE,
+            PermissionCapability.SCHEDULE_MODIFY,
+            PermissionCapability.GOAL_UPDATE,
+            PermissionCapability.PUBLICATION,
+            PermissionCapability.KNOWLEDGE_DELETE,
+            PermissionCapability.PERMISSION_MODIFY,
+            PermissionCapability.IRREVERSIBLE_CHANGE,
+            PermissionCapability.MEDICAL_ACTION,
+            PermissionCapability.LEGAL_ACTION,
+            PermissionCapability.FINANCIAL_ACTION,
+            PermissionCapability.FINANCIAL_SPEND,
+        )
+        and not policy.allow_destructive_operations
+    ):
+        denied = True
+        reasons.append("trust.destructive_operation_denied")
+
+    if not denied:
+        return PermissionLayerEvaluation(
+            source=PermissionLayer.DOMAIN,
+            effect=PermissionOutcome.ABSTAIN,
+            source_id=f"domain-trust:{policy.domain_id}",
+            reasons=(),
+            metadata={"trust_level": policy.trust_level.value},
+        )
+    return PermissionLayerEvaluation(
+        source=PermissionLayer.DOMAIN,
+        effect=PermissionOutcome.DENY,
+        source_id=f"domain-trust:{policy.domain_id}",
+        reasons=tuple(reasons),
+        metadata={"trust_level": policy.trust_level.value},
+    )
+
+
+__all__ = ["evaluate_domain_trust", "evaluate_domain_trust_permission"]

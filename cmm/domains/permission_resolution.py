@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -27,6 +27,8 @@ from cmm.domains.permission_contracts import (
 )
 from cmm.domains.permission_evaluator import evaluate_domain_policy
 from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.trust_contracts import DomainTrustPolicy
+from cmm.domains.trust_evaluator import evaluate_domain_trust_permission
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,8 +43,39 @@ class DomainPermissionResolution:
 
 
 class DomainPermissionResolver:
-    def __init__(self, registry: DomainPermissionRegistry) -> None:
+    def __init__(
+        self,
+        registry: DomainPermissionRegistry,
+        *,
+        trust_policy_lookup: Callable[[str], DomainTrustPolicy | None] | None = None,
+    ) -> None:
         self._registry = registry
+        self._trust_policy_lookup = trust_policy_lookup
+
+    def _trust_evaluation_for(
+        self,
+        domain_id: str,
+        request: DomainPermissionRequest,
+    ) -> PermissionLayerEvaluation | None:
+        """Return the trust DENY layer for one Domain, if one applies.
+
+        An ABSTAIN trust evaluation means the trust ceiling does not restrict
+        the request, so it contributes nothing to the canonical intersection
+        (the canonical layer must not be poisoned by a no-op abstention).
+        A DENY trust evaluation is injected and makes the final result DENY.
+        A missing policy preserves pre-10.38 resolver behavior.
+
+        The trust layer never returns ALLOW and never grants authority.
+        """
+        if self._trust_policy_lookup is None:
+            return None
+        policy = self._trust_policy_lookup(domain_id)
+        if policy is None:
+            return None
+        evaluation = evaluate_domain_trust_permission(policy, request)
+        if evaluation.effect is PermissionOutcome.ABSTAIN:
+            return None
+        return evaluation
 
     def resolve(
         self,
@@ -71,6 +104,11 @@ class DomainPermissionResolver:
             )
             for policy in policies
         )
+        # Trust ceiling: may only deny or abstain; never grants.
+        for domain in domains:
+            trust_evaluation = self._trust_evaluation_for(domain, request)
+            if trust_evaluation is not None:
+                evaluations.append(trust_evaluation)
         if request.autonomy_level is not None:
             limits = tuple(
                 policy.autonomy_limits.maximum_autonomy_level
@@ -275,6 +313,47 @@ class DomainPermissionResolver:
                 reasons.append("target_capability_denied")
         else:
             target_capability_evaluation = target_evaluation
+        # ── Trust ceiling over the transfer request ─────────────────────
+        # An explicit source/target trust policy may only make the
+        # cross-domain result more restrictive. It can never make a
+        # canonical denied transfer succeed.
+        if self._trust_policy_lookup is not None:
+            source_trust = self._trust_policy_lookup(request.source_domain)
+            if source_trust is not None:
+                trust_evaluation = evaluate_domain_trust_permission(
+                    source_trust,
+                    DomainPermissionRequest(
+                        f"{request.request_id}:trust-source",
+                        PermissionCapability.DOMAIN_CROSS_ACCESS,
+                        request.source_domain,
+                        request.actor_id,
+                        request.session_id,
+                        sensitivity_level=request.sensitivity_level,
+                        source_domain=request.source_domain,
+                        target_domain=request.target_domain,
+                    ),
+                )
+                if trust_evaluation.effect is PermissionOutcome.DENY:
+                    reasons.extend(trust_evaluation.reasons)
+                    reasons.append("source_trust_denied")
+            target_trust = self._trust_policy_lookup(request.target_domain)
+            if target_trust is not None:
+                trust_evaluation = evaluate_domain_trust_permission(
+                    target_trust,
+                    DomainPermissionRequest(
+                        f"{request.request_id}:trust-target",
+                        PermissionCapability.DOMAIN_CROSS_ACCESS,
+                        request.target_domain,
+                        request.actor_id,
+                        request.session_id,
+                        sensitivity_level=request.sensitivity_level,
+                        source_domain=request.source_domain,
+                        target_domain=request.target_domain,
+                    ),
+                )
+                if trust_evaluation.effect is PermissionOutcome.DENY:
+                    reasons.extend(trust_evaluation.reasons)
+                    reasons.append("target_trust_denied")
         if not target.allow_inbound_cross_domain_access:
             reasons.append("target_cross_domain_denied")
         if PermissionCapability.DOMAIN_CROSS_ACCESS in target.prohibited_capabilities:
