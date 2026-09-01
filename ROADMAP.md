@@ -9,10 +9,10 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–9 plus Phase 10 through 10.38<br>
+> **Implemented:** Phases 0–9 plus Phase 10 through 10.39<br>
 > **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.38<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** **Phase 10.39**
+> **Next milestone:** **Phase 10.39** independent audit
 
 ---
 

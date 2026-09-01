@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* Next milestone: **Phase 10.39**.
+* Next milestone: **Phase 10.39** implemented and pending independent audit.
 
 ⸻
 
@@ -5502,64 +5502,60 @@ Domain Packs may contain prompts but:
 
 10.39 - Preventing fragmentation
 
-Objective
+**Phase 10.39** — Preventing Fragmentation is **implemented and pending independent audit**.
 
-Ensure that specialization does not turn CMM OS into an unconnected set of subsystems.
+**Canonical guard:** Existing `domain.fragmentation` validation step via
+`DomainFragmentationValidator` / `analyze_fragmentation(...)`.
+No parallel `DomainArchitectureGuard` service, runtime, store, registry,
+resolver, loader, or validation subsystem was introduced.
 
-Domains must not be free to:
+**DP-039** = IMPLEMENTED_PENDING_AUDIT
+**AT-DP-039** = tests/domains/test_domain_architecture_guard_dp039_acceptance.py
+**Implementation evidence:** hardened `cmm/domains/validation_fragmentation.py`
 
-* To create an own memory
-* create an own Knowledge Store
-* creating an own Knowledge Graphh
-* to create an own Resuscitation Engine
-* create an agent Runtime of its own
-* To create an own Planner
-* To create an own Workflow Engine
-* to create an own permit system;
-* to create different epistemological contracts;
-* to create incompatible identifiers;
-* The traceability should be discharged.
-* to miss validation
-* access tables directly;
-* to create duplicated entities;
-* to store resources without provenance,
-* persist inferences as facts;
-* ignore temporality;
-* execute operations without OperationResults;
-* run sessions outside the Common Session Context.
+### Architecture
 
-Domain Architecture Guard
+Phase 10.39 hardens the existing canonical fragmentation boundary:
 
-DomainArchitectureGuard(
-forbidden_imports=[],
-forbidden_dependencies=[],
-forbidden_base_classes=[],
-required_contracts=[],
-required_services=[],
-metadata={},
-)
+```text
+DomainValidationRequest
+→ PipelineDomainValidator
+→ domain.fragmentation
+→ DomainFragmentationValidator
+→ analyze_fragmentation(...)
+→ DomainValidationResult.fragmentation_valid
+→ ensure_domain_validation_allows_install(...)
+```
 
-Comprobaciones
+### Protected shared owners
 
-* forbidden imports;
-* acceso directo a persistencia;
-* duplication of contracts
-* servicios globales recreados;
-* events incompatible;
-* Unstructured results
-* Unmet global rules
-* escrituras directas;
-* Undeclared permissions
-* modelos duplicados.
+Phase 10.39 protects ownership boundaries of:
+- MemoryStore, KnowledgeStore, KnowledgeGraph, Planner, AgentRuntime
+- ReasoningEngine, WorkflowEngine, PermissionSystem, SessionStore, SessionContext, OperationResult
+- Canonical contracts: KnowledgeItem, Evidence, TemporalScope, Resource, ResourceProvenance, MemoryUpdateProposal, DomainSessionContext, DomainOperationResult
 
-Those checks should be part of:
+### Detection capabilities
 
-* local validation
-* CI;
-* installation
-* update
-* publication
-* global suite.
+| Finding code | Coverage |
+|---|---|
+| `DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION` | Private memory infrastructure |
+| `DOMAIN_FRAGMENTATION_KNOWLEDGE_STORE_DUPLICATION` | Private Knowledge Store |
+| `DOMAIN_FRAGMENTATION_KNOWLEDGE_GRAPH_DUPLICATION` | Private Knowledge Graph |
+| `DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION` | Private Planner |
+| `DOMAIN_FRAGMENTATION_AGENT_RUNTIME_DUPLICATION` | Private Agent Runtime |
+| `DOMAIN_FRAGMENTATION_REASONING_ENGINE_DUPLICATION` | Private Reasoning Engine |
+| `DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION` | Private Workflow Engine |
+| `DOMAIN_FRAGMENTATION_PERMISSION_SYSTEM_DUPLICATION` | Private Permission System |
+| `DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION` | Private Session Store/Context |
+| `DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION` | Private OperationResult |
+| `DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION` | Protected canonical contract redefinition |
+| `DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS` | Direct backend/persistence imports |
+| `DOMAIN_FRAGMENTATION_DIRECT_WRITE` | Direct filesystem writes |
+| `DOMAIN_FRAGMENTATION_POLICY_BYPASS` | Explicit validation/policy bypass flags |
+
+### Canonical adapter recognition
+
+Legitimate adapters extending canonical imported bases (e.g., `from cmm.planner import BasePlanner; class MyPlanner(BasePlanner): ...`) are recognized as canonical reuse and NOT blocked.
 
 ⸻
 
