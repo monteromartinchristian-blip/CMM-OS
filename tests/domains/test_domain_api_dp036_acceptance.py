@@ -188,8 +188,24 @@ def _build_api(tmp_path):
         conflict_resolver=conflict_resolver,
         trace_assembler=trace_assembler,
         trace_validator=trace_validator,
+        trust_policy_lookup=_trust_policy_lookup,
     )
     return api, registry, implementation, session_adapter
+
+
+def _trust_policy_lookup(domain_id: str):
+    """Phase 10.38: explicit trust policy for the acceptance's external pack."""
+    from cmm.domains.enums import DomainTrustLevel
+    from cmm.domains.trust_contracts import DomainTrustPolicy
+
+    if domain_id == "domain:greeter":
+        return DomainTrustPolicy(
+            domain_id=domain_id,
+            trust_level=DomainTrustLevel.TRUSTED,
+            authorized_source_ids=("at-dp-036-source", "s1"),
+            allow_code_execution=True,
+        )
+    return None
 
 
 def _source(root) -> DomainSource:

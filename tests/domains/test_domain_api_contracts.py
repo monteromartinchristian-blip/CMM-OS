@@ -74,6 +74,7 @@ def _make_collaborators() -> dict[str, object]:
         "conflict_resolver": DomainConflictResolver(),
         "trace_assembler": DomainTraceAssembler(),
         "trace_validator": DefaultDomainTraceReferenceValidator(),
+        "trust_policy_lookup": None,
     }
 
 

@@ -19,6 +19,8 @@ only; every method delegates to an existing canonical owner:
 - conflicts              -> pure ``DomainConflictResolver``
 - traces                 -> ``DomainTraceAssembler`` +
   ``DomainTraceReferenceValidator`` protocol (reference-only)
+- activation trust       -> pure ``evaluate_domain_trust`` (Phase 10.38):
+  explicit trust boundary enforced before registry enablement
 
 The facade retains references to injected collaborators and owns no shadow
 runtime state, no caches, no stores, and no registries. Canonical subsystem
@@ -27,7 +29,7 @@ errors propagate unchanged.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cmm.domains.conflict_resolution import DomainConflictResolver
@@ -43,6 +45,8 @@ from cmm.domains.discovery_contracts import (
     DomainDiscoveryResult,
     DomainSource,
 )
+from cmm.domains.enums import DomainSourceKind
+from cmm.domains.errors import DomainRegistryValidationError
 from cmm.domains.identifiers import DomainId
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.loader_contracts import DomainLoadResult
@@ -70,6 +74,8 @@ from cmm.domains.trace_contracts import (
     DomainTraceValidationResult,
 )
 from cmm.domains.trace_validation import DomainTraceReferenceValidator
+from cmm.domains.trust_contracts import DomainTrustPolicy
+from cmm.domains.trust_evaluator import evaluate_domain_trust
 from cmm.domains.validation import PipelineDomainValidator
 from cmm.domains.validation_contracts import (
     DomainValidationRequest,
@@ -217,6 +223,7 @@ class DefaultDomainAPI:
         conflict_resolver: DomainConflictResolver,
         trace_assembler: DomainTraceAssembler,
         trace_validator: DomainTraceReferenceValidator,
+        trust_policy_lookup: Callable[[str], DomainTrustPolicy | None] | None = None,
     ) -> None:
         for name in _REQUIRED_COLLABORATORS:
             if locals()[name] is None:
@@ -236,6 +243,7 @@ class DefaultDomainAPI:
         self._conflict_resolver = conflict_resolver
         self._trace_assembler = trace_assembler
         self._trace_validator = trace_validator
+        self._trust_policy_lookup = trust_policy_lookup
 
     # ── Registry and inspection ──────────────────────────────────────────
 
@@ -303,7 +311,92 @@ class DefaultDomainAPI:
     def enable_domain(
         self, domain_id: str, version: str | None = None
     ) -> DomainDefinition:
-        """Delegate to ``DomainRegistry.enable``."""
+        """Explicitly enable a Domain through the canonical registry.
+
+        Phase 10.38 trust boundary: external/non-internal candidates require
+        an explicit trust policy before registry mutation. ``candidate.trusted``
+        is never authority. A trusted INTERNAL candidate with no explicit
+        trust policy preserves the existing Phase 10.36 activation behavior.
+        """
+        loaded = self._loader.get_loaded(domain_id, version)
+        if loaded is None or loaded.candidate is None or loaded.pack is None:
+            # Preserve canonical lifecycle error semantics for registries
+            # that already own the record (e.g. DomainRegistryNotFound).
+            return self._domain_registry.enable(domain_id, version)
+        candidate = loaded.candidate
+
+        trust_policy: DomainTrustPolicy | None = None
+        if self._trust_policy_lookup is not None:
+            trust_policy = self._trust_policy_lookup(candidate.domain_id)
+
+        internal_trusted = (
+            candidate.source_kind is DomainSourceKind.INTERNAL
+            and candidate.trusted
+            and trust_policy is None
+        )
+        if trust_policy is None and not internal_trusted:
+            raise DomainRegistryValidationError(
+                "External/non-internal Domain activation requires an explicit "
+                "trust policy",
+                field="domain_id",
+                details={
+                    "domain_id": candidate.domain_id,
+                    "candidate_id": candidate.candidate_id,
+                    "source_id": candidate.source_id,
+                    "trust_level": None,
+                    "reason_codes": ["trust.policy_required"],
+                },
+            )
+
+        # Fresh canonical validation for the exact loaded candidate/pack.
+        # Test execution is deferred by the canonical pipeline; the trust
+        # boundary requires the mandatory manifest/contracts/security/limits
+        # checks, not the deferred test-run step.
+        validation = self._validator.validate(
+            DomainValidationRequest(
+                pack=loaded.pack,
+                root_path=loaded.pack.root_path,
+                candidate=candidate,
+                strict=True,
+                run_tests=False,
+                excluded_steps=("domain.tests",),
+            )
+        )
+        if not validation.is_install_allowed:
+            raise DomainRegistryValidationError(
+                "Domain activation blocked by canonical validation",
+                field="domain_id",
+                details={
+                    "domain_id": candidate.domain_id,
+                    "candidate_id": candidate.candidate_id,
+                    "source_id": candidate.source_id,
+                    "trust_level": None,
+                    "reason_codes": ["trust.validation_failed"],
+                },
+            )
+
+        if trust_policy is not None:
+            decision = evaluate_domain_trust(
+                candidate=candidate,
+                manifest=loaded.pack.manifest,
+                validation=validation,
+                policy=trust_policy,
+                manual_enable_requested=True,
+            )
+            if not decision.activation_allowed:
+                raise DomainRegistryValidationError(
+                    "Domain activation denied by trust policy",
+                    field="domain_id",
+                    details={
+                        "domain_id": decision.domain_id,
+                        "candidate_id": decision.candidate_id,
+                        "source_id": decision.source_id,
+                        "trust_level": decision.trust_level.value,
+                        "reason_codes": list(decision.reason_codes),
+                    },
+                )
+
+        # Registry mutation happens only after a successful trust decision.
         return self._domain_registry.enable(domain_id, version)
 
     def disable_domain(

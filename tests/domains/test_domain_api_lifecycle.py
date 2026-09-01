@@ -28,6 +28,9 @@ from tests.domains.test_domain_api_contracts import _make_collaborators
 def _make_api(
     registry: DomainRegistry | None = None,
 ) -> tuple[DefaultDomainAPI, DomainRegistry]:
+    from cmm.domains.enums import DomainTrustLevel
+    from cmm.domains.trust_contracts import DomainTrustPolicy
+
     registry = registry or DomainRegistry()
     collaborators = _make_collaborators()
     collaborators["domain_registry"] = registry
@@ -36,6 +39,16 @@ def _make_api(
     )
     collaborators["discovery"] = FileSystemDomainDiscovery()
     collaborators["validator"] = PipelineDomainValidator()
+
+    def _policy(domain_id: str) -> DomainTrustPolicy | None:
+        return DomainTrustPolicy(
+            domain_id=domain_id,
+            trust_level=DomainTrustLevel.COMMUNITY,
+            authorized_source_ids=("api-test-source", "s1"),
+            allow_code_execution=True,
+        )
+
+    collaborators["trust_policy_lookup"] = _policy
     return DefaultDomainAPI(**collaborators), registry
 
 
