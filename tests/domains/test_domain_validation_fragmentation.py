@@ -1,14 +1,17 @@
-"""Phase 10.5 – Tests for DomainFragmentationValidator."""
+"""Phase 10.5/10.39 – Tests for DomainFragmentationValidator."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from cmm.domains.validation_contracts import (
     DomainValidationExecutionContext,
     DomainValidationRequest,
 )
+from cmm.domains.validation_fragmentation import analyze_fragmentation
 from cmm.domains.validation_scan import DomainValidationScanSession
 from cmm.domains.validation_validators import DomainFragmentationValidator
 from cmm.validation.context import ValidationContext
@@ -161,3 +164,50 @@ class TestDomainFragmentationValidator:
             assert len(utf8_findings) >= 1
             # In strict mode, this should be blocking
             assert any(f.blocking for f in utf8_findings)
+
+
+# ── Phase 10.39 – Protected core component duplications ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_code"),
+    (
+        (
+            "class KnowledgeGraph:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_KNOWLEDGE_GRAPH_DUPLICATION",
+        ),
+        (
+            "class HealthReasoningEngine:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_REASONING_ENGINE_DUPLICATION",
+        ),
+        (
+            "class UniversityWorkflowEngine:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+        (
+            "class HealthPermissionSystem:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_PERMISSION_SYSTEM_DUPLICATION",
+        ),
+        (
+            "class HealthSessionStore:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION",
+        ),
+        (
+            "class HealthSessionContext:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION",
+        ),
+        (
+            "class HealthOperationResult:\n    pass\n",
+            "DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION",
+        ),
+    ),
+)
+def test_phase1039_missing_core_component_duplications_are_detected(
+    source: str,
+    expected_code: str,
+) -> None:
+    findings = analyze_fragmentation(source, "domain_component.py")
+    codes = {str(item["code"]) for item in findings}
+    assert expected_code in codes, (
+        f"Expected {expected_code} but found only {codes}"
+    )
