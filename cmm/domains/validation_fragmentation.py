@@ -135,12 +135,14 @@ def detect_class_duplication(
     except SyntaxError:
         return []
 
+    bindings = _collect_import_bindings(tree)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             for class_name, finding_code in _FRAGMENTATION_CLASS_NAMES.items():
                 if node.name == class_name or node.name.endswith(class_name):
                     # Check if this is an adapter (inherits from official CMM base)
-                    is_adapter = _is_adapter_pattern(node, class_name)
+                    is_adapter = _is_adapter_pattern(node, class_name, bindings)
                     if not is_adapter:
                         findings.append(
                             {
@@ -155,10 +157,37 @@ def detect_class_duplication(
     return findings
 
 
-def _is_adapter_pattern(node: ast.ClassDef, class_name: str) -> bool:
+def _collect_import_bindings(tree: ast.AST) -> dict[str, str]:
+    """Collect AST import bindings mapping local names to canonical module paths.
+
+    Handles:
+      - ``from cmm.planner import BasePlanner``
+        → {"BasePlanner": "cmm.planner.BasePlanner"}
+      - ``import cmm.planner as canonical_planner``
+        → {"canonical_planner": "cmm.planner"}
+      - ``import cmm.planner``
+        → {"cmm": "cmm"}
+    """
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                bindings[local_name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                local_name = alias.asname or alias.name
+                bindings[local_name] = alias.name
+    return bindings
+
+
+def _is_adapter_pattern(
+    node: ast.ClassDef, class_name: str, bindings: dict[str, str]
+) -> bool:
     """Check if a class is a permitted adapter (not duplication).
 
     An adapter would extend or wrap the official component, not reimplement it.
+    Canonical imported bases are recognized through AST import bindings.
     """
     for base in node.bases:
         if isinstance(base, ast.Attribute):
@@ -168,9 +197,22 @@ def _is_adapter_pattern(node: ast.ClassDef, class_name: str) -> bool:
                 for prefix in _OFFICIAL_CMM_PREFIXES:
                     if module_path.startswith(prefix):
                         return True
+                # Also check alias form: canonical_planner.BasePlanner
+                # where canonical_planner is bound to cmm.planner
+                parts = module_path.split(".")
+                if parts and parts[0] in bindings:
+                    resolved = bindings[parts[0]]
+                    remainder = ".".join(parts[1:])
+                    full_path = f"{resolved}.{remainder}" if remainder else resolved
+                    for prefix in _OFFICIAL_CMM_PREFIXES:
+                        if full_path.startswith(prefix):
+                            return True
         elif isinstance(base, ast.Name):
-            # Simple name — could be local reimplementation
-            pass
+            # Check import bindings: from cmm.planner import BasePlanner
+            canonical = bindings.get(base.id, "")
+            for prefix in _OFFICIAL_CMM_PREFIXES:
+                if canonical.startswith(prefix):
+                    return True
     return False
 
 

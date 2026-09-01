@@ -69,8 +69,8 @@ class TestDomainFragmentationValidator:
             assert len(result.findings) == 0
 
     def test_adapter_oficial_no_bloquea(self) -> None:
-        """Official CMM adapter: extending BasePlanner may trigger a finding
-        but should not necessarily be a blocking finding if recognized as adapter."""
+        """Official CMM adapter: extending BasePlanner via canonical import
+        must not produce fragmentation findings (Phase 10.39 fix)."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "my_planner.py").write_text(
@@ -99,9 +99,12 @@ class TestDomainFragmentationValidator:
                 dependencies=(),
             )
             result = validator.validate(None, step)
-            # The fragmentation analyzer treats class redefinitions as findings.
-            # The presence of findings is expected; what matters is correct detection.
-            assert len(result.findings) >= 1
+            # Phase 10.39: canonical adapters are recognized as reuse, not duplication
+            fragmentation_findings = [
+                f for f in result.findings
+                if "FRAGMENTATION" in (f.code or "").upper()
+            ]
+            assert len(fragmentation_findings) == 0
 
     def test_clase_duplicada_real_bloquea(self) -> None:
         """Redefining a CMM class should block."""
@@ -211,3 +214,48 @@ def test_phase1039_missing_core_component_duplications_are_detected(
     assert expected_code in codes, (
         f"Expected {expected_code} but found only {codes}"
     )
+
+
+# ── Phase 10.39 – Canonical adapter recognition ───────────────────────────────
+
+
+def test_canonical_imported_adapter_does_not_block_fragmentation() -> None:
+    """Adapters that extend a canonical imported base must not be blocked."""
+    source = (
+        "from cmm.planner import BasePlanner\n"
+        "class MyPlanner(BasePlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "my_planner.py")
+    assert not any(
+        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION"
+        for item in findings
+    )
+
+
+def test_canonical_module_alias_adapter_does_not_block_fragmentation() -> None:
+    """Module-alias adapters that extend a canonical base must not be blocked."""
+    source = (
+        "import cmm.planner as canonical_planner\n"
+        "class MyPlanner(canonical_planner.BasePlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "my_planner.py")
+    assert not any(
+        item["code"] == "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION"
+        for item in findings
+    )
+
+
+def test_local_fake_base_does_not_make_duplicate_planner_an_adapter() -> None:
+    """A local fake base class must NOT receive canonical-adapter immunity."""
+    source = (
+        "class BasePlanner:\n"
+        "    pass\n"
+        "class MyPlanner(BasePlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "my_planner.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" in {
+        str(item["code"]) for item in findings
+    }
