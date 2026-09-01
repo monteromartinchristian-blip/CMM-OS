@@ -620,6 +620,15 @@ class TestPublicAPI:
                 "InvalidDomainObservabilityEvidenceError",
             }
         )
+        # Phase 10.38 – Domain Trust (restrictive authority boundary)
+        expected.update(
+            {
+                "DomainTrustDecision",
+                "DomainTrustLevel",
+                "DomainTrustPolicy",
+                "evaluate_domain_trust",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -629,7 +638,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 535
+        assert len(cmm.domains.__all__) == 539
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
@@ -679,3 +688,109 @@ class TestPublicAPI:
             "_strip_internal_metadata",
         }
         assert forbidden.isdisjoint(set(cmm.domains.__all__))
+
+
+class TestPhase1038PublicSurface:
+    """Phase 10.38 — trust contracts are exposed; internals are not."""
+
+    def test_trust_contracts_exported(self) -> None:
+        assert hasattr(cmm.domains, "DomainTrustLevel")
+        assert hasattr(cmm.domains, "DomainTrustPolicy")
+        assert hasattr(cmm.domains, "DomainTrustDecision")
+
+    def test_pure_evaluator_exported(self) -> None:
+        # Existing Domain conventions export comparable pure evaluators,
+        # so evaluate_domain_trust is exported at the top level.
+        from cmm.domains.trust_evaluator import evaluate_domain_trust
+
+        assert cmm.domains.evaluate_domain_trust is evaluate_domain_trust
+        assert "evaluate_domain_trust" in cmm.domains.__all__
+
+    def test_trust_levels_in_all(self) -> None:
+        assert "DomainTrustLevel" in cmm.domains.__all__
+        assert "DomainTrustPolicy" in cmm.domains.__all__
+        assert "DomainTrustDecision" in cmm.domains.__all__
+
+    def test_internal_trust_helpers_not_exported(self) -> None:
+        """Private trust internals must never be public."""
+        forbidden_public = {
+            "_denied_capabilities_for",
+            "_CODE_EXECUTION_CAPABILITIES",
+            "_EXTERNAL_ACCESS_CAPABILITIES",
+            "_MEMORY_WRITE_CAPABILITIES",
+            "_SENSITIVE_RESOURCE_CAPABILITIES",
+            "_DESTRUCTIVE_OPERATION_CAPABILITIES",
+            "evaluate_domain_trust_permission",
+        }
+        assert forbidden_public.isdisjoint(set(cmm.domains.__all__))
+
+
+class TestPhase1038ImportSafety:
+    """Fresh import must not discover, read, validate, or mutate anything."""
+
+    def test_fresh_import_is_side_effect_free(self, tmp_path) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        before = sorted(p.name for p in Path(tmp_path).iterdir())
+        code = (
+            "import cmm.domains\n"
+            "import cmm.domains.trust_contracts\n"
+            "import cmm.domains.trust_evaluator\n"
+            "print('OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PYTHONDONTWRITEBYTECODE": "1", "PATH": "/usr/bin:/bin"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert "OK" in result.stdout
+        after = sorted(p.name for p in Path(tmp_path).iterdir())
+        assert after == before
+
+    def test_import_creates_no_registry_state(self) -> None:
+        assert not hasattr(cmm.domains, "_trust_registry")
+        assert not hasattr(cmm.domains, "_trust_store")
+        assert not hasattr(cmm.domains, "_security_engine")
+
+
+class TestPhase1038NoParallelInfrastructure:
+    """The Phase 10.38 production surface owns no parallel security infra."""
+
+    def test_no_parallel_security_classes_in_production(self) -> None:
+        import re
+        from pathlib import Path
+
+        forbidden = {
+            "DomainSecurityEngine",
+            "DomainSecurityRuntime",
+            "DomainSecurityStore",
+            "DomainSecurityRegistry",
+            "DomainTrustStore",
+            "DomainTrustRegistry",
+            "DomainSecurityLoader",
+            "DomainTrustLoader",
+            "DomainSecurityEventBus",
+            "DomainSecurityTraceStore",
+        }
+        pattern = re.compile(r"class\s+(" + "|".join(forbidden) + r")\b")
+        production_files = sorted(Path("cmm/domains").glob("*.py"))
+        for path in production_files:
+            text = path.read_text(encoding="utf-8")
+            assert not pattern.search(text), f"{path} declares parallel infra"
+
+    def test_canonical_owners_still_imported(self) -> None:
+        from cmm.domains.loader import DeclarativeDomainLoader
+        from cmm.domains.permission_gate import DomainPermissionGate
+        from cmm.domains.permission_resolution import DomainPermissionResolver
+        from cmm.domains.validation import PipelineDomainValidator
+
+        assert DeclarativeDomainLoader is not None
+        assert PipelineDomainValidator is not None
+        assert DomainPermissionResolver is not None
+        assert DomainPermissionGate is not None

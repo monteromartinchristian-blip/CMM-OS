@@ -1273,3 +1273,15 @@ __all__ += [
     "InvalidDomainObservabilityContractError",
     "InvalidDomainObservabilityEvidenceError",
 ]
+
+# Phase 10.38 – Domain Trust (restrictive authority boundary)
+from cmm.domains.enums import DomainTrustLevel
+from cmm.domains.trust_contracts import DomainTrustDecision, DomainTrustPolicy
+from cmm.domains.trust_evaluator import evaluate_domain_trust
+
+__all__ += [
+    "DomainTrustDecision",
+    "DomainTrustLevel",
+    "DomainTrustPolicy",
+    "evaluate_domain_trust",
+]
