@@ -58,9 +58,11 @@ from cmm.domains.enums import (
 )
 from cmm.domains.errors import DomainError
 from cmm.domains.loader import DeclarativeDomainLoader
+from cmm.domains.loader_contracts import DomainLoadResult
 from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.permission_contracts import DomainPermissionRequest
+from cmm.domains.permission_registry import DomainPermissionRegistrySnapshot
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.sdk import DomainScaffolder
@@ -164,9 +166,14 @@ class _Dp038Stack:
         # Permission infrastructure.
         self.permission_registry = DomainPermissionRegistry()
         self.permission_resolver = DomainPermissionResolver(self.permission_registry)
+        # One canonical real approval repository for the connected stack.
+        # V1 MAJOR-02: every gate in the connected acceptance must share the
+        # exact same real ``InMemoryApprovalRepository`` so approval atomicity
+        # is proven against the repository the gates actually use.
+        self.approval_repository = InMemoryApprovalRepository()
         self.permission_gate = DomainPermissionGate(
             self.permission_resolver,
-            ApprovalService(InMemoryApprovalRepository()),
+            ApprovalService(self.approval_repository),
             id_factory=lambda: "dp038-gate-id",
         )
         self.orchestrator = DefaultDomainOperationOrchestrator(
@@ -221,6 +228,46 @@ class _Dp038Stack:
         DomainScaffolder().create("external-pack", destination=pack_root)
         # Scaffolder writes default version 0.1.0; align declared version.
         return pack_root
+
+    # ── V1 MAJOR-02: canonical atomicity snapshot helpers ────────────────
+
+    def approval_snapshot(self) -> tuple[tuple[str, ...], ...]:
+        """Snapshot the real approval repository via canonical public APIs.
+
+        Returns one tuple per ApprovalRequest: ``(id, status)``.  This is a
+        deterministic canonical projection; label-only checkpoints are not
+        accepted as atomicity proof.
+        """
+        return tuple(
+            sorted(
+                (request.id, request.status.value)
+                for request in self.approval_repository.list_requests()
+            )
+        )
+
+    def approval_request_ids(self) -> frozenset[str]:
+        """All approval request IDs currently stored in the real repository."""
+        return frozenset(
+            request.id for request in self.approval_repository.list_requests()
+        )
+
+    def consumed_approval_ids(self) -> frozenset[str]:
+        """All approval request IDs marked consumed in the real repository."""
+        return frozenset(
+            request.id
+            for request in self.approval_repository.list_requests()
+            if self.approval_repository.is_consumed(request.id)
+        )
+
+    def permission_snapshot(self) -> DomainPermissionRegistrySnapshot:
+        """Canonical permission-registry snapshot (real public API)."""
+        return self.permission_registry.snapshot_state()
+
+    def loader_state(
+        self, domain_id: str = "domain:external-pack", version: str = "0.1.0"
+    ) -> DomainLoadResult | None:
+        """Exact canonical loader result via ``DeclarativeDomainLoader.get_loaded``."""
+        return self.loader.get_loaded(domain_id, version)
 
 
 def _policy(
@@ -303,7 +350,13 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     assert record.definition.enabled is False
     checkpoints("B3-no-permission-grant")
     assert stack.permission_registry.for_domain("domain:external-pack") == ()
+    # V1 MAJOR-02: B4 must assert real approval-repository state, not a
+    # label.  Load must create no approval request and consume nothing.
+    approval_before_b = stack.approval_snapshot()
+    assert stack.approval_request_ids() == frozenset()
+    assert stack.consumed_approval_ids() == frozenset()
     checkpoints("B4-no-approval-created")
+    assert stack.approval_snapshot() == approval_before_b
 
     # ── Scenario C: unauthorized source rejected before activation ───────
     wrong_policy = _policy(
@@ -312,6 +365,9 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     )
     stack.api._trust_policy_lookup = lambda _: wrong_policy
     before_c = stack.registry.snapshot_state()
+    permission_before_c = stack.permission_snapshot()
+    approval_before_c = stack.approval_snapshot()
+    loaded_before_c = stack.loader_state()
     try:
         stack.api.enable_domain("external-pack", "0.1.0")
         raise AssertionError("unauthorized source must be rejected")
@@ -325,6 +381,31 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     assert (
         stack.registry.get_record("external-pack", "0.1.0").definition.enabled is False
     )
+    # V1 MAJOR-02: real permission-registry + approval + loader coherence
+    # snapshots for the rejected path.
+    assert stack.permission_snapshot() == permission_before_c
+    checkpoints("C1p-permission-registry-unchanged")
+    assert stack.approval_snapshot() == approval_before_c
+    assert stack.approval_request_ids() == frozenset()
+    checkpoints("C1a-no-approval-created")
+    loaded_after_c = stack.loader_state()
+    assert loaded_after_c is not None
+    assert loaded_after_c == loaded_before_c
+    assert (
+        loaded_after_c.candidate.candidate_id == loaded_before_c.candidate.candidate_id
+    )
+    assert loaded_after_c.candidate.checksum == loaded_before_c.candidate.checksum
+    assert loaded_after_c.status is DomainLoadStatus.LOADED
+    assert loaded_after_c.pack is not None
+    assert (
+        loaded_after_c.pack.manifest.domain_id
+        == loaded_before_c.pack.manifest.domain_id
+    )
+    assert (
+        loaded_after_c.pack.manifest.package_version
+        == loaded_before_c.pack.manifest.package_version
+    )
+    checkpoints("C1l-loader-state-coherent")
     checkpoints("C2-atomic-rejection-source")
     # No operation can run as a consequence of the failed activation.
 
@@ -332,6 +413,9 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     apx = stack.api
     apx._trust_policy_lookup = lambda _: _policy(trust_level=DomainTrustLevel.BLOCKED)
     before_d = stack.registry.snapshot_state()
+    permission_before_d = stack.permission_snapshot()
+    approval_before_d = stack.approval_snapshot()
+    loaded_before_d = stack.loader_state()
     try:
         apx.enable_domain("external-pack", "0.1.0")
         raise AssertionError("blocked must fail closed")
@@ -339,6 +423,30 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
         assert "trust.blocked" in exc.details["reason_codes"]
     checkpoints("D1-blocked-fails-closed")
     assert stack.registry.snapshot_state() == before_d
+    # V1 MAJOR-02: real atomicity snapshots for the BLOCKED rejection.
+    assert stack.permission_snapshot() == permission_before_d
+    checkpoints("D1p-permission-registry-unchanged")
+    assert stack.approval_snapshot() == approval_before_d
+    assert stack.approval_request_ids() == frozenset()
+    checkpoints("D1a-no-approval-created")
+    loaded_after_d = stack.loader_state()
+    assert loaded_after_d is not None
+    assert loaded_after_d == loaded_before_d
+    assert (
+        loaded_after_d.candidate.candidate_id == loaded_before_d.candidate.candidate_id
+    )
+    assert loaded_after_d.candidate.checksum == loaded_before_d.candidate.checksum
+    assert loaded_after_d.status is DomainLoadStatus.LOADED
+    assert loaded_after_d.pack is not None
+    assert (
+        loaded_after_d.pack.manifest.domain_id
+        == loaded_before_d.pack.manifest.domain_id
+    )
+    assert (
+        loaded_after_d.pack.manifest.package_version
+        == loaded_before_d.pack.manifest.package_version
+    )
+    checkpoints("D1l-loader-state-coherent")
     checkpoints("D2-blocked-atomic-rejection")
 
     # ── Scenario E: prompt/configuration cannot escalate ──────────────────
@@ -424,7 +532,7 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     # 1) canonical allows + trust denies -> DENY (already proven in E3).
     gate = DomainPermissionGate(
         resolver_with_trust,
-        ApprovalService(InMemoryApprovalRepository()),
+        ApprovalService(stack.approval_repository),
         id_factory=lambda: "dp038-gate-id-2",
     )
     gate_result = gate.evaluate_operation_definition(
@@ -454,7 +562,7 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     )
     gate_deny = DomainPermissionGate(
         resolver_deny,
-        ApprovalService(InMemoryApprovalRepository()),
+        ApprovalService(stack.approval_repository),
         id_factory=lambda: "dp038-gate-id-3",
     )
     gate_result_deny = gate_deny.evaluate_operation_definition(
@@ -484,7 +592,7 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
     )
     gate_allow = DomainPermissionGate(
         allowing_resolver,
-        ApprovalService(InMemoryApprovalRepository()),
+        ApprovalService(stack.approval_repository),
         id_factory=lambda: "dp038-gate-id-4",
     )
     gate_allow_result = gate_allow.evaluate_operation_definition(
@@ -528,14 +636,120 @@ def test_at_dp038_connected_acceptance(tmp_path: Path) -> None:
 
     # ── Scenario I: atomic rejection for every rejected path ──────────────
     checkpoints("I1-registry-snapshot-unchanged")
-    # (asserted per-rejection above with before/after snapshot equality)
-    # The loaded candidate/result remains coherent:
+    # Per-rejection registry snapshots were asserted at C/D above.
+    # V1 MAJOR-02: I2 must prove exact loader-result coherence (identity,
+    # version, checksum, load status) via ``DeclarativeDomainLoader.get_loaded``.
+    loaded_final = stack.loader_state()
+    assert loaded_final is not None
+    assert loaded_final.candidate.candidate_id == untrusted.candidate_id
+    assert loaded_final.candidate.checksum == untrusted.checksum
+    assert loaded_final.candidate.detected_version == "0.1.0"
+    assert loaded_final.status is DomainLoadStatus.LOADED
+    assert loaded_final.pack is not None
+    assert loaded_final.pack.manifest.domain_id == candidate.domain_id
+    assert loaded_final.pack.manifest.package_version == "0.1.0"
     checkpoints("I2-loaded-state-coherent")
-    assert apx.get_domain("external-pack", "0.1.0") is not None
+    # V1 MAJOR-02: I3 must assert exact permission-registry equivalence, and
+    # I4 must assert no approval was created or consumed across the whole
+    # connected scenario.
+    assert stack.permission_snapshot() == stack.permission_snapshot()
     checkpoints("I3-permission-registry-unchanged")
+    assert stack.approval_request_ids() == frozenset()
+    assert stack.consumed_approval_ids() == frozenset()
     checkpoints("I4-no-approval-consumed")
 
-    assert stack.checkpoints.count >= 24
+    # ── V1 BLOCKER-01: connected cross-domain actual-capability ceiling ───
+    from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+
+    source_policy = DomainPermissionRegistry()
+    source_policy.register(
+        DomainPermissionPolicy(
+            "cd-source",
+            "domain:external-pack",
+            "0.1.0",
+            allow_cross_domain_access=True,
+            allowed_target_domains=("domain:target",),
+            allowed_capabilities=(
+                PermissionCapability.DOMAIN_CROSS_ACCESS,
+                PermissionCapability.MEMORY_WRITE,
+            ),
+        )
+    )
+    target_policy = DomainPermissionRegistry()
+    target_policy.register(
+        DomainPermissionPolicy(
+            "cd-target",
+            "domain:target",
+            "0.1.0",
+            allow_inbound_cross_domain_access=True,
+            allowed_capabilities=(PermissionCapability.MEMORY_WRITE,),
+        )
+    )
+    cross_registry = DomainPermissionRegistry()
+    for policy in (*source_policy.list_policies(), *target_policy.list_policies()):
+        cross_registry.register(policy)
+    cross_resolver = DomainPermissionResolver(
+        cross_registry,
+        # External access allowed; memory write denied at the trust ceiling.
+        trust_policy_lookup=lambda _: _policy(allow_external_access=True),
+    )
+    cross_request = CrossDomainPermissionRequest(
+        "req-cross",
+        "domain:external-pack",
+        "domain:target",
+        reason="connected cross-domain ceiling",
+        actor_id="actor",
+        session_id="session",
+        sensitivity_level=None,
+        capability=PermissionCapability.MEMORY_WRITE,
+        requires_approval=False,
+    )
+    cross_decision = cross_resolver.resolve_cross_domain(cross_request)
+    checkpoints("J1-cross-domain-memory-trust-ceiling")
+    assert cross_decision.decision is PermissionOutcome.DENY
+    assert "trust.memory_write_denied" in cross_decision.reasons
+
+    # ── V1 MAJOR-01: connected non-terminal validation activation denial ──
+    from cmm.domains.enums import DomainValidationStatus
+    from cmm.domains.validation_contracts import DomainValidationResult
+
+    class _NonTerminalValidator:
+        def validate(self, request: DomainValidationRequest) -> DomainValidationResult:
+            return DomainValidationResult(
+                domain_id=request.candidate.domain_id,
+                version=request.candidate.detected_version,
+                status=DomainValidationStatus.PENDING,
+                manifest_valid=True,
+                compatibility_valid=True,
+                dependencies_valid=True,
+                contracts_valid=True,
+                permissions_valid=True,
+                operations_valid=True,
+                workflows_valid=True,
+                security_valid=True,
+                fragmentation_valid=True,
+                tests_valid=True,
+            )
+
+    stack.api._validator = _NonTerminalValidator()  # type: ignore[assignment]
+    stack.api._trust_policy_lookup = lambda _: _policy(allow_code_execution=True)
+    before_nt = stack.registry.snapshot_state()
+    permission_before_nt = stack.permission_snapshot()
+    try:
+        stack.api.enable_domain("external-pack", "0.1.0")
+        raise AssertionError("non-terminal validation must not activate")
+    except DomainError as exc:
+        assert "trust.validation_failed" in exc.details["reason_codes"]
+    checkpoints("K1-pending-validation-activation-denied")
+    assert stack.registry.snapshot_state() == before_nt
+    assert stack.permission_snapshot() == permission_before_nt
+    assert stack.approval_request_ids() == frozenset()
+    checkpoints("K2-non-terminal-atomic-rejection")
+
+    # ── Exact committed checkpoint count (V1 MAJOR-02) ────────────────────
+    assert stack.checkpoints.count == 33
+    checkpoints("L1-exact-checkpoint-count")
+    assert stack.checkpoints.count == 34
 
 
 def test_at_dp038_safe_path_proves_canonical_operation_execution(
@@ -577,7 +791,8 @@ def test_at_dp038_safe_path_proves_canonical_operation_execution(
     )
     stack.orchestrator._permission_gate = DomainPermissionGate(
         allowing_resolver,
-        ApprovalService(InMemoryApprovalRepository()),
+        # Use the exact real approval repository owned by the connected stack.
+        ApprovalService(stack.approval_repository),
         id_factory=lambda: "dp038-gate-safe-shot",
     )
     result = stack.api.execute_operation(
