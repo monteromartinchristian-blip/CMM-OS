@@ -354,9 +354,7 @@ def _is_adapter_pattern(
     return False
 
 
-def _resolve_all_bases(
-    node: ast.ClassDef, bindings: dict[str, str]
-) -> list[str]:
+def _resolve_all_bases(node: ast.ClassDef, bindings: dict[str, str]) -> list[str]:
     """Resolve all base class names to full dotted module paths.
 
     Returns a list of resolved dotted strings such as
@@ -370,9 +368,7 @@ def _resolve_all_bases(
     return resolved
 
 
-def _resolve_single_base(
-    base: ast.expr, bindings: dict[str, str]
-) -> str | None:
+def _resolve_single_base(base: ast.expr, bindings: dict[str, str]) -> str | None:
     """Resolve one base expression to a full dotted module path string."""
     if isinstance(base, ast.Attribute):
         raw = _resolve_attribute_path(base)
@@ -381,7 +377,9 @@ def _resolve_single_base(
             if parts and parts[0] in bindings:
                 resolved_prefix = bindings[parts[0]]
                 remainder = ".".join(parts[1:])
-                full_path = f"{resolved_prefix}.{remainder}" if remainder else resolved_prefix
+                full_path = (
+                    f"{resolved_prefix}.{remainder}" if remainder else resolved_prefix
+                )
                 # Apply submodule resolution for the full path
                 sub = _resolve_to_submodule(full_path)
                 return sub if sub else full_path
@@ -470,7 +468,6 @@ def detect_backend_bypass(content: str, rel_path: str) -> list[dict[str, object]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                top = alias.name.split(".")[0]
                 if any(
                     alias.name == root or alias.name.startswith(root + ".")
                     for root in _BACKEND_BYPASS_IMPORT_ROOTS
@@ -483,19 +480,22 @@ def detect_backend_bypass(content: str, rel_path: str) -> list[dict[str, object]
                             "detail": alias.name,
                         }
                     )
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            if any(
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and any(
                 node.module == root or node.module.startswith(root + ".")
                 for root in _BACKEND_BYPASS_IMPORT_ROOTS
-            ):
-                findings.append(
-                    {
-                        "line": node.lineno,
-                        "code": "DOMAIN_FRAGMENTATION_BACKEND_BYPASS",
-                        "path": rel_path,
-                        "detail": node.module,
-                    }
-                )
+            )
+        ):
+            findings.append(
+                {
+                    "line": node.lineno,
+                    "code": "DOMAIN_FRAGMENTATION_BACKEND_BYPASS",
+                    "path": rel_path,
+                    "detail": node.module,
+                }
+            )
 
     return findings
 
@@ -608,6 +608,7 @@ def _is_truthy_value(node: ast.expr) -> bool:
 
 # ── Phase 10.39 – Direct persistence / direct-write detection ─────────────────
 
+
 def detect_direct_persistence_access(
     content: str,
     rel_path: str,
@@ -627,8 +628,6 @@ def detect_direct_persistence_access(
         tree = ast.parse(content)
     except SyntaxError:
         return []
-
-    bindings = _collect_import_bindings(tree)
 
     # Track which local names are bound to persistence modules
     persistence_bindings: set[str] = set()
@@ -684,9 +683,7 @@ def detect_direct_persistence_access(
                 is_persistence_call = False
                 if final_name in _PERSISTENCE_BACKEND_CALL_NAMES:
                     root = func_name.split(".")[0]
-                    if root in persistence_bindings:
-                        is_persistence_call = True
-                    elif any(
+                    if root in persistence_bindings or any(
                         root == mod or root.startswith(mod + ".")
                         for mod in _PERSISTENCE_IMPORT_MODULES
                     ):
@@ -725,16 +722,13 @@ def detect_direct_write(
     except SyntaxError:
         return []
 
-    bindings = _collect_import_bindings(tree)
     path_bindings = _collect_path_bindings(tree)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             # Check open(...) calls — only builtin open (9C)
             if isinstance(node.func, ast.Name) and node.func.id == "open":
-                if _is_builtin_open(node.func.id, tree) and _is_write_mode_open(
-                    node
-                ):
+                if _is_builtin_open(node.func.id, tree) and _is_write_mode_open(node):
                     findings.append(
                         {
                             "line": node.lineno,
@@ -744,19 +738,19 @@ def detect_direct_write(
                         }
                     )
             # Check Path(...).write_text(...) and Path(...).write_bytes(...)
-            elif isinstance(node.func, ast.Attribute) and node.func.attr in (
-                "write_text",
-                "write_bytes",
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("write_text", "write_bytes")
+                and _receiver_is_path(node.func, path_bindings)
             ):
-                if _receiver_is_path(node.func, path_bindings):
-                    findings.append(
-                        {
-                            "line": node.lineno,
-                            "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
-                            "path": rel_path,
-                            "detail": f".{node.func.attr}(...)",
-                        }
-                    )
+                findings.append(
+                    {
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
+                        "path": rel_path,
+                        "detail": f".{node.func.attr}(...)",
+                    }
+                )
 
     return findings
 
@@ -779,9 +773,7 @@ def _collect_path_bindings(tree: ast.AST) -> set[str]:
     return path_names
 
 
-def _receiver_is_path(
-    func_attr: ast.Attribute, path_bindings: set[str]
-) -> bool:
+def _receiver_is_path(func_attr: ast.Attribute, path_bindings: set[str]) -> bool:
     """Check if the receiver of a method call is statically a pathlib.Path."""
     value = func_attr.value
     if isinstance(value, ast.Call):
@@ -809,15 +801,11 @@ def _is_builtin_open(name: str, tree: ast.AST) -> bool:
         # Shadowed by import
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "open" or (
-                    alias.asname and alias.asname == "open"
-                ):
+                if alias.name == "open" or (alias.asname and alias.asname == "open"):
                     return False
         if isinstance(node, ast.ImportFrom) and node.module:
             for alias in node.names:
-                if alias.name == "open" or (
-                    alias.asname and alias.asname == "open"
-                ):
+                if alias.name == "open" or (alias.asname and alias.asname == "open"):
                     return False
         # Shadowed by function def at module level
         if isinstance(node, ast.FunctionDef) and node.name == "open":

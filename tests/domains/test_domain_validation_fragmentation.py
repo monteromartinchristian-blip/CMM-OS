@@ -223,9 +223,7 @@ def test_canonical_imported_adapter_does_not_block_fragmentation() -> None:
     remediation: replaced fictional ``BasePlanner``).
     """
     source = (
-        "from cmm.planner import TaskPlanner\n"
-        "class MyPlanner(TaskPlanner):\n"
-        "    pass\n"
+        "from cmm.planner import TaskPlanner\nclass MyPlanner(TaskPlanner):\n    pass\n"
     )
     findings = analyze_fragmentation(source, "my_planner.py")
     assert not any(
@@ -313,21 +311,27 @@ def test_protected_canonical_contract_deduped_by_component_duplication(
     ("source", "expected_code"),
     (
         (
-            "from cmm.domains.pack import DomainPack\n"
-            "class EvilMemoryStore(DomainPack):\n"
-            "    pass\n",
+            (
+                "from cmm.domains.pack import DomainPack\n"
+                "class EvilMemoryStore(DomainPack):\n"
+                "    pass\n"
+            ),
             "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
         ),
         (
-            "from cmm.domains.pack import DomainPack\n"
-            "class EvilPlanner(DomainPack):\n"
-            "    pass\n",
+            (
+                "from cmm.domains.pack import DomainPack\n"
+                "class EvilPlanner(DomainPack):\n"
+                "    pass\n"
+            ),
             "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
         ),
         (
-            "from cmm.domains.pack import DomainPack\n"
-            "class EvilWorkflowEngine(DomainPack):\n"
-            "    pass\n",
+            (
+                "from cmm.domains.pack import DomainPack\n"
+                "class EvilWorkflowEngine(DomainPack):\n"
+                "    pass\n"
+            ),
             "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
         ),
     ),
@@ -388,9 +392,7 @@ def test_recreated_canonical_global_service_is_blocked(
     """MAJOR-01 8A regression: recreated canonical global services must be blocked."""
     findings = analyze_fragmentation(source, "service.py")
     codes = {str(item["code"]) for item in findings}
-    assert expected_code in codes, (
-        f"Expected {expected_code} but found only {codes}"
-    )
+    assert expected_code in codes, f"Expected {expected_code} but found only {codes}"
 
 
 # ── MAJOR-01 8B – Attribute and annotated policy bypass ───────────────────────
@@ -399,9 +401,7 @@ def test_recreated_canonical_global_service_is_blocked(
 def test_attribute_policy_bypass_is_detected() -> None:
     """MAJOR-01 8B regression: dotted attribute bypass must be detected."""
     source = (
-        "class Config:\n    pass\n"
-        "config = Config()\n"
-        "config.skip_validation = True\n"
+        "class Config:\n    pass\nconfig = Config()\nconfig.skip_validation = True\n"
     )
     findings = analyze_fragmentation(source, "config.py")
     codes = {str(item["code"]) for item in findings}
@@ -451,8 +451,7 @@ def test_arbitrary_client_connect_not_flagged() -> None:
     source = "def f(client):\n    return client.connect()\n"
     findings = analyze_fragmentation(source, "api.py")
     assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS"
-        for f in findings
+        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS" for f in findings
     )
 
 
@@ -461,8 +460,7 @@ def test_local_connect_not_flagged() -> None:
     source = "def connect():\n    return True\nconnect()\n"
     findings = analyze_fragmentation(source, "api.py")
     assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS"
-        for f in findings
+        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS" for f in findings
     )
 
 
@@ -473,9 +471,7 @@ def test_arbitrary_writer_write_text_not_flagged() -> None:
     """MAJOR-02 9B regression: writer.write_text() on non-Path must not be flagged."""
     source = "def f(writer):\n    writer.write_text('hello')\n"
     findings = analyze_fragmentation(source, "io.py")
-    assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings
-    )
+    assert not any(f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings)
 
 
 def test_path_write_text_is_flagged() -> None:
@@ -501,18 +497,14 @@ def test_shadowed_open_not_flagged() -> None:
     """MAJOR-02 9C regression: shadowed local open() must not be flagged."""
     source = "def open(path, mode):\n    return None\nopen('x', 'w')\n"
     findings = analyze_fragmentation(source, "io.py")
-    assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings
-    )
+    assert not any(f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings)
 
 
 def test_imported_open_not_flagged() -> None:
     """MAJOR-02 9C regression: imported non-builtin open must not be flagged."""
     source = "from some_module import open\nopen('x', 'w')\n"
     findings = analyze_fragmentation(source, "io.py")
-    assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings
-    )
+    assert not any(f["code"] == "DOMAIN_FRAGMENTATION_DIRECT_WRITE" for f in findings)
 
 
 def test_builtin_open_write_mode_is_flagged() -> None:
@@ -530,9 +522,7 @@ def test_comment_backend_import_not_flagged() -> None:
     """MAJOR-02 9D regression: forbidden import text in a comment must not be flagged."""
     source = "# from cmm.memory.backend import Store\nx = 1\n"
     findings = analyze_fragmentation(source, "mod.py")
-    assert not any(
-        f["code"] == "DOMAIN_FRAGMENTATION_BACKEND_BYPASS" for f in findings
-    )
+    assert not any(f["code"] == "DOMAIN_FRAGMENTATION_BACKEND_BYPASS" for f in findings)
 
 
 def test_real_backend_import_is_flagged() -> None:

@@ -149,21 +149,27 @@ VIOLATIONS: list[tuple[str, str]] = [
     ),
     # ── BLOCKER-01 regressions: unrelated official base must not grant immunity ──
     (
-        "from cmm.domains.pack import DomainPack\n"
-        "class EvilMemoryStore(DomainPack):\n"
-        "    pass\n",
+        (
+            "from cmm.domains.pack import DomainPack\n"
+            "class EvilMemoryStore(DomainPack):\n"
+            "    pass\n"
+        ),
         "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
     ),
     (
-        "from cmm.domains.pack import DomainPack\n"
-        "class EvilPlanner(DomainPack):\n"
-        "    pass\n",
+        (
+            "from cmm.domains.pack import DomainPack\n"
+            "class EvilPlanner(DomainPack):\n"
+            "    pass\n"
+        ),
         "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
     ),
     (
-        "from cmm.domains.pack import DomainPack\n"
-        "class EvilWorkflowEngine(DomainPack):\n"
-        "    pass\n",
+        (
+            "from cmm.domains.pack import DomainPack\n"
+            "class EvilWorkflowEngine(DomainPack):\n"
+            "    pass\n"
+        ),
         "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
     ),
     # ── MAJOR-01 regressions: recreated canonical services ─────────────────────
