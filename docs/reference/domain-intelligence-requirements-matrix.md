@@ -419,7 +419,7 @@ The Phase 10.18 roadmap sentence that appears to permit independent persistent d
 10.36 — Domain API (complete, independently audited and closed; final independent re-audit V3 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-036=VERIFIED_EXISTING`; `AT-DP-036=PASS`)
 10.37 — Domain Observability (complete, independently audited and closed; final independent re-audit V6 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`)
 **10.38** — Security / Domain Pack Authority Boundary (complete, independently audited and closed; final independent re-audit **V3** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-038=VERIFIED_EXISTING`; `AT-DP-038=PASS`)
-**10.39** — Preventing Fragmentation (implemented and pending independent audit; `DP-039=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-039` at `tests/domains/test_domain_architecture_guard_dp039_acceptance.py`; canonical guard = existing `domain.fragmentation`; no parallel architecture guard introduced)
+**10.39** — Preventing Fragmentation (implemented and pending independent re-audit; `DP-039=IMPLEMENTED_PENDING_REMEDIATION`; `AT-DP-039` at `tests/domains/test_domain_architecture_guard_dp039_acceptance.py`; canonical guard = existing `domain.fragmentation`; no parallel architecture guard introduced)
 10.39–10.51 — Remaining Domain Intelligence infrastructure sequence
 10.52 — Mental Health
 10.53 — Neurodivergence

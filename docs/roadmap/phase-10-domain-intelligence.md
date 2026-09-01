@@ -5502,14 +5502,75 @@ Domain Packs may contain prompts but:
 
 10.39 - Preventing fragmentation
 
-**Phase 10.39** — Preventing Fragmentation is **implemented and pending independent audit**.
+**Phase 10.39** — Preventing Fragmentation is **implemented and pending independent re-audit**.
+
+Objective
+
+Ensure that specialization does not turn CMM OS into an unconnected set of subsytems.
+
+Domains must not be free to:
+
+* To create an own memory
+* create an own Knowledge Store
+* creating an own Knowledge Graphh
+* to create an own Resuscitation Engine
+* create an agent Runtime of its own
+* To create an own Planner
+* To create an own Workflow Engine
+* To create an own permit system;
+* to create different epistemological contracts;
+* to create incompatible identifiers;
+* The traceability should be discharged.
+* to miss validation
+* access tables directly;
+* to create duplicated entities;
+* to store resources without provenance,
+* persist inferences as facts;
+* ignore temporality;
+* execute operations without OperationResults;
+* run sessions outside the Common Session Context.
+
+Domain Architecture Guard
+
+DomainArchitectureGuard(
+forbidden_imports=[],
+forbidden_dependencies=[],
+forbidden_base_classes=[],
+required_contracts=[],
+required_services=[],
+metadata={},
+)
+
+Comprobaciones
+
+* forbidden imports;
+* acceso directo a persistencia;
+* duplication of contracts
+* servicios globales recreados;
+* events incompatible;
+* Unstructured results
+* Unmet global rules
+* escrituras directas;
+* Undeclared permissions
+* modelos duplicados.
+
+Those checks should be part of:
+
+* local validation
+* CI;
+* installation
+* update
+* publication
+* global suite.
+
+### Implementation status
 
 **Canonical guard:** Existing `domain.fragmentation` validation step via
 `DomainFragmentationValidator` / `analyze_fragmentation(...)`.
 No parallel `DomainArchitectureGuard` service, runtime, store, registry,
 resolver, loader, or validation subsystem was introduced.
 
-**DP-039** = IMPLEMENTED_PENDING_AUDIT
+**DP-039** = IMPLEMENTED_PENDING_REMEDIATION
 **AT-DP-039** = tests/domains/test_domain_architecture_guard_dp039_acceptance.py
 **Implementation evidence:** hardened `cmm/domains/validation_fragmentation.py`
 
@@ -5533,6 +5594,7 @@ Phase 10.39 protects ownership boundaries of:
 - MemoryStore, KnowledgeStore, KnowledgeGraph, Planner, AgentRuntime
 - ReasoningEngine, WorkflowEngine, PermissionSystem, SessionStore, SessionContext, OperationResult
 - Canonical contracts: KnowledgeItem, Evidence, TemporalScope, Resource, ResourceProvenance, MemoryUpdateProposal, DomainSessionContext, DomainOperationResult
+- Recreated canonical global services: DomainRegistry, ResourceRegistry, WorkflowRegistry, EventBus, DomainResolver, DomainLoader, TraceStore
 
 ### Detection capabilities
 
@@ -5549,13 +5611,19 @@ Phase 10.39 protects ownership boundaries of:
 | `DOMAIN_FRAGMENTATION_SESSION_INFRASTRUCTURE_DUPLICATION` | Private Session Store/Context |
 | `DOMAIN_FRAGMENTATION_OPERATION_RESULT_DUPLICATION` | Private OperationResult |
 | `DOMAIN_FRAGMENTATION_CONTRACT_REDEFINITION` | Protected canonical contract redefinition |
+| `DOMAIN_FRAGMENTATION_REGISTRY_DUPLICATION` | Recreated DomainRegistry/ResourceRegistry/WorkflowRegistry |
+| `DOMAIN_FRAGMENTATION_RESOLVER_DUPLICATION` | Recreated DomainResolver |
+| `DOMAIN_FRAGMENTATION_LOADER_DUPLICATION` | Recreated DomainLoader |
+| `DOMAIN_FRAGMENTATION_EVENT_BUS_DUPLICATION` | Recreated EventBus |
+| `DOMAIN_FRAGMENTATION_TRACE_STORE_DUPLICATION` | Recreated TraceStore |
 | `DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS` | Direct backend/persistence imports |
 | `DOMAIN_FRAGMENTATION_DIRECT_WRITE` | Direct filesystem writes |
 | `DOMAIN_FRAGMENTATION_POLICY_BYPASS` | Explicit validation/policy bypass flags |
+| `DOMAIN_FRAGMENTATION_BACKEND_BYPASS` | Direct backend implementation imports |
 
 ### Canonical adapter recognition
 
-Legitimate adapters extending canonical imported bases (e.g., `from cmm.planner import BasePlanner; class MyPlanner(BasePlanner): ...`) are recognized as canonical reuse and NOT blocked.
+Legitimate adapters extending canonical imported bases (e.g., `from cmm.planner import TaskPlanner; class MyPlanner(TaskPlanner): ...`) are recognized as canonical reuse and NOT blocked. Adapter exemption is component-aware: a protected component is only exempt when its inherited canonical base is the approved canonical base for that specific component.
 
 ⸻
 
