@@ -5359,11 +5359,58 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* Next milestone: Phase 10.38 — Security (not started).
+* Next milestone: Phase 10.38 — Security (implemented; independent audit pending).
 
 ⸻
 
 10.38 - Security
+
+Status
+
+Phase 10.38 — Security — Domain Pack Authority Boundary is **implementation
+complete; independent audit pending**.
+
+```text
+DP-038 = IMPLEMENTED_PENDING_AUDIT
+AT-DP-038 = PASS
+```
+
+Implemented boundary
+
+> A Domain Pack may be discovered, validated and explicitly loaded without
+> those facts granting authority; activation and runtime capabilities remain
+> constrained by an explicit Domain trust policy and the existing canonical
+> permission/approval system; and Domain Pack content cannot redefine those
+> controls.
+
+* `DomainTrustLevel`: `trusted`, `verified`, `internal`, `community`,
+  `untrusted`, `blocked`.
+* `DomainTrustPolicy`: immutable explicit declaration with restrictive safe
+  defaults and an explicit authorized-source boundary.
+* Pure `evaluate_domain_trust`: fail-closed identity/validation/source/
+  signature/manual-enable semantics.
+* `allow_untrusted=True` remains explicit load/registration permission only;
+  it never enables or authorizes.
+* Trust is a permission ceiling integrated through the existing
+  `DomainPermissionResolver`/`DomainPermissionGate`; the trust layer returns
+  only DENY or ABSTAIN and never grants.
+* External/non-internal activation requires an explicit trust policy; a trusted
+  INTERNAL candidate with no policy preserves Phase 10.36 activation behavior.
+* `require_signature`: presence semantics only.
+* Pack prompts/configuration are data, never authorization evidence; the
+  canonical static `domain.security` scanner remains the only prompt scanner.
+* Rejected activation is atomic: no registry mutation, no permission grant, no
+  approval consumed.
+* No parallel security infrastructure: no trust store/registry, no security
+  engine/runtime/loader/event bus/trace store; canonical owners unchanged;
+  Domain Events remain 23/23.
+* `signature present != cryptographically verified`; Phase 10.38 provides no
+  OS/container sandbox; Phase 11 platform security remains out of scope.
+
+* Implementation reference: `docs/reference/domain-security.md`
+* Acceptance: `tests/domains/test_domain_security_dp038_acceptance.py`
+  (AT-DP-038)
+* Independent audit: pending.
 
 Objective
 
