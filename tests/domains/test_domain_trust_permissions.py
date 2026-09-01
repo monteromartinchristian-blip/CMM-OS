@@ -372,6 +372,82 @@ class TestSupportingDomainCannotWiden:
         assert result.effective_permissions.decision is PermissionOutcome.DENY
 
 
+class _CrossDomainFixture:
+    """Canonical cross-domain fixture with permissive source/target policies.
+
+    The source policy permits DOMAIN_CROSS_ACCESS to the target and (when
+    requested) the actual cross-domain capability.  The target policy permits
+    inbound DOMAIN_CROSS_ACCESS and (when requested) the actual capability.
+    Trust policies are supplied per test through ``lookups``.
+    """
+
+    def __init__(
+        self,
+        *,
+        capability: PermissionCapability,
+        lookups,
+        sensitivity_level: SensitivityLevel = SensitivityLevel.INTERNAL,
+        requested_operations: tuple[str, ...] = (),
+        requested_workflows: tuple[str, ...] = (),
+        resource_ids: tuple[str, ...] = (),
+        resource_kinds: tuple[str, ...] = (),
+    ) -> None:
+        self.registry = DomainPermissionRegistry()
+        source_capabilities = (
+            PermissionCapability.DOMAIN_CROSS_ACCESS,
+            capability,
+        )
+        self.registry.register(
+            _perm_policy(
+                policy_id="source",
+                domain_id="domain:external-1",
+                allow_cross_domain_access=True,
+                allowed_target_domains=("domain:target",),
+                allowed_capabilities=source_capabilities,
+                allowed_sensitivity_levels=(
+                    "public",
+                    "internal",
+                    "confidential",
+                    "restricted",
+                    "secret",
+                ),
+            )
+        )
+        self.registry.register(
+            _perm_policy(
+                policy_id="target",
+                domain_id="domain:target",
+                allow_inbound_cross_domain_access=True,
+                allowed_capabilities=(capability,),
+                allowed_sensitivity_levels=(
+                    "public",
+                    "internal",
+                    "confidential",
+                    "restricted",
+                    "secret",
+                ),
+            )
+        )
+        self.resolver = DomainPermissionResolver(
+            self.registry, trust_policy_lookup=lookups
+        )
+        self.request = CrossDomainPermissionRequest(
+            "xreq-cap",
+            "domain:external-1",
+            "domain:target",
+            resource_ids=resource_ids,
+            requested_operations=requested_operations,
+            requested_workflows=requested_workflows,
+            reason="test",
+            actor_id="actor-1",
+            session_id="session-1",
+            sensitivity_level=sensitivity_level,
+            capability=capability,
+            requires_approval=False,
+            resource_kinds=resource_kinds,
+        )
+
+
 class TestCrossDomainCeiling:
     def test_cross_domain_trust_deny_cannot_be_widened(self) -> None:
         registry = DomainPermissionRegistry()
@@ -416,6 +492,111 @@ class TestCrossDomainCeiling:
         )
         decision = resolver.resolve_cross_domain(request)
         assert decision.decision is PermissionOutcome.DENY
+
+    # ── V1 BLOCKER-01: the trust ceiling must evaluate the actual
+    #    capability being transferred, not only DOMAIN_CROSS_ACCESS. ──────
+
+    def test_cross_domain_memory_write_trust_ceiling(self) -> None:
+        # Canonical source/target policies allow the cross-domain transfer
+        # and MEMORY_WRITE.  Trust allows external access but denies memory
+        # write.  The actual capability must still be trust-denied.
+        fixture = _CrossDomainFixture(
+            capability=PermissionCapability.MEMORY_WRITE,
+            lookups=lambda _: _trust_policy(
+                domain_id="domain:external-1", allow_external_access=True
+            ),
+        )
+        decision = fixture.resolver.resolve_cross_domain(fixture.request)
+        assert decision.decision is PermissionOutcome.DENY
+        assert "trust.memory_write_denied" in decision.reasons
+
+    def test_cross_domain_operation_execute_trust_ceiling(self) -> None:
+        fixture = _CrossDomainFixture(
+            capability=PermissionCapability.OPERATION_EXECUTE,
+            requested_operations=("external_pack.harmless_operation",),
+            lookups=lambda _: _trust_policy(
+                domain_id="domain:external-1", allow_external_access=True
+            ),
+        )
+        decision = fixture.resolver.resolve_cross_domain(fixture.request)
+        assert decision.decision is PermissionOutcome.DENY
+        assert "trust.code_execution_denied" in decision.reasons
+
+    def test_cross_domain_sensitive_resource_trust_ceiling(self) -> None:
+        fixture = _CrossDomainFixture(
+            capability=PermissionCapability.SENSITIVE_INFERENCE,
+            lookups=lambda _: _trust_policy(
+                domain_id="domain:external-1", allow_external_access=True
+            ),
+        )
+        decision = fixture.resolver.resolve_cross_domain(fixture.request)
+        assert decision.decision is PermissionOutcome.DENY
+        assert "trust.sensitive_resource_denied" in decision.reasons
+
+    def test_cross_domain_destructive_trust_ceiling(self) -> None:
+        fixture = _CrossDomainFixture(
+            capability=PermissionCapability.FILE_MODIFY,
+            lookups=lambda _: _trust_policy(
+                domain_id="domain:external-1", allow_external_access=True
+            ),
+        )
+        decision = fixture.resolver.resolve_cross_domain(fixture.request)
+        assert decision.decision is PermissionOutcome.DENY
+        assert "trust.destructive_operation_denied" in decision.reasons
+
+    def test_cross_domain_trust_cannot_grant(self) -> None:
+        # Trust has every relevant allow_* = True, but the canonical target
+        # policy denies the actual capability.  The final result stays DENY.
+        registry = DomainPermissionRegistry()
+        registry.register(
+            _perm_policy(
+                policy_id="source",
+                domain_id="domain:external-1",
+                allow_cross_domain_access=True,
+                allowed_target_domains=("domain:target",),
+                allowed_capabilities=(PermissionCapability.DOMAIN_CROSS_ACCESS,),
+                allowed_sensitivity_levels=("internal",),
+            )
+        )
+        registry.register(
+            _perm_policy(
+                policy_id="target",
+                domain_id="domain:target",
+                allow_inbound_cross_domain_access=True,
+                allowed_sensitivity_levels=("internal",),
+            )
+        )
+
+        def permissive_lookups(domain_id: str) -> DomainTrustPolicy | None:
+            return _trust_policy(
+                domain_id=domain_id,
+                allow_code_execution=True,
+                allow_external_access=True,
+                allow_memory_write=True,
+                allow_sensitive_resources=True,
+                allow_destructive_operations=True,
+            )
+
+        resolver = DomainPermissionResolver(
+            registry, trust_policy_lookup=permissive_lookups
+        )
+        request = CrossDomainPermissionRequest(
+            "xreq-grant",
+            "domain:external-1",
+            "domain:target",
+            requested_operations=("external_pack.harmless_operation",),
+            reason="test",
+            actor_id="actor-1",
+            session_id="session-1",
+            sensitivity_level=SensitivityLevel.INTERNAL,
+            capability=PermissionCapability.OPERATION_EXECUTE,
+            requires_approval=False,
+        )
+        decision = resolver.resolve_cross_domain(request)
+        # Canonical source policy does not allow OPERATION_EXECUTE/capability
+        # suite, so the canonical path denies; trust never widens that deny.
+        assert decision.decision is PermissionOutcome.DENY
+        assert any("source_capability_denied" == r for r in decision.reasons)
 
 
 class TestContentIsNotPermissionEvidence:

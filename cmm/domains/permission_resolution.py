@@ -317,6 +317,13 @@ class DomainPermissionResolver:
         # An explicit source/target trust policy may only make the
         # cross-domain result more restrictive. It can never make a
         # canonical denied transfer succeed.
+        #
+        # V1 BLOCKER-01: the trust ceiling must evaluate the **actual**
+        # capability being transferred, not only DOMAIN_CROSS_ACCESS.
+        # External-access trust is one boundary; the capability-class trust
+        # ceiling (code execution / memory write / sensitive resources /
+        # destructive operations) is an independent boundary applied to
+        # ``request.capability`` when it differs from DOMAIN_CROSS_ACCESS.
         if self._trust_policy_lookup is not None:
             source_trust = self._trust_policy_lookup(request.source_domain)
             if source_trust is not None:
@@ -336,6 +343,24 @@ class DomainPermissionResolver:
                 if trust_evaluation.effect is PermissionOutcome.DENY:
                     reasons.extend(trust_evaluation.reasons)
                     reasons.append("source_trust_denied")
+                if request.capability is not PermissionCapability.DOMAIN_CROSS_ACCESS:
+                    capability_trust_evaluation = evaluate_domain_trust_permission(
+                        source_trust,
+                        DomainPermissionRequest(
+                            f"{request.request_id}:trust-source-capability",
+                            request.capability,
+                            request.source_domain,
+                            request.actor_id,
+                            request.session_id,
+                            sensitivity_level=request.sensitivity_level,
+                            source_domain=request.source_domain,
+                            target_domain=request.target_domain,
+                            **capability_context,
+                        ),
+                    )
+                    if capability_trust_evaluation.effect is PermissionOutcome.DENY:
+                        reasons.extend(capability_trust_evaluation.reasons)
+                        reasons.append("source_trust_capability_denied")
             target_trust = self._trust_policy_lookup(request.target_domain)
             if target_trust is not None:
                 trust_evaluation = evaluate_domain_trust_permission(
@@ -354,6 +379,24 @@ class DomainPermissionResolver:
                 if trust_evaluation.effect is PermissionOutcome.DENY:
                     reasons.extend(trust_evaluation.reasons)
                     reasons.append("target_trust_denied")
+                if request.capability is not PermissionCapability.DOMAIN_CROSS_ACCESS:
+                    capability_trust_evaluation = evaluate_domain_trust_permission(
+                        target_trust,
+                        DomainPermissionRequest(
+                            f"{request.request_id}:trust-target-capability",
+                            request.capability,
+                            request.target_domain,
+                            request.actor_id,
+                            request.session_id,
+                            sensitivity_level=request.sensitivity_level,
+                            source_domain=request.source_domain,
+                            target_domain=request.target_domain,
+                            **capability_context,
+                        ),
+                    )
+                    if capability_trust_evaluation.effect is PermissionOutcome.DENY:
+                        reasons.extend(capability_trust_evaluation.reasons)
+                        reasons.append("target_trust_capability_denied")
         if not target.allow_inbound_cross_domain_access:
             reasons.append("target_cross_domain_denied")
         if PermissionCapability.DOMAIN_CROSS_ACCESS in target.prohibited_capabilities:
