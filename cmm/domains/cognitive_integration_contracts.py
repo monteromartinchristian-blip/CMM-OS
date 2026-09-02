@@ -46,11 +46,11 @@ class DomainCognitiveResourceInput:
     extractor_name: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.resolution, DomainResourceResolution):
+        if type(self.resolution) is not DomainResourceResolution:
             raise DomainCognitiveIntegrationContractError(
                 "resolution must be a DomainResourceResolution", field="resolution"
             )
-        if not isinstance(self.binding, DomainResourceBinding):
+        if type(self.binding) is not DomainResourceBinding:
             raise DomainCognitiveIntegrationContractError(
                 "binding must be a DomainResourceBinding", field="binding"
             )
@@ -65,7 +65,7 @@ class DomainCognitiveResourceInput:
             raise DomainCognitiveIntegrationContractError(
                 "resolution status must be RESOLVED or PARTIAL", field="resolution"
             )
-        if not isinstance(self.source, ResourceInput):
+        if type(self.source) is not ResourceInput:
             raise DomainCognitiveIntegrationContractError(
                 "source must be a ResourceInput", field="source"
             )
@@ -113,7 +113,7 @@ def _tuple_of_instances(
         )
     values = tuple(value)
     for index, item in enumerate(values):
-        if not isinstance(item, expected_type):
+        if type(item) is not expected_type:
             raise DomainCognitiveIntegrationContractError(
                 f"{field_name}[{index}] must be a {expected_type.__name__}",
                 field=field_name,
@@ -143,8 +143,6 @@ def _non_blank_strings(value: Any, field_name: str) -> tuple[str, ...]:
 
 
 def _freeze_metadata(value: Any) -> MappingProxyType[str, Any]:
-    if value is None:
-        return MappingProxyType({})
     if not isinstance(value, Mapping):
         raise DomainCognitiveIntegrationContractError(
             "metadata must be a mapping", field="metadata"
@@ -186,7 +184,7 @@ class DomainCognitiveIntegrationRequest:
             object.__setattr__(
                 self, field_name, _non_blank(getattr(self, field_name), field_name)
             )
-        if not isinstance(self.composition, DomainComposition):
+        if type(self.composition) is not DomainComposition:
             raise DomainCognitiveIntegrationContractError(
                 "composition must be a DomainComposition", field="composition"
             )
@@ -197,7 +195,7 @@ class DomainCognitiveIntegrationRequest:
             raise DomainCognitiveIntegrationContractError(
                 "composition status must be COMPOSED or PARTIAL", field="composition"
             )
-        if not isinstance(self.profile, ResolvedDomainProfile):
+        if type(self.profile) is not ResolvedDomainProfile:
             raise DomainCognitiveIntegrationContractError(
                 "profile must be a ResolvedDomainProfile", field="profile"
             )
@@ -275,7 +273,7 @@ class DomainCognitiveIntegrationResult:
             ("rule_result", DomainRuleExecutionResult),
             ("trace_references", DomainTraceReferences),
         ):
-            if not isinstance(getattr(self, field_name), expected_type):
+            if type(getattr(self, field_name)) is not expected_type:
                 raise DomainCognitiveIntegrationContractError(
                     f"{field_name} must be a {expected_type.__name__}",
                     field=field_name,

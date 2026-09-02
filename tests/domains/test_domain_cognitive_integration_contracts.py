@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import datetime, timezone
 
 import pytest
@@ -240,6 +241,18 @@ def _result(**overrides: object) -> DomainCognitiveIntegrationResult:
     return DomainCognitiveIntegrationResult(**values)  # type: ignore[arg-type]
 
 
+def _subclass_instance(instance: object) -> object:
+    """Build a valid ``isinstance`` match that is not the exact canonical type."""
+    expected_type = type(instance)
+    subclass = type(f"Subclassed{expected_type.__name__}", (expected_type,), {})
+    return subclass(
+        **{
+            definition.name: getattr(instance, definition.name)
+            for definition in fields(instance)
+        }
+    )
+
+
 def test_resource_input_accepts_resolved_binding_and_matching_source() -> None:
     """Would fail if the contract stopped enforcing the accepted resource lineage."""
     binding = _binding()
@@ -271,6 +284,33 @@ def test_resource_input_rejects_wrong_boundary_type(field: str, value: object) -
 
     with pytest.raises(DomainCognitiveIntegrationContractError, match=field):
         DomainCognitiveResourceInput(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "resolution",
+        "binding",
+        "source",
+    ),
+)
+def test_resource_input_rejects_subclassed_canonical_boundary_type(
+    field: str,
+) -> None:
+    """Would fail if a subclass could alter canonical resource-boundary evidence."""
+    binding = _binding()
+    values: dict[str, object] = {
+        "resolution": _resolution(binding),
+        "binding": binding,
+        "source": _source(),
+    }
+    values[field] = _subclass_instance(values[field])
+    if field == "binding":
+        values["resolution"] = _resolution(values["binding"])  # type: ignore[arg-type]
+
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        DomainCognitiveResourceInput(**values)  # type: ignore[arg-type]
+    assert error.value.field == field
 
 
 def test_resource_input_rejects_binding_absent_from_resolution() -> None:
@@ -362,6 +402,32 @@ def test_request_rejects_wrong_composition_or_profile_type(
 
 
 @pytest.mark.parametrize(
+    "field",
+    (
+        "composition",
+        "profile",
+        "resources",
+    ),
+)
+def test_request_rejects_subclassed_canonical_boundary_type(
+    field: str,
+) -> None:
+    """Would fail if a subclass could alter canonical request evidence."""
+    values: dict[str, object] = {
+        "composition": _composition(),
+        "profile": _profile(),
+        "resources": _resource_input(),
+    }
+    value = _subclass_instance(values[field])
+    if field == "resources":
+        value = (value,)
+
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        _request(**{field: value})
+    assert error.value.field == field
+
+
+@pytest.mark.parametrize(
     "status", (DomainCompositionStatus.BLOCKED, DomainCompositionStatus.FAILED)
 )
 def test_request_rejects_non_executable_composition(
@@ -450,6 +516,13 @@ def test_request_rejects_non_string_metadata_key() -> None:
     assert error.value.field == "metadata"
 
 
+def test_request_rejects_none_metadata() -> None:
+    """Would fail if absent metadata silently crossed this strict Mapping boundary."""
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        _request(metadata=None)
+    assert error.value.field == "metadata"
+
+
 def test_result_accepts_only_canonical_evidence_and_freezes_collections() -> None:
     """Would fail if result evidence were mutable or stopped using canonical types."""
     result = _result(
@@ -500,6 +573,42 @@ def test_result_accepts_only_canonical_evidence_and_freezes_collections() -> Non
 )
 def test_result_rejects_non_canonical_evidence(field: str, value: object) -> None:
     """Would fail if evidence from a non-owning subsystem crossed this boundary."""
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        _result(**{field: value})
+    assert error.value.field == field
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "knowledge_package",
+        "reasoning_context",
+        "rule_plan",
+        "rule_result",
+        "trace_references",
+        "validation_results",
+        "adapted_resources",
+        "extracted_bundles",
+        "presentation_items",
+    ),
+)
+def test_result_rejects_subclassed_canonical_evidence(
+    field: str,
+) -> None:
+    """Would fail if a subclass could alter canonical result evidence."""
+    baseline = _result()
+    value: object = getattr(baseline, field)
+    if field in {
+        "validation_results",
+        "adapted_resources",
+        "extracted_bundles",
+        "presentation_items",
+    }:
+        value = _subclass_instance(value[0])  # type: ignore[index]
+        value = (value,)
+    else:
+        value = _subclass_instance(value)
+
     with pytest.raises(DomainCognitiveIntegrationContractError) as error:
         _result(**{field: value})
     assert error.value.field == field
