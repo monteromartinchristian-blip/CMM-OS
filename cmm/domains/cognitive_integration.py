@@ -8,6 +8,10 @@ from typing import Protocol, runtime_checkable
 
 from cmm.cognitive import (
     AdaptationContext,
+    CognitiveValidationContext,
+    CognitiveValidationDecision,
+    CognitiveValidationResult,
+    CognitiveValidator,
     Confidence,
     ExtractionContext,
     ExtractionStatus,
@@ -29,6 +33,14 @@ from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveResourceInput,
 )
 from cmm.domains.errors import DomainCognitiveIntegrationBlockedError
+
+_BLOCKING_COGNITIVE_VALIDATION_DECISIONS = {
+    CognitiveValidationDecision.BLOCK,
+    CognitiveValidationDecision.INVALIDATE,
+    CognitiveValidationDecision.REPAIR,
+    CognitiveValidationDecision.REBUILD,
+    CognitiveValidationDecision.REQUEST_APPROVAL,
+}
 
 
 @runtime_checkable
@@ -73,6 +85,62 @@ def _build_knowledge_package(
             },
         )
     )
+
+
+def _validate_cognitive_inputs(
+    *,
+    validator: CognitiveValidator,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage,
+    resources: tuple[Resource, ...],
+    bundles: tuple[KnowledgeBundle, ...],
+    now: datetime,
+) -> tuple[CognitiveValidationResult, ...]:
+    context = CognitiveValidationContext(
+        actor_id=request.actor_id,
+        domain=str(request.profile.primary_domain),
+        permission_context={
+            "effective_permissions": request.effective_permissions,
+        },
+        require_current_information=bool(
+            request.profile.temporal_policy.require_current_information
+        ),
+        now=now,
+        metadata={
+            "domain_profile_id": request.profile.id,
+            "domain_composition_id": request.composition.id,
+        },
+    )
+    targets = (
+        package,
+        *resources,
+        *(item for bundle in bundles for item in bundle.items),
+    )
+    results = tuple(validator.validate(target, context) for target in targets)
+
+    blocked = next(
+        (
+            result
+            for result in results
+            if result.decision in _BLOCKING_COGNITIVE_VALIDATION_DECISIONS
+        ),
+        None,
+    )
+    if blocked is not None:
+        raise DomainCognitiveIntegrationBlockedError(
+            "Cognitive validation blocked Domain rule execution",
+            details={
+                "request_id": request.request_id,
+                "validation_result_id": blocked.id,
+                "target_id": blocked.target_id,
+                "decision": blocked.decision.value,
+                "blocking_finding_codes": tuple(
+                    finding.code for finding in blocked.blocking_findings
+                ),
+            },
+        )
+
+    return results
 
 
 _SENSITIVITY_RANK = {

@@ -11,6 +11,9 @@ from cmm.cognitive import (
     AdaptationContext,
     AdaptationStatus,
     CandidateKind,
+    CognitiveValidationContext,
+    CognitiveValidationDecision,
+    CognitiveValidator,
     Contradiction,
     ExistingResourceAdapter,
     ExtractionContext,
@@ -24,6 +27,15 @@ from cmm.cognitive import (
     KnowledgePackage,
     KnowledgeStatus,
     PlainTextKnowledgeExtractor,
+    ReasoningRiskLevel,
+    ReasoningRule,
+    ReasoningRuleCategory,
+    ReasoningRuleContext,
+    ReasoningRuleDefinition,
+    ReasoningRuleResult,
+    ReasoningRuleResultStatus,
+    ReasoningRuleScope,
+    ReasoningRuleStatus,
     Resource,
     ResourceAdaptationResult,
     ResourceAdapterRegistry,
@@ -64,6 +76,8 @@ from cmm.domains.resource_contracts import (
     DomainResourceBinding,
     DomainResourceResolution,
 )
+from cmm.validation.enums import ValidationSeverity
+from cmm.validation.findings import ValidationFinding
 
 NOW = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)
 CONTENT_CREATED_AT = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
@@ -188,6 +202,79 @@ class _MandatoryStatusExtractor(PlainTextKnowledgeExtractor):
             status=self.status,
             errors=(f"mandatory extraction {self.status.value}",),
             created_at=NOW,
+        )
+
+
+class _RecordingValidationRule:
+    name = "test.record_context"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, CognitiveValidationContext]] = []
+
+    def applies(self, target: object) -> bool:
+        return True
+
+    def evaluate(
+        self,
+        target: object,
+        context: CognitiveValidationContext,
+    ) -> tuple[ValidationFinding, ...]:
+        self.calls.append((target, context))
+        return ()
+
+
+class _RequestInformationValidationRule:
+    name = "test.request_information"
+
+    def applies(self, target: object) -> bool:
+        return isinstance(target, KnowledgePackage)
+
+    def evaluate(
+        self,
+        target: object,
+        context: CognitiveValidationContext,
+    ) -> tuple[ValidationFinding, ...]:
+        return (
+            ValidationFinding(
+                code="COG_EVIDENCE_INSUFFICIENT",
+                message="Canonical evidence is incomplete",
+                severity=ValidationSeverity.WARNING,
+                source="test.cognitive_validation",
+                blocking=True,
+                metadata={"target_id": getattr(target, "id", "unknown")},
+            ),
+        )
+
+
+class _CountingReasoningRule:
+    def __init__(self) -> None:
+        self.evaluations = 0
+        self._definition = ReasoningRuleDefinition(
+            id="test.cognitive_validation_count",
+            name="Cognitive validation count",
+            version="1.0.0",
+            scope=ReasoningRuleScope.DOMAIN,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=1,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id="domain:health",
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        self.evaluations += 1
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+            domain_id=self.definition.domain_id,
         )
 
 
@@ -828,3 +915,296 @@ def test_question_candidate_follows_canonical_materialisation_path() -> None:
     ]
     assert [item.statement for item in question_items] == [question]
     assert bundle.open_questions == (question,)
+
+
+def test_cognitive_validation_covers_package_every_resource_and_materialized_item() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    resources = (
+        replace(_canonical_resource(), id="resource-1"),
+        replace(_canonical_resource(), id="resource-2"),
+    )
+    extracted_items = (
+        KnowledgeItem(
+            id="extracted-item-1",
+            statement="First extracted observation.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.72, source="extraction"),
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+        KnowledgeItem(
+            id="extracted-item-2",
+            statement="Second extracted observation.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.73, source="extraction"),
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+    bundles = (
+        KnowledgeBundle(
+            id="bundle-1",
+            items=(extracted_items[0],),
+            created_at=NOW,
+        ),
+        KnowledgeBundle(
+            id="bundle-2",
+            items=(extracted_items[1],),
+            created_at=NOW,
+        ),
+    )
+    package = KnowledgePackage(
+        id="package-1",
+        objective="Review health information",
+        resources=resources,
+        provenance=("resource-1", "resource-2"),
+        created_at=NOW,
+    )
+    recording_rule = _RecordingValidationRule()
+    validator = CognitiveValidator((*CognitiveValidator().rules, recording_rule))
+    request = _integration_request()
+
+    results = _validate_cognitive_inputs(
+        validator=validator,
+        request=request,
+        package=package,
+        resources=resources,
+        bundles=bundles,
+        now=NOW,
+    )
+
+    expected_targets = (package, *resources, *extracted_items)
+    expected_context = CognitiveValidationContext(
+        actor_id="actor-1",
+        domain="domain:health",
+        permission_context={
+            "effective_permissions": ("resource:read", "resource:infer"),
+        },
+        require_current_information=False,
+        now=NOW,
+        metadata={
+            "domain_profile_id": "profile-1",
+            "domain_composition_id": "composition-1",
+        },
+    )
+    assert tuple(target for target, _ in recording_rule.calls) == expected_targets
+    assert all(context == expected_context for _, context in recording_rule.calls)
+    assert [result.target_id for result in results] == [
+        "package-1",
+        "resource-1",
+        "resource-2",
+        "extracted-item-1",
+        "extracted-item-2",
+    ]
+    assert [result.target_kind for result in results] == [
+        "knowledge_package",
+        "Resource",
+        "Resource",
+        "knowledge_item",
+        "knowledge_item",
+    ]
+
+
+def test_blocking_privacy_validation_prevents_rule_evaluation_and_hides_content() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    untrusted_content = "PRIVATE-CONTENT-MUST-NOT-LEAK"
+    resource = replace(
+        _canonical_resource(untrusted_content),
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(ResourcePermissionOperation.READ,),
+            ),
+        ),
+    )
+    package = KnowledgePackage(
+        id="privacy-blocked-package",
+        objective="Review health information",
+        resources=(resource,),
+        provenance=(resource.id,),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+    assert isinstance(counting_rule, ReasoningRule)
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(),
+            package=package,
+            resources=(resource,),
+            bundles=(),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="privacy-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "privacy-blocked-package"
+    assert error.value.details["decision"] == "block"
+    assert error.value.details["blocking_finding_codes"] == ("COG_PRIVACY_DENIED",)
+    assert untrusted_content not in str(error.value)
+    assert untrusted_content not in repr(dict(error.value.details))
+
+
+def test_missing_mandatory_provenance_blocks_before_rule_evaluation() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="missing-provenance-package",
+        objective="Review health information",
+        provenance=(),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(),
+            package=package,
+            resources=(),
+            bundles=(),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="provenance-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "missing-provenance-package"
+    assert error.value.details["decision"] == "block"
+    assert error.value.details["blocking_finding_codes"] == ("COG_PROVENANCE_MISSING",)
+
+
+def test_expired_required_current_validation_blocks_before_rule_evaluation() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    expired_item = KnowledgeItem(
+        id="expired-item",
+        statement="This observation is no longer current.",
+        kind=KnowledgeKind.OBSERVATION,
+        confidence=Confidence(0.8, source="extraction"),
+        temporal_scope=TemporalScope(
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            valid_until=datetime(2025, 1, 2, tzinfo=timezone.utc),
+        ),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="expired-bundle",
+        items=(expired_item,),
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="current-information-package",
+        objective="Review current health information",
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as error:
+        _validate_cognitive_inputs(
+            validator=CognitiveValidator(),
+            request=_integration_request(
+                temporal_policy=DomainTemporalPolicy(
+                    require_current_information=True,
+                )
+            ),
+            package=package,
+            resources=(),
+            bundles=(bundle,),
+            now=NOW,
+        )
+        counting_rule.evaluate(
+            ReasoningRuleContext(reasoning_id="expired-blocked", timestamp=NOW)
+        )
+
+    assert counting_rule.evaluations == 0
+    assert error.value.details["target_id"] == "expired-item"
+    assert error.value.details["decision"] == "invalidate"
+    assert error.value.details["blocking_finding_codes"] == ("COG_TEMPORAL_EXPIRED",)
+
+
+def test_request_information_validation_remains_evidence_and_rules_may_proceed() -> (
+    None
+):
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="information-gap-package",
+        objective="Review health information",
+        missing_information=("current blood pressure reading",),
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    validator = CognitiveValidator(
+        (*CognitiveValidator().rules, _RequestInformationValidationRule())
+    )
+    counting_rule = _CountingReasoningRule()
+
+    results = _validate_cognitive_inputs(
+        validator=validator,
+        request=_integration_request(),
+        package=package,
+        resources=(),
+        bundles=(),
+        now=NOW,
+    )
+    rule_result = counting_rule.evaluate(
+        ReasoningRuleContext(reasoning_id="information-gap", timestamp=NOW)
+    )
+
+    assert results[0].decision is CognitiveValidationDecision.REQUEST_INFORMATION
+    assert "COG_EVIDENCE_INSUFFICIENT" in {
+        finding.code for finding in results[0].findings
+    }
+    assert package.other_knowledge == ()
+    assert package.missing_information == ("current blood pressure reading",)
+    assert counting_rule.evaluations == 1
+    assert rule_result.status is ReasoningRuleResultStatus.APPLIED
+
+
+def test_escalate_validation_remains_evidence_and_rules_may_proceed() -> None:
+    from cmm.domains.cognitive_integration import _validate_cognitive_inputs
+
+    package = KnowledgePackage(
+        id="escalated-package",
+        objective="Review contradictory health information",
+        contradictions=(
+            Contradiction(
+                id="unresolved-contradiction",
+                item_a_id="claim-a",
+                item_b_id="claim-b",
+                explanation="The health claims disagree.",
+                created_at=NOW,
+            ),
+        ),
+        provenance=("source-1",),
+        created_at=NOW,
+    )
+    counting_rule = _CountingReasoningRule()
+
+    results = _validate_cognitive_inputs(
+        validator=CognitiveValidator(),
+        request=_integration_request(),
+        package=package,
+        resources=(),
+        bundles=(),
+        now=NOW,
+    )
+    counting_rule.evaluate(
+        ReasoningRuleContext(reasoning_id="escalated", timestamp=NOW)
+    )
+
+    assert results[0].decision is CognitiveValidationDecision.ESCALATE
+    assert counting_rule.evaluations == 1
