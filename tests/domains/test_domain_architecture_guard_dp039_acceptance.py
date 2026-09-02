@@ -58,24 +58,31 @@ def _validation_request(tmp_path, source: str) -> DomainValidationRequest:
 # ── Positive: canonical reuse accepted ────────────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "from cmm.planner import TaskPlanner\n"
+            "class GuardedPlannerAdapter(TaskPlanner):\n"
+            "    pass\n"
+        ),
+        (
+            "import cmm.planner\n"
+            "class GuardedPlannerAdapter(cmm.planner.TaskPlanner):\n"
+            "    pass\n"
+        ),
+    ),
+)
 def test_at_dp039_canonical_reuse_passes_fragmentation_and_install_gate(
     tmp_path,
+    source: str,
 ) -> None:
     """A pack that legitimately extends a canonical base must pass fragmentation.
 
     Uses the real ``cmm.planner.TaskPlanner`` canonical class
     (Phase 10.39 remediation: replaced fictional ``BasePlanner``).
     """
-    result = PipelineDomainValidator().validate(
-        _validation_request(
-            tmp_path,
-            (
-                "from cmm.planner import TaskPlanner\n"
-                "class GuardedPlannerAdapter(TaskPlanner):\n"
-                "    pass\n"
-            ),
-        )
-    )
+    result = PipelineDomainValidator().validate(_validation_request(tmp_path, source))
 
     assert result.fragmentation_valid is True
 
@@ -198,6 +205,16 @@ VIOLATIONS: list[tuple[str, str]] = [
     (
         "from sqlite3 import connect\n",
         "DOMAIN_FRAGMENTATION_DIRECT_PERSISTENCE_ACCESS",
+    ),
+    # ── V2 BLOCKER-01: rebound canonical binding must not grant immunity ───────
+    (
+        (
+            "from cmm.planner import TaskPlanner\n"
+            "TaskPlanner = object\n"
+            "class EvilPlanner(TaskPlanner):\n"
+            "    pass\n"
+        ),
+        "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
     ),
 ]
 

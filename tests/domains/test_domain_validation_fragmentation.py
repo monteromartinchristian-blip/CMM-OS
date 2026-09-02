@@ -244,6 +244,100 @@ def test_canonical_module_alias_adapter_does_not_block_fragmentation() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("source", "expected_code"),
+    (
+        (
+            (
+                "from cmm.planner import TaskPlanner\n"
+                "TaskPlanner = object\n"
+                "class EvilPlanner(TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "from cmm.planner import TaskPlanner as CanonicalPlanner\n"
+                "CanonicalPlanner = object\n"
+                "class EvilPlanner(CanonicalPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "from cmm.workflows import WorkflowEngine\n"
+                "WorkflowEngine = object\n"
+                "class EvilWorkflowEngine(WorkflowEngine):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+        (
+            (
+                "from cmm.cognitive import InMemoryResolutionMemoryStore\n"
+                "InMemoryResolutionMemoryStore = object\n"
+                "class EvilMemoryStore(InMemoryResolutionMemoryStore):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+        ),
+        (
+            (
+                "from cmm.planner import TaskPlanner\n"
+                "TaskPlanner: object = object\n"
+                "class EvilPlanner(TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.planner\n"
+                "cmm = object\n"
+                "class EvilPlanner(cmm.planner.TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+    ),
+)
+def test_rebound_canonical_adapter_binding_does_not_grant_immunity(
+    source: str,
+    expected_code: str,
+) -> None:
+    """A binding must still be canonical when the protected class is declared."""
+    findings = analyze_fragmentation(source, "rebound_adapter.py")
+    assert expected_code in {str(item["code"]) for item in findings}
+
+
+@pytest.mark.parametrize(
+    ("source", "unexpected_code"),
+    (
+        (
+            "import cmm.planner\nclass MyPlanner(cmm.planner.TaskPlanner):\n    pass\n",
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.workflows\n"
+                "class MyWorkflowEngine(cmm.workflows.WorkflowEngine):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+    ),
+)
+def test_unaliased_canonical_module_adapter_does_not_block_fragmentation(
+    source: str,
+    unexpected_code: str,
+) -> None:
+    """Equivalent unaliased canonical imports must retain adapter immunity."""
+    findings = analyze_fragmentation(source, "canonical_adapter.py")
+    assert unexpected_code not in {str(item["code"]) for item in findings}
+
+
 def test_local_fake_base_does_not_make_duplicate_planner_an_adapter() -> None:
     """A local fake base class must NOT receive canonical-adapter immunity."""
     source = "class BasePlanner:\n    pass\nclass MyPlanner(BasePlanner):\n    pass\n"

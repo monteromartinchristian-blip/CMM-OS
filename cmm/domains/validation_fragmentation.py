@@ -223,75 +223,120 @@ def detect_class_duplication(
     except SyntaxError:
         return []
 
-    bindings = _collect_import_bindings(tree)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            found = False
-            # Check component duplication
-            for class_name, finding_code in _FRAGMENTATION_CLASS_NAMES.items():
-                if node.name == class_name or node.name.endswith(class_name):
-                    is_adapter = _is_adapter_pattern(node, class_name, bindings)
+    for node, bindings in _class_binding_snapshots(tree):
+        found = False
+        # Check component duplication
+        for class_name, finding_code in _FRAGMENTATION_CLASS_NAMES.items():
+            if node.name == class_name or node.name.endswith(class_name):
+                is_adapter = _is_adapter_pattern(node, class_name, bindings)
+                if not is_adapter:
+                    findings.append(
+                        {
+                            "line": node.lineno,
+                            "class_name": node.name,
+                            "code": finding_code,
+                            "path": rel_path,
+                        }
+                    )
+                found = True
+                break
+        # Check protected canonical service recreation (MAJOR-01 8A)
+        if not found:
+            for suffix, code in _PROTECTED_SERVICE_SUFFIXES.items():
+                if node.name.endswith(suffix):
+                    is_adapter = _is_adapter_pattern(node, suffix, bindings)
                     if not is_adapter:
                         findings.append(
                             {
                                 "line": node.lineno,
                                 "class_name": node.name,
-                                "code": finding_code,
+                                "code": code,
                                 "path": rel_path,
                             }
                         )
-                    found = True
                     break
-            # Check protected canonical service recreation (MAJOR-01 8A)
-            if not found:
-                for suffix, code in _PROTECTED_SERVICE_SUFFIXES.items():
-                    if node.name.endswith(suffix):
-                        is_adapter = _is_adapter_pattern(node, suffix, bindings)
-                        if not is_adapter:
-                            findings.append(
-                                {
-                                    "line": node.lineno,
-                                    "class_name": node.name,
-                                    "code": code,
-                                    "path": rel_path,
-                                }
-                            )
-                        break
 
     return findings
 
 
-def _collect_import_bindings(tree: ast.AST) -> dict[str, str]:
-    """Collect AST import bindings mapping local names to canonical module paths.
+def _class_binding_snapshots(
+    tree: ast.Module,
+) -> list[tuple[ast.ClassDef, dict[str, str]]]:
+    """Return classes with canonical bindings intact at each declaration.
 
-    Handles:
-      - ``from cmm.planner import BasePlanner``
-        → {"BasePlanner": "cmm.planner.BasePlanner"}
-      - ``import cmm.planner as canonical_planner``
-        → {"canonical_planner": "cmm.planner"}
-      - ``import cmm.planner``
-        → {"cmm": "cmm"}
-
-    Phase 10.39 remediation: for ``from <package> import <Class>``, also
-    resolves to the likely submodule path (e.g. ``cmm.planner.task_planner``)
-    to match canonical base mappings that use full source-file paths.
+    Only unconditional top-level imports establish trusted canonical bindings.
+    Top-level rebinding invalidates them in source order. Nested class
+    declarations are still checked, but do not receive adapter immunity from a
+    binding state that would require control-flow interpretation.
     """
+    snapshots: list[tuple[ast.ClassDef, dict[str, str]]] = []
     bindings: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                local_name = alias.asname or alias.name
-                full_path = f"{node.module}.{alias.name}"
-                bindings[local_name] = full_path
-                # Also map to the likely submodule path for canonical-base matching
-                # e.g. cmm.planner.TaskPlanner → cmm.planner.task_planner.TaskPlanner
-                _add_submodule_binding(bindings, local_name, node.module, alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                local_name = alias.asname or alias.name
-                bindings[local_name] = alias.name
-    return bindings
+    for statement in tree.body:
+        if isinstance(statement, ast.ClassDef):
+            snapshots.append((statement, bindings.copy()))
+            snapshots.extend(
+                (node, {})
+                for node in ast.walk(statement)
+                if isinstance(node, ast.ClassDef) and node is not statement
+            )
+        else:
+            snapshots.extend(
+                (node, {})
+                for node in ast.walk(statement)
+                if isinstance(node, ast.ClassDef)
+            )
+        _update_top_level_bindings(statement, bindings)
+    return snapshots
+
+
+def _update_top_level_bindings(
+    statement: ast.stmt,
+    bindings: dict[str, str],
+) -> None:
+    """Apply one top-level statement's statically explicit name bindings."""
+    if isinstance(statement, ast.ImportFrom) and statement.module:
+        for alias in statement.names:
+            local_name = alias.asname or alias.name
+            full_path = f"{statement.module}.{alias.name}"
+            bindings[local_name] = _resolve_to_submodule(full_path) or full_path
+        return
+
+    if isinstance(statement, ast.Import):
+        for alias in statement.names:
+            if alias.asname:
+                bindings[alias.asname] = alias.name
+            else:
+                root_name = alias.name.split(".", 1)[0]
+                bindings[root_name] = root_name
+        return
+
+    rebound_names: set[str] = set()
+    if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        rebound_names.add(statement.name)
+    elif isinstance(statement, ast.Assign):
+        for target in statement.targets:
+            rebound_names.update(_assigned_names(target))
+    elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+        if isinstance(statement, ast.AnnAssign) and statement.value is None:
+            return
+        rebound_names.update(_assigned_names(statement.target))
+    elif isinstance(statement, ast.Delete):
+        for target in statement.targets:
+            rebound_names.update(_assigned_names(target))
+
+    for name in rebound_names:
+        bindings.pop(name, None)
+
+
+def _assigned_names(target: ast.expr) -> set[str]:
+    """Return local names explicitly rebound by an assignment target."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {name for item in target.elts for name in _assigned_names(item)}
+    if isinstance(target, ast.Starred):
+        return _assigned_names(target.value)
+    return set()
 
 
 # Map of known package → submodule for canonical base resolution.
@@ -308,15 +353,6 @@ _KNOWN_SUBMODULES: dict[str, dict[str, str]] = {
         "WorkflowEngine": "cmm.workflows.engine.WorkflowEngine",
     },
 }
-
-
-def _add_submodule_binding(
-    bindings: dict[str, str], local_name: str, module: str, attr: str
-) -> None:
-    """Add an alternative binding for the likely submodule path."""
-    submodules = _KNOWN_SUBMODULES.get(module, {})
-    if attr in submodules:
-        bindings[local_name] = submodules[attr]
 
 
 def _is_adapter_pattern(
