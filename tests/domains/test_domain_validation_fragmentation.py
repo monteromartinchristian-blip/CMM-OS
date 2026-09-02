@@ -313,6 +313,155 @@ def test_rebound_canonical_adapter_binding_does_not_grant_immunity(
 
 
 @pytest.mark.parametrize(
+    ("source", "expected_code"),
+    (
+        (
+            (
+                "import cmm.planner as planner\n"
+                "planner.TaskPlanner = object\n"
+                "class EvilPlanner(planner.TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.planner\n"
+                "cmm.planner = object\n"
+                "class EvilPlanner(cmm.planner.TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.planner\n"
+                "cmm.planner.TaskPlanner = object\n"
+                "class EvilPlanner(cmm.planner.TaskPlanner):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.workflows as workflows\n"
+                "workflows.WorkflowEngine = object\n"
+                "class EvilWorkflowEngine(workflows.WorkflowEngine):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.cognitive as cognitive\n"
+                "cognitive.InMemoryResolutionMemoryStore = object\n"
+                "class EvilMemoryStore(cognitive.InMemoryResolutionMemoryStore):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+        ),
+    ),
+)
+def test_canonical_attribute_rebinding_does_not_grant_adapter_immunity(
+    source: str,
+    expected_code: str,
+) -> None:
+    """A mutated canonical module/member path must not remain trusted."""
+    findings = analyze_fragmentation(source, "attribute_rebound_adapter.py")
+    assert expected_code in {str(item["code"]) for item in findings}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "planner.TaskPlanner: object = object",
+        "planner.TaskPlanner += object",
+        "del planner.TaskPlanner",
+    ),
+)
+def test_canonical_attribute_mutation_forms_invalidate_adapter_immunity(
+    mutation: str,
+) -> None:
+    """Annotated, augmented, and deleted canonical attributes invalidate trust."""
+    source = (
+        "import cmm.planner as planner\n"
+        f"{mutation}\n"
+        "class EvilPlanner(planner.TaskPlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "attribute_mutation_adapter.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" in {
+        str(item["code"]) for item in findings
+    }
+
+
+def test_invalidated_canonical_path_is_not_restored_by_later_from_import() -> None:
+    """A later from-import cannot restore a source-mutated canonical member."""
+    source = (
+        "import cmm.planner as planner\n"
+        "planner.TaskPlanner = object\n"
+        "from cmm.planner import TaskPlanner\n"
+        "class EvilPlanner(TaskPlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "reimported_attribute_adapter.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" in {
+        str(item["code"]) for item in findings
+    }
+
+
+def test_unrelated_canonical_attribute_mutation_preserves_adapter_immunity() -> None:
+    """Invalidation stays precise to the explicitly mutated canonical path."""
+    source = (
+        "import cmm.planner as planner\n"
+        "planner.some_local_setting = object\n"
+        "class MyPlanner(planner.TaskPlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "unrelated_attribute_mutation.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" not in {
+        str(item["code"]) for item in findings
+    }
+
+
+def test_later_canonical_attribute_mutation_does_not_poison_earlier_adapter() -> None:
+    """Path invalidation applies only after the source mutation occurs."""
+    source = (
+        "import cmm.planner as planner\n"
+        "class MyPlanner(planner.TaskPlanner):\n"
+        "    pass\n"
+        "planner.TaskPlanner = object\n"
+    )
+    findings = analyze_fragmentation(source, "later_attribute_mutation.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" not in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
+    "source_prefix",
+    (
+        "# planner.TaskPlanner = object\n",
+        '"""planner.TaskPlanner = object"""\n',
+    ),
+)
+def test_non_executable_attribute_rebinding_text_preserves_adapter_immunity(
+    source_prefix: str,
+) -> None:
+    """Comments and docstrings never invalidate canonical adapter paths."""
+    source = (
+        "import cmm.planner as planner\n"
+        f"{source_prefix}"
+        "class MyPlanner(planner.TaskPlanner):\n"
+        "    pass\n"
+    )
+    findings = analyze_fragmentation(source, "non_executable_attribute_text.py")
+    assert "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION" not in {
+        str(item["code"]) for item in findings
+    }
+
+
+@pytest.mark.parametrize(
     ("source", "unexpected_code"),
     (
         (

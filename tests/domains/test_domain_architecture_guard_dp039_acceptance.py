@@ -216,6 +216,16 @@ VIOLATIONS: list[tuple[str, str]] = [
         ),
         "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
     ),
+    # ── V3 BLOCKER-01: canonical attribute rebinding must not grant immunity ──
+    (
+        (
+            "import cmm.planner as planner\n"
+            "planner.TaskPlanner = object\n"
+            "class EvilPlanner(planner.TaskPlanner):\n"
+            "    pass\n"
+        ),
+        "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
+    ),
     # ── V2 MAJOR-02: exact pathlib aliases remain direct writes ────────────────
     (
         "import pathlib as pl\npl.Path('state.json').write_text('{}')\n",

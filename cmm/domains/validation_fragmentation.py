@@ -223,12 +223,17 @@ def detect_class_duplication(
     except SyntaxError:
         return []
 
-    for node, bindings in _class_binding_snapshots(tree):
+    for node, bindings, invalidated_paths in _class_binding_snapshots(tree):
         found = False
         # Check component duplication
         for class_name, finding_code in _FRAGMENTATION_CLASS_NAMES.items():
             if node.name == class_name or node.name.endswith(class_name):
-                is_adapter = _is_adapter_pattern(node, class_name, bindings)
+                is_adapter = _is_adapter_pattern(
+                    node,
+                    class_name,
+                    bindings,
+                    invalidated_paths,
+                )
                 if not is_adapter:
                     findings.append(
                         {
@@ -244,7 +249,12 @@ def detect_class_duplication(
         if not found:
             for suffix, code in _PROTECTED_SERVICE_SUFFIXES.items():
                 if node.name.endswith(suffix):
-                    is_adapter = _is_adapter_pattern(node, suffix, bindings)
+                    is_adapter = _is_adapter_pattern(
+                        node,
+                        suffix,
+                        bindings,
+                        invalidated_paths,
+                    )
                     if not is_adapter:
                         findings.append(
                             {
@@ -261,7 +271,7 @@ def detect_class_duplication(
 
 def _class_binding_snapshots(
     tree: ast.Module,
-) -> list[tuple[ast.ClassDef, dict[str, str | None]]]:
+) -> list[tuple[ast.ClassDef, dict[str, str | None], frozenset[str]]]:
     """Return classes with canonical bindings intact at each declaration.
 
     Only unconditional top-level imports establish trusted canonical bindings.
@@ -269,18 +279,18 @@ def _class_binding_snapshots(
     declarations are still checked, but do not receive adapter immunity from a
     binding state that would require control-flow interpretation.
     """
-    snapshots: list[tuple[ast.ClassDef, dict[str, str | None]]] = []
-    for statement, bindings in _top_level_binding_snapshots(tree):
+    snapshots: list[tuple[ast.ClassDef, dict[str, str | None], frozenset[str]]] = []
+    for statement, bindings, invalidated_paths in _top_level_binding_snapshots(tree):
         if isinstance(statement, ast.ClassDef):
-            snapshots.append((statement, bindings))
+            snapshots.append((statement, bindings, invalidated_paths))
             snapshots.extend(
-                (node, {})
+                (node, {}, frozenset())
                 for node in ast.walk(statement)
                 if isinstance(node, ast.ClassDef) and node is not statement
             )
         else:
             snapshots.extend(
-                (node, {})
+                (node, {}, frozenset())
                 for node in ast.walk(statement)
                 if isinstance(node, ast.ClassDef)
             )
@@ -289,50 +299,70 @@ def _class_binding_snapshots(
 
 def _top_level_binding_snapshots(
     tree: ast.Module,
-) -> list[tuple[ast.stmt, dict[str, str | None]]]:
+) -> list[tuple[ast.stmt, dict[str, str | None], frozenset[str]]]:
     """Return each top-level statement with bindings active before it runs."""
-    snapshots: list[tuple[ast.stmt, dict[str, str | None]]] = []
+    snapshots: list[tuple[ast.stmt, dict[str, str | None], frozenset[str]]] = []
     bindings: dict[str, str | None] = {}
+    invalidated_paths: set[str] = set()
     for statement in tree.body:
-        snapshots.append((statement, bindings.copy()))
-        _update_top_level_bindings(statement, bindings)
+        snapshots.append((statement, bindings.copy(), frozenset(invalidated_paths)))
+        _update_top_level_bindings(statement, bindings, invalidated_paths)
     return snapshots
 
 
 def _update_top_level_bindings(
     statement: ast.stmt,
     bindings: dict[str, str | None],
+    invalidated_paths: set[str],
 ) -> None:
-    """Apply one top-level statement's statically explicit name bindings."""
+    """Apply one top-level statement's explicit bindings and path mutations."""
     if isinstance(statement, ast.ImportFrom) and statement.module:
         for alias in statement.names:
             local_name = alias.asname or alias.name
             full_path = f"{statement.module}.{alias.name}"
-            bindings[local_name] = _resolve_to_submodule(full_path) or full_path
+            bindings[local_name] = (
+                None
+                if _is_path_invalidated(full_path, invalidated_paths)
+                else _resolve_to_submodule(full_path) or full_path
+            )
         return
 
     if isinstance(statement, ast.Import):
         for alias in statement.names:
             if alias.asname:
-                bindings[alias.asname] = alias.name
+                bindings[alias.asname] = (
+                    None
+                    if _is_path_invalidated(alias.name, invalidated_paths)
+                    else alias.name
+                )
             else:
                 root_name = alias.name.split(".", 1)[0]
                 bindings[root_name] = root_name
         return
 
     rebound_names: set[str] = set()
+    mutation_targets: list[ast.expr] = []
     if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         rebound_names.add(statement.name)
     elif isinstance(statement, ast.Assign):
         for target in statement.targets:
             rebound_names.update(_assigned_names(target))
+            mutation_targets.append(target)
     elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
         if isinstance(statement, ast.AnnAssign) and statement.value is None:
             return
         rebound_names.update(_assigned_names(statement.target))
+        mutation_targets.append(statement.target)
     elif isinstance(statement, ast.Delete):
         for target in statement.targets:
             rebound_names.update(_assigned_names(target))
+            mutation_targets.append(target)
+
+    for target in mutation_targets:
+        for attribute in _assigned_attributes(target):
+            resolved_path = _resolve_bound_path(attribute, bindings)
+            if resolved_path and _is_trusted_canonical_path(resolved_path):
+                invalidated_paths.add(resolved_path)
 
     for name in rebound_names:
         bindings[name] = None
@@ -347,6 +377,38 @@ def _assigned_names(target: ast.expr) -> set[str]:
     if isinstance(target, ast.Starred):
         return _assigned_names(target.value)
     return set()
+
+
+def _assigned_attributes(target: ast.expr) -> list[ast.Attribute]:
+    """Return attribute paths explicitly mutated by an assignment target."""
+    if isinstance(target, ast.Attribute):
+        return [target]
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return [
+            attribute
+            for item in target.elts
+            for attribute in _assigned_attributes(item)
+        ]
+    if isinstance(target, ast.Starred):
+        return _assigned_attributes(target.value)
+    return []
+
+
+def _is_trusted_canonical_path(path: str) -> bool:
+    """Return whether a resolved path belongs to a canonical CMM namespace."""
+    return path in {"cmm", "cmm_agent", "kernel"} or path.startswith(
+        tuple(_OFFICIAL_CMM_PREFIXES)
+    )
+
+
+def _is_path_invalidated(
+    path: str, invalidated_paths: set[str] | frozenset[str]
+) -> bool:
+    """Return whether *path* is an invalidated canonical path or descendant."""
+    return any(
+        path == invalidated or path.startswith(f"{invalidated}.")
+        for invalidated in invalidated_paths
+    )
 
 
 # Map of known package → submodule for canonical base resolution.
@@ -366,7 +428,10 @@ _KNOWN_SUBMODULES: dict[str, dict[str, str]] = {
 
 
 def _is_adapter_pattern(
-    node: ast.ClassDef, class_name: str, bindings: dict[str, str | None]
+    node: ast.ClassDef,
+    class_name: str,
+    bindings: dict[str, str | None],
+    invalidated_paths: frozenset[str],
 ) -> bool:
     """Check if a class is a permitted adapter (not duplication).
 
@@ -393,7 +458,7 @@ def _is_adapter_pattern(
     if not approved_bases:
         return False
 
-    resolved_bases = _resolve_all_bases(node, bindings)
+    resolved_bases = _resolve_all_bases(node, bindings, invalidated_paths)
     for resolved in resolved_bases:
         if resolved in approved_bases:
             return True
@@ -401,7 +466,9 @@ def _is_adapter_pattern(
 
 
 def _resolve_all_bases(
-    node: ast.ClassDef, bindings: dict[str, str | None]
+    node: ast.ClassDef,
+    bindings: dict[str, str | None],
+    invalidated_paths: frozenset[str],
 ) -> list[str]:
     """Resolve all base class names to full dotted module paths.
 
@@ -410,13 +477,17 @@ def _resolve_all_bases(
     """
     resolved: list[str] = []
     for base in node.bases:
-        base_path = _resolve_single_base(base, bindings)
+        base_path = _resolve_single_base(base, bindings, invalidated_paths)
         if base_path:
             resolved.append(base_path)
     return resolved
 
 
-def _resolve_single_base(base: ast.expr, bindings: dict[str, str | None]) -> str | None:
+def _resolve_single_base(
+    base: ast.expr,
+    bindings: dict[str, str | None],
+    invalidated_paths: frozenset[str],
+) -> str | None:
     """Resolve one base expression to a full dotted module path string."""
     if isinstance(base, ast.Attribute):
         raw = _resolve_attribute_path(base)
@@ -430,6 +501,8 @@ def _resolve_single_base(base: ast.expr, bindings: dict[str, str | None]) -> str
                 full_path = (
                     f"{resolved_prefix}.{remainder}" if remainder else resolved_prefix
                 )
+                if _is_path_invalidated(full_path, invalidated_paths):
+                    return None
                 # Apply submodule resolution for the full path
                 sub = _resolve_to_submodule(full_path)
                 return sub if sub else full_path
@@ -772,7 +845,7 @@ def detect_direct_write(
     except SyntaxError:
         return []
 
-    for statement, bindings in _top_level_binding_snapshots(tree):
+    for statement, bindings, _ in _top_level_binding_snapshots(tree):
         for node in ast.walk(statement):
             if not isinstance(node, ast.Call):
                 continue
