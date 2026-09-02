@@ -232,11 +232,7 @@ class DefaultDomainCognitiveIntegrator:
             bundles=extracted_bundles,
             rule_result=rule_result,
         )
-        trace_references = DomainTraceReferences(
-            resolution_context_id=request.resolution_context_id,
-            resolution_result_id=request.resolution_result_id,
-            composition_id=request.composition.id,
-        )
+        trace_references = _build_trace_references(request=request, package=package)
         return DomainCognitiveIntegrationResult(
             request_id=request.request_id,
             knowledge_package=package,
@@ -282,6 +278,19 @@ def _build_knowledge_package(
                 "domain_composition_id": request.composition.id,
             },
         )
+    )
+
+
+def _build_trace_references(
+    *,
+    request: DomainCognitiveIntegrationRequest,
+    package: KnowledgePackage,
+) -> DomainTraceReferences:
+    return DomainTraceReferences(
+        resolution_context_id=request.resolution_context_id,
+        resolution_result_id=request.resolution_result_id,
+        composition_id=request.composition.id,
+        knowledge_package_ids=(package.id,),
     )
 
 

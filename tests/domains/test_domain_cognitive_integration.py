@@ -1707,6 +1707,33 @@ def test_global_before_domain_rules_use_canonical_selection_and_execution() -> N
     assert result.trace_references.composition_id == "composition-1"
 
 
+def test_integrator_builds_reference_only_domain_trace_links() -> None:
+    """Would fail if canonical trace references omitted the knowledge package."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+    request = replace(_integration_request(), resources=(_resource_input(),))
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert (
+        result.trace_references.resolution_context_id == request.resolution_context_id
+    )
+    assert result.trace_references.resolution_result_id == request.resolution_result_id
+    assert result.trace_references.composition_id == request.composition.id
+    assert result.trace_references.knowledge_package_ids == (
+        result.knowledge_package.id,
+    )
+    assert result.trace_references.cognitive_result_ids == ()
+    assert result.trace_references.reasoning_trace_ids == ()
+
+
 def test_integrator_preserves_blocked_rule_plan_without_evaluating_rules() -> None:
     """Would fail if the integrator bypassed canonical blocked-plan execution."""
     from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
