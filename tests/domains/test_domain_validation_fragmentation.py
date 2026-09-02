@@ -338,6 +338,62 @@ def test_unaliased_canonical_module_adapter_does_not_block_fragmentation(
     assert unexpected_code not in {str(item["code"]) for item in findings}
 
 
+@pytest.mark.parametrize(
+    ("source", "unexpected_code"),
+    (
+        (
+            (
+                "from cmm.workflows import WorkflowEngine\n"
+                "class MyWorkflowEngine(WorkflowEngine):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.workflows as workflows\n"
+                "class MyWorkflowEngine(workflows.WorkflowEngine):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_WORKFLOW_ENGINE_DUPLICATION",
+        ),
+        (
+            (
+                "from cmm.cognitive import InMemoryResolutionMemoryStore\n"
+                "class MyMemoryStore(InMemoryResolutionMemoryStore):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.cognitive as cognitive\n"
+                "class MyMemoryStore(cognitive.InMemoryResolutionMemoryStore):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+        ),
+        (
+            (
+                "import cmm.cognitive\n"
+                "class MyMemoryStore(\n"
+                "    cmm.cognitive.InMemoryResolutionMemoryStore\n"
+                "):\n"
+                "    pass\n"
+            ),
+            "DOMAIN_FRAGMENTATION_MEMORY_DUPLICATION",
+        ),
+    ),
+)
+def test_equivalent_canonical_workflow_and_memory_adapters_do_not_block(
+    source: str,
+    unexpected_code: str,
+) -> None:
+    """Approved canonical bases remain accepted across import spellings."""
+    findings = analyze_fragmentation(source, "canonical_adapter.py")
+    assert unexpected_code not in {str(item["code"]) for item in findings}
+
+
 def test_local_fake_base_does_not_make_duplicate_planner_an_adapter() -> None:
     """A local fake base class must NOT receive canonical-adapter immunity."""
     source = "class BasePlanner:\n    pass\nclass MyPlanner(BasePlanner):\n    pass\n"
