@@ -41,7 +41,7 @@ def _imports_domain(path: Path) -> bool:
     tree = _parse(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if (node.module or "").startswith("cmm.domains"):
+            if _absolute_import_module(node, path).startswith("cmm.domains"):
                 return True
         elif isinstance(node, ast.Import) and any(
             alias.name.startswith("cmm.domains") for alias in node.names
@@ -51,11 +51,13 @@ def _imports_domain(path: Path) -> bool:
 
 
 def _absolute_import_module(node: ast.ImportFrom, path: Path) -> str:
-    """Resolve an import-from module relative to a planned Domain module."""
+    """Resolve an import-from module relative to its source module."""
     if not node.level:
         return node.module or ""
 
-    module_parts = path.relative_to(ROOT).with_suffix("").parts
+    source_parts = path.with_suffix("").parts
+    cmm_index = source_parts.index("cmm")
+    module_parts = source_parts[cmm_index:]
     package_parts = module_parts[:-1]
     parent_parts = package_parts[: len(package_parts) - node.level + 1]
     return ".".join((*parent_parts, *(node.module or "").split("."))).rstrip(".")
@@ -104,6 +106,16 @@ def test_cognitive_layer_remains_domain_agnostic() -> None:
         if _imports_domain(path)
     ]
     assert offenders == []
+
+
+def test_cognitive_dependency_scan_resolves_relative_domain_import(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "cmm" / "cognitive" / "relative_import.py"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("from ..domains import contracts\n", encoding="utf-8")
+
+    assert _imports_domain(source_path)
 
 
 def test_phase_1040_modules_do_not_depend_on_runtime_or_cross_domain_engine() -> None:
