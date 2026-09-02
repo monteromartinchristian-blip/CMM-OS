@@ -5570,7 +5570,7 @@ Those checks should be part of:
 No parallel `DomainArchitectureGuard` service, runtime, store, registry,
 resolver, loader, or validation subsystem was introduced.
 
-**DP-039** = IMPLEMENTED_PENDING_REMEDIATION
+**DP-039** = IMPLEMENTED_PENDING_AUDIT
 **AT-DP-039** = tests/domains/test_domain_architecture_guard_dp039_acceptance.py
 **Implementation evidence:** hardened `cmm/domains/validation_fragmentation.py`
 
