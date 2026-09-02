@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* Next milestone: **Phase 10.39** implemented and pending independent audit.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.39**. Next milestone: **Phase 10.40 — Integration with Cognitive Layer**.
 
 ⸻
 
@@ -5502,7 +5502,7 @@ Domain Packs may contain prompts but:
 
 10.39 - Preventing fragmentation
 
-**Phase 10.39** — Preventing Fragmentation is **implemented and pending independent re-audit**.
+**Phase 10.39** — Preventing Fragmentation is **complete, independently audited and closed**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`.
 
 Objective
 
@@ -5570,9 +5570,13 @@ Those checks should be part of:
 No parallel `DomainArchitectureGuard` service, runtime, store, registry,
 resolver, loader, or validation subsystem was introduced.
 
-**DP-039** = IMPLEMENTED_PENDING_AUDIT
-**AT-DP-039** = tests/domains/test_domain_architecture_guard_dp039_acceptance.py
+**DP-039** = VERIFIED_EXISTING
+**AT-DP-039** = PASS — `tests/domains/test_domain_architecture_guard_dp039_acceptance.py`
 **Implementation evidence:** hardened `cmm/domains/validation_fragmentation.py`
+**Final independent re-audit:** `docs/audits/phase-10.39-independent-reaudit-v4.md` — `PASS`
+**Audited implementation HEAD:** `93147139e12665e3734328b904277788ac8bd8d6`
+**Audit V4 bundle SHA-256:** `b7d39bf5b55ae042f732bf01e7a51685f2158ffce3d6355b62350d51326ce981`
+**Closure eligibility:** `YES`
 
 ### Architecture
 
