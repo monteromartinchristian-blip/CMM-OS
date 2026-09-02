@@ -29,6 +29,10 @@ from cmm.cognitive import (
     KnowledgePackage,
     KnowledgeStatus,
     PlainTextKnowledgeExtractor,
+    ReasoningEscalation,
+    ReasoningFinding,
+    ReasoningGap,
+    ReasoningRecommendation,
     ReasoningRiskLevel,
     ReasoningRule,
     ReasoningRuleCategory,
@@ -38,6 +42,7 @@ from cmm.cognitive import (
     ReasoningRuleResultStatus,
     ReasoningRuleScope,
     ReasoningRuleStatus,
+    ReasoningSeverity,
     Resource,
     ResourceAdaptationResult,
     ResourceAdapterRegistry,
@@ -58,7 +63,7 @@ from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveIntegrationRequest,
     DomainCognitiveResourceInput,
 )
-from cmm.domains.composition_contracts import DomainComposition
+from cmm.domains.composition_contracts import DomainComposition, PresentationComposition
 from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainReasoningDepth,
@@ -83,6 +88,7 @@ from cmm.domains.resource_contracts import (
     DomainResourceBinding,
     DomainResourceResolution,
 )
+from cmm.domains.rule_contracts import DomainRuleExecutionResult
 from cmm.validation.enums import ValidationSeverity
 from cmm.validation.findings import ValidationFinding
 
@@ -292,6 +298,83 @@ class _CountingReasoningRule:
         )
 
 
+class _PresentationEvidenceReasoningRule:
+    def __init__(self) -> None:
+        self._definition = ReasoningRuleDefinition(
+            id="health.presentation",
+            name="Canonical presentation evidence",
+            version="1.0.0",
+            scope=ReasoningRuleScope.DOMAIN,
+            category=ReasoningRuleCategory.VALIDATION,
+            status=ReasoningRuleStatus.ENABLED,
+            priority=1,
+            risk_level=ReasoningRiskLevel.LOW,
+            domain_id="domain:health",
+        )
+
+    @property
+    def definition(self) -> ReasoningRuleDefinition:
+        return self._definition
+
+    def evaluate(self, context: ReasoningRuleContext) -> ReasoningRuleResult:
+        question = next(
+            item
+            for item in context.knowledge_items
+            if item.kind is KnowledgeKind.QUESTION
+        )
+        return ReasoningRuleResult(
+            rule_id=self.definition.id,
+            rule_name=self.definition.name,
+            rule_version=self.definition.version,
+            status=ReasoningRuleResultStatus.APPLIED,
+            domain_id=self.definition.domain_id,
+            findings=(
+                ReasoningFinding(
+                    code="CANONICAL_WARNING",
+                    message="Canonical warning evidence remains represented.",
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            contradictions=(
+                Contradiction(
+                    id="canonical-contradiction-1",
+                    item_a_id="integration-provenance-item",
+                    item_b_id=question.id,
+                    created_at=context.timestamp,
+                ),
+            ),
+            gaps=(
+                ReasoningGap(
+                    code="CANONICAL_GAP",
+                    message="Canonical gap evidence remains represented.",
+                    severity=ReasoningSeverity.WARNING,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            recommendations=(
+                ReasoningRecommendation(
+                    code="CANONICAL_RECOMMENDATION",
+                    message="Review canonical evidence.",
+                    severity=ReasoningSeverity.INFO,
+                    rule_id=self.definition.id,
+                    domain_id=self.definition.domain_id,
+                ),
+            ),
+            escalation=ReasoningEscalation(
+                code="CANONICAL_ESCALATION",
+                message="Seek qualified review.",
+                severity=ReasoningSeverity.CRITICAL,
+                rule_id=self.definition.id,
+                domain_id=self.definition.domain_id,
+            ),
+            started_at=context.timestamp,
+            completed_at=context.timestamp,
+        )
+
+
 def _canonical_resource(content: str = "The plan is stable.") -> Resource:
     return Resource(
         id="resource-1",
@@ -454,6 +537,176 @@ def _serialized_store_state(store: InMemoryKnowledgeStore) -> dict[str, object]:
         ],
         "bundles": [bundle.serialize() for bundle in store.list_bundles()],
     }
+
+
+def _presentation_rule_result(
+    *,
+    findings: tuple[ReasoningFinding, ...] = (),
+    contradictions: tuple[Contradiction, ...] = (),
+    gaps: tuple[ReasoningGap, ...] = (),
+    recommendations: tuple[ReasoningRecommendation, ...] = (),
+    escalations: tuple[ReasoningEscalation, ...] = (),
+) -> DomainRuleExecutionResult:
+    return DomainRuleExecutionResult(
+        id="rule-result-1",
+        plan_id="rule-plan-1",
+        status=DomainRuleExecutionStatus.COMPLETED,
+        findings=findings,
+        contradictions=contradictions,
+        gaps=gaps,
+        recommendations=recommendations,
+        escalations=escalations,
+        started_at=NOW,
+        completed_at=NOW,
+    )
+
+
+def test_presentation_items_map_only_canonical_evidence_with_stable_ids() -> None:
+    """Would fail if mappings changed type, hashed content, or invented confidence."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
+
+    question = KnowledgeItem(
+        id="canonical-question-1",
+        statement="Which canonical evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.42, source="canonical-extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    non_question = replace(
+        question,
+        id="canonical-observation-1",
+        statement="This is not a presentation question.",
+        kind=KnowledgeKind.OBSERVATION,
+    )
+    finding = ReasoningFinding(
+        code="CANONICAL_WARNING",
+        message="Content must never be embedded in the reference ID.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    second_finding = replace(finding, code="SECOND_FINDING")
+    gap = ReasoningGap(
+        code="CANONICAL_GAP",
+        message="More evidence is needed.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    contradiction = Contradiction(
+        id="canonical-contradiction-1",
+        item_a_id=question.id,
+        item_b_id=non_question.id,
+        created_at=NOW,
+    )
+    recommendation = ReasoningRecommendation(
+        code="CANONICAL_RECOMMENDATION",
+        message="Review the canonical evidence.",
+        severity=ReasoningSeverity.INFO,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+    escalation = ReasoningEscalation(
+        code="CANONICAL_ESCALATION",
+        message="Seek qualified review.",
+        severity=ReasoningSeverity.CRITICAL,
+        rule_id="health.presentation",
+        domain_id="domain:health",
+    )
+
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.99),
+        bundles=(
+            KnowledgeBundle(
+                id="canonical-bundle-1",
+                items=(question, non_question),
+                created_at=NOW,
+            ),
+        ),
+        rule_result=_presentation_rule_result(
+            findings=(finding, second_finding),
+            gaps=(gap,),
+            contradictions=(contradiction,),
+            recommendations=(recommendation,),
+            escalations=(escalation,),
+        ),
+    )
+
+    assert tuple(item.item_type for item in items) == (
+        DomainPresentationItemType.FINDING,
+        DomainPresentationItemType.FINDING,
+        DomainPresentationItemType.GAP,
+        DomainPresentationItemType.CONTRADICTION,
+        DomainPresentationItemType.RECOMMENDATION,
+        DomainPresentationItemType.ESCALATION,
+        DomainPresentationItemType.QUESTION,
+    )
+    assert tuple(item.ref_id for item in items) == (
+        "rule-result-1:finding:0",
+        "rule-result-1:finding:1",
+        "rule-result-1:gap:0",
+        "canonical-contradiction-1",
+        "rule-result-1:recommendation:0",
+        "rule-result-1:escalation:0",
+        "canonical-question-1",
+    )
+    assert tuple(item.source_order for item in items) == tuple(range(7))
+    assert tuple(item.confidence for item in items) == (
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        0.42,
+    )
+    assert items[3].requires_provenance is True
+    assert items[6].requires_provenance is True
+    assert items[6].requires_user_interaction is True
+    assert items[6].pending is True
+    assert all("Content" not in item.ref_id for item in items)
+
+
+def test_presentation_gap_interaction_uses_only_explicit_canonical_flags() -> None:
+    """Would fail if wording/profile thresholds synthesized interaction state."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    implicit = ReasoningGap(
+        code="CLARIFICATION_REQUIRED",
+        message="User clarification is required before proceeding.",
+        severity=ReasoningSeverity.WARNING,
+        rule_id="health.presentation",
+        references=("canonical-question-1",),
+    )
+    explicit = replace(
+        implicit,
+        code="EXPLICIT_USER_RESOLUTION",
+        metadata={
+            "pending": True,
+            "requires_user_interaction": True,
+            "requires_approval": True,
+            "requires_confirmation": True,
+        },
+    )
+
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=1.0),
+        bundles=(),
+        rule_result=_presentation_rule_result(gaps=(implicit, explicit)),
+    )
+
+    assert items[0].confidence is None
+    assert items[0].requires_provenance is False
+    assert items[0].pending is False
+    assert items[0].requires_user_interaction is False
+    assert items[0].requires_approval is False
+    assert items[0].requires_confirmation is False
+    assert items[1].pending is True
+    assert items[1].requires_user_interaction is True
+    assert items[1].requires_approval is True
+    assert items[1].requires_confirmation is True
 
 
 def test_package_and_context_builders_read_store_without_mutating_it() -> None:
@@ -1479,3 +1732,108 @@ def test_integrator_never_calls_a_knowledge_store_mutator() -> None:
 
     assert result.adapted_resources[0].id == "resource-1"
     assert result.extracted_bundles[0].items
+
+
+def test_integrator_returns_references_consumed_by_real_presentation_planner() -> None:
+    """Would fail if integration rendered output or dropped canonical evidence."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+    from cmm.domains.presentation_contracts import (
+        DomainPresentationItemType,
+        DomainPresentationRequest,
+    )
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+    from cmm.domains.rule_execution import DefaultDomainRuleExecutor
+
+    rule = _PresentationEvidenceReasoningRule()
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(rule)
+    presentation = PresentationComposition(
+        values={
+            "preferred_section_order": (
+                "findings",
+                "gaps",
+                "contradictions",
+                "questions",
+            )
+        },
+        provenance={"health": "profile-1"},
+    )
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(
+            _resource_input(
+                _canonical_resource("Which health evidence is missing?"),
+            ),
+        ),
+        composition=replace(request.composition, presentation=presentation),
+        profile=replace(
+            request.profile,
+            required_rules=(rule.definition.id,),
+            presentation_policy=DomainPresentationPolicy(
+                include_provenance=True,
+                preferred_section_order=(
+                    "findings",
+                    "gaps",
+                    "contradictions",
+                    "questions",
+                ),
+            ),
+        ),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        rule_executor=DefaultDomainRuleExecutor(
+            clock=lambda: NOW,
+            id_factory=lambda: "canonical-rule-result-1",
+        ),
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert request.composition.presentation is not None
+    plan = DefaultDomainPresentationPlanner().plan(
+        DomainPresentationRequest(
+            request_id="presentation-request-1",
+            upstream_result_id=result.rule_result.id,
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=result.presentation_items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(domain) for domain in request.composition.supporting_domains
+            ),
+        )
+    )
+
+    by_type = {item.item_type: item for item in result.presentation_items}
+    question_item = next(
+        item
+        for bundle in result.extracted_bundles
+        for item in bundle.items
+        if item.kind is KnowledgeKind.QUESTION
+    )
+    sections = {section.section_id: section.item_refs for section in plan.sections}
+    assert plan.item_refs == result.presentation_items
+    assert plan.question_refs == (question_item.id,)
+    assert question_item.id in sections["questions"]
+    assert "canonical-rule-result-1:finding:0" in sections["findings"]
+    assert "canonical-rule-result-1:gap:0" in sections["gaps"]
+    assert "canonical-contradiction-1" in sections["contradictions"]
+    assert by_type[DomainPresentationItemType.QUESTION].confidence == (
+        question_item.confidence.value
+    )
+    assert (
+        next(
+            item
+            for item in plan.item_refs
+            if item.item_type is DomainPresentationItemType.QUESTION
+        ).confidence
+        == question_item.confidence.value
+    )

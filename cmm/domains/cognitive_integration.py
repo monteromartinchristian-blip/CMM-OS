@@ -18,10 +18,15 @@ from cmm.cognitive import (
     ExtractionStatus,
     KnowledgeBundle,
     KnowledgeExtractorRegistry,
+    KnowledgeKind,
     KnowledgePackage,
     KnowledgePackageBuilder,
     KnowledgePackageRequest,
     KnowledgeStoreProtocol,
+    ReasoningEscalation,
+    ReasoningFinding,
+    ReasoningGap,
+    ReasoningRecommendation,
     ReasoningRuleContext,
     ReasoningRuleRegistry,
     Resource,
@@ -38,6 +43,12 @@ from cmm.domains.errors import (
     DomainCognitiveIntegrationBlockedError,
     DomainCognitiveIntegrationContractError,
 )
+from cmm.domains.presentation_contracts import (
+    DomainPresentationEpistemicKind,
+    DomainPresentationItemRef,
+    DomainPresentationItemType,
+)
+from cmm.domains.rule_contracts import DomainRuleExecutionResult
 from cmm.domains.rule_execution import DefaultDomainRuleExecutor, DomainRuleExecutor
 from cmm.domains.rule_selection import DefaultDomainRuleSelector, DomainRuleSelector
 from cmm.domains.trace_contracts import DomainTraceReferences
@@ -215,6 +226,11 @@ class DefaultDomainCognitiveIntegrator:
             context=reasoning_context,
             registry=self._rule_registry,
         )
+        presentation_items = _presentation_items(
+            request=request,
+            bundles=extracted_bundles,
+            rule_result=rule_result,
+        )
         trace_references = DomainTraceReferences(
             resolution_context_id=request.resolution_context_id,
             resolution_result_id=request.resolution_result_id,
@@ -229,7 +245,7 @@ class DefaultDomainCognitiveIntegrator:
             rule_result=rule_result,
             adapted_resources=adapted_resources,
             extracted_bundles=extracted_bundles,
-            presentation_items=(),
+            presentation_items=presentation_items,
             trace_references=trace_references,
         )
 
@@ -266,6 +282,105 @@ def _build_knowledge_package(
             },
         )
     )
+
+
+def _presentation_items(
+    *,
+    request: DomainCognitiveIntegrationRequest,
+    bundles: tuple[KnowledgeBundle, ...],
+    rule_result: DomainRuleExecutionResult,
+) -> tuple[DomainPresentationItemRef, ...]:
+    items: list[DomainPresentationItemRef] = []
+
+    def add_message(
+        *,
+        ref_id: str,
+        item_type: DomainPresentationItemType,
+        message: (
+            ReasoningFinding
+            | ReasoningGap
+            | ReasoningRecommendation
+            | ReasoningEscalation
+        ),
+        epistemic_kind: DomainPresentationEpistemicKind | None = None,
+    ) -> None:
+        metadata = message.metadata
+        domain_id = message.domain_id
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=ref_id,
+                item_type=item_type,
+                source_order=len(items),
+                domain_ids=(domain_id,) if domain_id is not None else (),
+                epistemic_kind=epistemic_kind,
+                requires_provenance=metadata.get("requires_provenance") is True,
+                pending=metadata.get("pending") is True,
+                requires_user_interaction=(
+                    metadata.get("requires_user_interaction") is True
+                ),
+                requires_approval=metadata.get("requires_approval") is True,
+                requires_confirmation=(metadata.get("requires_confirmation") is True),
+                explicitly_visible=metadata.get("explicitly_visible") is True,
+            )
+        )
+
+    for index, finding in enumerate(rule_result.findings):
+        add_message(
+            ref_id=f"{rule_result.id}:finding:{index}",
+            item_type=DomainPresentationItemType.FINDING,
+            message=finding,
+        )
+    for index, gap in enumerate(rule_result.gaps):
+        add_message(
+            ref_id=f"{rule_result.id}:gap:{index}",
+            item_type=DomainPresentationItemType.GAP,
+            message=gap,
+        )
+    for contradiction in rule_result.contradictions:
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=contradiction.id,
+                item_type=DomainPresentationItemType.CONTRADICTION,
+                source_order=len(items),
+                requires_provenance=True,
+            )
+        )
+    for index, recommendation in enumerate(rule_result.recommendations):
+        add_message(
+            ref_id=f"{rule_result.id}:recommendation:{index}",
+            item_type=DomainPresentationItemType.RECOMMENDATION,
+            message=recommendation,
+            epistemic_kind=DomainPresentationEpistemicKind.RECOMMENDATION,
+        )
+    for index, escalation in enumerate(rule_result.escalations):
+        add_message(
+            ref_id=f"{rule_result.id}:escalation:{index}",
+            item_type=DomainPresentationItemType.ESCALATION,
+            message=escalation,
+        )
+    for bundle_index, bundle in enumerate(bundles):
+        domain_ids = (
+            (str(request.resources[bundle_index].binding.domain_id),)
+            if bundle_index < len(request.resources)
+            else ()
+        )
+        for knowledge_item in bundle.items:
+            if knowledge_item.kind is not KnowledgeKind.QUESTION:
+                continue
+            items.append(
+                DomainPresentationItemRef(
+                    ref_id=knowledge_item.id,
+                    item_type=DomainPresentationItemType.QUESTION,
+                    source_order=len(items),
+                    domain_ids=domain_ids,
+                    confidence=knowledge_item.confidence.value,
+                    requires_provenance=True,
+                    pending=True,
+                    requires_user_interaction=True,
+                )
+            )
+
+    return tuple(items)
 
 
 def _validate_cognitive_inputs(
