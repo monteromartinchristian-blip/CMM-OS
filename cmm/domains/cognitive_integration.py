@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
 from cmm.cognitive import (
@@ -22,6 +23,7 @@ from cmm.cognitive import (
     KnowledgePackageRequest,
     KnowledgeStoreProtocol,
     ReasoningRuleContext,
+    ReasoningRuleRegistry,
     Resource,
     ResourceAdapterRegistry,
     SensitivityLevel,
@@ -32,7 +34,13 @@ from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveIntegrationResult,
     DomainCognitiveResourceInput,
 )
-from cmm.domains.errors import DomainCognitiveIntegrationBlockedError
+from cmm.domains.errors import (
+    DomainCognitiveIntegrationBlockedError,
+    DomainCognitiveIntegrationContractError,
+)
+from cmm.domains.rule_execution import DefaultDomainRuleExecutor, DomainRuleExecutor
+from cmm.domains.rule_selection import DefaultDomainRuleSelector, DomainRuleSelector
+from cmm.domains.trace_contracts import DomainTraceReferences
 
 _BLOCKING_COGNITIVE_VALIDATION_DECISIONS = {
     CognitiveValidationDecision.BLOCK,
@@ -51,6 +59,179 @@ class DomainCognitiveIntegrator(Protocol):
         self,
         request: DomainCognitiveIntegrationRequest,
     ) -> DomainCognitiveIntegrationResult: ...
+
+
+class DefaultDomainCognitiveIntegrator:
+    """Thin orchestration boundary over canonical Cognitive and Domain owners."""
+
+    def __init__(
+        self,
+        *,
+        adapter_registry: ResourceAdapterRegistry,
+        extractor_registry: KnowledgeExtractorRegistry,
+        knowledge_store: KnowledgeStoreProtocol,
+        rule_registry: ReasoningRuleRegistry,
+        cognitive_validator: CognitiveValidator | None = None,
+        rule_selector: DomainRuleSelector | None = None,
+        rule_executor: DomainRuleExecutor | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        if not isinstance(adapter_registry, ResourceAdapterRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "adapter_registry must be a ResourceAdapterRegistry",
+                field="adapter_registry",
+            )
+        if not isinstance(extractor_registry, KnowledgeExtractorRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "extractor_registry must be a KnowledgeExtractorRegistry",
+                field="extractor_registry",
+            )
+        if not isinstance(knowledge_store, KnowledgeStoreProtocol):
+            raise DomainCognitiveIntegrationContractError(
+                "knowledge_store must satisfy KnowledgeStoreProtocol",
+                field="knowledge_store",
+            )
+        if not isinstance(rule_registry, ReasoningRuleRegistry):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_registry must satisfy ReasoningRuleRegistry",
+                field="rule_registry",
+            )
+        if cognitive_validator is not None and not isinstance(
+            cognitive_validator, CognitiveValidator
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "cognitive_validator must be a CognitiveValidator",
+                field="cognitive_validator",
+            )
+        if rule_selector is not None and not isinstance(
+            rule_selector, DomainRuleSelector
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_selector must satisfy DomainRuleSelector",
+                field="rule_selector",
+            )
+        if rule_executor is not None and not isinstance(
+            rule_executor, DomainRuleExecutor
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "rule_executor must satisfy DomainRuleExecutor",
+                field="rule_executor",
+            )
+        if clock is not None and not callable(clock):
+            raise DomainCognitiveIntegrationContractError(
+                "clock must be callable",
+                field="clock",
+            )
+
+        self._adapter_registry = adapter_registry
+        self._extractor_registry = extractor_registry
+        self._knowledge_store = knowledge_store
+        self._rule_registry = rule_registry
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
+        self._cognitive_validator = (
+            cognitive_validator
+            if cognitive_validator is not None
+            else CognitiveValidator()
+        )
+        self._rule_selector = (
+            rule_selector
+            if rule_selector is not None
+            else DefaultDomainRuleSelector(clock=self._clock)
+        )
+        self._rule_executor = (
+            rule_executor
+            if rule_executor is not None
+            else DefaultDomainRuleExecutor(clock=self._clock)
+        )
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        if (
+            not isinstance(value, datetime)
+            or value.tzinfo is None
+            or value.utcoffset() is None
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "clock must return a timezone-aware datetime",
+                field="clock",
+            )
+        return value
+
+    def integrate(
+        self,
+        request: DomainCognitiveIntegrationRequest,
+    ) -> DomainCognitiveIntegrationResult:
+        if type(request) is not DomainCognitiveIntegrationRequest:
+            raise DomainCognitiveIntegrationContractError(
+                "request must be a DomainCognitiveIntegrationRequest",
+                field="request",
+            )
+
+        timestamp = self._now()
+        adapted = tuple(
+            _adapt_domain_resource(
+                resource_input,
+                adapter_registry=self._adapter_registry,
+                extractor_registry=self._extractor_registry,
+                actor_id=request.actor_id,
+                session_id=request.session_id,
+                effective_permissions=request.effective_permissions,
+            )
+            for resource_input in request.resources
+        )
+        adapted_resources = tuple(resource for resource, _ in adapted)
+        extracted_bundles = tuple(bundle for _, bundle in adapted)
+        package = _build_knowledge_package(
+            store=self._knowledge_store,
+            request=request,
+            adapted_resources=adapted_resources,
+        )
+        reasoning_context = _build_reasoning_context(
+            request=request,
+            package=package,
+            extracted_bundles=extracted_bundles,
+            adapted_resources=adapted_resources,
+            timestamp=timestamp,
+        )
+        validation_results = _validate_cognitive_inputs(
+            validator=self._cognitive_validator,
+            request=request,
+            package=package,
+            resources=adapted_resources,
+            bundles=extracted_bundles,
+            now=timestamp,
+        )
+        plan = self._rule_selector.select(
+            registry=self._rule_registry,
+            profile=request.profile,
+            composition=request.composition,
+            global_mandatory_rules=request.global_mandatory_rules,
+            security_rules=request.security_rules,
+            effective_permissions=request.effective_permissions,
+            requested_rule_ids=request.requested_rule_ids,
+        )
+        rule_result = self._rule_executor.execute(
+            plan=plan,
+            context=reasoning_context,
+            registry=self._rule_registry,
+        )
+        trace_references = DomainTraceReferences(
+            resolution_context_id=request.resolution_context_id,
+            resolution_result_id=request.resolution_result_id,
+            composition_id=request.composition.id,
+        )
+        return DomainCognitiveIntegrationResult(
+            request_id=request.request_id,
+            knowledge_package=package,
+            validation_results=validation_results,
+            reasoning_context=reasoning_context,
+            rule_plan=plan,
+            rule_result=rule_result,
+            adapted_resources=adapted_resources,
+            extracted_bundles=extracted_bundles,
+            presentation_items=(),
+            trace_references=trace_references,
+        )
 
 
 def _build_knowledge_package(

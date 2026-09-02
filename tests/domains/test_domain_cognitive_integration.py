@@ -13,12 +13,14 @@ from cmm.cognitive import (
     CandidateKind,
     CognitiveValidationContext,
     CognitiveValidationDecision,
+    CognitiveValidationResult,
     CognitiveValidator,
     Contradiction,
     ExistingResourceAdapter,
     ExtractionContext,
     ExtractionStatus,
     InMemoryKnowledgeStore,
+    InMemoryReasoningRuleRegistry,
     KnowledgeBundle,
     KnowledgeExtractionResult,
     KnowledgeExtractorRegistry,
@@ -61,8 +63,13 @@ from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainReasoningDepth,
     DomainResourceResolutionStatus,
+    DomainRuleExecutionStatus,
+    DomainRuleSelectionStatus,
 )
-from cmm.domains.errors import DomainCognitiveIntegrationBlockedError
+from cmm.domains.errors import (
+    DomainCognitiveIntegrationBlockedError,
+    DomainCognitiveIntegrationContractError,
+)
 from cmm.domains.identifiers import DomainId
 from cmm.domains.profile_contracts import (
     DomainMemoryPolicy,
@@ -247,18 +254,25 @@ class _RequestInformationValidationRule:
 
 
 class _CountingReasoningRule:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        rule_id: str = "test.cognitive_validation_count",
+        *,
+        scope: ReasoningRuleScope = ReasoningRuleScope.DOMAIN,
+        domain_id: str | None = "domain:health",
+        priority: int = 1,
+    ) -> None:
         self.evaluations = 0
         self._definition = ReasoningRuleDefinition(
-            id="test.cognitive_validation_count",
+            id=rule_id,
             name="Cognitive validation count",
             version="1.0.0",
-            scope=ReasoningRuleScope.DOMAIN,
+            scope=scope,
             category=ReasoningRuleCategory.VALIDATION,
             status=ReasoningRuleStatus.ENABLED,
-            priority=1,
+            priority=priority,
             risk_level=ReasoningRiskLevel.LOW,
-            domain_id="domain:health",
+            domain_id=domain_id,
         )
 
     @property
@@ -1208,3 +1222,260 @@ def test_escalate_validation_remains_evidence_and_rules_may_proceed() -> None:
 
     assert results[0].decision is CognitiveValidationDecision.ESCALATE
     assert counting_rule.evaluations == 1
+
+
+class _MutationSentinelKnowledgeStore(InMemoryKnowledgeStore):
+    def _mutation_forbidden(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError(
+            "the Domain cognitive integrator must not mutate the store"
+        )
+
+    save_item = _mutation_forbidden
+    delete_item = _mutation_forbidden
+    save_evidence = _mutation_forbidden
+    delete_evidence = _mutation_forbidden
+    save_relation = _mutation_forbidden
+    delete_relation = _mutation_forbidden
+    save_contradiction = _mutation_forbidden
+    delete_contradiction = _mutation_forbidden
+    save_bundle = _mutation_forbidden
+    delete_bundle = _mutation_forbidden
+
+
+def _integrator_dependencies() -> dict[str, object]:
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+    return {
+        "adapter_registry": adapter_registry,
+        "extractor_registry": extractor_registry,
+        "knowledge_store": InMemoryKnowledgeStore(),
+        "rule_registry": InMemoryReasoningRuleRegistry(),
+    }
+
+
+def _store_with_matching_provenance(
+    store: InMemoryKnowledgeStore | None = None,
+) -> InMemoryKnowledgeStore:
+    value = store or InMemoryKnowledgeStore()
+    InMemoryKnowledgeStore.save_item(
+        value,
+        KnowledgeItem(
+            id="integration-provenance-item",
+            statement="Review canonical health information.",
+            kind=KnowledgeKind.OBSERVATION,
+            confidence=Confidence(0.91, source="existing-evidence"),
+            resource_id="resource-1",
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+    return value
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "adapter_registry",
+        "extractor_registry",
+        "knowledge_store",
+        "rule_registry",
+        "cognitive_validator",
+        "rule_selector",
+        "rule_executor",
+        "clock",
+    ),
+)
+def test_integrator_rejects_invalid_dependencies_with_narrow_error(field: str) -> None:
+    """Would fail if constructor wiring admitted a non-canonical dependency."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    dependencies = _integrator_dependencies()
+    dependencies[field] = object()
+
+    with pytest.raises(DomainCognitiveIntegrationContractError) as error:
+        DefaultDomainCognitiveIntegrator(**dependencies)  # type: ignore[arg-type]
+
+    assert error.value.field == field
+
+
+def test_integrator_keeps_injected_stateful_owners_and_defaults_stateless_helpers() -> (
+    None
+):
+    """Would fail if the integrator hid a store/registry or omitted allowed defaults."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+    from cmm.domains.rule_execution import DefaultDomainRuleExecutor
+    from cmm.domains.rule_selection import DefaultDomainRuleSelector
+
+    dependencies = _integrator_dependencies()
+    clock = lambda: NOW
+    integrator = DefaultDomainCognitiveIntegrator(
+        **dependencies,  # type: ignore[arg-type]
+        clock=clock,
+    )
+
+    assert integrator._adapter_registry is dependencies["adapter_registry"]
+    assert integrator._extractor_registry is dependencies["extractor_registry"]
+    assert integrator._knowledge_store is dependencies["knowledge_store"]
+    assert integrator._rule_registry is dependencies["rule_registry"]
+    assert type(integrator._cognitive_validator) is CognitiveValidator
+    assert type(integrator._rule_selector) is DefaultDomainRuleSelector
+    assert type(integrator._rule_executor) is DefaultDomainRuleExecutor
+    assert integrator._clock is clock
+
+
+def test_global_before_domain_rules_use_canonical_selection_and_execution() -> None:
+    """Would fail if Domain specialization could precede a mandatory global rule."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    global_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+        priority=1,
+    )
+    domain_rule = _CountingReasoningRule(
+        "health.required",
+        scope=ReasoningRuleScope.DOMAIN,
+        domain_id="domain:health",
+        priority=100,
+    )
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(domain_rule)
+    rule_registry.register(global_rule)
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(_resource_input(),),
+        global_mandatory_rules=(global_rule.definition.id,),
+        profile=replace(
+            request.profile,
+            required_rules=(domain_rule.definition.id,),
+        ),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert tuple(
+        selected.definition.id for selected in result.rule_plan.selected_rules
+    ) == ("global.mandatory", "health.required")
+    assert result.rule_result.applied_rule_ids == (
+        "global.mandatory",
+        "health.required",
+    )
+    assert all(
+        type(item) is ReasoningRuleResult for item in result.rule_result.rule_results
+    )
+    assert all(
+        type(item) is CognitiveValidationResult for item in result.validation_results
+    )
+    assert tuple(item.target_id for item in result.validation_results) == (
+        result.knowledge_package.id,
+        result.adapted_resources[0].id,
+        *(item.id for item in result.extracted_bundles[0].items),
+    )
+    assert global_rule.evaluations == 1
+    assert domain_rule.evaluations == 1
+    assert result.presentation_items == ()
+    assert result.trace_references.resolution_context_id == "resolution-context-1"
+    assert result.trace_references.resolution_result_id == "resolution-result-1"
+    assert result.trace_references.composition_id == "composition-1"
+
+
+def test_integrator_preserves_blocked_rule_plan_without_evaluating_rules() -> None:
+    """Would fail if the integrator bypassed canonical blocked-plan execution."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    global_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_registry = InMemoryReasoningRuleRegistry()
+    rule_registry.register(global_rule)
+    request = _integration_request()
+    request = replace(
+        request,
+        resources=(_resource_input(),),
+        global_mandatory_rules=(global_rule.definition.id,),
+        profile=replace(request.profile, required_rules=("health.missing",)),
+    )
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(),
+        rule_registry=rule_registry,
+        clock=lambda: NOW,
+    ).integrate(request)
+
+    assert result.rule_plan.status is DomainRuleSelectionStatus.BLOCKED
+    assert result.rule_result.status is DomainRuleExecutionStatus.BLOCKED
+    assert result.rule_result.blocked_rule_ids == ("health.missing",)
+    assert result.rule_result.rule_results == ()
+    assert global_rule.evaluations == 0
+
+
+def test_integrator_leaves_seeded_official_knowledge_store_exactly_unchanged() -> None:
+    """Would fail if integration persisted adapted or materialized knowledge."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    prior_item = KnowledgeItem(
+        id="prior-health-item",
+        statement="Existing canonical health knowledge.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.91, source="existing-evidence"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    store = InMemoryKnowledgeStore()
+    store.save_item(prior_item)
+    before = _serialized_store_state(store)
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=store,
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(replace(_integration_request(), resources=(_resource_input(),)))
+
+    assert prior_item.id in {
+        item.id
+        for item in (
+            *result.knowledge_package.facts,
+            *result.knowledge_package.observations,
+            *result.knowledge_package.inferences,
+            *result.knowledge_package.hypotheses,
+            *result.knowledge_package.other_knowledge,
+        )
+    }
+    assert _serialized_store_state(store) == before
+
+
+def test_integrator_never_calls_a_knowledge_store_mutator() -> None:
+    """Would fail on any direct KnowledgeStoreProtocol mutation attempt."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry, extractor_registry = _registries(_ExactExistingResourceAdapter())
+
+    result = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=_store_with_matching_provenance(
+            _MutationSentinelKnowledgeStore()
+        ),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        clock=lambda: NOW,
+    ).integrate(replace(_integration_request(), resources=(_resource_input(),)))
+
+    assert result.adapted_resources[0].id == "resource-1"
+    assert result.extracted_bundles[0].items
