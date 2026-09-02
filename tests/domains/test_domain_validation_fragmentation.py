@@ -584,6 +584,21 @@ def test_path_alias_write_bytes_is_flagged() -> None:
     assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in codes
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        "import pathlib as pl\npl.Path('state.json').write_text('{}')\n",
+        "import pathlib as pl\npl.Path('state.bin').write_bytes(b'x')\n",
+    ),
+)
+def test_pathlib_module_alias_write_is_flagged(source: str) -> None:
+    """An exact pathlib module alias must retain filesystem-write identity."""
+    findings = analyze_fragmentation(source, "io.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in {
+        str(item["code"]) for item in findings
+    }
+
+
 # ── MAJOR-02 9C – Shadowed open must not be treated as builtin ────────────────
 
 
@@ -607,6 +622,28 @@ def test_builtin_open_write_mode_is_flagged() -> None:
     findings = analyze_fragmentation(source, "io.py")
     codes = {str(item["code"]) for item in findings}
     assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in codes
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ("w", "a", "x", "r+"),
+)
+def test_builtins_open_alias_write_mode_is_flagged(mode: str) -> None:
+    """Only aliases proven to be builtins.open inherit builtin write policy."""
+    source = f"from builtins import open as bo\nbo('state.json', {mode!r})\n"
+    findings = analyze_fragmentation(source, "io.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in {
+        str(item["code"]) for item in findings
+    }
+
+
+def test_builtin_open_before_later_shadow_is_flagged() -> None:
+    """A later module definition cannot shadow an earlier builtin open call."""
+    source = "open('state.json', 'w')\ndef open(path, mode):\n    return None\n"
+    findings = analyze_fragmentation(source, "io.py")
+    assert "DOMAIN_FRAGMENTATION_DIRECT_WRITE" in {
+        str(item["code"]) for item in findings
+    }
 
 
 # ── MAJOR-02 9D – Comments must not trigger backend-bypass regex ──────────────

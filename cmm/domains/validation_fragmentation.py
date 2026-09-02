@@ -261,7 +261,7 @@ def detect_class_duplication(
 
 def _class_binding_snapshots(
     tree: ast.Module,
-) -> list[tuple[ast.ClassDef, dict[str, str]]]:
+) -> list[tuple[ast.ClassDef, dict[str, str | None]]]:
     """Return classes with canonical bindings intact at each declaration.
 
     Only unconditional top-level imports establish trusted canonical bindings.
@@ -269,11 +269,10 @@ def _class_binding_snapshots(
     declarations are still checked, but do not receive adapter immunity from a
     binding state that would require control-flow interpretation.
     """
-    snapshots: list[tuple[ast.ClassDef, dict[str, str]]] = []
-    bindings: dict[str, str] = {}
-    for statement in tree.body:
+    snapshots: list[tuple[ast.ClassDef, dict[str, str | None]]] = []
+    for statement, bindings in _top_level_binding_snapshots(tree):
         if isinstance(statement, ast.ClassDef):
-            snapshots.append((statement, bindings.copy()))
+            snapshots.append((statement, bindings))
             snapshots.extend(
                 (node, {})
                 for node in ast.walk(statement)
@@ -285,13 +284,24 @@ def _class_binding_snapshots(
                 for node in ast.walk(statement)
                 if isinstance(node, ast.ClassDef)
             )
+    return snapshots
+
+
+def _top_level_binding_snapshots(
+    tree: ast.Module,
+) -> list[tuple[ast.stmt, dict[str, str | None]]]:
+    """Return each top-level statement with bindings active before it runs."""
+    snapshots: list[tuple[ast.stmt, dict[str, str | None]]] = []
+    bindings: dict[str, str | None] = {}
+    for statement in tree.body:
+        snapshots.append((statement, bindings.copy()))
         _update_top_level_bindings(statement, bindings)
     return snapshots
 
 
 def _update_top_level_bindings(
     statement: ast.stmt,
-    bindings: dict[str, str],
+    bindings: dict[str, str | None],
 ) -> None:
     """Apply one top-level statement's statically explicit name bindings."""
     if isinstance(statement, ast.ImportFrom) and statement.module:
@@ -325,7 +335,7 @@ def _update_top_level_bindings(
             rebound_names.update(_assigned_names(target))
 
     for name in rebound_names:
-        bindings.pop(name, None)
+        bindings[name] = None
 
 
 def _assigned_names(target: ast.expr) -> set[str]:
@@ -356,7 +366,7 @@ _KNOWN_SUBMODULES: dict[str, dict[str, str]] = {
 
 
 def _is_adapter_pattern(
-    node: ast.ClassDef, class_name: str, bindings: dict[str, str]
+    node: ast.ClassDef, class_name: str, bindings: dict[str, str | None]
 ) -> bool:
     """Check if a class is a permitted adapter (not duplication).
 
@@ -390,7 +400,9 @@ def _is_adapter_pattern(
     return False
 
 
-def _resolve_all_bases(node: ast.ClassDef, bindings: dict[str, str]) -> list[str]:
+def _resolve_all_bases(
+    node: ast.ClassDef, bindings: dict[str, str | None]
+) -> list[str]:
     """Resolve all base class names to full dotted module paths.
 
     Returns a list of resolved dotted strings such as
@@ -404,7 +416,7 @@ def _resolve_all_bases(node: ast.ClassDef, bindings: dict[str, str]) -> list[str
     return resolved
 
 
-def _resolve_single_base(base: ast.expr, bindings: dict[str, str]) -> str | None:
+def _resolve_single_base(base: ast.expr, bindings: dict[str, str | None]) -> str | None:
     """Resolve one base expression to a full dotted module path string."""
     if isinstance(base, ast.Attribute):
         raw = _resolve_attribute_path(base)
@@ -412,6 +424,8 @@ def _resolve_single_base(base: ast.expr, bindings: dict[str, str]) -> str | None
             parts = raw.split(".")
             if parts and parts[0] in bindings:
                 resolved_prefix = bindings[parts[0]]
+                if resolved_prefix is None:
+                    return None
                 remainder = ".".join(parts[1:])
                 full_path = (
                     f"{resolved_prefix}.{remainder}" if remainder else resolved_prefix
@@ -758,26 +772,25 @@ def detect_direct_write(
     except SyntaxError:
         return []
 
-    path_bindings = _collect_path_bindings(tree)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
+    for statement, bindings in _top_level_binding_snapshots(tree):
+        for node in ast.walk(statement):
+            if not isinstance(node, ast.Call):
+                continue
             # Check open(...) calls — only builtin open (9C)
-            if isinstance(node.func, ast.Name) and node.func.id == "open":
-                if _is_builtin_open(node.func.id, tree) and _is_write_mode_open(node):
-                    findings.append(
-                        {
-                            "line": node.lineno,
-                            "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
-                            "path": rel_path,
-                            "detail": "open(...)",
-                        }
-                    )
+            if _is_builtin_open_call(node.func, bindings) and _is_write_mode_open(node):
+                findings.append(
+                    {
+                        "line": node.lineno,
+                        "code": "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
+                        "path": rel_path,
+                        "detail": "open(...)",
+                    }
+                )
             # Check Path(...).write_text(...) and Path(...).write_bytes(...)
             elif (
                 isinstance(node.func, ast.Attribute)
                 and node.func.attr in ("write_text", "write_bytes")
-                and _receiver_is_path(node.func, path_bindings)
+                and _receiver_is_path(node.func, bindings)
             ):
                 findings.append(
                     {
@@ -791,62 +804,44 @@ def detect_direct_write(
     return findings
 
 
-def _collect_path_bindings(tree: ast.AST) -> set[str]:
-    """Collect local names that are bound to ``pathlib.Path`` or aliases."""
-    path_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            if node.module == "pathlib" or node.module.startswith("pathlib."):
-                for alias in node.names:
-                    if alias.name == "Path":
-                        local = alias.asname or alias.name
-                        path_names.add(local)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "pathlib":
-                    local = alias.asname or alias.name
-                    path_names.add(local)
-    return path_names
-
-
-def _receiver_is_path(func_attr: ast.Attribute, path_bindings: set[str]) -> bool:
+def _receiver_is_path(
+    func_attr: ast.Attribute,
+    bindings: dict[str, str | None],
+) -> bool:
     """Check if the receiver of a method call is statically a pathlib.Path."""
     value = func_attr.value
     if isinstance(value, ast.Call):
-        # Path(...) — check if the constructor name is a known Path binding
-        if isinstance(value.func, ast.Name):
-            return value.func.id in path_bindings
-        if isinstance(value.func, ast.Attribute):
-            # pathlib.Path(...)
-            resolved = _resolve_attribute_path(value.func)
-            if resolved and resolved.endswith("pathlib.Path"):
-                return True
-    elif isinstance(value, ast.Name):
-        # Pre-bound variable: p = Path(...); p.write_text(...)
-        # We cannot prove this without dataflow, but if the name is itself
-        # a Path binding, allow it.  Otherwise, do NOT flag it.
-        return value.id in path_bindings
+        return _resolve_bound_path(value.func, bindings) == "pathlib.Path"
     return False
 
 
-def _is_builtin_open(name: str, tree: ast.AST) -> bool:
-    """Check if ``open`` at module scope is the builtin (not shadowed)."""
-    if name != "open":
-        return False
-    for node in ast.walk(tree):
-        # Shadowed by import
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "open" or (alias.asname and alias.asname == "open"):
-                    return False
-        if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                if alias.name == "open" or (alias.asname and alias.asname == "open"):
-                    return False
-        # Shadowed by function def at module level
-        if isinstance(node, ast.FunctionDef) and node.name == "open":
-            return False
-    return True
+def _is_builtin_open_call(
+    func: ast.expr,
+    bindings: dict[str, str | None],
+) -> bool:
+    """Return whether a call target is builtin open at this source position."""
+    if isinstance(func, ast.Name) and func.id == "open" and "open" not in bindings:
+        return True
+    return _resolve_bound_path(func, bindings) == "builtins.open"
+
+
+def _resolve_bound_path(
+    node: ast.expr,
+    bindings: dict[str, str | None],
+) -> str | None:
+    """Resolve a name/attribute path only through a proven current binding."""
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id)
+    if isinstance(node, ast.Attribute):
+        raw = _resolve_attribute_path(node)
+        if raw is None:
+            return None
+        root, _, remainder = raw.partition(".")
+        resolved_root = bindings.get(root)
+        if resolved_root is None:
+            return None
+        return f"{resolved_root}.{remainder}" if remainder else resolved_root
+    return None
 
 
 def _resolve_call_name(node: ast.expr) -> str | None:

@@ -216,6 +216,11 @@ VIOLATIONS: list[tuple[str, str]] = [
         ),
         "DOMAIN_FRAGMENTATION_PLANNER_DUPLICATION",
     ),
+    # ── V2 MAJOR-02: exact pathlib aliases remain direct writes ────────────────
+    (
+        "import pathlib as pl\npl.Path('state.json').write_text('{}')\n",
+        "DOMAIN_FRAGMENTATION_DIRECT_WRITE",
+    ),
 ]
 
 
