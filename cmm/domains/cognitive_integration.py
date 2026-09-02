@@ -18,6 +18,7 @@ from cmm.cognitive import (
     ExtractionStatus,
     KnowledgeBundle,
     KnowledgeExtractorRegistry,
+    KnowledgeItem,
     KnowledgeKind,
     KnowledgePackage,
     KnowledgePackageBuilder,
@@ -291,6 +292,7 @@ def _presentation_items(
     rule_result: DomainRuleExecutionResult,
 ) -> tuple[DomainPresentationItemRef, ...]:
     items: list[DomainPresentationItemRef] = []
+    seen_question_ids: set[str] = set()
 
     def add_message(
         *,
@@ -321,6 +323,30 @@ def _presentation_items(
                 requires_approval=metadata.get("requires_approval") is True,
                 requires_confirmation=(metadata.get("requires_confirmation") is True),
                 explicitly_visible=metadata.get("explicitly_visible") is True,
+            )
+        )
+
+    def add_question(
+        knowledge_item: KnowledgeItem,
+        *,
+        domain_ids: tuple[str, ...] = (),
+    ) -> None:
+        if (
+            knowledge_item.kind is not KnowledgeKind.QUESTION
+            or knowledge_item.id in seen_question_ids
+        ):
+            return
+        seen_question_ids.add(knowledge_item.id)
+        items.append(
+            DomainPresentationItemRef(
+                ref_id=knowledge_item.id,
+                item_type=DomainPresentationItemType.QUESTION,
+                source_order=len(items),
+                domain_ids=domain_ids,
+                confidence=knowledge_item.confidence.value,
+                requires_provenance=True,
+                pending=True,
+                requires_user_interaction=True,
             )
         )
 
@@ -365,20 +391,9 @@ def _presentation_items(
             else ()
         )
         for knowledge_item in bundle.items:
-            if knowledge_item.kind is not KnowledgeKind.QUESTION:
-                continue
-            items.append(
-                DomainPresentationItemRef(
-                    ref_id=knowledge_item.id,
-                    item_type=DomainPresentationItemType.QUESTION,
-                    source_order=len(items),
-                    domain_ids=domain_ids,
-                    confidence=knowledge_item.confidence.value,
-                    requires_provenance=True,
-                    pending=True,
-                    requires_user_interaction=True,
-                )
-            )
+            add_question(knowledge_item, domain_ids=domain_ids)
+    for knowledge_item in rule_result.produced_knowledge:
+        add_question(knowledge_item)
 
     return tuple(items)
 

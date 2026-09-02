@@ -542,6 +542,7 @@ def _serialized_store_state(store: InMemoryKnowledgeStore) -> dict[str, object]:
 def _presentation_rule_result(
     *,
     findings: tuple[ReasoningFinding, ...] = (),
+    produced_knowledge: tuple[KnowledgeItem, ...] = (),
     contradictions: tuple[Contradiction, ...] = (),
     gaps: tuple[ReasoningGap, ...] = (),
     recommendations: tuple[ReasoningRecommendation, ...] = (),
@@ -552,6 +553,7 @@ def _presentation_rule_result(
         plan_id="rule-plan-1",
         status=DomainRuleExecutionStatus.COMPLETED,
         findings=findings,
+        produced_knowledge=produced_knowledge,
         contradictions=contradictions,
         gaps=gaps,
         recommendations=recommendations,
@@ -707,6 +709,71 @@ def test_presentation_gap_interaction_uses_only_explicit_canonical_flags() -> No
     assert items[1].requires_user_interaction is True
     assert items[1].requires_approval is True
     assert items[1].requires_confirmation is True
+
+
+def test_presentation_items_include_rule_questions_with_first_seen_deduplication() -> (
+    None
+):
+    """Would fail if rule-produced questions were omitted or duplicated by ID."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
+
+    bundle_question = KnowledgeItem(
+        id="shared-question-1",
+        statement="Which bundle evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.31, source="bundle-extraction"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    repeated_rule_question = replace(
+        bundle_question,
+        statement="A later copy must not replace the first canonical question.",
+        confidence=Confidence(0.88, source="rule-copy"),
+    )
+    rule_question = KnowledgeItem(
+        id="rule-question-1",
+        statement="Which rule evidence is missing?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.67, source="rule-output"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    rule_observation = replace(
+        rule_question,
+        id="rule-observation-1",
+        statement="Rule observations do not become presentation questions.",
+        kind=KnowledgeKind.OBSERVATION,
+    )
+
+    items = _presentation_items(
+        request=_integration_request(),
+        bundles=(
+            KnowledgeBundle(
+                id="bundle-with-shared-question",
+                items=(bundle_question,),
+                created_at=NOW,
+            ),
+        ),
+        rule_result=_presentation_rule_result(
+            produced_knowledge=(
+                repeated_rule_question,
+                rule_question,
+                rule_observation,
+            ),
+        ),
+    )
+
+    assert tuple(item.ref_id for item in items) == (
+        "shared-question-1",
+        "rule-question-1",
+    )
+    assert all(item.item_type is DomainPresentationItemType.QUESTION for item in items)
+    assert tuple(item.source_order for item in items) == (0, 1)
+    assert tuple(item.confidence for item in items) == (0.31, 0.67)
+    assert all(item.requires_provenance for item in items)
+    assert all(item.pending for item in items)
+    assert all(item.requires_user_interaction for item in items)
 
 
 def test_package_and_context_builders_read_store_without_mutating_it() -> None:
