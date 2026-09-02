@@ -700,6 +700,26 @@ class DomainRuleExecutionError(DomainRuleError, RuntimeError):
     code = "DOMAIN_RULE_EXECUTION_ERROR"
 
 
+# ── Phase 10.40 – Domain Cognitive Integration Errors ───────────────────────
+
+
+class DomainCognitiveIntegrationError(DomainError):
+    pass
+
+
+class DomainCognitiveIntegrationContractError(
+    DomainCognitiveIntegrationError,
+    ValueError,
+):
+    pass
+
+
+class DomainCognitiveIntegrationBlockedError(
+    DomainCognitiveIntegrationError,
+):
+    pass
+
+
 # ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
 
 
@@ -918,6 +938,9 @@ __all__ = [
     "DomainCandidateInvalid",
     "DomainCapabilityConflict",
     "DomainChecksumMismatch",
+    "DomainCognitiveIntegrationBlockedError",
+    "DomainCognitiveIntegrationContractError",
+    "DomainCognitiveIntegrationError",
     "DomainCompositionConfigurationError",
     "DomainCompositionContractError",
     "DomainCompositionError",
