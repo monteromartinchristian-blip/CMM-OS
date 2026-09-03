@@ -697,18 +697,20 @@ class DefaultDomainAgentRuntimeIntegrator:
                 )
             )
         previous_primary = request.metadata.get("previous_primary_domain")
-        if isinstance(previous_primary, str) and previous_primary.strip():
-            if resolution.primary_domain is not None and previous_primary != str(
-                resolution.primary_domain
-            ):
-                decisions.append(
-                    DomainAgentRuntimeDecision(
-                        code=DomainAgentRuntimeDecisionCode.PRIMARY_DOMAIN_CHANGED,
-                        subject_id=str(resolution.primary_domain),
-                        reason_codes=("primary_domain_changed_on_reevaluation",),
-                        related_ids=(previous_primary,),
-                    )
+        if (
+            isinstance(previous_primary, str)
+            and previous_primary.strip()
+            and resolution.primary_domain is not None
+            and previous_primary != str(resolution.primary_domain)
+        ):
+            decisions.append(
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.PRIMARY_DOMAIN_CHANGED,
+                    subject_id=str(resolution.primary_domain),
+                    reason_codes=("primary_domain_changed_on_reevaluation",),
+                    related_ids=(previous_primary,),
                 )
+            )
         previous_supporting = request.metadata.get("previous_supporting_domains")
         if isinstance(previous_supporting, (list, tuple)):
             previous_set = {str(domain) for domain in previous_supporting}
