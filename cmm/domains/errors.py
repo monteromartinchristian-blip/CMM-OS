@@ -720,6 +720,26 @@ class DomainCognitiveIntegrationBlockedError(
     pass
 
 
+# ── Phase 10.41 – Domain Agent Runtime Integration Errors ───────────────────
+
+
+class DomainAgentRuntimeIntegrationError(DomainError):
+    pass
+
+
+class DomainAgentRuntimeIntegrationContractError(
+    DomainAgentRuntimeIntegrationError,
+    ValueError,
+):
+    pass
+
+
+class DomainAgentRuntimeIntegrationBlockedError(
+    DomainAgentRuntimeIntegrationError,
+):
+    pass
+
+
 # ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
 
 
