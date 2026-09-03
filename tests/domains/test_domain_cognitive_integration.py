@@ -2641,3 +2641,223 @@ def test_pres_7_real_default_domain_presentation_planner_preserves_references() 
     assert "pkg-contradiction-7" in planned_ref_ids
     assert "question-7" in planned_ref_ids
     assert f"{val_result.id}:warning:0" in planned_ref_ids
+
+
+# ── FACT-1 .. FACT-6: V3 Canonical FACT Presentation Matrix ─────────────────
+
+
+def test_fact_1_package_canonical_fact_preserved() -> None:
+    """FACT-1: package canonical FACT -> presentation ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationEpistemicKind
+
+    fact = KnowledgeItem(
+        id="package-fact-1",
+        statement="All examinations occur in Room 101.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.85, source="handbook"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-1",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "package-fact-1"]
+    assert len(matching) == 1
+    ref = matching[0]
+    assert ref.item_type is DomainPresentationItemType.FINDING
+    assert ref.epistemic_kind is DomainPresentationEpistemicKind.FACT
+
+
+def test_fact_2_rule_produced_canonical_fact_preserved() -> None:
+    """FACT-2: rule-produced canonical FACT -> presentation ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationEpistemicKind
+
+    rule_fact = KnowledgeItem(
+        id="rule-fact-2",
+        statement="Room 101 capacity is 50.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.78, source="rule-calc"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=None,
+        bundles=(),
+        rule_result=_presentation_rule_result(produced_knowledge=(rule_fact,)),
+    )
+    matching = [item for item in items if item.ref_id == "rule-fact-2"]
+    assert len(matching) == 1
+    ref = matching[0]
+    assert ref.item_type is DomainPresentationItemType.FINDING
+    assert ref.epistemic_kind is DomainPresentationEpistemicKind.FACT
+    assert ref.confidence == 0.78
+    assert ref.requires_provenance is True
+
+
+def test_fact_3_duplicate_fact_deduplicated_by_canonical_id() -> None:
+    """FACT-3: duplicate KnowledgeItem ID across package/rule/bundle -> one stable ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    shared_fact = KnowledgeItem(
+        id="shared-fact-3",
+        statement="Academic year starts in September.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.90, source="academic-calendar"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    shared_fact_alt = KnowledgeItem(
+        id="shared-fact-3",
+        statement="Academic year begins in Sept.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.80, source="alt-source"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-3",
+        objective="Test objective",
+        facts=(shared_fact,),
+        created_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-fact-3",
+        items=(shared_fact_alt,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(produced_knowledge=(shared_fact_alt,)),
+    )
+    matching = [item for item in items if item.ref_id == "shared-fact-3"]
+    assert len(matching) == 1
+    assert matching[0].confidence == 0.90
+
+
+def test_fact_4_canonical_confidence_preserved_exactly() -> None:
+    """FACT-4: canonical Confidence preserved exactly without profile override."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    fact = KnowledgeItem(
+        id="fact-conf-4",
+        statement="Specific prerequisite course is CS101.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="syllabus"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-4",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.95),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "fact-conf-4"]
+    assert len(matching) == 1
+    assert matching[0].confidence == 0.61
+
+
+def test_fact_5_requires_provenance_preserved() -> None:
+    """FACT-5: requires_provenance preserved on canonical knowledge refs."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    fact = KnowledgeItem(
+        id="fact-prov-5",
+        statement="Accredited degree requirement.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.82, source="accreditation-board"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-5",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    matching = [item for item in items if item.ref_id == "fact-prov-5"]
+    assert len(matching) == 1
+    assert matching[0].requires_provenance is True
+
+
+def test_fact_6_real_default_domain_presentation_planner_preserves_fact_ref() -> None:
+    """FACT-6: real DefaultDomainPresentationPlanner preserves FACT ref."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+
+    fact = KnowledgeItem(
+        id="fact-plan-6",
+        statement="Graduation ceremony date is June 20.",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.61, source="registrar"),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-fact-pkg-6",
+        objective="Test objective",
+        facts=(fact,),
+        created_at=NOW,
+    )
+    presentation = PresentationComposition(
+        values={},
+        provenance={},
+    )
+    request = replace(
+        _integration_request(),
+        composition=replace(
+            _integration_request().composition, presentation=presentation
+        ),
+    )
+    items = _presentation_items(
+        request=request,
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    planner = DefaultDomainPresentationPlanner()
+    plan = planner.plan(
+        DomainPresentationRequest(
+            request_id="pres-req-fact-6",
+            upstream_result_id="rule-result-1",
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(d) for d in request.composition.supporting_domains
+            ),
+        )
+    )
+    planned_ref_ids = tuple(ref.ref_id for ref in plan.item_refs)
+    assert "fact-plan-6" in planned_ref_ids
+    findings_section = next(s for s in plan.sections if s.section_id == "findings")
+    assert "fact-plan-6" in findings_section.item_refs
