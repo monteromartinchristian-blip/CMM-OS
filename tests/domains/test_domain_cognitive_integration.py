@@ -96,7 +96,7 @@ from cmm.domains.resource_contracts import (
     DomainResourceResolution,
 )
 from cmm.domains.rule_contracts import DomainRuleExecutionResult
-from cmm.validation.enums import ValidationSeverity
+from cmm.validation.enums import ValidationSeverity, ValidationStatus
 from cmm.validation.findings import ValidationFinding
 
 NOW = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)
@@ -640,6 +640,7 @@ def _presentation_rule_result(
 def test_presentation_items_map_only_canonical_evidence_with_stable_ids() -> None:
     """Would fail if mappings changed type, hashed content, or invented confidence."""
     from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
 
     question = KnowledgeItem(
         id="canonical-question-1",
@@ -789,6 +790,7 @@ def test_presentation_items_include_rule_questions_with_first_seen_deduplication
 ):
     """Would fail if rule-produced questions were omitted or duplicated by ID."""
     from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_contracts import DomainPresentationItemType
 
     bundle_question = KnowledgeItem(
         id="shared-question-1",
@@ -1903,6 +1905,9 @@ def test_integrator_never_calls_a_knowledge_store_mutator() -> None:
 def test_integrator_returns_references_consumed_by_real_presentation_planner() -> None:
     """Would fail if integration rendered output or dropped canonical evidence."""
     from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+    from cmm.domains.presentation_contracts import (
+        DomainPresentationItemType,
+    )
     from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
     from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 
@@ -2367,3 +2372,272 @@ def test_perm_7_blocked_path_evaluates_no_rules() -> None:
     with pytest.raises(DomainCognitiveIntegrationBlockedError):
         integrator.integrate(request)
     assert counting_rule.evaluations == 0
+
+
+# ── PRES-1 .. PRES-7: MAJOR-01 Presentation Evidence Tests ──────────────────
+
+
+def test_pres_1_package_contradiction_preserved() -> None:
+    """PRES-1: package contradiction preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    pkg_contradiction = Contradiction(
+        id="package-contradiction-1",
+        item_a_id="item-a1",
+        item_b_id="item-b1",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-1",
+        objective="Test objective",
+        contradictions=(pkg_contradiction,),
+        created_at=NOW,
+    )
+    assert any(c.id == "package-contradiction-1" for c in package.contradictions)
+
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(),
+    )
+    contradiction_refs = [
+        item
+        for item in items
+        if item.item_type is DomainPresentationItemType.CONTRADICTION
+    ]
+    assert any(item.ref_id == "package-contradiction-1" for item in contradiction_refs)
+
+
+def test_pres_2_rule_result_contradiction_preserved() -> None:
+    """PRES-2: rule-result contradiction preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    rule_contradiction = Contradiction(
+        id="rule-contradiction-1",
+        item_a_id="item-x",
+        item_b_id="item-y",
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=None,
+        bundles=(),
+        rule_result=_presentation_rule_result(contradictions=(rule_contradiction,)),
+    )
+    contradiction_refs = [
+        item
+        for item in items
+        if item.item_type is DomainPresentationItemType.CONTRADICTION
+    ]
+    assert any(item.ref_id == "rule-contradiction-1" for item in contradiction_refs)
+
+
+def test_pres_3_duplicate_contradiction_deduplicated_by_canonical_id() -> None:
+    """PRES-3: duplicate contradiction from package + rule result deduped by canonical ID."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    shared_contradiction = Contradiction(
+        id="shared-contradiction-1",
+        item_a_id="item-x",
+        item_b_id="item-y",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-3",
+        objective="Test objective",
+        contradictions=(shared_contradiction,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        package=package,
+        bundles=(),
+        rule_result=_presentation_rule_result(contradictions=(shared_contradiction,)),
+    )
+    matching = [item for item in items if item.ref_id == "shared-contradiction-1"]
+    assert len(matching) == 1
+    assert matching[0].item_type is DomainPresentationItemType.CONTRADICTION
+
+
+def test_pres_4_canonical_question_preserved() -> None:
+    """PRES-4: canonical QUESTION preserved in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    question = KnowledgeItem(
+        id="canonical-question-pres-4",
+        statement="What is the procedure?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.88, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-pres-4",
+        items=(question,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+    q_items = [
+        item for item in items if item.item_type is DomainPresentationItemType.QUESTION
+    ]
+    assert any(item.ref_id == "canonical-question-pres-4" for item in q_items)
+
+
+def test_pres_5_canonical_confidence_unchanged() -> None:
+    """PRES-5: canonical Confidence unchanged."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    question = KnowledgeItem(
+        id="canonical-question-pres-5",
+        statement="What is the procedure?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.73, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-pres-5",
+        items=(question,),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(minimum_confidence=0.95),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+    q_item = next(item for item in items if item.ref_id == "canonical-question-pres-5")
+    assert q_item.confidence == 0.73
+
+
+def test_pres_6_required_non_blocking_validation_warning_represented() -> None:
+    """PRES-6: required non-blocking validation warning represented in presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+
+    warning_finding = ValidationFinding(
+        code="COG_TEMPORAL_UNKNOWN",
+        message="Temporal validity unknown",
+        severity=ValidationSeverity.WARNING,
+        source="cognitive.temporality",
+        blocking=False,
+    )
+    val_result = CognitiveValidationResult(
+        id="val-result-warning-1",
+        target_id="resource-1",
+        target_kind="Resource",
+        status=ValidationStatus.PASSED,
+        decision=CognitiveValidationDecision.ACCEPT_WITH_WARNING,
+        findings=(warning_finding,),
+        warnings=(warning_finding,),
+        validated_rules=("cognitive.temporality",),
+        created_at=NOW,
+    )
+    items = _presentation_items(
+        request=_integration_request(),
+        validation_results=(val_result,),
+        rule_result=_presentation_rule_result(),
+    )
+    warning_items = [
+        item for item in items if item.item_type is DomainPresentationItemType.WARNING
+    ]
+    assert len(warning_items) >= 1
+    assert warning_items[0].ref_id == f"{val_result.id}:warning:0"
+
+
+def test_pres_7_real_default_domain_presentation_planner_preserves_references() -> None:
+    """PRES-7: real DefaultDomainPresentationPlanner preserves all presentation references."""
+    from cmm.domains.cognitive_integration import _presentation_items
+    from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
+
+    pkg_contradiction = Contradiction(
+        id="pkg-contradiction-7",
+        item_a_id="item-a7",
+        item_b_id="item-b7",
+        created_at=NOW,
+    )
+    package = KnowledgePackage(
+        id="package-7",
+        objective="Test objective",
+        contradictions=(pkg_contradiction,),
+        created_at=NOW,
+    )
+
+    question = KnowledgeItem(
+        id="question-7",
+        statement="What is the exam room?",
+        kind=KnowledgeKind.QUESTION,
+        confidence=Confidence(0.67, source="extractor"),
+        resource_id="resource-1",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    bundle = KnowledgeBundle(
+        id="bundle-7",
+        items=(question,),
+        created_at=NOW,
+    )
+
+    warning_finding = ValidationFinding(
+        code="COG_TEMPORAL_UNKNOWN",
+        message="Temporal validity unknown",
+        severity=ValidationSeverity.WARNING,
+        source="cognitive.temporality",
+        blocking=False,
+    )
+    val_result = CognitiveValidationResult(
+        id="val-result-7",
+        target_id="resource-1",
+        target_kind="Resource",
+        status=ValidationStatus.PASSED,
+        decision=CognitiveValidationDecision.ACCEPT_WITH_WARNING,
+        findings=(warning_finding,),
+        warnings=(warning_finding,),
+        validated_rules=("cognitive.temporality",),
+        created_at=NOW,
+    )
+
+    presentation = PresentationComposition(
+        values={},
+        provenance={},
+    )
+    request = replace(
+        _integration_request(),
+        composition=replace(
+            _integration_request().composition, presentation=presentation
+        ),
+    )
+    items = _presentation_items(
+        request=request,
+        package=package,
+        validation_results=(val_result,),
+        bundles=(bundle,),
+        rule_result=_presentation_rule_result(),
+    )
+
+    planner = DefaultDomainPresentationPlanner()
+    plan = planner.plan(
+        DomainPresentationRequest(
+            request_id="pres-req-7",
+            upstream_result_id="rule-result-1",
+            composition_id=request.composition.id,
+            policy_id=request.profile.id,
+            presentation=request.composition.presentation,
+            policy=request.profile.presentation_policy,
+            items=items,
+            primary_domain_id=str(request.composition.primary_domain),
+            supporting_domain_ids=tuple(
+                str(d) for d in request.composition.supporting_domains
+            ),
+        )
+    )
+
+    planned_ref_ids = tuple(ref.ref_id for ref in plan.item_refs)
+    assert "pkg-contradiction-7" in planned_ref_ids
+    assert "question-7" in planned_ref_ids
+    assert f"{val_result.id}:warning:0" in planned_ref_ids

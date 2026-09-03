@@ -246,6 +246,8 @@ class DefaultDomainCognitiveIntegrator:
         )
         presentation_items = _presentation_items(
             request=request,
+            package=package,
+            validation_results=validation_results,
             bundles=extracted_bundles,
             rule_result=rule_result,
         )
@@ -314,7 +316,9 @@ def _build_trace_references(
 def _presentation_items(
     *,
     request: DomainCognitiveIntegrationRequest,
-    bundles: tuple[KnowledgeBundle, ...],
+    package: KnowledgePackage | None = None,
+    validation_results: tuple[CognitiveValidationResult, ...] = (),
+    bundles: tuple[KnowledgeBundle, ...] = (),
     rule_result: DomainRuleExecutionResult,
 ) -> tuple[DomainPresentationItemRef, ...]:
     items: list[DomainPresentationItemRef] = []
@@ -388,7 +392,16 @@ def _presentation_items(
             item_type=DomainPresentationItemType.GAP,
             message=gap,
         )
-    for contradiction in rule_result.contradictions:
+
+    seen_contradiction_ids: set[str] = set()
+    all_contradictions = (
+        *(package.contradictions if package is not None else ()),
+        *rule_result.contradictions,
+    )
+    for contradiction in all_contradictions:
+        if contradiction.id in seen_contradiction_ids:
+            continue
+        seen_contradiction_ids.add(contradiction.id)
         items.append(
             DomainPresentationItemRef(
                 ref_id=contradiction.id,
@@ -397,6 +410,7 @@ def _presentation_items(
                 requires_provenance=True,
             )
         )
+
     for index, recommendation in enumerate(rule_result.recommendations):
         add_message(
             ref_id=f"{rule_result.id}:recommendation:{index}",
@@ -410,6 +424,34 @@ def _presentation_items(
             item_type=DomainPresentationItemType.ESCALATION,
             message=escalation,
         )
+
+    seen_warning_ids: set[str] = set()
+    for val_result in validation_results:
+        for w_index, warning in enumerate(val_result.warnings):
+            warning_ref_id = f"{val_result.id}:warning:{w_index}"
+            if warning_ref_id in seen_warning_ids:
+                continue
+            seen_warning_ids.add(warning_ref_id)
+            items.append(
+                DomainPresentationItemRef(
+                    ref_id=warning_ref_id,
+                    item_type=DomainPresentationItemType.WARNING,
+                    source_order=len(items),
+                    requires_provenance=True,
+                )
+            )
+
+    if package is not None:
+        for pkg_items in (
+            package.facts,
+            package.observations,
+            package.inferences,
+            package.hypotheses,
+            package.other_knowledge,
+        ):
+            for knowledge_item in pkg_items:
+                add_question(knowledge_item)
+
     for bundle_index, bundle in enumerate(bundles):
         domain_ids = (
             (str(request.resources[bundle_index].binding.domain_id),)
