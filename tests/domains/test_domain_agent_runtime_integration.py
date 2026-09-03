@@ -28,6 +28,7 @@ from cmm.domains.enums import DomainReasoningDepth
 from cmm.domains.errors import (
     DomainAgentRuntimeIntegrationBlockedError,
     DomainAgentRuntimeIntegrationContractError,
+    DomainOperationError,
 )
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
@@ -1337,7 +1338,7 @@ def test_registered_domain_operation_executes_through_canonical_stack() -> None:
 def test_unregistered_operation_fails_closed_without_implementation_calls() -> None:
     from cmm.domains.operation_contracts import DomainOperationRequest
 
-    orchestrator, implementation, request = _canonical_operation_stack()
+    orchestrator, implementation, _request = _canonical_operation_stack()
     unknown = DomainOperationRequest(
         request_id="request:unknown",
         operation_id="general.does_not_exist",
@@ -1349,7 +1350,7 @@ def test_unregistered_operation_fails_closed_without_implementation_calls() -> N
         idempotency_key="idem:unknown",
         capabilities=("execute",),
     )
-    with pytest.raises(Exception):
+    with pytest.raises(DomainOperationError):
         orchestrator.execute(unknown)
     assert implementation.calls == 0
 
@@ -1407,7 +1408,7 @@ def test_existing_workflow_plan_is_bound_by_reference_only() -> None:
 
     from cmm.agent_runtime.workflow_planner_contracts import AgentWorkflowPlan
 
-    integrator, monitors, request = _build_permission_integrator(
+    integrator, _monitors, request = _build_permission_integrator(
         (_university_policy(),)
     )
     request = _replace(
