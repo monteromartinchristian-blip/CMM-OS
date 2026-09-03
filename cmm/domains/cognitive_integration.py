@@ -179,6 +179,23 @@ class DefaultDomainCognitiveIntegrator:
                 field="request",
             )
 
+        for resource_input in request.resources:
+            missing = tuple(
+                permission
+                for permission in resource_input.binding.permissions
+                if permission not in request.effective_permissions
+            )
+            if missing:
+                raise DomainCognitiveIntegrationBlockedError(
+                    f"Domain resource binding '{resource_input.binding.id}' required permissions "
+                    f"not satisfied: absent from effective_permissions",
+                    details={
+                        "request_id": request.request_id,
+                        "binding_id": resource_input.binding.id,
+                        "missing_permissions": missing,
+                    },
+                )
+
         timestamp = self._now()
         adapted = tuple(
             _adapt_domain_resource(

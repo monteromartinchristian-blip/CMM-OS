@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 
@@ -59,8 +60,10 @@ from cmm.cognitive import (
     TemporalScopeKind,
 )
 from cmm.cognitive.contracts import Confidence
+from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
 from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveIntegrationRequest,
+    DomainCognitiveIntegrationResult,
     DomainCognitiveResourceInput,
 )
 from cmm.domains.composition_contracts import DomainComposition, PresentationComposition
@@ -76,6 +79,10 @@ from cmm.domains.errors import (
     DomainCognitiveIntegrationContractError,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.presentation_contracts import (
+    DomainPresentationItemType,
+    DomainPresentationRequest,
+)
 from cmm.domains.profile_contracts import (
     DomainMemoryPolicy,
     DomainPresentationPolicy,
@@ -473,6 +480,73 @@ def _registries(
     return adapter_registry, extractor_registry
 
 
+def _resource_input_with_binding_permissions(
+    permissions: tuple[str, ...],
+) -> DomainCognitiveResourceInput:
+    base = _resource_input()
+    new_binding = replace(base.binding, permissions=permissions)
+    new_res = replace(
+        base.resolution,
+        bindings=(new_binding,),
+    )
+    return replace(
+        base,
+        resolution=new_res,
+        binding=new_binding,
+    )
+
+
+class _SpyResourceAdapter(_ExactExistingResourceAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.adapt_calls = 0
+
+    def adapt(
+        self,
+        source: ResourceInput,
+        *,
+        context: AdaptationContext | None = None,
+    ) -> ResourceAdaptationResult:
+        self.adapt_calls += 1
+        return super().adapt(source, context=context)
+
+
+class _SpyKnowledgeExtractor(PlainTextKnowledgeExtractor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.extract_calls = 0
+
+    def extract(
+        self,
+        resource: Resource,
+        *,
+        context: ExtractionContext | None = None,
+    ) -> KnowledgeExtractionResult:
+        self.extract_calls += 1
+        return super().extract(resource, context=context)
+
+
+def _make_default_integrator(
+    *,
+    adapter: Any = None,
+    extractor: Any = None,
+    rule_registry: Any = None,
+    knowledge_store: Any = None,
+) -> DefaultDomainCognitiveIntegrator:
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(adapter or _ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(extractor or PlainTextKnowledgeExtractor())
+    return DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=knowledge_store or _store_with_matching_provenance(),
+        rule_registry=rule_registry or InMemoryReasoningRuleRegistry(),
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+
 def _integration_request(
     *,
     minimum_confidence: float = 0.8,
@@ -566,7 +640,6 @@ def _presentation_rule_result(
 def test_presentation_items_map_only_canonical_evidence_with_stable_ids() -> None:
     """Would fail if mappings changed type, hashed content, or invented confidence."""
     from cmm.domains.cognitive_integration import _presentation_items
-    from cmm.domains.presentation_contracts import DomainPresentationItemType
 
     question = KnowledgeItem(
         id="canonical-question-1",
@@ -716,7 +789,6 @@ def test_presentation_items_include_rule_questions_with_first_seen_deduplication
 ):
     """Would fail if rule-produced questions were omitted or duplicated by ID."""
     from cmm.domains.cognitive_integration import _presentation_items
-    from cmm.domains.presentation_contracts import DomainPresentationItemType
 
     bundle_question = KnowledgeItem(
         id="shared-question-1",
@@ -1831,10 +1903,6 @@ def test_integrator_never_calls_a_knowledge_store_mutator() -> None:
 def test_integrator_returns_references_consumed_by_real_presentation_planner() -> None:
     """Would fail if integration rendered output or dropped canonical evidence."""
     from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
-    from cmm.domains.presentation_contracts import (
-        DomainPresentationItemType,
-        DomainPresentationRequest,
-    )
     from cmm.domains.presentation_planner import DefaultDomainPresentationPlanner
     from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 
@@ -2111,8 +2179,6 @@ def test_adversarial_scenario_g_failed_extraction_prevents_rule_evaluation() -> 
 
 def test_adversarial_scenario_h_permission_mismatch_fails_closed() -> None:
     """Scenario H: A binding with required permissions absent from effective permissions fails closed."""
-    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
-
     counting_rule = _CountingReasoningRule(
         "global.mandatory",
         scope=ReasoningRuleScope.GLOBAL,
@@ -2121,46 +2187,21 @@ def test_adversarial_scenario_h_permission_mismatch_fails_closed() -> None:
     rule_reg = InMemoryReasoningRuleRegistry()
     rule_reg.register(counting_rule)
 
-    adapter_reg = ResourceAdapterRegistry()
-    adapter_reg.register(ExistingResourceAdapter())
-    extractor_reg = KnowledgeExtractorRegistry()
-    extractor_reg.register(PlainTextKnowledgeExtractor())
-
-    integrator = DefaultDomainCognitiveIntegrator(
-        adapter_registry=adapter_reg,
-        extractor_registry=extractor_reg,
-        knowledge_store=InMemoryKnowledgeStore(),
-        rule_registry=rule_reg,
-        cognitive_validator=CognitiveValidator(),
-        clock=lambda: NOW,
-    )
-
-    restricted_res = replace(
-        _canonical_resource(),
-        permissions=(
-            ResourcePermission(
-                allowed_operations=(ResourcePermissionOperation.READ,),
-            ),
-        ),
-    )
-    res_in = _resource_input(resource=restricted_res)
-    object.__setattr__(res_in.binding, "adapter", "existing_resource")
-    try:
-        with pytest.raises(
-            DomainCognitiveIntegrationBlockedError,
-            match="Mandatory Domain resource extraction did not succeed",
-        ):
-            integrator.integrate(
-                replace(
-                    _integration_request(),
-                    resources=(res_in,),
-                    global_mandatory_rules=(counting_rule.definition.id,),
-                    effective_permissions=("resource:read",),
-                )
+    integrator = _make_default_integrator(rule_registry=rule_reg)
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    with pytest.raises(
+        DomainCognitiveIntegrationBlockedError,
+        match="required permissions not satisfied",
+    ):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(res_in,),
+                global_mandatory_rules=(counting_rule.definition.id,),
+                effective_permissions=("resource:read", "resource:infer"),
             )
-        assert counting_rule.evaluations == 0
-    finally:
-        object.__setattr__(res_in.binding, "adapter", "domain.existing_resource")
+        )
+    assert counting_rule.evaluations == 0
 
 
 def test_adversarial_scenario_i_canonical_validation_block_prevents_rule_evaluation() -> (
@@ -2209,4 +2250,120 @@ def test_adversarial_scenario_i_canonical_validation_block_prevents_rule_evaluat
             )
         )
 
+    assert counting_rule.evaluations == 0
+
+
+# ── PERM-1 .. PERM-7: BLOCKER-01 Permission Matrix Tests ────────────────────
+
+
+def test_perm_1_one_required_permission_request_has_none_blocks() -> None:
+    """PERM-1: one required permission, request has none -> BLOCK."""
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=(),
+    )
+    integrator = _make_default_integrator()
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as exc_info:
+        integrator.integrate(request)
+    assert exc_info.value.details.get("binding_id") == res_in.binding.id
+    assert "sensitive.special.read" in exc_info.value.details.get(
+        "missing_permissions", ()
+    )
+
+
+def test_perm_2_two_required_permissions_request_has_one_blocks() -> None:
+    """PERM-2: two required permissions, request has one -> BLOCK."""
+    res_in = _resource_input_with_binding_permissions(("perm.read", "perm.special"))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read",),
+    )
+    integrator = _make_default_integrator()
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as exc_info:
+        integrator.integrate(request)
+    assert exc_info.value.details.get("binding_id") == res_in.binding.id
+    assert exc_info.value.details.get("missing_permissions") == ("perm.special",)
+
+
+def test_perm_3_exact_satisfaction_allows() -> None:
+    """PERM-3: exact satisfaction -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(("perm.read", "perm.special"))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read", "perm.special"),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_4_request_has_superset_allows() -> None:
+    """PERM-4: request has a superset -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(("perm.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("perm.read", "perm.special", "perm.extra"),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_5_binding_requires_no_permissions_allows() -> None:
+    """PERM-5: binding requires no permissions -> ALLOW."""
+    res_in = _resource_input_with_binding_permissions(())
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=(),
+    )
+    integrator = _make_default_integrator()
+    result = integrator.integrate(request)
+    assert isinstance(result, DomainCognitiveIntegrationResult)
+
+
+def test_perm_6_blocked_path_calls_no_adapter_or_extractor() -> None:
+    """PERM-6: blocked path calls no adapter/extractor -> PASS."""
+    spy_adapter = _SpyResourceAdapter()
+    spy_extractor = _SpyKnowledgeExtractor()
+    integrator = _make_default_integrator(
+        adapter=spy_adapter,
+        extractor=spy_extractor,
+    )
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        effective_permissions=("resource:read", "resource:infer"),
+    )
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(request)
+    assert spy_adapter.adapt_calls == 0
+    assert spy_extractor.extract_calls == 0
+
+
+def test_perm_7_blocked_path_evaluates_no_rules() -> None:
+    """PERM-7: blocked path evaluates no rules -> PASS."""
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+    integrator = _make_default_integrator(rule_registry=rule_reg)
+    res_in = _resource_input_with_binding_permissions(("sensitive.special.read",))
+    request = replace(
+        _integration_request(),
+        resources=(res_in,),
+        global_mandatory_rules=(counting_rule.definition.id,),
+        effective_permissions=(),
+    )
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(request)
     assert counting_rule.evaluations == 0
