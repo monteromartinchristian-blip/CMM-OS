@@ -267,9 +267,15 @@ class DefaultDomainAgentRuntimeIntegrator:
                         related_ids=(prepared.resolution.id,),
                     ),
                 )
-        # Specialized execution pipeline stages after cognition (autonomy,
-        # budget, operation routing, runtime delegation) extend this boundary
-        # in subsequent tasks and remain fail-closed until then.
+        # ── Domain autonomy ceiling ──────────────────────────────────────
+        _, autonomy_decision = self._apply_autonomy_ceiling(
+            request.agent_request, permission_resolution.domain_policies
+        )
+        if autonomy_decision is not None:
+            decisions = (*decisions, autonomy_decision)
+        # Specialized execution pipeline stages after cognition (budget,
+        # operation routing, runtime delegation) extend this boundary in
+        # subsequent tasks and remain fail-closed until then.
         blocked_decision = self._blocked_decision(
             subject_id=prepared.composition.id,
             related_ids=(prepared.resolution.id, prepared.profile.id),
@@ -394,6 +400,7 @@ class DefaultDomainAgentRuntimeIntegrator:
             session_id=request.resolution_context.session_id or "system",
             operation_id=operation_id,
             workflow_id=workflow_id,
+            sensitivity_level=request.agent_request.sensitivity,
         )
         try:
             return self._permission_resolver.resolve(
@@ -489,7 +496,49 @@ class DefaultDomainAgentRuntimeIntegrator:
             for policy in domain_policies:
                 if capability in policy.prohibited_capabilities:
                     data[context_key] = False
+        domain_autonomy_max = self._effective_domain_autonomy_max(domain_policies)
+        if domain_autonomy_max is not None:
+            data["maximum_autonomy_level"] = min(
+                int(data["maximum_autonomy_level"]), domain_autonomy_max
+            )
         return AgentPermissionContext.from_mapping(data)
+
+    @staticmethod
+    def _effective_domain_autonomy_max(
+        domain_policies: tuple[Any, ...],
+    ) -> int | None:
+        limits = [
+            policy.autonomy_limits.maximum_autonomy_level
+            for policy in domain_policies
+            if policy.autonomy_limits.maximum_autonomy_level is not None
+        ]
+        return min(limits) if limits else None
+
+    def _apply_autonomy_ceiling(
+        self,
+        agent_request: IntegratedAgentExecutionRequest,
+        domain_policies: tuple[Any, ...],
+    ) -> tuple[IntegratedAgentExecutionRequest, DomainAgentRuntimeDecision | None]:
+        """Enforce DOMAIN_AUTONOMY <= GLOBAL_AUTHORIZED_AUTONOMY.
+
+        The Domain limit is a ceiling: it can only reduce or preserve the
+        incoming authorized autonomy level, never raise it.  An absent or
+        unconstrained Domain limit preserves the incoming Phase 9 value.
+        """
+        effective_domain_max = self._effective_domain_autonomy_max(domain_policies)
+        if effective_domain_max is None:
+            return agent_request, None
+        effective_max = min(agent_request.max_autonomy_level, effective_domain_max)
+        if effective_max >= agent_request.max_autonomy_level:
+            return agent_request, None
+        specialized = replace(agent_request, max_autonomy_level=effective_max)
+        decision = DomainAgentRuntimeDecision(
+            code=DomainAgentRuntimeDecisionCode.DOMAIN_AUTONOMY_RESTRICTED,
+            subject_id=agent_request.request_id,
+            reason_codes=("domain_autonomy_ceiling_applied",),
+            related_ids=(agent_request.execution_id,),
+        )
+        return specialized, decision
 
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest

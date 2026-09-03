@@ -731,6 +731,8 @@ def test_specialized_agent_request_preserves_canonical_fields() -> None:
 def _university_policy(**overrides: object) -> Any:
     from cmm.domains.permission_contracts import DomainPermissionPolicy
 
+    from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+
     values: dict[str, object] = {
         "policy_id": "perm-policy-uni-1041",
         "domain_id": "domain:university",
@@ -738,6 +740,10 @@ def _university_policy(**overrides: object) -> Any:
         "allowed_capabilities": (
             PermissionCapability.OPERATION_EXECUTE,
             PermissionCapability.KNOWLEDGE_READ,
+        ),
+        "allowed_sensitivity_levels": (
+            SensitivityLevel.PUBLIC,
+            SensitivityLevel.INTERNAL,
         ),
     }
     values.update(overrides)
@@ -1026,3 +1032,87 @@ def test_stale_approval_is_not_reused_as_authority() -> None:
     # approval-required decision stands.
     assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
     assert "approval-stale-1041" not in str(result.decisions)
+
+
+# ── Task 6: Domain autonomy ceiling without widening authority ────────────────
+
+
+def _autonomy_policy(maximum_autonomy_level: int | None) -> Any:
+    from cmm.domains.permission_contracts import DomainAutonomyLimits
+
+    return _university_policy(
+        autonomy_limits=DomainAutonomyLimits(
+            maximum_autonomy_level=maximum_autonomy_level
+        ),
+    )
+
+
+def test_domain_autonomy_lowers_incoming_ceiling() -> None:
+    from dataclasses import replace as _replace
+
+    integrator, _, request = _build_permission_integrator((_autonomy_policy(0),))
+    incoming = _replace(request.agent_request, max_autonomy_level=2)
+    specialized, decision = integrator._apply_autonomy_ceiling(
+        incoming, (_autonomy_policy(0),)
+    )
+
+    assert specialized.max_autonomy_level == 0
+    assert decision is not None
+    assert decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_AUTONOMY_RESTRICTED
+
+
+def test_domain_autonomy_cannot_raise_incoming_ceiling() -> None:
+    from dataclasses import replace as _replace
+
+    integrator, _, request = _build_permission_integrator((_autonomy_policy(3),))
+    incoming = _replace(request.agent_request, max_autonomy_level=1)
+    specialized, decision = integrator._apply_autonomy_ceiling(
+        incoming, (_autonomy_policy(3),)
+    )
+
+    assert specialized.max_autonomy_level == 1
+    assert decision is None
+
+
+def test_domain_autonomy_absent_limit_preserves_incoming_value() -> None:
+    from dataclasses import replace as _replace
+
+    integrator, _, request = _build_permission_integrator((_university_policy(),))
+    incoming = _replace(request.agent_request, max_autonomy_level=2)
+    specialized, decision = integrator._apply_autonomy_ceiling(
+        incoming, (_university_policy(),)
+    )
+
+    assert specialized.max_autonomy_level == 2
+    assert decision is None
+
+
+def test_autonomy_ceiling_emits_restriction_decision_in_execution() -> None:
+    integrator, monitors, request = _build_permission_integrator((_autonomy_policy(0),))
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_AUTONOMY_RESTRICTED in codes
+
+
+def test_autonomy_ceiling_narrows_permission_context_level() -> None:
+    incoming = _agent_permission_context(
+        allowed_operations=("documents.read",),
+        maximum_autonomy_level=2,
+    )
+    integrator, _, request = _build_permission_integrator(
+        (_autonomy_policy(0),),
+        permission_context=incoming,
+    )
+    _execute_boundary(integrator, request)
+
+    resolution = integrator._resolve_domain_permissions(
+        request, integrator._prepare(request)
+    )
+    narrowed = integrator._narrow_permission_context(
+        incoming,
+        resolution.domain_policies,
+        primary_domain_id="domain:university",
+    )
+    assert narrowed.maximum_autonomy_level == 0
