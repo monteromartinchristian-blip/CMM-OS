@@ -90,6 +90,7 @@ from cmm.domains.permission_contracts import (
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.presentation_contracts import (
+    DomainPresentationEpistemicKind,
     DomainPresentationItemType,
     DomainPresentationRequest,
 )
@@ -666,6 +667,26 @@ def test_at_dp040_connected_cognitive_integration() -> None:
         ).confidence
         == question_item.confidence.value
     )
+    assert any(
+        item.ref_id == "prior-fact-040"
+        and item.item_type is DomainPresentationItemType.FINDING
+        and item.epistemic_kind is DomainPresentationEpistemicKind.FACT
+        and item.confidence == 0.61
+        and item.requires_provenance is True
+        for item in result.presentation_items
+    )
+    assert any(
+        ref.ref_id == "prior-fact-040"
+        and ref.item_type is DomainPresentationItemType.FINDING
+        and ref.epistemic_kind is DomainPresentationEpistemicKind.FACT
+        and ref.confidence == 0.61
+        and ref.requires_provenance is True
+        for ref in presentation_plan.item_refs
+    )
+    findings_section = next(
+        s for s in presentation_plan.sections if s.section_id == "findings"
+    )
+    assert "prior-fact-040" in findings_section.item_refs
 
     # 16. Domain Trace is assembled with references only.
     trace_refs = replace(
@@ -801,3 +822,8 @@ def test_at_dp040_connected_cognitive_integration() -> None:
 
     cp.checkpoint("21-all-assertions-verified")
     assert cp.points[-1] == "21-all-assertions-verified"
+
+
+def test_fact_7_connected_at_prior_fact_survives_to_presentation_plan() -> None:
+    """FACT-7: connected AT prior-fact-040 survives to presentation plan."""
+    test_at_dp040_connected_cognitive_integration()
