@@ -145,7 +145,7 @@ class DefaultDomainAgentRuntimeIntegrator:
         _require_dependency(permission_resolver, "permission_resolver", "resolve")
         _require_dependency(permission_gate, "permission_gate", "evaluate_operation")
         _require_dependency(cognitive_integrator, "cognitive_integrator", "integrate")
-        _require_dependency(agent_runtime_service, "agent_runtime_service", "run")
+        _require_dependency(agent_runtime_service, "agent_runtime_service", "execute")
         if action_budget_service is not None:
             _require_dependency(
                 action_budget_service, "action_budget_service", "decrease_budget"
@@ -273,31 +273,33 @@ class DefaultDomainAgentRuntimeIntegrator:
                     related_ids=(prepared.composition.id,),
                 ),
             )
-        else:
-            narrowed_context = self._narrow_permission_context(
-                request.agent_request.permission_context,
-                permission_resolution.domain_policies,
-                primary_domain_id=str(prepared.composition.primary_domain),
+        # Narrowing applies for every non-denied outcome: restrictions are
+        # computed from the Domain composition independently of the approval
+        # requirement so authority is never wider than the Domain allows.
+        narrowed_context = self._narrow_permission_context(
+            request.agent_request.permission_context,
+            permission_resolution.domain_policies,
+            primary_domain_id=str(prepared.composition.primary_domain),
+        )
+        if narrowed_context is not None:
+            changed = (
+                request.agent_request.permission_context is None
+                or narrowed_context.to_dict()
+                != request.agent_request.permission_context.to_dict()
             )
-            if narrowed_context is not None:
-                changed = (
-                    request.agent_request.permission_context is None
-                    or narrowed_context.to_dict()
-                    != request.agent_request.permission_context.to_dict()
+            specialized_request = replace(
+                specialized_request, permission_context=narrowed_context
+            )
+            if changed:
+                decisions = (
+                    *decisions,
+                    DomainAgentRuntimeDecision(
+                        code=DomainAgentRuntimeDecisionCode.DOMAIN_PERMISSION_RESTRICTED,
+                        subject_id=prepared.composition.id,
+                        reason_codes=("domain_permission_narrowing_applied",),
+                        related_ids=(prepared.resolution.id,),
+                    ),
                 )
-                specialized_request = replace(
-                    specialized_request, permission_context=narrowed_context
-                )
-                if changed:
-                    decisions = (
-                        *decisions,
-                        DomainAgentRuntimeDecision(
-                            code=DomainAgentRuntimeDecisionCode.DOMAIN_PERMISSION_RESTRICTED,
-                            subject_id=prepared.composition.id,
-                            reason_codes=("domain_permission_narrowing_applied",),
-                            related_ids=(prepared.resolution.id,),
-                        ),
-                    )
         # ── Domain autonomy ceiling ──────────────────────────────────────
         specialized_request, autonomy_decision = self._apply_autonomy_ceiling(
             specialized_request, permission_resolution.domain_policies
