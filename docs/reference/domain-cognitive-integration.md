@@ -112,10 +112,10 @@ DomainCognitiveIntegrationRequest
     │
     ▼
 7. Presentation Item Mapping
-    └── Maps package contradictions, rule contradictions (deduplicated by ID),
-        rule gaps, findings, recommendations, escalations, non-blocking validation
-        warnings, and canonical questions to DomainPresentationItemRef with preserved
-        confidence and provenance
+    └── Maps canonical knowledge items (facts, inferences, hypotheses, questions),
+        package contradictions, rule contradictions (deduplicated by ID), rule gaps,
+        findings, recommendations, escalations, and non-blocking validation warnings
+        to DomainPresentationItemRef with preserved confidence and provenance
     │
     ▼
 8. Trace Reference Projection
@@ -158,6 +158,9 @@ DomainCognitiveIntegrationRequest
    - Domain profile `minimum_confidence` sets reasoning thresholds; it never overwrites or inflates underlying evidence confidence.
 5. **Cognitive Validation Warnings:**
    - Non-blocking cognitive validation warnings from `validation_results` are surfaced as `DomainPresentationItemType.WARNING` references.
+6. **Canonical Knowledge Item Presentation:**
+   - Canonical `KnowledgeItem` evidence (`FACT`, `INFERENCE`, `HYPOTHESIS`) from `KnowledgePackage`, bundles, and rule results is preserved as `DomainPresentationItemType.FINDING` with matching epistemic kind, preserved canonical `Confidence`, and `requires_provenance=True`.
+   - Deduplication across package, bundles, and rule results is keyed by canonical `KnowledgeItem.id` with first deterministic occurrence winning.
 
 ---
 
@@ -174,8 +177,8 @@ not introduced.
 ## 7. Verification Evidence
 
 - `tests/domains/test_domain_cognitive_integration_contracts.py`: 64 unit contract tests.
-- `tests/domains/test_domain_cognitive_integration.py`: 65 integration, adaptation, validation, and adversarial tests.
+- `tests/domains/test_domain_cognitive_integration.py`: 71 integration, adaptation, validation, and adversarial tests.
 - `tests/domains/test_domain_cognitive_integration_boundaries.py`: 10 architectural boundary and AST anti-mutation tests.
-- `tests/domains/test_domain_cognitive_dp040_acceptance.py`: Connected acceptance test exercising all 21 criteria.
-- Total Phase 10.40 test suite: **140 tests passed locally**.
+- `tests/domains/test_domain_cognitive_dp040_acceptance.py`: Connected acceptance test exercising all 21 criteria plus FACT presentation preservation.
+- Total Phase 10.40 test suite: **147 tests passed locally**.
 - Global regressions: Phase 8 suite (697 tests) and Domain suite (992 tests) pass with 0 failures.
