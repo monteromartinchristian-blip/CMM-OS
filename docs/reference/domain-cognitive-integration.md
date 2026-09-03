@@ -77,7 +77,8 @@ The canonical orchestrator `DefaultDomainCognitiveIntegrator` (`cmm/domains/cogn
 DomainCognitiveIntegrationRequest
     │
     ▼
-1. Resource Adaptation & Extraction
+1. Permission Enforcement & Resource Adaptation
+    ├── Verifies binding.permissions against request.effective_permissions (fails closed)
     ├── ResourceAdapterRegistry.get(binding.adapter).adapt(...)
     │     └── Preserves provenance, sensitivity, temporal scope, reliability
     └── KnowledgeExtractorRegistry.get(extractor_name).extract(...)
@@ -111,8 +112,10 @@ DomainCognitiveIntegrationRequest
     │
     ▼
 7. Presentation Item Mapping
-    └── Maps rule gaps, rule findings, rule questions, and extracted questions
-        to DomainPresentationItemRef with preserved confidence and provenance
+    └── Maps package contradictions, rule contradictions (deduplicated by ID),
+        rule gaps, findings, recommendations, escalations, non-blocking validation
+        warnings, and canonical questions to DomainPresentationItemRef with preserved
+        confidence and provenance
     │
     ▼
 8. Trace Reference Projection
@@ -149,10 +152,12 @@ DomainCognitiveIntegrationRequest
    - Questions produced by rules during reasoning follow: `ReasoningRuleResult.questions` → `DomainPresentationItemRef`.
    - Question references are consumed and partitioned into presentation sections by `DefaultDomainPresentationPlanner`.
 3. **Contradictions:**
-   - Stored and extracted contradictions are strictly Phase 8 `Contradiction` instances.
-   - Identified contradictions map to `DomainPresentationItemType.CONTRADICTION` for downstream user review.
+   - Stored/package and rule-produced contradictions are strictly Phase 8 `Contradiction` instances.
+   - Deduplicated by canonical `Contradiction.id` and preserved as `DomainPresentationItemType.CONTRADICTION` with `requires_provenance=True` for downstream planning by `DefaultDomainPresentationPlanner`.
 4. **Confidence Invariance:**
    - Domain profile `minimum_confidence` sets reasoning thresholds; it never overwrites or inflates underlying evidence confidence.
+5. **Cognitive Validation Warnings:**
+   - Non-blocking cognitive validation warnings from `validation_results` are surfaced as `DomainPresentationItemType.WARNING` references.
 
 ---
 
@@ -168,9 +173,9 @@ not introduced.
 
 ## 7. Verification Evidence
 
-- `tests/domains/test_domain_cognitive_integration_contracts.py`: 65 unit contract tests.
-- `tests/domains/test_domain_cognitive_integration.py`: 51 integration, adaptation, validation, and adversarial tests.
+- `tests/domains/test_domain_cognitive_integration_contracts.py`: 64 unit contract tests.
+- `tests/domains/test_domain_cognitive_integration.py`: 65 integration, adaptation, validation, and adversarial tests.
 - `tests/domains/test_domain_cognitive_integration_boundaries.py`: 10 architectural boundary and AST anti-mutation tests.
 - `tests/domains/test_domain_cognitive_dp040_acceptance.py`: Connected acceptance test exercising all 21 criteria.
-- Total Phase 10.40 test suite: **126 tests passed locally**.
+- Total Phase 10.40 test suite: **140 tests passed locally**.
 - Global regressions: Phase 8 suite (697 tests) and Domain suite (992 tests) pass with 0 failures.
