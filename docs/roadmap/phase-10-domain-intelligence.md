@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.40 — Integration with Cognitive Layer**. Final independent re-audit **V3** = `PASS`; `DP-040=VERIFIED_EXISTING`; `AT-DP-040=PASS`. Next milestone: **Phase 10.41 — Integration with Agent Runtime**.
+* The independently audited Domain Intelligence boundary extends through **Phase 10.40 — Integration with Cognitive Layer** (final independent re-audit **V3** = `PASS`; `DP-040=VERIFIED_EXISTING`; `AT-DP-040=PASS`). **Phase 10.41 — Integration with Agent Runtime** is implemented and pending independent audit (`DP-041=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-041=PASS`). Next milestone after audit closure: **Phase 10.42 — Integration with Planner and Workflow Engine**.
 
 ⸻
 
@@ -5714,6 +5714,8 @@ Domains should not implement:
 ⸻
 
 10.41 - Integration with Agent Runtime
+
+**Status: implemented and pending independent audit.** `DP-041=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-041=PASS` (`tests/domains/test_domain_agent_runtime_dp041_acceptance.py`; 20 connected checkpoints). Canonical integrator `cmm/domains/agent_runtime_integration.py`; contracts `cmm/domains/agent_runtime_integration_contracts.py`; reference `docs/reference/domain-agent-runtime-integration.md`. Dependency direction preserved: `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`. Phase 10.42 remains next only after the Phase 10.41 independent audit PASS and a separate documentation-only closure commit.
 
 Objective
 
