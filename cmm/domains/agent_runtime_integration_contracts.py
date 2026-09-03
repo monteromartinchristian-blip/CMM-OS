@@ -463,6 +463,7 @@ class DomainAgentRuntimeIntegrationResult:
                 decision.subject_id,
                 decision.reason_codes,
                 decision.related_ids,
+                tuple(sorted(decision.metadata.items(), key=lambda item: item[0])),
             )
             for decision in decisions
         ]

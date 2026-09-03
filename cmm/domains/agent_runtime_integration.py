@@ -22,6 +22,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
 )
+from cmm.agent_runtime.enums import BudgetResourceType
 from cmm.domains.agent_runtime_integration_contracts import (
     DomainAgentRuntimeDecision,
     DomainAgentRuntimeDecisionCode,
@@ -61,6 +62,15 @@ _CAPABILITY_BOOLEAN_PROHIBITIONS: tuple[tuple[PermissionCapability, str], ...] =
     (PermissionCapability.PUBLICATION, "allow_publication"),
     (PermissionCapability.SEARCH_EXTERNAL, "allow_external_access"),
     (PermissionCapability.FILE_MODIFY, "allow_destructive_actions"),
+)
+
+# Canonical Phase 9 BudgetResourceType dimensions mappable from a
+# DomainActionBudget ceiling.  Unmapped Domain dimensions are enforced only
+# through canonical runtime evidence; Phase 10.41 owns no consumption ledger.
+_DOMAIN_BUDGET_ATTR_BY_RESOURCE: tuple[tuple[BudgetResourceType, str], ...] = (
+    (BudgetResourceType.OPERATION, "maximum_operations"),
+    (BudgetResourceType.DURATION_SECONDS, "maximum_duration_seconds"),
+    (BudgetResourceType.COST, "maximum_cost"),
 )
 
 
@@ -273,6 +283,10 @@ class DefaultDomainAgentRuntimeIntegrator:
         )
         if autonomy_decision is not None:
             decisions = (*decisions, autonomy_decision)
+        # ── Domain budget restriction ────────────────────────────────────
+        budget_decisions = self._apply_budget_restriction(request, prepared)
+        if budget_decisions:
+            decisions = (*decisions, *budget_decisions)
         # Specialized execution pipeline stages after cognition (budget,
         # operation routing, runtime delegation) extend this boundary in
         # subsequent tasks and remain fail-closed until then.
@@ -539,6 +553,56 @@ class DefaultDomainAgentRuntimeIntegrator:
             related_ids=(agent_request.execution_id,),
         )
         return specialized, decision
+
+    def _apply_budget_restriction(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> tuple[DomainAgentRuntimeDecision, ...]:
+        """Restrict the one canonical Phase 9 Action Budget.
+
+        Only the canonical decrease path is used; a stricter master limit is
+        preserved untouched and no increase path exists in this boundary.
+        """
+        domain_budget = request.domain_budget
+        budget_id = request.agent_request.budget_id
+        if domain_budget is None:
+            return ()
+        if budget_id is None or self._action_budget_service is None:
+            raise self._blocked_error(
+                "Domain budget restriction requires the canonical Action "
+                "Budget service and a canonical budget identifier",
+                request_id=request.request_id,
+                subject_id=prepared.composition.id,
+                related_ids=(prepared.resolution.id,),
+                reason_codes=("domain_budget_service_unavailable",),
+                details={"composition_id": prepared.composition.id},
+            )
+        decisions: list[DomainAgentRuntimeDecision] = []
+        for resource_type, attribute in _DOMAIN_BUDGET_ATTR_BY_RESOURCE:
+            ceiling = getattr(domain_budget, attribute)
+            if ceiling is None:
+                continue
+            budget = self._action_budget_service.get_budget(budget_id)
+            current_limit = budget.limit_for(resource_type)
+            if current_limit is not None and ceiling >= current_limit:
+                continue
+            self._action_budget_service.decrease_budget(
+                budget_id=budget_id,
+                resource_type=resource_type,
+                new_limit=ceiling,
+                reason_codes=("domain_budget_restriction",),
+            )
+            decisions.append(
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_BUDGET_RESTRICTED,
+                    subject_id=budget_id,
+                    reason_codes=("domain_budget_ceiling_applied",),
+                    related_ids=(prepared.composition.id,),
+                    metadata={"resource_type": resource_type.value},
+                )
+            )
+        return tuple(decisions)
 
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest

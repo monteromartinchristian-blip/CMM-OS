@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from cmm.agent_runtime.agent_runtime_integration_contracts import (
     IntegratedAgentExecutionRequest,
 )
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+from cmm.agent_runtime.enums import BudgetResourceType
 from cmm.domains.agent_runtime_integration import (
     DefaultDomainAgentRuntimeIntegrator,
 )
@@ -42,6 +44,8 @@ from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.university.definition import build_university_domain_definition
 
 NOW = datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc)
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _execute_boundary(integrator: Any, request: Any) -> Any:
@@ -778,6 +782,7 @@ def _build_permission_integrator(
     with_operation: bool = False,
     context: Any | None = None,
     scoring_policy: Any | None = None,
+    action_budget_service: Any | None = None,
 ) -> tuple[Any, dict[str, Any], Any]:
     from dataclasses import replace as _replace
 
@@ -816,6 +821,7 @@ def _build_permission_integrator(
         permission_gate=permission_gate,
         cognitive_integrator=_CountingCognitiveIntegrator(),
         agent_runtime_service=agent_service,
+        action_budget_service=action_budget_service,
         domain_definition_provider=_definition_provider(),
         profile_input_provider=_profile_input_provider(),
         clock=lambda: NOW,
@@ -1115,3 +1121,142 @@ def test_autonomy_ceiling_narrows_permission_context_level() -> None:
         primary_domain_id="domain:university",
     )
     assert narrowed.maximum_autonomy_level == 0
+
+
+# ── Task 7: restrict the canonical Phase 9 Action Budget ──────────────────────
+
+
+def _budget_service_with_master(
+    limits: dict[str, object],
+) -> Any:
+    from cmm.agent_runtime.action_budget_service import ActionBudgetService
+
+    service = ActionBudgetService()
+    budget = service.create_budget(
+        agent_run_id="run-1041",
+        limits=limits,
+    )
+    return service, budget
+
+
+def _budget_integration_request(budget_id: str | None, domain_budget: Any) -> Any:
+    from dataclasses import replace as _replace
+
+    return _replace(
+        _integration_request(),
+        domain_budget=domain_budget,
+        agent_request=_replace(_agent_request(), budget_id=budget_id),
+    )
+
+
+def test_no_domain_budget_performs_zero_budget_calls() -> None:
+    from cmm.domains.agent_runtime_integration_contracts import (
+        DomainAgentRuntimeDecisionCode,
+    )
+
+    service, budget = _budget_service_with_master({BudgetResourceType.OPERATION: 10})
+    integrator, _, request = _build_permission_integrator((_university_policy(),))
+    request = _budget_integration_request(budget.id, None)
+    result = _execute_boundary(integrator, request)
+
+    adjustments = service.repository.list_adjustments(budget.id)
+    assert adjustments == ()
+    assert request.agent_request.budget_id == budget.id
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_BUDGET_RESTRICTED not in codes
+
+
+def test_domain_budget_decreases_canonical_master_limit() -> None:
+    from decimal import Decimal as _Decimal
+
+    from cmm.domains.agent_runtime_integration_contracts import (
+        DomainActionBudget,
+        DomainAgentRuntimeDecisionCode,
+    )
+
+    service, budget = _budget_service_with_master(
+        {
+            BudgetResourceType.OPERATION: 10,
+            BudgetResourceType.DURATION_SECONDS: 600,
+            BudgetResourceType.COST: _Decimal("20.00"),
+        }
+    )
+    integrator, _, _ = _build_permission_integrator(
+        (_university_policy(),), action_budget_service=service
+    )
+    domain_budget = DomainActionBudget(
+        domain_id="domain:university",
+        maximum_operations=5,
+        maximum_duration_seconds=300,
+        maximum_cost=_Decimal("10.00"),
+    )
+    request = _budget_integration_request(budget.id, domain_budget)
+    result = _execute_boundary(integrator, request)
+
+    restricted = service.repository.get_budget(budget.id)
+    assert restricted.limit_for(BudgetResourceType.OPERATION) == 5
+    assert restricted.limit_for(BudgetResourceType.DURATION_SECONDS) == 300
+    assert restricted.limit_for(BudgetResourceType.COST) == _Decimal("10.00")
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_BUDGET_RESTRICTED in codes
+    adjustments = service.repository.list_adjustments(budget.id)
+    assert all(
+        adjustment.adjustment_type.value == "decrease" for adjustment in adjustments
+    )
+
+
+def test_stricter_master_limit_is_preserved_without_increase() -> None:
+
+    from cmm.domains.agent_runtime_integration_contracts import (
+        DomainActionBudget,
+        DomainAgentRuntimeDecisionCode,
+    )
+
+    service, budget = _budget_service_with_master({BudgetResourceType.OPERATION: 3})
+    integrator, _, _ = _build_permission_integrator(
+        (_university_policy(),), action_budget_service=service
+    )
+    domain_budget = DomainActionBudget(
+        domain_id="domain:university",
+        maximum_operations=5,
+    )
+    request = _budget_integration_request(budget.id, domain_budget)
+    result = _execute_boundary(integrator, request)
+
+    preserved = service.repository.get_budget(budget.id)
+    assert preserved.limit_for(BudgetResourceType.OPERATION) == 3
+    assert service.repository.list_adjustments(budget.id) == ()
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_BUDGET_RESTRICTED not in codes
+
+
+def test_module_never_references_budget_increase_paths() -> None:
+    module_path = ROOT / "cmm" / "domains" / "agent_runtime_integration.py"
+    source = module_path.read_text(encoding="utf-8")
+    for token in ("increase_budget", "request_increase", "increase_limit"):
+        assert token not in source, token
+
+
+def test_canonical_budget_exhaustion_blocks_further_consumption() -> None:
+
+    from cmm.agent_runtime.action_budget_contracts import (
+        BudgetAllocation,
+        BudgetResourceType,
+    )
+    from cmm.agent_runtime.errors import (
+        BudgetExhaustedError,
+        InsufficientBudgetError,
+    )
+
+    service, budget = _budget_service_with_master({BudgetResourceType.OPERATION: 1})
+    service.reserve(
+        budget.id,
+        allocations=[BudgetAllocation(BudgetResourceType.OPERATION, 1)],
+        operation_id="op-1041",
+    )
+    with pytest.raises((InsufficientBudgetError, BudgetExhaustedError)):
+        service.reserve(
+            budget.id,
+            allocations=[BudgetAllocation(BudgetResourceType.OPERATION, 1)],
+            operation_id="op-1042",
+        )
