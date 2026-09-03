@@ -729,9 +729,8 @@ def test_specialized_agent_request_preserves_canonical_fields() -> None:
 
 
 def _university_policy(**overrides: object) -> Any:
-    from cmm.domains.permission_contracts import DomainPermissionPolicy
-
     from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+    from cmm.domains.permission_contracts import DomainPermissionPolicy
 
     values: dict[str, object] = {
         "policy_id": "perm-policy-uni-1041",
