@@ -743,6 +743,7 @@ def _university_policy(**overrides: object) -> Any:
         "allowed_capabilities": (
             PermissionCapability.OPERATION_EXECUTE,
             PermissionCapability.KNOWLEDGE_READ,
+            PermissionCapability.WORKFLOW_EXECUTE,
         ),
         "allowed_sensitivity_levels": (
             SensitivityLevel.PUBLIC,
@@ -1260,3 +1261,192 @@ def test_canonical_budget_exhaustion_blocks_further_consumption() -> None:
             allocations=[BudgetAllocation(BudgetResourceType.OPERATION, 1)],
             operation_id="op-1042",
         )
+
+
+# ── Task 8: route specialized Domain operations canonically ───────────────────
+
+
+def _canonical_operation_stack() -> tuple[Any, Any, Any]:
+    """Build the canonical registered operation stack (no Phase 10.41 owner)."""
+    from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+    from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+    from cmm.domains.operation_contracts import (
+        DomainOperationDefinition,
+        DomainOperationRequest,
+        DomainOperationType,
+    )
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+
+    definition = DomainOperationDefinition(
+        operation_id="general.prepare_structured_summary",
+        domain_id="domain:general",
+        version="1.0.0",
+        name="Prepare structured summary",
+        description="Prepare a structured summary",
+        operation_type=DomainOperationType.PREPARATION,
+    )
+
+    class CountingImplementation:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.definition = definition
+
+        def run_implementation(self, request: Any) -> dict[str, object]:
+            self.calls += 1
+            return {"success": True, "output": {"summary": "OK"}}
+
+    CountingImplementation.execute = CountingImplementation.run_implementation
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    implementation = CountingImplementation()
+    registry.register(definition, implementation)
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+    request = DomainOperationRequest(
+        request_id="request:1041",
+        operation_id=definition.operation_id,
+        operation_version=definition.version,
+        inputs={"text": "hello"},
+        agent_run_id="run:1041",
+        task_id="task:1041",
+        primary_domain_id="domain:general",
+        idempotency_key="idem:1041",
+        capabilities=("execute",),
+    )
+    return orchestrator, implementation, request
+
+
+def test_registered_domain_operation_executes_through_canonical_stack() -> None:
+    orchestrator, implementation, request = _canonical_operation_stack()
+    result = orchestrator.execute(request)
+
+    # The implementation ran exactly once through the registered
+    # adapter/delegate/orchestrator path, never by direct invocation.
+    assert implementation.calls == 1
+    assert result.operation_id == "general.prepare_structured_summary"
+
+
+def test_unregistered_operation_fails_closed_without_implementation_calls() -> None:
+    from cmm.domains.operation_contracts import DomainOperationRequest
+
+    orchestrator, implementation, request = _canonical_operation_stack()
+    unknown = DomainOperationRequest(
+        request_id="request:unknown",
+        operation_id="general.does_not_exist",
+        operation_version="9.9.9",
+        inputs={},
+        agent_run_id="run:1041",
+        task_id="task:1041",
+        primary_domain_id="domain:general",
+        idempotency_key="idem:unknown",
+        capabilities=("execute",),
+    )
+    with pytest.raises(Exception):
+        orchestrator.execute(unknown)
+    assert implementation.calls == 0
+
+
+def test_eligible_domain_operation_is_selected_by_decision() -> None:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+
+    integrator, monitors, request = _build_permission_integrator(
+        (_university_policy(),)
+    )
+    request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            operations=(
+                AgentOperationRequest(
+                    id="op-1041",
+                    agent_run_id="run-1041",
+                    workflow_id="workflow-1041",
+                    task_id="task-1041",
+                    operation_name="university.prepare_exam",
+                    idempotency_key="idem-1041",
+                    created_at="2026-09-03T12:00:00+00:00",
+                ),
+            ),
+        ),
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_OPERATION_SELECTED in codes
+
+
+def test_operation_outside_domain_composition_blocks_without_side_effects() -> None:
+    integrator, monitors, request = _build_permission_integrator(
+        (_university_policy(),), with_operation=True
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    assert result.blocked is True
+    blocked = next(
+        decision
+        for decision in result.decisions
+        if decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_BLOCKED
+    )
+    assert "domain_operation_not_composable" in blocked.reason_codes
+
+
+def test_existing_workflow_plan_is_bound_by_reference_only() -> None:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.workflow_planner_contracts import AgentWorkflowPlan
+
+    integrator, monitors, request = _build_permission_integrator(
+        (_university_policy(),)
+    )
+    request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            workflow=AgentWorkflowPlan(
+                id="plan-1041",
+                goal_id="goal-1041",
+                agent_run_id="run-1041",
+                workflow_id="workflow-1041",
+                created_at="2026-09-03T12:00:00+00:00",
+                updated_at="2026-09-03T12:00:00+00:00",
+            ),
+        ),
+    )
+    result = _execute_boundary(integrator, request)
+
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_WORKFLOW_BOUND in codes
+    bound = next(
+        decision
+        for decision in result.decisions
+        if decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_WORKFLOW_BOUND
+    )
+    assert bound.subject_id == "plan-1041"
+
+
+def test_unrepresentable_domain_workflow_request_blocks_unsupported() -> None:
+    integrator, monitors, request = _build_permission_integrator(
+        (_university_policy(),),
+        context=_resolution_context(current_workflow="university.exam_preparation"),
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    blocked = next(
+        decision
+        for decision in result.decisions
+        if decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_BLOCKED
+    )
+    assert "domain_workflow_unsupported_pending_phase_10_42" in blocked.reason_codes

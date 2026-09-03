@@ -287,6 +287,30 @@ class DefaultDomainAgentRuntimeIntegrator:
         budget_decisions = self._apply_budget_restriction(request, prepared)
         if budget_decisions:
             decisions = (*decisions, *budget_decisions)
+        # ── Operation / workflow eligibility binding ─────────────────────
+        binding_decisions, fail_closed_reason = self._bind_operations_and_workflows(
+            request, prepared
+        )
+        if fail_closed_reason is not None:
+            blocked_decision = self._blocked_decision(
+                subject_id=prepared.composition.id,
+                related_ids=(prepared.resolution.id, prepared.profile.id),
+                reason_codes=(fail_closed_reason,),
+            )
+            return DomainAgentRuntimeIntegrationResult(
+                request_id=prepared.request_id,
+                resolution=prepared.resolution,
+                composition=prepared.composition,
+                profile=prepared.profile,
+                cognitive_result=cognitive_result,
+                agent_result=None,
+                decisions=(*decisions, *binding_decisions, blocked_decision),
+                domain_trace_id=None,
+                agent_trace_id=None,
+                blocked=True,
+            )
+        if binding_decisions:
+            decisions = (*decisions, *binding_decisions)
         # Specialized execution pipeline stages after cognition (budget,
         # operation routing, runtime delegation) extend this boundary in
         # subsequent tasks and remain fail-closed until then.
@@ -603,6 +627,53 @@ class DefaultDomainAgentRuntimeIntegrator:
                 )
             )
         return tuple(decisions)
+
+    def _bind_operations_and_workflows(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> tuple[tuple[DomainAgentRuntimeDecision, ...], str | None]:
+        """Validate operation/workflow eligibility and bind by reference.
+
+        Selection only: execution stays with the canonical Phase 9/Domain
+        orchestration stack.  A Domain-requested workflow that the current
+        Phase 9 seam cannot represent fails closed (Phase 10.42 scope).
+        """
+        decisions: list[DomainAgentRuntimeDecision] = []
+        eligible_operations = {
+            item.identifier for item in prepared.composition.operations
+        }
+        for operation in request.agent_request.operations:
+            if operation.operation_name not in eligible_operations:
+                return tuple(decisions), "domain_operation_not_composable"
+        if request.agent_request.operations:
+            decisions.append(
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_OPERATION_SELECTED,
+                    subject_id=request.agent_request.operations[0].operation_name,
+                    reason_codes=("domain_operation_eligible",),
+                    related_ids=(prepared.composition.id,),
+                )
+            )
+        if request.agent_request.workflow is not None:
+            decisions.append(
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_WORKFLOW_BOUND,
+                    subject_id=request.agent_request.workflow.id,
+                    reason_codes=("existing_workflow_plan_bound_by_reference",),
+                    related_ids=(prepared.composition.id,),
+                )
+            )
+        elif (
+            request.agent_request.workflow is None
+            and not request.agent_request.operations
+            and request.resolution_context.current_workflow is not None
+        ):
+            return (
+                tuple(decisions),
+                "domain_workflow_unsupported_pending_phase_10_42",
+            )
+        return tuple(decisions), None
 
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest
