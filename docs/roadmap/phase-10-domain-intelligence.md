@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.39**. Next milestone: **Phase 10.40 — Integration with Cognitive Layer**.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.39**. Next milestone: **Phase 10.40 — Integration with Cognitive Layer** (implemented locally; pending independent audit).
 
 ⸻
 
@@ -5632,6 +5632,16 @@ Legitimate adapters extending canonical imported bases (e.g., `from cmm.planner 
 ⸻
 
 10.40 - Integration with Cognitive Layer
+
+Status
+
+**Phase 10.40** — Integration with Cognitive Layer is **implemented pending independent audit**.
+- **State:** `IMPLEMENTED_PENDING_AUDIT`
+- **Audited Baseline:** Independently audited boundary remains through Phase 10.39 (`3ecc483e1138f675193f9cec83897c3d174cdec8`).
+- **Local Acceptance:** `AT-DP-040` — `LOCAL_PASS` (`tests/domains/test_domain_cognitive_dp040_acceptance.py`; all 21 connected assertions passed).
+- **Core Production Modules:** `cmm/domains/cognitive_integration.py`, `cmm/domains/cognitive_integration_contracts.py`.
+- **Reference Documentation:** `docs/reference/domain-cognitive-integration.md`.
+- **Boundary Verification:** 0 cognitive → domain imports, 0 agent runtime imports in 10.40 core, 0 parallel owners, 0 store mutations.
 
 Objective
 
