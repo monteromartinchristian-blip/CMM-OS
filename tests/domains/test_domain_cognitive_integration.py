@@ -1931,3 +1931,282 @@ def test_integrator_returns_references_consumed_by_real_presentation_planner() -
         ).confidence
         == question_item.confidence.value
     )
+
+
+# ── Task 10: Adversarial Boundary Tests (Scenarios A through I) ───────────────
+
+
+@pytest.mark.parametrize(
+    "status",
+    (DomainCompositionStatus.BLOCKED, DomainCompositionStatus.FAILED),
+    ids=("blocked", "failed"),
+)
+def test_adversarial_scenario_a_blocked_or_failed_composition_rejected(
+    status: DomainCompositionStatus,
+) -> None:
+    """Scenario A: Blocked or failed composition cannot cross integration boundary."""
+    comp = _integration_request().composition
+    # Frozen composition mutation for boundary testing
+    object.__setattr__(comp, "status", status)
+    try:
+        with pytest.raises(
+            DomainCognitiveIntegrationContractError,
+            match="composition status must be COMPOSED or PARTIAL",
+        ):
+            DomainCognitiveIntegrationRequest(
+                request_id="req-blocked-comp",
+                resolution_context_id="ctx-1",
+                resolution_result_id="res-1",
+                objective="Test boundary",
+                composition=comp,
+                profile=_integration_request().profile,
+            )
+    finally:
+        object.__setattr__(comp, "status", DomainCompositionStatus.COMPOSED)
+
+
+def test_adversarial_scenario_b_profile_composition_mismatch_rejected() -> None:
+    """Scenario B: Profile with mismatched primary or supporting domain is rejected."""
+    prof = _integration_request().profile
+    original_domain = prof.primary_domain
+    object.__setattr__(prof, "primary_domain", DomainId("university"))
+    try:
+        with pytest.raises(
+            DomainCognitiveIntegrationContractError,
+            match="profile active domains must match composition",
+        ):
+            DomainCognitiveIntegrationRequest(
+                request_id="req-mismatch",
+                resolution_context_id="ctx-1",
+                resolution_result_id="res-1",
+                objective="Test mismatch",
+                composition=_integration_request().composition,
+                profile=prof,
+            )
+    finally:
+        object.__setattr__(prof, "primary_domain", original_domain)
+
+
+def test_adversarial_scenario_c_forged_binding_rejected() -> None:
+    """Scenario C: Resource binding absent from its resolution is rejected."""
+    res_in = _resource_input()
+    forged_binding = replace(res_in.binding, id="forged-binding-absent-from-res")
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="binding must occur in resolution.bindings",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=forged_binding,
+            source=replace(res_in.source, id=forged_binding.resource_id),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_d_resource_id_mismatch_rejected() -> None:
+    """Scenario D: ResourceInput.id differing from binding.resource_id is rejected."""
+    res_in = _resource_input()
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="source.id must match binding.resource_id",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=res_in.binding,
+            source=replace(res_in.source, id="mismatched-resource-id-999"),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_e_sensitivity_mismatch_or_downgrade_rejected() -> None:
+    """Scenario E: ResourceInput sensitivity differing from binding is rejected."""
+    res_in = _resource_input()
+    assert res_in.binding.sensitivity == SensitivityLevel.SENSITIVE
+    with pytest.raises(
+        DomainCognitiveIntegrationContractError,
+        match="source.sensitivity must match binding.sensitivity",
+    ):
+        DomainCognitiveResourceInput(
+            resolution=res_in.resolution,
+            binding=res_in.binding,
+            source=replace(res_in.source, sensitivity=SensitivityLevel.PUBLIC),
+            extractor_name=res_in.extractor_name,
+        )
+
+
+def test_adversarial_scenario_f_unknown_configured_adapter_fails_closed() -> None:
+    """Scenario F: Unknown binding.adapter fails closed without fallback to another adapter."""
+    from cmm.cognitive import MappingResourceAdapter, PlainTextResourceAdapter
+    from cmm.cognitive.errors import ComponentNotFoundError
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    adapter_registry = ResourceAdapterRegistry()
+    adapter_registry.register(PlainTextResourceAdapter())
+    adapter_registry.register(MappingResourceAdapter())
+
+    extractor_registry = KnowledgeExtractorRegistry()
+    extractor_registry.register(PlainTextKnowledgeExtractor())
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_registry,
+        extractor_registry=extractor_registry,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=InMemoryReasoningRuleRegistry(),
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    res_in = _resource_input()
+    object.__setattr__(res_in.binding, "adapter", "unknown_missing_adapter")
+    try:
+        with pytest.raises(
+            ComponentNotFoundError,
+            match="no adapter named 'unknown_missing_adapter'",
+        ):
+            integrator.integrate(replace(_integration_request(), resources=(res_in,)))
+    finally:
+        object.__setattr__(res_in.binding, "adapter", "domain.existing_resource")
+
+
+def test_adversarial_scenario_g_failed_extraction_prevents_rule_evaluation() -> None:
+    """Scenario G: Failed mandatory extraction halts flow before any rule evaluation."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(_ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(_MandatoryStatusExtractor(ExtractionStatus.FAILED))
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=rule_reg,
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(
+        DomainCognitiveIntegrationBlockedError,
+        match="Mandatory Domain resource extraction did not succeed",
+    ):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(_resource_input(extractor_name="mandatory"),),
+                global_mandatory_rules=(counting_rule.definition.id,),
+            )
+        )
+
+    assert counting_rule.evaluations == 0
+
+
+def test_adversarial_scenario_h_permission_mismatch_fails_closed() -> None:
+    """Scenario H: A binding with required permissions absent from effective permissions fails closed."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(ExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(PlainTextKnowledgeExtractor())
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=rule_reg,
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    restricted_res = replace(
+        _canonical_resource(),
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(ResourcePermissionOperation.READ,),
+            ),
+        ),
+    )
+    res_in = _resource_input(resource=restricted_res)
+    object.__setattr__(res_in.binding, "adapter", "existing_resource")
+    try:
+        with pytest.raises(
+            DomainCognitiveIntegrationBlockedError,
+            match="Mandatory Domain resource extraction did not succeed",
+        ):
+            integrator.integrate(
+                replace(
+                    _integration_request(),
+                    resources=(res_in,),
+                    global_mandatory_rules=(counting_rule.definition.id,),
+                    effective_permissions=("resource:read",),
+                )
+            )
+        assert counting_rule.evaluations == 0
+    finally:
+        object.__setattr__(res_in.binding, "adapter", "domain.existing_resource")
+
+
+def test_adversarial_scenario_i_canonical_validation_block_prevents_rule_evaluation() -> (
+    None
+):
+    """Scenario I: Canonical validation block prevents reasoning rule evaluation."""
+    from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
+
+    counting_rule = _CountingReasoningRule(
+        "global.mandatory",
+        scope=ReasoningRuleScope.GLOBAL,
+        domain_id=None,
+    )
+    rule_reg = InMemoryReasoningRuleRegistry()
+    rule_reg.register(counting_rule)
+
+    adapter_reg = ResourceAdapterRegistry()
+    adapter_reg.register(_ExactExistingResourceAdapter())
+    extractor_reg = KnowledgeExtractorRegistry()
+    extractor_reg.register(PlainTextKnowledgeExtractor())
+
+    integrator = DefaultDomainCognitiveIntegrator(
+        adapter_registry=adapter_reg,
+        extractor_registry=extractor_reg,
+        knowledge_store=InMemoryKnowledgeStore(),
+        rule_registry=rule_reg,
+        cognitive_validator=CognitiveValidator(),
+        clock=lambda: NOW,
+    )
+
+    untrusted_res = replace(
+        _canonical_resource("SENSITIVE-CONTENT-VALIDATION-BLOCK"),
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(ResourcePermissionOperation.READ,),
+            ),
+        ),
+    )
+    res_in = _resource_input(resource=untrusted_res)
+    with pytest.raises(DomainCognitiveIntegrationBlockedError):
+        integrator.integrate(
+            replace(
+                _integration_request(),
+                resources=(res_in,),
+                global_mandatory_rules=(counting_rule.definition.id,),
+            )
+        )
+
+    assert counting_rule.evaluations == 0

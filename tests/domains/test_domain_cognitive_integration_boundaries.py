@@ -159,3 +159,87 @@ def test_fragmentation_guard_rejects_duplicate_cognitive_or_global_owners(
 ) -> None:
     findings = analyze_fragmentation(source, "phase1040_owner.py")
     assert expected_code in {str(finding["code"]) for finding in findings}
+
+
+# ── Task 10: Adversarial Boundary Gate (Cases J & K) ─────────────────────────
+
+
+def test_integrator_has_no_direct_persistence_mutations() -> None:
+    """Case J: AST inspect calls inside DefaultDomainCognitiveIntegrator and
+
+    reject mutation calls on its knowledge-store field:
+    - save item/evidence/relation/contradiction;
+    - delete item/evidence/relation/contradiction;
+    - transaction mutation.
+    Avoid repository-wide substring scans.
+    """
+    path = ROOT / "cmm" / "domains" / "cognitive_integration.py"
+    tree = _parse(path)
+
+    mutation_methods = {
+        "save_item",
+        "save_evidence",
+        "save_relation",
+        "save_contradiction",
+        "delete_item",
+        "delete_evidence",
+        "delete_relation",
+        "delete_contradiction",
+        "begin_transaction",
+        "commit_transaction",
+        "rollback_transaction",
+        "transaction",
+    }
+
+    mutations_found: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and (
+                func.attr in mutation_methods
+                or func.attr.startswith(("save_", "delete_", "mutate_"))
+            ):
+                mutations_found.append((func.attr, getattr(node, "lineno", 0)))
+
+    assert mutations_found == []
+
+
+def test_persistence_mutation_checker_detects_violations() -> None:
+    """Verifies that the persistence mutation AST scanner detects violations."""
+    fake_source = (
+        "def mutate(store, item):\n"
+        "    store.save_item(item)\n"
+        "    store.delete_relation('rel-1')\n"
+        "    store.begin_transaction()\n"
+    )
+    fake_tree = ast.parse(fake_source)
+    mutation_methods = {
+        "save_item",
+        "save_evidence",
+        "save_relation",
+        "save_contradiction",
+        "delete_item",
+        "delete_evidence",
+        "delete_relation",
+        "delete_contradiction",
+        "begin_transaction",
+        "commit_transaction",
+        "rollback_transaction",
+        "transaction",
+    }
+    mutations_found = [
+        node.func.attr
+        for node in ast.walk(fake_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in mutation_methods
+    ]
+    assert mutations_found == ["save_item", "delete_relation", "begin_transaction"]
+
+
+def test_no_parallel_cognitive_or_runtime_owner_introduced() -> None:
+    """Case K: Architecture scan confirms no parallel owners exist in Phase 10.40."""
+    for path in PHASE_1040_MODULES:
+        assert path.exists()
+        assert _prohibited_imports(path) == []
+        assert _prohibited_owner_definitions(path) == []
