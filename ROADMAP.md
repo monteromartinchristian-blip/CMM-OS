@@ -9,10 +9,10 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–9 plus Phase 10 through 10.40 (Phase 10.40 implemented pending independent audit)<br>
-> **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.39<br>
+> **Implemented:** Phases 0–9 plus Phase 10 through 10.40<br>
+> **Implemented and audited:** Phases 0–9 plus Phase 10 through 10.40<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** **Phase 10.40 audit** / **Phase 10.41 — Integration with Agent Runtime**
+> **Next milestone:** **Phase 10.41 — Integration with Agent Runtime**
 
 ---
 
@@ -462,17 +462,16 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.39 are complete, independently audited and closed. **Phase 10.39 — Preventing Fragmentation** closed after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-039=VERIFIED_EXISTING`; `AT-DP-039=PASS`.
+**Current progress:** Phase 10.19–10.40 are complete, independently audited and closed. **Phase 10.40 — Integration with Cognitive Layer** closed after final independent re-audit **V3** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-040=VERIFIED_EXISTING`; `AT-DP-040=PASS`.
 The Phase 10.37 — Domain Observability closure stands at audited implementation HEAD `a17326421daa2479f58d7ab45b6a66b1bef75936`; audit V6 bundle SHA-256 `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 
-**Implemented and audited through:** **Phase 10.39 — Preventing Fragmentation** (final independent re-audit V4 `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-039=VERIFIED_EXISTING`; `AT-DP-039=PASS`; audited implementation HEAD `93147139e12665e3734328b904277788ac8bd8d6`; audit V4 bundle SHA-256 `b7d39bf5b55ae042f732bf01e7a51685f2158ffce3d6355b62350d51326ce981`; closed).
-**Implemented pending independent audit:** **Phase 10.40 — Integration with Cognitive Layer** (`IMPLEMENTED_PENDING_AUDIT`; canonical integrator `cmm/domains/cognitive_integration.py`; contracts `cmm/domains/cognitive_integration_contracts.py`; reference documentation `docs/reference/domain-cognitive-integration.md`; local acceptance test `tests/domains/test_domain_cognitive_dp040_acceptance.py` passes all 21 assertions; pending independent audit).
-**Next action:** Independent audit of Phase 10.40, followed by **Phase 10.41 — Integration with Agent Runtime**.
+**Implemented and audited through:** **Phase 10.40 — Integration with Cognitive Layer** (final independent re-audit **V3** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-040=VERIFIED_EXISTING`; `AT-DP-040=PASS`; audited implementation HEAD `35af5c4aa3ac7ef68e43e695cb1269173fdb6084`; audit V3 bundle SHA-256 `171048e000468a8b3ea60be106edd2b9a2e58b64e30a098d088de0bcf4f89d7c`; final audit report `docs/audits/phase-10.40-independent-reaudit-v3.md`; complete, independently audited and closed).
+**Next action:** **Phase 10.41 — Integration with Agent Runtime**.
 **Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, and **Phase 10.39 — Preventing Fragmentation** are independently audited and closed. Phase 10.39 final independent re-audit **V4** = `PASS`.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 
-The **canonical requirements matrix records** Phases 10.16–10.39 plus the later 10.52–10.53 Domain Packs. **Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, and **Phase 10.39 — Preventing Fragmentation** are independently audited and closed. Phase 10.39 closed after final independent re-audit **V4** `PASS` with `DP-039=VERIFIED_EXISTING` and `AT-DP-039=PASS`. The matrix is the
+The **canonical requirements matrix records** Phases 10.16–10.40 plus the later 10.52–10.53 Domain Packs. **Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, **Phase 10.39 — Preventing Fragmentation**, and **Phase 10.40 — Integration with Cognitive Layer** are independently audited and closed. Phase 10.40 closed after final independent re-audit **V3** `PASS` with `DP-040=VERIFIED_EXISTING` and `AT-DP-040=PASS`. The matrix is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
 supported by the
 [Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
@@ -626,7 +625,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through 10.39. **Phase 10.39 — Preventing Fragmentation** is closed after final independent re-audit **V4** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-039=VERIFIED_EXISTING`, `AT-DP-039=PASS`, audited implementation HEAD `93147139e12665e3734328b904277788ac8bd8d6`, and audit V4 bundle SHA-256 `b7d39bf5b55ae042f732bf01e7a51685f2158ffce3d6355b62350d51326ce981`. **Phase 10.40 — Integration with Cognitive Layer** is implemented pending independent audit; **Phase 10.41 — Integration with Agent Runtime** is the next milestone; Phases 10.52–10.53 remain the final planned Domain Packs.
+The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through 10.40. **Phase 10.40 — Integration with Cognitive Layer** is closed after final independent re-audit **V3** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-040=VERIFIED_EXISTING`, `AT-DP-040=PASS`, audited implementation HEAD `35af5c4aa3ac7ef68e43e695cb1269173fdb6084`, and audit V3 bundle SHA-256 `171048e000468a8b3ea60be106edd2b9a2e58b64e30a098d088de0bcf4f89d7c`. **Phase 10.41 — Integration with Agent Runtime** is the next milestone; Phases 10.52–10.53 remain the final planned Domain Packs.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 
