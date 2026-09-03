@@ -17,6 +17,11 @@ from typing import Any, Protocol, runtime_checkable
 from cmm.agent_runtime.agent_runtime_integration_contracts import (
     IntegratedAgentExecutionRequest,
 )
+from cmm.agent_runtime.agent_security_contracts import AgentPermissionContext
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionCapability,
+    PermissionOutcome,
+)
 from cmm.domains.agent_runtime_integration_contracts import (
     DomainAgentRuntimeDecision,
     DomainAgentRuntimeDecisionCode,
@@ -34,10 +39,29 @@ from cmm.domains.errors import (
     DomainAgentRuntimeIntegrationContractError,
     DomainError,
 )
+from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resolver_contracts import DomainResolutionResult
 
 PROJECTION_NAMESPACE = "domain_intelligence"
+
+# Domain policy booleans that may only narrow canonical Agent permission
+# context booleans (AND semantics; a Domain True never widens the Agent).
+_AGENT_BOOLEAN_BY_POLICY_ATTR: tuple[tuple[str, str], ...] = (
+    ("allow_memory_write", "allow_memory_write"),
+    ("allow_external_models", "allow_external_models"),
+    ("allow_external_communication", "allow_communications"),
+    ("allow_external_search", "allow_external_access"),
+)
+# Capability prohibitions that force the matching Agent boolean to False.
+_CAPABILITY_BOOLEAN_PROHIBITIONS: tuple[tuple[PermissionCapability, str], ...] = (
+    (PermissionCapability.MEMORY_WRITE, "allow_memory_write"),
+    (PermissionCapability.MODEL_EXTERNAL, "allow_external_models"),
+    (PermissionCapability.COMMUNICATION_EXTERNAL, "allow_communications"),
+    (PermissionCapability.PUBLICATION, "allow_publication"),
+    (PermissionCapability.SEARCH_EXTERNAL, "allow_external_access"),
+    (PermissionCapability.FILE_MODIFY, "allow_destructive_actions"),
+)
 
 
 @runtime_checkable
@@ -184,10 +208,68 @@ class DefaultDomainAgentRuntimeIntegrator:
                     ),
                 ),
             )
-        # Specialized execution pipeline stages after cognition (permission
-        # narrowing, autonomy, budget, operation routing, runtime delegation)
-        # extend this boundary in subsequent tasks and remain fail-closed
-        # until then.
+        # ── Domain permission restriction ────────────────────────────────
+        permission_resolution = self._resolve_domain_permissions(request, prepared)
+        permission_outcome = permission_resolution.effective_permissions.decision
+        if permission_outcome is PermissionOutcome.DENY:
+            # Domain DENY and Agent denial precedence remain fail-closed;
+            # no operation side effects may occur.
+            blocked_decision = self._blocked_decision(
+                subject_id=prepared.composition.id,
+                related_ids=(prepared.resolution.id, prepared.profile.id),
+                reason_codes=("domain_permission_denied",),
+            )
+            return DomainAgentRuntimeIntegrationResult(
+                request_id=prepared.request_id,
+                resolution=prepared.resolution,
+                composition=prepared.composition,
+                profile=prepared.profile,
+                cognitive_result=cognitive_result,
+                agent_result=None,
+                decisions=(*decisions, blocked_decision),
+                domain_trace_id=None,
+                agent_trace_id=None,
+                blocked=True,
+            )
+        if permission_outcome is PermissionOutcome.APPROVAL_REQUIRED:
+            # Approval is owned by the canonical Phase 9 approval
+            # infrastructure; Phase 10.41 records the requirement only.
+            decisions = (
+                *decisions,
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED,
+                    subject_id=(
+                        request.agent_request.operations[0].operation_name
+                        if request.agent_request.operations
+                        else prepared.composition.id
+                    ),
+                    reason_codes=("domain_approval_required",),
+                    related_ids=(prepared.composition.id,),
+                ),
+            )
+        else:
+            narrowed_context = self._narrow_permission_context(
+                request.agent_request.permission_context,
+                permission_resolution.domain_policies,
+                primary_domain_id=str(prepared.composition.primary_domain),
+            )
+            if narrowed_context is not None and (
+                request.agent_request.permission_context is None
+                or narrowed_context.to_dict()
+                != request.agent_request.permission_context.to_dict()
+            ):
+                decisions = (
+                    *decisions,
+                    DomainAgentRuntimeDecision(
+                        code=DomainAgentRuntimeDecisionCode.DOMAIN_PERMISSION_RESTRICTED,
+                        subject_id=prepared.composition.id,
+                        reason_codes=("domain_permission_narrowing_applied",),
+                        related_ids=(prepared.resolution.id,),
+                    ),
+                )
+        # Specialized execution pipeline stages after cognition (autonomy,
+        # budget, operation routing, runtime delegation) extend this boundary
+        # in subsequent tasks and remain fail-closed until then.
         blocked_decision = self._blocked_decision(
             subject_id=prepared.composition.id,
             related_ids=(prepared.resolution.id, prepared.profile.id),
@@ -283,6 +365,131 @@ class DefaultDomainAgentRuntimeIntegrator:
     ) -> IntegratedAgentExecutionRequest:
         """Specialize the canonical Phase 9 request through dataclasses.replace."""
         return replace(agent_request, cognitive_context=projected_context)
+
+    def _resolve_domain_permissions(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> Any:
+        """Resolve the effective Domain permission decision for this execution."""
+        if request.agent_request.operations:
+            action = PermissionCapability.OPERATION_EXECUTE
+            operation_id = request.agent_request.operations[0].operation_name
+            workflow_id = None
+        elif request.agent_request.workflow is not None:
+            action = PermissionCapability.WORKFLOW_EXECUTE
+            operation_id = None
+            workflow_id = request.agent_request.workflow.workflow_id
+        else:
+            # Baseline read-level Domain evaluation for executions that carry
+            # neither an operation nor an already-resolved workflow.
+            action = PermissionCapability.KNOWLEDGE_READ
+            operation_id = None
+            workflow_id = None
+        perm_request = DomainPermissionRequest(
+            request_id=f"{request.request_id}:permissions",
+            action=action,
+            domain_id=str(prepared.composition.primary_domain),
+            actor_id=request.agent_request.actor_id,
+            session_id=request.resolution_context.session_id or "system",
+            operation_id=operation_id,
+            workflow_id=workflow_id,
+        )
+        try:
+            return self._permission_resolver.resolve(
+                perm_request,
+                supporting_domains=tuple(
+                    str(domain) for domain in prepared.composition.supporting_domains
+                ),
+            )
+        except (DomainError, ValueError) as exc:
+            raise self._blocked_error(
+                "Domain permission resolution failed for the composed specialization",
+                request_id=request.request_id,
+                subject_id=prepared.composition.id,
+                related_ids=(prepared.resolution.id,),
+                reason_codes=("domain_permission_resolution_failed",),
+                details={"composition_id": prepared.composition.id},
+                cause=exc,
+            ) from exc
+
+    def _narrow_permission_context(
+        self,
+        permission_context: AgentPermissionContext | None,
+        domain_policies: tuple[Any, ...],
+        *,
+        primary_domain_id: str | None = None,
+    ) -> AgentPermissionContext | None:
+        """Restrict the Agent permission context by Domain policies only.
+
+        Set/list dimensions intersect with the primary Domain allowlist and
+        with every Domain prohibition; booleans use AND; prohibitions win.
+        Supporting-Domain allowlists describe their own Domain scope and may
+        only narrow through explicit prohibitions.  A Domain value never
+        widens the incoming Agent authority.
+        """
+        if permission_context is None:
+            return None
+        data = dict(permission_context.to_dict())
+        primary_policies = tuple(
+            policy
+            for policy in domain_policies
+            if primary_domain_id is None or policy.domain_id == primary_domain_id
+        )
+        effective_operations = set(data["allowed_operations"])
+        allowed_operation_constraints = [
+            tuple(policy.allowed_operations)
+            for policy in primary_policies
+            if policy.allowed_operations is not None
+        ]
+        if allowed_operation_constraints:
+            effective_operations &= set.intersection(
+                *(set(constraint) for constraint in allowed_operation_constraints)
+            )
+        for policy in domain_policies:
+            effective_operations -= set(policy.prohibited_operations)
+        data["allowed_operations"] = tuple(
+            operation
+            for operation in permission_context.allowed_operations
+            if operation in effective_operations
+        )
+        allowed_resource_constraints = [
+            tuple(policy.allowed_resources)
+            for policy in primary_policies
+            if policy.allowed_resources is not None
+        ]
+        if allowed_resource_constraints:
+            effective_resources = set(data["allowed_resources"]) & set.intersection(
+                *(set(constraint) for constraint in allowed_resource_constraints)
+            )
+            for policy in domain_policies:
+                effective_resources -= set(policy.prohibited_resources)
+            data["allowed_resources"] = tuple(
+                resource
+                for resource in permission_context.allowed_resources
+                if resource in effective_resources
+            )
+        sensitivity_constraints = [
+            {level.value for level in policy.allowed_sensitivity_levels}
+            for policy in domain_policies
+            if policy.allowed_sensitivity_levels is not None
+        ]
+        if sensitivity_constraints:
+            allowed_levels = set.intersection(*sensitivity_constraints)
+            data["allowed_sensitivity_levels"] = tuple(
+                level.value
+                for level in permission_context.allowed_sensitivity_levels
+                if level.value in allowed_levels
+            )
+        for policy_attr, context_key in _AGENT_BOOLEAN_BY_POLICY_ATTR:
+            for policy in domain_policies:
+                if not getattr(policy, policy_attr):
+                    data[context_key] = False
+        for capability, context_key in _CAPABILITY_BOOLEAN_PROHIBITIONS:
+            for policy in domain_policies:
+                if capability in policy.prohibited_capabilities:
+                    data[context_key] = False
+        return AgentPermissionContext.from_mapping(data)
 
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest

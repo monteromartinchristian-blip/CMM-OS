@@ -10,6 +10,7 @@ import pytest
 from cmm.agent_runtime.agent_runtime_integration_contracts import (
     IntegratedAgentExecutionRequest,
 )
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.domains.agent_runtime_integration import (
     DefaultDomainAgentRuntimeIntegrator,
 )
@@ -167,7 +168,14 @@ def _profile_input_provider() -> Any:
                 reasoning_depth=DomainReasoningDepth.STANDARD,
                 maximum_questions=10,
             ),
-            "supporting_profiles": (),
+            "supporting_profiles": tuple(
+                DomainProfileDefinition(
+                    id=f"{domain.slug}.profile",
+                    domain_id=domain,
+                    profile_name=f"{domain.slug.capitalize()}Profile",
+                )
+                for domain in composition.supporting_domains
+            ),
             "overlays": (),
         }
 
@@ -175,7 +183,13 @@ def _profile_input_provider() -> Any:
 
 
 def _permission_stack() -> tuple[DomainPermissionResolver, DomainPermissionGate]:
-    permission_resolver = DomainPermissionResolver(DomainPermissionRegistry())
+    registry = DomainPermissionRegistry()
+    registry.register(
+        _university_policy(
+            allowed_operations=("documents.read", "other.read", "x.op"),
+        )
+    )
+    permission_resolver = DomainPermissionResolver(registry)
     permission_gate = DomainPermissionGate(permission_resolver, clock=lambda: NOW)
     return permission_resolver, permission_gate
 
@@ -709,3 +723,306 @@ def test_specialized_agent_request_preserves_canonical_fields() -> None:
         specialized.cognitive_context[PROJECTION_NAMESPACE]
         == projected[PROJECTION_NAMESPACE]
     )
+
+
+# ── Task 5: permission narrowing and canonical approval semantics ─────────────
+
+
+def _university_policy(**overrides: object) -> Any:
+    from cmm.domains.permission_contracts import DomainPermissionPolicy
+
+    values: dict[str, object] = {
+        "policy_id": "perm-policy-uni-1041",
+        "domain_id": "domain:university",
+        "version": "1.0.0",
+        "allowed_capabilities": (
+            PermissionCapability.OPERATION_EXECUTE,
+            PermissionCapability.KNOWLEDGE_READ,
+        ),
+    }
+    values.update(overrides)
+    return DomainPermissionPolicy(**values)
+
+
+def _agent_permission_context(**overrides: object) -> Any:
+    from cmm.agent_runtime.agent_security_contracts import AgentPermissionContext
+    from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+
+    values: dict[str, object] = {
+        "id": "perm-ctx-1041",
+        "agent_id": "agent-1041",
+        "agent_run_id": "run-1041",
+        "goal_id": "goal-1041",
+        "actor_id": "actor-1041",
+        "owner_actor_id": "actor-1041",
+        "allowed_domains": ("documents",),
+        "allowed_resources": ("doc-1",),
+        "allowed_operations": ("other.read",),
+        "allowed_sensitivity_levels": (SensitivityLevel.INTERNAL,),
+        "maximum_autonomy_level": 2,
+        "created_at": NOW,
+    }
+    values.update(overrides)
+    return AgentPermissionContext(**values)
+
+
+def _build_permission_integrator(
+    policies: tuple[Any, ...],
+    *,
+    permission_context: Any | None = None,
+    with_operation: bool = False,
+    context: Any | None = None,
+    scoring_policy: Any | None = None,
+) -> tuple[Any, dict[str, Any], Any]:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.resolver_contracts import DomainScoringPolicy as _ScoringPolicy
+
+    scoring = scoring_policy
+    if scoring is None:
+        scoring = _ScoringPolicy(max_supporting_domains=1, supporting_margin=100.0)
+
+    registry = DomainPermissionRegistry()
+    for policy in policies:
+        registry.register(policy)
+    permission_resolver = DomainPermissionResolver(registry)
+    permission_gate = DomainPermissionGate(permission_resolver, clock=lambda: NOW)
+
+    real_resolver = DefaultDomainResolver(
+        fallback_domain=DomainId("general"),
+        scoring_policy=scoring,
+        clock=lambda: NOW,
+        id_factory=lambda: "res-result-1041",
+    )
+    agent_service = _CountingAgentRuntimeService()
+    integrator = DefaultDomainAgentRuntimeIntegrator(
+        resolver=_CountingResolver(real_resolver),
+        composer=DefaultDomainComposer(
+            id_factory=lambda: "composition-1041", clock=lambda: NOW
+        ),
+        profile_resolver=DefaultDomainProfileResolver(
+            clock=lambda: NOW,
+            id_factory=lambda: "prof-res-1041",
+            profile_id_factory=lambda: "resolved-profile-1041",
+            trace_id_factory=lambda: "prof-trace-1041",
+        ),
+        permission_resolver=permission_resolver,
+        permission_gate=permission_gate,
+        cognitive_integrator=_CountingCognitiveIntegrator(),
+        agent_runtime_service=agent_service,
+        domain_definition_provider=_definition_provider(),
+        profile_input_provider=_profile_input_provider(),
+        clock=lambda: NOW,
+    )
+    agent_request = _agent_request()
+    if permission_context is not None:
+        agent_request = _replace(agent_request, permission_context=permission_context)
+    if with_operation:
+        agent_request = _replace(
+            agent_request,
+            operations=(
+                AgentOperationRequest(
+                    id="op-1041",
+                    agent_run_id="run-1041",
+                    workflow_id="workflow-1041",
+                    task_id="task-1041",
+                    operation_name="documents.read",
+                    idempotency_key="idem-1041",
+                    created_at="2026-09-03T12:00:00+00:00",
+                ),
+            ),
+        )
+    request = DomainAgentRuntimeIntegrationRequest(
+        request_id="int-req-1041",
+        resolution_context=(context if context is not None else _resolution_context()),
+        agent_request=agent_request,
+    )
+    return integrator, {"agent_service": agent_service}, request
+
+
+def test_domain_deny_blocks_execution_without_agent_runtime_call() -> None:
+    integrator, monitors, request = _build_permission_integrator(
+        (
+            _university_policy(
+                prohibited_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+            ),
+        ),
+        with_operation=True,
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    assert result.blocked is True
+    assert result.agent_result is None
+    denied = next(
+        decision
+        for decision in result.decisions
+        if decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_BLOCKED
+    )
+    assert "domain_permission_denied" in denied.reason_codes
+
+
+def test_domain_approval_required_records_decision_without_manufacturing_evidence() -> (
+    None
+):
+    integrator, monitors, request = _build_permission_integrator(
+        (
+            _university_policy(
+                allowed_operations=("documents.read",),
+                approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+            ),
+        ),
+        with_operation=True,
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
+    # Phase 10.41 never manufactures approval evidence.
+    for decision in result.decisions:
+        assert not any("approval_valid" in code for code in decision.reason_codes)
+
+
+def test_domain_allow_cannot_widen_agent_permission_context() -> None:
+    incoming = _agent_permission_context(allow_delegation=True)
+    integrator, _, request = _build_permission_integrator(
+        (
+            # Domain ALLOWs documents.read, which the Agent context lacks.
+            _university_policy(allowed_operations=("documents.read",)),
+        ),
+        permission_context=incoming,
+    )
+    _execute_boundary(integrator, request)
+
+    prepared = integrator._prepare(request)
+    resolution = integrator._resolve_domain_permissions(request, prepared)
+    narrowed = integrator._narrow_permission_context(
+        incoming,
+        resolution.domain_policies,
+        primary_domain_id=str(integrator._prepare(request).composition.primary_domain),
+    )
+    # Domain ALLOW never adds an operation absent from the Agent allowlist.
+    assert "documents.read" not in narrowed.allowed_operations
+    assert set(narrowed.allowed_operations) <= set(incoming.allowed_operations)
+    assert narrowed.allow_delegation is True
+
+
+def test_supporting_domain_prohibition_wins_over_primary_allow() -> None:
+    incoming = _agent_permission_context(
+        allowed_domains=("documents", "health"),
+        allowed_operations=("documents.read", "x.op"),
+    )
+    primary_policy = _university_policy(
+        allowed_operations=("documents.read", "x.op"),
+    )
+    health_policy = _university_policy(
+        policy_id="perm-policy-health-1041",
+        domain_id="domain:health",
+        allowed_operations=("x.op", "health.read"),
+        prohibited_operations=("x.op",),
+    )
+    from cmm.domains.resolution_contracts import DomainResolutionResource
+
+    context = _resolution_context(
+        id="res-ctx-support-1041",
+        user_input="University examination with medical accommodation",
+        available_domains=(DomainId("university"), DomainId("health")),
+        authorized_domains=(DomainId("university"), DomainId("health")),
+        explicit_domains=(DomainId("university"),),
+        resources=(
+            DomainResolutionResource(
+                id="res-ref-support-1041",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId("health"),),
+            ),
+        ),
+    )
+    integrator, _, request = _build_permission_integrator(
+        (primary_policy, health_policy),
+        permission_context=incoming,
+        context=context,
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert result.composition.supporting_domains == (DomainId("health"),)
+    resolution = integrator._resolve_domain_permissions(
+        request, integrator._prepare(request)
+    )
+    assert any(
+        policy.domain_id == "domain:health" for policy in resolution.domain_policies
+    )
+    narrowed = integrator._narrow_permission_context(
+        incoming,
+        resolution.domain_policies,
+        primary_domain_id=str(integrator._prepare(request).composition.primary_domain),
+    )
+    assert "x.op" not in narrowed.allowed_operations
+    assert "documents.read" in narrowed.allowed_operations
+
+
+def test_narrowed_permission_context_is_never_wider_than_incoming() -> None:
+    from cmm.agent_runtime.agent_security_enums import SensitivityLevel
+
+    incoming = _agent_permission_context(
+        allowed_operations=("documents.read",),
+        allowed_sensitivity_levels=(
+            SensitivityLevel.INTERNAL,
+            SensitivityLevel.CONFIDENTIAL,
+        ),
+        allow_memory_write=True,
+    )
+    integrator, _, request = _build_permission_integrator(
+        (
+            _university_policy(
+                allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
+                allow_memory_write=False,
+            ),
+        ),
+        permission_context=incoming,
+    )
+    _execute_boundary(integrator, request)
+
+    resolution = integrator._resolve_domain_permissions(
+        request, integrator._prepare(request)
+    )
+    narrowed = integrator._narrow_permission_context(
+        incoming,
+        resolution.domain_policies,
+        primary_domain_id=str(integrator._prepare(request).composition.primary_domain),
+    )
+    assert narrowed.allowed_sensitivity_levels == (SensitivityLevel.INTERNAL,)
+    assert narrowed.allow_memory_write is False
+    assert narrowed.allowed_operations == ("documents.read",)
+
+
+def test_stale_approval_is_not_reused_as_authority() -> None:
+    from dataclasses import replace as _replace
+
+    integrator, monitors, request = _build_permission_integrator(
+        (
+            _university_policy(
+                allowed_operations=("documents.read",),
+                approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+            ),
+        ),
+        with_operation=True,
+    )
+    stale_request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            available_approval_ids=("approval-stale-1041",),
+            metadata={"requires_approval": True, "domain_approval_satisfied": True},
+        ),
+    )
+    result = _execute_boundary(integrator, stale_request)
+
+    assert monitors["agent_service"].execute_calls == 0
+    codes = {decision.code for decision in result.decisions}
+    # The stale caller metadata boolean is not authority: the canonical
+    # approval-required decision stands.
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
+    assert "approval-stale-1041" not in str(result.decisions)
