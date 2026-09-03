@@ -10,15 +10,21 @@ machine.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+from cmm.agent_runtime.agent_runtime_integration_contracts import (
+    IntegratedAgentExecutionRequest,
+)
 from cmm.domains.agent_runtime_integration_contracts import (
     DomainAgentRuntimeDecision,
     DomainAgentRuntimeDecisionCode,
     DomainAgentRuntimeIntegrationRequest,
     DomainAgentRuntimeIntegrationResult,
+)
+from cmm.domains.cognitive_integration_contracts import (
+    DomainCognitiveIntegrationRequest,
 )
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.contracts import DomainDefinition
@@ -30,6 +36,8 @@ from cmm.domains.errors import (
 )
 from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resolver_contracts import DomainResolutionResult
+
+PROJECTION_NAMESPACE = "domain_intelligence"
 
 
 @runtime_checkable
@@ -151,10 +159,35 @@ class DefaultDomainAgentRuntimeIntegrator:
                 field="request",
             )
         prepared = self._prepare(request)
-        # Preparation-only stage: the specialized execution pipeline
-        # (cognitive projection, permission narrowing, autonomy, budget,
-        # operation routing, runtime delegation) extends this boundary in
-        # subsequent tasks and remains fail-closed until then.
+        cognitive_result = None
+        decisions = prepared.decisions
+        if request.cognitive_resources:
+            cognitive_request = self._cognitive_request(request, prepared)
+            cognitive_result = self._cognitive_integrator.integrate(cognitive_request)
+            # Validate the deterministic projection (including fail-closed
+            # collision handling) before it enters the Phase 9 request seam.
+            self._project_cognitive_context(
+                incoming_context=request.agent_request.cognitive_context,
+                resolution_context=request.resolution_context,
+                prepared=prepared,
+                cognitive_result=cognitive_result,
+            )
+            decisions = (
+                *decisions,
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_COGNITIVE_BOUND,
+                    subject_id=cognitive_result.request_id,
+                    reason_codes=("domain_cognitive_projection_complete",),
+                    related_ids=(
+                        cognitive_result.knowledge_package.id,
+                        prepared.composition.id,
+                    ),
+                ),
+            )
+        # Specialized execution pipeline stages after cognition (permission
+        # narrowing, autonomy, budget, operation routing, runtime delegation)
+        # extend this boundary in subsequent tasks and remain fail-closed
+        # until then.
         blocked_decision = self._blocked_decision(
             subject_id=prepared.composition.id,
             related_ids=(prepared.resolution.id, prepared.profile.id),
@@ -164,9 +197,9 @@ class DefaultDomainAgentRuntimeIntegrator:
             resolution=prepared.resolution,
             composition=prepared.composition,
             profile=prepared.profile,
-            cognitive_result=None,
+            cognitive_result=cognitive_result,
             agent_result=None,
-            decisions=(*prepared.decisions, blocked_decision),
+            decisions=(*decisions, blocked_decision),
             domain_trace_id=None,
             agent_trace_id=None,
             blocked=True,
@@ -175,6 +208,81 @@ class DefaultDomainAgentRuntimeIntegrator:
     execute = run
 
     # ── Preparation pipeline ──────────────────────────────────────────────
+
+    def _cognitive_request(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> DomainCognitiveIntegrationRequest:
+        context = request.resolution_context
+        objective = context.objective or context.user_input
+        if not objective:
+            raise self._blocked_error(
+                "Domain cognitive preparation requires a canonical objective",
+                request_id=request.request_id,
+                subject_id=prepared.composition.id,
+                related_ids=(prepared.resolution.id,),
+                reason_codes=("domain_cognitive_objective_missing",),
+                details={"composition_id": prepared.composition.id},
+            )
+        return DomainCognitiveIntegrationRequest(
+            request_id=request.request_id,
+            resolution_context_id=context.id,
+            resolution_result_id=prepared.resolution.id,
+            objective=objective,
+            composition=prepared.composition,
+            profile=prepared.profile,
+            resources=request.cognitive_resources,
+            actor_id=request.agent_request.actor_id,
+            session_id=context.session_id,
+            effective_permissions=tuple(context.permissions),
+        )
+
+    def _project_cognitive_context(
+        self,
+        *,
+        incoming_context: Mapping[str, Any],
+        resolution_context: Any,
+        prepared: _PreparedDomainContext,
+        cognitive_result: Any,
+    ) -> dict[str, Any]:
+        """Deterministically project Domain cognition into the Phase 9 seam."""
+        projection: dict[str, Any] = {
+            "domain_resolution_context_id": resolution_context.id,
+            "domain_resolution_result_id": prepared.resolution.id,
+            "domain_composition_id": prepared.composition.id,
+            "primary_domain": str(prepared.composition.primary_domain),
+            "supporting_domains": tuple(
+                str(domain) for domain in prepared.composition.supporting_domains
+            ),
+            "resolved_profile_id": prepared.profile.id,
+            "knowledge_package_id": cognitive_result.knowledge_package.id,
+            "adapted_resource_ids": tuple(
+                resource.id for resource in cognitive_result.adapted_resources
+            ),
+            "presentation_reference_ids": tuple(
+                item.ref_id for item in cognitive_result.presentation_items
+            ),
+            "domain_cognitive_request_id": cognitive_result.request_id,
+        }
+        merged = dict(incoming_context)
+        existing = merged.get(PROJECTION_NAMESPACE)
+        if existing is not None and existing != projection:
+            raise DomainAgentRuntimeIntegrationContractError(
+                "cognitive_context['domain_intelligence'] collision with "
+                "non-equal caller-owned data; refusing to overwrite",
+                field="cognitive_context",
+            )
+        merged[PROJECTION_NAMESPACE] = projection
+        return merged
+
+    @staticmethod
+    def _specialized_agent_request(
+        agent_request: IntegratedAgentExecutionRequest,
+        projected_context: Mapping[str, Any],
+    ) -> IntegratedAgentExecutionRequest:
+        """Specialize the canonical Phase 9 request through dataclasses.replace."""
+        return replace(agent_request, cognitive_context=projected_context)
 
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest
