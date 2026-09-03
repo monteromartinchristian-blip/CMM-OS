@@ -33,12 +33,12 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from cmm.agent_runtime.agent_runtime_integration_contracts import (
     IntegratedAgentExecutionRequest,
-    IntegratedAgentExecutionResult,
 )
 from cmm.agent_runtime.agent_runtime_integration_enums import (
     IntegrationExecutionState,
@@ -74,7 +74,6 @@ from cmm.cognitive import (
     ResourceProvenance,
     ResourceSourceKind,
     ResourceTemporalScope,
-    SensitivityLevel,
 )
 from cmm.domains.agent_runtime_integration import (
     DefaultDomainAgentRuntimeIntegrator,
@@ -90,13 +89,11 @@ from cmm.domains.cognitive_integration_contracts import (
 )
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.enums import DomainReasoningDepth
-from cmm.domains.errors import DomainAgentRuntimeIntegrationBlockedError
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import (
     DomainAutonomyLimits,
     DomainPermissionPolicy,
-    DomainPermissionRequest,
 )
 from cmm.domains.permission_gate import DomainPermissionGate
 from cmm.domains.permission_registry import DomainPermissionRegistry
@@ -250,13 +247,6 @@ class _Phase9Stack:
         from cmm.agent_runtime.action_budget_service import ActionBudgetService
         from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
         from cmm.agent_runtime.agent_registry import AgentRegistry
-        from cmm.agent_runtime.agent_registry_contracts import (
-            AgentCapability,
-            AgentCapabilityKind,
-            AgentDescriptor,
-            AgentVersion,
-        )
-        from cmm.agent_runtime.agent_registry_enums import AgentKind, AgentLifecycle
         from cmm.agent_runtime.agent_registry_service import AgentRegistryService
         from cmm.agent_runtime.agent_runtime_integration_service import (
             AgentRuntimeIntegrationService,
@@ -266,8 +256,6 @@ class _Phase9Stack:
         )
         from cmm.agent_runtime.agent_security_service import AgentSecurityService
         from cmm.agent_runtime.approval_service import ApprovalService
-        from cmm.agent_runtime.enums import GoalKind, GoalStatus
-        from cmm.agent_runtime.goal_contracts import Goal, GoalPriority
         from cmm.agent_runtime.goal_manager import GoalManager
         from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
         from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
@@ -1116,9 +1104,9 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
     )
     serialized = json.dumps(budget_vo.to_dict(), sort_keys=True)
     assert json.loads(serialized)["maximum_operations"] == 5
-    with pytest.raises(Exception):
+    with pytest.raises(DomainAgentRuntimeIntegrationContractError):
         replace(budget_vo, maximum_operations=-1)
-    with pytest.raises(Exception):
+    with pytest.raises(DomainAgentRuntimeIntegrationContractError):
         DomainActionBudget(domain_id="domain:university", metadata={"api_key": "x"})
     cp.checkpoint("19-contracts-strict")
 
@@ -1242,7 +1230,6 @@ def test_at_dp041_existing_workflow_plan_bound_by_reference() -> None:
 
 
 def _build_minimal_integrator(stack: _Phase9Stack) -> Any:
-    from typing import Any
 
     permission_registry = DomainPermissionRegistry()
     permission_registry.register(
