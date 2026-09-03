@@ -36,6 +36,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.cognitive import (
     CognitiveValidator,
@@ -78,6 +80,7 @@ from cmm.domains.enums import (
     DomainReasoningDepth,
     DomainResourceResolutionStatus,
 )
+from cmm.domains.errors import DomainCognitiveIntegrationBlockedError
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import (
@@ -466,6 +469,13 @@ def test_at_dp040_connected_cognitive_integration() -> None:
     cp.checkpoint("09-integration-request-built")
 
     # ── 8. Execute integration ────────────────────────────────────────────
+    assert binding.permissions == ("resource.read",)
+    unauthorized_request = replace(integration_request, effective_permissions=())
+    with pytest.raises(DomainCognitiveIntegrationBlockedError) as exc_blocked:
+        integrator.integrate(unauthorized_request)
+    assert exc_blocked.value.details["binding_id"] == binding.id
+    assert "resource.read" in exc_blocked.value.details["missing_permissions"]
+
     result = integrator.integrate(integration_request)
     cp.checkpoint("10-integration-executed")
 
@@ -595,6 +605,11 @@ def test_at_dp040_connected_cognitive_integration() -> None:
         for c in result.reasoning_context.contradictions
     )
     assert isinstance(result.reasoning_context.contradictions[0], Contradiction)
+    assert any(
+        item.ref_id == "prior-contradiction-040"
+        and item.item_type is DomainPresentationItemType.CONTRADICTION
+        for item in result.presentation_items
+    )
 
     # 13. Domain profile minimum_confidence does not overwrite evidence confidence.
     seeded_item = next(
@@ -633,6 +648,15 @@ def test_at_dp040_connected_cognitive_integration() -> None:
         )
     )
     assert presentation_plan.item_refs == result.presentation_items
+    assert any(
+        ref.ref_id == "prior-contradiction-040"
+        and ref.item_type is DomainPresentationItemType.CONTRADICTION
+        for ref in presentation_plan.item_refs
+    )
+    contradiction_section = next(
+        s for s in presentation_plan.sections if s.section_id == "contradictions"
+    )
+    assert "prior-contradiction-040" in contradiction_section.item_refs
     assert question_item.id in presentation_plan.question_refs
     assert (
         next(
