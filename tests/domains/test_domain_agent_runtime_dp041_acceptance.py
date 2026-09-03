@@ -89,6 +89,7 @@ from cmm.domains.cognitive_integration_contracts import (
 )
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.enums import DomainReasoningDepth
+from cmm.domains.errors import DomainAgentRuntimeIntegrationContractError
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import (
