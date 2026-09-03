@@ -165,11 +165,17 @@ def _profile_input_provider() -> Any:
                 profile_name="GeneralProfile",
             ),
             "primary_profile": DomainProfileDefinition(
-                id="university.profile",
-                domain_id=DomainId("university"),
-                profile_name="UniversityProfile",
-                required_rules=("university.deadline",),
-                minimum_confidence=0.75,
+                id=f"{composition.primary_domain.slug}.profile",
+                domain_id=composition.primary_domain,
+                profile_name=(f"{composition.primary_domain.slug.capitalize()}Profile"),
+                required_rules=(
+                    ("university.deadline",)
+                    if composition.primary_domain.slug == "university"
+                    else ()
+                ),
+                minimum_confidence=0.75
+                if composition.primary_domain.slug == "university"
+                else 0.5,
                 reasoning_depth=DomainReasoningDepth.STANDARD,
                 maximum_questions=10,
             ),
@@ -194,6 +200,13 @@ def _permission_stack() -> tuple[DomainPermissionResolver, DomainPermissionGate]
             allowed_operations=("documents.read", "other.read", "x.op"),
         )
     )
+    registry.register(
+        _university_policy(
+            policy_id="perm-policy-health-1041",
+            domain_id="domain:health",
+            allowed_operations=("documents.read", "other.read", "x.op"),
+        )
+    )
     permission_resolver = DomainPermissionResolver(registry)
     permission_gate = DomainPermissionGate(permission_resolver, clock=lambda: NOW)
     return permission_resolver, permission_gate
@@ -205,8 +218,13 @@ def _build_integrator(
     context: DomainResolutionContext | None = None,
     definition_provider: Any | None = None,
 ) -> tuple[DefaultDomainAgentRuntimeIntegrator, dict[str, Any]]:
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+
     real_resolver = DefaultDomainResolver(
         fallback_domain=DomainId("general"),
+        scoring_policy=DomainScoringPolicy(
+            max_supporting_domains=1, supporting_margin=100.0
+        ),
         clock=lambda: NOW,
         id_factory=lambda: "res-result-1041",
     )
@@ -1451,3 +1469,137 @@ def test_unrepresentable_domain_workflow_request_blocks_unsupported() -> None:
         if decision.code is DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_BLOCKED
     )
     assert "domain_workflow_unsupported_pending_phase_10_42" in blocked.reason_codes
+
+
+# ── Task 9: safe Domain reevaluation at execution boundaries ──────────────────
+
+
+def _health_primary_context() -> Any:
+    return _resolution_context(
+        id="res-ctx-health-1041",
+        user_input="Medical accommodation question",
+        available_domains=(DomainId("university"), DomainId("health")),
+        authorized_domains=(DomainId("university"), DomainId("health")),
+        explicit_domains=(DomainId("health"),),
+    )
+
+
+def test_force_reevaluation_reruns_full_preparation_and_reports_change() -> None:
+    real_resolver = DefaultDomainResolver(
+        fallback_domain=DomainId("general"),
+        clock=lambda: NOW,
+        id_factory=lambda: "res-result-1041",
+    )
+    counting = _CountingResolver(real_resolver)
+    integrator, _ = _build_integrator(resolver=counting)
+    first = _integration_request()
+    _execute_boundary(integrator, first)
+
+    from dataclasses import replace as _replace
+
+    second_context = _health_primary_context()
+    second = _replace(
+        first,
+        request_id="int-req-1041-b",
+        resolution_context=second_context,
+        force_domain_reevaluation=True,
+        metadata={"previous_primary_domain": "domain:university"},
+    )
+    result = _execute_boundary(integrator, second)
+
+    assert counting.resolve_calls == 2
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_REEVALUATED in codes
+    assert DomainAgentRuntimeDecisionCode.PRIMARY_DOMAIN_CHANGED in codes
+    assert result.resolution.primary_domain == DomainId("health")
+
+
+def test_supporting_domain_addition_emits_decision() -> None:
+    from dataclasses import replace as _replace
+
+    from cmm.domains.resolution_contracts import DomainResolutionResource
+
+    integrator, _ = _build_integrator()
+    context = _resolution_context(
+        id="res-ctx-add-support-1041",
+        user_input="University examination with medical accommodation",
+        available_domains=(DomainId("university"), DomainId("health")),
+        authorized_domains=(DomainId("university"), DomainId("health")),
+        explicit_domains=(DomainId("university"),),
+        resources=(
+            DomainResolutionResource(
+                id="res-ref-add-support-1041",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId("health"),),
+            ),
+        ),
+    )
+    request = _replace(
+        _integration_request(context),
+        metadata={"previous_supporting_domains": ()},
+    )
+    result = _execute_boundary(integrator, request)
+
+    assert result.composition.supporting_domains == (DomainId("health"),)
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.SUPPORTING_DOMAIN_ADDED in codes
+
+
+def test_no_reevaluation_without_explicit_boundary() -> None:
+    real_resolver = DefaultDomainResolver(
+        fallback_domain=DomainId("general"),
+        clock=lambda: NOW,
+        id_factory=lambda: "res-result-1041",
+    )
+    counting = _CountingResolver(real_resolver)
+    integrator, _ = _build_integrator(resolver=counting)
+    _execute_boundary(integrator, _integration_request())
+    second = _execute_boundary(integrator, _integration_request())
+
+    assert counting.resolve_calls == 2
+    codes = {decision.code for decision in second.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_REEVALUATED not in codes
+
+
+def test_reevaluation_does_not_happen_inside_operation_execution() -> None:
+    # The resolver runs exactly once per integration boundary; canonical
+    # operation execution (inside the Phase 9 stack) never triggers a
+    # mid-operation Domain reevaluation.
+    real_resolver = DefaultDomainResolver(
+        fallback_domain=DomainId("general"),
+        clock=lambda: NOW,
+        id_factory=lambda: "res-result-1041",
+    )
+    counting = _CountingResolver(real_resolver)
+    integrator, _ = _build_integrator(resolver=counting)
+    _execute_boundary(integrator, _integration_request())
+    assert counting.resolve_calls == 1
+
+
+def test_high_risk_domain_loss_blocks_instead_of_fallback() -> None:
+    real_resolver = DefaultDomainResolver(
+        fallback_domain=DomainId("general"),
+        clock=lambda: NOW,
+        id_factory=lambda: "res-result-1041",
+    )
+    counting = _CountingResolver(real_resolver)
+    integrator, _ = _build_integrator(resolver=counting)
+    _execute_boundary(integrator, _integration_request())
+
+    from dataclasses import replace as _replace
+
+    lost_context = _resolution_context(
+        id="res-ctx-lost-1041",
+        user_input="University examination",
+        available_domains=(),
+        authorized_domains=(),
+        explicit_domains=(),
+    )
+    second = _replace(
+        _integration_request(lost_context),
+        force_domain_reevaluation=True,
+        metadata={"previous_primary_domain": "domain:university"},
+    )
+    with pytest.raises(DomainAgentRuntimeIntegrationBlockedError):
+        _execute_boundary(integrator, second)

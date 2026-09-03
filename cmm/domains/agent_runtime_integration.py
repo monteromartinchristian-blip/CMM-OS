@@ -675,6 +675,55 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         return tuple(decisions), None
 
+    def _reevaluation_decisions(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        resolution: DomainResolutionResult,
+    ) -> tuple[DomainAgentRuntimeDecision, ...]:
+        """Report safe-boundary reevaluation against previous evidence.
+
+        Previous evidence arrives as caller-provided canonical metadata on
+        the wrapper request; this boundary stays stateless and never
+        reevaluates inside an operation.
+        """
+        decisions: list[DomainAgentRuntimeDecision] = []
+        if request.force_domain_reevaluation:
+            decisions.append(
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_REEVALUATED,
+                    subject_id=request.request_id,
+                    reason_codes=("explicit_reevaluation_boundary",),
+                    related_ids=(resolution.id,),
+                )
+            )
+        previous_primary = request.metadata.get("previous_primary_domain")
+        if isinstance(previous_primary, str) and previous_primary.strip():
+            if resolution.primary_domain is not None and previous_primary != str(
+                resolution.primary_domain
+            ):
+                decisions.append(
+                    DomainAgentRuntimeDecision(
+                        code=DomainAgentRuntimeDecisionCode.PRIMARY_DOMAIN_CHANGED,
+                        subject_id=str(resolution.primary_domain),
+                        reason_codes=("primary_domain_changed_on_reevaluation",),
+                        related_ids=(previous_primary,),
+                    )
+                )
+        previous_supporting = request.metadata.get("previous_supporting_domains")
+        if isinstance(previous_supporting, (list, tuple)):
+            previous_set = {str(domain) for domain in previous_supporting}
+            for domain in resolution.supporting_domains:
+                if str(domain) not in previous_set:
+                    decisions.append(
+                        DomainAgentRuntimeDecision(
+                            code=DomainAgentRuntimeDecisionCode.SUPPORTING_DOMAIN_ADDED,
+                            subject_id=str(domain),
+                            reason_codes=("supporting_domain_added_on_reevaluation",),
+                            related_ids=(resolution.id,),
+                        )
+                    )
+        return tuple(decisions)
+
     def _prepare(
         self, request: DomainAgentRuntimeIntegrationRequest
     ) -> _PreparedDomainContext:
@@ -727,7 +776,9 @@ class DefaultDomainAgentRuntimeIntegrator:
                 reason_codes=("domain_profile_unresolved",),
                 details={"composition_id": composition.id},
             )
+        reevaluation_decisions = self._reevaluation_decisions(request, resolution)
         decisions = (
+            *reevaluation_decisions,
             DomainAgentRuntimeDecision(
                 code=DomainAgentRuntimeDecisionCode.DOMAIN_RESOLVED,
                 subject_id=resolution.id,
