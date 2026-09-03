@@ -1,10 +1,10 @@
 # Phase 10.40 — Integration with Cognitive Layer
 
-**Status:** `IMPLEMENTED_PENDING_AUDIT`  
-**Requirement:** `DP-040` (`SRC-R10:R10-C40`)  
-**Acceptance Test:** `AT-DP-040` (`tests/domains/test_domain_cognitive_dp040_acceptance.py` — `LOCAL_PASS`)  
-**Specification:** `docs/superpowers/specs/2026-09-02-phase-10.40-integration-with-cognitive-layer-design.md`  
-**Implementation Plan:** `docs/superpowers/plans/2026-09-02-phase-10.40-integration-with-cognitive-layer-implementation-plan.md`  
+**Status:** `IMPLEMENTED_PENDING_AUDIT`
+**Requirement:** `DP-040` (`SRC-R10:R10-C40`)
+**Acceptance Test:** `AT-DP-040` (`tests/domains/test_domain_cognitive_dp040_acceptance.py` — `LOCAL_PASS`)
+**Specification:** `docs/superpowers/specs/2026-09-02-phase-10.40-integration-with-cognitive-layer-design.md`
+**Implementation Plan:** `docs/superpowers/plans/2026-09-02-phase-10.40-integration-with-cognitive-layer-implementation-plan.md`
 
 ---
 
