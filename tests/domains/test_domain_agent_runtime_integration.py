@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -71,14 +72,31 @@ class _CountingResolver:
 
 
 class _CountingAgentRuntimeService:
-    def __init__(self) -> None:
+    """Counting boundary adapter with a minimal canonical stub delegate."""
+
+    def __init__(self, delegate: Any | None = None) -> None:
         self.execute_calls = 0
         self.requests: list[IntegratedAgentExecutionRequest] = []
+        self._delegate = delegate
 
     def run(self, request: IntegratedAgentExecutionRequest) -> Any:
         self.execute_calls += 1
         self.requests.append(request)
-        raise AssertionError("Agent Runtime must not be called in Task 3")
+        if self._delegate is not None:
+            return self._delegate(request)
+        from cmm.agent_runtime.agent_runtime_integration_contracts import (
+            IntegratedAgentExecutionResult,
+        )
+        from cmm.agent_runtime.agent_runtime_integration_enums import (
+            IntegrationExecutionState,
+        )
+
+        return IntegratedAgentExecutionResult(
+            execution_id=request.execution_id,
+            request_id=request.request_id,
+            goal_id=request.goal_id,
+            final_state=IntegrationExecutionState.COMPLETED,
+        )
 
     execute = run
 
@@ -291,18 +309,18 @@ def test_constructor_rejects_wrong_dependency_types() -> None:
 # ── Initial resolution ────────────────────────────────────────────────────────
 
 
-def test_initial_resolution_runs_before_any_phase9_call() -> None:
+def test_initial_resolution_precedes_runtime_delegation() -> None:
     integrator, monitors = _build_integrator()
     result = _execute_boundary(integrator, _integration_request())
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     assert monitors["cognitive_integrator"].integrate_calls == 0
     codes = {decision.code for decision in result.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_RESOLVED in codes
     assert result.resolution.primary_domain == DomainId("university")
-    assert result.blocked is True
-    assert result.agent_result is None
-    assert DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_BLOCKED in codes
+    assert result.blocked is False
+    assert result.agent_result is not None
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_COMPLETED in codes
 
 
 def test_resolver_called_exactly_once_per_execution() -> None:
@@ -636,7 +654,7 @@ def test_cognitive_integration_runs_before_agent_runtime_service() -> None:
     integrator, monitors, request = _build_cognitive_integrator_case()
     result = _execute_boundary(integrator, request)
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     assert result.cognitive_result is not None
     codes = {decision.code for decision in result.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_COGNITIVE_BOUND in codes
@@ -858,7 +876,7 @@ def _build_permission_integrator(
                     agent_run_id="run-1041",
                     workflow_id="workflow-1041",
                     task_id="task-1041",
-                    operation_name="documents.read",
+                    operation_name="university.prepare_exam",
                     idempotency_key="idem-1041",
                     created_at="2026-09-03T12:00:00+00:00",
                 ),
@@ -900,7 +918,7 @@ def test_domain_approval_required_records_decision_without_manufacturing_evidenc
     integrator, monitors, request = _build_permission_integrator(
         (
             _university_policy(
-                allowed_operations=("documents.read",),
+                allowed_operations=("university.prepare_exam",),
                 approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
             ),
         ),
@@ -908,7 +926,7 @@ def test_domain_approval_required_records_decision_without_manufacturing_evidenc
     )
     result = _execute_boundary(integrator, request)
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     codes = {decision.code for decision in result.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
     # Phase 10.41 never manufactures approval evidence.
@@ -1035,7 +1053,7 @@ def test_stale_approval_is_not_reused_as_authority() -> None:
     integrator, monitors, request = _build_permission_integrator(
         (
             _university_policy(
-                allowed_operations=("documents.read",),
+                allowed_operations=("university.prepare_exam",),
                 approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
             ),
         ),
@@ -1051,7 +1069,7 @@ def test_stale_approval_is_not_reused_as_authority() -> None:
     )
     result = _execute_boundary(integrator, stale_request)
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     codes = {decision.code for decision in result.decisions}
     # The stale caller metadata boolean is not authority: the canonical
     # approval-required decision stands.
@@ -1116,7 +1134,7 @@ def test_autonomy_ceiling_emits_restriction_decision_in_execution() -> None:
     integrator, monitors, request = _build_permission_integrator((_autonomy_policy(0),))
     result = _execute_boundary(integrator, request)
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     codes = {decision.code for decision in result.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_AUTONOMY_RESTRICTED in codes
 
@@ -1400,14 +1418,35 @@ def test_eligible_domain_operation_is_selected_by_decision() -> None:
     )
     result = _execute_boundary(integrator, request)
 
-    assert monitors["agent_service"].execute_calls == 0
+    assert monitors["agent_service"].execute_calls == 1
     codes = {decision.code for decision in result.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_OPERATION_SELECTED in codes
 
 
 def test_operation_outside_domain_composition_blocks_without_side_effects() -> None:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+
     integrator, monitors, request = _build_permission_integrator(
-        (_university_policy(),), with_operation=True
+        (_university_policy(),)
+    )
+    request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            operations=(
+                AgentOperationRequest(
+                    id="op-1041",
+                    agent_run_id="run-1041",
+                    workflow_id="workflow-1041",
+                    task_id="task-1041",
+                    operation_name="documents.read",
+                    idempotency_key="idem-1041",
+                    created_at="2026-09-03T12:00:00+00:00",
+                ),
+            ),
+        ),
     )
     result = _execute_boundary(integrator, request)
 
@@ -1603,3 +1642,389 @@ def test_high_risk_domain_loss_blocks_instead_of_fallback() -> None:
     )
     with pytest.raises(DomainAgentRuntimeIntegrationBlockedError):
         _execute_boundary(integrator, second)
+
+
+# ── Task 10: final delegation and reference-only bindings ─────────────────────
+
+
+class _RecordingMemoryService:
+    """Official-style in-memory memory service (proposal recording only)."""
+
+    def __init__(self) -> None:
+        self.updates: list[dict[str, object]] = []
+
+    def record_execution_result(self, **payload: object) -> str:
+        self.updates.append(dict(payload))
+        return f"memory-{len(self.updates)}"
+
+
+class _NoopRecoveryService:
+    def __init__(self) -> None:
+        self.attempts: list[dict[str, object]] = []
+
+    def recover(self, **payload: object) -> dict[str, object]:
+        self.attempts.append(dict(payload))
+        return {"recovered": True, "attempt": len(self.attempts)}
+
+
+class _NoopCheckpointService:
+    def __init__(self) -> None:
+        self.created: list[dict[str, object]] = []
+        self.restored: list[str] = []
+
+    def create_checkpoint(self, **payload: object) -> str:
+        checkpoint_id = f"checkpoint-{len(self.created) + 1}"
+        self.created.append({"checkpoint_id": checkpoint_id, **payload})
+        return checkpoint_id
+
+    def restore_checkpoint(self, checkpoint_id: str) -> None:
+        self.restored.append(checkpoint_id)
+
+
+class _NoopDelegationService:
+    def __init__(self) -> None:
+        self.delegations: list[dict[str, object]] = []
+
+    def delegate(self, **payload: object) -> str:
+        self.delegations.append(dict(payload))
+        return f"delegation-{len(self.delegations)}"
+
+
+class _Phase9Fixture:
+    """Real canonical Phase 9 Agent Runtime service stack."""
+
+    def __init__(self, *, operation_name: str = "university.prepare_exam") -> None:
+        from cmm.agent_runtime.action_budget_service import ActionBudgetService
+        from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
+        from cmm.agent_runtime.agent_registry import AgentRegistry
+        from cmm.agent_runtime.agent_registry_service import AgentRegistryService
+        from cmm.agent_runtime.agent_runtime_integration_store import (
+            InMemoryAgentRuntimeIntegrationStore,
+        )
+        from cmm.agent_runtime.agent_security_service import AgentSecurityService
+        from cmm.agent_runtime.approval_service import ApprovalService
+        from cmm.agent_runtime.goal_manager import GoalManager
+        from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+        from cmm.agent_runtime.operation_execution_contracts import OperationDescriptor
+        from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+        from cmm.agent_runtime.runtime_event_bus import AgentRuntimeEventBus
+        from cmm.agent_runtime.runtime_loop import AgentRuntimeLoop
+        from cmm.domains.operation_contracts import (
+            DomainOperationDefinition,
+            DomainOperationType,
+        )
+        from cmm.domains.operation_execution import (
+            DomainOperationExecutionDelegate,
+        )
+        from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+
+        self.operation_name = operation_name
+        self.memory_service = _RecordingMemoryService()
+        self.recovery_service = _NoopRecoveryService()
+        self.checkpoint_service = _NoopCheckpointService()
+        self.delegation_service = _NoopDelegationService()
+
+        # Canonical registered Domain operation with a counting implementation.
+        definition = DomainOperationDefinition(
+            operation_id=operation_name,
+            domain_id="domain:university",
+            version="1.0.0",
+            name="Prepare exam",
+            description="Prepare an examination",
+            operation_type=DomainOperationType.PREPARATION,
+        )
+
+        class CountingImplementation:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.definition = definition
+
+            def run_implementation(self, request: object) -> dict[str, object]:
+                self.calls += 1
+                return {"success": True, "output": {"prepared": True}}
+
+        CountingImplementation.execute = CountingImplementation.run_implementation
+
+        self.implementation = CountingImplementation()
+        self.common_registry = InMemoryAgentOperationRegistry()
+        self.domain_registry = InMemoryDomainOperationRegistry(self.common_registry)
+        self.domain_registry.register(definition, self.implementation)
+
+        self.store = InMemoryAgentRuntimeIntegrationStore()
+        self.goal_manager = GoalManager()
+        self.registry_service = AgentRegistryService(
+            registry=AgentRegistry(),
+            factory_registry=AgentFactoryRegistry(),
+        )
+        factory = _StubAgentFactory()
+        self.registry_service.register_factory(factory)
+        self.runtime_loop = AgentRuntimeLoop(
+            goal_repository=self.goal_manager.repository
+        )
+        self.security_service = AgentSecurityService()
+        self.approval_service = ApprovalService()
+        self.budget_service = ActionBudgetService()
+        self.execution_adapter = AgentExecutionAdapter(
+            registry=self.common_registry,
+            execution_delegate=DomainOperationExecutionDelegate(self.domain_registry),
+        )
+        self.event_bus = AgentRuntimeEventBus()
+
+        from cmm.agent_runtime.agent_runtime_integration_service import (
+            AgentRuntimeIntegrationService,
+        )
+
+        self.service = AgentRuntimeIntegrationService(
+            store=self.store,
+            goal_manager=self.goal_manager,
+            registry_service=self.registry_service,
+            runtime_loop=self.runtime_loop,
+            security_service=self.security_service,
+            budget_service=self.budget_service,
+            approval_service=self.approval_service,
+            execution_adapter=self.execution_adapter,
+            event_bus=self.event_bus,
+            observability_service=None,
+            checkpoint_service=self.checkpoint_service,
+            recovery_service=self.recovery_service,
+            delegation_service=self.delegation_service,
+            memory_service=self.memory_service,
+        )
+        self.register_goal()
+        self.register_agent()
+        self.execution_adapter.register_operation(
+            OperationDescriptor(
+                name=operation_name,
+                description="Prepare an examination",
+                required_permissions=(),
+            )
+        )
+
+    def register_goal(self) -> None:
+        from cmm.agent_runtime.enums import GoalKind, GoalStatus
+        from cmm.agent_runtime.goal_contracts import Goal, GoalPriority
+
+        goal = Goal(
+            id="goal-1041",
+            title="Prepare examination",
+            description="Prepare the requested examination",
+            kind=GoalKind.INFORMATION,
+            status=GoalStatus.ACTIVE,
+            priority=GoalPriority(score=50),
+            owner_actor_id="actor-1041",
+            assigned_agent_id="agent-1041",
+            autonomy_level=2,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        self.goal_manager.register_goal(goal, actor_id="actor-1041")
+
+    def register_agent(self) -> None:
+        from cmm.agent_runtime.agent_registry_contracts import (
+            AgentCapability,
+            AgentCapabilityKind,
+            AgentDescriptor,
+            AgentVersion,
+        )
+        from cmm.agent_runtime.agent_registry_enums import AgentKind, AgentLifecycle
+
+        descriptor = AgentDescriptor(
+            agent_id="agent-1041",
+            name="University Agent",
+            version=AgentVersion(1, 0, 0),
+            kind=AgentKind.GENERAL,
+            lifecycle=AgentLifecycle.ACTIVE,
+            description="Prepares examinations",
+            capabilities=(
+                AgentCapability(
+                    name=self.operation_name,
+                    kind=AgentCapabilityKind.OPERATION,
+                    description="Prepares examinations",
+                    operations=(self.operation_name,),
+                ),
+            ),
+            supported_operations=(self.operation_name,),
+            factory_id=_StubAgentFactory().factory_id,
+            created_at=NOW,
+        )
+        self.registry_service.register_agent(descriptor)
+
+
+class _StubAgentFactory:
+    def __init__(self, factory_id: str = "factory-agent-1041") -> None:
+        from cmm.agent_runtime.agent_registry_contracts import AgentFactoryScope
+
+        self.factory_id = factory_id
+        self.scope = AgentFactoryScope.TRANSIENT
+        self.thread_safe = True
+        self.created: list[object] = []
+
+    def supports(self, descriptor: object) -> bool:
+        return descriptor.factory_id == self.factory_id  # type: ignore[attr-defined]
+
+    def create(self, descriptor: object, context: object) -> object:
+        from cmm.agent_runtime.agent_registry_contracts import AgentInstance
+
+        self.created.append(context)
+        return AgentInstance(
+            instance_id=f"instance-{context.request_id}",  # type: ignore[attr-defined]
+            descriptor=descriptor,
+            runtime_object={"agent_id": "agent-1041"},
+            scope=self.scope,
+        )
+
+
+def _delegation_case(
+    *,
+    policies: tuple[Any, ...] | None = None,
+    with_operation: bool = True,
+    autonomy_limit: int | None = None,
+) -> tuple[Any, _Phase9Fixture, Any]:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+
+    if autonomy_limit is not None:
+        policies = (_autonomy_policy(autonomy_limit),)
+    elif policies is None:
+        policies = (_university_policy(),)
+    fixture = _Phase9Fixture()
+    integrator, _, request = _build_permission_integrator(
+        policies,
+        with_operation=with_operation,
+        action_budget_service=fixture.budget_service,
+    )
+    integrator._agent_runtime_service = fixture.service
+    request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            requested_agent_id="agent-1041",
+            permission_context=_agent_permission_context(
+                allowed_domains=("university",),
+                allowed_operations=("university.prepare_exam",),
+            ),
+        ),
+    )
+    if with_operation:
+        request = _replace(
+            request,
+            agent_request=_replace(
+                request.agent_request,
+                operations=(
+                    AgentOperationRequest(
+                        id="op-1041",
+                        agent_run_id="run-1041",
+                        workflow_id="workflow-1041",
+                        task_id="task-1041",
+                        operation_name="university.prepare_exam",
+                        idempotency_key="idem-1041",
+                        operation_version="1.0.0",
+                        created_at="2026-09-03T12:00:00+00:00",
+                    ),
+                ),
+            ),
+        )
+    return integrator, fixture, request
+
+
+def test_final_delegation_returns_canonical_result_by_reference() -> None:
+    from cmm.agent_runtime.agent_runtime_integration_contracts import (
+        IntegratedAgentExecutionResult,
+    )
+    from cmm.agent_runtime.agent_runtime_integration_enums import (
+        IntegrationExecutionState,
+    )
+
+    integrator, fixture, request = _delegation_case()
+    result = _execute_boundary(integrator, request)
+
+    assert result.blocked is False
+    assert isinstance(result.agent_result, IntegratedAgentExecutionResult)
+    assert result.agent_result.final_state is IntegrationExecutionState.COMPLETED
+    stored = fixture.store.get("exec-1041").result
+    assert type(result.agent_result) is IntegratedAgentExecutionResult
+    assert result.agent_result.execution_id == stored.execution_id
+    assert result.agent_result.final_state == stored.final_state
+    assert result.agent_result.operation_request_ids == stored.operation_request_ids
+    codes = {decision.code for decision in result.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_COMPLETED in codes
+    assert result.agent_trace_id == result.agent_result.trace_id
+    assert fixture.implementation.calls == 1
+
+
+def test_specialized_request_reaches_phase9_with_domain_constraints() -> None:
+    integrator, fixture, request = _delegation_case(autonomy_limit=0)
+    result = _execute_boundary(integrator, request)
+
+    assert result.blocked is False
+    record = fixture.store.get("exec-1041")
+    assert record is not None and record.request is not None
+    assert record.request.max_autonomy_level == 0
+    projection = record.request.cognitive_context.get(PROJECTION_NAMESPACE)
+    assert projection is None or "domain_composition_id" in projection
+
+
+def test_approval_required_operation_pauses_through_canonical_lifecycle() -> None:
+    from cmm.agent_runtime.agent_runtime_integration_enums import (
+        IntegrationExecutionState,
+    )
+
+    approval_policy = _university_policy(
+        allowed_operations=("university.prepare_exam",),
+        approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+    )
+    integrator, fixture, request = _delegation_case(policies=(approval_policy,))
+    paused = _execute_boundary(integrator, request)
+
+    assert paused.blocked is False
+    assert paused.agent_result is not None
+    assert paused.agent_result.final_state is IntegrationExecutionState.WAITING_APPROVAL
+    codes = {decision.code for decision in paused.decisions}
+    assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
+    approval_id = fixture.store.get("exec-1041").pending_approval_ids[0]
+    fixture.implementation.calls = 0
+    fixture.approval_service.approve(approval_id, actor_id="actor-1041")
+    resumed = fixture.service.resume("exec-1041", approval_id=approval_id)
+    assert resumed.final_state is IntegrationExecutionState.COMPLETED
+    assert fixture.implementation.calls == 1
+
+
+def test_pre_runtime_block_produces_zero_phase9_side_effects() -> None:
+    deny_policy = _university_policy(
+        prohibited_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+    )
+    integrator, fixture, request = _delegation_case(policies=(deny_policy,))
+    result = _execute_boundary(integrator, request)
+
+    assert result.blocked is True
+    assert result.agent_result is None
+    assert fixture.store.get("exec-1041") is None
+    assert fixture.implementation.calls == 0
+
+
+def test_memory_and_trace_bindings_are_reference_only() -> None:
+    integrator, _fixture, request = _delegation_case()
+    result = _execute_boundary(integrator, request)
+
+    # No copied trace ownership: IDs only.
+    assert result.agent_trace_id == result.agent_result.trace_id
+    assert "trace" not in str(result.metadata).lower()
+    # Memory updates remain proposal-driven through Phase 9; Phase 10.41
+    # performs zero direct store mutations.
+    updates = result.agent_result.memory_updates
+    expected_ids = tuple(
+        str(update["id"])
+        for update in updates
+        if isinstance(update, Mapping) and update.get("id") is not None
+    )
+    assert result.memory_binding_ids == expected_ids
+
+
+def test_production_files_define_no_trace_or_store_owners() -> None:
+    for name in ("AgentTraceStore", "DomainTraceStore", "ReasoningTraceStore"):
+        for path in (
+            ROOT / "cmm" / "domains" / "agent_runtime_integration.py",
+            ROOT / "cmm" / "domains" / "agent_runtime_integration_contracts.py",
+        ):
+            assert name not in path.read_text(encoding="utf-8"), (name, path)

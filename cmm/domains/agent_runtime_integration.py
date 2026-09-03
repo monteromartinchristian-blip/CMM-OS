@@ -17,6 +17,9 @@ from typing import Any, Protocol, runtime_checkable
 from cmm.agent_runtime.agent_runtime_integration_contracts import (
     IntegratedAgentExecutionRequest,
 )
+from cmm.agent_runtime.agent_runtime_integration_enums import (
+    IntegrationExecutionState,
+)
 from cmm.agent_runtime.agent_security_contracts import AgentPermissionContext
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
@@ -45,6 +48,14 @@ from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resolver_contracts import DomainResolutionResult
 
 PROJECTION_NAMESPACE = "domain_intelligence"
+
+# Phase 9 terminal states that count as a successfully completed delegation.
+_TERMINAL_SUCCESS_STATES = frozenset(
+    {
+        IntegrationExecutionState.COMPLETED,
+        IntegrationExecutionState.PARTIALLY_COMPLETED,
+    }
+)
 
 # Domain policy booleans that may only narrow canonical Agent permission
 # context booleans (AND semantics; a Domain True never widens the Agent).
@@ -193,18 +204,20 @@ class DefaultDomainAgentRuntimeIntegrator:
                 field="request",
             )
         prepared = self._prepare(request)
+        specialized_request = request.agent_request
         cognitive_result = None
         decisions = prepared.decisions
         if request.cognitive_resources:
             cognitive_request = self._cognitive_request(request, prepared)
             cognitive_result = self._cognitive_integrator.integrate(cognitive_request)
-            # Validate the deterministic projection (including fail-closed
-            # collision handling) before it enters the Phase 9 request seam.
-            self._project_cognitive_context(
+            projected_context = self._project_cognitive_context(
                 incoming_context=request.agent_request.cognitive_context,
                 resolution_context=request.resolution_context,
                 prepared=prepared,
                 cognitive_result=cognitive_result,
+            )
+            specialized_request = replace(
+                specialized_request, cognitive_context=projected_context
             )
             decisions = (
                 *decisions,
@@ -221,6 +234,7 @@ class DefaultDomainAgentRuntimeIntegrator:
         # ── Domain permission restriction ────────────────────────────────
         permission_resolution = self._resolve_domain_permissions(request, prepared)
         permission_outcome = permission_resolution.effective_permissions.decision
+        approval_hint = False
         if permission_outcome is PermissionOutcome.DENY:
             # Domain DENY and Agent denial precedence remain fail-closed;
             # no operation side effects may occur.
@@ -243,7 +257,9 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         if permission_outcome is PermissionOutcome.APPROVAL_REQUIRED:
             # Approval is owned by the canonical Phase 9 approval
-            # infrastructure; Phase 10.41 records the requirement only.
+            # infrastructure; Phase 10.41 records the requirement and passes
+            # only the existing Phase 9 hint metadata.
+            approval_hint = True
             decisions = (
                 *decisions,
                 DomainAgentRuntimeDecision(
@@ -263,23 +279,28 @@ class DefaultDomainAgentRuntimeIntegrator:
                 permission_resolution.domain_policies,
                 primary_domain_id=str(prepared.composition.primary_domain),
             )
-            if narrowed_context is not None and (
-                request.agent_request.permission_context is None
-                or narrowed_context.to_dict()
-                != request.agent_request.permission_context.to_dict()
-            ):
-                decisions = (
-                    *decisions,
-                    DomainAgentRuntimeDecision(
-                        code=DomainAgentRuntimeDecisionCode.DOMAIN_PERMISSION_RESTRICTED,
-                        subject_id=prepared.composition.id,
-                        reason_codes=("domain_permission_narrowing_applied",),
-                        related_ids=(prepared.resolution.id,),
-                    ),
+            if narrowed_context is not None:
+                changed = (
+                    request.agent_request.permission_context is None
+                    or narrowed_context.to_dict()
+                    != request.agent_request.permission_context.to_dict()
                 )
+                specialized_request = replace(
+                    specialized_request, permission_context=narrowed_context
+                )
+                if changed:
+                    decisions = (
+                        *decisions,
+                        DomainAgentRuntimeDecision(
+                            code=DomainAgentRuntimeDecisionCode.DOMAIN_PERMISSION_RESTRICTED,
+                            subject_id=prepared.composition.id,
+                            reason_codes=("domain_permission_narrowing_applied",),
+                            related_ids=(prepared.resolution.id,),
+                        ),
+                    )
         # ── Domain autonomy ceiling ──────────────────────────────────────
-        _, autonomy_decision = self._apply_autonomy_ceiling(
-            request.agent_request, permission_resolution.domain_policies
+        specialized_request, autonomy_decision = self._apply_autonomy_ceiling(
+            specialized_request, permission_resolution.domain_policies
         )
         if autonomy_decision is not None:
             decisions = (*decisions, autonomy_decision)
@@ -311,12 +332,32 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         if binding_decisions:
             decisions = (*decisions, *binding_decisions)
-        # Specialized execution pipeline stages after cognition (budget,
-        # operation routing, runtime delegation) extend this boundary in
-        # subsequent tasks and remain fail-closed until then.
-        blocked_decision = self._blocked_decision(
-            subject_id=prepared.composition.id,
-            related_ids=(prepared.resolution.id, prepared.profile.id),
+
+        # ── Approval hint (hint only; canonical approval owns pause) ─────
+        if approval_hint and not specialized_request.metadata.get("requires_approval"):
+            merged_metadata = dict(specialized_request.metadata)
+            merged_metadata["requires_approval"] = True
+            specialized_request = replace(specialized_request, metadata=merged_metadata)
+
+        # ── Canonical Phase 9 delegation ─────────────────────────────────
+        service_run = self._agent_runtime_service.execute
+        agent_result = service_run(specialized_request)
+
+        if agent_result.final_state in _TERMINAL_SUCCESS_STATES:
+            decisions = (
+                *decisions,
+                DomainAgentRuntimeDecision(
+                    code=DomainAgentRuntimeDecisionCode.DOMAIN_RUNTIME_COMPLETED,
+                    subject_id=agent_result.execution_id,
+                    reason_codes=("agent_runtime_execution_completed",),
+                    related_ids=(prepared.composition.id, agent_result.request_id),
+                ),
+            )
+
+        memory_binding_ids = tuple(
+            str(update["id"])
+            for update in agent_result.memory_updates
+            if isinstance(update, Mapping) and update.get("id") is not None
         )
         return DomainAgentRuntimeIntegrationResult(
             request_id=prepared.request_id,
@@ -324,11 +365,12 @@ class DefaultDomainAgentRuntimeIntegrator:
             composition=prepared.composition,
             profile=prepared.profile,
             cognitive_result=cognitive_result,
-            agent_result=None,
-            decisions=(*decisions, blocked_decision),
+            agent_result=agent_result,
+            decisions=decisions,
             domain_trace_id=None,
-            agent_trace_id=None,
-            blocked=True,
+            agent_trace_id=agent_result.trace_id,
+            memory_binding_ids=memory_binding_ids,
+            blocked=False,
         )
 
     execute = run
