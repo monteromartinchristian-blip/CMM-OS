@@ -28,6 +28,7 @@ from cmm.domains.errors import (
     DomainContractValidationError,
     DomainResolutionBlockedError,
 )
+from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.planner_workflow_integration_contracts import (
     DomainPlannerWorkflowIntegrationRequest,
     DomainPlannerWorkflowIntegrationResult,
@@ -278,11 +279,181 @@ def _stable_union(first: Collection[str], second: Collection[str]) -> list[str]:
     return ordered
 
 
+def _build_operation_semantics(
+    *,
+    capability_view: DomainPlanningCapabilityView,
+    definition_provider: Callable[[str], DomainOperationDefinition | None] | None,
+) -> dict[str, dict[str, Any]]:
+    """Project available Domain operation definitions into generic descriptors.
+
+    Reads canonical ``DomainOperationDefinition`` fields only and emits the
+    generic ``operation_semantics`` shape consumed by the Phase 9 planning
+    seam: no Domain-specific keys, no invented values. Operations unknown to
+    the provider contribute nothing.
+    """
+    if definition_provider is None:
+        return {}
+    if not callable(definition_provider):
+        raise DomainContractValidationError(
+            "operation_definition_provider must be callable",
+            field="operation_definition_provider",
+        )
+    semantics: dict[str, dict[str, Any]] = {}
+    for operation_id in capability_view.available_operation_ids:
+        definition = definition_provider(operation_id)
+        if definition is None:
+            continue
+        if type(definition) is not DomainOperationDefinition:
+            raise DomainContractValidationError(
+                "operation_definition_provider must return a "
+                "DomainOperationDefinition or None",
+                field="operation_definition_provider",
+            )
+        timeout_raw = definition.metadata.get("timeout_seconds")
+        if (
+            isinstance(timeout_raw, bool)
+            or not isinstance(timeout_raw, (int, float))
+            or not timeout_raw > 0
+        ):
+            timeout: float | None = None
+        else:
+            timeout = float(timeout_raw)
+        semantics[operation_id] = {
+            "required_permissions": list(definition.required_permissions),
+            "required_validations": (
+                [definition.validation_policy_id]
+                if definition.validation_policy_id
+                else []
+            ),
+            "requires_approval": bool(definition.requires_approval),
+            "approval_ids": (
+                list(capability_view.required_approval_ids)
+                if definition.requires_approval
+                else []
+            ),
+            "reversible": bool(definition.reversible),
+            "rollback_operation": definition.rollback_policy_id,
+            "risk": definition.risk_level.value,
+            "timeout_seconds": timeout,
+            "metadata": {
+                "domain_id": definition.domain_id,
+                "operation_id": definition.operation_id,
+                "operation_version": definition.version,
+                "operation_type": definition.operation_type.value,
+            },
+        }
+    return semantics
+
+
+def _build_operation_dependencies(
+    *,
+    capability_view: DomainPlanningCapabilityView,
+    dependency_provider: Callable[[str], Collection[str]] | None,
+) -> list[tuple[str, str]]:
+    """Project per-operation upstream dependencies as [upstream, downstream] pairs.
+
+    The provider answers upstream operation IDs for one available operation.
+    Pairs are deterministic; self-pairs are dropped. Domain-level and workflow
+    rows remain projected separately as reference metadata.
+    """
+    if dependency_provider is None:
+        return []
+    if not callable(dependency_provider):
+        raise DomainContractValidationError(
+            "operation_dependency_provider must be callable",
+            field="operation_dependency_provider",
+        )
+    pairs: list[tuple[str, str]] = []
+    for operation_id in capability_view.available_operation_ids:
+        upstream_ids = dependency_provider(operation_id)
+        if isinstance(upstream_ids, (str, bytes)) or not isinstance(
+            upstream_ids, Collection
+        ):
+            raise DomainContractValidationError(
+                "operation_dependency_provider must return a collection of strings",
+                field="operation_dependency_provider",
+            )
+        for upstream in upstream_ids:
+            if not isinstance(upstream, str) or not upstream.strip():
+                raise DomainContractValidationError(
+                    "operation dependencies must be non-empty strings",
+                    field="operation_dependency_provider",
+                )
+            pair = (upstream, operation_id)
+            if upstream != operation_id and pair not in pairs:
+                pairs.append(pair)
+    pairs.sort()
+    return pairs
+
+
+def _stable_operation_semantics(
+    semantics: Mapping[str, Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Normalize injected per-operation semantics deterministically."""
+    if semantics is None:
+        return []
+    if not isinstance(semantics, Mapping):
+        raise DomainContractValidationError(
+            "operation_semantics must be a mapping", field="operation_semantics"
+        )
+    rows: list[dict[str, Any]] = []
+    for operation_name in sorted(semantics):
+        if not isinstance(operation_name, str) or not operation_name.strip():
+            raise DomainContractValidationError(
+                "operation_semantics keys must be non-empty strings",
+                field="operation_semantics",
+            )
+        entry = semantics[operation_name]
+        if not isinstance(entry, Mapping):
+            raise DomainContractValidationError(
+                "operation_semantics entries must be mappings",
+                field="operation_semantics",
+            )
+        row = dict(entry)
+        row["operation_name"] = operation_name
+        rows.append(row)
+    return rows
+
+
+def _stable_dependency_pairs(value: Any, field_name: str) -> list[list[str]]:
+    """Normalize [upstream, downstream] pairs deterministically."""
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, Collection):
+        raise DomainContractValidationError(
+            f"{field_name} must be a collection of pairs", field=field_name
+        )
+    pairs: list[tuple[str, str]] = []
+    for pair in value:
+        if (
+            isinstance(pair, (str, bytes))
+            or not isinstance(pair, (list, tuple))
+            or len(tuple(pair)) != 2
+        ):
+            raise DomainContractValidationError(
+                f"{field_name} must contain [upstream, downstream] pairs",
+                field=field_name,
+            )
+        upstream, downstream = tuple(pair)
+        for endpoint in (upstream, downstream):
+            if not isinstance(endpoint, str) or not endpoint.strip():
+                raise DomainContractValidationError(
+                    f"{field_name} endpoints must be non-empty strings",
+                    field=field_name,
+                )
+        if (upstream, downstream) not in pairs:
+            pairs.append((upstream, downstream))
+    pairs.sort()
+    return [[upstream, downstream] for upstream, downstream in pairs]
+
+
 def _prepare_planning_request(
     *,
     incoming: AgentPlanningRequest,
     capability_view: DomainPlanningCapabilityView,
     selected_workflow_ids: Collection[str] = (),
+    operation_semantics: Mapping[str, Mapping[str, Any]] | None = None,
+    operation_dependencies: Collection[Any] | None = None,
 ) -> AgentPlanningRequest:
     """Compose the most-restrictive canonical planning request.
 
@@ -292,7 +463,10 @@ def _prepare_planning_request(
     exactly (the capability view carries no Domain budget/autonomy ceilings,
     so a missing Domain value invents no higher default and nothing may
     increase). The generic ``workflow_references`` metadata key carries only
-    selected workflow IDs — never definitions, registries, or state.
+    selected workflow IDs — never definitions, registries, or state. Exact
+    per-operation semantics and dependency references travel through the
+    generic ``operation_semantics`` / ``dependency_references`` metadata
+    seams, which the canonical planner validates and projects into the plan.
     """
     if type(incoming) is not AgentPlanningRequest:
         raise DomainContractValidationError(
@@ -342,6 +516,27 @@ def _prepare_planning_request(
     metadata = dict(incoming.metadata)
     if selected:
         metadata["workflow_references"] = selected
+    semantics_rows = _stable_operation_semantics(operation_semantics)
+    if semantics_rows:
+        metadata["operation_semantics"] = semantics_rows
+    operation_pairs = _stable_dependency_pairs(
+        operation_dependencies, "operation_dependencies"
+    )
+    workflow_references = {
+        owner: list(deps) for owner, deps in capability_view.workflow_dependency_ids
+    }
+    domain_pairs = [
+        [owner, dependency]
+        for owner, deps in capability_view.operation_dependency_ids
+        for dependency in deps
+    ]
+    domain_pairs.sort()
+    if operation_pairs or workflow_references or domain_pairs:
+        metadata["dependency_references"] = {
+            "operation_dependencies": operation_pairs,
+            "workflow_dependencies": workflow_references,
+            "domain_dependencies": domain_pairs,
+        }
 
     data = incoming.to_dict()
     data["allowed_operations"] = allowed
@@ -390,6 +585,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
         authority_reference_ids_provider: Callable[
             [DomainComposition], Collection[str]
         ],
+        operation_definition_provider: (
+            Callable[[str], DomainOperationDefinition | None] | None
+        ) = None,
+        operation_dependency_provider: (Callable[[str], Collection[str]] | None) = None,
     ) -> None:
         _require_dependency(resolver, "resolver", "resolve")
         _require_dependency(composer, "composer", "compose")
@@ -421,6 +620,14 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 raise DomainContractValidationError(
                     f"{name} must be callable", field=name
                 )
+        for name, provider in (
+            ("operation_definition_provider", operation_definition_provider),
+            ("operation_dependency_provider", operation_dependency_provider),
+        ):
+            if provider is not None and not callable(provider):
+                raise DomainContractValidationError(
+                    f"{name} must be callable or None", field=name
+                )
         self._resolver = resolver
         self._composer = composer
         self._domain_registry = domain_registry
@@ -433,6 +640,8 @@ class DefaultDomainPlannerWorkflowIntegrator:
         self._approval_ids_provider = approval_ids_provider
         self._validation_ids_provider = validation_ids_provider
         self._authority_reference_ids_provider = authority_reference_ids_provider
+        self._operation_definition_provider = operation_definition_provider
+        self._operation_dependency_provider = operation_dependency_provider
 
     def integrate(
         self,
@@ -546,6 +755,14 @@ class DefaultDomainPlannerWorkflowIntegrator:
             required_validation_ids=self._validation_ids_provider(composition),
             authority_reference_ids=self._authority_reference_ids_provider(composition),
         )
+        operation_semantics = _build_operation_semantics(
+            capability_view=view,
+            definition_provider=self._operation_definition_provider,
+        )
+        operation_dependencies = _build_operation_dependencies(
+            capability_view=view,
+            dependency_provider=self._operation_dependency_provider,
+        )
         if identity_conflict is not None:
             return self._blocked(
                 request=request,
@@ -553,7 +770,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=_prepare_planning_request(
-                    incoming=request.planning_request, capability_view=view
+                    incoming=request.planning_request,
+                    capability_view=view,
+                    operation_semantics=operation_semantics,
+                    operation_dependencies=operation_dependencies,
                 ),
                 reason_codes=(identity_conflict,),
             )
@@ -564,7 +784,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=_prepare_planning_request(
-                    incoming=request.planning_request, capability_view=view
+                    incoming=request.planning_request,
+                    capability_view=view,
+                    operation_semantics=operation_semantics,
+                    operation_dependencies=operation_dependencies,
                 ),
                 reason_codes=(
                     "domain_composition_blocked",
@@ -579,7 +802,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=_prepare_planning_request(
-                    incoming=request.planning_request, capability_view=view
+                    incoming=request.planning_request,
+                    capability_view=view,
+                    operation_semantics=operation_semantics,
+                    operation_dependencies=operation_dependencies,
                 ),
                 reason_codes=("domain_workflow_unavailable",),
             )
@@ -587,6 +813,8 @@ class DefaultDomainPlannerWorkflowIntegrator:
             incoming=request.planning_request,
             capability_view=view,
             selected_workflow_ids=selected,
+            operation_semantics=operation_semantics,
+            operation_dependencies=operation_dependencies,
         )
         if (
             request.planning_request.allowed_operations

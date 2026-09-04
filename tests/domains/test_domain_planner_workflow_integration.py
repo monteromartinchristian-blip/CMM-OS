@@ -1333,3 +1333,196 @@ def test_blocker01_invalid_canonical_plan_never_returns_unblocked():
     assert service.plan_calls == 1
     assert result.blocked is True
     assert "invalid_canonical_plan" in result.reason_codes
+
+
+# ── MAJOR-01 remediation (V1): project capability semantics ────────────────
+
+
+def _rich_planner_graph():
+    """Planner graph with one semantically rich Domain operation definition."""
+    from cmm.agent_runtime.enums import PolicyRiskLevel
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        _definition(
+            "python",
+            operations=(
+                "python.find_symbol",
+                "python.list_imports",
+                "python.describe_module",
+            ),
+            workflows=("python.review", "python.simple", "python.guarded"),
+        )
+    )
+    domain_registry.register(
+        _definition(
+            "filesystem",
+            operations=(
+                "filesystem.read_file",
+                "filesystem.exists",
+                "filesystem.delete_file",
+            ),
+            workflows=(),
+        )
+    )
+    domain_registry.enable("domain:python")
+    domain_registry.enable("domain:filesystem")
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    rich = _operation(
+        "python.find_symbol",
+        "domain:python",
+        required_permissions=("perm.a",),
+        validation_policy_id="validation.a",
+        requires_approval=True,
+        reversible=False,
+        risk_level=PolicyRiskLevel.HIGH,
+        metadata={"timeout_seconds": 42.0},
+    )
+    operation_registry.register(rich, _Implementation(rich))
+    for operation_id in (
+        "python.list_imports",
+        "python.describe_module",
+        "filesystem.read_file",
+        "filesystem.exists",
+    ):
+        domain_id = f"domain:{operation_id.split('.')[0]}"
+        definition = _operation(operation_id, domain_id)
+        operation_registry.register(definition, _Implementation(definition))
+    operation_registry.register(
+        _operation("filesystem.delete_file", "domain:filesystem")
+    )
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    workflow_registry.register(
+        _workflow(
+            "python.review",
+            "domain:python",
+            required_permissions=("python.use",),
+            approval_gates=("review-board",),
+        )
+    )
+    workflow_registry.register(
+        _workflow(
+            "python.guarded",
+            "domain:python",
+            required_permissions=("python.use",),
+        )
+    )
+    workflow_registry.register(_workflow("python.simple", "domain:python"))
+    return domain_registry, operation_registry, workflow_registry
+
+
+def _rich_integrator(
+    domain_registry,
+    operation_registry,
+    workflow_registry,
+    service,
+    dependencies=None,
+):
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=1, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-1"),
+        operation_availability=lambda op_id, domain_id: (
+            operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: ("filesystem.use", "python.use"),
+        prohibited_operation_ids_provider=lambda composition: (
+            "filesystem.delete_file",
+        ),
+        approval_ids_provider=lambda composition: ("approval.review-board",),
+        validation_ids_provider=lambda composition: ("validation.python-schema",),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: (
+            operation_registry.resolve_active(operation_id, required=False)
+        ),
+        operation_dependency_provider=lambda operation_id: (
+            dependencies.get(operation_id, ()) if dependencies is not None else ()
+        ),
+    )
+
+
+def test_major01_operation_semantics_projected_into_canonical_plan():
+    """RED: exact Domain operation semantics must reach the canonical plan."""
+    from cmm.agent_runtime.enums import WorkflowPlanRisk
+
+    domain_registry, operation_registry, workflow_registry = _rich_planner_graph()
+    _, _, service = _planning_stack()
+    integrator = _rich_integrator(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert result.blocked is False
+    target = next(
+        op for op in result.plan.operations if op.operation_name == "python.find_symbol"
+    )
+    assert target.required_permissions == ["perm.a"]
+    assert target.required_validations == ["validation.a"]
+    assert target.requires_approval is True
+    assert target.reversible is False
+    assert target.rollback_operation is None
+    assert target.risk is WorkflowPlanRisk.HIGH
+    assert target.timeout_seconds == 42.0
+    assert target.metadata["domain_id"] == "domain:python"
+    assert any(
+        "approval.review-board" in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    assert any(
+        "validation.a" in node.metadata.get("validation_requirement_ids", [])
+        for node in result.plan.validation_nodes
+    )
+    assert any(
+        "validation.python-schema"
+        in node.metadata.get("validation_requirement_ids", [])
+        for node in result.plan.validation_nodes
+    )
+
+
+def test_major01_operation_and_workflow_dependencies_consumed():
+    """RED: dependency rows must become edges/references, not inert data."""
+    domain_registry, operation_registry, workflow_registry = _rich_planner_graph()
+    _, _, service = _planning_stack()
+    integrator = _rich_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        dependencies={"filesystem.read_file": ("python.find_symbol",)},
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert result.blocked is False
+    references = result.prepared_planning_request.metadata["dependency_references"]
+    assert references["operation_dependencies"] == [
+        ["python.find_symbol", "filesystem.read_file"]
+    ]
+    assert references["workflow_dependencies"]["python.review"] == ["start"]
+    tasks_by_op = {}
+    for task, operation in zip(result.plan.tasks, result.plan.operations):
+        tasks_by_op.setdefault(operation.operation_name, task.id)
+    source = tasks_by_op["python.find_symbol"]
+    target = tasks_by_op["filesystem.read_file"]
+    assert any(
+        dep.source_task_id == source and dep.target_task_id == target
+        for dep in result.plan.dependencies
+    )
+    assert result.plan.metadata["dependency_references"]["operation_dependencies"] == [
+        ["python.find_symbol", "filesystem.read_file"]
+    ]
