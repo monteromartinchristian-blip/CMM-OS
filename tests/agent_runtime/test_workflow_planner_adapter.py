@@ -431,3 +431,84 @@ def test_planner_unavailable_error() -> None:
 
     with pytest.raises(PlannerUnavailableError):
         adapter.plan(req)
+
+
+# ── Generic workflow_references metadata seam (Phase 10.42) ─────────────────
+
+
+def test_plan_preserves_generic_workflow_references_from_request_metadata(
+    task_planner: TaskPlanner,
+) -> None:
+    """Generic references must flow deterministically into plan metadata."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = AgentPlanningRequest(
+        id="req-refs-1",
+        goal_id="goal-100",
+        agent_run_id="run-100",
+        objective="Refactor technical reasoning planner",
+        metadata={"workflow_references": ["workflow:a", "workflow:b"]},
+    )
+
+    plan = adapter.plan(request)
+
+    assert plan.metadata["workflow_references"] == ["workflow:a", "workflow:b"]
+    assert plan.metadata["estimated_complexity"] is not None
+
+
+def test_plan_omits_workflow_references_when_absent(
+    task_planner: TaskPlanner,
+    planning_request: AgentPlanningRequest,
+) -> None:
+    """Plans without references must not gain a workflow_references key."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+
+    plan = adapter.plan(planning_request)
+
+    assert "workflow_references" not in plan.metadata
+
+
+def test_plan_deduplicates_workflow_references_stably(
+    task_planner: TaskPlanner,
+) -> None:
+    """Duplicate references collapse deterministically preserving first order."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = AgentPlanningRequest(
+        id="req-refs-2",
+        goal_id="goal-100",
+        agent_run_id="run-100",
+        objective="Refactor technical reasoning planner",
+        metadata={"workflow_references": ["workflow:b", "workflow:a", "workflow:b"]},
+    )
+
+    plan = adapter.plan(request)
+
+    assert plan.metadata["workflow_references"] == ["workflow:b", "workflow:a"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "workflow:a",
+        [""],
+        ["   "],
+        [1],
+        [["workflow:a"]],
+        {"workflow:a": True},
+    ],
+)
+def test_workflow_reference_metadata_rejects_malformed_values(
+    value: object,
+    task_planner: TaskPlanner,
+) -> None:
+    """Malformed references fail with the canonical planning contract error."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = AgentPlanningRequest(
+        id="req-refs-bad",
+        goal_id="goal-100",
+        agent_run_id="run-100",
+        objective="Refactor technical reasoning planner",
+        metadata={"workflow_references": value},
+    )
+
+    with pytest.raises(InvalidAgentPlanningContractError):
+        adapter.plan(request)

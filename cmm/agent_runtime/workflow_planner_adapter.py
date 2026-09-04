@@ -6,7 +6,7 @@ and produces auditable AgentWorkflowPlans without executing work or mutating run
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
@@ -64,6 +64,50 @@ from cmm.planner.task_planner import ExecutionPlan, TaskPlanner
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_WORKFLOW_REFERENCES_METADATA_KEY = "workflow_references"
+
+
+def _workflow_references_from_metadata(
+    metadata: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Validate the generic workflow-reference metadata seam.
+
+    Domain-agnostic: references are opaque non-empty string IDs. They are
+    never resolved, executed, or treated as permission here; they are only
+    carried deterministically from request metadata into plan metadata.
+    """
+    if not isinstance(metadata, Mapping):
+        raise InvalidAgentPlanningContractError("Request metadata must be a mapping.")
+    if _WORKFLOW_REFERENCES_METADATA_KEY not in metadata:
+        return ()
+    value = metadata[_WORKFLOW_REFERENCES_METADATA_KEY]
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise InvalidAgentPlanningContractError(
+            "workflow_references must be a list/tuple of non-empty strings."
+        )
+    cleaned: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise InvalidAgentPlanningContractError(
+                "workflow_references must contain only non-empty strings."
+            )
+        if item not in cleaned:
+            cleaned.append(item)
+    return tuple(cleaned)
+
+
+def _plan_metadata_with_references(
+    base: dict[str, Any],
+    request_metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Copy base plan metadata and carry validated workflow references."""
+    metadata = dict(base)
+    references = _workflow_references_from_metadata(request_metadata)
+    if references:
+        metadata[_WORKFLOW_REFERENCES_METADATA_KEY] = list(references)
+    return metadata
 
 
 class WorkflowPlannerAdapter(Protocol):
@@ -234,9 +278,10 @@ class DefaultWorkflowPlannerAdapter:
                 ),
                 created_at=now,
                 updated_at=now,
-                metadata={
-                    "decision": AgentPlanningDecision.COMPLETE_WITHOUT_WORKFLOW.value
-                },
+                metadata=_plan_metadata_with_references(
+                    {"decision": AgentPlanningDecision.COMPLETE_WITHOUT_WORKFLOW.value},
+                    request.metadata,
+                ),
             )
             self._plan_store.add(plan)
             return plan
@@ -503,7 +548,10 @@ class DefaultWorkflowPlannerAdapter:
             confidence=0.9,
             created_at=now,
             updated_at=now,
-            metadata={"estimated_complexity": exec_plan.estimated_complexity},
+            metadata=_plan_metadata_with_references(
+                {"estimated_complexity": exec_plan.estimated_complexity},
+                request.metadata,
+            ),
         )
 
     def replan(self, request: AgentReplanningRequest) -> AgentReplanningResult:
