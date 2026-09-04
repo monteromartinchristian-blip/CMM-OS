@@ -1285,3 +1285,22 @@ __all__ += [
     "DomainTrustPolicy",
     "evaluate_domain_trust",
 ]
+
+# Phase 10.42 – Domain Planner/Workflow Integration (coordination boundary)
+from cmm.domains.planner_workflow_integration import (
+    DefaultDomainPlannerWorkflowIntegrator,
+)
+from cmm.domains.planner_workflow_integration_contracts import (
+    DomainPlannerWorkflowIntegrationRequest,
+    DomainPlannerWorkflowIntegrationResult,
+    DomainPlannerWorkflowIntegrator,
+    DomainPlanningCapabilityView,
+)
+
+__all__ += [
+    "DefaultDomainPlannerWorkflowIntegrator",
+    "DomainPlannerWorkflowIntegrationRequest",
+    "DomainPlannerWorkflowIntegrationResult",
+    "DomainPlannerWorkflowIntegrator",
+    "DomainPlanningCapabilityView",
+]
