@@ -155,7 +155,10 @@ prepared autonomy/budget
 prepared metadata
   = incoming preserved + generic "workflow_references" IDs,
     generic "operation_candidates" eligible IDs (sorted effective
-    operations = prepared allowed minus prepared prohibited; empty when
+    operations = prepared allowed minus prepared prohibited, further
+    restricted to permission-compatible operations whose canonical
+    required permissions are all present in the prepared effective
+    permissions when exact operation requirements are known; empty when
     no capability is eligible and fails closed),
     generic "operation_semantics" descriptors, and generic
     "dependency_references" (operation pairs, workflow references,
