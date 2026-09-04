@@ -1,0 +1,799 @@
+"""Phase 10.42 — AT-DP-042 connected acceptance test.
+
+DP-042 — Domain-specialized Planner and Workflow Engine integration.
+
+Connects one shared registry/service graph through real canonical or
+official in-memory components:
+
+DefaultDomainResolver
+→ canonical Domain composition (DefaultDomainComposer)
+→ DomainRegistry
+→ InMemoryDomainOperationRegistry
+→ InMemoryDomainWorkflowRegistry
+→ current Domain permission components (authority seam + real gate/resolver)
+→ DefaultDomainPlannerWorkflowIntegrator
+→ AgentPlanningService
+→ DefaultWorkflowPlannerAdapter
+→ TaskPlanner
+→ AgentWorkflowPlan
+→ AgentWorkflowPlanValidator
+→ canonical approval / validation nodes
+→ Phase 10.41 DomainOperationDispatchAdapter path
+→ DefaultDomainOperationOrchestrator
+→ DomainOperationExecutionDelegate
+→ DomainWorkflowExecutor
+→ shared WorkflowEngine
+→ canonical replan / completion
+
+Recording probes observe edges only; they never replace canonical behavior.
+"""
+
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+from cmm.agent_runtime.enums import WorkflowPlanStatus
+from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.workflow_planner_adapter import (
+    AgentPlanningService,
+    DefaultWorkflowPlannerAdapter,
+)
+from cmm.agent_runtime.workflow_planner_contracts import (
+    AgentPlanningRequest,
+    AgentWorkflowPlan,
+)
+from cmm.agent_runtime.workflow_planner_store import InMemoryWorkflowPlanStore
+from cmm.domains.agent_runtime_integration import DomainOperationDispatchAdapter
+from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.contracts import DomainDefinition, DomainDependency, DomainManifestId
+from cmm.domains.enums import (
+    DomainCompositionStatus,
+    DomainKind,
+    DomainOperationType,
+    DomainResolutionStatus,
+)
+from cmm.domains.errors import DomainError
+from cmm.domains.identifiers import DomainId
+from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.operation_execution import (
+    DefaultDomainOperationOrchestrator,
+    DomainOperationExecutionDelegate,
+)
+from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_contracts import DomainPermissionPolicy
+from cmm.domains.permission_gate import DomainPermissionGate
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.planner_workflow_integration import (
+    DefaultDomainPlannerWorkflowIntegrator,
+)
+from cmm.domains.planner_workflow_integration_contracts import (
+    DomainPlannerWorkflowIntegrationRequest,
+)
+from cmm.domains.registry import DomainRegistry
+from cmm.domains.resolution_contracts import (
+    DomainResolutionContext,
+    DomainResolutionResource,
+)
+from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.resolver_contracts import DomainScoringPolicy
+from cmm.domains.workflow_contracts import (
+    DomainWorkflowContext,
+    DomainWorkflowDefinition,
+    DomainWorkflowResult,
+)
+from cmm.domains.workflow_execution import DomainWorkflowExecutor
+from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
+from cmm.planner.task_planner import TaskPlanner
+from cmm.workflows.contracts import WorkflowNode
+from cmm.workflows.engine import NodeExecution
+from cmm.workflows.enums import WorkflowRunStatus
+
+ROOT = Path(__file__).resolve().parents[2]
+ALLOWED_OPERATIONS = (
+    "python.find_symbol",
+    "python.list_imports",
+    "python.describe_module",
+    "filesystem.read_file",
+    "filesystem.exists",
+)
+
+
+class _StubReasoner:
+    def locate_feature(self, query):
+        return []
+
+    def impact_analysis(self, feature_name):
+        return None
+
+    def explain_dependencies(self, feature_name):
+        return None
+
+
+class _CountingResolver(DomainPermissionResolver):
+    """Real permission resolver that only counts resolutions."""
+
+    def __init__(self, registry):
+        super().__init__(registry)
+        self.resolve_calls = 0
+
+    def resolve(self, request, **kwargs):
+        self.resolve_calls += 1
+        return super().resolve(request, **kwargs)
+
+
+def _definition(slug, **kwargs):
+    defaults = {
+        "id": DomainId.from_str(f"domain:{slug}"),
+        "name": slug,
+        "display_name": slug.title(),
+        "version": "1.0.0",
+        "kind": DomainKind.CORE,
+        "description": f"Acceptance domain {slug}",
+        "manifest_id": DomainManifestId(slug=slug, version="1.0.0"),
+        "enabled": True,
+    }
+    defaults.update(kwargs)
+    return DomainDefinition(**defaults)
+
+
+def _operation(operation_id, domain_id, **kwargs):
+    values = {
+        "operation_id": operation_id,
+        "domain_id": domain_id,
+        "version": "1.0.0",
+        "name": operation_id,
+        "description": f"Acceptance operation {operation_id}",
+        "operation_type": DomainOperationType.READ,
+    }
+    values.update(kwargs)
+    return DomainOperationDefinition(**values)
+
+
+def _counting_impl(operation_calls, operation_id: str, definition):
+    class _CountingImpl:
+        def __init__(self):
+            self.definition = definition
+
+        def execute(self, request):
+            operation_calls[operation_id] += 1
+            return {"ok": True}
+
+    return _CountingImpl()
+
+
+def _workflow(workflow_id, domain_id, **kwargs):
+    values = {
+        "workflow_id": workflow_id,
+        "domain_id": domain_id,
+        "version": "1.0.0",
+        "name": workflow_id,
+        "nodes": (
+            WorkflowNode(
+                "start",
+                "execute_operation",
+                "Start",
+                operation_id="python.find_symbol",
+                operation_version="1.0.0",
+            ),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("start",)),
+        ),
+    }
+    values.update(kwargs)
+    return DomainWorkflowDefinition(
+        values.pop("workflow_id"),
+        values.pop("domain_id"),
+        values.pop("version"),
+        values.pop("name"),
+        **values,
+    )
+
+
+@dataclass
+class _AcceptanceGraph:
+    """One shared registry/service graph for the whole acceptance."""
+
+    domain_registry: DomainRegistry
+    operation_registry: InMemoryDomainOperationRegistry
+    workflow_registry: InMemoryDomainWorkflowRegistry
+    permission_registry: DomainPermissionRegistry
+    authority: dict[str, set[str]] = field(default_factory=dict)
+    operation_calls: dict[str, int] = field(default_factory=dict)
+    engine_calls: list[str] = field(default_factory=list)
+    store: InMemoryWorkflowPlanStore = field(default_factory=InMemoryWorkflowPlanStore)
+    service: AgentPlanningService | None = None
+    executor: DomainWorkflowExecutor | None = None
+
+
+def _build_graph() -> _AcceptanceGraph:
+    graph = _AcceptanceGraph(
+        domain_registry=DomainRegistry(),
+        operation_registry=InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
+        workflow_registry=InMemoryDomainWorkflowRegistry(),
+        permission_registry=DomainPermissionRegistry(),
+        authority={
+            "permissions": {"python.use", "filesystem.use"},
+            "prohibited": {"filesystem.delete_file"},
+            "approvals": set(),
+        },
+    )
+    graph.domain_registry.register(
+        _definition(
+            "python",
+            operations=(
+                "python.find_symbol",
+                "python.list_imports",
+                "python.describe_module",
+            ),
+            workflows=(
+                "python.review",
+                "python.simple",
+                "python.guarded",
+                "python.parent",
+                "python.child",
+            ),
+        )
+    )
+    graph.domain_registry.register(
+        _definition(
+            "filesystem",
+            operations=(
+                "filesystem.read_file",
+                "filesystem.exists",
+                "filesystem.delete_file",
+            ),
+            workflows=(),
+        )
+    )
+    graph.domain_registry.enable("domain:python")
+    graph.domain_registry.enable("domain:filesystem")
+
+    for operation_id in (*ALLOWED_OPERATIONS, "filesystem.delete_file"):
+        domain_id = f"domain:{operation_id.split('.')[0]}"
+        graph.operation_calls[operation_id] = 0
+        definition = _operation(operation_id, domain_id)
+        graph.operation_registry.register(
+            definition,
+            _counting_impl(graph.operation_calls, operation_id, definition),
+        )
+
+    graph.workflow_registry.register(
+        _workflow(
+            "python.review",
+            "domain:python",
+            required_permissions=("python.use",),
+            approval_gates=("review-board",),
+        )
+    )
+    graph.workflow_registry.register(_workflow("python.simple", "domain:python"))
+    graph.workflow_registry.register(
+        _workflow(
+            "python.guarded",
+            "domain:python",
+            required_permissions=("python.use",),
+        )
+    )
+    child = DomainWorkflowDefinition(
+        "python.child",
+        "domain:python",
+        "1.0.0",
+        "Child",
+        nodes=(WorkflowNode("done", "complete", "Done"),),
+    )
+    parent = DomainWorkflowDefinition(
+        "python.parent",
+        "domain:python",
+        "1.0.0",
+        "Parent",
+        nodes=(
+            WorkflowNode(
+                "child",
+                "invoke_subworkflow",
+                "Child",
+                subworkflow_id="python.child",
+                subworkflow_version="1.0.0",
+            ),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("child",)),
+        ),
+    )
+    graph.workflow_registry.register(child)
+    graph.workflow_registry.register(parent)
+
+    graph.permission_registry.register(
+        DomainPermissionPolicy(
+            policy_id="acc-python",
+            domain_id="domain:python",
+            version="1.0.0",
+            allowed_capabilities=(
+                PermissionCapability.OPERATION_EXECUTE,
+                PermissionCapability.WORKFLOW_EXECUTE,
+            ),
+            allowed_operations=tuple(
+                op for op in ALLOWED_OPERATIONS if op.startswith("python.")
+            ),
+            prohibited_operations=(),
+        )
+    )
+    graph.permission_registry.register(
+        DomainPermissionPolicy(
+            policy_id="acc-filesystem",
+            domain_id="domain:filesystem",
+            version="1.0.0",
+            allowed_capabilities=(
+                PermissionCapability.OPERATION_EXECUTE,
+                PermissionCapability.WORKFLOW_EXECUTE,
+            ),
+            allowed_operations=("filesystem.read_file", "filesystem.exists"),
+            prohibited_operations=("filesystem.delete_file",),
+        )
+    )
+
+    adapter = DefaultWorkflowPlannerAdapter(
+        planner=TaskPlanner(reasoner=_StubReasoner()),
+        plan_store=graph.store,
+    )
+    graph.service = AgentPlanningService(adapter)
+
+    def _engine_adapter(node, run):
+        graph.engine_calls.append(node.node_id)
+        return NodeExecution.complete({"node": node.node_id})
+
+    graph.executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"acc-exec-{len(graph.engine_calls)}",
+        operation_adapter=_engine_adapter,
+        workflow_definitions={("python.child", "1.0.0"): child},
+    )
+    return graph
+
+
+def _make_integrator(graph: _AcceptanceGraph) -> DefaultDomainPlannerWorkflowIntegrator:
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=1, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=graph.domain_registry,
+        workflow_registry=graph.workflow_registry,
+        planning_service=graph.service,
+        workflow_executor=graph.executor,
+        operation_availability=lambda op_id, domain_id: (
+            graph.operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: tuple(
+            sorted(graph.authority["permissions"])
+        ),
+        prohibited_operation_ids_provider=lambda composition: tuple(
+            sorted(graph.authority["prohibited"])
+        ),
+        approval_ids_provider=lambda composition: tuple(
+            sorted(graph.authority["approvals"])
+        ),
+        validation_ids_provider=lambda composition: ("python.schema",),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+    )
+
+
+def _resolution_context(**overrides: Any) -> DomainResolutionContext:
+    values: dict[str, Any] = {
+        "id": "ctx-042-acc",
+        "user_input": "Python inspection with filesystem reading",
+        "goal_id": "goal-042-acc",
+        "actor": "actor-042",
+        "available_domains": (DomainId(slug="python"), DomainId(slug="filesystem")),
+        "authorized_domains": (DomainId(slug="python"), DomainId(slug="filesystem")),
+        "explicit_domains": (DomainId(slug="python"),),
+        "resources": (
+            DomainResolutionResource(
+                id="r-py",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="python"),),
+            ),
+            DomainResolutionResource(
+                id="r-fs",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="filesystem"),),
+            ),
+        ),
+    }
+    values.update(overrides)
+    return DomainResolutionContext(**values)
+
+
+def _planning_request(**overrides: Any) -> AgentPlanningRequest:
+    values: dict[str, Any] = {
+        "id": "req-042-acc",
+        "goal_id": "goal-042-acc",
+        "agent_run_id": "run-042-acc",
+        "actor_id": "actor-042",
+        "objective": "Inspect python symbols and read filesystem files",
+        "allowed_operations": list(ALLOWED_OPERATIONS),
+    }
+    values.update(overrides)
+    return AgentPlanningRequest(**values)
+
+
+def _integration_request(
+    graph: _AcceptanceGraph, **overrides: Any
+) -> DomainPlannerWorkflowIntegrationRequest:
+    values: dict[str, Any] = {
+        "request_id": "int-req-042-acc",
+        "resolution_context": _resolution_context(),
+        "planning_request": _planning_request(),
+        "metadata": {"requested_workflow_ids": ["python.review"]},
+    }
+    values.update(overrides)
+    return DomainPlannerWorkflowIntegrationRequest(**values)
+
+
+def _dispatch_adapter(
+    graph: _AcceptanceGraph, permission_gate=None
+) -> DomainOperationDispatchAdapter:
+    common = graph.operation_registry.common_registry
+    execution_adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(graph.operation_registry),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        graph.operation_registry, execution_adapter, permission_gate=permission_gate
+    )
+    return DomainOperationDispatchAdapter(orchestrator)
+
+
+def _dispatch_request(operation_name: str) -> AgentOperationRequest:
+    return AgentOperationRequest(
+        id=f"op-req-{operation_name}",
+        agent_run_id="run-042-acc",
+        workflow_id="workflow-042-acc",
+        task_id="task-042-acc",
+        operation_name=operation_name,
+        operation_version="1.0.0",
+        idempotency_key=f"idem-{operation_name}",
+        parameters={},
+        permissions=(),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        metadata={
+            "domain_intelligence": {
+                "primary_domain_id": "domain:python"
+                if operation_name.startswith("python.")
+                else "domain:filesystem",
+                "supporting_domain_ids": (),
+                "actor_id": "actor-042",
+                "goal_id": "goal-042-acc",
+                "available_resources": (),
+                "denied_permissions": (),
+                "capabilities": ("execute",),
+            }
+        },
+    )
+
+
+def _workflow_context(**overrides: Any):
+
+    values: dict[str, Any] = {
+        "primary_domain_id": "domain:python",
+        "available_operations": frozenset(
+            {*ALLOWED_OPERATIONS, "filesystem.delete_file"}
+        ),
+    }
+    values.update(overrides)
+    return DomainWorkflowContext(**values)
+
+
+# ── Positive connected path ───────────────────────────────────────────────
+
+
+def test_at_dp042_positive_planning_path() -> None:
+    """AT-DP-042: real resolution → projection → canonical plan → validation."""
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(_integration_request(graph))
+
+    assert result.blocked is False
+    assert result.reason_codes == ()
+    assert result.resolution.status is DomainResolutionStatus.RESOLVED
+    assert str(result.resolution.primary_domain) == "domain:python"
+    assert result.composition.status is DomainCompositionStatus.COMPOSED
+    assert type(result.plan) is AgentWorkflowPlan
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert graph.store.get(result.plan.id) is result.plan
+    assert result.prepared_planning_request.allowed_operations == list(
+        ALLOWED_OPERATIONS
+    )
+    assert "filesystem.delete_file" in (
+        result.prepared_planning_request.prohibited_operations
+    )
+    assert result.prepared_planning_request.required_approvals == ["review-board"]
+    assert result.prepared_planning_request.required_validations == ["python.schema"]
+    assert result.plan.metadata["workflow_references"] == ["python.review"]
+    assert result.selected_domain_workflow_ids == ("python.review",)
+    assert len(result.plan.approval_nodes) > 0
+    assert len(result.plan.validation_nodes) > 0
+    assert all(node.required and node.blocking for node in result.plan.validation_nodes)
+    validation = graph.service.validate_plan(
+        result.plan, request=result.prepared_planning_request
+    )
+    assert validation.is_valid
+
+
+def test_at_dp042_operation_execution_through_phase_1041_dispatch() -> None:
+    """AT-DP-042: planned permitted operation executes via canonical dispatch."""
+    graph = _build_graph()
+    dispatch = _dispatch_adapter(graph)
+
+    outcome = dispatch(_dispatch_request("python.find_symbol"))
+
+    assert outcome["success"] is True
+    assert graph.operation_calls["python.find_symbol"] == 1
+    assert outcome["domain_operation_result_id"] is not None
+
+
+def test_at_dp042_workflow_execution_through_shared_engine() -> None:
+    """AT-DP-042: selected workflow reference executes via canonical executor."""
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.execute_workflow_reference(
+        workflow_id="python.simple",
+        context=_workflow_context(),
+        inputs={},
+    )
+
+    assert type(result) is DomainWorkflowResult
+    assert result.status is WorkflowRunStatus.COMPLETED
+    assert graph.engine_calls, "shared WorkflowEngine path must execute nodes"
+
+
+# ── Adversarial cases ─────────────────────────────────────────────────────
+
+
+def test_at_dp042_nonexistent_operation_neither_exposed_nor_executed() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+    result = integrator.integrate(_integration_request(graph, metadata={}))
+
+    assert "python.nope" not in result.capability_view.available_operation_ids
+    assert "python.nope" not in result.prepared_planning_request.allowed_operations
+    assert all(op.operation_name != "python.nope" for op in result.plan.operations)
+
+    dispatch = _dispatch_adapter(graph)
+    with pytest.raises(DomainError):
+        dispatch(_dispatch_request("python.nope"))
+    assert all(calls == 0 for calls in graph.operation_calls.values())
+
+
+def test_at_dp042_prohibited_operation_never_executes() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+    result = integrator.integrate(_integration_request(graph, metadata={}))
+
+    assert (
+        "filesystem.delete_file" not in result.capability_view.available_operation_ids
+    )
+    assert "filesystem.delete_file" in result.capability_view.prohibited_operation_ids
+    assert all(
+        op.operation_name != "filesystem.delete_file" for op in result.plan.operations
+    )
+
+    resolver = _CountingResolver(graph.permission_registry)
+    gate = DomainPermissionGate(resolver)
+    dispatch = _dispatch_adapter(graph, permission_gate=gate)
+    try:
+        outcome = dispatch(_dispatch_request("filesystem.delete_file"))
+    except DomainError:
+        outcome = None
+    assert graph.operation_calls["filesystem.delete_file"] == 0
+    if outcome is not None:
+        assert outcome["success"] is False
+    assert resolver.resolve_calls > 0, "current DomainPermissionGate must decide"
+
+
+def test_at_dp042_unavailable_workflow_never_starts() -> None:
+    from cmm.workflows.errors import WorkflowRegistryError
+
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    before = list(graph.engine_calls)
+    with pytest.raises(WorkflowRegistryError):
+        integrator.execute_workflow_reference(
+            workflow_id="python.missing",
+            context=_workflow_context(),
+            inputs={},
+        )
+    assert graph.engine_calls == before
+
+
+def test_at_dp042_permission_downgrade_blocks_stale_execution() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+    planned = integrator.integrate(_integration_request(graph))
+    assert planned.blocked is False
+    assert planned.selected_domain_workflow_ids == ("python.review",)
+
+    # Authority downgrade after planning: python.use is revoked.
+    graph.authority["permissions"].discard("python.use")
+
+    before = list(graph.engine_calls)
+    with pytest.raises(ValueError, match="unavailable"):
+        integrator.execute_workflow_reference(
+            workflow_id="python.review",
+            context=_workflow_context(available_permissions=frozenset()),
+            inputs={},
+        )
+    assert graph.engine_calls == before
+
+    # Fresh planning under current authority no longer exposes the workflow.
+    fresh = integrator.integrate(_integration_request(graph))
+    assert fresh.blocked is True
+    assert fresh.plan is None
+    assert "domain_workflow_unavailable" in fresh.reason_codes
+
+
+def test_at_dp042_approval_required_cannot_be_bypassed() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    # No approval granted: the gated workflow cannot execute.
+    before = list(graph.engine_calls)
+    with pytest.raises(ValueError, match="unavailable"):
+        integrator.execute_workflow_reference(
+            workflow_id="python.review",
+            context=_workflow_context(),
+            inputs={},
+        )
+    assert graph.engine_calls == before
+
+    # A scoped approval satisfies the gate but never expands permission:
+    # python.use is still missing, so execution stays blocked.
+    from cmm.domains.workflow_resolution import resolve_domain_workflow
+
+    definition = graph.workflow_registry.resolve_active("python.review")
+    resolution = resolve_domain_workflow(
+        definition,
+        _workflow_context(approved_gates=frozenset({"review-board"})),
+    )
+    assert resolution.status.value != "available"
+    assert "permission.missing" in resolution.reasons
+
+
+def test_at_dp042_validation_obligation_cannot_disappear() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(_integration_request(graph, metadata={}))
+
+    assert result.blocked is False
+    assert result.prepared_planning_request.required_validations == ["python.schema"]
+    assert len(result.plan.validation_nodes) > 0
+    assert all(node.required for node in result.plan.validation_nodes)
+
+
+def test_at_dp042_cross_domain_conflict_fails_closed() -> None:
+    """AT-DP-042: blocking composition conflicts never silently union authority."""
+    from cmm.domains.composer import DefaultDomainComposer
+
+    python_dep = _definition(
+        "python",
+        operations=(),
+        workflows=(),
+        dependencies=(DomainDependency(domain_id="domain:ghost"),),
+    )
+    context = DomainResolutionContext(
+        id="ctx-042-conflict",
+        user_input="Python work with ghost support",
+        available_domains=(DomainId(slug="python"),),
+        authorized_domains=(DomainId(slug="python"),),
+        explicit_domains=(DomainId(slug="python"),),
+        resources=(
+            DomainResolutionResource(
+                id="r-py",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="python"),),
+            ),
+        ),
+    )
+    resolved = DefaultDomainResolver().resolve(context)
+    assert resolved.status is DomainResolutionStatus.RESOLVED
+    # The required ghost dependency is absent from the effective composition.
+    composition = DefaultDomainComposer().compose(resolved, [python_dep])
+
+    assert composition.status is DomainCompositionStatus.BLOCKED
+    blocking = [
+        conflict
+        for conflict in composition.conflicts
+        if conflict.blocking and not conflict.resolved
+    ]
+    assert blocking, "blocking conflict must propagate"
+    assert "ghost.read" not in [item.identifier for item in composition.operations], (
+        "no silent authority union"
+    )
+
+
+def test_at_dp042_subworkflow_reuse_through_shared_engine() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.execute_workflow_reference(
+        workflow_id="python.parent",
+        context=_workflow_context(available_permissions=frozenset()),
+        inputs={},
+    )
+
+    assert result.status is WorkflowRunStatus.COMPLETED
+    assert graph.engine_calls, "subworkflow must reuse the shared WorkflowEngine"
+    assert not any("store" in attr for attr in vars(integrator))
+
+
+def test_at_dp042_canonical_replan_supersedes() -> None:
+    from dataclasses import replace
+
+    from cmm.agent_runtime.enums import WorkflowPlanChangeReason
+
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+    first = integrator.integrate(_integration_request(graph, metadata={}))
+    assert first.blocked is False
+
+    graph.authority["approvals"].add("change-board")
+    result = integrator.replan(
+        replace(_integration_request(graph, metadata={}), current_plan=first.plan),
+        reason=WorkflowPlanChangeReason.PERMISSION_CHANGED,
+        reason_details="domain now requires change-board approval",
+    )
+
+    assert result.blocked is False
+    assert result.plan.version == 2
+    assert result.plan.previous_version_id == first.plan.id
+    assert graph.store.get(first.plan.id).status is WorkflowPlanStatus.SUPERSEDED
+    assert "change-board" in result.prepared_planning_request.required_approvals
+
+
+# ── Architecture inside acceptance ────────────────────────────────────────
+
+
+def _imports_prefix(root: Path, prefix: str) -> list[tuple[Path, str]]:
+    found: list[tuple[Path, str]] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == prefix or alias.name.startswith(prefix + "."):
+                        found.append((path, f"import {alias.name}"))
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == prefix or module.startswith(prefix + "."):
+                    found.append((path, f"from {module} import ..."))
+    return found
+
+
+def test_at_dp042_reverse_imports_are_zero() -> None:
+    assert _imports_prefix(ROOT / "cmm" / "agent_runtime", "cmm.domains") == []
+    assert _imports_prefix(ROOT / "cmm" / "workflows", "cmm.domains") == []
+
+
+def test_at_dp042_no_parallel_owners() -> None:
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+    for attr in vars(integrator):
+        lowered = attr.lower()
+        assert "store" not in lowered, attr
+        assert "engine" not in lowered, attr
+    assert graph.service.get_plan is not None
