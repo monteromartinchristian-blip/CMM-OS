@@ -1439,7 +1439,11 @@ def _rich_integrator(
         operation_availability=lambda op_id, domain_id: (
             operation_registry.resolve_active(op_id, required=False) is not None
         ),
-        permission_ids_provider=lambda composition: ("filesystem.use", "python.use"),
+        permission_ids_provider=lambda composition: (
+            "filesystem.use",
+            "python.use",
+            "perm.a",
+        ),
         prohibited_operation_ids_provider=lambda composition: (
             "filesystem.delete_file",
         ),
@@ -1455,6 +1459,34 @@ def _rich_integrator(
     )
 
 
+def _rich_request_5(**overrides):
+    """Default ``_integration_request_5`` planning graph plus ``perm.a`` grant.
+
+    V5 MAJOR-06: the rich ``python.find_symbol`` definition requires
+    ``perm.a``, so the incoming request must carry it (with the Domain
+    effective authority above) for the operation to stay a
+    permission-compatible candidate.
+    """
+    planning_request = _incoming_request(
+        id="req-042-5",
+        goal_id="goal-042-5",
+        agent_run_id="run-042-5",
+        actor_id="actor-042",
+        objective="Inspect python symbols and read filesystem files",
+        permissions=["perm.a"],
+        allowed_operations=[
+            "python.find_symbol",
+            "python.list_imports",
+            "python.describe_module",
+            "filesystem.read_file",
+            "filesystem.exists",
+        ],
+    )
+    values = {"planning_request": planning_request, "metadata": {}}
+    values.update(overrides)
+    return _integration_request_5(**values)
+
+
 def test_major01_operation_semantics_projected_into_canonical_plan():
     """RED: exact Domain operation semantics must reach the canonical plan."""
     from cmm.agent_runtime.enums import WorkflowPlanRisk
@@ -1465,7 +1497,7 @@ def test_major01_operation_semantics_projected_into_canonical_plan():
         domain_registry, operation_registry, workflow_registry, service
     )
 
-    result = integrator.integrate(_integration_request_5(metadata={}))
+    result = integrator.integrate(_rich_request_5())
 
     assert result.blocked is False
     target = next(
@@ -1513,7 +1545,7 @@ def test_major01_operation_and_workflow_dependencies_consumed():
         dependencies={"python.find_symbol": ("filesystem.read_file",)},
     )
 
-    result = integrator.integrate(_integration_request_5(metadata={}))
+    result = integrator.integrate(_rich_request_5())
 
     assert result.blocked is False
     references = result.prepared_planning_request.metadata["dependency_references"]
@@ -1710,7 +1742,11 @@ def test_v3_no_heuristic_operation_escapes_eligible_candidates():
 
     assert result.blocked is False
     eligible = set(result.prepared_planning_request.metadata["operation_candidates"])
-    assert eligible == set(definitions)
+    # V5 MAJOR-06: project.modify_code requires file.modify, which this
+    # fixture's empty permission authority does not grant, so it is
+    # correctly excluded while every other registered pack operation
+    # remains eligible.
+    assert eligible == set(definitions) - {"project.modify_code"}
     planned = [operation.operation_name for operation in result.plan.operations]
     assert all(operation in eligible for operation in planned)
     assert not any(operation.startswith("python.") for operation in planned)
@@ -2063,3 +2099,294 @@ def test_v4_effective_candidates_exclude_prepared_prohibited():
     )
     assert "project.write" not in prepared.metadata["operation_candidates"]
     # EFFECTIVE_CANDIDATES_EXCLUDE_PREPARED_PROHIBITED=PASS
+
+
+# ── V5 remediation (V4 MAJOR-06): operation permission compatibility ───────
+
+
+def _project_permission_integrator(
+    domain_registry,
+    operation_registry,
+    workflow_registry,
+    definitions,
+    availability,
+    service,
+    *,
+    effective_permissions=(),
+    prohibited=(),
+    dependencies=None,
+):
+    """Real ``domain:project`` integrator with explicit permission authority."""
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-project"),
+        operation_availability=availability,
+        permission_ids_provider=lambda composition: tuple(effective_permissions),
+        prohibited_operation_ids_provider=lambda composition: tuple(prohibited),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: definitions.get(
+            operation_id
+        ),
+        operation_dependency_provider=lambda operation_id: (
+            dependencies.get(operation_id, ()) if dependencies is not None else ()
+        ),
+    )
+
+
+def test_v5_real_project_modify_code_without_permission_blocked():
+    """V5 MAJOR-06 RED A: modify_code without file.modify never reaches planning."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    assert definitions["project.modify_code"].required_permissions == ("file.modify",)
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=(),
+    )
+    incoming = _incoming_request(
+        id="req-042-v5-noperm",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v5-noperm",
+        actor_id="actor-042",
+        objective="Modify project code",
+        permissions=[],
+        allowed_operations=["project.modify_code"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert "project.modify_code" not in tuple(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert service.plan_calls == 0
+    assert result.blocked is True
+    assert result.plan is None
+    # REAL_PROJECT_MODIFY_CODE_WITHOUT_PERMISSION=BLOCKED
+
+
+def test_v5_real_project_modify_code_with_permission_plans():
+    """V5 MAJOR-06 RED B: modify_code with file.modify remains plannable."""
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    assert definitions["project.modify_code"].required_permissions == ("file.modify",)
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("file.modify",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v5-perm",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v5-perm",
+        actor_id="actor-042",
+        objective="Modify project code",
+        permissions=["file.modify"],
+        allowed_operations=["project.modify_code"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert "project.modify_code" in tuple(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert result.blocked is False
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert result.plan.validation.is_valid
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert planned and all(operation == "project.modify_code" for operation in planned)
+    # REAL_PROJECT_MODIFY_CODE_WITH_PERMISSION=PASS
+
+
+def test_v5_mixed_permission_candidates_filtered():
+    """V5 MAJOR-06 RED C: only the permission-incompatible op is excluded."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    assert definitions["project.modify_code"].required_permissions == ("file.modify",)
+    assert definitions["project.review_status"].required_permissions == ()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=(),
+    )
+    incoming = _incoming_request(
+        id="req-042-v5-mixed",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v5-mixed",
+        actor_id="actor-042",
+        objective="Review status and modify code",
+        permissions=[],
+        allowed_operations=["project.review_status", "project.modify_code"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    candidates = tuple(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert "project.review_status" in candidates
+    assert "project.modify_code" not in candidates
+    assert service.plan_calls == 1
+    assert result.blocked is False
+    assert result.plan.validation.is_valid
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert planned
+    assert "project.modify_code" not in planned
+    assert all(operation == "project.review_status" for operation in planned)
+    # MIXED_PERMISSION_CANDIDATES_FILTERED=PASS
+
+
+def test_v5_permission_compatible_candidates_satisfy_all_authority():
+    """V5 MAJOR-06 RED D: allow/prohibit/permission invariants hold together."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=(),
+        prohibited=("project.analyse_architecture",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v5-composed",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v5-composed",
+        actor_id="actor-042",
+        objective="Review, analyse, and modify",
+        permissions=[],
+        allowed_operations=[
+            "project.review_status",
+            "project.modify_code",
+            "project.analyse_architecture",
+        ],
+        prohibited_operations=["project.analyse_architecture"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    prepared = result.prepared_planning_request
+    candidates = list(prepared.metadata["operation_candidates"])
+    assert candidates, "at least one permission-compatible candidate must remain"
+    assert set(candidates) <= set(prepared.allowed_operations)
+    assert not (set(candidates) & set(prepared.prohibited_operations))
+    prepared_permissions = set(prepared.permissions)
+    incompatible = 0
+    for candidate in candidates:
+        definition = definitions.get(candidate)
+        assert definition is not None
+        required = set(definition.required_permissions)
+        if not required <= prepared_permissions:
+            incompatible += 1
+    assert incompatible == 0
+    assert "project.modify_code" not in candidates
+    assert "project.analyse_architecture" not in candidates
+    assert "project.review_status" in candidates
+    # PERMISSION_INCOMPATIBLE_OPERATION_CANDIDATE=0
+    # EFFECTIVE_CANDIDATES_SUBSET_OF_PREPARED_ALLOWED=PASS
+    # EFFECTIVE_CANDIDATES_EXCLUDE_PREPARED_PROHIBITED=PASS
+
+
+def test_v5_zero_permission_compatible_candidates_fails_before_planner():
+    """V5 MAJOR-06 RED: all candidates permission-incompatible blocks early."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=(),
+    )
+    incoming = _incoming_request(
+        id="req-042-v5-zero",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v5-zero",
+        actor_id="actor-042",
+        objective="Modify project code",
+        permissions=[],
+        allowed_operations=["project.modify_code"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert (
+        tuple(result.prepared_planning_request.metadata["operation_candidates"]) == ()
+    )
+    assert service.plan_calls == 0
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_no_permitted_operations" in result.reason_codes
+    # ZERO_PERMISSION_COMPATIBLE_CANDIDATES_FAILS_BEFORE_PLANNER=PASS
+
+
+def test_v5_unknown_operation_definition_preserves_registration_authority():
+    """V5 MAJOR-06 RED E: unknown definitions keep registration/availability rule."""
+    incoming = _incoming_request(allowed_operations=["project.inspect"])
+    view = _capability(
+        available=("project.inspect",),
+        prohibited=(),
+    )
+    prepared = _prepare_planning_request(
+        incoming=incoming,
+        capability_view=view,
+        operation_definition_provider=lambda operation_id: None,
+    )
+    assert tuple(prepared.metadata["operation_candidates"]) == ("project.inspect",)
