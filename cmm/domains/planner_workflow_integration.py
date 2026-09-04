@@ -14,6 +14,7 @@ from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
 from cmm.agent_runtime.enums import WorkflowPlanChangeReason
+from cmm.agent_runtime.workflow_planner_contracts import AgentPlanningRequest
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.errors import DomainContractValidationError
 from cmm.domains.planner_workflow_integration_contracts import (
@@ -204,6 +205,92 @@ def _build_capability_view(
             "composition_id": composition.id,
         },
     )
+
+
+def _stable_union(first: Collection[str], second: Collection[str]) -> list[str]:
+    """Union preserving first-seen order across both collections."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in (*tuple(first), *tuple(second)):
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def _prepare_planning_request(
+    *,
+    incoming: AgentPlanningRequest,
+    capability_view: DomainPlanningCapabilityView,
+    selected_workflow_ids: Collection[str] = (),
+) -> AgentPlanningRequest:
+    """Compose the most-restrictive canonical planning request.
+
+    The incoming request is never mutated. Domain specialization only narrows:
+    allowed operations intersect, prohibitions/approvals/validations union,
+    permissions intersect (never added), autonomy and budget are preserved
+    exactly (the capability view carries no Domain budget/autonomy ceilings,
+    so a missing Domain value invents no higher default and nothing may
+    increase). The generic ``workflow_references`` metadata key carries only
+    selected workflow IDs — never definitions, registries, or state.
+    """
+    if type(incoming) is not AgentPlanningRequest:
+        raise DomainContractValidationError(
+            "incoming must be an AgentPlanningRequest", field="incoming"
+        )
+    if type(capability_view) is not DomainPlanningCapabilityView:
+        raise DomainContractValidationError(
+            "capability_view must be a DomainPlanningCapabilityView",
+            field="capability_view",
+        )
+    selected = _clean_ids(selected_workflow_ids, "selected_workflow_ids")
+    available_workflows = set(capability_view.available_workflow_ids)
+    for workflow_id in selected:
+        if workflow_id not in available_workflows:
+            raise DomainContractValidationError(
+                f"selected workflow {workflow_id!r} is not an available Domain workflow",
+                field="selected_workflow_ids",
+            )
+
+    available_operations = set(capability_view.available_operation_ids)
+    if incoming.allowed_operations:
+        allowed = [
+            operation
+            for operation in incoming.allowed_operations
+            if operation in available_operations
+        ]
+    else:
+        allowed = sorted(available_operations)
+
+    prohibited = _stable_union(
+        incoming.prohibited_operations, capability_view.prohibited_operation_ids
+    )
+    approvals = _stable_union(
+        incoming.required_approvals, capability_view.required_approval_ids
+    )
+    validations = _stable_union(
+        incoming.required_validations, capability_view.required_validation_ids
+    )
+
+    domain_permissions = set(capability_view.required_permission_ids)
+    permissions = [
+        permission
+        for permission in incoming.permissions
+        if permission in domain_permissions
+    ]
+
+    metadata = dict(incoming.metadata)
+    if selected:
+        metadata["workflow_references"] = selected
+
+    data = incoming.to_dict()
+    data["allowed_operations"] = allowed
+    data["prohibited_operations"] = prohibited
+    data["required_approvals"] = approvals
+    data["required_validations"] = validations
+    data["permissions"] = permissions
+    data["metadata"] = metadata
+    return AgentPlanningRequest.from_dict(data)
 
 
 class DefaultDomainPlannerWorkflowIntegrator:

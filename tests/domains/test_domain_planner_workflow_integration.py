@@ -14,7 +14,10 @@ Covers the read-only capability view built from canonical sources only:
 
 from __future__ import annotations
 
+import pytest
+
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.agent_runtime.workflow_planner_contracts import AgentPlanningRequest
 from cmm.domains.composition_contracts import (
     DomainComposition,
     DomainCompositionConflict,
@@ -26,10 +29,17 @@ from cmm.domains.enums import (
     DomainOperationType,
     DomainResolutionStatus,
 )
+from cmm.domains.errors import DomainContractValidationError
 from cmm.domains.identifiers import DomainId
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
-from cmm.domains.planner_workflow_integration import _build_capability_view
+from cmm.domains.planner_workflow_integration import (
+    _build_capability_view,
+    _prepare_planning_request,
+)
+from cmm.domains.planner_workflow_integration_contracts import (
+    DomainPlanningCapabilityView,
+)
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.workflow_contracts import DomainWorkflowDefinition
@@ -329,3 +339,157 @@ def test_capability_view_nonexistent_operation_is_not_exposed():
     )
     assert "project.nope" not in view.available_operation_ids
     assert view.available_operation_ids == ()
+
+
+# ── Most-restrictive AgentPlanningRequest composition ─────────────────────
+
+
+def _incoming_request(**overrides):
+    values = {
+        "id": "req-042-1",
+        "goal_id": "goal-042-1",
+        "agent_run_id": "run-042-1",
+        "objective": "Inspect the project domain",
+    }
+    values.update(overrides)
+    return AgentPlanningRequest(**values)
+
+
+def _capability(
+    available=("project.inspect", "project.write"),
+    prohibited=(),
+    approvals=(),
+    validations=(),
+    permissions=("project.read",),
+    workflows=("project.review",),
+):
+    return DomainPlanningCapabilityView(
+        primary_domain_id="domain:project",
+        available_operation_ids=available,
+        prohibited_operation_ids=prohibited,
+        available_workflow_ids=workflows,
+        required_permission_ids=permissions,
+        required_approval_ids=approvals,
+        required_validation_ids=validations,
+    )
+
+
+def test_prepare_request_intersects_allowed_operations_and_unions_prohibitions():
+    incoming = _incoming_request(
+        allowed_operations=["project.inspect", "project.write"],
+        prohibited_operations=["project.delete"],
+    )
+    view = _capability(
+        available=("project.inspect",),
+        prohibited=("project.write",),
+    )
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.allowed_operations == ["project.inspect"]
+    assert prepared.prohibited_operations == ["project.delete", "project.write"]
+
+
+def test_prepare_request_defaults_allowed_to_domain_available():
+    incoming = _incoming_request()
+    view = _capability(available=("project.inspect", "project.write"))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.allowed_operations == ["project.inspect", "project.write"]
+
+
+def test_prepare_request_empty_intersection_does_not_fall_back():
+    incoming = _incoming_request(allowed_operations=["project.write"])
+    view = _capability(available=("project.inspect",))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.allowed_operations == []
+
+
+def test_prepare_request_required_approvals_are_additive():
+    incoming = _incoming_request(required_approvals=["team-lead"])
+    view = _capability(approvals=("review-board",))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.required_approvals == ["team-lead", "review-board"]
+
+
+def test_prepare_request_required_validations_are_additive():
+    incoming = _incoming_request(required_validations=["schema-v1"])
+    view = _capability(validations=("policy-check",))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.required_validations == ["schema-v1", "policy-check"]
+
+
+def test_prepare_request_permissions_never_expand():
+    incoming = _incoming_request(permissions=["project.read", "project.admin"])
+    view = _capability(permissions=("project.read",))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.permissions == ["project.read"]
+
+
+def test_prepare_request_empty_incoming_permissions_stay_empty():
+    incoming = _incoming_request()
+    view = _capability(permissions=("project.read",))
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.permissions == []
+
+
+def test_prepare_request_budget_and_autonomy_never_increase():
+    incoming = _incoming_request(
+        budget={"max_tokens": 100, "max_cost": 5.0},
+        autonomy_level=2,
+    )
+    view = _capability()
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert prepared.budget == {"max_tokens": 100, "max_cost": 5.0}
+    assert prepared.autonomy_level == 2
+
+
+def test_prepare_request_stamps_selected_workflow_references_only():
+    incoming = _incoming_request(metadata={"caller": "test"})
+    view = _capability(workflows=("project.review", "project.audit"))
+    prepared = _prepare_planning_request(
+        incoming=incoming,
+        capability_view=view,
+        selected_workflow_ids=("project.review",),
+    )
+    assert prepared.metadata["caller"] == "test"
+    assert prepared.metadata["workflow_references"] == ("project.review",)
+
+
+def test_prepare_request_omits_workflow_references_when_nothing_selected():
+    incoming = _incoming_request()
+    prepared = _prepare_planning_request(
+        incoming=incoming, capability_view=_capability()
+    )
+    assert "workflow_references" not in prepared.metadata
+
+
+def test_prepare_request_rejects_selected_workflow_outside_available():
+    incoming = _incoming_request()
+    with pytest.raises(DomainContractValidationError):
+        _prepare_planning_request(
+            incoming=incoming,
+            capability_view=_capability(workflows=("project.review",)),
+            selected_workflow_ids=("project.missing",),
+        )
+
+
+def test_prepare_request_does_not_mutate_incoming():
+    incoming = _incoming_request(
+        allowed_operations=["project.inspect", "project.write"],
+        metadata={"caller": "test"},
+    )
+    before = incoming.to_dict()
+    _prepare_planning_request(
+        incoming=incoming,
+        capability_view=_capability(available=("project.inspect",)),
+    )
+    assert incoming.to_dict() == before
+
+
+def test_prepare_request_rejects_wrong_types():
+    with pytest.raises(DomainContractValidationError):
+        _prepare_planning_request(
+            incoming={"id": "req-1"}, capability_view=_capability()
+        )
+    with pytest.raises(DomainContractValidationError):
+        _prepare_planning_request(
+            incoming=_incoming_request(), capability_view={"primary": "x"}
+        )
