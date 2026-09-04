@@ -684,3 +684,95 @@ def test_dependency_references_metadata_rejects_malformed_values(
 
     with pytest.raises(InvalidAgentPlanningContractError):
         adapter.plan(request)
+
+
+# ── Generic operation_candidates seam (Phase 10.42 V3) ──────────────────────
+
+
+def test_plan_selects_only_from_generic_operation_candidates(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED (V2 MAJOR-03): supplied eligible candidates own operation identity."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    candidates = ["project.review_status", "project.plan_milestones"]
+    request = _semantics_request(metadata={"operation_candidates": candidates})
+
+    plan = adapter.plan(request)
+
+    assert plan.operations, "planner must still emit operations"
+    assert {op.operation_name for op in plan.operations} <= set(candidates)
+    assert plan.metadata["operation_candidates"] == candidates
+    assert plan.validation.is_valid
+
+
+def test_plan_operation_candidate_selection_is_deterministic(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED (V2 MAJOR-03): candidate selection must be deterministic."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    candidates = [
+        "project.review_status",
+        "project.plan_milestones",
+        "project.review_dependencies",
+    ]
+    first = adapter.plan(
+        _semantics_request(metadata={"operation_candidates": candidates})
+    )
+    second = adapter.plan(
+        _semantics_request(metadata={"operation_candidates": candidates})
+    )
+
+    assert [op.operation_name for op in first.operations] == [
+        op.operation_name for op in second.operations
+    ]
+
+
+def test_plan_without_candidates_remains_backward_compatible(
+    task_planner: TaskPlanner,
+    planning_request: AgentPlanningRequest,
+) -> None:
+    """RED (V2 MAJOR-03): absent seam must preserve heuristic Phase 9 behavior."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+
+    plan = adapter.plan(planning_request)
+
+    assert "operation_candidates" not in plan.metadata
+    assert any(op.operation_name == "python.find_symbol" for op in plan.operations), (
+        "heuristic translation must be unchanged without candidates"
+    )
+    assert plan.validation.is_valid
+
+
+def test_plan_empty_operation_candidates_fail_closed(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED (V2 MAJOR-03): an empty eligible set must not invent operations."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(metadata={"operation_candidates": []})
+
+    with pytest.raises(InvalidAgentPlanningContractError):
+        adapter.plan(request)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "project.review_status",
+        [["project.review_status"]],
+        [""],
+        ["   "],
+        [1],
+    ],
+)
+def test_operation_candidates_metadata_rejects_malformed_values(
+    value: object,
+    task_planner: TaskPlanner,
+) -> None:
+    """Malformed candidates fail with the canonical planning contract error."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(metadata={"operation_candidates": value})
+
+    with pytest.raises(InvalidAgentPlanningContractError):
+        adapter.plan(request)
+
+

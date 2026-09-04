@@ -1495,7 +1495,14 @@ def test_major01_operation_semantics_projected_into_canonical_plan():
 
 
 def test_major01_operation_and_workflow_dependencies_consumed():
-    """RED: dependency rows must become edges/references, not inert data."""
+    """RED: dependency rows must become edges/references, not inert data.
+
+    The required pair is forward under the documented deterministic
+    candidate selection order (eligible candidates consumed round-robin in
+    step order): ``filesystem.read_file`` is planned before
+    ``python.find_symbol``, so the edge cannot cycle with the sequential
+    task chain. A backward pair would genuinely cycle and fail closed.
+    """
     domain_registry, operation_registry, workflow_registry = _rich_planner_graph()
     _, _, service = _planning_stack()
     integrator = _rich_integrator(
@@ -1503,7 +1510,7 @@ def test_major01_operation_and_workflow_dependencies_consumed():
         operation_registry,
         workflow_registry,
         service,
-        dependencies={"filesystem.read_file": ("python.find_symbol",)},
+        dependencies={"python.find_symbol": ("filesystem.read_file",)},
     )
 
     result = integrator.integrate(_integration_request_5(metadata={}))
@@ -1511,18 +1518,229 @@ def test_major01_operation_and_workflow_dependencies_consumed():
     assert result.blocked is False
     references = result.prepared_planning_request.metadata["dependency_references"]
     assert references["operation_dependencies"] == [
-        ["python.find_symbol", "filesystem.read_file"]
+        ["filesystem.read_file", "python.find_symbol"]
     ]
     assert references["workflow_dependencies"]["python.review"] == ["start"]
     tasks_by_op = {}
     for task, operation in zip(result.plan.tasks, result.plan.operations):
         tasks_by_op.setdefault(operation.operation_name, task.id)
-    source = tasks_by_op["python.find_symbol"]
-    target = tasks_by_op["filesystem.read_file"]
+    source = tasks_by_op["filesystem.read_file"]
+    target = tasks_by_op["python.find_symbol"]
     assert any(
         dep.source_task_id == source and dep.target_task_id == target
         for dep in result.plan.dependencies
     )
     assert result.plan.metadata["dependency_references"]["operation_dependencies"] == [
-        ["python.find_symbol", "filesystem.read_file"]
+        ["filesystem.read_file", "python.find_symbol"]
     ]
+
+
+# ── V3 remediation (V2 MAJOR-03): real production Domain Pack selection ─────
+
+
+def _project_graph(available_override=None):
+    """Real production ``domain:project`` graph with all 20 operations live."""
+    from cmm.domains.project.definition import build_project_domain_definition
+    from cmm.domains.project.operations import build_project_operation_definitions
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(build_project_domain_definition())
+    domain_registry.enable("domain:project")
+    definitions = {
+        definition.operation_id: definition
+        for definition in build_project_operation_definitions()
+    }
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    for definition in definitions.values():
+        operation_registry.register(definition, _Implementation(definition))
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    if available_override is not None:
+        availability = available_override
+    else:
+
+        def availability(operation_id, domain_id):
+            return (
+                operation_registry.resolve_active(operation_id, required=False)
+                is not None
+            )
+
+    return (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    )
+
+
+def _project_integrator(
+    domain_registry,
+    operation_registry,
+    workflow_registry,
+    definitions,
+    availability,
+    service,
+    dependencies=None,
+):
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-project"),
+        operation_availability=availability,
+        permission_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: definitions.get(
+            operation_id
+        ),
+        operation_dependency_provider=lambda operation_id: (
+            dependencies.get(operation_id, ()) if dependencies is not None else ()
+        ),
+    )
+
+
+def _project_request(**overrides):
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+
+    values = {
+        "request_id": "int-req-042-project",
+        "resolution_context": DomainResolutionContext(
+            id="ctx-042-project",
+            user_input="Review project status and plan milestones",
+            goal_id="goal-042-project",
+            actor="actor-042",
+            available_domains=(DomainId(slug="project"),),
+            authorized_domains=(DomainId(slug="project"),),
+            explicit_domains=(DomainId(slug="project"),),
+            resources=(
+                DomainResolutionResource(
+                    id="r-project",
+                    resource_type="document",
+                    source="user",
+                    domain_ids=(DomainId(slug="project"),),
+                ),
+            ),
+        ),
+        "planning_request": _incoming_request(
+            id="req-042-project",
+            goal_id="goal-042-project",
+            agent_run_id="run-042-project",
+            actor_id="actor-042",
+            objective="Review project status and plan milestones",
+        ),
+        "metadata": {},
+    }
+    values.update(overrides)
+    return DomainPlannerWorkflowIntegrationRequest(**values)
+
+
+def test_v3_real_project_pack_plan_uses_registered_capability():
+    """RED (V2 MAJOR-03): real ``domain:project`` ops must enter the plan."""
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+
+    result = integrator.integrate(_project_request())
+
+    assert result.blocked is False
+    assert result.reason_codes == ()
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert planned, "canonical plan must contain operations"
+    assert set(planned) & set(definitions), (
+        "REAL_DOMAIN_REGISTERED_OPERATIONS ∩ RETURNED_PLAN_OPERATION_NAMES != empty"
+    )
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert result.plan.validation.is_valid
+
+
+def test_v3_no_heuristic_operation_escapes_eligible_candidates():
+    """RED (V2 MAJOR-03): only eligible ``project.*`` candidates may be planned."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+
+    result = integrator.integrate(_project_request())
+
+    assert result.blocked is False
+    eligible = set(result.prepared_planning_request.metadata["operation_candidates"])
+    assert eligible == set(definitions)
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert all(operation in eligible for operation in planned)
+    assert not any(operation.startswith("python.") for operation in planned)
+    assert not any(operation.startswith("filesystem.") for operation in planned)
+
+
+def test_v3_real_project_pack_selection_is_deterministic():
+    """RED (V2 MAJOR-03): real-pack selection must be deterministic."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+
+    first = integrator.integrate(_project_request())
+    second = integrator.integrate(_project_request())
+
+    assert [op.operation_name for op in first.plan.operations] == [
+        op.operation_name for op in second.plan.operations
+    ]
+
+

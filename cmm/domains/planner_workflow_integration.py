@@ -386,6 +386,19 @@ def _build_operation_dependencies(
     return pairs
 
 
+def _stable_operation_candidates(
+    capability_view: DomainPlanningCapabilityView,
+) -> list[str]:
+    """Project available Domain operations as generic selection candidates.
+
+    Opaque operation IDs only, deterministic sorted order. An empty
+    capability set yields an empty candidate list, which the canonical
+    planner seam treats as unsatisfiable (fail closed) instead of
+    inventing an operation.
+    """
+    return sorted(capability_view.available_operation_ids)
+
+
 def _stable_operation_semantics(
     semantics: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -467,6 +480,10 @@ def _prepare_planning_request(
     per-operation semantics and dependency references travel through the
     generic ``operation_semantics`` / ``dependency_references`` metadata
     seams, which the canonical planner validates and projects into the plan.
+    The eligible Domain operation IDs additionally travel through the generic
+    ``operation_candidates`` metadata seam, from which the canonical planner
+    deterministically selects planned operations; an empty eligible set is
+    carried as an empty candidate list and fails closed downstream.
     """
     if type(incoming) is not AgentPlanningRequest:
         raise DomainContractValidationError(
@@ -516,6 +533,8 @@ def _prepare_planning_request(
     metadata = dict(incoming.metadata)
     if selected:
         metadata["workflow_references"] = selected
+    operation_candidates = _stable_operation_candidates(capability_view)
+    metadata["operation_candidates"] = operation_candidates
     semantics_rows = _stable_operation_semantics(operation_semantics)
     if semantics_rows:
         metadata["operation_semantics"] = semantics_rows
@@ -820,6 +839,19 @@ class DefaultDomainPlannerWorkflowIntegrator:
             request.planning_request.allowed_operations
             and not prepared.allowed_operations
         ):
+            return self._blocked(
+                request=request,
+                resolution=resolution,
+                composition=composition,
+                view=view,
+                prepared=prepared,
+                selected=selected,
+                reason_codes=("domain_no_permitted_operations",),
+            )
+        if not prepared.metadata.get("operation_candidates", ["_sentinel"]):
+            # Empty eligible operation set: no candidate can satisfy a
+            # planned step. Fail closed before invoking the planner instead
+            # of letting it invent an unrelated operation.
             return self._blocked(
                 request=request,
                 resolution=resolution,
