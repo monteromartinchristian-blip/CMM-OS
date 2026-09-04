@@ -1899,3 +1899,167 @@ def test_v3_no_silent_required_dependency_drop():
     assert materialized == set()
     assert result.blocked is True
     assert "domain_unresolved_operation_dependency" in result.reason_codes
+
+
+# ── V4 remediation (V3 MAJOR-05): effective operation candidates ──────────
+
+
+def test_v4_real_project_narrow_allowlist_plan():
+    """V4 MAJOR-05 RED A: narrow allowlist constrains candidates and plan."""
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v4-narrow",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v4-narrow",
+        actor_id="actor-042",
+        objective="Review project status",
+        allowed_operations=["project.review_status"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert tuple(result.prepared_planning_request.allowed_operations) == (
+        "project.review_status",
+    )
+    assert tuple(result.prepared_planning_request.metadata["operation_candidates"]) == (
+        "project.review_status",
+    )
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert planned, "canonical plan must contain operations"
+    assert all(operation == "project.review_status" for operation in planned)
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert result.plan.validation.is_valid
+    assert result.blocked is False
+    # REAL_DOMAIN_NARROW_ALLOWLIST_PLAN=PASS
+
+
+def test_v4_real_project_partial_prohibition_plan():
+    """V4 MAJOR-05 RED B: prohibited capability never enters candidates/plan."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v4-prohibit",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v4-prohibit",
+        actor_id="actor-042",
+        objective="Review project status and plan milestones",
+        prohibited_operations=["project.analyse_architecture"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    candidates = result.prepared_planning_request.metadata["operation_candidates"]
+    assert "project.analyse_architecture" not in candidates
+    assert "project.analyse_architecture" in tuple(
+        result.prepared_planning_request.prohibited_operations
+    )
+    planned = [operation.operation_name for operation in result.plan.operations]
+    assert planned, "canonical plan must contain operations"
+    assert "project.analyse_architecture" not in planned
+    assert any(operation in set(definitions) for operation in planned)
+    assert result.blocked is False
+    # REAL_DOMAIN_PARTIAL_PROHIBITION_PLAN=PASS
+
+
+def test_v4_zero_effective_candidates_fails_before_planner():
+    """V4 MAJOR-05 RED C: empty effective set fails closed without planning."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v4-empty",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v4-empty",
+        actor_id="actor-042",
+        objective="Review project status",
+        allowed_operations=["project.review_status"],
+        prohibited_operations=["project.review_status"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert (
+        tuple(result.prepared_planning_request.metadata["operation_candidates"]) == ()
+    )
+    assert service.plan_calls == 0
+    assert result.blocked is True
+    assert "domain_no_permitted_operations" in result.reason_codes
+    # ZERO_EFFECTIVE_CANDIDATES_FAILS_BEFORE_PLANNER=PASS
+
+
+def test_v4_effective_candidates_subset_of_prepared_allowed():
+    """V4 MAJOR-05 RED D1: candidates ⊆ prepared allowed."""
+    incoming = _incoming_request(allowed_operations=["project.review_status"])
+    view = _capability(
+        available=("project.inspect", "project.write", "project.review_status"),
+        prohibited=(),
+    )
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert set(prepared.metadata["operation_candidates"]) <= set(
+        prepared.allowed_operations
+    )
+    # EFFECTIVE_CANDIDATES_SUBSET_OF_PREPARED_ALLOWED=PASS
+
+
+def test_v4_effective_candidates_exclude_prepared_prohibited():
+    """V4 MAJOR-05 RED D2: candidates ∩ prepared prohibited = ∅."""
+    incoming = _incoming_request(
+        allowed_operations=["project.inspect", "project.analyse_architecture"],
+        prohibited_operations=["project.analyse_architecture"],
+    )
+    view = _capability(
+        available=("project.inspect", "project.analyse_architecture"),
+        prohibited=("project.write",),
+    )
+    prepared = _prepare_planning_request(incoming=incoming, capability_view=view)
+    assert (
+        set(prepared.metadata["operation_candidates"])
+        & set(prepared.prohibited_operations)
+        == set()
+    )
+    assert (
+        "project.analyse_architecture" not in prepared.metadata["operation_candidates"]
+    )
+    assert "project.write" not in prepared.metadata["operation_candidates"]
+    # EFFECTIVE_CANDIDATES_EXCLUDE_PREPARED_PROHIBITED=PASS
