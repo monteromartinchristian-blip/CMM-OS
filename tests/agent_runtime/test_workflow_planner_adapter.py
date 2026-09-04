@@ -512,3 +512,175 @@ def test_workflow_reference_metadata_rejects_malformed_values(
 
     with pytest.raises(InvalidAgentPlanningContractError):
         adapter.plan(request)
+
+
+# ── Generic operation_semantics / dependency_references seams (Phase 10.42 R2) ──
+
+
+def _semantics_request(**overrides) -> AgentPlanningRequest:
+    values: dict = {
+        "id": "req-sem-1",
+        "goal_id": "goal-100",
+        "agent_run_id": "run-100",
+        "objective": "Refactor technical reasoning planner",
+    }
+    values.update(overrides)
+    return AgentPlanningRequest(**values)
+
+
+def test_plan_applies_generic_operation_semantics_to_matching_operation(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED: exact operation semantics must overlay heuristic defaults."""
+    from cmm.agent_runtime.enums import WorkflowPlanRisk
+
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(
+        metadata={
+            "operation_semantics": [
+                {
+                    "operation_name": "python.find_symbol",
+                    "required_permissions": ["perm.a"],
+                    "required_validations": ["validation.a"],
+                    "requires_approval": True,
+                    "approval_ids": ["approval.review-board"],
+                    "reversible": False,
+                    "rollback_operation": None,
+                    "risk": "high",
+                    "timeout_seconds": 42.0,
+                    "metadata": {"provenance": "domain:python"},
+                }
+            ]
+        }
+    )
+
+    plan = adapter.plan(request)
+
+    target = next(
+        op for op in plan.operations if op.operation_name == "python.find_symbol"
+    )
+    assert target.required_permissions == ["perm.a"]
+    assert target.required_validations == ["validation.a"]
+    assert target.requires_approval is True
+    assert target.reversible is False
+    assert target.rollback_operation is None
+    assert target.risk is WorkflowPlanRisk.HIGH
+    assert target.timeout_seconds == 42.0
+    assert target.metadata["provenance"] == "domain:python"
+    # Untouched operations keep heuristic/default Phase 9 values.
+    other = next(
+        op for op in plan.operations if op.operation_name == "python.list_imports"
+    )
+    assert other.required_permissions == []
+    assert other.required_validations == []
+
+
+def test_plan_binds_exact_approval_and_validation_ids(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED: exact requirement IDs must be traceable on canonical nodes."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(
+        required_approvals=["approval.review-board"],
+        required_validations=["validation.python-schema"],
+    )
+
+    plan = adapter.plan(request)
+
+    assert plan.approval_nodes, "approval obligation must create a node"
+    assert any(
+        "approval.review-board" in node.required_approvers
+        for node in plan.approval_nodes
+    )
+    assert any(
+        "approval.review-board" in node.metadata.get("approval_requirement_ids", [])
+        for node in plan.approval_nodes
+    )
+    assert plan.validation_nodes, "validation obligation must create nodes"
+    assert any(
+        "validation.python-schema"
+        in node.metadata.get("validation_requirement_ids", [])
+        for node in plan.validation_nodes
+    )
+
+
+def test_plan_materializes_generic_dependency_references_as_edges(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED: generic operation dependency pairs must become plan edges."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(
+        metadata={
+            "dependency_references": {
+                "operation_dependencies": [
+                    ["python.find_symbol", "filesystem.read_file"]
+                ],
+                "workflow_dependencies": {"workflow:a": ["node:1"]},
+            }
+        }
+    )
+
+    plan = adapter.plan(request)
+
+    tasks_by_op = {}
+    for task, operation in zip(plan.tasks, plan.operations):
+        tasks_by_op.setdefault(operation.operation_name, task.id)
+    source = tasks_by_op["python.find_symbol"]
+    target = tasks_by_op["filesystem.read_file"]
+    assert any(
+        dep.source_task_id == source and dep.target_task_id == target
+        for dep in plan.dependencies
+    )
+    assert plan.metadata["dependency_references"]["operation_dependencies"] == [
+        ["python.find_symbol", "filesystem.read_file"]
+    ]
+    assert plan.metadata["dependency_references"]["workflow_dependencies"] == {
+        "workflow:a": ["node:1"]
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["operation_semantics"],
+        [{"required_permissions": ["perm.a"]}],
+        [{"operation_name": ""}],
+        [{"operation_name": "op.a", "requires_approval": "yes"}],
+        [{"operation_name": "op.a", "risk": "extreme"}],
+        [{"operation_name": "op.a", "timeout_seconds": -1.0}],
+        [{"operation_name": "op.a", "unknown_field": True}],
+        [{"operation_name": "op.a"}, {"operation_name": "op.a"}],
+    ],
+)
+def test_operation_semantics_metadata_rejects_malformed_values(
+    value: object,
+    task_planner: TaskPlanner,
+) -> None:
+    """Malformed operation semantics fail with the canonical contract error."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(metadata={"operation_semantics": value})
+
+    with pytest.raises(InvalidAgentPlanningContractError):
+        adapter.plan(request)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["dependency_references"],
+        {"operation_dependencies": [["only-one"]]},
+        {"operation_dependencies": [["", "op.b"]]},
+        {"workflow_dependencies": {"workflow:a": [""]}},
+        {"unknown_section": []},
+    ],
+)
+def test_dependency_references_metadata_rejects_malformed_values(
+    value: object,
+    task_planner: TaskPlanner,
+) -> None:
+    """Malformed dependency references fail with the canonical contract error."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(metadata={"dependency_references": value})
+
+    with pytest.raises(InvalidAgentPlanningContractError):
+        adapter.plan(request)
