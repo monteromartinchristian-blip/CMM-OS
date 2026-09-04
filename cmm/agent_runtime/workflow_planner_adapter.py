@@ -69,6 +69,8 @@ def _utc_now_iso() -> str:
 _WORKFLOW_REFERENCES_METADATA_KEY = "workflow_references"
 _OPERATION_SEMANTICS_METADATA_KEY = "operation_semantics"
 _DEPENDENCY_REFERENCES_METADATA_KEY = "dependency_references"
+_OPERATION_CANDIDATES_METADATA_KEY = "operation_candidates"
+_UNRESOLVED_OPERATION_DEPENDENCIES_METADATA_KEY = "unresolved_operation_dependencies"
 
 _VALID_OPERATION_SEMANTICS_KEYS = frozenset(
     {
@@ -123,6 +125,38 @@ def _workflow_references_from_metadata(
     return tuple(cleaned)
 
 
+def _operation_candidates_from_metadata(
+    metadata: Mapping[str, Any],
+) -> tuple[str, ...] | None:
+    """Validate the generic operation-candidates metadata seam.
+
+    Domain-agnostic: candidates are opaque non-empty string operation IDs
+    supplied externally as the eligible operation set. ``None`` means the
+    seam is absent and the canonical heuristic translation remains
+    backward-compatible. A present-but-empty list is well-formed yet
+    unsatisfiable and fails closed at plan time instead of inventing an
+    operation.
+    """
+    if not isinstance(metadata, Mapping):
+        raise InvalidAgentPlanningContractError("Request metadata must be a mapping.")
+    if _OPERATION_CANDIDATES_METADATA_KEY not in metadata:
+        return None
+    value = metadata[_OPERATION_CANDIDATES_METADATA_KEY]
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise InvalidAgentPlanningContractError(
+            "operation_candidates must be a list/tuple of non-empty strings."
+        )
+    cleaned: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise InvalidAgentPlanningContractError(
+                "operation_candidates must contain only non-empty strings."
+            )
+        if item not in cleaned:
+            cleaned.append(item)
+    return tuple(cleaned)
+
+
 def _plan_metadata_with_references(
     base: dict[str, Any],
     request_metadata: Mapping[str, Any],
@@ -132,6 +166,9 @@ def _plan_metadata_with_references(
     references = _workflow_references_from_metadata(request_metadata)
     if references:
         metadata[_WORKFLOW_REFERENCES_METADATA_KEY] = list(references)
+    candidates = _operation_candidates_from_metadata(request_metadata)
+    if candidates is not None and len(candidates) > 0:
+        metadata[_OPERATION_CANDIDATES_METADATA_KEY] = list(candidates)
     dependency_references = _dependency_references_from_metadata(request_metadata)
     if dependency_references and any(dependency_references.values()):
         metadata[_DEPENDENCY_REFERENCES_METADATA_KEY] = {
@@ -483,6 +520,8 @@ class DefaultWorkflowPlannerAdapter:
 
         # Fail fast on malformed generic seams on every planning path.
         _operation_semantics_from_metadata(request.metadata)
+        _operation_candidates_from_metadata(request.metadata)
+        _dependency_references_from_metadata(request.metadata)
 
         context = self.build_context(request)
 
@@ -611,6 +650,12 @@ class DefaultWorkflowPlannerAdapter:
             for entry in _operation_semantics_from_metadata(request.metadata)
         }
         dependency_references = _dependency_references_from_metadata(request.metadata)
+        operation_candidates = _operation_candidates_from_metadata(request.metadata)
+        if operation_candidates is not None and len(operation_candidates) == 0:
+            raise InvalidAgentPlanningContractError(
+                "operation_candidates is empty: no eligible operation can "
+                "satisfy a planned step."
+            )
         wf_id = generate_workflow_id()
         plan_id = generate_workflow_plan_id()
         now = self._clock()
@@ -625,23 +670,36 @@ class DefaultWorkflowPlannerAdapter:
         prev_task_id: str | None = None
 
         # Map steps from ExecutionPlan to AgentWorkflowTask & Operations
-        for step in exec_plan.steps:
+        for step_index, step in enumerate(exec_plan.steps):
             t_id = generate_workflow_task_id()
             op_id = generate_workflow_operation_id()
             val_node_id = generate_workflow_validation_node_id()
 
-            # Determine operation name and parameters based on step title
-            step_title_lower = step.title.lower()
-            if "entry point" in step_title_lower or "analyze" in step_title_lower:
-                op_name = "python.find_symbol"
-            elif "dependenc" in step_title_lower:
-                op_name = "python.list_imports"
-            elif "impact" in step_title_lower or "risk" in step_title_lower:
-                op_name = "python.describe_module"
-            elif "prepare" in step_title_lower or "modif" in step_title_lower:
-                op_name = "filesystem.read_file"
+            if operation_candidates is not None:
+                # Generic deterministic selection: the canonical planner
+                # still owns step generation; only the operation identity is
+                # drawn from the externally supplied eligible set, consumed
+                # round-robin in step order. No Domain semantics live here:
+                # candidates are opaque operation IDs. Callers declaring
+                # required operation dependencies must supply pairs
+                # consistent with this documented order; opposing pairs
+                # genuinely cycle with the sequential task chain and fail
+                # closed through the canonical validator.
+                op_name = operation_candidates[step_index % len(operation_candidates)]
+                step_title_lower = step.title.lower()
             else:
-                op_name = "filesystem.exists"
+                # Determine operation name and parameters based on step title
+                step_title_lower = step.title.lower()
+                if "entry point" in step_title_lower or "analyze" in step_title_lower:
+                    op_name = "python.find_symbol"
+                elif "dependenc" in step_title_lower:
+                    op_name = "python.list_imports"
+                elif "impact" in step_title_lower or "risk" in step_title_lower:
+                    op_name = "python.describe_module"
+                elif "prepare" in step_title_lower or "modif" in step_title_lower:
+                    op_name = "filesystem.read_file"
+                else:
+                    op_name = "filesystem.exists"
 
             # Check for allowed / prohibited restrictions
             op_risk = WorkflowPlanRisk.LOW
