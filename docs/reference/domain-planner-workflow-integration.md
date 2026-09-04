@@ -154,8 +154,9 @@ prepared autonomy/budget
   = preserved exactly (never increased; missing Domain value invents nothing)
 prepared metadata
   = incoming preserved + generic "workflow_references" IDs,
-    generic "operation_candidates" eligible IDs (sorted Domain available
-    operations; empty when no capability is eligible and fails closed),
+    generic "operation_candidates" eligible IDs (sorted effective
+    operations = prepared allowed minus prepared prohibited; empty when
+    no capability is eligible and fails closed),
     generic "operation_semantics" descriptors, and generic
     "dependency_references" (operation pairs, workflow references,
     domain references) only
