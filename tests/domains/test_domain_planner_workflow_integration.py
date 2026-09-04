@@ -17,7 +17,11 @@ from __future__ import annotations
 import pytest
 
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
-from cmm.agent_runtime.workflow_planner_contracts import AgentPlanningRequest
+from cmm.agent_runtime.workflow_planner_adapter import AgentPlanningService
+from cmm.agent_runtime.workflow_planner_contracts import (
+    AgentPlanningRequest,
+    AgentWorkflowPlan,
+)
 from cmm.domains.composition_contracts import (
     DomainComposition,
     DomainCompositionConflict,
@@ -34,10 +38,13 @@ from cmm.domains.identifiers import DomainId
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.planner_workflow_integration import (
+    DefaultDomainPlannerWorkflowIntegrator,
     _build_capability_view,
     _prepare_planning_request,
 )
 from cmm.domains.planner_workflow_integration_contracts import (
+    DomainPlannerWorkflowIntegrationRequest,
+    DomainPlannerWorkflowIntegrator,
     DomainPlanningCapabilityView,
 )
 from cmm.domains.registry import DomainRegistry
@@ -493,3 +500,351 @@ def test_prepare_request_rejects_wrong_types():
         _prepare_planning_request(
             incoming=_incoming_request(), capability_view={"primary": "x"}
         )
+
+
+# ── DefaultDomainPlannerWorkflowIntegrator.integrate ──────────────────────
+
+
+class _StubReasoner:
+    def locate_feature(self, query):
+        return []
+
+    def impact_analysis(self, feature_name):
+        return None
+
+    def explain_dependencies(self, feature_name):
+        return None
+
+
+class _CountingPlanningService(AgentPlanningService):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.plan_calls = 0
+
+    def plan(self, request):
+        self.plan_calls += 1
+        return super().plan(request)
+
+
+class _CannedPlanningService:
+    def __init__(self, plan):
+        self.plan_calls = 0
+        self._plan = plan
+
+    def plan(self, request):
+        self.plan_calls += 1
+        return self._plan
+
+
+def _planner_graph():
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        _definition(
+            "python",
+            operations=(
+                "python.find_symbol",
+                "python.list_imports",
+                "python.describe_module",
+            ),
+            workflows=("python.review",),
+        )
+    )
+    domain_registry.register(
+        _definition(
+            "filesystem",
+            operations=(
+                "filesystem.read_file",
+                "filesystem.exists",
+                "filesystem.delete_file",
+            ),
+            workflows=(),
+        )
+    )
+    domain_registry.enable("domain:python")
+    domain_registry.enable("domain:filesystem")
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    for operation_id in (
+        "python.find_symbol",
+        "python.list_imports",
+        "python.describe_module",
+        "filesystem.read_file",
+        "filesystem.exists",
+    ):
+        domain_id = f"domain:{operation_id.split('.')[0]}"
+        definition = _operation(operation_id, domain_id)
+        operation_registry.register(definition, _Implementation(definition))
+    # No implementation: canonically unavailable, and prohibited below.
+    operation_registry.register(
+        _operation("filesystem.delete_file", "domain:filesystem")
+    )
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    workflow_registry.register(
+        _workflow(
+            "python.review",
+            "domain:python",
+            required_permissions=("python.use",),
+            approval_gates=("review-board",),
+        )
+    )
+    workflow_registry.register(
+        _workflow("other.flow", "domain:other"),
+    )
+    return domain_registry, operation_registry, workflow_registry
+
+
+def _planning_stack(planning_service_factory=AgentPlanningService):
+    from cmm.agent_runtime.workflow_planner_adapter import (
+        DefaultWorkflowPlannerAdapter,
+    )
+    from cmm.agent_runtime.workflow_planner_store import InMemoryWorkflowPlanStore
+    from cmm.planner.task_planner import TaskPlanner
+
+    store = InMemoryWorkflowPlanStore()
+    adapter = DefaultWorkflowPlannerAdapter(
+        planner=TaskPlanner(reasoner=_StubReasoner()),
+        plan_store=store,
+    )
+    service = planning_service_factory(adapter)
+    return store, adapter, service
+
+
+def _resolution_context_5(**overrides):
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+
+    values = {
+        "id": "ctx-042-5",
+        "user_input": "Python inspection with filesystem reading",
+        "goal_id": "goal-042-5",
+        "actor": "actor-042",
+        "available_domains": (DomainId(slug="python"), DomainId(slug="filesystem")),
+        "authorized_domains": (DomainId(slug="python"), DomainId(slug="filesystem")),
+        "explicit_domains": (DomainId(slug="python"),),
+        "resources": (
+            DomainResolutionResource(
+                id="r-py",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="python"),),
+            ),
+            DomainResolutionResource(
+                id="r-fs",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="filesystem"),),
+            ),
+        ),
+    }
+    values.update(overrides)
+    return DomainResolutionContext(**values)
+
+
+def _integrator_5(domain_registry, operation_registry, workflow_registry, service):
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=1, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-1"),
+        operation_availability=lambda op_id, domain_id: (
+            operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: ("filesystem.use", "python.use"),
+        prohibited_operation_ids_provider=lambda composition: (
+            "filesystem.delete_file",
+        ),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: ("python.schema",),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+    )
+
+
+def _integration_request_5(**overrides):
+    values = {
+        "request_id": "int-req-042-5",
+        "resolution_context": _resolution_context_5(),
+        "planning_request": _incoming_request(
+            id="req-042-5",
+            goal_id="goal-042-5",
+            agent_run_id="run-042-5",
+            actor_id="actor-042",
+            objective="Inspect python symbols and read filesystem files",
+            allowed_operations=[
+                "python.find_symbol",
+                "python.list_imports",
+                "python.describe_module",
+                "filesystem.read_file",
+                "filesystem.exists",
+            ],
+        ),
+        "metadata": {"requested_workflow_ids": ["python.review"]},
+    }
+    values.update(overrides)
+    return DomainPlannerWorkflowIntegrationRequest(**values)
+
+
+def test_integrate_produces_canonical_plan_through_planning_service():
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+    from cmm.agent_runtime.workflow_planner_contracts import AgentWorkflowPlan
+
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    store, _, service = _planning_stack()
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    result = integrator.integrate(_integration_request_5())
+
+    assert result.blocked is False
+    assert result.reason_codes == ()
+    assert type(result.plan) is AgentWorkflowPlan
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert store.get(result.plan.id) is result.plan
+    assert result.prepared_planning_request.allowed_operations == [
+        "python.find_symbol",
+        "python.list_imports",
+        "python.describe_module",
+        "filesystem.read_file",
+        "filesystem.exists",
+    ]
+    assert result.prepared_planning_request.prohibited_operations == [
+        "filesystem.delete_file"
+    ]
+    assert result.prepared_planning_request.required_validations == ["python.schema"]
+    assert result.plan.metadata["workflow_references"] == ["python.review"]
+    assert result.selected_domain_workflow_ids == ("python.review",)
+    assert isinstance(integrator, DomainPlannerWorkflowIntegrator)
+    assert not any("store" in attr for attr in vars(integrator))
+
+
+def test_integrate_blocks_nonexistent_workflow_without_calling_planner():
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    request = _integration_request_5(
+        metadata={"requested_workflow_ids": ["python.nope"]}
+    )
+
+    result = integrator.integrate(request)
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    assert service.plan_calls == 0
+
+
+def test_integrate_blocks_workflow_outside_composition():
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    # other.flow is registered but belongs to no effective domain.
+    request = _integration_request_5(
+        metadata={"requested_workflow_ids": ["other.flow"]}
+    )
+
+    result = integrator.integrate(request)
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+
+
+def test_integrate_blocks_zero_permitted_operations():
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    planning_request = _incoming_request(
+        id="req-042-5",
+        goal_id="goal-042-5",
+        agent_run_id="run-042-5",
+        actor_id="actor-042",
+        objective="Inspect python symbols",
+        allowed_operations=["python.nonexistent"],
+    )
+    request = _integration_request_5(planning_request=planning_request, metadata={})
+
+    result = integrator.integrate(request)
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_no_permitted_operations" in result.reason_codes
+    assert service.plan_calls == 0
+
+
+def test_integrate_blocks_identity_conflict():
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    planning_request = _incoming_request(
+        id="req-042-5",
+        goal_id="goal-other",
+        agent_run_id="run-042-5",
+        actor_id="actor-042",
+        objective="Inspect python symbols",
+    )
+    request = _integration_request_5(planning_request=planning_request, metadata={})
+
+    result = integrator.integrate(request)
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert "identity_conflict" in result.reason_codes
+    assert service.plan_calls == 0
+
+
+def test_integrate_blocks_prohibited_operation_emitted_by_planner():
+    from cmm.agent_runtime.workflow_planner_contracts import (
+        AgentWorkflowOperation,
+        AgentWorkflowTask,
+    )
+
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    canned = AgentWorkflowPlan(
+        id="plan-canned",
+        goal_id="goal-042-5",
+        agent_run_id="run-042-5",
+        workflow_id="workflow-canned",
+        tasks=[
+            AgentWorkflowTask(
+                id="t-1", workflow_id="workflow-canned", name="T", description="d"
+            )
+        ],
+        operations=[
+            AgentWorkflowOperation(
+                id="op-1", task_id="t-1", operation_name="filesystem.delete_file"
+            )
+        ],
+    )
+    service = _CannedPlanningService(canned)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert service.plan_calls == 1
+    assert result.blocked is True
+    assert "domain_prohibited_operation_planned" in result.reason_codes
