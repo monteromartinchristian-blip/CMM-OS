@@ -911,7 +911,18 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     *(conflict.code for conflict in blocking_conflicts),
                 ),
             )
-        selected = self._select_workflows(request, view)
+        domain_permissions = set(view.required_permission_ids)
+        prepared_permissions = [
+            permission
+            for permission in request.planning_request.permissions
+            if permission in domain_permissions
+        ]
+        selected = self._select_workflows(
+            request=request,
+            view=view,
+            workflow_registry=self._workflow_registry,
+            prepared_permissions=prepared_permissions,
+        )
         if selected is None:
             return self._blocked(
                 request=request,
@@ -1091,11 +1102,15 @@ class DefaultDomainPlannerWorkflowIntegrator:
     def _select_workflows(
         request: DomainPlannerWorkflowIntegrationRequest,
         view: DomainPlanningCapabilityView,
+        workflow_registry: InMemoryDomainWorkflowRegistry,
+        prepared_permissions: Collection[str] = (),
     ) -> tuple[str, ...] | None:
         """Select explicitly requested workflows; None means fail closed.
 
         Available workflows are planning capabilities, never automatically
         selected actions: without an explicit request nothing is selected.
+        Every selected workflow must additionally satisfy final prepared
+        authority: set(workflow.required_permissions) <= set(prepared_permissions).
         """
         if "requested_workflow_ids" not in request.metadata:
             return ()
@@ -1117,6 +1132,17 @@ class DefaultDomainPlannerWorkflowIntegrator:
         available = set(view.available_workflow_ids)
         if any(item not in available for item in requested):
             return None
+        granted = set(prepared_permissions)
+        for item in requested:
+            try:
+                definition = workflow_registry.resolve_active(item)
+            except (WorkflowRegistryError, DomainWorkflowRegistryError, KeyError):
+                return None
+            if any(
+                permission not in granted
+                for permission in definition.required_permissions
+            ):
+                return None
         selected: list[str] = []
         for item in requested:
             if item not in selected:

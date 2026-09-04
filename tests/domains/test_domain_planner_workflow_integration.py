@@ -715,6 +715,7 @@ def _integration_request_5(**overrides):
             agent_run_id="run-042-5",
             actor_id="actor-042",
             objective="Inspect python symbols and read filesystem files",
+            permissions=["python.use", "filesystem.use"],
             allowed_operations=[
                 "python.find_symbol",
                 "python.list_imports",
@@ -2390,3 +2391,322 @@ def test_v5_unknown_operation_definition_preserves_registration_authority():
         operation_definition_provider=lambda operation_id: None,
     )
     assert tuple(prepared.metadata["operation_candidates"]) == ("project.inspect",)
+
+
+# ── V6 remediation (V5 MAJOR-07): workflow permission compatibility ───────
+
+
+def _project_workflow_graph(available_override=None):
+    """Real production ``domain:project`` graph with operations and workflows live."""
+    from cmm.domains.project.workflows import build_project_workflow_definitions
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph(available_override=available_override)
+    for workflow in build_project_workflow_definitions():
+        workflow_registry.register(workflow)
+    return (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    )
+
+
+def test_v6_real_project_workflow_without_incoming_permission_blocked():
+    """V6 MAJOR-07 RED A: real project workflow without incoming permission fails before planner."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    setup_wf = workflow_registry.resolve_active("project.project_setup")
+    assert setup_wf.required_permissions == ("domain-permission:project:1.0.0",)
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v6-noperm",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v6-noperm",
+        actor_id="actor-042",
+        objective="Setup project",
+        permissions=[],
+        allowed_operations=["project.review_status"],
+    )
+    request = _project_request(
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["project.project_setup"]},
+    )
+    result = integrator.integrate(request)
+
+    assert "project.project_setup" in result.capability_view.available_workflow_ids
+    assert result.prepared_planning_request.permissions == []
+    assert "project.project_setup" not in result.selected_domain_workflow_ids
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    # REAL_PROJECT_WORKFLOW_WITHOUT_INCOMING_PERMISSION=BLOCKED
+    # PERMISSION_INCOMPATIBLE_WORKFLOW_FAILS_BEFORE_PLANNER=PASS
+
+
+def test_v6_real_project_workflow_with_permission_plans():
+    """V6 MAJOR-07 RED B: real workflow with permission in both authorities plans successfully."""
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    setup_wf = workflow_registry.resolve_active("project.project_setup")
+    assert setup_wf.required_permissions == ("domain-permission:project:1.0.0",)
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v6-perm",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v6-perm",
+        actor_id="actor-042",
+        objective="Setup project",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    request = _project_request(
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["project.project_setup"]},
+    )
+    result = integrator.integrate(request)
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.project_setup",)
+    assert result.prepared_planning_request.permissions == [
+        "domain-permission:project:1.0.0"
+    ]
+    assert service.plan_calls == 1
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert result.plan.validation.is_valid
+    # REAL_PROJECT_WORKFLOW_WITH_PERMISSION=PASS
+
+
+def test_v6_workflow_required_permissions_subset_of_prepared():
+    """V6 MAJOR-07 RED C: every selected workflow must satisfy final permission invariant."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v6-subset",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v6-subset",
+        actor_id="actor-042",
+        objective="Setup project",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    request = _project_request(
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["project.project_setup"]},
+    )
+    result = integrator.integrate(request)
+
+    assert result.blocked is False
+    selected = result.selected_domain_workflow_ids
+    prepared_permissions = set(result.prepared_planning_request.permissions)
+    incompatible = 0
+    for wf_id in selected:
+        wf = workflow_registry.resolve_active(wf_id)
+        if not (set(wf.required_permissions) <= prepared_permissions):
+            incompatible += 1
+    assert incompatible == 0
+    assert "project.project_setup" in selected
+    # WORKFLOW_REQUIRED_PERMISSIONS_SUBSET_OF_PREPARED=PASS
+    # PERMISSION_INCOMPATIBLE_SELECTED_WORKFLOW=0
+
+
+def test_v6_mixed_workflow_permission_authority():
+    """V6 MAJOR-07 RED D: atomic fail-closed when requested set contains incompatible workflow."""
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.contracts import DomainDefinition, DomainManifestId
+    from cmm.domains.enums import DomainKind, DomainOperationType
+    from cmm.domains.identifiers import DomainId
+    from cmm.domains.operation_contracts import DomainOperationDefinition
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_contracts import DomainWorkflowDefinition
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.contracts import WorkflowNode
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        DomainDefinition(
+            id=DomainId.from_str("domain:mixed"),
+            name="mixed",
+            display_name="Mixed",
+            version="1.0.0",
+            kind=DomainKind.CORE,
+            description="Mixed domain",
+            manifest_id=DomainManifestId(slug="mixed", version="1.0.0"),
+            enabled=True,
+            operations=("mixed.op",),
+            workflows=("mixed.compatible", "mixed.incompatible"),
+        )
+    )
+    domain_registry.enable("domain:mixed")
+
+    wf_compatible = DomainWorkflowDefinition(
+        workflow_id="mixed.compatible",
+        domain_id="domain:mixed",
+        version="1.0.0",
+        name="Compatible Workflow",
+        nodes=(WorkflowNode("step1", "complete", "Step1"),),
+        required_permissions=("perm.base",),
+    )
+    wf_incompatible = DomainWorkflowDefinition(
+        workflow_id="mixed.incompatible",
+        domain_id="domain:mixed",
+        version="1.0.0",
+        name="Incompatible Workflow",
+        nodes=(WorkflowNode("step1", "complete", "Step1"),),
+        required_permissions=("perm.base", "perm.restricted"),
+    )
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    workflow_registry.register(wf_compatible)
+    workflow_registry.register(wf_incompatible)
+
+    op_def = DomainOperationDefinition(
+        operation_id="mixed.op",
+        domain_id="domain:mixed",
+        version="1.0.0",
+        name="Mixed Operation",
+        description="Mixed Operation",
+        operation_type=DomainOperationType.READ,
+        reversible=True,
+    )
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    operation_registry.register(op_def, _Implementation(op_def))
+
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-mixed"),
+        operation_availability=lambda op_id, domain_id: True,
+        permission_ids_provider=lambda composition: ("perm.base", "perm.restricted"),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda op_id: (
+            op_def if op_id == "mixed.op" else None
+        ),
+    )
+
+    context = DomainResolutionContext(
+        id="ctx-mixed",
+        user_input="Mixed work",
+        goal_id="goal-mixed",
+        actor="actor-mixed",
+        available_domains=(DomainId(slug="mixed"),),
+        authorized_domains=(DomainId(slug="mixed"),),
+        explicit_domains=(DomainId(slug="mixed"),),
+        resources=(
+            DomainResolutionResource(
+                id="r-mixed",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="mixed"),),
+            ),
+        ),
+    )
+    incoming = _incoming_request(
+        id="req-mixed",
+        goal_id="goal-mixed",
+        agent_run_id="run-mixed",
+        actor_id="actor-mixed",
+        objective="Mixed work",
+        permissions=["perm.base"],
+        allowed_operations=["mixed.op"],
+    )
+
+    # Both workflows are in capability_view because Domain authority granted both
+    # Sub-case 1: Requesting only the compatible workflow succeeds
+    req_compatible = DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-compatible",
+        resolution_context=context,
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["mixed.compatible"]},
+    )
+    res_compatible = integrator.integrate(req_compatible)
+    assert res_compatible.blocked is False
+    assert res_compatible.selected_domain_workflow_ids == ("mixed.compatible",)
+    assert service.plan_calls == 1
+
+    # Sub-case 2: Requesting both (mixed set containing incompatible workflow) fails closed atomically
+    req_mixed = DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-mixed",
+        resolution_context=context,
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["mixed.compatible", "mixed.incompatible"]},
+    )
+    res_mixed = integrator.integrate(req_mixed)
+    assert "mixed.incompatible" in res_mixed.capability_view.available_workflow_ids
+    assert "perm.restricted" not in res_mixed.prepared_planning_request.permissions
+    assert res_mixed.blocked is True
+    assert res_mixed.selected_domain_workflow_ids == ()
+    assert res_mixed.plan is None
+    assert "domain_workflow_unavailable" in res_mixed.reason_codes
+    assert service.plan_calls == 1  # No additional planner call
+    # MIXED_WORKFLOW_PERMISSION_AUTHORITY=PASS
