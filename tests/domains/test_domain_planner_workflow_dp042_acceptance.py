@@ -1131,3 +1131,36 @@ def test_at_dp042_real_project_pack_missing_dependency_fails_closed() -> None:
     assert result.plan is not None
     assert not result.plan.validation.is_valid
     assert graph.operation_calls["project.compare_code_documentation"] == 0
+
+
+def test_at_dp042_real_project_modify_code_without_permission_blocked() -> None:
+    """AT-DP-042 (V5): ``project.modify_code`` without ``file.modify`` blocks.
+
+    The production operation requires ``file.modify``; this graph grants no
+    permissions, so the operation must be excluded from planning candidates
+    and the request must fail closed before planning.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    definitions = graph.authority["definitions"]
+    assert definitions["project.modify_code"].required_permissions == ("file.modify",)
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        allowed_operations=["project.modify_code"],
+        permissions=[],
+    )
+    request = replace(base, planning_request=planning_request)
+    result = integrator.integrate(request)
+
+    assert (
+        "project.modify_code"
+        not in result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert graph.operation_calls["project.modify_code"] == 0
+    # REAL_PROJECT_MODIFY_CODE_WITHOUT_PERMISSION=BLOCKED
