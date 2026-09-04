@@ -14,7 +14,7 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from cmm.agent_runtime.enums import WorkflowPlanChangeReason
+from cmm.agent_runtime.enums import WorkflowPlanChangeReason, WorkflowPlanStatus
 from cmm.agent_runtime.workflow_planner_adapter import AgentPlanningService
 from cmm.agent_runtime.workflow_planner_contracts import (
     AgentPlanningRequest,
@@ -59,24 +59,34 @@ def _planned_operation_violation(
 ) -> str | None:
     """Detect Domain-governed operation violations in a canonical plan.
 
-    Only operations naming a known Domain capability are Domain-governed:
-    generic Phase 9 operations remain Phase 9's own business. Prohibitions
-    bind every planned operation; the allowlist binds Domain-governed ones.
+    Prohibitions bind every planned operation. When the prepared allowlist is
+    non-empty it binds every planned operation unconditionally: an operation
+    that is declared-but-unavailable (hence absent from both the available and
+    prohibited capability sets) must still be rejected instead of bypassing
+    the Phase 10.42 post-plan check.
     """
     prohibited = set(prepared.prohibited_operations)
     allowed = set(prepared.allowed_operations)
-    known_domain_operations = set(capability_view.available_operation_ids) | set(
-        capability_view.prohibited_operation_ids
-    )
     for operation in plan.operations:
         if operation.operation_name in prohibited:
             return "domain_prohibited_operation_planned"
-        if (
-            allowed
-            and operation.operation_name in known_domain_operations
-            and operation.operation_name not in allowed
-        ):
+        if allowed and operation.operation_name not in allowed:
             return "domain_operation_not_permitted"
+    return None
+
+
+def _invalid_canonical_plan_violation(*, plan: AgentWorkflowPlan) -> str | None:
+    """Detect a canonical plan already known to be invalid.
+
+    The canonical ``AgentWorkflowPlanValidator`` marks operations outside a
+    non-empty allowlist as blocking errors; the integration boundary must fail
+    closed on that verdict instead of returning the invalid plan unblocked.
+    """
+    if plan.status is WorkflowPlanStatus.INVALID:
+        return "invalid_canonical_plan"
+    validation = plan.validation
+    if validation is not None and not validation.is_valid:
+        return "invalid_canonical_plan"
     return None
 
 
@@ -634,6 +644,18 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 selected=attempt.selected,
                 plan=plan,
                 reason_codes=(violation,),
+            )
+        invalid = _invalid_canonical_plan_violation(plan=plan)
+        if invalid is not None:
+            return self._blocked(
+                request=request,
+                resolution=attempt.resolution,
+                composition=attempt.composition,
+                view=attempt.view,
+                prepared=attempt.prepared,
+                selected=attempt.selected,
+                plan=plan,
+                reason_codes=(invalid,),
             )
         plan_references = plan.metadata.get("workflow_references", ())
         if isinstance(plan_references, (str, bytes)):

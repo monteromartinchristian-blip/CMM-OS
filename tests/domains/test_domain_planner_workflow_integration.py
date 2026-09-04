@@ -1238,3 +1238,98 @@ def test_cross_domain_conflict_blocks_without_silent_selection():
         "DOMAIN_COMPOSITION_REQUIRED_DEPENDENCY_MISSING",
     )
     assert service.plan_calls == 0
+
+
+# ── BLOCKER-01 remediation (V1): fail closed on unavailable/invalid plans ──
+
+
+def _canned_plan_with_operation(operation_name: str, **overrides):
+    from cmm.agent_runtime.workflow_planner_contracts import (
+        AgentWorkflowOperation,
+        AgentWorkflowTask,
+    )
+
+    values = {
+        "id": "plan-canned-blocker01",
+        "goal_id": "goal-042-5",
+        "agent_run_id": "run-042-5",
+        "workflow_id": "workflow-canned-blocker01",
+        "tasks": [
+            AgentWorkflowTask(
+                id="t-1",
+                workflow_id="workflow-canned-blocker01",
+                name="T",
+                description="d",
+            )
+        ],
+        "operations": [
+            AgentWorkflowOperation(
+                id="op-1", task_id="t-1", operation_name=operation_name
+            )
+        ],
+    }
+    values.update(overrides)
+    return AgentWorkflowPlan(**values)
+
+
+def test_blocker01_unavailable_operation_outside_allowlist_is_blocked():
+    """RED 1: declared-but-unavailable op outside the allowlist must block.
+
+    ``filesystem.delete_file`` is registered without an implementation, so it
+    is canonically UNAVAILABLE and excluded from the prepared allowlist. It is
+    deliberately not prohibited here so only the allowlist rule can catch it.
+    """
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    canned = _canned_plan_with_operation("filesystem.delete_file")
+    service = _CannedPlanningService(canned)
+    integrator = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        prohibited=(),
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert (
+        "filesystem.delete_file"
+        not in result.prepared_planning_request.allowed_operations
+    )
+    assert service.plan_calls == 1
+    assert result.blocked is True
+    assert "domain_operation_not_permitted" in result.reason_codes
+
+
+def test_blocker01_invalid_canonical_plan_never_returns_unblocked():
+    """RED 2: an INVALID canonical plan must fail closed at the boundary."""
+    from cmm.agent_runtime.enums import (
+        WorkflowPlanStatus,
+        WorkflowPlanValidationStatus,
+    )
+    from cmm.agent_runtime.workflow_planner_contracts import (
+        AgentWorkflowPlanValidation,
+    )
+
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    canned = _canned_plan_with_operation(
+        "python.find_symbol",
+        status=WorkflowPlanStatus.INVALID,
+        validation=AgentWorkflowPlanValidation(
+            status=WorkflowPlanValidationStatus.FAILED,
+            is_valid=False,
+            blocking_errors=[
+                "Operation 'python.find_symbol' is not in allowed_operations."
+            ],
+        ),
+    )
+    service = _CannedPlanningService(canned)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert service.plan_calls == 1
+    assert result.blocked is True
+    assert "invalid_canonical_plan" in result.reason_codes
