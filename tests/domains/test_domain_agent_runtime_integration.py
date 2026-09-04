@@ -821,6 +821,7 @@ def _build_permission_integrator(
     context: Any | None = None,
     scoring_policy: Any | None = None,
     action_budget_service: Any | None = None,
+    approval_service: Any | None = None,
 ) -> tuple[Any, dict[str, Any], Any]:
     from dataclasses import replace as _replace
 
@@ -835,7 +836,11 @@ def _build_permission_integrator(
     for policy in policies:
         registry.register(policy)
     permission_resolver = DomainPermissionResolver(registry)
-    permission_gate = DomainPermissionGate(permission_resolver, clock=lambda: NOW)
+    permission_gate = DomainPermissionGate(
+        permission_resolver,
+        approval_service=approval_service,
+        clock=lambda: NOW,
+    )
 
     real_resolver = DefaultDomainResolver(
         fallback_domain=DomainId("general"),
@@ -932,6 +937,78 @@ def test_domain_approval_required_records_decision_without_manufacturing_evidenc
     # Phase 10.41 never manufactures approval evidence.
     for decision in result.decisions:
         assert not any("approval_valid" in code for code in decision.reason_codes)
+
+
+def test_every_operation_is_gated_before_a_batch_can_reach_phase9() -> None:
+    """A later DENY must not inherit the first operation's ALLOW decision."""
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.permission_gate import (
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+
+    integrator, monitors, request = _build_permission_integrator(
+        (
+            _university_policy(
+                allowed_operations=("university.prepare_exam",),
+            ),
+        ),
+    )
+
+    class AllowThenDenyGate:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def evaluate_operation(self, **values: object) -> PermissionGateResult:
+            operation_id = str(values["operation_id"])
+            self.calls.append(operation_id)
+            return PermissionGateResult(
+                outcome=(
+                    PermissionGateOutcome.ALLOW
+                    if len(self.calls) == 1
+                    else PermissionGateOutcome.DENY
+                ),
+                action=PermissionCapability.OPERATION_EXECUTE.value,
+                domain_id=str(values["domain_id"]),
+                actor_id=str(values["actor_id"]),
+                session_id=str(values["session_id"]),
+                reasons=("batch_gate_probe",),
+            )
+
+        def evaluate_workflow(self, **values: object) -> object:  # pragma: no cover
+            raise AssertionError(values)
+
+    gate = AllowThenDenyGate()
+    integrator._permission_gate = gate
+    operations = tuple(
+        AgentOperationRequest(
+            id=f"op-1041-{index}",
+            agent_run_id="run-1041",
+            workflow_id="workflow-1041",
+            task_id=f"task-1041-{index}",
+            operation_name="university.prepare_exam",
+            operation_version="1.0.0",
+            idempotency_key=f"idem-1041-{index}",
+            created_at="2026-09-03T12:00:00+00:00",
+        )
+        for index in (1, 2)
+    )
+    batch_request = _replace(
+        request,
+        agent_request=_replace(request.agent_request, operations=operations),
+    )
+
+    result = _execute_boundary(integrator, batch_request)
+
+    assert gate.calls == [
+        "university.prepare_exam",
+        "university.prepare_exam",
+    ]
+    assert result.blocked is True
+    assert result.agent_result is None
+    assert monitors["agent_service"].execute_calls == 0
 
 
 def test_domain_allow_cannot_widen_agent_permission_context() -> None:
@@ -1379,6 +1456,44 @@ def test_registered_domain_operation_executes_through_canonical_stack() -> None:
     assert result.operation_id == "general.prepare_structured_summary"
 
 
+def test_agent_runtime_dispatch_adapter_executes_domain_orchestrator() -> None:
+    """The Phase 9 delegate seam must behaviorally enter the orchestrator."""
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.agent_runtime_integration import DomainOperationDispatchAdapter
+
+    orchestrator, implementation, _request = _canonical_operation_stack()
+    dispatch = DomainOperationDispatchAdapter(orchestrator)
+    result = dispatch(
+        AgentOperationRequest(
+            id="request:dispatch-1041",
+            agent_run_id="run:1041",
+            workflow_id="workflow:1041",
+            task_id="task:1041",
+            operation_name="general.prepare_structured_summary",
+            operation_version="1.0.0",
+            parameters={"text": "hello"},
+            idempotency_key="idem:dispatch-1041",
+            created_at="2026-09-03T12:00:00+00:00",
+            metadata={
+                "domain_intelligence": {
+                    "primary_domain_id": "domain:general",
+                    "supporting_domain_ids": [],
+                    "session_id": "session:1041",
+                    "available_resources": [],
+                    "capabilities": ["execute"],
+                    "actor_id": "actor:1041",
+                    "goal_id": "goal:1041",
+                }
+            },
+        )
+    )
+
+    assert implementation.calls == 1
+    assert result["success"] is True
+    assert result["output"] == {"summary": "OK"}
+    assert result["domain_operation_result_id"]
+
+
 def test_unregistered_operation_fails_closed_without_implementation_calls() -> None:
     from cmm.domains.operation_contracts import DomainOperationRequest
 
@@ -1740,6 +1855,7 @@ class _Phase9Fixture:
             name="Prepare exam",
             description="Prepare an examination",
             operation_type=DomainOperationType.PREPARATION,
+            reversible=True,
         )
 
         class CountingImplementation:
@@ -1807,6 +1923,41 @@ class _Phase9Fixture:
                 required_permissions=(),
             )
         )
+
+    def bind_domain_orchestrator(self, permission_gate: object) -> None:
+        from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+        from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+        from cmm.agent_runtime.transaction_manager import TransactionManager
+        from cmm.domains.agent_runtime_integration import DomainOperationDispatchAdapter
+        from cmm.domains.operation_execution import (
+            DefaultDomainOperationOrchestrator,
+            DomainOperationExecutionDelegate,
+        )
+
+        self.domain_execution_adapter = AgentExecutionAdapter(
+            registry=self.common_registry,
+            execution_delegate=DomainOperationExecutionDelegate(self.domain_registry),
+        )
+        self.domain_checkpoint_manager = CheckpointManager()
+        self.domain_transaction_manager = TransactionManager(
+            self.domain_checkpoint_manager
+        )
+        self.operation_orchestrator = DefaultDomainOperationOrchestrator(
+            self.domain_registry,
+            self.domain_execution_adapter,
+            approval_service=self.approval_service,
+            permission_gate=permission_gate,
+            transaction_manager=self.domain_transaction_manager,
+            clock=lambda: NOW,
+        )
+        self.dispatch_adapter = DomainOperationDispatchAdapter(
+            self.operation_orchestrator
+        )
+        self.execution_adapter = AgentExecutionAdapter(
+            registry=self.common_registry,
+            execution_delegate=self.dispatch_adapter,
+        )
+        self.service._execution_adapter = self.execution_adapter
 
     def register_goal(self) -> None:
         from cmm.agent_runtime.enums import GoalKind, GoalStatus
@@ -1901,8 +2052,10 @@ def _delegation_case(
         policies,
         with_operation=with_operation,
         action_budget_service=fixture.budget_service,
+        approval_service=fixture.approval_service,
     )
     integrator._agent_runtime_service = fixture.service
+    fixture.bind_domain_orchestrator(integrator._permission_gate)
     request = _replace(
         request,
         agent_request=_replace(
@@ -1929,11 +2082,86 @@ def _delegation_case(
                         idempotency_key="idem-1041",
                         operation_version="1.0.0",
                         created_at="2026-09-03T12:00:00+00:00",
+                        metadata={
+                            "domain_intelligence": {
+                                "capabilities": ("execute", "transaction"),
+                            }
+                        },
                     ),
                 ),
             ),
         )
     return integrator, fixture, request
+
+
+def _with_pending_domain_approval(
+    integrator: object,
+    fixture: _Phase9Fixture,
+    request: object,
+) -> tuple[object, tuple[str, ...]]:
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+    )
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.approval_bridge import to_approval_requirement
+
+    operation = request.agent_request.operations[0]
+    definition = fixture.domain_registry.get(
+        operation.operation_name, operation.operation_version
+    )
+    gate_result = integrator._permission_gate.evaluate_operation_definition(
+        definition,
+        request_id=operation.id,
+        actor_id=request.agent_request.actor_id,
+        session_id=request.resolution_context.session_id or "system",
+        dry_run=True,
+    )
+    assert gate_result.requires_approval is True
+    requirements = tuple(
+        PermissionApprovalRequirement.from_dict(item)
+        for item in gate_result.approval_requirements
+    )
+    approvals = tuple(
+        fixture.approval_service.create_request_from_requirement(
+            _replace(
+                to_approval_requirement(
+                    requirement,
+                    goal_id=request.agent_request.goal_id,
+                ),
+                required_approvers=(request.agent_request.actor_id,),
+            ),
+            requested_by="domain-permission-gate",
+        )
+        for requirement in requirements
+    )
+    approval_request_ids = {
+        requirement.requirement_id: approval.id
+        for requirement, approval in zip(requirements, approvals, strict=True)
+    }
+    operation_data = operation.to_dict()
+    operation_data["approval_request_id"] = (
+        approvals[0].id if len(approvals) == 1 else None
+    )
+    domain_metadata = dict(operation_data["metadata"].get("domain_intelligence", {}))
+    operation_data["metadata"] = {
+        **operation_data["metadata"],
+        "domain_intelligence": {
+            **domain_metadata,
+            "approval_request_ids": approval_request_ids,
+        },
+    }
+    approved_operation = AgentOperationRequest.from_dict(operation_data)
+    approved_agent_request = _replace(
+        request.agent_request,
+        operations=(approved_operation,),
+        available_approval_ids=tuple(approval.id for approval in approvals),
+    )
+    return (
+        _replace(request, agent_request=approved_agent_request),
+        tuple(approval.id for approval in approvals),
+    )
 
 
 def test_final_delegation_returns_canonical_result_by_reference() -> None:
@@ -1983,6 +2211,9 @@ def test_approval_required_operation_pauses_through_canonical_lifecycle() -> Non
         approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
     )
     integrator, fixture, request = _delegation_case(policies=(approval_policy,))
+    request, supplied_approval_ids = _with_pending_domain_approval(
+        integrator, fixture, request
+    )
     paused = _execute_boundary(integrator, request)
 
     assert paused.blocked is False
@@ -1990,12 +2221,184 @@ def test_approval_required_operation_pauses_through_canonical_lifecycle() -> Non
     assert paused.agent_result.final_state is IntegrationExecutionState.WAITING_APPROVAL
     codes = {decision.code for decision in paused.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes
-    approval_id = fixture.store.get("exec-1041").pending_approval_ids[0]
+    approval_ids = fixture.store.get("exec-1041").pending_approval_ids
+    assert approval_ids == supplied_approval_ids
     fixture.implementation.calls = 0
-    fixture.approval_service.approve(approval_id, actor_id="actor-1041")
-    resumed = fixture.service.resume("exec-1041", approval_id=approval_id)
+    resumed = paused.agent_result
+    for approval_id in approval_ids:
+        fixture.approval_service.approve(approval_id, actor_id="actor-1041")
+        resumed = fixture.service.resume("exec-1041", approval_id=approval_id)
     assert resumed.final_state is IntegrationExecutionState.COMPLETED
     assert fixture.implementation.calls == 1
+
+
+def test_phase9_pause_uses_supplied_canonical_approval_request() -> None:
+    """The existing available-approval seam must not mint a replacement."""
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.agent_runtime_integration_enums import (
+        IntegrationExecutionState,
+    )
+
+    approval_policy = _university_policy(
+        allowed_operations=("university.prepare_exam",),
+        approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+    )
+    integrator, fixture, request = _delegation_case(policies=(approval_policy,))
+    supplied = fixture.approval_service.create_request(
+        title="Canonical Domain approval",
+        description="Approve the Domain-scoped operation",
+        requested_by="domain-permission-gate",
+        agent_run_id=None,
+        goal_id="goal-1041",
+        operation_id="university.prepare_exam",
+        required_approvers=("actor-1041",),
+    )
+    supplied_request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            available_approval_ids=(supplied.id,),
+        ),
+    )
+
+    paused = _execute_boundary(integrator, supplied_request)
+
+    assert paused.agent_result is not None
+    assert paused.agent_result.final_state is IntegrationExecutionState.WAITING_APPROVAL
+    assert fixture.store.get("exec-1041").pending_approval_ids == (supplied.id,)
+    assert fixture.approval_service.repository.list_requests() == (supplied,)
+
+
+def test_resume_rechecks_current_domain_authority_before_dispatch() -> None:
+    """A Phase 9 approval cannot override a newer Domain DENY policy."""
+    from cmm.agent_runtime.agent_runtime_integration_enums import (
+        IntegrationExecutionState,
+    )
+
+    approval_policy = _university_policy(
+        allowed_operations=("university.prepare_exam",),
+        approval_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+    )
+    integrator, fixture, request = _delegation_case(policies=(approval_policy,))
+    paused = _execute_boundary(integrator, request)
+
+    assert paused.agent_result is not None
+    assert paused.agent_result.final_state is IntegrationExecutionState.WAITING_APPROVAL
+    assert fixture.implementation.calls == 0
+
+    integrator._permission_resolver._registry.register(
+        _university_policy(
+            version="2.0.0",
+            prohibited_operations=("university.prepare_exam",),
+        )
+    )
+    current_gate = integrator._permission_gate.evaluate_operation(
+        request_id="post-change-gate-1041",
+        domain_id="domain:university",
+        actor_id="actor-1041",
+        session_id="system",
+        operation_id="university.prepare_exam",
+        operation_version="1.0.0",
+    )
+    assert current_gate.denied is True
+
+    approval_id = fixture.store.get("exec-1041").pending_approval_ids[0]
+    fixture.approval_service.approve(approval_id, actor_id="actor-1041")
+    resumed = fixture.service.resume("exec-1041", approval_id=approval_id)
+
+    assert resumed.final_state is IntegrationExecutionState.FAILED
+    assert fixture.implementation.calls == 0
+
+
+def test_batch_dispatch_gates_each_operation_at_its_execution_boundary() -> None:
+    """Operation two cannot inherit operation one's dispatch-time ALLOW."""
+    from dataclasses import replace as _replace
+
+    from cmm.agent_runtime.agent_runtime_integration_enums import (
+        IntegrationExecutionState,
+    )
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.permission_gate import (
+        PermissionGateOutcome,
+        PermissionGateResult,
+    )
+
+    allow_policy = _university_policy(
+        allowed_operations=("university.prepare_exam",),
+    )
+    integrator, fixture, request = _delegation_case(policies=(allow_policy,))
+    real_gate = integrator._permission_gate
+
+    class AllowThenDenyAtDispatch:
+        def __init__(self) -> None:
+            self.preflight_calls: list[str] = []
+            self.dispatch_calls: list[str] = []
+
+        def evaluate_operation(self, **values: object) -> object:
+            self.preflight_calls.append(str(values["operation_id"]))
+            return real_gate.evaluate_operation(**values)
+
+        def evaluate_operation_definition(
+            self, definition: object, **values: object
+        ) -> object:
+            operation_id = str(definition.operation_id)  # type: ignore[attr-defined]
+            self.dispatch_calls.append(operation_id)
+            if len(self.dispatch_calls) == 2:
+                return PermissionGateResult(
+                    outcome=PermissionGateOutcome.DENY,
+                    action=PermissionCapability.OPERATION_EXECUTE.value,
+                    domain_id=str(definition.domain_id),  # type: ignore[attr-defined]
+                    actor_id=str(values["actor_id"]),
+                    session_id=str(values["session_id"]),
+                    reasons=("second_operation_denied_at_dispatch",),
+                )
+            return real_gate.evaluate_operation_definition(definition, **values)
+
+        def evaluate_workflow(self, **values: object) -> object:  # pragma: no cover
+            return real_gate.evaluate_workflow(**values)
+
+    gate = AllowThenDenyAtDispatch()
+    integrator._permission_gate = gate
+    fixture.bind_domain_orchestrator(gate)
+    operations = []
+    for index in (1, 2):
+        operation_data = request.agent_request.operations[0].to_dict()
+        operation_data.update(
+            {
+                "id": f"op-batch-1041-{index}",
+                "task_id": f"task-batch-1041-{index}",
+                "idempotency_key": f"idem-batch-1041-{index}",
+            }
+        )
+        operations.append(AgentOperationRequest.from_dict(operation_data))
+    batch_request = _replace(
+        request,
+        agent_request=_replace(
+            request.agent_request,
+            operations=tuple(operations),
+        ),
+    )
+
+    result = _execute_boundary(integrator, batch_request)
+
+    assert result.agent_result is not None
+    assert result.agent_result.final_state is IntegrationExecutionState.FAILED
+    assert gate.preflight_calls == [
+        "university.prepare_exam",
+        "university.prepare_exam",
+    ]
+    assert gate.dispatch_calls == [
+        "university.prepare_exam",
+        "university.prepare_exam",
+    ]
+    assert fixture.implementation.calls == 1
+    operation_results = fixture.execution_adapter.repository.list_results(
+        "run-exec-1041"
+    )
+    assert len(operation_results) == 2
+    assert operation_results[0].success is True
+    assert operation_results[1].success is False
 
 
 def test_pre_runtime_block_produces_zero_phase9_side_effects() -> None:

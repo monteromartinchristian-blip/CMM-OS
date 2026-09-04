@@ -186,6 +186,13 @@ class _RecordingMemoryService:
 
 
 class _NoopRecoveryService:
+    """Adapter for the integration service's execution-summary recovery seam.
+
+    The canonical RecoveryManager owns recovery once a RecoveryContext exists;
+    AgentRuntimeIntegrationService deliberately exposes a narrower kwargs seam
+    here, so the acceptance keeps this external-boundary recorder fail-simple.
+    """
+
     def __init__(self) -> None:
         self.attempts: list[dict[str, object]] = []
 
@@ -194,27 +201,16 @@ class _NoopRecoveryService:
         return {"recovered": True, "attempt": len(self.attempts)}
 
 
-class _NoopCheckpointService:
-    def __init__(self) -> None:
-        self.created: list[dict[str, object]] = []
-        self.restored: list[str] = []
+class _RecordingDomainOrchestrator:
+    """Transparent probe; execution still belongs to the real orchestrator."""
 
-    def create_checkpoint(self, **payload: object) -> str:
-        checkpoint_id = f"checkpoint-{len(self.created) + 1}"
-        self.created.append({"checkpoint_id": checkpoint_id, **payload})
-        return checkpoint_id
+    def __init__(self, orchestrator: object) -> None:
+        self.orchestrator = orchestrator
+        self.requests: list[object] = []
 
-    def restore_checkpoint(self, checkpoint_id: str) -> None:
-        self.restored.append(checkpoint_id)
-
-
-class _NoopDelegationService:
-    def __init__(self) -> None:
-        self.delegations: list[dict[str, object]] = []
-
-    def delegate(self, **payload: object) -> str:
-        self.delegations.append(dict(payload))
-        return f"delegation-{len(self.delegations)}"
+    def execute(self, request: object) -> object:
+        self.requests.append(request)
+        return self.orchestrator.execute(request)  # type: ignore[attr-defined]
 
 
 class _StubAgentFactory:
@@ -246,6 +242,7 @@ class _Phase9Stack:
 
     def __init__(self) -> None:
         from cmm.agent_runtime.action_budget_service import ActionBudgetService
+        from cmm.agent_runtime.agent_delegation_service import AgentDelegationService
         from cmm.agent_runtime.agent_factory import AgentFactoryRegistry
         from cmm.agent_runtime.agent_registry import AgentRegistry
         from cmm.agent_runtime.agent_registry_service import AgentRegistryService
@@ -257,11 +254,15 @@ class _Phase9Stack:
         )
         from cmm.agent_runtime.agent_security_service import AgentSecurityService
         from cmm.agent_runtime.approval_service import ApprovalService
+        from cmm.agent_runtime.checkpoint_manager import CheckpointManager
         from cmm.agent_runtime.goal_manager import GoalManager
         from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
         from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
         from cmm.agent_runtime.runtime_event_bus import AgentRuntimeEventBus
         from cmm.agent_runtime.runtime_loop import AgentRuntimeLoop
+        from cmm.agent_runtime.validation_execution_adapter import (
+            AgentValidationAdapter,
+        )
         from cmm.domains.operation_contracts import (
             DomainOperationDefinition,
             DomainOperationType,
@@ -271,8 +272,8 @@ class _Phase9Stack:
 
         self.memory_service = _RecordingMemoryService()
         self.recovery_service = _NoopRecoveryService()
-        self.checkpoint_service = _NoopCheckpointService()
-        self.delegation_service = _NoopDelegationService()
+        self.checkpoint_service = CheckpointManager()
+        self.validation_service = AgentValidationAdapter()
 
         operation_name = "university.prepare_exam"
         definition = DomainOperationDefinition(
@@ -282,6 +283,7 @@ class _Phase9Stack:
             name="Prepare exam",
             description="Prepare an examination",
             operation_type=DomainOperationType.PREPARATION,
+            reversible=True,
         )
 
         class CountingImplementation:
@@ -313,9 +315,16 @@ class _Phase9Stack:
         self.security_service = AgentSecurityService()
         self.approval_service = ApprovalService()
         self.budget_service = ActionBudgetService()
+        self.delegation_service = AgentDelegationService(
+            registry_service=self.registry_service,
+            goal_manager=self.goal_manager,
+            approval_service=self.approval_service,
+            action_budget=self.budget_service,
+        )
         self.execution_adapter = AgentExecutionAdapter(
             registry=self.common_registry,
             execution_delegate=DomainOperationExecutionDelegate(self.domain_registry),
+            validation_adapter=self.validation_service,
         )
         self.event_bus = AgentRuntimeEventBus()
         self.service = AgentRuntimeIntegrationService(
@@ -333,6 +342,7 @@ class _Phase9Stack:
             recovery_service=self.recovery_service,
             delegation_service=self.delegation_service,
             memory_service=self.memory_service,
+            validation_service=self.validation_service,
         )
         self.register_goal()
         self.register_agent()
@@ -343,6 +353,41 @@ class _Phase9Stack:
                 required_permissions=(),
             )
         )
+
+    def bind_domain_orchestrator(self, permission_gate: object) -> None:
+        from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+        from cmm.agent_runtime.transaction_manager import TransactionManager
+        from cmm.domains.agent_runtime_integration import DomainOperationDispatchAdapter
+        from cmm.domains.operation_execution import (
+            DefaultDomainOperationOrchestrator,
+            DomainOperationExecutionDelegate,
+        )
+
+        self.domain_execution_adapter = AgentExecutionAdapter(
+            registry=self.common_registry,
+            execution_delegate=DomainOperationExecutionDelegate(self.domain_registry),
+        )
+        self.domain_transaction_manager = TransactionManager(self.checkpoint_service)
+        self.operation_orchestrator = DefaultDomainOperationOrchestrator(
+            self.domain_registry,
+            self.domain_execution_adapter,
+            approval_service=self.approval_service,
+            permission_gate=permission_gate,
+            transaction_manager=self.domain_transaction_manager,
+            clock=lambda: NOW,
+        )
+        self.recording_orchestrator = _RecordingDomainOrchestrator(
+            self.operation_orchestrator
+        )
+        self.dispatch_adapter = DomainOperationDispatchAdapter(
+            self.recording_orchestrator
+        )
+        self.execution_adapter = AgentExecutionAdapter(
+            registry=self.common_registry,
+            execution_delegate=self.dispatch_adapter,
+            validation_adapter=self.validation_service,
+        )
+        self.service._execution_adapter = self.execution_adapter
 
     def register_goal(self) -> None:
         from cmm.agent_runtime.enums import GoalKind, GoalStatus
@@ -392,6 +437,77 @@ class _Phase9Stack:
             created_at=NOW,
         )
         self.registry_service.register_agent(descriptor)
+
+
+def _attach_pending_domain_approvals(
+    stack: _Phase9Stack,
+    permission_gate: DomainPermissionGate,
+    request: DomainAgentRuntimeIntegrationRequest,
+) -> tuple[DomainAgentRuntimeIntegrationRequest, tuple[str, ...]]:
+    """Create the exact typed approvals the dispatch-time gate will verify."""
+    from cmm.agent_runtime.domain_permission_contracts import (
+        PermissionApprovalRequirement,
+    )
+    from cmm.domains.approval_bridge import to_approval_requirement
+
+    operation = request.agent_request.operations[0]
+    definition = stack.domain_registry.get(
+        operation.operation_name, operation.operation_version
+    )
+    gate_result = permission_gate.evaluate_operation_definition(
+        definition,
+        request_id=operation.id,
+        actor_id=request.agent_request.actor_id,
+        session_id=request.resolution_context.session_id or "system",
+        dry_run=True,
+    )
+    assert gate_result.requires_approval is True
+    requirements = tuple(
+        PermissionApprovalRequirement.from_dict(item)
+        for item in gate_result.approval_requirements
+    )
+    approvals = tuple(
+        stack.approval_service.create_request_from_requirement(
+            replace(
+                to_approval_requirement(
+                    requirement,
+                    goal_id=request.agent_request.goal_id,
+                ),
+                required_approvers=(request.agent_request.actor_id,),
+            ),
+            requested_by="domain-permission-gate",
+        )
+        for requirement in requirements
+    )
+    approval_request_ids = {
+        requirement.requirement_id: approval.id
+        for requirement, approval in zip(requirements, approvals, strict=True)
+    }
+    operation_data = operation.to_dict()
+    operation_data["approval_request_id"] = (
+        approvals[0].id if len(approvals) == 1 else None
+    )
+    domain_metadata = dict(operation_data["metadata"].get("domain_intelligence", {}))
+    operation_data["metadata"] = {
+        **operation_data["metadata"],
+        "domain_intelligence": {
+            **domain_metadata,
+            "approval_request_ids": approval_request_ids,
+        },
+    }
+    bound_operation = AgentOperationRequest.from_dict(operation_data)
+    approval_ids = tuple(approval.id for approval in approvals)
+    return (
+        replace(
+            request,
+            agent_request=replace(
+                request.agent_request,
+                operations=(bound_operation,),
+                available_approval_ids=approval_ids,
+            ),
+        ),
+        approval_ids,
+    )
 
 
 # ── Connected acceptance ──────────────────────────────────────────────────────
@@ -592,6 +708,12 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
 
     # ── Phase 9 canonical stack and Action Budget ─────────────────────────
     stack = _Phase9Stack()
+    permission_gate = DomainPermissionGate(
+        permission_resolver,
+        approval_service=stack.approval_service,
+        clock=lambda: NOW,
+    )
+    stack.bind_domain_orchestrator(permission_gate)
     master_budget = stack.budget_service.create_budget(
         agent_run_id="run-1041",
         limits={BudgetResourceType.OPERATION: 10},
@@ -676,6 +798,11 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
                 operation_version="1.0.0",
                 idempotency_key="idem-1041",
                 created_at="2026-09-03T12:00:00+00:00",
+                metadata={
+                    "domain_intelligence": {
+                        "capabilities": ("execute", "transaction"),
+                    }
+                },
             ),
         ),
         permission_context=AgentPermissionContext(
@@ -710,6 +837,9 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
             domain_id="domain:university",
             maximum_operations=5,
         ),
+    )
+    integration_request, canonical_approval_ids_1 = _attach_pending_domain_approvals(
+        stack, permission_gate, integration_request
     )
 
     # ── Execution 1 through the connected boundary ────────────────────────
@@ -820,6 +950,7 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
     )
     assert stack.implementation.calls == 0
     approval_id_1 = record1.pending_approval_ids[0]
+    assert record1.pending_approval_ids == canonical_approval_ids_1
     codes1 = {decision.code for decision in result1.decisions}
     assert DomainAgentRuntimeDecisionCode.DOMAIN_APPROVAL_REQUIRED in codes1
     cp.checkpoint("07-approval-required-blocks")
@@ -920,11 +1051,31 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
     cp.checkpoint("11-budget-exhaustion-blocks")
 
     # 12 specialized operation executed through registered orchestration path
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+
     assert stack.execution_adapter.registry is stack.common_registry
+    assert isinstance(stack.operation_orchestrator, DefaultDomainOperationOrchestrator)
+    assert isinstance(
+        stack.domain_execution_adapter._execution_delegate,
+        DomainOperationExecutionDelegate,
+    )
+    assert len(stack.recording_orchestrator.requests) == 1
     assert stack.implementation.calls == 1
     operation_results = stack.execution_adapter.repository.list_results("run-exec-1041")
     assert len(operation_results) == 1
     assert resumed1.operation_results == tuple(operation_results)
+    domain_operation_results = stack.domain_execution_adapter.repository.list_results(
+        "run-exec-1041"
+    )
+    assert len(domain_operation_results) == 1
+    assert domain_operation_results[0].success is True
+    assert (
+        len(stack.validation_service.repository.get_results_by_run_id("run-exec-1041"))
+        >= 2
+    )
     cp.checkpoint("12-registered-orchestration-path")
 
     # 13 Domain and Agent traces linked by references only
@@ -961,7 +1112,7 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
             assert mutation not in source, (mutation, path)
     cp.checkpoint("14-memory-proposal-only")
 
-    # ── Execution 2: reevaluation with stale approval evidence ────────────
+    # ── Execution 2: policy mutation during an approval pause ────────────
     from cmm.agent_runtime.enums import GoalKind, GoalStatus
     from cmm.agent_runtime.goal_contracts import Goal, GoalPriority
 
@@ -979,6 +1130,16 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
         updated_at=NOW,
     )
     stack.goal_manager.register_goal(reevaluation_goal, actor_id="actor-1041")
+    operation_2_data = agent_request.operations[0].to_dict()
+    operation_2_data.update(
+        {
+            "id": "op-1042",
+            "task_id": "task-1042",
+            "idempotency_key": "idem-1042",
+            "approval_request_id": None,
+        }
+    )
+    operation_2 = AgentOperationRequest.from_dict(operation_2_data)
     integration_request_2 = DomainAgentRuntimeIntegrationRequest(
         request_id="int-req-1041-b",
         resolution_context=replace(
@@ -989,11 +1150,12 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
             execution_id="exec-1042",
             request_id="req-1042",
             goal_id="goal-1043",
+            operations=(operation_2,),
             permission_context=replace(
                 agent_request.permission_context, goal_id="goal-1043"
             ),
-            available_approval_ids=(approval_id_1,),
-            metadata={"requires_approval": True, "domain_approval_satisfied": True},
+            available_approval_ids=(),
+            metadata={},
             budget_id=None,
         ),
         force_domain_reevaluation=True,
@@ -1001,6 +1163,9 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
             "previous_primary_domain": "domain:university",
             "previous_supporting_domains": ["domain:health"],
         },
+    )
+    integration_request_2, canonical_approval_ids_2 = _attach_pending_domain_approvals(
+        stack, permission_gate, integration_request_2
     )
     result2 = boundary(integration_request_2)
 
@@ -1010,20 +1175,44 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
     assert result2.resolution.primary_domain == DomainId("university")
     cp.checkpoint("15-reevaluation-at-boundary")
 
-    # 16 material reevaluation invalidates stale approval/permission evidence
+    # 16 an approval paused under policy v1 cannot authorize after policy v2 DENY
     record2 = stack.store.get("exec-1042")
     assert record2 is not None
-    approval_id_2 = record2.pending_approval_ids[0]
-    assert approval_id_2 != approval_id_1
-    # The stale, already-consumed approval cannot authorize the new execution:
-    # the canonical approval service issued a fresh approval requirement.
+    assert record2.pending_approval_ids == canonical_approval_ids_2
+    assert set(canonical_approval_ids_2).isdisjoint(canonical_approval_ids_1)
     assert (
         result2.agent_result.final_state is IntegrationExecutionState.WAITING_APPROVAL
     )
-    stack.approval_service.approve(approval_id_2, actor_id="actor-1041")
-    resumed2 = stack.service.resume("exec-1042", approval_id=approval_id_2)
-    assert resumed2.final_state is IntegrationExecutionState.COMPLETED
-    assert stack.implementation.calls == 2
+    assert stack.implementation.calls == 1
+
+    permission_registry.register(
+        DomainPermissionPolicy(
+            policy_id="perm-policy-uni-1041",
+            domain_id="domain:university",
+            version="2.0.0",
+            allowed_capabilities=(PermissionCapability.OPERATION_EXECUTE,),
+            prohibited_operations=("university.prepare_exam",),
+            allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
+        )
+    )
+    current_gate = permission_gate.evaluate_operation(
+        request_id="post-policy-change-1041",
+        domain_id="domain:university",
+        actor_id="actor-1041",
+        session_id="system",
+        operation_id="university.prepare_exam",
+        operation_version="1.0.0",
+        dry_run=True,
+    )
+    assert current_gate.denied is True
+
+    resumed2 = result2.agent_result
+    for approval_id_2 in canonical_approval_ids_2:
+        stack.approval_service.approve(approval_id_2, actor_id="actor-1041")
+        resumed2 = stack.service.resume("exec-1042", approval_id=approval_id_2)
+    assert resumed2.final_state is IntegrationExecutionState.FAILED
+    assert stack.implementation.calls == 1
+    assert len(stack.recording_orchestrator.requests) == 2
     # Narrowed permission context recomputed for the new execution, not reused.
     assert record2.request.permission_context.allowed_operations == (
         "university.prepare_exam",
@@ -1072,7 +1261,7 @@ def test_at_dp041_connected_agent_runtime_integration() -> None:
     assert blocked_result.blocked is True
     assert blocked_result.agent_result is None
     assert stack.store.get("exec-1043") is None
-    assert stack.implementation.calls == 2
+    assert stack.implementation.calls == 1
     blocked = next(
         decision
         for decision in blocked_result.decisions
@@ -1250,7 +1439,11 @@ def _build_minimal_integrator(stack: _Phase9Stack) -> Any:
         )
     )
     permission_resolver = DomainPermissionResolver(permission_registry)
-    permission_gate = DomainPermissionGate(permission_resolver, clock=lambda: NOW)
+    permission_gate = DomainPermissionGate(
+        permission_resolver,
+        approval_service=stack.approval_service,
+        clock=lambda: NOW,
+    )
     resolver = DefaultDomainResolver(
         fallback_domain=DomainId("general"),
         clock=lambda: NOW,
@@ -1298,6 +1491,7 @@ def _build_minimal_integrator(stack: _Phase9Stack) -> Any:
             "overlays": (),
         }
 
+    stack.bind_domain_orchestrator(permission_gate)
     return DefaultDomainAgentRuntimeIntegrator(
         resolver=resolver,
         composer=composer,
@@ -1318,6 +1512,116 @@ class _NullCognitiveIntegrator:
 
     def integrate(self, request: object) -> object:  # pragma: no cover
         raise AssertionError("cognitive integration must not run without resources")
+
+
+def test_at_dp041_two_operation_batch_gates_each_dispatch() -> None:
+    """Connected V3 evidence: the second operation's DENY stops its dispatch."""
+    from cmm.domains.permission_gate import PermissionGateOutcome, PermissionGateResult
+
+    stack = _Phase9Stack()
+    integrator = _build_minimal_integrator(stack)
+    real_gate = integrator._permission_gate
+
+    class AllowThenDenyAtDispatch:
+        def __init__(self) -> None:
+            self.preflight_calls: list[str] = []
+            self.dispatch_calls: list[str] = []
+
+        def evaluate_operation(self, **values: object) -> object:
+            self.preflight_calls.append(str(values["operation_id"]))
+            return real_gate.evaluate_operation(**values)
+
+        def evaluate_operation_definition(
+            self, definition: object, **values: object
+        ) -> object:
+            operation_id = str(definition.operation_id)  # type: ignore[attr-defined]
+            self.dispatch_calls.append(operation_id)
+            if len(self.dispatch_calls) == 2:
+                return PermissionGateResult(
+                    outcome=PermissionGateOutcome.DENY,
+                    action=PermissionCapability.OPERATION_EXECUTE.value,
+                    domain_id=str(definition.domain_id),  # type: ignore[attr-defined]
+                    actor_id=str(values["actor_id"]),
+                    session_id=str(values["session_id"]),
+                    reasons=("second_operation_denied_at_dispatch",),
+                )
+            return real_gate.evaluate_operation_definition(definition, **values)
+
+        def evaluate_workflow(self, **values: object) -> object:  # pragma: no cover
+            return real_gate.evaluate_workflow(**values)
+
+    gate = AllowThenDenyAtDispatch()
+    integrator._permission_gate = gate
+    stack.bind_domain_orchestrator(gate)
+    operations = tuple(
+        AgentOperationRequest(
+            id=f"op-batch-at-1041-{index}",
+            agent_run_id="run-batch-at-1041",
+            workflow_id="workflow-batch-at-1041",
+            task_id=f"task-batch-at-1041-{index}",
+            operation_name="university.prepare_exam",
+            operation_version="1.0.0",
+            idempotency_key=f"idem-batch-at-1041-{index}",
+            created_at=NOW.isoformat(),
+            metadata={
+                "domain_intelligence": {
+                    "capabilities": ("execute", "transaction"),
+                }
+            },
+        )
+        for index in (1, 2)
+    )
+    request = DomainAgentRuntimeIntegrationRequest(
+        request_id="int-req-batch-at-1041",
+        resolution_context=DomainResolutionContext(
+            id="res-ctx-batch-at-1041",
+            user_input="Prepare two university examination artifacts",
+            goal_id="goal-1041",
+            actor="actor-1041",
+            available_domains=(DomainId("university"),),
+            authorized_domains=(DomainId("university"),),
+            explicit_domains=(DomainId("university"),),
+            created_at=NOW,
+        ),
+        agent_request=IntegratedAgentExecutionRequest(
+            execution_id="exec-batch-at-1041",
+            request_id="req-batch-at-1041",
+            goal_id="goal-1041",
+            actor_id="actor-1041",
+            owner_actor_id="actor-1041",
+            requested_agent_id="agent-1041",
+            operations=operations,
+            permission_context=AgentPermissionContext(
+                id="perm-ctx-batch-at-1041",
+                agent_id="agent-1041",
+                agent_run_id="run-batch-at-1041",
+                goal_id="goal-1041",
+                actor_id="actor-1041",
+                owner_actor_id="actor-1041",
+                allowed_domains=("university",),
+                allowed_resources=(),
+                allowed_operations=("university.prepare_exam",),
+                allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
+                maximum_autonomy_level=2,
+                created_at=NOW,
+            ),
+            created_at=NOW,
+        ),
+    )
+
+    result = integrator.execute(request)
+
+    assert result.agent_result is not None
+    assert result.agent_result.final_state is IntegrationExecutionState.FAILED
+    assert len(gate.preflight_calls) == 2
+    assert len(gate.dispatch_calls) == 2
+    assert stack.implementation.calls == 1
+    operation_results = stack.execution_adapter.repository.list_results(
+        "run-exec-batch-at-1041"
+    )
+    assert len(operation_results) == 2
+    assert operation_results[0].success is True
+    assert operation_results[1].success is False
 
 
 def test_at_dp041_v2_remediation_gate_budget_autonomy_and_orchestrator() -> None:
@@ -1799,11 +2103,12 @@ def test_at_dp041_v2_remediation_gate_budget_autonomy_and_orchestrator() -> None
         global_false, (pol_rev_true,), primary_domain_id="domain:university"
     )
     assert narrowed_false.allow_destructive_actions is False
-    # orchestrator path: prove DefaultDomainOperationOrchestrator is used
+    # Supplemental behavioral proof for the canonical operation orchestrator.
     from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
     from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
     from cmm.domains.operation_contracts import (
         DomainOperationDefinition,
+        DomainOperationRequest,
         DomainOperationType,
     )
     from cmm.domains.operation_execution import (
@@ -1839,15 +2144,23 @@ def test_at_dp041_v2_remediation_gate_budget_autonomy_and_orchestrator() -> None
         registry=common, execution_delegate=DomainOperationExecutionDelegate(dom_reg)
     )
     orchestrator = DefaultDomainOperationOrchestrator(dom_reg, adapter)
-    # Instead of invoking full orchestrator (which requires permission context), we verify wiring:
-    assert orchestrator is not None
-    assert adapter._execution_delegate is not None
-    assert isinstance(orchestrator, DefaultDomainOperationOrchestrator)
-    # Verify that the integrator's specialized operation path uses the same delegate/adapter wiring
-    # by checking that the stack's execution_adapter delegate is DomainOperationExecutionDelegate
-    from cmm.domains.operation_execution import DomainOperationExecutionDelegate as DED
-
-    assert isinstance(stack.execution_adapter._execution_delegate, DED)
+    operation_result = orchestrator.execute(
+        DomainOperationRequest(
+            request_id="orchestrator-proof-1041",
+            operation_id="university.prepare_exam",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-orchestrator-proof-1041",
+            workflow_id="workflow-orchestrator-proof-1041",
+            task_id="task-orchestrator-proof-1041",
+            primary_domain_id="domain:university",
+            capabilities=("execute",),
+            idempotency_key="idem-orchestrator-proof-1041",
+            created_at=NOW,
+        )
+    )
+    assert operation_result.status.value == "completed"
+    assert impl.calls == 1
     # Also verify that the previous budget/permission/gate assertions still hold
     assert counting_gate.calls > 0
     # Ensure no reverse import and no 10.42 workflow discovery was used (orchestrator register check already)

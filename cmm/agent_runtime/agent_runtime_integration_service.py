@@ -53,6 +53,7 @@ from cmm.agent_runtime.enums import (
     AgentCognitiveStatus,
     AgentValidationDecision,
     AgentValidationStage,
+    ApprovalRequestStatus,
     BudgetResourceType,
     GoalKind,
     GoalStatus,
@@ -61,6 +62,7 @@ from cmm.agent_runtime.enums import (
 from cmm.agent_runtime.errors import (
     AgentOperationNotRegisteredError,
     AgentOperationVersionNotRegisteredError,
+    ApprovalRequestNotFoundError,
     BudgetReservationAlreadyResolvedError,
     InvalidRuntimeContractError,
 )
@@ -543,7 +545,15 @@ class AgentRuntimeIntegrationService:
                     warnings=tuple(obs.warnings),
                     event_ids=tuple(obs.record_ids),
                 )
-            self._store.resolve_pending_approval(approval_id)
+            updated = self._store.resolve_pending_approval(approval_id)
+            if updated.pending_approval_ids:
+                return self._save_snapshot(
+                    execution_id,
+                    IntegrationExecutionState.WAITING_APPROVAL,
+                    approval_ids=updated.pending_approval_ids,
+                    warnings=tuple(obs.warnings),
+                    event_ids=tuple(obs.record_ids),
+                )
             return self._continue_execution(
                 execution_id, initial_warnings=tuple(obs.warnings)
             )
@@ -927,6 +937,64 @@ class AgentRuntimeIntegrationService:
     ) -> IntegratedAgentExecutionResult:
         if self._approval_service is None:
             raise AgentRuntimeIntegrationError("approval service is required")
+        if request.available_approval_ids:
+            operation_ids = {
+                identifier
+                for operation in request.operations
+                for identifier in (operation.id, operation.operation_name)
+            }
+            repository = self._approval_service.repository
+            approvals = []
+            missing_approval_ids = []
+            for approval_id in request.available_approval_ids:
+                try:
+                    approvals.append(repository.get_request(approval_id))
+                except ApprovalRequestNotFoundError:
+                    missing_approval_ids.append(approval_id)
+            if approvals and missing_approval_ids:
+                raise AgentRuntimeIntegrationError(
+                    "available approvals mix local and external authority"
+                )
+            now = self._now()
+            for approval in approvals:
+                if approval.agent_run_id not in (None, run_id):
+                    raise AgentRuntimeIntegrationError(
+                        "available approval agent run does not match execution"
+                    )
+                if approval.goal_id not in (None, request.goal_id):
+                    raise AgentRuntimeIntegrationError(
+                        "available approval goal does not match execution"
+                    )
+                if approval.operation_id is not None and (
+                    approval.operation_id not in operation_ids
+                ):
+                    raise AgentRuntimeIntegrationError(
+                        "available approval operation does not match execution"
+                    )
+                if repository.is_consumed(approval.id):
+                    raise AgentRuntimeIntegrationError(
+                        "available approval is already consumed"
+                    )
+                if (
+                    approval.expires_at is not None and approval.expires_at <= now
+                ) or approval.status is ApprovalRequestStatus.EXPIRED:
+                    raise AgentRuntimeIntegrationError("available approval is expired")
+                if approval.status not in (
+                    ApprovalRequestStatus.PENDING,
+                    ApprovalRequestStatus.POSTPONED,
+                ):
+                    raise AgentRuntimeIntegrationError(
+                        "available approval is not pending"
+                    )
+            if approvals:
+                for approval_id in request.available_approval_ids:
+                    self._store.set_pending_approval(execution_id, approval_id)
+                return self._save_snapshot(
+                    execution_id,
+                    IntegrationExecutionState.WAITING_APPROVAL,
+                    approval_ids=request.available_approval_ids,
+                    warnings=warnings,
+                )
         approval = self._approval_service.create_request(
             title=f"Approve execution {execution_id}",
             description=f"Approve Agent Runtime execution {execution_id}",

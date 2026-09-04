@@ -26,6 +26,8 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionOutcome,
 )
 from cmm.agent_runtime.enums import BudgetResourceType
+from cmm.agent_runtime.errors import ControlledOperationExecutionError
+from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
 from cmm.domains.agent_runtime_integration_contracts import (
     DomainAgentRuntimeDecision,
     DomainAgentRuntimeDecisionCode,
@@ -37,12 +39,13 @@ from cmm.domains.cognitive_integration_contracts import (
 )
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.contracts import DomainDefinition
-from cmm.domains.enums import DomainResolutionStatus
+from cmm.domains.enums import DomainOperationStatus, DomainResolutionStatus
 from cmm.domains.errors import (
     DomainAgentRuntimeIntegrationBlockedError,
     DomainAgentRuntimeIntegrationContractError,
     DomainError,
 )
+from cmm.domains.operation_contracts import DomainOperationRequest
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resolver_contracts import DomainResolutionResult
@@ -106,6 +109,134 @@ def _require_dependency(dependency: object, name: str, method: str) -> None:
             f"{name} must provide a callable {method}(...) method",
             field=name,
         )
+
+
+class DomainOperationDispatchAdapter:
+    """Project a Phase 9 operation into the canonical Domain orchestrator.
+
+    ``AgentRuntimeIntegrationService`` retains the lifecycle and calls its
+    normal ``AgentExecutionAdapter`` once per operation.  This callable is
+    installed at that adapter's generic delegate seam; it performs only the
+    contract projection needed to enter ``DefaultDomainOperationOrchestrator``.
+    """
+
+    def __init__(self, orchestrator: object) -> None:
+        _require_dependency(orchestrator, "orchestrator", "execute")
+        self._orchestrator = orchestrator
+
+    @staticmethod
+    def _strings(value: object, field: str) -> tuple[str, ...]:
+        if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": field},
+            )
+        values = tuple(value)
+        if any(not isinstance(item, str) or not item.strip() for item in values):
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": field},
+            )
+        return values
+
+    def __call__(self, request: AgentOperationRequest) -> Mapping[str, Any]:
+        context = request.metadata.get(PROJECTION_NAMESPACE)
+        if not isinstance(context, Mapping):
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_MISSING",
+                message="Domain operation dispatch context is required",
+                details={"operation_name": request.operation_name},
+            )
+        primary_domain_id = context.get("primary_domain_id")
+        session_id = context.get("session_id")
+        actor_id = context.get("actor_id")
+        goal_id = context.get("goal_id")
+        if not isinstance(primary_domain_id, str) or not primary_domain_id.strip():
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": "primary_domain_id"},
+            )
+        if not isinstance(actor_id, str) or not actor_id.strip():
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": "actor_id"},
+            )
+        if not isinstance(goal_id, str) or not goal_id.strip():
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": "goal_id"},
+            )
+        if session_id is not None and (
+            not isinstance(session_id, str) or not session_id.strip()
+        ):
+            raise ControlledOperationExecutionError(
+                code="DOMAIN_OPERATION_CONTEXT_INVALID",
+                message="Domain operation dispatch context is invalid",
+                details={"field": "session_id"},
+            )
+        metadata = dict(request.metadata)
+        metadata.update(
+            {
+                "actor_id": actor_id,
+                "goal_id": goal_id,
+                "approval_request_ids": dict(context.get("approval_request_ids", {})),
+            }
+        )
+        domain_request = DomainOperationRequest(
+            request_id=request.id,
+            operation_id=request.operation_name,
+            operation_version=request.operation_version,
+            inputs=request.parameters,
+            agent_run_id=request.agent_run_id,
+            workflow_id=request.workflow_id,
+            task_id=request.task_id,
+            session_id=session_id,
+            primary_domain_id=primary_domain_id,
+            supporting_domain_ids=self._strings(
+                context.get("supporting_domain_ids", ()),
+                "supporting_domain_ids",
+            ),
+            granted_permissions=request.permissions,
+            denied_permissions=self._strings(
+                context.get("denied_permissions", ()), "denied_permissions"
+            ),
+            available_resources=self._strings(
+                context.get("available_resources", ()), "available_resources"
+            ),
+            capabilities=self._strings(
+                context.get("capabilities", ("execute",)), "capabilities"
+            ),
+            approval_request_id=request.approval_request_id,
+            idempotency_key=request.idempotency_key,
+            created_at=datetime.fromisoformat(request.created_at),
+            metadata=metadata,
+        )
+        result = self._orchestrator.execute(domain_request)
+        success = result.status is DomainOperationStatus.COMPLETED
+        error = result.error
+        if not success and error is None:
+            error = {
+                "code": "DOMAIN_OPERATION_DISPATCH_BLOCKED",
+                "message": "Domain operation dispatch did not complete",
+                "details": {"status": result.status.value},
+            }
+        return {
+            "success": success,
+            "execution_result_id": result.result_id,
+            "domain_operation_result_id": result.result_id,
+            "output": dict(result.output),
+            "error": dict(error) if error is not None else None,
+            "effects": (),
+            "side_effects": (),
+            "artifacts": (),
+            "validation_result_ids": (),
+            "rollback_reference": result.transaction_id,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,12 +370,10 @@ class DefaultDomainAgentRuntimeIntegrator:
         # Canonical gate authority: the injected DomainPermissionGate must be
         # exercised at the safe pre-execution boundary. Its decision has real
         # authority to deny or require approval for the specialized path.
-        gate_result = self._evaluate_gate(request, prepared)
-        gate_denied = bool(
-            gate_result is not None and getattr(gate_result, "denied", False)
-        )
-        gate_requires_approval = bool(
-            gate_result is not None and getattr(gate_result, "requires_approval", False)
+        gate_results = self._evaluate_gates(request, prepared)
+        gate_denied = any(getattr(result, "denied", False) for result in gate_results)
+        gate_requires_approval = any(
+            getattr(result, "requires_approval", False) for result in gate_results
         )
         permission_outcome = permission_resolution.effective_permissions.decision
         approval_hint = False
@@ -350,6 +479,10 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         if binding_decisions:
             decisions = (*decisions, *binding_decisions)
+
+        specialized_request = self._bind_domain_dispatch_context(
+            specialized_request, request, prepared
+        )
 
         # ── Approval hint (hint only; canonical approval owns pause) ─────
         if approval_hint and not specialized_request.metadata.get("requires_approval"):
@@ -518,39 +651,44 @@ class DefaultDomainAgentRuntimeIntegrator:
                 cause=exc,
             ) from exc
 
-    def _evaluate_gate(
+    def _evaluate_gates(
         self,
         request: DomainAgentRuntimeIntegrationRequest,
         prepared: _PreparedDomainContext,
-    ) -> Any | None:
+    ) -> tuple[Any, ...]:
         """Exercise canonical DomainPermissionGate authority at safe boundary.
 
-        Calls the injected gate's canonical evaluate method for the relevant
-        operation/workflow. A denying gate prevents downstream delegation;
-        approval-required is propagated as hint. Returns gate result or None
-        when no operation/workflow is present.
+        Every declared operation receives its own dry-run gate evaluation.
+        Dry-run preserves one-time approval evidence for the authoritative
+        dispatch-time gate in ``DefaultDomainOperationOrchestrator``.
         """
         if request.agent_request.operations:
-            op = request.agent_request.operations[0]
-            return self._permission_gate.evaluate_operation(
-                request_id=f"{request.request_id}:gate:{op.operation_name}",
-                domain_id=str(prepared.composition.primary_domain),
-                actor_id=request.agent_request.actor_id,
-                session_id=request.resolution_context.session_id or "system",
-                operation_id=op.operation_name,
-                operation_version=getattr(op, "operation_version", None),
+            return tuple(
+                self._permission_gate.evaluate_operation(
+                    request_id=f"{request.request_id}:gate:{index}:{op.operation_name}",
+                    domain_id=str(prepared.composition.primary_domain),
+                    actor_id=request.agent_request.actor_id,
+                    session_id=request.resolution_context.session_id or "system",
+                    operation_id=op.operation_name,
+                    operation_version=getattr(op, "operation_version", None),
+                    dry_run=True,
+                )
+                for index, op in enumerate(request.agent_request.operations)
             )
         if request.agent_request.workflow is not None:
             wf = request.agent_request.workflow
-            return self._permission_gate.evaluate_workflow(
-                request_id=f"{request.request_id}:gate:workflow",
-                domain_id=str(prepared.composition.primary_domain),
-                actor_id=request.agent_request.actor_id,
-                session_id=request.resolution_context.session_id or "system",
-                workflow_id=wf.workflow_id,
-                workflow_version=getattr(wf, "workflow_version", None),
+            return (
+                self._permission_gate.evaluate_workflow(
+                    request_id=f"{request.request_id}:gate:workflow",
+                    domain_id=str(prepared.composition.primary_domain),
+                    actor_id=request.agent_request.actor_id,
+                    session_id=request.resolution_context.session_id or "system",
+                    workflow_id=wf.workflow_id,
+                    workflow_version=getattr(wf, "workflow_version", None),
+                    dry_run=True,
+                ),
             )
-        return None
+        return ()
 
     def _narrow_permission_context(
         self,
@@ -817,6 +955,71 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         return tuple(decisions), None
 
+    @staticmethod
+    def _bind_domain_dispatch_context(
+        agent_request: IntegratedAgentExecutionRequest,
+        integration_request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> IntegratedAgentExecutionRequest:
+        """Bind current Domain references to every Phase 9 operation request."""
+        if not agent_request.operations:
+            return agent_request
+        permission_context = agent_request.permission_context
+        context = {
+            "primary_domain_id": str(prepared.composition.primary_domain),
+            "supporting_domain_ids": tuple(
+                str(domain) for domain in prepared.composition.supporting_domains
+            ),
+            "session_id": integration_request.resolution_context.session_id or "system",
+            "actor_id": agent_request.actor_id,
+            "goal_id": agent_request.goal_id,
+            "available_resources": (
+                permission_context.allowed_resources if permission_context else ()
+            ),
+            "denied_permissions": (),
+            "approval_request_ids": {},
+            "composition_id": prepared.composition.id,
+            "profile_id": prepared.profile.id,
+        }
+        operations = []
+        for operation in agent_request.operations:
+            operation_data = operation.to_dict()
+            metadata = dict(operation_data["metadata"])
+            existing = metadata.get(PROJECTION_NAMESPACE)
+            approval_request_ids: Mapping[str, object] = {}
+            capabilities: tuple[str, ...] = ("execute",)
+            if existing is not None:
+                if not isinstance(existing, Mapping):
+                    raise DomainAgentRuntimeIntegrationContractError(
+                        "operation metadata Domain context collision",
+                        field="agent_request.operations.metadata",
+                    )
+                for key, value in existing.items():
+                    if key == "approval_request_ids":
+                        if not isinstance(value, Mapping):
+                            raise DomainAgentRuntimeIntegrationContractError(
+                                "approval_request_ids must be a mapping",
+                                field="agent_request.operations.metadata",
+                            )
+                        approval_request_ids = value
+                    elif key == "capabilities":
+                        capabilities = DomainOperationDispatchAdapter._strings(
+                            value, "capabilities"
+                        )
+                    elif key in context and context[key] != value:
+                        raise DomainAgentRuntimeIntegrationContractError(
+                            "operation metadata Domain context collision",
+                            field="agent_request.operations.metadata",
+                        )
+            metadata[PROJECTION_NAMESPACE] = {
+                **context,
+                "approval_request_ids": dict(approval_request_ids),
+                "capabilities": capabilities,
+            }
+            operation_data["metadata"] = metadata
+            operations.append(AgentOperationRequest.from_dict(operation_data))
+        return replace(agent_request, operations=tuple(operations))
+
     def _reevaluation_decisions(
         self,
         request: DomainAgentRuntimeIntegrationRequest,
@@ -999,4 +1202,5 @@ class DefaultDomainAgentRuntimeIntegrator:
 __all__ = [
     "DefaultDomainAgentRuntimeIntegrator",
     "DomainAgentRuntimeIntegrator",
+    "DomainOperationDispatchAdapter",
 ]
