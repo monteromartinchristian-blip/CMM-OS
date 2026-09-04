@@ -1744,3 +1744,158 @@ def test_v3_real_project_pack_selection_is_deterministic():
     ]
 
 
+# ── V3 remediation (V2 MAJOR-04): missing dependencies fail closed ──────────
+
+
+def test_v3_nonexistent_required_upstream_fails_closed():
+    """RED (V2 MAJOR-04): dependency on a nonexistent operation must block."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        dependencies={"project.compare_code_documentation": ("project.nope",)},
+    )
+
+    result = integrator.integrate(_project_request())
+
+    assert result.blocked is True
+    assert "domain_unresolved_operation_dependency" in result.reason_codes
+    assert result.plan is not None
+    assert not result.plan.validation.is_valid
+    assert result.plan.metadata["unresolved_operation_dependencies"] == [
+        ["project.nope", "project.compare_code_documentation"]
+    ]
+
+
+def test_v3_unavailable_required_upstream_fails_closed():
+    """RED (V2 MAJOR-04): dependency on an unavailable operation must block."""
+    domain_registry, operation_registry, workflow_registry, definitions, _ = (
+        _project_graph()
+    )
+
+    def availability(operation_id, domain_id):
+        if operation_id == "project.review_status":
+            return False
+        return (
+            operation_registry.resolve_active(operation_id, required=False) is not None
+        )
+
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        dependencies={"project.compare_code_documentation": ("project.review_status",)},
+    )
+
+    result = integrator.integrate(_project_request())
+
+    assert "project.review_status" not in result.capability_view.available_operation_ids
+    assert result.blocked is True
+    assert "domain_unresolved_operation_dependency" in result.reason_codes
+    assert not result.plan.validation.is_valid
+
+
+def test_v3_valid_required_dependency_materializes_canonical_edge():
+    """RED (V2 MAJOR-04): planned endpoints keep one canonical edge."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        dependencies={
+            "project.create_implementation_plan": ("project.analyse_architecture",)
+        },
+    )
+
+    result = integrator.integrate(_project_request())
+
+    assert result.blocked is False
+    tasks_by_op = {}
+    for task, operation in zip(result.plan.tasks, result.plan.operations):
+        tasks_by_op.setdefault(operation.operation_name, task.id)
+    source = tasks_by_op["project.analyse_architecture"]
+    target = tasks_by_op["project.create_implementation_plan"]
+    assert source != target
+    assert any(
+        dep.source_task_id == source and dep.target_task_id == target
+        for dep in result.plan.dependencies
+    )
+    assert "unresolved_operation_dependencies" not in result.plan.metadata
+
+
+def test_v3_no_silent_required_dependency_drop():
+    """RED (V2 MAJOR-04): every declared required pair is either an edge or a block."""
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        dependencies={"project.compare_code_documentation": ("project.nope",)},
+    )
+
+    result = integrator.integrate(_project_request())
+
+    declared = result.prepared_planning_request.metadata["dependency_references"][
+        "operation_dependencies"
+    ]
+    assert declared == [["project.nope", "project.compare_code_documentation"]]
+    materialized = {
+        (
+            next(
+                task.id
+                for task, operation in zip(result.plan.tasks, result.plan.operations)
+                if operation.operation_name == pair[0]
+            ),
+            next(
+                task.id
+                for task, operation in zip(result.plan.tasks, result.plan.operations)
+                if operation.operation_name == pair[1]
+            ),
+        )
+        for pair in declared
+        if all(
+            any(
+                operation.operation_name == endpoint
+                for operation in result.plan.operations
+            )
+            for endpoint in pair
+        )
+    }
+    assert materialized == set()
+    assert result.blocked is True
+    assert "domain_unresolved_operation_dependency" in result.reason_codes

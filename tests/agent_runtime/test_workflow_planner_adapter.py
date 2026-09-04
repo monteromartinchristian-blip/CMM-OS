@@ -776,3 +776,56 @@ def test_operation_candidates_metadata_rejects_malformed_values(
         adapter.plan(request)
 
 
+# ── Unresolved required dependencies fail closed (Phase 10.42 V3) ───────────
+
+
+def test_plan_missing_required_dependency_is_invalid(
+    task_planner: TaskPlanner,
+) -> None:
+    """RED (V2 MAJOR-04): a dependency on an unplanned operation is invalid."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(
+        metadata={
+            "dependency_references": {
+                "operation_dependencies": [["python.nope", "python.find_symbol"]],
+            }
+        }
+    )
+
+    plan = adapter.plan(request)
+
+    assert not plan.validation.is_valid
+    assert any("python.nope" in error for error in plan.validation.blocking_errors)
+    assert plan.metadata["unresolved_operation_dependencies"] == [
+        ["python.nope", "python.find_symbol"]
+    ]
+    assert plan.status.value == "invalid"
+
+
+def test_plan_valid_dependency_still_materializes_edge(
+    task_planner: TaskPlanner,
+) -> None:
+    """Valid required pairs keep materializing canonical edges; no cycle logic split."""
+    adapter = DefaultWorkflowPlannerAdapter(planner=task_planner)
+    request = _semantics_request(
+        metadata={
+            "dependency_references": {
+                "operation_dependencies": [
+                    ["python.find_symbol", "filesystem.read_file"]
+                ],
+            }
+        }
+    )
+
+    plan = adapter.plan(request)
+
+    assert plan.validation.is_valid
+    assert "unresolved_operation_dependencies" not in plan.metadata
+    tasks_by_op = {}
+    for task, operation in zip(plan.tasks, plan.operations):
+        tasks_by_op.setdefault(operation.operation_name, task.id)
+    assert any(
+        dep.source_task_id == tasks_by_op["python.find_symbol"]
+        and dep.target_task_id == tasks_by_op["filesystem.read_file"]
+        for dep in plan.dependencies
+    )

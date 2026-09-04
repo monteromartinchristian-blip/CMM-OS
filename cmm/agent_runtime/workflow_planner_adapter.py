@@ -617,6 +617,52 @@ class DefaultWorkflowPlannerAdapter:
         # Structural Validation
         val_result = self._validator.validate(wf_plan, request=request)
 
+        unresolved = wf_plan.metadata.get(
+            _UNRESOLVED_OPERATION_DEPENDENCIES_METADATA_KEY, ()
+        )
+        if isinstance(unresolved, (str, bytes)):
+            unresolved_pairs = [unresolved]
+        else:
+            try:
+                unresolved_pairs = list(unresolved)
+            except TypeError:
+                unresolved_pairs = [unresolved]
+        if len(unresolved_pairs) > 0:
+            # Required operation dependencies that cannot be resolved to
+            # planned nodes fail closed: the canonical plan is invalid and
+            # carries a deterministic blocking error per unresolved pair.
+            # Cycle detection remains owned by the canonical validator.
+            blocking_errors = list(val_result.to_dict().get("blocking_errors", []))
+            for pair in unresolved_pairs:
+                try:
+                    upstream, downstream = pair[0], pair[1]
+                except (IndexError, TypeError):
+                    upstream, downstream = str(pair), ""
+                blocking_errors.append(
+                    f"Unresolved required operation dependency: "
+                    f"'{upstream}' -> '{downstream}'."
+                )
+            val_result = AgentWorkflowPlanValidation(
+                status=WorkflowPlanValidationStatus.FAILED,
+                is_valid=False,
+                blocking_errors=blocking_errors,
+                warnings=list(val_result.warnings),
+                findings=[
+                    *val_result.findings,
+                    *(
+                        {
+                            "severity": "error",
+                            "message": error,
+                        }
+                        for error in blocking_errors[
+                            len(val_result.to_dict().get("blocking_errors", [])) :
+                        ]
+                    ),
+                ],
+                validated_at=val_result.validated_at,
+                metadata=dict(val_result.metadata),
+            )
+
         # Update status according to validation
         if not val_result.is_valid:
             status = WorkflowPlanStatus.INVALID
@@ -836,20 +882,28 @@ class DefaultWorkflowPlannerAdapter:
             prev_task_id = t_id
 
         # Materialize generic operation dependency pairs whose endpoints are
-        # both planned as canonical dependency edges. Pairs naming unplanned
-        # operations stay traceable in plan metadata only.
+        # both planned as canonical dependency edges. A required pair naming
+        # an unplanned operation fails closed: it is recorded as an
+        # unresolved required dependency (plan metadata) instead of being
+        # silently dropped, and plan() turns it into a canonical invalid
+        # verdict. Cycle detection remains owned by the canonical validator.
         operation_tasks: dict[str, str] = {}
         for task, operation in zip(tasks, operations):
             operation_tasks.setdefault(operation.operation_name, task.id)
         existing_edges = {
             (dep.source_task_id, dep.target_task_id) for dep in dependencies
         }
+        unresolved_operation_dependencies: list[list[str]] = []
         for upstream_name, downstream_name in dependency_references.get(
             "operation_dependencies", []
         ):
-            if upstream_name not in operation_tasks:
-                continue
-            if downstream_name not in operation_tasks:
+            if (
+                upstream_name not in operation_tasks
+                or downstream_name not in operation_tasks
+            ):
+                pair = [upstream_name, downstream_name]
+                if pair not in unresolved_operation_dependencies:
+                    unresolved_operation_dependencies.append(pair)
                 continue
             source_task_id = operation_tasks[upstream_name]
             target_task_id = operation_tasks[downstream_name]
@@ -936,6 +990,15 @@ class DefaultWorkflowPlannerAdapter:
             f"Complete all {len(tasks)} planned steps for goal: {exec_plan.goal}"
         ]
 
+        plan_metadata = _plan_metadata_with_references(
+            {"estimated_complexity": exec_plan.estimated_complexity},
+            request.metadata,
+        )
+        if unresolved_operation_dependencies:
+            plan_metadata[_UNRESOLVED_OPERATION_DEPENDENCIES_METADATA_KEY] = [
+                list(pair) for pair in unresolved_operation_dependencies
+            ]
+
         return AgentWorkflowPlan(
             id=plan_id,
             goal_id=request.goal_id,
@@ -965,10 +1028,7 @@ class DefaultWorkflowPlannerAdapter:
             confidence=0.9,
             created_at=now,
             updated_at=now,
-            metadata=_plan_metadata_with_references(
-                {"estimated_complexity": exec_plan.estimated_complexity},
-                request.metadata,
-            ),
+            metadata=plan_metadata,
         )
 
     def replan(self, request: AgentReplanningRequest) -> AgentReplanningResult:

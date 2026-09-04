@@ -52,6 +52,41 @@ def _require_dependency(dependency: object, name: str, method: str) -> None:
         )
 
 
+def _unresolved_operation_dependencies(
+    *, plan: AgentWorkflowPlan
+) -> tuple[tuple[str, str], ...]:
+    """Extract unresolved required operation dependencies from plan metadata.
+
+    The canonical planner records required operation-dependency pairs whose
+    endpoints could not be resolved to planned nodes here instead of
+    silently dropping them. Any entry means the plan was built with a
+    missing blocking prerequisite.
+    """
+    raw = plan.metadata.get("unresolved_operation_dependencies", ())
+    if isinstance(raw, (str, bytes)):
+        return ()
+    try:
+        pairs = tuple(raw)
+    except TypeError:
+        return ()
+    cleaned: list[tuple[str, str]] = []
+    for pair in pairs:
+        if isinstance(pair, (str, bytes)):
+            continue
+        try:
+            endpoints = tuple(pair)
+        except TypeError:
+            continue
+        if len(endpoints) != 2:
+            continue
+        upstream, downstream = endpoints
+        if not isinstance(upstream, str) or not isinstance(downstream, str):
+            continue
+        if (upstream, downstream) not in cleaned:
+            cleaned.append((upstream, downstream))
+    return tuple(cleaned)
+
+
 def _planned_operation_violation(
     *,
     plan: AgentWorkflowPlan,
@@ -891,6 +926,17 @@ class DefaultDomainPlannerWorkflowIntegrator:
         plan: AgentWorkflowPlan,
     ) -> DomainPlannerWorkflowIntegrationResult:
         """Apply post-planning checks and bind the canonical result."""
+        if _unresolved_operation_dependencies(plan=plan):
+            return self._blocked(
+                request=request,
+                resolution=attempt.resolution,
+                composition=attempt.composition,
+                view=attempt.view,
+                prepared=attempt.prepared,
+                selected=attempt.selected,
+                plan=plan,
+                reason_codes=("domain_unresolved_operation_dependency",),
+            )
         violation = _planned_operation_violation(
             plan=plan, prepared=attempt.prepared, capability_view=attempt.view
         )
