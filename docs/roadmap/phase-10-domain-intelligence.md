@@ -5860,6 +5860,19 @@ The Planner should not:
 
 ⸻
 
+**Phase 10.42 implementation status:** implementation complete, pending
+independent audit. `DP-042=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-042=PASS`.
+Canonical integrator `DefaultDomainPlannerWorkflowIntegrator`
+(`cmm/domains/planner_workflow_integration.py`); immutable contracts
+(`cmm/domains/planner_workflow_integration_contracts.py`); one generic
+Domain-agnostic Phase 9 `workflow_references` metadata seam
+(`cmm/agent_runtime/workflow_planner_adapter.py`,
+`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`); reference
+`docs/reference/domain-planner-workflow-integration.md`. Phase 10.43 is next
+only after audit PASS and docs-only closure.
+
+⸻
+
 10.43 - Integration with Validation System
 
 Objective
