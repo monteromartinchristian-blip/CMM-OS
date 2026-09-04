@@ -61,12 +61,26 @@ cmm.agent_runtime → cmm.domains   (forbidden; AGENT_RUNTIME_TO_DOMAIN_IMPORTS=
 cmm.workflows → cmm.domains       (forbidden; WORKFLOWS_TO_DOMAIN_IMPORTS=0)
 ```
 
-Phase 9 stays completely Domain-agnostic. The single permitted Phase 9 seam
-is generic: `AgentPlanningRequest.metadata["workflow_references"]` carries
-opaque workflow reference IDs from request metadata into
-`AgentWorkflowPlan.metadata["workflow_references"]`
-(`cmm/agent_runtime/workflow_planner_adapter.py`). Phase 9 never resolves,
-executes, or authorizes through those references.
+Phase 9 stays completely Domain-agnostic. The permitted Phase 9 seams are
+generic metadata keys carried from `AgentPlanningRequest.metadata` into
+`AgentWorkflowPlan` (`cmm/agent_runtime/workflow_planner_adapter.py`):
+
+```text
+workflow_references    opaque workflow reference IDs → plan metadata
+operation_semantics    exact per-operation planning semantics
+                       (required permissions/validations, approval requirement
+                       and approval IDs, reversibility, rollback reference,
+                       risk, timeout, provenance metadata) → translated
+                       AgentWorkflowOperation fields and approval/validation
+                       node bindings
+dependency_references  operation/workflow/domain dependency references →
+                       plan metadata, with operation pairs whose endpoints are
+                       both planned materialized as canonical
+                       AgentWorkflowDependency edges
+```
+
+Phase 9 never resolves, executes, or authorizes through those references;
+every entry is validated generically and unknown fields are rejected.
 
 ## New contracts (`cmm/domains/planner_workflow_integration_contracts.py`)
 
@@ -105,8 +119,9 @@ validate wrapper
 → most-restrictive AgentPlanningRequest preparation
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
-→ canonical AgentWorkflowPlan (post-checks: no prohibited ops,
-   Domain-governed ops within allowlist, references match selection)
+→ canonical AgentWorkflowPlan (post-checks: no prohibited ops, every planned
+   op within the non-empty allowlist, INVALID canonical plans fail closed
+   with `invalid_canonical_plan`, references match selection)
 → planned operations execute only through the Phase 10.41 dispatch path
 → planned workflow references execute only through DomainWorkflowExecutor
 → canonical replan on material capability/authority change
@@ -126,8 +141,26 @@ prepared permissions
 prepared autonomy/budget
   = preserved exactly (never increased; missing Domain value invents nothing)
 prepared metadata
-  = incoming preserved + generic "workflow_references" IDs only
+  = incoming preserved + generic "workflow_references" IDs,
+    generic "operation_semantics" descriptors, and generic
+    "dependency_references" (operation pairs, workflow references,
+    domain references) only
 ```
+
+## Capability semantics projection
+
+The Domain side projects canonical `DomainOperationDefinition` fields into
+the generic `operation_semantics` seam for every available operation
+(`DefaultDomainPlannerWorkflowIntegrator` with the injected
+`operation_definition_provider`; unknown operations contribute no invented
+semantics). Per-operation upstream dependencies flow through the generic
+`dependency_references` seam (`operation_dependency_provider`), alongside
+the capability-view workflow/domain dependency rows, so
+`operation_dependency_ids` and `workflow_dependency_ids` are consumed by
+planning rather than remaining inert. Exact Domain approval/validation
+requirement IDs stay traceable on canonical approval nodes
+(`required_approvers`, `approval_requirement_ids` metadata) and validation
+nodes (`validation_requirement_ids` metadata).
 
 ## Current-authority revalidation
 
