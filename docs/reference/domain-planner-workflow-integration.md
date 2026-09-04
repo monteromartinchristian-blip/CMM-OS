@@ -125,7 +125,7 @@ validate wrapper
 → fail closed on Domain/Phase 9 identity conflict
 → fail closed on unresolved blocking composition conflicts
 → read-only capability projection (registered + available + compatible only)
-→ explicit workflow selection (requested ∩ available; absent requested fails closed)
+→ explicit workflow selection (requested ∩ available; verified against final prepared permissions; absent or permission-incompatible requested fails closed before planner)
 → most-restrictive AgentPlanningRequest preparation
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
@@ -153,7 +153,8 @@ prepared permissions
 prepared autonomy/budget
   = preserved exactly (never increased; missing Domain value invents nothing)
 prepared metadata
-  = incoming preserved + generic "workflow_references" IDs,
+  = incoming preserved + generic "workflow_references" IDs (restricted to
+    workflows whose required permissions are a subset of prepared permissions),
     generic "operation_candidates" eligible IDs (sorted effective
     operations = prepared allowed minus prepared prohibited, further
     restricted to permission-compatible operations whose canonical
