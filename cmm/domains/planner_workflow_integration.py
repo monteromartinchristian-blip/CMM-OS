@@ -11,12 +11,14 @@ approval, validation, event, checkpoint, persistence, or state infrastructure.
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from cmm.agent_runtime.enums import WorkflowPlanChangeReason
 from cmm.agent_runtime.workflow_planner_adapter import AgentPlanningService
 from cmm.agent_runtime.workflow_planner_contracts import (
     AgentPlanningRequest,
+    AgentReplanningRequest,
     AgentWorkflowPlan,
 )
 from cmm.domains.composer import DefaultDomainComposer
@@ -341,6 +343,17 @@ def _prepare_planning_request(
     return AgentPlanningRequest.from_dict(data)
 
 
+@dataclass(frozen=True, slots=True)
+class _PlanningAttempt:
+    """Ephemeral immutable bundle for one resolve/compose/constrain pass."""
+
+    resolution: DomainResolutionResult
+    composition: DomainComposition
+    view: DomainPlanningCapabilityView
+    prepared: AgentPlanningRequest
+    selected: tuple[str, ...]
+
+
 class DefaultDomainPlannerWorkflowIntegrator:
     """Prepare, constrain, invoke, observe, and bind the canonical planner.
 
@@ -421,6 +434,78 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 "request must be a DomainPlannerWorkflowIntegrationRequest",
                 field="request",
             )
+        attempt = self._prepare_attempt(request)
+        if isinstance(attempt, DomainPlannerWorkflowIntegrationResult):
+            return attempt
+        plan = self._planning_service.plan(attempt.prepared)
+        if type(plan) is not AgentWorkflowPlan:
+            raise DomainContractValidationError(
+                "planning service must return an AgentWorkflowPlan",
+                field="plan",
+            )
+        return self._finish(request=request, attempt=attempt, plan=plan)
+
+    def replan(
+        self,
+        request: DomainPlannerWorkflowIntegrationRequest,
+        *,
+        reason: WorkflowPlanChangeReason,
+        reason_details: str,
+    ) -> DomainPlannerWorkflowIntegrationResult:
+        """Replan through the canonical ``AgentPlanningService``.
+
+        Sequence: current plan required → resolve/compose Domains again →
+        rebuild the current capability view → fresh most-restrictive planning
+        request → ``AgentReplanningRequest`` → ``AgentPlanningService.replan``
+        → canonical new plan. The plan store is never written directly.
+        """
+        if type(request) is not DomainPlannerWorkflowIntegrationRequest:
+            raise DomainContractValidationError(
+                "request must be a DomainPlannerWorkflowIntegrationRequest",
+                field="request",
+            )
+        if request.current_plan is None:
+            raise DomainContractValidationError(
+                "replan requires the current plan bound on the request",
+                field="current_plan",
+            )
+        if not isinstance(reason, WorkflowPlanChangeReason):
+            raise DomainContractValidationError(
+                "reason must be a WorkflowPlanChangeReason", field="reason"
+            )
+        if not isinstance(reason_details, str):
+            raise DomainContractValidationError(
+                "reason_details must be a string", field="reason_details"
+            )
+        if not callable(getattr(self._planning_service, "replan", None)):
+            raise DomainContractValidationError(
+                "planning_service must provide a callable replan(...) method",
+                field="planning_service",
+            )
+        attempt = self._prepare_attempt(request)
+        if isinstance(attempt, DomainPlannerWorkflowIntegrationResult):
+            return attempt
+        outcome = self._planning_service.replan(
+            AgentReplanningRequest(
+                id=f"{request.request_id}:replan",
+                plan_id=request.current_plan.id,
+                reason=reason,
+                reason_details=reason_details,
+                planning_request=attempt.prepared,
+            )
+        )
+        new_plan = outcome.new_plan
+        if type(new_plan) is not AgentWorkflowPlan:
+            raise DomainContractValidationError(
+                "planning service must return an AgentWorkflowPlan",
+                field="plan",
+            )
+        return self._finish(request=request, attempt=attempt, plan=new_plan)
+
+    def _prepare_attempt(
+        self, request: DomainPlannerWorkflowIntegrationRequest
+    ) -> _PlanningAttempt | DomainPlannerWorkflowIntegrationResult:
+        """Resolve, compose, project, and constrain; or fail closed."""
         resolution = self._resolver.resolve(request.resolution_context)
         if resolution.status is not DomainResolutionStatus.RESOLVED:
             raise DomainResolutionBlockedError(
@@ -520,23 +605,33 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 selected=selected,
                 reason_codes=("domain_permission_unsatisfiable",),
             )
-        plan = self._planning_service.plan(prepared)
-        if type(plan) is not AgentWorkflowPlan:
-            raise DomainContractValidationError(
-                "planning service must return an AgentWorkflowPlan",
-                field="plan",
-            )
+        return _PlanningAttempt(
+            resolution=resolution,
+            composition=composition,
+            view=view,
+            prepared=prepared,
+            selected=selected,
+        )
+
+    def _finish(
+        self,
+        *,
+        request: DomainPlannerWorkflowIntegrationRequest,
+        attempt: _PlanningAttempt,
+        plan: AgentWorkflowPlan,
+    ) -> DomainPlannerWorkflowIntegrationResult:
+        """Apply post-planning checks and bind the canonical result."""
         violation = _planned_operation_violation(
-            plan=plan, prepared=prepared, capability_view=view
+            plan=plan, prepared=attempt.prepared, capability_view=attempt.view
         )
         if violation is not None:
             return self._blocked(
                 request=request,
-                resolution=resolution,
-                composition=composition,
-                view=view,
-                prepared=prepared,
-                selected=selected,
+                resolution=attempt.resolution,
+                composition=attempt.composition,
+                view=attempt.view,
+                prepared=attempt.prepared,
+                selected=attempt.selected,
                 plan=plan,
                 reason_codes=(violation,),
             )
@@ -546,29 +641,30 @@ class DefaultDomainPlannerWorkflowIntegrator:
         else:
             try:
                 unexpected = any(
-                    reference not in set(selected) for reference in plan_references
+                    reference not in set(attempt.selected)
+                    for reference in plan_references
                 )
             except TypeError:
                 unexpected = True
         if unexpected:
             return self._blocked(
                 request=request,
-                resolution=resolution,
-                composition=composition,
-                view=view,
-                prepared=prepared,
-                selected=selected,
+                resolution=attempt.resolution,
+                composition=attempt.composition,
+                view=attempt.view,
+                prepared=attempt.prepared,
+                selected=attempt.selected,
                 plan=plan,
                 reason_codes=("domain_workflow_reference_unexpected",),
             )
         return DomainPlannerWorkflowIntegrationResult(
             request_id=request.request_id,
-            resolution=resolution,
-            composition=composition,
-            capability_view=view,
-            prepared_planning_request=prepared,
+            resolution=attempt.resolution,
+            composition=attempt.composition,
+            capability_view=attempt.view,
+            prepared_planning_request=attempt.prepared,
             plan=plan,
-            selected_domain_workflow_ids=selected,
+            selected_domain_workflow_ids=attempt.selected,
             blocked=False,
             reason_codes=(),
             metadata={},
@@ -693,16 +789,6 @@ class DefaultDomainPlannerWorkflowIntegrator:
             context,
             dict(inputs),
         )
-
-    def replan(
-        self,
-        request: DomainPlannerWorkflowIntegrationRequest,
-        *,
-        reason: WorkflowPlanChangeReason,
-        reason_details: str,
-    ) -> DomainPlannerWorkflowIntegrationResult:
-        """Replan through the canonical ``AgentPlanningService``."""
-        raise NotImplementedError
 
 
 __all__ = [

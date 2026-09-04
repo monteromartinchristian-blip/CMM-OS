@@ -668,7 +668,13 @@ def _resolution_context_5(**overrides):
 
 
 def _integrator_5(
-    domain_registry, operation_registry, workflow_registry, service, executor=None
+    domain_registry,
+    operation_registry,
+    workflow_registry,
+    service,
+    executor=None,
+    prohibited=("filesystem.delete_file",),
+    approvals=(),
 ):
     from cmm.domains.composer import DefaultDomainComposer
     from cmm.domains.resolver import DefaultDomainResolver
@@ -692,10 +698,8 @@ def _integrator_5(
             operation_registry.resolve_active(op_id, required=False) is not None
         ),
         permission_ids_provider=lambda composition: ("filesystem.use", "python.use"),
-        prohibited_operation_ids_provider=lambda composition: (
-            "filesystem.delete_file",
-        ),
-        approval_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: prohibited,
+        approval_ids_provider=lambda composition: approvals,
         validation_ids_provider=lambda composition: ("python.schema",),
         authority_reference_ids_provider=lambda composition: ("authority:v1",),
     )
@@ -1045,3 +1049,192 @@ def test_execute_workflow_reference_reuses_subworkflow_through_shared_engine():
 
     assert result.status == WorkflowRunStatus.COMPLETED
     assert calls, "subworkflow must execute through the shared WorkflowEngine"
+
+
+# ── Canonical replanning, stale authority, cross-domain conflicts ────────
+
+
+def test_replan_supersedes_previous_through_canonical_service():
+    from dataclasses import replace
+
+    from cmm.agent_runtime.enums import WorkflowPlanChangeReason, WorkflowPlanStatus
+
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    store, _, service = _planning_stack()
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    first = integrator.integrate(_integration_request_5())
+    assert first.blocked is False
+    assert first.prepared_planning_request.required_approvals == ["review-board"]
+    assert len(first.plan.approval_nodes) > 0
+
+    # Material authority change: the domain now requires change-board approval.
+    integrator2 = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        approvals=("change-board",),
+    )
+    replan_request = replace(_integration_request_5(), current_plan=first.plan)
+    result = integrator2.replan(
+        replan_request,
+        reason=WorkflowPlanChangeReason.PERMISSION_CHANGED,
+        reason_details="domain now requires change-board approval",
+    )
+
+    assert result.blocked is False
+    assert result.plan.version == 2
+    assert result.plan.previous_version_id == first.plan.id
+    assert store.get(first.plan.id).status == WorkflowPlanStatus.SUPERSEDED
+    assert result.prepared_planning_request.required_approvals == [
+        "change-board",
+        "review-board",
+    ]
+    assert len(result.plan.approval_nodes) > 0
+    assert not any("store" in attr or "history" in attr for attr in vars(integrator2))
+
+
+def test_replan_requires_current_plan():
+    from cmm.agent_runtime.enums import WorkflowPlanChangeReason
+
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack()
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    with pytest.raises(DomainContractValidationError):
+        integrator.replan(
+            _integration_request_5(),
+            reason=WorkflowPlanChangeReason.PERMISSION_CHANGED,
+            reason_details="no current plan bound",
+        )
+
+
+def test_stale_operation_authority_cannot_execute_through_dispatch():
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.errors import ControlledOperationExecutionError
+    from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+    from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+    from cmm.domains.agent_runtime_integration import DomainOperationDispatchAdapter
+    from cmm.domains.errors import DomainError
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+
+    definition = _operation("python.find_symbol", "domain:python")
+    calls: list[str] = []
+
+    class _CountingImpl:
+        def __init__(self):
+            self.definition = definition
+
+        def execute(self, request):
+            calls.append(request.operation_name)
+            return {"ok": True}
+
+    common = InMemoryAgentOperationRegistry()
+    domain_operations = InMemoryDomainOperationRegistry(common)
+    domain_operations.register(definition, _CountingImpl())
+    execution_adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(domain_operations),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        domain_operations, execution_adapter
+    )
+    dispatch = DomainOperationDispatchAdapter(orchestrator)
+
+    def _dispatch_request():
+        return AgentOperationRequest(
+            id="op-req-stale",
+            agent_run_id="run-042-5",
+            workflow_id="workflow-042-5",
+            task_id="task-042-5",
+            operation_name="python.find_symbol",
+            operation_version="1.0.0",
+            idempotency_key="idem-stale-1",
+            parameters={},
+            permissions=(),
+            created_at=datetime.now(timezone.utc).isoformat(),
+            metadata={
+                "domain_intelligence": {
+                    "primary_domain_id": "domain:python",
+                    "supporting_domain_ids": (),
+                    "actor_id": "actor-042",
+                    "goal_id": "goal-042-5",
+                    "available_resources": (),
+                    "denied_permissions": (),
+                    "capabilities": ("execute",),
+                }
+            },
+        )
+
+    first = dispatch(_dispatch_request())
+    assert first["success"] is True
+    assert calls == ["python.find_symbol"]
+
+    # The operation becomes unavailable after planning: stale authority dies.
+    domain_operations.set_enabled("python.find_symbol", "1.0.0", False)
+    try:
+        second = dispatch(_dispatch_request())
+    except (DomainError, ControlledOperationExecutionError):
+        second = None
+    assert calls == ["python.find_symbol"]
+    if second is not None:
+        assert second["success"] is False
+
+    # Phase 10.42 adds no Domain operation executor of its own.
+    _, _, service = _planning_stack()
+    domain_registry, operation_registry, workflow_registry = _planner_graph()
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    for forbidden in (
+        "_operation_executor",
+        "_operation_orchestrator",
+        "_operation_dispatcher",
+        "_domain_operation_executor",
+    ):
+        assert not hasattr(integrator, forbidden)
+
+
+def test_cross_domain_conflict_blocks_without_silent_selection():
+    from cmm.domains.contracts import DomainDependency
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        _definition(
+            "python",
+            operations=(),
+            workflows=(),
+            dependencies=(DomainDependency(domain_id="domain:ghost"),),
+        )
+    )
+    # Ghost satisfies registry validation but never enters the resolution,
+    # so the canonical composer reports a blocking missing-dependency conflict.
+    domain_registry.register(_definition("ghost", operations=(), workflows=()))
+    domain_registry.register(_definition("filesystem", operations=(), workflows=()))
+    domain_registry.enable("domain:ghost")
+    domain_registry.enable("domain:filesystem")
+    domain_registry.enable("domain:python")
+    _, operation_registry, workflow_registry = _planner_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+
+    result = integrator.integrate(_integration_request_5(metadata={}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert result.capability_view.available_operation_ids == ()
+    assert result.capability_view.cross_domain_constraint_ids == (
+        "DOMAIN_COMPOSITION_REQUIRED_DEPENDENCY_MISSING",
+    )
+    assert service.plan_calls == 0
