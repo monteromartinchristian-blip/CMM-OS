@@ -445,6 +445,7 @@ def _planning_request(**overrides: Any) -> AgentPlanningRequest:
         "actor_id": "actor-042",
         "objective": "Inspect python symbols and read filesystem files",
         "allowed_operations": list(ALLOWED_OPERATIONS),
+        "permissions": ["python.use", "filesystem.use"],
     }
     values.update(overrides)
     return AgentPlanningRequest(**values)
@@ -923,6 +924,11 @@ def _build_project_graph() -> _AcceptanceGraph:
             _counting_project_impl(graph.operation_calls, operation_id, definition),
         )
 
+    from cmm.domains.project.workflows import build_project_workflow_definitions
+
+    for workflow in build_project_workflow_definitions():
+        graph.workflow_registry.register(workflow)
+
     adapter = DefaultWorkflowPlannerAdapter(
         planner=TaskPlanner(reasoner=_StubReasoner()),
         plan_store=graph.store,
@@ -959,7 +965,9 @@ def _make_project_integrator(
         operation_availability=lambda op_id, domain_id: (
             graph.operation_registry.resolve_active(op_id, required=False) is not None
         ),
-        permission_ids_provider=lambda composition: (),
+        permission_ids_provider=lambda composition: tuple(
+            sorted(graph.authority["permissions"])
+        ),
         prohibited_operation_ids_provider=lambda composition: (),
         approval_ids_provider=lambda composition: (),
         validation_ids_provider=lambda composition: (),
@@ -1164,3 +1172,40 @@ def test_at_dp042_real_project_modify_code_without_permission_blocked() -> None:
     assert result.plan is None
     assert graph.operation_calls["project.modify_code"] == 0
     # REAL_PROJECT_MODIFY_CODE_WITHOUT_PERMISSION=BLOCKED
+
+
+def test_at_dp042_real_project_workflow_without_incoming_permission_blocked() -> None:
+    """AT-DP-042 (V6): real ``project.project_setup`` without permission blocks.
+
+    The workflow requires ``domain-permission:project:1.0.0``; the Domain
+    authority grants it, but the incoming canonical request does not.
+    The workflow must fail selection and the request must block before planning.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].add("domain-permission:project:1.0.0")
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=[],
+        allowed_operations=["project.review_status"],
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.project_setup"]},
+    )
+    result = integrator.integrate(request)
+
+    assert "project.project_setup" in result.capability_view.available_workflow_ids
+    assert result.prepared_planning_request.permissions == []
+    assert "project.project_setup" not in result.selected_domain_workflow_ids
+    assert result.selected_domain_workflow_ids == ()
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    # REAL_PROJECT_WORKFLOW_WITHOUT_INCOMING_PERMISSION=BLOCKED
+    # PERMISSION_INCOMPATIBLE_WORKFLOW_FAILS_BEFORE_PLANNER=PASS
