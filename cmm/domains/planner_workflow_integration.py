@@ -422,16 +422,20 @@ def _build_operation_dependencies(
 
 
 def _stable_operation_candidates(
-    capability_view: DomainPlanningCapabilityView,
+    *,
+    allowed_operations: Collection[str],
+    prohibited_operations: Collection[str],
 ) -> list[str]:
-    """Project available Domain operations as generic selection candidates.
+    """Project effective Domain operations as generic selection candidates.
 
-    Opaque operation IDs only, deterministic sorted order. An empty
-    capability set yields an empty candidate list, which the canonical
+    Opaque operation IDs only, deterministic sorted order. The candidate set
+    is the effective most-restrictive planning capability set: the prepared
+    allowed operations minus the prepared prohibited operations. An empty
+    effective set yields an empty candidate list, which the canonical
     planner seam treats as unsatisfiable (fail closed) instead of
     inventing an operation.
     """
-    return sorted(capability_view.available_operation_ids)
+    return sorted(set(allowed_operations) - set(prohibited_operations))
 
 
 def _stable_operation_semantics(
@@ -568,7 +572,10 @@ def _prepare_planning_request(
     metadata = dict(incoming.metadata)
     if selected:
         metadata["workflow_references"] = selected
-    operation_candidates = _stable_operation_candidates(capability_view)
+    operation_candidates = _stable_operation_candidates(
+        allowed_operations=allowed,
+        prohibited_operations=prohibited,
+    )
     metadata["operation_candidates"] = operation_candidates
     semantics_rows = _stable_operation_semantics(operation_semantics)
     if semantics_rows:
