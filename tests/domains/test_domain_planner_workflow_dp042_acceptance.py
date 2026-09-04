@@ -175,6 +175,25 @@ def _counting_impl(operation_calls, operation_id: str, definition):
     return _CountingImpl()
 
 
+def _counting_project_impl(operation_calls, operation_id: str, definition):
+    """Counting implementation returning schema-valid Project operation output."""
+
+    class _CountingProjectImpl:
+        def __init__(self):
+            self.definition = definition
+
+        def execute(self, request):
+            operation_calls[operation_id] += 1
+            return {
+                "output": {
+                    "status": "completed",
+                    "result": {"operation": operation_id},
+                }
+            }
+
+    return _CountingProjectImpl()
+
+
 def _workflow(workflow_id, domain_id, **kwargs):
     values = {
         "workflow_id": workflow_id,
@@ -445,18 +464,24 @@ def _integration_request(
 
 
 def _dispatch_adapter(
-    graph: _AcceptanceGraph, permission_gate=None, transaction_manager=None
+    graph: _AcceptanceGraph,
+    permission_gate=None,
+    transaction_manager=None,
+    rollback_executor=None,
+    validation_adapter=None,
 ) -> DomainOperationDispatchAdapter:
     common = graph.operation_registry.common_registry
     execution_adapter = AgentExecutionAdapter(
         registry=common,
         execution_delegate=DomainOperationExecutionDelegate(graph.operation_registry),
+        validation_adapter=validation_adapter,
     )
     orchestrator = DefaultDomainOperationOrchestrator(
         graph.operation_registry,
         execution_adapter,
         permission_gate=permission_gate,
         transaction_manager=transaction_manager,
+        rollback_executor=rollback_executor,
     )
     return DomainOperationDispatchAdapter(orchestrator)
 
@@ -862,3 +887,247 @@ def test_at_dp042_no_parallel_owners() -> None:
         assert "store" not in lowered, attr
         assert "engine" not in lowered, attr
     assert graph.service.get_plan is not None
+
+
+# ── Real production Domain Pack acceptance (Phase 10.42 V3) ─────────────────
+
+
+def _build_project_graph() -> _AcceptanceGraph:
+    """Shared graph wired to the real production ``domain:project`` pack."""
+    from cmm.domains.project.definition import build_project_domain_definition
+    from cmm.domains.project.operations import build_project_operation_definitions
+
+    graph = _AcceptanceGraph(
+        domain_registry=DomainRegistry(),
+        operation_registry=InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
+        workflow_registry=InMemoryDomainWorkflowRegistry(),
+        permission_registry=DomainPermissionRegistry(),
+        authority={
+            "permissions": set(),
+            "prohibited": set(),
+            "approvals": set(),
+        },
+    )
+    graph.domain_registry.register(build_project_domain_definition())
+    graph.domain_registry.enable("domain:project")
+    definitions = {
+        definition.operation_id: definition
+        for definition in build_project_operation_definitions()
+    }
+    for operation_id, definition in definitions.items():
+        graph.operation_calls[operation_id] = 0
+        graph.operation_registry.register(
+            definition,
+            _counting_project_impl(graph.operation_calls, operation_id, definition),
+        )
+
+    adapter = DefaultWorkflowPlannerAdapter(
+        planner=TaskPlanner(reasoner=_StubReasoner()),
+        plan_store=graph.store,
+    )
+    graph.service = AgentPlanningService(adapter)
+
+    def _engine_adapter(node, run):
+        graph.engine_calls.append(node.node_id)
+        return NodeExecution.complete({"node": node.node_id})
+
+    graph.executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"acc-project-exec-{len(graph.engine_calls)}",
+        operation_adapter=_engine_adapter,
+    )
+    graph.authority["definitions"] = definitions
+    return graph
+
+
+def _make_project_integrator(
+    graph: _AcceptanceGraph, dependencies=None
+) -> DefaultDomainPlannerWorkflowIntegrator:
+    definitions = graph.authority["definitions"]
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=graph.domain_registry,
+        workflow_registry=graph.workflow_registry,
+        planning_service=graph.service,
+        workflow_executor=graph.executor,
+        operation_availability=lambda op_id, domain_id: (
+            graph.operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: definitions.get(
+            operation_id
+        ),
+        operation_dependency_provider=lambda operation_id: (
+            dependencies.get(operation_id, ()) if dependencies is not None else ()
+        ),
+    )
+
+
+def _project_integration_request() -> DomainPlannerWorkflowIntegrationRequest:
+    return DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-042-acc-project",
+        resolution_context=DomainResolutionContext(
+            id="ctx-042-acc-project",
+            user_input="Review project status and plan milestones",
+            goal_id="goal-042-acc-project",
+            actor="actor-042",
+            available_domains=(DomainId(slug="project"),),
+            authorized_domains=(DomainId(slug="project"),),
+            explicit_domains=(DomainId(slug="project"),),
+            resources=(
+                DomainResolutionResource(
+                    id="r-project",
+                    resource_type="document",
+                    source="user",
+                    domain_ids=(DomainId(slug="project"),),
+                ),
+            ),
+        ),
+        planning_request=AgentPlanningRequest(
+            id="req-042-acc-project",
+            goal_id="goal-042-acc-project",
+            agent_run_id="run-042-acc-project",
+            actor_id="actor-042",
+            objective="Review project status and plan milestones",
+        ),
+        metadata={},
+    )
+
+
+def _project_dispatch_request(
+    graph: _AcceptanceGraph, operation_name: str
+) -> AgentOperationRequest:
+    definition = graph.authority["definitions"][operation_name]
+    return AgentOperationRequest(
+        id=f"op-req-{operation_name}",
+        agent_run_id="run-042-acc-project",
+        workflow_id="workflow-042-acc-project",
+        task_id="task-042-acc-project",
+        operation_name=operation_name,
+        operation_version="1.0.0",
+        idempotency_key=f"idem-{operation_name}",
+        parameters={},
+        permissions=(),
+        created_at=datetime.now(timezone.utc).isoformat(),
+        metadata={
+            "domain_intelligence": {
+                "primary_domain_id": "domain:project",
+                "supporting_domain_ids": (),
+                "actor_id": "actor-042",
+                "goal_id": "goal-042-acc-project",
+                "available_resources": tuple(definition.required_resources),
+                "denied_permissions": (),
+                "capabilities": ("execute", "transaction", "rollback", "validation"),
+            }
+        },
+    )
+
+
+def test_at_dp042_real_project_pack_operation_planning_chain() -> None:
+    """AT-DP-042 (V3): real ``domain:project`` capability → plan → execution.
+
+    Real Domain resolution → real registry capabilities → returned plan uses
+    at least one registered ``project.*`` operation → exact operation
+    semantics projected → canonical validation passes → operation executes
+    through the Phase 10.41 dispatch path.
+    """
+    from cmm.domains.enums import DomainCompositionStatus as CompositionStatus
+
+    graph = _build_project_graph()
+    integrator = _make_project_integrator(graph)
+
+    result = integrator.integrate(_project_integration_request())
+
+    assert result.blocked is False
+    assert result.reason_codes == ()
+    assert result.resolution.status is DomainResolutionStatus.RESOLVED
+    assert str(result.resolution.primary_domain) == "domain:project"
+    assert result.composition.status is CompositionStatus.COMPOSED
+    assert type(result.plan) is AgentWorkflowPlan
+    assert result.plan.status is WorkflowPlanStatus.VALID
+
+    registered = set(graph.authority["definitions"])
+    planned = [op.operation_name for op in result.plan.operations]
+    assert planned
+    assert set(planned) & registered, "plan must use a registered Domain capability"
+    assert not any(name.startswith("python.") for name in planned)
+    assert not any(name.startswith("filesystem.") for name in planned)
+
+    # Exact operation semantics are projected onto the selected operations:
+    # each planned project operation carries its canonical validation ID,
+    # traceable on both the operation and its validation node.
+    for operation in result.plan.operations:
+        assert operation.required_validations == [
+            f"validation.{operation.operation_name}"
+        ]
+    validation_ids = {
+        validation_id
+        for node in result.plan.validation_nodes
+        for validation_id in node.metadata.get("validation_requirement_ids", [])
+    }
+    assert {f"validation.{name}" for name in planned} <= validation_ids
+
+    validation = graph.service.validate_plan(
+        result.plan, request=result.prepared_planning_request
+    )
+    assert validation.is_valid
+
+    # The exact planned operation executes through the Phase 10.41 path.
+    # Project operations are reversible with rollback policies, so the
+    # orchestrator is wired with the canonical transaction manager and a
+    # recording rollback executor (idle on the success path).
+    from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+    from cmm.agent_runtime.transaction_manager import TransactionManager
+    from cmm.agent_runtime.validation_execution_adapter import (
+        AgentValidationAdapter,
+    )
+
+    planned_operation = result.plan.operations[0].operation_name
+    rollback_calls: list[tuple[str, str | None]] = []
+
+    class _RecordingRollbackExecutor:
+        def rollback(self, transaction_id, checkpoint_id=None):
+            rollback_calls.append((transaction_id, checkpoint_id))
+            return {"rolled_back": True}
+
+    dispatch = _dispatch_adapter(
+        graph,
+        transaction_manager=TransactionManager(CheckpointManager()),
+        rollback_executor=_RecordingRollbackExecutor(),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    outcome = dispatch(_project_dispatch_request(graph, planned_operation))
+
+    assert outcome["success"] is True
+    assert graph.operation_calls[planned_operation] == 1
+    assert rollback_calls == []
+
+    assert outcome["success"] is True
+    assert graph.operation_calls[planned_operation] == 1
+
+
+def test_at_dp042_real_project_pack_missing_dependency_fails_closed() -> None:
+    """AT-DP-042 (V3): a missing required ``project.*`` dependency blocks."""
+    graph = _build_project_graph()
+    integrator = _make_project_integrator(
+        graph,
+        dependencies={"project.compare_code_documentation": ("project.nope",)},
+    )
+
+    result = integrator.integrate(_project_integration_request())
+
+    assert result.blocked is True
+    assert "domain_unresolved_operation_dependency" in result.reason_codes
+    assert result.plan is not None
+    assert not result.plan.validation.is_valid
+    assert graph.operation_calls["project.compare_code_documentation"] == 0
