@@ -154,6 +154,10 @@ def _operation(operation_id, domain_id, **kwargs):
         "name": operation_id,
         "description": f"Acceptance operation {operation_id}",
         "operation_type": DomainOperationType.READ,
+        # Reversible so the connected positive chain traverses the current
+        # permission gate with ALLOW (irreversible operations canonically
+        # require an approval grant first).
+        "reversible": True,
     }
     values.update(kwargs)
     return DomainOperationDefinition(**values)
@@ -441,7 +445,7 @@ def _integration_request(
 
 
 def _dispatch_adapter(
-    graph: _AcceptanceGraph, permission_gate=None
+    graph: _AcceptanceGraph, permission_gate=None, transaction_manager=None
 ) -> DomainOperationDispatchAdapter:
     common = graph.operation_registry.common_registry
     execution_adapter = AgentExecutionAdapter(
@@ -449,12 +453,17 @@ def _dispatch_adapter(
         execution_delegate=DomainOperationExecutionDelegate(graph.operation_registry),
     )
     orchestrator = DefaultDomainOperationOrchestrator(
-        graph.operation_registry, execution_adapter, permission_gate=permission_gate
+        graph.operation_registry,
+        execution_adapter,
+        permission_gate=permission_gate,
+        transaction_manager=transaction_manager,
     )
     return DomainOperationDispatchAdapter(orchestrator)
 
 
-def _dispatch_request(operation_name: str) -> AgentOperationRequest:
+def _dispatch_request(
+    operation_name: str, capabilities: tuple[str, ...] = ("execute",)
+) -> AgentOperationRequest:
     return AgentOperationRequest(
         id=f"op-req-{operation_name}",
         agent_run_id="run-042-acc",
@@ -476,7 +485,7 @@ def _dispatch_request(operation_name: str) -> AgentOperationRequest:
                 "goal_id": "goal-042-acc",
                 "available_resources": (),
                 "denied_permissions": (),
-                "capabilities": ("execute",),
+                "capabilities": capabilities,
             }
         },
     )
@@ -494,15 +503,35 @@ def _workflow_context(**overrides: Any):
     return DomainWorkflowContext(**values)
 
 
-# ── Positive connected path ───────────────────────────────────────────────
+# ── Positive connected path (one coherent graph) ────────────────────────────
 
 
-def test_at_dp042_positive_planning_path() -> None:
-    """AT-DP-042: real resolution → projection → canonical plan → validation."""
+def test_at_dp042_connected_planning_operation_workflow_chain() -> None:
+    """AT-DP-042 connected chain on one coherent registry/service graph.
+
+    DefaultDomainResolver → canonical composition → DomainRegistry →
+    InMemoryDomainOperationRegistry → InMemoryDomainWorkflowRegistry → current
+    permission components → DefaultDomainPlannerWorkflowIntegrator →
+    AgentPlanningService → DefaultWorkflowPlannerAdapter → TaskPlanner →
+    AgentWorkflowPlan → AgentWorkflowPlanValidator → canonical approval /
+    validation nodes → exact planned operation → Phase 10.41 dispatch →
+    DefaultDomainOperationOrchestrator → real current DomainPermissionGate →
+    DomainOperationExecutionDelegate → registered implementation → exact
+    selected workflow → DomainWorkflowExecutor → shared WorkflowEngine →
+    canonical replan.
+    """
+    from dataclasses import replace
+
+    from cmm.agent_runtime.enums import WorkflowPlanChangeReason
+
     graph = _build_graph()
     integrator = _make_integrator(graph)
 
-    result = integrator.integrate(_integration_request(graph))
+    # Planning through the canonical stack on the shared graph.
+    request = _integration_request(
+        graph, metadata={"requested_workflow_ids": ["python.simple"]}
+    )
+    result = integrator.integrate(request)
 
     assert result.blocked is False
     assert result.reason_codes == ()
@@ -520,8 +549,8 @@ def test_at_dp042_positive_planning_path() -> None:
     )
     assert result.prepared_planning_request.required_approvals == ["review-board"]
     assert result.prepared_planning_request.required_validations == ["python.schema"]
-    assert result.plan.metadata["workflow_references"] == ["python.review"]
-    assert result.selected_domain_workflow_ids == ("python.review",)
+    assert result.plan.metadata["workflow_references"] == ["python.simple"]
+    assert result.selected_domain_workflow_ids == ("python.simple",)
     assert len(result.plan.approval_nodes) > 0
     assert len(result.plan.validation_nodes) > 0
     assert all(node.required and node.blocking for node in result.plan.validation_nodes)
@@ -530,33 +559,58 @@ def test_at_dp042_positive_planning_path() -> None:
     )
     assert validation.is_valid
 
+    # The exact planned operation executes via Phase 10.41 dispatch behind a
+    # real current DomainPermissionGate. The reversible operation carries the
+    # canonical transaction capability, so availability passes and the gate
+    # decides ALLOW through the real permission resolver.
+    from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+    from cmm.agent_runtime.transaction_manager import TransactionManager
 
-def test_at_dp042_operation_execution_through_phase_1041_dispatch() -> None:
-    """AT-DP-042: planned permitted operation executes via canonical dispatch."""
-    graph = _build_graph()
-    dispatch = _dispatch_adapter(graph)
-
-    outcome = dispatch(_dispatch_request("python.find_symbol"))
+    planned_operation = result.plan.operations[0].operation_name
+    assert planned_operation in ALLOWED_OPERATIONS
+    assert planned_operation in result.prepared_planning_request.allowed_operations
+    resolver = _CountingResolver(graph.permission_registry)
+    dispatch = _dispatch_adapter(
+        graph,
+        permission_gate=DomainPermissionGate(resolver),
+        transaction_manager=TransactionManager(CheckpointManager()),
+    )
+    outcome = dispatch(
+        _dispatch_request(planned_operation, capabilities=("execute", "transaction"))
+    )
 
     assert outcome["success"] is True
-    assert graph.operation_calls["python.find_symbol"] == 1
-    assert outcome["domain_operation_result_id"] is not None
+    assert graph.operation_calls[planned_operation] == 1
+    assert resolver.resolve_calls > 0, "current DomainPermissionGate must decide"
 
-
-def test_at_dp042_workflow_execution_through_shared_engine() -> None:
-    """AT-DP-042: selected workflow reference executes via canonical executor."""
-    graph = _build_graph()
-    integrator = _make_integrator(graph)
-
-    result = integrator.execute_workflow_reference(
-        workflow_id="python.simple",
+    # The exact selected workflow from the same result executes through the
+    # canonical executor and the shared WorkflowEngine.
+    workflow_id = result.plan.metadata["workflow_references"][0]
+    assert workflow_id == result.selected_domain_workflow_ids[0]
+    engine_before = list(graph.engine_calls)
+    workflow_result = integrator.execute_workflow_reference(
+        workflow_id=workflow_id,
         context=_workflow_context(),
         inputs={},
     )
 
-    assert type(result) is DomainWorkflowResult
-    assert result.status is WorkflowRunStatus.COMPLETED
-    assert graph.engine_calls, "shared WorkflowEngine path must execute nodes"
+    assert type(workflow_result) is DomainWorkflowResult
+    assert workflow_result.status is WorkflowRunStatus.COMPLETED
+    assert len(graph.engine_calls) > len(engine_before)
+
+    # Material authority change on the same graph drives canonical replan.
+    graph.authority["approvals"].add("change-board")
+    replanned = integrator.replan(
+        replace(request, current_plan=result.plan),
+        reason=WorkflowPlanChangeReason.PERMISSION_CHANGED,
+        reason_details="domain now requires change-board approval",
+    )
+
+    assert replanned.blocked is False
+    assert replanned.plan.version == 2
+    assert replanned.plan.previous_version_id == result.plan.id
+    assert graph.store.get(result.plan.id).status is WorkflowPlanStatus.SUPERSEDED
+    assert "change-board" in replanned.prepared_planning_request.required_approvals
 
 
 # ── Adversarial cases ─────────────────────────────────────────────────────
@@ -592,9 +646,20 @@ def test_at_dp042_prohibited_operation_never_executes() -> None:
 
     resolver = _CountingResolver(graph.permission_registry)
     gate = DomainPermissionGate(resolver)
-    dispatch = _dispatch_adapter(graph, permission_gate=gate)
+    from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+    from cmm.agent_runtime.transaction_manager import TransactionManager
+
+    dispatch = _dispatch_adapter(
+        graph,
+        permission_gate=gate,
+        transaction_manager=TransactionManager(CheckpointManager()),
+    )
     try:
-        outcome = dispatch(_dispatch_request("filesystem.delete_file"))
+        outcome = dispatch(
+            _dispatch_request(
+                "filesystem.delete_file", capabilities=("execute", "transaction")
+            )
+        )
     except DomainError:
         outcome = None
     assert graph.operation_calls["filesystem.delete_file"] == 0
