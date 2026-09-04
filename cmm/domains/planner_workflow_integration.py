@@ -438,6 +438,49 @@ def _stable_operation_candidates(
     return sorted(set(allowed_operations) - set(prohibited_operations))
 
 
+def _permission_compatible_operation_candidates(
+    candidates: Collection[str],
+    *,
+    permissions: Collection[str],
+    operation_definition_provider: Callable[[str], DomainOperationDefinition | None]
+    | None,
+) -> list[str]:
+    """Restrict candidates to operations whose required permissions hold.
+
+    Every candidate with a canonical ``DomainOperationDefinition`` must
+    satisfy ``set(definition.required_permissions) <= set(permissions)``,
+    where ``permissions`` is the same effective permission set carried on
+    the prepared planning request (never a broader raw set). Candidates
+    without a definition keep the existing registration/availability
+    verdict: nothing is invented and no permission requirement is assumed.
+    Deterministic order is preserved.
+    """
+    if operation_definition_provider is None:
+        return list(candidates)
+    if not callable(operation_definition_provider):
+        raise DomainContractValidationError(
+            "operation_definition_provider must be callable",
+            field="operation_definition_provider",
+        )
+    granted = set(permissions)
+    compatible: list[str] = []
+    for candidate in candidates:
+        definition = operation_definition_provider(candidate)
+        if definition is None:
+            compatible.append(candidate)
+            continue
+        if type(definition) is not DomainOperationDefinition:
+            raise DomainContractValidationError(
+                "operation_definition_provider must return a "
+                "DomainOperationDefinition or None",
+                field="operation_definition_provider",
+            )
+        if any(required not in granted for required in definition.required_permissions):
+            continue
+        compatible.append(candidate)
+    return compatible
+
+
 def _stable_operation_semantics(
     semantics: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -506,6 +549,9 @@ def _prepare_planning_request(
     selected_workflow_ids: Collection[str] = (),
     operation_semantics: Mapping[str, Mapping[str, Any]] | None = None,
     operation_dependencies: Collection[Any] | None = None,
+    operation_definition_provider: (
+        Callable[[str], DomainOperationDefinition | None] | None
+    ) = None,
 ) -> AgentPlanningRequest:
     """Compose the most-restrictive canonical planning request.
 
@@ -523,6 +569,10 @@ def _prepare_planning_request(
     ``operation_candidates`` metadata seam, from which the canonical planner
     deterministically selects planned operations; an empty eligible set is
     carried as an empty candidate list and fails closed downstream.
+    Candidates are additionally restricted to operations whose canonical
+    required permissions are all present in the prepared effective
+    permissions; candidates without a known definition keep the existing
+    registration/availability verdict.
     """
     if type(incoming) is not AgentPlanningRequest:
         raise DomainContractValidationError(
@@ -572,9 +622,13 @@ def _prepare_planning_request(
     metadata = dict(incoming.metadata)
     if selected:
         metadata["workflow_references"] = selected
-    operation_candidates = _stable_operation_candidates(
-        allowed_operations=allowed,
-        prohibited_operations=prohibited,
+    operation_candidates = _permission_compatible_operation_candidates(
+        _stable_operation_candidates(
+            allowed_operations=allowed,
+            prohibited_operations=prohibited,
+        ),
+        permissions=permissions,
+        operation_definition_provider=operation_definition_provider,
     )
     metadata["operation_candidates"] = operation_candidates
     semantics_rows = _stable_operation_semantics(operation_semantics)
@@ -835,6 +889,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     capability_view=view,
                     operation_semantics=operation_semantics,
                     operation_dependencies=operation_dependencies,
+                    operation_definition_provider=self._operation_definition_provider,
                 ),
                 reason_codes=(identity_conflict,),
             )
@@ -849,6 +904,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     capability_view=view,
                     operation_semantics=operation_semantics,
                     operation_dependencies=operation_dependencies,
+                    operation_definition_provider=self._operation_definition_provider,
                 ),
                 reason_codes=(
                     "domain_composition_blocked",
@@ -867,6 +923,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     capability_view=view,
                     operation_semantics=operation_semantics,
                     operation_dependencies=operation_dependencies,
+                    operation_definition_provider=self._operation_definition_provider,
                 ),
                 reason_codes=("domain_workflow_unavailable",),
             )
@@ -876,6 +933,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             selected_workflow_ids=selected,
             operation_semantics=operation_semantics,
             operation_dependencies=operation_dependencies,
+            operation_definition_provider=self._operation_definition_provider,
         )
         if (
             request.planning_request.allowed_operations
