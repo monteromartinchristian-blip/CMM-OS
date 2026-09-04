@@ -73,10 +73,20 @@ operation_semantics    exact per-operation planning semantics
                        risk, timeout, provenance metadata) → translated
                        AgentWorkflowOperation fields and approval/validation
                        node bindings
+operation_candidates   eligible opaque operation IDs (absent = heuristic
+                       Phase 9 translation, backward-compatible; present =
+                       every planned operation is selected deterministically
+                       from the candidates round-robin in step order; empty =
+                       unsatisfiable and fails closed) → planned
+                       AgentWorkflowOperation identity; exact
+                       operation_semantics overlays then bind by selected ID
 dependency_references  operation/workflow/domain dependency references →
                        plan metadata, with operation pairs whose endpoints are
                        both planned materialized as canonical
-                       AgentWorkflowDependency edges
+                       AgentWorkflowDependency edges; required operation pairs
+                       naming an unplanned operation are recorded as
+                       unresolved_operation_dependencies and fail closed
+                       (canonical INVALID plan, deterministic blocking error)
 ```
 
 Phase 9 never resolves, executes, or authorizes through those references;
@@ -119,9 +129,11 @@ validate wrapper
 → most-restrictive AgentPlanningRequest preparation
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
-→ canonical AgentWorkflowPlan (post-checks: no prohibited ops, every planned
-   op within the non-empty allowlist, INVALID canonical plans fail closed
-   with `invalid_canonical_plan`, references match selection)
+→ canonical AgentWorkflowPlan (post-checks: unresolved required operation
+   dependencies block with `domain_unresolved_operation_dependency`, no
+   prohibited ops, every planned op within the non-empty allowlist, INVALID
+   canonical plans fail closed with `invalid_canonical_plan`, references
+   match selection)
 → planned operations execute only through the Phase 10.41 dispatch path
 → planned workflow references execute only through DomainWorkflowExecutor
 → canonical replan on material capability/authority change
@@ -142,6 +154,8 @@ prepared autonomy/budget
   = preserved exactly (never increased; missing Domain value invents nothing)
 prepared metadata
   = incoming preserved + generic "workflow_references" IDs,
+    generic "operation_candidates" eligible IDs (sorted Domain available
+    operations; empty when no capability is eligible and fails closed),
     generic "operation_semantics" descriptors, and generic
     "dependency_references" (operation pairs, workflow references,
     domain references) only
@@ -157,7 +171,11 @@ semantics). Per-operation upstream dependencies flow through the generic
 `dependency_references` seam (`operation_dependency_provider`), alongside
 the capability-view workflow/domain dependency rows, so
 `operation_dependency_ids` and `workflow_dependency_ids` are consumed by
-planning rather than remaining inert. Exact Domain approval/validation
+planning rather than remaining inert. Required operation pairs whose
+endpoints are not both planned never drop silently: the canonical planner
+records them as `unresolved_operation_dependencies` plan metadata, the plan
+is canonically INVALID, and the integration boundary blocks with
+`domain_unresolved_operation_dependency`. Exact Domain approval/validation
 requirement IDs stay traceable on canonical approval nodes
 (`required_approvers`, `approval_requirement_ids` metadata) and validation
 nodes (`validation_requirement_ids` metadata).
