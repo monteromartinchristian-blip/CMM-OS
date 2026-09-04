@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary extends through **Phase 10.40 — Integration with Cognitive Layer** (final independent re-audit **V3** = `PASS`; `DP-040=VERIFIED_EXISTING`; `AT-DP-040=PASS`). **Phase 10.41 — Integration with Agent Runtime** is implemented and pending independent audit (`DP-041=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-041=PASS`). Next milestone after audit closure: **Phase 10.42 — Integration with Planner and Workflow Engine**.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.41 — Integration with Agent Runtime**. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-041=VERIFIED_EXISTING`; `AT-DP-041=PASS`; audited implementation HEAD `6972e7495bccc0e69ccaa7d007f915ef891e8913`; audit V3 bundle SHA-256 `c9677d836843de8068ba5ed3c0e7d8cd87e12bc4df34e1e2361195f5d8f28458`. Next milestone: **Phase 10.42 — Integration with Planner and Workflow Engine**.
 
 ⸻
 
@@ -5715,7 +5715,7 @@ Domains should not implement:
 
 10.41 - Integration with Agent Runtime
 
-**Status: implemented and pending independent audit.** `DP-041=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-041=PASS` (`tests/domains/test_domain_agent_runtime_dp041_acceptance.py`; 20 connected checkpoints). Canonical integrator `cmm/domains/agent_runtime_integration.py`; contracts `cmm/domains/agent_runtime_integration_contracts.py`; reference `docs/reference/domain-agent-runtime-integration.md`. Dependency direction preserved: `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`. Phase 10.42 remains next only after the Phase 10.41 independent audit PASS and a separate documentation-only closure commit.
+**Status:** Complete — independently audited and closed. Final independent re-audit **V3**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-041=VERIFIED_EXISTING`; `AT-DP-041=PASS`. Audited implementation HEAD `6972e7495bccc0e69ccaa7d007f915ef891e8913`; audit V3 bundle SHA-256 `c9677d836843de8068ba5ed3c0e7d8cd87e12bc4df34e1e2361195f5d8f28458`; independent report `docs/audits/phase-10.41-independent-reaudit-v3.md`. Canonical integrator `cmm/domains/agent_runtime_integration.py`; contracts `cmm/domains/agent_runtime_integration_contracts.py`; reference `docs/reference/domain-agent-runtime-integration.md`; `AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`. Phase 10.42 is now the next milestone.
 
 Objective
 

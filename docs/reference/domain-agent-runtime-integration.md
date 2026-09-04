@@ -1,9 +1,14 @@
 # Domain ↔ Agent Runtime Integration (Phase 10.41)
 
-**Status:** Phase 10.41 implemented and pending independent audit.
-`DP-041=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-041=PASS`.
-Closure status (`VERIFIED_EXISTING` / closed) may only be established by the
-independent audit.
+**Status:** Phase 10.41 complete, independently audited and closed.
+`DP-041=VERIFIED_EXISTING`; `AT-DP-041=PASS`.
+**Final independent verification:** Re-audit **V3** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`.
+
+**Audited implementation HEAD:** `6972e7495bccc0e69ccaa7d007f915ef891e8913`.
+
+**Audit V3 bundle SHA-256:** `c9677d836843de8068ba5ed3c0e7d8cd87e12bc4df34e1e2361195f5d8f28458`.
+
+**Independent audit report:** `docs/audits/phase-10.41-independent-reaudit-v3.md`.
 
 ---
 
