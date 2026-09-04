@@ -667,8 +667,32 @@ class DefaultDomainPlannerWorkflowIntegrator:
         context: DomainWorkflowContext,
         inputs: Mapping[str, Any],
     ) -> DomainWorkflowResult:
-        """Delegate a planned workflow reference to the canonical executor."""
-        raise NotImplementedError
+        """Delegate a planned workflow reference to the canonical executor.
+
+        Path: ``InMemoryDomainWorkflowRegistry.resolve_active(...)`` →
+        ``DomainWorkflowExecutor.execute_result(...)`` → shared
+        ``WorkflowEngine``. No ``_revalidate_workflow_authority`` duplication:
+        the executor already evaluates current permission/dependency gates at
+        this boundary.
+        """
+        if not isinstance(workflow_id, str) or not workflow_id.strip():
+            raise DomainContractValidationError(
+                "workflow_id must be a non-empty string", field="workflow_id"
+            )
+        if type(context) is not DomainWorkflowContext:
+            raise DomainContractValidationError(
+                "context must be a DomainWorkflowContext", field="context"
+            )
+        if not isinstance(inputs, Mapping):
+            raise DomainContractValidationError(
+                "inputs must be a mapping", field="inputs"
+            )
+        definition = self._workflow_registry.resolve_active(workflow_id)
+        return self._workflow_executor.execute_result(
+            definition,
+            context,
+            dict(inputs),
+        )
 
     def replan(
         self,

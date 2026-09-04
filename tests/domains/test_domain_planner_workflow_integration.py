@@ -547,7 +547,7 @@ def _planner_graph():
                 "python.list_imports",
                 "python.describe_module",
             ),
-            workflows=("python.review",),
+            workflows=("python.review", "python.simple", "python.guarded"),
         )
     )
     domain_registry.register(
@@ -587,6 +587,29 @@ def _planner_graph():
             "domain:python",
             required_permissions=("python.use",),
             approval_gates=("review-board",),
+        )
+    )
+    workflow_registry.register(
+        _workflow(
+            "python.guarded",
+            "domain:python",
+            required_permissions=("python.use",),
+        )
+    )
+    workflow_registry.register(
+        _workflow(
+            "python.simple",
+            "domain:python",
+            nodes=(
+                WorkflowNode(
+                    "start",
+                    "execute_operation",
+                    "Start",
+                    operation_id="python.find_symbol",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode("finish", "complete", "Finish", dependencies=("start",)),
+            ),
         )
     )
     workflow_registry.register(
@@ -644,7 +667,9 @@ def _resolution_context_5(**overrides):
     return DomainResolutionContext(**values)
 
 
-def _integrator_5(domain_registry, operation_registry, workflow_registry, service):
+def _integrator_5(
+    domain_registry, operation_registry, workflow_registry, service, executor=None
+):
     from cmm.domains.composer import DefaultDomainComposer
     from cmm.domains.resolver import DefaultDomainResolver
     from cmm.domains.resolver_contracts import DomainScoringPolicy
@@ -660,7 +685,9 @@ def _integrator_5(domain_registry, operation_registry, workflow_registry, servic
         domain_registry=domain_registry,
         workflow_registry=workflow_registry,
         planning_service=service,
-        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-1"),
+        workflow_executor=executor
+        if executor is not None
+        else DomainWorkflowExecutor(id_factory=lambda: "wf-id-1"),
         operation_availability=lambda op_id, domain_id: (
             operation_registry.resolve_active(op_id, required=False) is not None
         ),
@@ -848,3 +875,173 @@ def test_integrate_blocks_prohibited_operation_emitted_by_planner():
     assert service.plan_calls == 1
     assert result.blocked is True
     assert "domain_prohibited_operation_planned" in result.reason_codes
+
+
+# ── Planned Domain workflow delegation ──────────────────────────────────
+
+
+def _executing_integrator(workflow_registry, executor):
+    domain_registry, operation_registry, _ = _planner_graph()
+    _, _, service = _planning_stack()
+    return _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service, executor
+    )
+
+
+def _workflow_context_5(**overrides):
+    from cmm.domains.workflow_contracts import DomainWorkflowContext
+
+    values = {
+        "primary_domain_id": "domain:python",
+        "available_operations": frozenset(
+            {
+                "python.find_symbol",
+                "python.list_imports",
+                "python.describe_module",
+                "filesystem.read_file",
+                "filesystem.exists",
+            }
+        ),
+    }
+    values.update(overrides)
+    return DomainWorkflowContext(**values)
+
+
+def test_execute_workflow_reference_delegates_to_canonical_executor():
+    from cmm.domains.workflow_contracts import DomainWorkflowResult
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    _, _, workflow_registry = _planner_graph()
+    calls: list[str] = []
+
+    def adapter(node, run):
+        calls.append(node.node_id)
+        return NodeExecution.complete({"node": node.node_id})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"wf-exec-{len(calls)}",
+        operation_adapter=adapter,
+    )
+    integrator = _executing_integrator(workflow_registry, executor)
+
+    result = integrator.execute_workflow_reference(
+        workflow_id="python.simple",
+        context=_workflow_context_5(),
+        inputs={},
+    )
+
+    assert type(result) is DomainWorkflowResult
+    assert result.status == WorkflowRunStatus.COMPLETED
+    assert calls, "shared WorkflowEngine path must execute nodes"
+    assert not any("store" in attr or "engine" in attr for attr in vars(integrator))
+
+
+def test_execute_workflow_reference_unavailable_workflow_never_starts():
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.errors import WorkflowRegistryError
+
+    _, _, workflow_registry = _planner_graph()
+    calls: list[str] = []
+
+    def adapter(node, run):
+        calls.append(node.node_id)
+        return NodeExecution.complete({})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: "wf-exec-1", operation_adapter=adapter
+    )
+    integrator = _executing_integrator(workflow_registry, executor)
+
+    with pytest.raises(WorkflowRegistryError):
+        integrator.execute_workflow_reference(
+            workflow_id="python.missing",
+            context=_workflow_context_5(),
+            inputs={},
+        )
+    assert calls == []
+
+
+def test_execute_workflow_reference_permission_downgrade_blocks_execution():
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.engine import NodeExecution
+
+    _, _, workflow_registry = _planner_graph()
+    calls: list[str] = []
+
+    def adapter(node, run):
+        calls.append(node.node_id)
+        return NodeExecution.complete({})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: "wf-exec-1", operation_adapter=adapter
+    )
+    integrator = _executing_integrator(workflow_registry, executor)
+
+    # python.guarded requires python.use; the downgraded context grants nothing,
+    # so the canonical resolution boundary inside the executor blocks it.
+    with pytest.raises(ValueError, match="unavailable"):
+        integrator.execute_workflow_reference(
+            workflow_id="python.guarded",
+            context=_workflow_context_5(available_permissions=frozenset()),
+            inputs={},
+        )
+    assert calls == []
+
+
+def test_execute_workflow_reference_reuses_subworkflow_through_shared_engine():
+    from cmm.domains.workflow_contracts import DomainWorkflowDefinition
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.contracts import WorkflowNode as CommonWorkflowNode
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.enums import WorkflowRunStatus
+
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    child = DomainWorkflowDefinition(
+        "python.child",
+        "domain:python",
+        "1.0.0",
+        "Child",
+        nodes=(CommonWorkflowNode("done", "complete", "Done"),),
+    )
+    parent = DomainWorkflowDefinition(
+        "python.parent",
+        "domain:python",
+        "1.0.0",
+        "Parent",
+        nodes=(
+            CommonWorkflowNode(
+                "child",
+                "invoke_subworkflow",
+                "Child",
+                subworkflow_id="python.child",
+                subworkflow_version="1.0.0",
+            ),
+            CommonWorkflowNode("finish", "complete", "Finish", dependencies=("child",)),
+        ),
+    )
+    workflow_registry.register(child)
+    workflow_registry.register(parent)
+    calls: list[str] = []
+
+    def adapter(node, run):
+        calls.append(node.node_id)
+        return NodeExecution.complete({"node": node.node_id})
+
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"wf-sub-{len(calls)}",
+        operation_adapter=adapter,
+        workflow_definitions={("python.child", "1.0.0"): child},
+    )
+    integrator = _executing_integrator(workflow_registry, executor)
+
+    result = integrator.execute_workflow_reference(
+        workflow_id="python.parent",
+        context=_workflow_context_5(available_permissions=frozenset()),
+        inputs={},
+    )
+
+    assert result.status == WorkflowRunStatus.COMPLETED
+    assert calls, "subworkflow must execute through the shared WorkflowEngine"
