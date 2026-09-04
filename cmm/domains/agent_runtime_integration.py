@@ -80,6 +80,9 @@ _CAPABILITY_BOOLEAN_PROHIBITIONS: tuple[tuple[PermissionCapability, str], ...] =
 # through canonical runtime evidence; Phase 10.41 owns no consumption ledger.
 _DOMAIN_BUDGET_ATTR_BY_RESOURCE: tuple[tuple[BudgetResourceType, str], ...] = (
     (BudgetResourceType.OPERATION, "maximum_operations"),
+    (BudgetResourceType.ITERATION, "maximum_iterations"),
+    (BudgetResourceType.QUESTION, "maximum_questions"),
+    (BudgetResourceType.EXTERNAL_CALL, "maximum_external_calls"),
     (BudgetResourceType.DURATION_SECONDS, "maximum_duration_seconds"),
     (BudgetResourceType.COST, "maximum_cost"),
 )
@@ -233,11 +236,21 @@ class DefaultDomainAgentRuntimeIntegrator:
             )
         # ── Domain permission restriction ────────────────────────────────
         permission_resolution = self._resolve_domain_permissions(request, prepared)
+        # Canonical gate authority: the injected DomainPermissionGate must be
+        # exercised at the safe pre-execution boundary. Its decision has real
+        # authority to deny or require approval for the specialized path.
+        gate_result = self._evaluate_gate(request, prepared)
+        gate_denied = bool(
+            gate_result is not None and getattr(gate_result, "denied", False)
+        )
+        gate_requires_approval = bool(
+            gate_result is not None and getattr(gate_result, "requires_approval", False)
+        )
         permission_outcome = permission_resolution.effective_permissions.decision
         approval_hint = False
-        if permission_outcome is PermissionOutcome.DENY:
+        if permission_outcome is PermissionOutcome.DENY or gate_denied:
             # Domain DENY and Agent denial precedence remain fail-closed;
-            # no operation side effects may occur.
+            # no operation side effects may occur. Gate denial has equal authority.
             blocked_decision = self._blocked_decision(
                 subject_id=prepared.composition.id,
                 related_ids=(prepared.resolution.id, prepared.profile.id),
@@ -255,7 +268,10 @@ class DefaultDomainAgentRuntimeIntegrator:
                 agent_trace_id=None,
                 blocked=True,
             )
-        if permission_outcome is PermissionOutcome.APPROVAL_REQUIRED:
+        if (
+            permission_outcome is PermissionOutcome.APPROVAL_REQUIRED
+            or gate_requires_approval
+        ):
             # Approval is owned by the canonical Phase 9 approval
             # infrastructure; Phase 10.41 records the requirement and passes
             # only the existing Phase 9 hint metadata.
@@ -502,6 +518,40 @@ class DefaultDomainAgentRuntimeIntegrator:
                 cause=exc,
             ) from exc
 
+    def _evaluate_gate(
+        self,
+        request: DomainAgentRuntimeIntegrationRequest,
+        prepared: _PreparedDomainContext,
+    ) -> Any | None:
+        """Exercise canonical DomainPermissionGate authority at safe boundary.
+
+        Calls the injected gate's canonical evaluate method for the relevant
+        operation/workflow. A denying gate prevents downstream delegation;
+        approval-required is propagated as hint. Returns gate result or None
+        when no operation/workflow is present.
+        """
+        if request.agent_request.operations:
+            op = request.agent_request.operations[0]
+            return self._permission_gate.evaluate_operation(
+                request_id=f"{request.request_id}:gate:{op.operation_name}",
+                domain_id=str(prepared.composition.primary_domain),
+                actor_id=request.agent_request.actor_id,
+                session_id=request.resolution_context.session_id or "system",
+                operation_id=op.operation_name,
+                operation_version=getattr(op, "operation_version", None),
+            )
+        if request.agent_request.workflow is not None:
+            wf = request.agent_request.workflow
+            return self._permission_gate.evaluate_workflow(
+                request_id=f"{request.request_id}:gate:workflow",
+                domain_id=str(prepared.composition.primary_domain),
+                actor_id=request.agent_request.actor_id,
+                session_id=request.resolution_context.session_id or "system",
+                workflow_id=wf.workflow_id,
+                workflow_version=getattr(wf, "workflow_version", None),
+            )
+        return None
+
     def _narrow_permission_context(
         self,
         permission_context: AgentPermissionContext | None,
@@ -547,17 +597,18 @@ class DefaultDomainAgentRuntimeIntegrator:
             for policy in primary_policies
             if policy.allowed_resources is not None
         ]
+        effective_resources = set(data["allowed_resources"])
         if allowed_resource_constraints:
-            effective_resources = set(data["allowed_resources"]) & set.intersection(
+            effective_resources &= set.intersection(
                 *(set(constraint) for constraint in allowed_resource_constraints)
             )
-            for policy in domain_policies:
-                effective_resources -= set(policy.prohibited_resources)
-            data["allowed_resources"] = tuple(
-                resource
-                for resource in permission_context.allowed_resources
-                if resource in effective_resources
-            )
+        for policy in domain_policies:
+            effective_resources -= set(policy.prohibited_resources)
+        data["allowed_resources"] = tuple(
+            resource
+            for resource in permission_context.allowed_resources
+            if resource in effective_resources
+        )
         sensitivity_constraints = [
             {level.value for level in policy.allowed_sensitivity_levels}
             for policy in domain_policies
@@ -578,11 +629,36 @@ class DefaultDomainAgentRuntimeIntegrator:
             for policy in domain_policies:
                 if capability in policy.prohibited_capabilities:
                     data[context_key] = False
+        # Reversible/irreversible autonomy flags compose restrictively (AND).
+        # Domain false can disable incoming true; Domain true never enables
+        # incoming false. Irreversible maps directly to destructive actions.
+        effective_allow_reversible = (
+            all(
+                policy.autonomy_limits.allow_reversible_changes
+                for policy in domain_policies
+            )
+            if domain_policies
+            else True
+        )
+        effective_allow_irreversible = (
+            all(
+                policy.autonomy_limits.allow_irreversible_changes
+                for policy in domain_policies
+            )
+            if domain_policies
+            else True
+        )
+        if not effective_allow_irreversible:
+            data["allow_destructive_actions"] = False
         domain_autonomy_max = self._effective_domain_autonomy_max(domain_policies)
         if domain_autonomy_max is not None:
             data["maximum_autonomy_level"] = min(
                 int(data["maximum_autonomy_level"]), domain_autonomy_max
             )
+        if not effective_allow_reversible:
+            data["maximum_autonomy_level"] = min(int(data["maximum_autonomy_level"]), 1)
+        if not effective_allow_irreversible:
+            data["maximum_autonomy_level"] = min(int(data["maximum_autonomy_level"]), 2)
         return AgentPermissionContext.from_mapping(data)
 
     @staticmethod
@@ -606,11 +682,33 @@ class DefaultDomainAgentRuntimeIntegrator:
         The Domain limit is a ceiling: it can only reduce or preserve the
         incoming authorized autonomy level, never raise it.  An absent or
         unconstrained Domain limit preserves the incoming Phase 9 value.
+        Reversible/irreversible flags compose restrictively via AND and cap
+        the effective autonomy level accordingly.
         """
         effective_domain_max = self._effective_domain_autonomy_max(domain_policies)
-        if effective_domain_max is None:
-            return agent_request, None
-        effective_max = min(agent_request.max_autonomy_level, effective_domain_max)
+        effective_allow_reversible = (
+            all(
+                policy.autonomy_limits.allow_reversible_changes
+                for policy in domain_policies
+            )
+            if domain_policies
+            else True
+        )
+        effective_allow_irreversible = (
+            all(
+                policy.autonomy_limits.allow_irreversible_changes
+                for policy in domain_policies
+            )
+            if domain_policies
+            else True
+        )
+        effective_max = agent_request.max_autonomy_level
+        if effective_domain_max is not None:
+            effective_max = min(effective_max, effective_domain_max)
+        if not effective_allow_reversible:
+            effective_max = min(effective_max, 1)
+        if not effective_allow_irreversible:
+            effective_max = min(effective_max, 2)
         if effective_max >= agent_request.max_autonomy_level:
             return agent_request, None
         specialized = replace(agent_request, max_autonomy_level=effective_max)

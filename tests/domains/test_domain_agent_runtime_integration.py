@@ -1120,10 +1120,18 @@ def test_domain_autonomy_cannot_raise_incoming_ceiling() -> None:
 def test_domain_autonomy_absent_limit_preserves_incoming_value() -> None:
     from dataclasses import replace as _replace
 
-    integrator, _, request = _build_permission_integrator((_university_policy(),))
+    from cmm.domains.permission_contracts import DomainAutonomyLimits
+
+    # Absent Domain max should preserve incoming when reversible/irreversible are allowed.
+    allow_all = DomainAutonomyLimits(
+        allow_reversible_changes=True, allow_irreversible_changes=True
+    )
+    integrator, _, request = _build_permission_integrator(
+        (_university_policy(autonomy_limits=allow_all),)
+    )
     incoming = _replace(request.agent_request, max_autonomy_level=2)
     specialized, decision = integrator._apply_autonomy_ceiling(
-        incoming, (_university_policy(),)
+        incoming, (_university_policy(autonomy_limits=allow_all),)
     )
 
     assert specialized.max_autonomy_level == 2
