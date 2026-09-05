@@ -3887,6 +3887,7 @@ def _subworkflow_fixtures():
                 "python.opt_parent",
                 "python.cycle_a",
                 "python.cycle_b",
+                "python.matrix",
             ),
         )
     )
@@ -4794,3 +4795,235 @@ def _resolves_exact(workflow_registry, workflow_id, version):
         return workflow_registry.get(workflow_id, version)
     except KeyError:
         return None
+
+
+# ── Phase 10.42 V8 — canonical WorkflowNodeType classification matrix ─────
+#
+# Every canonical WorkflowNodeType member must carry an explicit Phase 10.42
+# planning classification. Classification categories:
+#
+# - operation_eligibility: node introduces a planning-time operation
+#   dependency; enforced by the canonical ``resolve_domain_workflow``
+#   EXECUTE_OPERATION candidate check (V6 MAJOR-08 semantics).
+# - workflow_approval_extraction: node introduces a planning-time approval
+#   obligation; projected by ``_workflow_approval_ids`` (V8 MAJOR-10).
+# - subworkflow_eligibility: node introduces a required child workflow
+#   dependency; enforced by ``_required_subworkflow_closure_for_planning``
+#   (V8 MAJOR-11).
+# - deferred_runtime_<aspect>: the node's semantics are owned at execution
+#   time by the canonical executor / shared WorkflowEngine / Phase 9/10
+#   owners; it introduces no additional Phase 10.42 pre-planning constraint
+#   and no separate planning authority.
+#
+# Evidence per classification (canonical sources, not assumptions):
+# - EXECUTE_OPERATION: ``cmm.workflows.graph`` requires operation_id/version;
+#   ``cmm.domains.workflow_resolution`` checks node operation availability.
+# - REQUEST_APPROVAL: ``cmm.workflows.graph`` requires approval_gate;
+#   ``cmm.domains.permission_adapters._node_decision`` returns
+#   APPROVAL_REQUIRED with source ``node.approval_gate or node.node_id``;
+#   the executor waits on the gate. Planning projects the exact gate ID.
+# - INVOKE_SUBWORKFLOW: ``cmm.workflows.graph`` requires id+version; the
+#   permission adapter resolves the child recursively and denies a missing
+#   required child; the executor runs it through the shared WorkflowEngine.
+#   Planning checks exact-version final-authority eligibility.
+# - WAIT_FOR_RESOURCE / LOAD_RESOURCE: ``WorkflowNode`` declares no
+#   canonical resource identity field; workflow resource obligations are
+#   declared solely through ``DomainWorkflowDefinition.required_resources``
+#   (workflow-level final resource eligibility, V6 MAJOR-08). The node
+#   itself is a runtime wait/load whose resource identity is supplied
+#   dynamically at execution time.
+# - VALIDATE: ``cmm.workflows.engine`` evaluates the node wait_condition
+#   fail-closed at runtime; planning-time validation obligations travel
+#   only through the canonical ``required_validations`` request/view seam.
+# - ASK_QUESTION / PAUSE / ESCALATE: runtime control flow owned by the
+#   WorkflowEngine and Phase 9 runtime/recovery; they carry no canonical
+#   planning-time capability/approval field (ESCALATE is not an approval
+#   source; approval nodes are REQUEST_APPROVAL).
+# - PROPOSE_MEMORY / UPDATE_SESSION: memory/session mutation stays owned by
+#   the existing Phase 9/10 runtime safeguards; planning creates no
+#   mutation authority for them.
+# - SEARCH_KNOWLEDGE / RESOLVE_ENTITY / APPLY_PROFILE / REASON /
+#   DETECT_GAPS / EVALUATE_OUTCOME: runtime-internal cognitive nodes; no
+#   canonical planning authority fields, no separate Phase 10.42 constraint.
+# - COMPLETE: terminal marker only (``cmm.workflows.graph`` forbids
+#   successors); introduces no capability authority.
+_V8_WORKFLOW_NODE_TYPE_CLASSIFICATION = {
+    "COMPLETE": "no_additional_phase_10_42_constraint",
+    "EXECUTE_OPERATION": "operation_eligibility",
+    "REQUEST_APPROVAL": "workflow_approval_extraction",
+    "WAIT_FOR_RESOURCE": "deferred_runtime_resource_wait",
+    "ASK_QUESTION": "deferred_runtime_control_flow",
+    "INVOKE_SUBWORKFLOW": "subworkflow_eligibility",
+    "PAUSE": "deferred_runtime_control_flow",
+    "VALIDATE": "deferred_runtime_validation",
+    "PROPOSE_MEMORY": "deferred_runtime_state_mutation",
+    "UPDATE_SESSION": "deferred_runtime_state_mutation",
+    "LOAD_RESOURCE": "deferred_runtime_resource_load",
+    "SEARCH_KNOWLEDGE": "deferred_runtime_cognitive",
+    "RESOLVE_ENTITY": "deferred_runtime_cognitive",
+    "APPLY_PROFILE": "deferred_runtime_cognitive",
+    "REASON": "deferred_runtime_cognitive",
+    "DETECT_GAPS": "deferred_runtime_cognitive",
+    "EVALUATE_OUTCOME": "deferred_runtime_cognitive",
+    "ESCALATE": "deferred_runtime_control_flow",
+}
+
+
+def test_v8_all_canonical_workflow_node_types_classified():
+    """V8: every canonical WorkflowNodeType is explicitly classified.
+
+    The matrix must cover the enum dynamically: adding a new
+    ``WorkflowNodeType`` member without a Phase 10.42 classification fails
+    this gate.
+    """
+    from cmm.workflows.enums import WorkflowNodeType
+
+    enum_names = {node_type.name for node_type in WorkflowNodeType}
+    classified_names = set(_V8_WORKFLOW_NODE_TYPE_CLASSIFICATION)
+    unclassified = sorted(enum_names - classified_names)
+    stale = sorted(classified_names - enum_names)
+    assert unclassified == [], unclassified
+    assert stale == [], stale
+    allowed_categories = {
+        "operation_eligibility",
+        "workflow_approval_extraction",
+        "subworkflow_eligibility",
+        "no_additional_phase_10_42_constraint",
+        "deferred_runtime_resource_wait",
+        "deferred_runtime_resource_load",
+        "deferred_runtime_validation",
+        "deferred_runtime_control_flow",
+        "deferred_runtime_state_mutation",
+        "deferred_runtime_cognitive",
+    }
+    assert set(_V8_WORKFLOW_NODE_TYPE_CLASSIFICATION.values()) <= allowed_categories
+    # Planning-binding categories must name exactly the node forms the
+    # canonical execution/permission semantics treat as capability sources.
+    assert _V8_WORKFLOW_NODE_TYPE_CLASSIFICATION["EXECUTE_OPERATION"] == (
+        "operation_eligibility"
+    )
+    assert _V8_WORKFLOW_NODE_TYPE_CLASSIFICATION["REQUEST_APPROVAL"] == (
+        "workflow_approval_extraction"
+    )
+    assert _V8_WORKFLOW_NODE_TYPE_CLASSIFICATION["INVOKE_SUBWORKFLOW"] == (
+        "subworkflow_eligibility"
+    )
+    # ALL_CANONICAL_WORKFLOW_NODE_TYPES_CLASSIFIED=PASS
+    # UNCLASSIFIED_WORKFLOW_NODE_TYPES=0
+    # WORKFLOW_NODE_TYPE_COUNT=18
+
+
+def _matrix_workflow():
+    """One canonical workflow exercising every non-binding node type."""
+    return DomainWorkflowDefinition(
+        "python.matrix",
+        "domain:python",
+        "1.0.0",
+        "Matrix",
+        nodes=(
+            WorkflowNode(
+                "start",
+                "execute_operation",
+                "Start",
+                operation_id="python.find_symbol",
+                operation_version="1.0.0",
+            ),
+            WorkflowNode(
+                "validate",
+                "validate",
+                "Validate",
+                dependencies=("start",),
+                wait_condition={},
+            ),
+            WorkflowNode(
+                "wait_resource",
+                "wait_for_resource",
+                "WaitForResource",
+                dependencies=("validate",),
+                wait_condition={},
+            ),
+            WorkflowNode("load", "load_resource", "Load", dependencies=("wait_resource",)),
+            WorkflowNode(
+                "ask",
+                "ask_question",
+                "Ask",
+                dependencies=("load",),
+                wait_condition={},
+            ),
+            WorkflowNode("pause", "pause", "Pause", dependencies=("ask",)),
+            WorkflowNode("propose", "propose_memory", "Propose", dependencies=("pause",)),
+            WorkflowNode("session", "update_session", "Session", dependencies=("propose",)),
+            WorkflowNode("search", "search_knowledge", "Search", dependencies=("session",)),
+            WorkflowNode("resolve", "resolve_entity", "Resolve", dependencies=("search",)),
+            WorkflowNode("profile", "apply_profile", "Profile", dependencies=("resolve",)),
+            WorkflowNode("reason", "reason", "Reason", dependencies=("profile",)),
+            WorkflowNode("gaps", "detect_gaps", "Gaps", dependencies=("reason",)),
+            WorkflowNode("outcome", "evaluate_outcome", "Outcome", dependencies=("gaps",)),
+            WorkflowNode("escalate", "escalate", "Escalate", dependencies=("outcome",)),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("escalate",)),
+        ),
+    )
+
+
+def test_v8_non_binding_node_types_add_no_planning_constraints():
+    """V8: runtime-deferred node types introduce no pre-planning obligation.
+
+    A selected workflow containing VALIDATE, WAIT_FOR_RESOURCE,
+    LOAD_RESOURCE, ASK_QUESTION, PAUSE, PROPOSE_MEMORY, UPDATE_SESSION,
+    SEARCH_KNOWLEDGE, RESOLVE_ENTITY, APPLY_PROFILE, REASON, DETECT_GAPS,
+    EVALUATE_OUTCOME, ESCALATE, and COMPLETE nodes stays selectable and
+    plannable with no inferred approvals, no inferred validations, and no
+    node-level resource requirements: those obligations remain owned by the
+    canonical request/view seams and runtime owners.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_matrix_workflow())
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    result = integrator.integrate(
+        _subworkflow_request({"requested_workflow_ids": ["python.matrix"]})
+    )
+
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.matrix",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    # No approval obligation may be inferred from ESCALATE or any other
+    # non-approval node form.
+    assert result.prepared_planning_request.required_approvals == []
+    # VALIDATE nodes do not mint planning-time validation requirements: the
+    # only validation obligation is the one injected by the composition.
+    assert result.prepared_planning_request.required_validations == ["python.schema"]
+    # WAIT_FOR_RESOURCE / LOAD_RESOURCE nodes declare no canonical node-level
+    # resource identity: the planning request carried no resource ids.
+    assert result.prepared_planning_request.resource_ids == []
+    assert service.plan_calls == 1
+    # WORKFLOW_NODE_RESOURCE_SEMANTICS=VERIFIED
+    # WORKFLOW_NODE_VALIDATION_SEMANTICS=VERIFIED
+    # WORKFLOW_CONTROL_NODE_SEMANTICS=VERIFIED
+    # WORKFLOW_COGNITIVE_NODE_SEMANTICS=VERIFIED
+    # WORKFLOW_STATE_MUTATION_NODE_SEMANTICS=VERIFIED
+    # WORKFLOW_COMPLETE_NODE_SEMANTICS=VERIFIED
+
+
+def test_v8_production_node_types_are_classified():
+    """V8: every node type used by production packs is in the matrix."""
+    import importlib
+
+    from cmm.workflows.enums import WorkflowNodeType
+
+    used: set[str] = set()
+    for slug in _all_production_pack_names():
+        workflows_builder = getattr(
+            importlib.import_module(f"cmm.domains.{slug}.workflows"),
+            f"build_{slug}_workflow_definitions",
+        )
+        for workflow in workflows_builder():
+            for node in workflow.nodes:
+                used.add(node.node_type.name)
+    assert used <= set(_V8_WORKFLOW_NODE_TYPE_CLASSIFICATION)
+    assert used <= {node_type.name for node_type in WorkflowNodeType}
