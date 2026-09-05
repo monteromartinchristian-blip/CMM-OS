@@ -37,10 +37,17 @@ from cmm.domains.planner_workflow_integration_contracts import (
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resolver_contracts import DomainResolutionResult
-from cmm.domains.workflow_contracts import DomainWorkflowContext, DomainWorkflowResult
+from cmm.domains.workflow_contracts import (
+    DomainWorkflowContext,
+    DomainWorkflowDefinition,
+    DomainWorkflowResolution,
+    DomainWorkflowResult,
+)
 from cmm.domains.workflow_errors import DomainWorkflowRegistryError
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
+from cmm.domains.workflow_resolution import resolve_domain_workflow
+from cmm.workflows.enums import WorkflowAvailabilityStatus
 from cmm.workflows.errors import WorkflowRegistryError
 
 
@@ -542,6 +549,88 @@ def _stable_dependency_pairs(value: Any, field_name: str) -> list[list[str]]:
     return [[upstream, downstream] for upstream, downstream in pairs]
 
 
+def _resolve_workflow_for_planning(
+    *,
+    definition: DomainWorkflowDefinition,
+    effective_domain_ids: Collection[str],
+    supporting_domain_ids: Collection[str],
+    available_operation_ids: Collection[str],
+    available_permission_ids: Collection[str],
+    available_resource_ids: Collection[str],
+) -> DomainWorkflowResolution:
+    """Project canonical workflow availability under final planning authority.
+
+    Single canonical eligibility path: this reuses the canonical
+    ``resolve_domain_workflow(...)`` semantics rather than duplicating them.
+    The context models exactly the final most-restrictive planning authority
+    of the current integration attempt: prepared permissions, final
+    permission-compatible operation candidates, the canonical planning
+    request's own resource references, and the current effective
+    composition (primary plus supporting Domains as known and authorized).
+
+    The workflow's own approval gates are acknowledged inside this
+    inspection context solely so approval-pending status can never mask a
+    genuine unavailability. They are never treated as granted: outstanding
+    gates are projected into the canonical plan as approval obligations
+    after selection, and execution-time resolution revalidates them.
+    """
+    return resolve_domain_workflow(
+        definition,
+        DomainWorkflowContext(
+            primary_domain_id=definition.domain_id,
+            supporting_domain_ids=tuple(supporting_domain_ids),
+            available_permissions=frozenset(available_permission_ids),
+            denied_permissions=frozenset(),
+            available_resources=frozenset(available_resource_ids),
+            available_operations=frozenset(available_operation_ids),
+            approved_gates=frozenset(definition.approval_gates),
+            known_domain_ids=frozenset(effective_domain_ids),
+            authorized_domain_ids=frozenset(effective_domain_ids),
+        ),
+    )
+
+
+def _final_operation_authority(
+    *,
+    incoming: AgentPlanningRequest,
+    capability_view: DomainPlanningCapabilityView,
+    permissions: Collection[str],
+    operation_definition_provider: (
+        Callable[[str], DomainOperationDefinition | None] | None
+    ),
+) -> tuple[list[str], list[str], list[str]]:
+    """Compute the final allowed/prohibited/candidate operation authority.
+
+    Shared by request preparation and workflow selection so both consume
+    exactly the same final most-restrictive operation authority: the
+    incoming allowlist intersected with the Domain available set (or the
+    full available set when the request declares none), minus the unioned
+    prohibitions, restricted to operations whose canonical required
+    permissions hold under the prepared permissions.
+    """
+    available_operations = set(capability_view.available_operation_ids)
+    if incoming.allowed_operations:
+        allowed = [
+            operation
+            for operation in incoming.allowed_operations
+            if operation in available_operations
+        ]
+    else:
+        allowed = sorted(available_operations)
+    prohibited = _stable_union(
+        incoming.prohibited_operations, capability_view.prohibited_operation_ids
+    )
+    candidates = _permission_compatible_operation_candidates(
+        _stable_operation_candidates(
+            allowed_operations=allowed,
+            prohibited_operations=prohibited,
+        ),
+        permissions=permissions,
+        operation_definition_provider=operation_definition_provider,
+    )
+    return allowed, prohibited, candidates
+
+
 def _prepare_planning_request(
     *,
     incoming: AgentPlanningRequest,
@@ -592,18 +681,17 @@ def _prepare_planning_request(
                 field="selected_workflow_ids",
             )
 
-    available_operations = set(capability_view.available_operation_ids)
-    if incoming.allowed_operations:
-        allowed = [
-            operation
-            for operation in incoming.allowed_operations
-            if operation in available_operations
-        ]
-    else:
-        allowed = sorted(available_operations)
-
-    prohibited = _stable_union(
-        incoming.prohibited_operations, capability_view.prohibited_operation_ids
+    domain_permissions = set(capability_view.required_permission_ids)
+    permissions = [
+        permission
+        for permission in incoming.permissions
+        if permission in domain_permissions
+    ]
+    allowed, prohibited, operation_candidates = _final_operation_authority(
+        incoming=incoming,
+        capability_view=capability_view,
+        permissions=permissions,
+        operation_definition_provider=operation_definition_provider,
     )
     approvals = _stable_union(
         incoming.required_approvals, capability_view.required_approval_ids
@@ -612,24 +700,9 @@ def _prepare_planning_request(
         incoming.required_validations, capability_view.required_validation_ids
     )
 
-    domain_permissions = set(capability_view.required_permission_ids)
-    permissions = [
-        permission
-        for permission in incoming.permissions
-        if permission in domain_permissions
-    ]
-
     metadata = dict(incoming.metadata)
     if selected:
         metadata["workflow_references"] = selected
-    operation_candidates = _permission_compatible_operation_candidates(
-        _stable_operation_candidates(
-            allowed_operations=allowed,
-            prohibited_operations=prohibited,
-        ),
-        permissions=permissions,
-        operation_definition_provider=operation_definition_provider,
-    )
     metadata["operation_candidates"] = operation_candidates
     semantics_rows = _stable_operation_semantics(operation_semantics)
     if semantics_rows:
@@ -917,11 +990,22 @@ class DefaultDomainPlannerWorkflowIntegrator:
             for permission in request.planning_request.permissions
             if permission in domain_permissions
         ]
+        # Final most-restrictive operation authority, computed once and shared
+        # with request preparation so workflow selection validates against the
+        # same final candidate set the planner will consume.
+        _, _, operation_candidates = _final_operation_authority(
+            incoming=request.planning_request,
+            capability_view=view,
+            permissions=prepared_permissions,
+            operation_definition_provider=self._operation_definition_provider,
+        )
         selected = self._select_workflows(
             request=request,
             view=view,
             workflow_registry=self._workflow_registry,
             prepared_permissions=prepared_permissions,
+            available_operation_ids=operation_candidates,
+            available_resource_ids=request.planning_request.resource_ids,
         )
         if selected is None:
             return self._blocked(
@@ -1103,14 +1187,28 @@ class DefaultDomainPlannerWorkflowIntegrator:
         request: DomainPlannerWorkflowIntegrationRequest,
         view: DomainPlanningCapabilityView,
         workflow_registry: InMemoryDomainWorkflowRegistry,
+        *,
         prepared_permissions: Collection[str] = (),
+        available_operation_ids: Collection[str] = (),
+        available_resource_ids: Collection[str] = (),
     ) -> tuple[str, ...] | None:
         """Select explicitly requested workflows; None means fail closed.
 
         Available workflows are planning capabilities, never automatically
         selected actions: without an explicit request nothing is selected.
-        Every selected workflow must additionally satisfy final prepared
-        authority: set(workflow.required_permissions) <= set(prepared_permissions).
+
+        Every selected workflow must satisfy final planning eligibility as a
+        whole, evaluated through the canonical
+        ``_resolve_workflow_for_planning(...)`` projection (no second
+        resolver): it must resolve active from the canonical workflow
+        registry, its required permissions must hold under the final
+        prepared permissions, every EXECUTE_OPERATION node's operation must
+        be in the final permission-compatible operation candidate set, its
+        required resources must be covered by the canonical planning
+        request's resource references, and its Domain references must be
+        compatible with the current effective composition. Approval-pending
+        workflows remain representable: outstanding gates never mask
+        eligibility and are projected as obligations after selection.
         """
         if "requested_workflow_ids" not in request.metadata:
             return ()
@@ -1130,21 +1228,28 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     field="requested_workflow_ids",
                 )
         available = set(view.available_workflow_ids)
-        if any(item not in available for item in requested):
-            return None
-        granted = set(prepared_permissions)
+        effective_domain_ids = (view.primary_domain_id, *view.supporting_domain_ids)
+        granted = frozenset(prepared_permissions)
+        eligible_operations = frozenset(available_operation_ids)
+        resource_references = frozenset(available_resource_ids)
+        selected: list[str] = []
         for item in requested:
+            if item not in available:
+                return None
             try:
                 definition = workflow_registry.resolve_active(item)
             except (WorkflowRegistryError, DomainWorkflowRegistryError, KeyError):
                 return None
-            if any(
-                permission not in granted
-                for permission in definition.required_permissions
-            ):
+            resolution = _resolve_workflow_for_planning(
+                definition=definition,
+                effective_domain_ids=effective_domain_ids,
+                supporting_domain_ids=view.supporting_domain_ids,
+                available_operation_ids=eligible_operations,
+                available_permission_ids=granted,
+                available_resource_ids=resource_references,
+            )
+            if resolution.status is not WorkflowAvailabilityStatus.AVAILABLE:
                 return None
-        selected: list[str] = []
-        for item in requested:
             if item not in selected:
                 selected.append(item)
         return tuple(selected)

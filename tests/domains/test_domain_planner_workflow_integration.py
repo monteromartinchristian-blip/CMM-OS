@@ -96,12 +96,16 @@ def _workflow(workflow_id, domain_id, **kwargs):
         "domain_id": domain_id,
         "version": "1.0.0",
         "name": workflow_id,
+        # V7 MAJOR-08: fixture node operations must be resolvable under the
+        # graph's final planning authority — a selected workflow whose
+        # EXECUTE_OPERATION node references an unavailable operation is
+        # canonically ineligible for planning.
         "nodes": (
             WorkflowNode(
                 "start",
                 "execute_operation",
                 "Start",
-                operation_id="project.inspect",
+                operation_id="python.find_symbol",
                 operation_version="1.0.0",
             ),
             WorkflowNode("finish", "complete", "Finish", dependencies=("start",)),
@@ -2496,7 +2500,10 @@ def test_v6_real_project_workflow_with_permission_plans():
         actor_id="actor-042",
         objective="Setup project",
         permissions=["domain-permission:project:1.0.0"],
-        allowed_operations=["project.review_status"],
+        # V7 MAJOR-08: the requested workflow's EXECUTE_OPERATION node
+        # requires project.create_project_overview, which must be eligible
+        # under the final candidates for the workflow to stay selected.
+        allowed_operations=["project.create_project_overview"],
     )
     request = _project_request(
         planning_request=incoming,
@@ -2541,7 +2548,10 @@ def test_v6_workflow_required_permissions_subset_of_prepared():
         actor_id="actor-042",
         objective="Setup project",
         permissions=["domain-permission:project:1.0.0"],
-        allowed_operations=["project.review_status"],
+        # V7 MAJOR-08: workflow node operations must be final-authority
+        # eligible for selection (see test_v6_real_project_workflow_with_
+        # permission_plans).
+        allowed_operations=["project.create_project_overview"],
     )
     request = _project_request(
         planning_request=incoming,
@@ -2710,3 +2720,547 @@ def test_v6_mixed_workflow_permission_authority():
     assert "domain_workflow_unavailable" in res_mixed.reason_codes
     assert service.plan_calls == 1  # No additional planner call
     # MIXED_WORKFLOW_PERMISSION_AUTHORITY=PASS
+
+
+# ── V7 remediation (V6 MAJOR-08/09): final workflow eligibility + approvals ─
+
+
+def _project_request_with_workflow(workflow_id, incoming):
+    return _project_request(
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": [workflow_id]},
+    )
+
+
+def test_v7_real_project_feature_implementation_without_modify_code_blocked():
+    """V7 MAJOR-08 RED A: ``feature_implementation`` without modify_code blocks.
+
+    Real production ``project.feature_implementation`` requires the
+    ``project.modify_code`` operation node. When ``file.modify`` is absent
+    from final planning authority, ``project.modify_code`` is correctly
+    excluded from the final operation candidates — and the workflow that
+    requires it must then fail selection before planner invocation instead
+    of being selected and planned unblocked.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    feature = workflow_registry.resolve_active("project.feature_implementation")
+    assert feature.approval_gates == ("approval.file.modify",)
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-nomodify",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-nomodify",
+        actor_id="actor-042",
+        objective="Implement feature without code modification authority",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming)
+    )
+
+    candidates = tuple(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert "project.modify_code" not in candidates
+    assert "project.create_implementation_plan" in candidates
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITHOUT_MODIFY_CODE=BLOCKED
+
+
+def test_v7_real_project_feature_implementation_with_modify_code_plans():
+    """V7 MAJOR-08 RED B: fully eligible ``feature_implementation`` plans.
+
+    With ``file.modify`` present in both the Domain and incoming permission
+    authority, every workflow operation node is eligible under the final
+    candidates, so the workflow stays selected and canonical planning
+    succeeds.
+    """
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-modify",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-modify",
+        actor_id="actor-042",
+        objective="Implement feature with full authority",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming)
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.feature_implementation",)
+    assert service.plan_calls == 1
+    assert result.plan.status == WorkflowPlanStatus.VALID
+    assert result.plan.validation.is_valid
+    candidates = tuple(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert {"project.create_implementation_plan", "project.modify_code"} <= set(
+        candidates
+    )
+    # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_MODIFY_CODE=PASS
+
+
+def test_v7_workflow_required_operations_subset_of_effective_operations():
+    """V7 MAJOR-08 RED C: workflow operation nodes ⊆ final effective operations.
+
+    The invariant uses canonical ``WorkflowNodeType.EXECUTE_OPERATION``
+    extraction over the selected workflow definition — never a hardcoded
+    operation ID — and must hold for every selected workflow. When the
+    invariant would be violated, the workflow is not selected at all.
+    """
+    from cmm.workflows.enums import WorkflowNodeType
+
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-subset",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-subset",
+        actor_id="actor-042",
+        objective="Implement feature with full authority",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming)
+    )
+
+    assert result.blocked is False
+    selected = result.selected_domain_workflow_ids
+    candidates = set(
+        result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    for workflow_id in selected:
+        workflow = workflow_registry.resolve_active(workflow_id)
+        required_operations = {
+            node.operation_id
+            for node in workflow.nodes
+            if node.node_type is WorkflowNodeType.EXECUTE_OPERATION
+            and node.operation_id
+        }
+        assert required_operations <= candidates
+    # WORKFLOW_REQUIRED_OPERATIONS_SUBSET_OF_EFFECTIVE_OPERATIONS=PASS
+
+
+def _resourced_workflow_integrator(service, *, enabled=True):
+    """Focused canonical workflow graph declaring a workflow-level resource."""
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.contracts import DomainDefinition, DomainManifestId
+    from cmm.domains.enums import DomainKind, DomainOperationType
+    from cmm.domains.identifiers import DomainId
+    from cmm.domains.operation_contracts import DomainOperationDefinition
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+    from cmm.domains.workflow_contracts import DomainWorkflowDefinition
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.contracts import WorkflowNode
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        DomainDefinition(
+            id=DomainId.from_str("domain:resourced"),
+            name="resourced",
+            display_name="Resourced",
+            version="1.0.0",
+            kind=DomainKind.CORE,
+            description="Resourced domain",
+            manifest_id=DomainManifestId(slug="resourced", version="1.0.0"),
+            enabled=True,
+            operations=("resourced.op",),
+            workflows=("resourced.flow",),
+        )
+    )
+    domain_registry.enable("domain:resourced")
+
+    op_def = DomainOperationDefinition(
+        operation_id="resourced.op",
+        domain_id="domain:resourced",
+        version="1.0.0",
+        name="Resourced Operation",
+        description="Resourced Operation",
+        operation_type=DomainOperationType.READ,
+        reversible=True,
+    )
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    operation_registry.register(op_def, _Implementation(op_def))
+
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    workflow_registry.register(
+        DomainWorkflowDefinition(
+            workflow_id="resourced.flow",
+            domain_id="domain:resourced",
+            version="1.0.0",
+            name="Resourced Workflow",
+            nodes=(
+                WorkflowNode(
+                    "start",
+                    "execute_operation",
+                    "Start",
+                    operation_id="resourced.op",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode("finish", "complete", "Finish", dependencies=("start",)),
+            ),
+            required_resources=("res-alpha",),
+            enabled=enabled,
+        )
+    )
+
+    context = DomainResolutionContext(
+        id="ctx-resourced",
+        user_input="Resourced work",
+        goal_id="goal-resourced",
+        actor="actor-resourced",
+        available_domains=(DomainId(slug="resourced"),),
+        authorized_domains=(DomainId(slug="resourced"),),
+        explicit_domains=(DomainId(slug="resourced"),),
+        resources=(
+            DomainResolutionResource(
+                id="r-resourced",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="resourced"),),
+            ),
+        ),
+    )
+    incoming = _incoming_request(
+        id="req-resourced",
+        goal_id="goal-resourced",
+        agent_run_id="run-resourced",
+        actor_id="actor-resourced",
+        objective="Resourced work",
+        allowed_operations=["resourced.op"],
+    )
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-resourced"),
+        operation_availability=lambda op_id, domain_id: (
+            operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: (
+            op_def if operation_id == "resourced.op" else None
+        ),
+    )
+    request = DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-resourced",
+        resolution_context=context,
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["resourced.flow"]},
+    )
+    return integrator, request
+
+
+def test_v7_workflow_final_resource_compatibility():
+    """V7 MAJOR-08 RED D: workflow resources must hold under final authority.
+
+    No production workflow currently declares a workflow-level
+    ``required_resources`` entry, so per the remediation contract this
+    focused test uses the official in-memory canonical
+    ``DomainWorkflowDefinition`` contract (production coverage explicitly
+    absent). The final planning resource authority is the canonical
+    planning request's own ``resource_ids``; a workflow whose required
+    resources exceed it is not plannable. Providing the required resource
+    makes the same workflow plannable.
+    """
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator, request = _resourced_workflow_integrator(service)
+
+    # The request declares no resources: the workflow requirement is unmet.
+    blocked = integrator.integrate(request)
+    assert "resourced.flow" in blocked.capability_view.available_workflow_ids
+    assert blocked.blocked is True
+    assert blocked.plan is None
+    assert blocked.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in blocked.reason_codes
+
+    # The same workflow with the resource present in the canonical request.
+    from dataclasses import replace
+
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    _, _, service2 = _planning_stack()
+    integrator2, request2 = _resourced_workflow_integrator(service2)
+    granted = integrator2.integrate(
+        replace(
+            request2,
+            request_id="int-req-resourced-granted",
+            planning_request=replace(
+                request2.planning_request, resource_ids=["res-alpha"]
+            ),
+        )
+    )
+    assert granted.blocked is False
+    assert granted.selected_domain_workflow_ids == ("resourced.flow",)
+    assert granted.plan.status == WorkflowPlanStatus.VALID
+    # WORKFLOW_FINAL_RESOURCE_COMPATIBILITY=PASS
+
+
+def _supporting_workflow_integrator(service, *, with_helper: bool):
+    """Focused canonical workflow graph declaring a supporting Domain.
+
+    ``main.flow`` canonically requires supporting domain ``domain:helper``.
+    When ``with_helper`` is true, the resolution context carries helper
+    evidence so the composition includes it; otherwise the effective
+    composition is ``domain:main`` only.
+    """
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.contracts import DomainDefinition, DomainManifestId
+    from cmm.domains.enums import DomainKind, DomainOperationType
+    from cmm.domains.identifiers import DomainId
+    from cmm.domains.operation_contracts import DomainOperationDefinition
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+    from cmm.domains.workflow_contracts import DomainWorkflowDefinition
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+    from cmm.workflows.contracts import WorkflowNode
+
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        DomainDefinition(
+            id=DomainId.from_str("domain:main"),
+            name="main",
+            display_name="Main",
+            version="1.0.0",
+            kind=DomainKind.CORE,
+            description="Main domain",
+            manifest_id=DomainManifestId(slug="main", version="1.0.0"),
+            enabled=True,
+            operations=("main.op",),
+            workflows=("main.flow",),
+        )
+    )
+    domain_registry.register(
+        DomainDefinition(
+            id=DomainId.from_str("domain:helper"),
+            name="helper",
+            display_name="Helper",
+            version="1.0.0",
+            kind=DomainKind.CORE,
+            description="Helper domain",
+            manifest_id=DomainManifestId(slug="helper", version="1.0.0"),
+            enabled=True,
+            operations=("helper.op",),
+        )
+    )
+    domain_registry.enable("domain:main")
+    domain_registry.enable("domain:helper")
+
+    op_def = DomainOperationDefinition(
+        operation_id="main.op",
+        domain_id="domain:main",
+        version="1.0.0",
+        name="Main Operation",
+        description="Main Operation",
+        operation_type=DomainOperationType.READ,
+        reversible=True,
+    )
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    operation_registry.register(op_def, _Implementation(op_def))
+
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    workflow_registry.register(
+        DomainWorkflowDefinition(
+            workflow_id="main.flow",
+            domain_id="domain:main",
+            version="1.0.0",
+            name="Main Workflow",
+            nodes=(
+                WorkflowNode(
+                    "start",
+                    "execute_operation",
+                    "Start",
+                    operation_id="main.op",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode("finish", "complete", "Finish", dependencies=("start",)),
+            ),
+            supporting_domain_ids=("domain:helper",),
+        )
+    )
+
+    resources: tuple = ()
+    if with_helper:
+        resources = (
+            DomainResolutionResource(
+                id="r-helper",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug="helper"),),
+            ),
+        )
+    context = DomainResolutionContext(
+        id="ctx-supporting",
+        user_input="Main work with helper support",
+        goal_id="goal-supporting",
+        actor="actor-supporting",
+        available_domains=(DomainId(slug="main"), DomainId(slug="helper")),
+        authorized_domains=(DomainId(slug="main"), DomainId(slug="helper")),
+        explicit_domains=(DomainId(slug="main"),),
+        resources=resources,
+    )
+    incoming = _incoming_request(
+        id="req-supporting",
+        goal_id="goal-supporting",
+        agent_run_id="run-supporting",
+        actor_id="actor-supporting",
+        objective="Main work with helper support",
+        allowed_operations=["main.op"],
+    )
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=1, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-supporting"),
+        operation_availability=lambda op_id, domain_id: (
+            operation_registry.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: (
+            op_def if operation_id == "main.op" else None
+        ),
+    )
+    request = DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-supporting",
+        resolution_context=context,
+        planning_request=incoming,
+        metadata={"requested_workflow_ids": ["main.flow"]},
+    )
+    return integrator, request
+
+
+def test_v7_workflow_final_composition_compatibility():
+    """V7 MAJOR-08 RED E: workflow Domains must exist in current composition.
+
+    A workflow whose canonical supporting Domain is absent from the current
+    effective composition is not plannable (no parallel composition
+    resolver: the canonical composer owns composition truth). When the
+    composition includes the supporting Domain, the same workflow plans.
+    """
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator, request = _supporting_workflow_integrator(service, with_helper=False)
+
+    blocked = integrator.integrate(request)
+    assert "main.flow" in blocked.capability_view.available_workflow_ids
+    assert blocked.blocked is True
+    assert blocked.plan is None
+    assert blocked.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in blocked.reason_codes
+
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    _, _, service2 = _planning_stack()
+    integrator2, request2 = _supporting_workflow_integrator(service2, with_helper=True)
+    granted = integrator2.integrate(request2)
+
+    assert granted.blocked is False
+    assert granted.selected_domain_workflow_ids == ("main.flow",)
+    assert "domain:helper" in granted.composition.supporting_domains
+    assert granted.plan.status == WorkflowPlanStatus.VALID
+    # WORKFLOW_FINAL_COMPOSITION_COMPATIBILITY=PASS
