@@ -1212,3 +1212,164 @@ def test_at_dp042_real_project_workflow_without_incoming_permission_blocked() ->
     assert "domain_workflow_unavailable" in result.reason_codes
     # REAL_PROJECT_WORKFLOW_WITHOUT_INCOMING_PERMISSION=BLOCKED
     # PERMISSION_INCOMPATIBLE_WORKFLOW_FAILS_BEFORE_PLANNER=PASS
+
+
+# ── AT-DP-042 adversarial coverage (Phase 10.42 V7) ─────────────────────────
+
+
+def test_at_dp042_real_project_selected_workflow_with_unavailable_operation_blocked():
+    """AT-DP-042 (V7): selected workflow with unavailable operation blocks.
+
+    Real production ``project.feature_implementation`` requires the
+    ``project.modify_code`` operation node. With ``file.modify`` absent from
+    final planning authority, the operation is excluded from the final
+    candidates and the workflow must fail selection before planner
+    invocation — planning eligibility agrees with the canonical workflow
+    resolver's ``operation.unavailable`` verdict.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].add("domain-permission:project:1.0.0")
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.feature_implementation"]},
+    )
+    result = integrator.integrate(request)
+
+    assert (
+        "project.modify_code"
+        not in result.prepared_planning_request.metadata["operation_candidates"]
+    )
+    assert result.selected_domain_workflow_ids == ()
+    assert result.blocked is True
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITHOUT_MODIFY_CODE=BLOCKED
+
+
+def test_at_dp042_real_project_unselected_gated_workflow_never_leaks_approvals():
+    """AT-DP-042 (V7): unselected approval-gated workflow leaves plans clean.
+
+    Real production Project Domain: only ``project.review_status`` is
+    planned, no workflow is selected, and the available
+    approval-gated workflows' ``approval.file.modify`` gate must not appear
+    in the prepared requirements or the plan's approval nodes.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].add("domain-permission:project:1.0.0")
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    result = integrator.integrate(replace(base, planning_request=planning_request))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ()
+    assert "project.feature_implementation" in (
+        result.capability_view.available_workflow_ids
+    )
+    assert "approval.file.modify" not in (
+        result.prepared_planning_request.required_approvals
+    )
+    assert result.plan is not None
+    assert all(
+        "approval.file.modify" not in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    # UNSELECTED_WORKFLOW_APPROVAL_GATE_LEAKAGE=0
+
+
+def test_at_dp042_selected_approval_gated_workflow_projects_canonical_requirement():
+    """AT-DP-042 (V7): selected workflow approval gate stays projected.
+
+    Selecting ``python.review`` (canonical gate ``review-board``) under
+    full final eligibility keeps the gate an additive plan obligation:
+    the prepared request requires it and the canonical approval nodes
+    trace the exact approval ID. No approval is synthesized as granted.
+    """
+    graph = _build_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(_integration_request(graph))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.review",)
+    assert result.prepared_planning_request.required_approvals == ["review-board"]
+    assert result.plan is not None
+    assert result.plan.approval_nodes
+    assert any(
+        "review-board" in node.required_approvers
+        and "review-board" in node.metadata.get("approval_requirement_ids", [])
+        for node in result.plan.approval_nodes
+    )
+    assert all(node.pending for node in result.plan.approval_nodes)
+    validation = graph.service.validate_plan(
+        result.plan, request=result.prepared_planning_request
+    )
+    assert validation.is_valid
+    # SELECTED_WORKFLOW_APPROVAL_GATE_PROJECTED=PASS
+
+
+def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
+    """AT-DP-042 (V7): fully eligible real workflow plans with obligation.
+
+    ``project.feature_implementation`` with ``file.modify`` present in both
+    permission authorities stays selected, plans canonically, and keeps its
+    outstanding approval gate as a projected obligation.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.feature_implementation"]},
+    )
+    result = integrator.integrate(request)
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.feature_implementation",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert "approval.file.modify" in result.prepared_planning_request.required_approvals
+    assert any(
+        "approval.file.modify" in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_MODIFY_CODE=PASS
+    # WORKFLOW_APPROVAL_OBLIGATION_REPRESENTABLE=PASS
