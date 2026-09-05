@@ -573,11 +573,14 @@ def test_at_dp042_connected_planning_operation_workflow_chain() -> None:
     assert "filesystem.delete_file" in (
         result.prepared_planning_request.prohibited_operations
     )
-    assert result.prepared_planning_request.required_approvals == ["review-board"]
+    # V7 MAJOR-09: the selected python.simple workflow carries no approval
+    # gate, and gates of available-but-unselected workflows (python.review's
+    # review-board) must not leak into the plan-wide requirements.
+    assert result.prepared_planning_request.required_approvals == []
     assert result.prepared_planning_request.required_validations == ["python.schema"]
     assert result.plan.metadata["workflow_references"] == ["python.simple"]
     assert result.selected_domain_workflow_ids == ("python.simple",)
-    assert len(result.plan.approval_nodes) > 0
+    assert len(result.plan.approval_nodes) == 0
     assert len(result.plan.validation_nodes) > 0
     assert all(node.required and node.blocking for node in result.plan.validation_nodes)
     validation = graph.service.validate_plan(

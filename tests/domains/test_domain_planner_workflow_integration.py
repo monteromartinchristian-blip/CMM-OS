@@ -295,9 +295,18 @@ def test_capability_view_excludes_permission_denied_workflows():
     assert view.available_workflow_ids == ()
 
 
-def test_capability_view_unions_workflow_approval_gates():
+def test_capability_view_keeps_workflow_approval_gates_out_of_global_approvals():
+    """V7 MAJOR-09: workflow gates are selection-scoped, never plan-wide.
+
+    The capability view carries only injected global/composition approval
+    requirements. Gates of available workflows stay on their canonical
+    definitions: ``project.review`` requires ``review-board``, but that
+    gate must not appear in the plan-wide projection merely because the
+    workflow is available (V6 MAJOR-09 root cause).
+    """
     view = _view(required_approval_ids=("change-advisory",))
-    assert view.required_approval_ids == ("change-advisory", "review-board")
+    assert view.required_approval_ids == ("change-advisory",)
+    assert "review-board" not in view.required_approval_ids
 
 
 def test_capability_view_copies_dependency_ids_deterministically():
@@ -3264,3 +3273,480 @@ def test_v7_workflow_final_composition_compatibility():
     assert "domain:helper" in granted.composition.supporting_domains
     assert granted.plan.status == WorkflowPlanStatus.VALID
     # WORKFLOW_FINAL_COMPOSITION_COMPATIBILITY=PASS
+
+
+def test_v7_workflow_approval_obligation_representable():
+    """V7 RED F: outstanding approval never blocks a representable workflow.
+
+    ``project.feature_implementation`` with every availability constraint
+    satisfied stays selected and plannable while its canonical approval
+    gate is outstanding: the obligation is projected into the plan instead
+    of being treated as granted or as unavailability.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-approval-repr",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-approval-repr",
+        actor_id="actor-042",
+        objective="Implement feature with outstanding approval",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming)
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.feature_implementation",)
+    assert "approval.file.modify" in result.prepared_planning_request.required_approvals
+    assert result.plan is not None
+    assert any(
+        "approval.file.modify" in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    # No approval is synthesized as granted: the gate stays a pending
+    # canonical obligation on the plan.
+    assert all(node.pending for node in result.plan.approval_nodes)
+    # WORKFLOW_APPROVAL_OBLIGATION_REPRESENTABLE=PASS
+
+
+def test_v7_unselected_workflow_approval_gate_leakage_zero():
+    """V7 MAJOR-09 RED G: unselected workflow gates never leak plan-wide.
+
+    Real production Project Domain: only ``project.review_status`` is
+    planned and no workflow is selected, while approval-gated workflows
+    (``project.feature_implementation`` and friends) remain available. The
+    ``approval.file.modify`` gate belongs only to those unselected
+    workflows and must not appear anywhere in the prepared plan.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-leak",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-leak",
+        actor_id="actor-042",
+        objective="Review project status",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ()
+    assert "project.feature_implementation" in (
+        result.capability_view.available_workflow_ids
+    )
+    assert "approval.file.modify" not in (
+        result.prepared_planning_request.required_approvals
+    )
+    assert result.plan is not None
+    leaking = [
+        node
+        for node in result.plan.approval_nodes
+        if "approval.file.modify" in node.required_approvers
+    ]
+    assert leaking == []
+    # UNSELECTED_WORKFLOW_APPROVAL_GATE_LEAKAGE=0
+
+
+def test_v7_selected_workflow_approval_gate_projected():
+    """V7 MAJOR-09 RED H: selected workflow gates stay projected.
+
+    When ``project.feature_implementation`` is selected with all final
+    availability constraints satisfied, its ``approval.file.modify`` gate
+    remains an additive plan obligation and the canonical approval nodes
+    trace the exact approval ID.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-projected",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-projected",
+        actor_id="actor-042",
+        objective="Implement feature with full authority",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming)
+    )
+
+    assert result.blocked is False
+    assert "project.feature_implementation" in result.selected_domain_workflow_ids
+    assert "approval.file.modify" in result.prepared_planning_request.required_approvals
+    assert result.plan is not None
+    assert any(
+        "approval.file.modify" in node.required_approvers
+        and "approval.file.modify"
+        in node.metadata.get("approval_requirement_ids", [])
+        for node in result.plan.approval_nodes
+    )
+    # SELECTED_WORKFLOW_APPROVAL_GATE_PROJECTED=PASS
+
+
+def test_v7_incoming_global_approval_requirements_preserved():
+    """V7 RED I: incoming canonical approval requirements stay additive.
+
+    An unrelated incoming approval obligation survives unchanged while no
+    workflow is selected, and no workflow-only gate is added on top.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack()
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-incoming",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-incoming",
+        actor_id="actor-042",
+        objective="Review project status under a global approval",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+        required_approvals=["approval.global.example"],
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ()
+    approvals = result.prepared_planning_request.required_approvals
+    assert "approval.global.example" in approvals
+    assert "approval.file.modify" not in approvals
+    assert any(
+        "approval.global.example" in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    # INCOMING_GLOBAL_APPROVAL_REQUIREMENTS_PRESERVED=PASS
+
+
+def test_v7_operation_specific_approval_requirements_preserved():
+    """V7 RED J: operation-specific approvals stay traceable.
+
+    The production ``project.modify_code`` operation canonically requires
+    approval through the existing V1 semantics. With no workflow selected,
+    the planned operation still carries ``requires_approval`` and the
+    canonical approval node traces the injected composition approval ID —
+    the leakage fix must not strip operation-level obligations.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    assert definitions["project.modify_code"].requires_approval is True
+    _, _, service = _planning_stack()
+    incoming = _incoming_request(
+        id="req-042-v7-opspecific",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-opspecific",
+        actor_id="actor-042",
+        objective="Modify project code under operation approval",
+        permissions=["file.modify"],
+        allowed_operations=["project.modify_code"],
+    )
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-opspecific"),
+        operation_availability=availability,
+        permission_ids_provider=lambda composition: (
+            "file.modify",
+            "approval.review-board",
+        ),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: ("approval.review-board",),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: definitions.get(
+            operation_id
+        ),
+    )
+    result = integrator.integrate(_project_request(planning_request=incoming))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ()
+    planned = [operation for operation in result.plan.operations]
+    assert planned and all(
+        operation.operation_name == "project.modify_code" for operation in planned
+    )
+    assert all(operation.requires_approval for operation in planned)
+    assert any(
+        "approval.review-board" in node.required_approvers
+        for node in result.plan.approval_nodes
+    )
+    # OPERATION_SPECIFIC_APPROVAL_REQUIREMENTS_PRESERVED=PASS
+
+
+def test_v7_workflow_planning_eligibility_matrix():
+    """V7: encode the complete workflow planning eligibility table.
+
+    | Condition                                | Workflow planning result      |
+    |------------------------------------------|-------------------------------|
+    | inactive / unregistered                  | BLOCK                         |
+    | required planning permission missing     | BLOCK                         |
+    | required operation unavailable           | BLOCK                         |
+    | required resource unavailable            | BLOCK                         |
+    | required/supporting Domain incompatible  | BLOCK                         |
+    | approval outstanding but representable   | ALLOW + approval obligation   |
+    | all constraints satisfied                | ALLOW                         |
+    | available-but-unselected workflow gate   | DO NOT PROJECT                |
+    """
+    # Row 1: unregistered workflow → BLOCK.
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+    ) = _project_workflow_graph()
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming = _incoming_request(
+        id="req-042-v7-matrix-1",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-matrix-1",
+        actor_id="actor-042",
+        objective="Request unregistered workflow",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    result = integrator.integrate(
+        _project_request(
+            planning_request=incoming,
+            metadata={"requested_workflow_ids": ["project.does_not_exist"]},
+        )
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    # Matrix row 1: inactive/unregistered → BLOCK
+
+    # Row 1b: disabled workflow → BLOCK (registry truth: not resolvable active).
+    _, _, service_disabled = _planning_stack(_CountingPlanningService)
+    disabled_integrator, disabled_request = _resourced_workflow_integrator(
+        service_disabled, enabled=False
+    )
+    disabled_result = disabled_integrator.integrate(disabled_request)
+    assert disabled_result.blocked is True
+    assert disabled_result.plan is None
+    assert disabled_result.selected_domain_workflow_ids == ()
+    assert service_disabled.plan_calls == 0
+    # Matrix row 1: inactive → BLOCK
+
+    # Row 2: required planning permission missing → BLOCK.
+    _, _, service2 = _planning_stack(_CountingPlanningService)
+    integrator2 = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service2,
+        effective_permissions=("domain-permission:project:1.0.0",),
+    )
+    incoming2 = _incoming_request(
+        id="req-042-v7-matrix-2",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-matrix-2",
+        actor_id="actor-042",
+        objective="Setup project without permission",
+        permissions=[],
+        allowed_operations=["project.create_project_overview"],
+    )
+    result2 = integrator2.integrate(
+        _project_request_with_workflow("project.project_setup", incoming2)
+    )
+    assert result2.blocked is True
+    assert result2.plan is None
+    assert service2.plan_calls == 0
+    # Matrix row 2: required planning permission missing → BLOCK
+
+    # Row 3: required operation unavailable under final authority → BLOCK.
+    incoming3 = _incoming_request(
+        id="req-042-v7-matrix-3",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-matrix-3",
+        actor_id="actor-042",
+        objective="Implement feature without modify authority",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result3 = integrator2.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming3)
+    )
+    assert result3.blocked is True
+    assert result3.plan is None
+    assert service2.plan_calls == 0
+    # Matrix row 3: required operation unavailable → BLOCK
+
+    # Row 4: required resource unavailable → BLOCK.
+    _, _, service4 = _planning_stack(_CountingPlanningService)
+    resource_integrator, resource_request = _resourced_workflow_integrator(service4)
+    result4 = resource_integrator.integrate(resource_request)
+    assert result4.blocked is True
+    assert result4.plan is None
+    assert service4.plan_calls == 0
+    # Matrix row 4: required resource unavailable → BLOCK
+
+    # Row 5: required supporting Domain incompatible → BLOCK.
+    _, _, service5 = _planning_stack(_CountingPlanningService)
+    composition_integrator, composition_request = _supporting_workflow_integrator(
+        service5, with_helper=False
+    )
+    result5 = composition_integrator.integrate(composition_request)
+    assert result5.blocked is True
+    assert result5.plan is None
+    assert service5.plan_calls == 0
+    # Matrix row 5: required/supporting Domain incompatible → BLOCK
+
+    # Row 6: approval outstanding but representable → ALLOW + obligation.
+    _, _, service6 = _planning_stack()
+    integrator6 = _project_permission_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        availability,
+        service6,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming6 = _incoming_request(
+        id="req-042-v7-matrix-6",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-matrix-6",
+        actor_id="actor-042",
+        objective="Implement feature with outstanding approval",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result6 = integrator6.integrate(
+        _project_request_with_workflow("project.feature_implementation", incoming6)
+    )
+    assert result6.blocked is False
+    assert result6.selected_domain_workflow_ids == ("project.feature_implementation",)
+    assert "approval.file.modify" in result6.prepared_planning_request.required_approvals
+    # Matrix row 6: approval outstanding but representable → ALLOW + obligation
+
+    # Row 7: all constraints satisfied → ALLOW.
+    assert result6.plan is not None
+    assert result6.plan.validation.is_valid
+    # Matrix row 7: all constraints satisfied → ALLOW
+
+    # Row 8: available-but-unselected workflow approval gate → DO NOT PROJECT.
+    incoming8 = _incoming_request(
+        id="req-042-v7-matrix-8",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v7-matrix-8",
+        actor_id="actor-042",
+        objective="Review project status",
+        permissions=["domain-permission:project:1.0.0"],
+        allowed_operations=["project.review_status"],
+    )
+    result8 = integrator6.integrate(_project_request(planning_request=incoming8))
+    assert result8.blocked is False
+    assert result8.selected_domain_workflow_ids == ()
+    assert "approval.file.modify" not in (
+        result8.prepared_planning_request.required_approvals
+    )
+    # Matrix row 8: available-but-unselected workflow gate → DO NOT PROJECT
+
+    # WORKFLOW_PLANNING_ELIGIBILITY_MATRIX=PASS

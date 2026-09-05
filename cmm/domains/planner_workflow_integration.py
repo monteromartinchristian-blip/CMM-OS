@@ -175,6 +175,13 @@ def _build_capability_view(
     callable, which the owner wires to the canonical operation and permission
     infrastructure. Per-workflow permission filtering uses the workflow
     definitions visible through the workflow registry.
+
+    ``required_approval_ids`` carries only injected global/composition
+    approval requirements: plan-wide obligations that hold regardless of
+    what is later selected. Per-workflow ``approval_gates`` stay on their
+    canonical ``DomainWorkflowDefinition`` and are joined only when that
+    workflow is actually selected for planning, so gates of
+    available-but-unselected workflows can never leak into a plan.
     """
     if type(resolution) is not DomainResolutionResult:
         raise DomainContractValidationError(
@@ -243,7 +250,6 @@ def _build_capability_view(
 
     available_workflows: set[str] = set()
     workflow_dependency_rows: dict[str, tuple[str, ...]] = {}
-    workflow_approval_gates: set[str] = set()
     for domain_id in effective_domains:
         for workflow_id in domain_registry.list_workflows(domain_id):
             try:
@@ -268,13 +274,9 @@ def _build_capability_view(
             )
             if node_deps:
                 workflow_dependency_rows[workflow_id] = node_deps
-            workflow_approval_gates.update(workflow.approval_gates)
 
     required_approvals = tuple(
-        sorted(
-            set(_clean_ids(required_approval_ids, "required_approval_ids"))
-            | workflow_approval_gates
-        )
+        sorted(set(_clean_ids(required_approval_ids, "required_approval_ids")))
     )
     blocking_conflicts = tuple(
         sorted(
@@ -590,6 +592,14 @@ def _resolve_workflow_for_planning(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _WorkflowSelection:
+    """Selected workflow IDs plus their canonical approval-gate obligations."""
+
+    workflow_ids: tuple[str, ...]
+    approval_gate_ids: tuple[str, ...]
+
+
 def _final_operation_authority(
     *,
     incoming: AgentPlanningRequest,
@@ -636,6 +646,7 @@ def _prepare_planning_request(
     incoming: AgentPlanningRequest,
     capability_view: DomainPlanningCapabilityView,
     selected_workflow_ids: Collection[str] = (),
+    workflow_approval_ids: Collection[str] = (),
     operation_semantics: Mapping[str, Mapping[str, Any]] | None = None,
     operation_dependencies: Collection[Any] | None = None,
     operation_definition_provider: (
@@ -662,6 +673,14 @@ def _prepare_planning_request(
     required permissions are all present in the prepared effective
     permissions; candidates without a known definition keep the existing
     registration/availability verdict.
+
+    ``workflow_approval_ids`` carries the canonical approval gates of the
+    workflows actually selected for this request, collected after selection.
+    Plan-wide required approvals are therefore exactly: incoming canonical
+    requirements ∪ global/composition Domain requirements ∪ selected
+    workflow approval gates ∪ operation-specific obligations projected by
+    the canonical planner. Approval gates of available-but-unselected
+    workflows never enter the prepared request.
     """
     if type(incoming) is not AgentPlanningRequest:
         raise DomainContractValidationError(
@@ -694,7 +713,10 @@ def _prepare_planning_request(
         operation_definition_provider=operation_definition_provider,
     )
     approvals = _stable_union(
-        incoming.required_approvals, capability_view.required_approval_ids
+        _stable_union(
+            incoming.required_approvals, capability_view.required_approval_ids
+        ),
+        workflow_approval_ids,
     )
     validations = _stable_union(
         incoming.required_validations, capability_view.required_validation_ids
@@ -999,7 +1021,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             permissions=prepared_permissions,
             operation_definition_provider=self._operation_definition_provider,
         )
-        selected = self._select_workflows(
+        selection = self._select_workflows(
             request=request,
             view=view,
             workflow_registry=self._workflow_registry,
@@ -1007,7 +1029,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             available_operation_ids=operation_candidates,
             available_resource_ids=request.planning_request.resource_ids,
         )
-        if selected is None:
+        if selection is None:
             return self._blocked(
                 request=request,
                 resolution=resolution,
@@ -1025,7 +1047,8 @@ class DefaultDomainPlannerWorkflowIntegrator:
         prepared = _prepare_planning_request(
             incoming=request.planning_request,
             capability_view=view,
-            selected_workflow_ids=selected,
+            selected_workflow_ids=selection.workflow_ids,
+            workflow_approval_ids=selection.approval_gate_ids,
             operation_semantics=operation_semantics,
             operation_dependencies=operation_dependencies,
             operation_definition_provider=self._operation_definition_provider,
@@ -1040,7 +1063,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=prepared,
-                selected=selected,
+                selected=selection.workflow_ids,
                 reason_codes=("domain_no_permitted_operations",),
             )
         if not prepared.metadata.get("operation_candidates", ["_sentinel"]):
@@ -1053,7 +1076,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=prepared,
-                selected=selected,
+                selected=selection.workflow_ids,
                 reason_codes=("domain_no_permitted_operations",),
             )
         if (
@@ -1067,7 +1090,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 composition=composition,
                 view=view,
                 prepared=prepared,
-                selected=selected,
+                selected=selection.workflow_ids,
                 reason_codes=("domain_permission_unsatisfiable",),
             )
         return _PlanningAttempt(
@@ -1075,7 +1098,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             composition=composition,
             view=view,
             prepared=prepared,
-            selected=selected,
+            selected=selection.workflow_ids,
         )
 
     def _finish(
@@ -1191,7 +1214,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
         prepared_permissions: Collection[str] = (),
         available_operation_ids: Collection[str] = (),
         available_resource_ids: Collection[str] = (),
-    ) -> tuple[str, ...] | None:
+    ) -> _WorkflowSelection | None:
         """Select explicitly requested workflows; None means fail closed.
 
         Available workflows are planning capabilities, never automatically
@@ -1211,7 +1234,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
         eligibility and are projected as obligations after selection.
         """
         if "requested_workflow_ids" not in request.metadata:
-            return ()
+            return _WorkflowSelection(workflow_ids=(), approval_gate_ids=())
         requested_raw = request.metadata["requested_workflow_ids"]
         if isinstance(requested_raw, (str, bytes)) or not isinstance(
             requested_raw, (list, tuple)
@@ -1233,6 +1256,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
         eligible_operations = frozenset(available_operation_ids)
         resource_references = frozenset(available_resource_ids)
         selected: list[str] = []
+        approval_gates: set[str] = set()
         for item in requested:
             if item not in available:
                 return None
@@ -1252,7 +1276,11 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 return None
             if item not in selected:
                 selected.append(item)
-        return tuple(selected)
+            approval_gates.update(definition.approval_gates)
+        return _WorkflowSelection(
+            workflow_ids=tuple(selected),
+            approval_gate_ids=tuple(sorted(approval_gates)),
+        )
 
     @staticmethod
     def _blocked(
