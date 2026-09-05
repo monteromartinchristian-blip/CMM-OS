@@ -2,19 +2,18 @@
 
 Thank you for your interest in contributing to **CMM OS**.
 
+Agents developing this repository follow [AGENTS.md](AGENTS.md). This document
+supplies contributor conventions and commands, not additional authorization.
+
 CMM OS is an AI-native software-engineering runtime focused on structured, validated, reversible, and policy-controlled code transformation. Contributions are welcome when they preserve the project's core guarantees: explicit contracts, safe execution, validation before trust, reversibility, traceability, and least privilege.
 
 ---
 
 ## Project status
 
-The current stable release is `v0.7.0`.
-
-Phases 0–6 are implemented and audited. The active development target is:
-
-- Phase 7 — Continuous Validation
-
-The full roadmap is available in [`ROADMAP.md`](ROADMAP.md), with detailed specifications under [`docs/roadmap/`](docs/roadmap/).
+Consult [`ROADMAP.md`](ROADMAP.md) and the relevant phase reference for current
+status; historical plans are not an instruction to restart a completed phase.
+Detailed specifications live under [`docs/roadmap/`](docs/roadmap/).
 
 ---
 
@@ -32,7 +31,9 @@ You can contribute by:
 - improving developer tooling and CI;
 - contributing new semantic operations or transformation support.
 
-For substantial changes, open an issue before starting implementation so the scope and contracts can be agreed first.
+For substantial changes, agree scope and contracts through an issue, a design
+proposal or an explicit approved task before implementation. Publish an issue
+only when that external action is authorized; an agreed local spec is sufficient.
 
 ---
 
@@ -42,7 +43,7 @@ All contributions must follow these principles:
 
 - use explicit, typed contracts;
 - prefer structured results over free-form output;
-- avoid unrestricted shell execution;
+- do not introduce unrestricted shell execution into product operations;
 - preserve rollback whenever technically possible;
 - validate before and after mutation;
 - keep side effects explicit and observable;
@@ -51,9 +52,10 @@ All contributions must follow these principles:
 - avoid hidden autonomy;
 - respect least privilege;
 - preserve backward compatibility unless a breaking change is explicitly approved;
-- include tests and documentation with every meaningful change.
+- include meaningful tests for behavior changes and documentation for affected contracts or usage.
 
-Unsafe or ambiguous behavior should fail before mutation.
+Product operations must reject unsafe or unsupported ambiguous input before
+mutation. Developer uncertainty follows the recovery policy in AGENTS.md.
 
 ---
 
@@ -61,7 +63,7 @@ Unsafe or ambiguous behavior should fail before mutation.
 
 ### Requirements
 
-- Python 3.11 or newer;
+- Python 3.10 or newer, matching `pyproject.toml` and CI;
 - Git;
 - a virtual environment tool;
 - project dependencies installed from the repository configuration.
@@ -92,7 +94,7 @@ On Windows:
 pip install -e .
 ```
 
-Install development dependencies when available:
+Install the declared development dependencies when setting up an environment:
 
 ```bash
 pip install -e ".[dev]"
@@ -102,20 +104,31 @@ pip install -e ".[dev]"
 
 ## Running tests
 
-Run the complete test suite before submitting a pull request:
+Use the project's virtual environment (`source .venv/bin/activate`, or prefix
+commands with `.venv/bin/python`). Run the complete test suite before submitting
+a pull request, and at final verification of a code change:
 
 ```bash
-pytest
+python -m pytest -ra
 ```
 
-When working on a focused area, run the relevant tests first, then the full suite:
+During implementation, run the relevant tests first, then the full suite at the
+code-change boundary above. For example, select the affected test file:
 
 ```bash
-pytest tests/path/to/relevant_tests.py
-pytest
+python -m pytest tests/path/to/relevant_tests.py -q
+python -m pytest -ra
 ```
 
 A pull request should not be considered ready while the full suite is failing.
+
+Pure documentation/instruction changes use link, example, scope and behavioral
+scenario checks as applicable; they do not require artificial Python tests or a
+full product suite for local delivery. This exception does not waive a task's
+explicit gates or the full-suite requirement for PR submission. A change to an
+executable example, CI command or runtime behavior needs the affected technical
+checks. Reuse valid evidence according to AGENTS.md rather than rerunning at
+each role transition.
 
 ---
 
@@ -124,11 +137,15 @@ A pull request should not be considered ready while the full suite is failing.
 Depending on the change, contributors should run the relevant checks:
 
 ```bash
-python -m compileall src tests
-pytest
+python -m compileall -q cmm cmm_agent kernel tests
+python -m pytest -ra
 ```
 
-If formatter, lint, type-checking, or security commands are defined in the repository, run them as well before opening a pull request.
+For changed Python files, run `python -m ruff check <changed-python-paths>` and
+`python -m ruff format --check <changed-python-paths>`. Run applicable type,
+security and phase-specific gates when their contracts require them; an installed
+optional tool alone is not a command or a new gate. Do not silently omit a
+required check because it fails or is unavailable.
 
 Changes involving source transformation must also verify:
 
@@ -144,13 +161,9 @@ Changes involving source transformation must also verify:
 
 ## Branches
 
-Create a focused branch from the latest `main`:
-
-```bash
-git checkout main
-git pull
-git checkout -b type/short-description
-```
+For a new contribution, create a focused branch from the intended base. For an
+ongoing task, inspect the current branch and worktree first and follow the Git
+policy in AGENTS.md. Do not switch branches or pull just to follow a setup example.
 
 Recommended prefixes:
 
@@ -178,6 +191,9 @@ test/move-package-edge-cases
 ## Commits
 
 Use concise, descriptive commit messages.
+
+Commit only when authorized by the current task as defined in AGENTS.md; the
+examples below do not grant authorization or require a commit for local delivery.
 
 Recommended format:
 
@@ -217,7 +233,7 @@ A pull request should:
 - describe the implementation;
 - identify affected contracts and components;
 - list validation performed;
-- include tests;
+- include meaningful tests for behavior changes, or explain the checks applicable to a documentation-only change;
 - document limitations;
 - mention migration or compatibility impact;
 - link the relevant issue when one exists.
@@ -227,7 +243,7 @@ Use this checklist:
 ```text
 [ ] The change is focused and scoped.
 [ ] Public contracts remain compatible or the breaking change is documented.
-[ ] Tests were added or updated.
+[ ] Behavior changes have meaningful tests; document-only checks are identified.
 [ ] The full test suite passes.
 [ ] Validation and rollback behavior were verified.
 [ ] Documentation was updated.
@@ -251,7 +267,8 @@ Pull requests may be rejected when they:
 
 ## Architecture changes
 
-Significant architecture changes should begin with an issue or design proposal.
+Significant architecture changes should begin with an agreed design proposal
+or issue; a design already approved for the current task need not be reapproved.
 
 The proposal should include:
 
@@ -374,9 +391,8 @@ Feature requests should describe:
 
 Do not report security vulnerabilities in public issues.
 
-Follow the instructions in [`SECURITY.md`](SECURITY.md) once available.
-
-Until then, contact the maintainer privately through the GitHub profile associated with this repository.
+Follow [`SECURITY.md`](SECURITY.md). Publication or messaging still requires
+authorization for that action; prepare the report locally when not yet authorized.
 
 ---
 

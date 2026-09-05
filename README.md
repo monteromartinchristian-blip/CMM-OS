@@ -1,5 +1,9 @@
 # CMM OS
 
+For repository engineering work, start with [AGENTS.md](AGENTS.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). Product/runtime agent documentation is not
+the developer assistant's instruction policy.
+
 **CMM OS is a local-first, provider-independent personal AI operating system in active development, designed for persistent knowledge, domain intelligence, goal-driven agents, and validated action.**
 
 CMM OS turns interchangeable AI models into components of a larger persistent system. Rather than making one model or one chat interface the product, it provides the surrounding architecture for context, memory, structured knowledge, reasoning, goals, domain specialization, permissions, validation, controlled execution, recovery, and human supervision.
