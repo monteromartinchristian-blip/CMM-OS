@@ -594,10 +594,17 @@ def _resolve_workflow_for_planning(
 
 @dataclass(frozen=True, slots=True)
 class _WorkflowSelection:
-    """Selected workflow IDs plus their canonical approval-gate obligations."""
+    """Selected workflow IDs plus their canonical approval-gate obligations.
+
+    ``failure_reason`` is ``None`` when selection succeeded (including the
+    valid empty selection when nothing was requested); otherwise it carries
+    the deterministic Domain-side blocked reason for the first failing
+    workflow obligation.
+    """
 
     workflow_ids: tuple[str, ...]
     approval_gate_ids: tuple[str, ...]
+    failure_reason: str | None = None
 
 
 def _workflow_approval_ids(definition: DomainWorkflowDefinition) -> tuple[str, ...]:
@@ -628,6 +635,87 @@ def _workflow_approval_ids(definition: DomainWorkflowDefinition) -> tuple[str, .
             if source:
                 ids.add(source)
     return tuple(sorted(ids))
+
+
+def _required_subworkflow_closure_for_planning(
+    *,
+    definition: DomainWorkflowDefinition,
+    workflow_registry: InMemoryDomainWorkflowRegistry,
+    effective_domain_ids: Collection[str],
+    supporting_domain_ids: Collection[str],
+    available_operation_ids: Collection[str],
+    available_permission_ids: Collection[str],
+    available_resource_ids: Collection[str],
+    ancestry: tuple[tuple[str, str], ...] = (),
+) -> tuple[bool, tuple[str, ...]]:
+    """Check required subworkflow dependencies under the final authority.
+
+    For every ``required`` ``INVOKE_SUBWORKFLOW`` node reachable from the
+    selected workflow, the exact referenced child (``subworkflow_id``,
+    ``subworkflow_version``) must resolve from the canonical workflow
+    registry and be fully available under the same final planning authority
+    as the parent — same prepared permissions, same permission-compatible
+    operation candidates, same planning resource references, same effective
+    composition — evaluated through the canonical
+    ``_resolve_workflow_for_planning(...)`` projection (no second resolver).
+    Required children are checked recursively; optional nodes follow the
+    canonical execution/permission semantics, where an unavailable optional
+    node is skipped instead of blocking the workflow.
+
+    ``ancestry`` carries the (workflow_id, version) chain currently being
+    evaluated; a repeated key is a versioned subworkflow cycle, which fails
+    closed deterministically (mirroring the canonical registry-wide cycle
+    rule in ``cmm.workflows.registry``). The helper is pure and side-effect
+    free. Returns ``(eligible, approval_ids)`` where ``approval_ids`` is the
+    deduplicated canonical approval obligations of every eligible required
+    child in the closure, to be projected with the parent's own obligations.
+    """
+    approval_ids: set[str] = set()
+    for node in definition.nodes:
+        if node.node_type is not WorkflowNodeType.INVOKE_SUBWORKFLOW:
+            continue
+        if not node.required:
+            continue
+        child_id = node.subworkflow_id
+        child_version = node.subworkflow_version
+        if not child_id or not child_version:
+            # Non-canonical reference: the canonical graph validator rejects
+            # it at registration; fail closed here as well.
+            return False, ()
+        key = (child_id, child_version)
+        if key in ancestry:
+            return False, ()
+        try:
+            child = workflow_registry.get(child_id, child_version)
+        except (KeyError, WorkflowRegistryError, DomainWorkflowRegistryError):
+            return False, ()
+        resolution = _resolve_workflow_for_planning(
+            definition=child,
+            effective_domain_ids=effective_domain_ids,
+            supporting_domain_ids=supporting_domain_ids,
+            available_operation_ids=available_operation_ids,
+            available_permission_ids=available_permission_ids,
+            available_resource_ids=available_resource_ids,
+        )
+        if resolution.status is not WorkflowAvailabilityStatus.AVAILABLE:
+            return False, ()
+        approval_ids.update(_workflow_approval_ids(child))
+        nested_eligible, nested_approval_ids = (
+            _required_subworkflow_closure_for_planning(
+                definition=child,
+                workflow_registry=workflow_registry,
+                effective_domain_ids=effective_domain_ids,
+                supporting_domain_ids=supporting_domain_ids,
+                available_operation_ids=available_operation_ids,
+                available_permission_ids=available_permission_ids,
+                available_resource_ids=available_resource_ids,
+                ancestry=(*ancestry, key),
+            )
+        )
+        if not nested_eligible:
+            return False, ()
+        approval_ids.update(nested_approval_ids)
+    return True, tuple(sorted(approval_ids))
 
 
 def _final_operation_authority(
@@ -1059,7 +1147,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             available_operation_ids=operation_candidates,
             available_resource_ids=request.planning_request.resource_ids,
         )
-        if selection is None:
+        if selection.failure_reason is not None:
             return self._blocked(
                 request=request,
                 resolution=resolution,
@@ -1072,7 +1160,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     operation_dependencies=operation_dependencies,
                     operation_definition_provider=self._operation_definition_provider,
                 ),
-                reason_codes=("domain_workflow_unavailable",),
+                reason_codes=(selection.failure_reason,),
             )
         prepared = _prepare_planning_request(
             incoming=request.planning_request,
@@ -1244,8 +1332,8 @@ class DefaultDomainPlannerWorkflowIntegrator:
         prepared_permissions: Collection[str] = (),
         available_operation_ids: Collection[str] = (),
         available_resource_ids: Collection[str] = (),
-    ) -> _WorkflowSelection | None:
-        """Select explicitly requested workflows; None means fail closed.
+    ) -> _WorkflowSelection:
+        """Select explicitly requested workflows; failure_reason means fail closed.
 
         Available workflows are planning capabilities, never automatically
         selected actions: without an explicit request nothing is selected.
@@ -1263,12 +1351,22 @@ class DefaultDomainPlannerWorkflowIntegrator:
         workflows remain representable: outstanding gates never mask
         eligibility and are projected as obligations after selection.
 
+        Every required ``INVOKE_SUBWORKFLOW`` dependency must likewise be
+        final-authority eligible before the parent can be planned: the
+        exact referenced child version must resolve from the canonical
+        registry and satisfy the same eligibility projection recursively
+        (``_required_subworkflow_closure_for_planning``, cycle-safe). A
+        missing or ineligible required child fails the parent closed with
+        ``domain_workflow_dependency_not_available`` before planner
+        invocation.
+
         Projected approval obligations are the canonical deduplicated union
         of every approval source in the selected workflow graph — workflow
         ``approval_gates`` plus node-level ``approval_gate`` /
-        ``REQUEST_APPROVAL`` obligations (``_workflow_approval_ids``) — so
-        no canonical approval requirement of a selected workflow can
-        disappear between ``DomainWorkflowDefinition`` and the plan.
+        ``REQUEST_APPROVAL`` obligations (``_workflow_approval_ids``) plus
+        the required-subworkflow closure's obligations — so no canonical
+        approval requirement of a selected workflow can disappear between
+        ``DomainWorkflowDefinition`` and the plan.
         """
         if "requested_workflow_ids" not in request.metadata:
             return _WorkflowSelection(workflow_ids=(), approval_gate_ids=())
@@ -1296,11 +1394,19 @@ class DefaultDomainPlannerWorkflowIntegrator:
         approval_gates: set[str] = set()
         for item in requested:
             if item not in available:
-                return None
+                return _WorkflowSelection(
+                    (),
+                    (),
+                    failure_reason="domain_workflow_unavailable",
+                )
             try:
                 definition = workflow_registry.resolve_active(item)
             except (WorkflowRegistryError, DomainWorkflowRegistryError, KeyError):
-                return None
+                return _WorkflowSelection(
+                    (),
+                    (),
+                    failure_reason="domain_workflow_unavailable",
+                )
             resolution = _resolve_workflow_for_planning(
                 definition=definition,
                 effective_domain_ids=effective_domain_ids,
@@ -1310,10 +1416,33 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 available_resource_ids=resource_references,
             )
             if resolution.status is not WorkflowAvailabilityStatus.AVAILABLE:
-                return None
+                return _WorkflowSelection(
+                    (),
+                    (),
+                    failure_reason="domain_workflow_unavailable",
+                )
+            dependency_eligible, dependency_approvals = (
+                _required_subworkflow_closure_for_planning(
+                    definition=definition,
+                    workflow_registry=workflow_registry,
+                    effective_domain_ids=effective_domain_ids,
+                    supporting_domain_ids=view.supporting_domain_ids,
+                    available_operation_ids=eligible_operations,
+                    available_permission_ids=granted,
+                    available_resource_ids=resource_references,
+                    ancestry=((definition.workflow_id, definition.version),),
+                )
+            )
+            if not dependency_eligible:
+                return _WorkflowSelection(
+                    (),
+                    (),
+                    failure_reason="domain_workflow_dependency_not_available",
+                )
             if item not in selected:
                 selected.append(item)
             approval_gates.update(_workflow_approval_ids(definition))
+            approval_gates.update(dependency_approvals)
         return _WorkflowSelection(
             workflow_ids=tuple(selected),
             approval_gate_ids=tuple(sorted(approval_gates)),

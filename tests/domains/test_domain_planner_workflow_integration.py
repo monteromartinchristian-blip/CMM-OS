@@ -4221,6 +4221,7 @@ def test_v8_red_e_missing_required_subworkflow_blocks_before_planner():
     assert service.plan_calls == 0
     assert "domain_workflow_dependency_not_available" in result.reason_codes
     # MISSING_REQUIRED_SUBWORKFLOW_BLOCKS_BEFORE_PLANNER=PASS
+    # INVALID_WORKFLOW_GRAPH_FAILS_BEFORE_PLANNER=PASS
 
 
 def test_v8_red_f_ineligible_required_subworkflow_blocks_before_planner():
@@ -4250,6 +4251,309 @@ def test_v8_red_f_ineligible_required_subworkflow_blocks_before_planner():
     assert service.plan_calls == 0
     assert "domain_workflow_dependency_not_available" in result.reason_codes
     # INELIGIBLE_REQUIRED_SUBWORKFLOW_BLOCKS_BEFORE_PLANNER=PASS
+    # INVALID_WORKFLOW_GRAPH_FAILS_BEFORE_PLANNER=PASS
+
+
+def test_v8_eligible_subworkflow_chain_plans():
+    """V8 RED G: an eligible parent → child chain plans canonically.
+
+    All required workflows resolve, the child's operation is final-authority
+    eligible, and planning succeeds through the existing canonical path with
+    the shared WorkflowEngine still owning execution.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(_sub_child_workflow())
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.sub_parent",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert service.plan_calls == 1
+    # ELIGIBLE_SUBWORKFLOW_CHAIN_PLANS=PASS
+    # SUBWORKFLOW_REUSES_SHARED_WORKFLOW_ENGINE=PASS
+
+
+def _nested_subworkflow_graph(grandchild_operation_id):
+    """parent → child → grandchild chain with the given grandchild operation."""
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow("python.mid_child"))
+    workflow_registry.register(
+        _sub_parent_workflow(
+            "python.leaf_child",
+            workflow_id="python.mid_child",
+        )
+    )
+    workflow_registry.register(
+        _sub_child_workflow(
+            grandchild_operation_id,
+            workflow_id="python.leaf_child",
+        )
+    )
+    return domain_registry, operation_registry, workflow_registry
+
+
+def test_v8_nested_subworkflow_eligibility():
+    """V8 RED H: nested chain failures propagate; eligible chains plan.
+
+    With an ineligible grandchild the parent is blocked before the planner;
+    with all three levels eligible the parent plans canonically.
+    """
+    domain_registry, operation_registry, workflow_registry = _nested_subworkflow_graph(
+        "python.list_imports"
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        prohibited=("python.list_imports",),
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    # Nested dependency failure identified deterministically before planner.
+
+    domain_registry, operation_registry, workflow_registry = _nested_subworkflow_graph(
+        "python.find_symbol"
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.sub_parent",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    # NESTED_SUBWORKFLOW_ELIGIBILITY=PASS
+
+
+def test_v8_subworkflow_version_resolution_is_exact():
+    """V8: referenced subworkflow version resolves exactly, never latest.
+
+    With both child versions registered, an eligible ``1.0.0`` and an
+    ineligible ``2.0.0``, the parent referencing ``1.0.0`` must plan — a
+    silent latest-version fallback would evaluate ``2.0.0`` and block.
+    Referencing a version that is not registered fails closed.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(_sub_child_workflow(version="1.0.0"))
+    workflow_registry.register(
+        _sub_child_workflow(
+            operation_id="python.list_imports",
+            version="2.0.0",
+        )
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        prohibited=("python.list_imports",),
+    )
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.sub_parent",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    # Exact referenced version evaluated: 1.0.0 eligible, 2.0.0 never used.
+
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(
+        _sub_child_workflow(
+            operation_id="python.list_imports",
+            version="2.0.0",
+        )
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        prohibited=("python.list_imports",),
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    # SUBWORKFLOW_VERSION_RESOLUTION=PASS
+
+
+def test_v8_subworkflow_cycle_fails_closed():
+    """V8: versioned subworkflow cycles fail closed deterministically.
+
+    ``python.cycle_a → python.cycle_b → python.cycle_a`` with required
+    references must block before planner invocation instead of recursing.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(
+        _sub_parent_workflow("python.cycle_b", workflow_id="python.cycle_a")
+    )
+    workflow_registry.register(
+        _sub_parent_workflow("python.cycle_a", workflow_id="python.cycle_b")
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    result = integrator.integrate(
+        _subworkflow_request({"requested_workflow_ids": ["python.cycle_a"]})
+    )
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    # SUBWORKFLOW_CYCLE_FAILS_CLOSED=PASS
+
+
+def test_v8_subworkflow_final_authority_propagates():
+    """V8: the child is evaluated under the same final planning authority.
+
+    The child workflow requires ``python.secret``, which the prepared
+    planning permissions never grant. The child is therefore final-authority
+    ineligible and the parent is blocked before the planner; the parent is
+    never granted the child's missing permission.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(
+        _sub_child_workflow(permissions=("python.secret",))
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    assert "python.secret" not in set(
+        result.prepared_planning_request.permissions
+    )
+    # SUBWORKFLOW_FINAL_AUTHORITY_PROPAGATES=PASS
+
+
+def test_v8_subworkflow_approval_obligations_preserved():
+    """V8: eligible child approval obligations stay representable.
+
+    The required child is final-authority eligible except for its canonical
+    approval obligations (workflow-level gate plus a node-level gate). The
+    parent remains plan-eligible, the child obligations are flattened into
+    the canonical ``required_approvals`` representation, and the plan's
+    approval nodes trace them as pending — never pre-granted.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(
+        DomainWorkflowDefinition(
+            "python.sub_child",
+            "domain:python",
+            "1.0.0",
+            "SubChild",
+            approval_gates=("child-approval",),
+            nodes=(
+                WorkflowNode(
+                    "work",
+                    "execute_operation",
+                    "Work",
+                    operation_id="python.find_symbol",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode(
+                    "gate",
+                    "request_approval",
+                    "Gate",
+                    dependencies=("work",),
+                    approval_gate="child-node-gate",
+                ),
+                WorkflowNode("done", "complete", "Done", dependencies=("gate",)),
+            ),
+        )
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.sub_parent",)
+    approvals = result.prepared_planning_request.required_approvals
+    assert "child-approval" in approvals
+    assert "child-node-gate" in approvals
+    assert result.plan is not None
+    for obligation in ("child-approval", "child-node-gate"):
+        assert any(
+            obligation in node.required_approvers
+            and obligation in node.metadata.get("approval_requirement_ids", [])
+            for node in result.plan.approval_nodes
+        ), obligation
+    assert all(node.pending for node in result.plan.approval_nodes)
+    # SUBWORKFLOW_APPROVAL_OBLIGATIONS_PRESERVED=PASS
+
+
+def test_v8_optional_subworkflow_semantics_preserved():
+    """V8: optional subworkflow nodes follow canonical skip semantics.
+
+    The canonical permission/execution path never blocks on an unavailable
+    optional node (only ``required`` node denials block). Planning preserves
+    that contract: an optional reference to an unregistered child leaves the
+    parent selectable and plannable.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(
+        _sub_parent_workflow(
+            "python.does_not_exist",
+            required=False,
+            workflow_id="python.opt_parent",
+        )
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    result = integrator.integrate(
+        _subworkflow_request({"requested_workflow_ids": ["python.opt_parent"]})
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.opt_parent",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert service.plan_calls == 1
+    # OPTIONAL_SUBWORKFLOW_SEMANTICS=PRESERVED
 
 
 def _all_production_pack_names():
