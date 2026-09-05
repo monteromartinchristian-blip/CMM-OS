@@ -125,8 +125,18 @@ validate wrapper
 → fail closed on Domain/Phase 9 identity conflict
 → fail closed on unresolved blocking composition conflicts
 → read-only capability projection (registered + available + compatible only)
-→ explicit workflow selection (requested ∩ available; verified against final prepared permissions; absent or permission-incompatible requested fails closed before planner)
+→ final most-restrictive operation authority
+  (prepared allowed minus prepared prohibited, permission-compatible)
+→ explicit workflow selection with final eligibility (requested ∩ available;
+  each requested workflow must resolve active from the canonical workflow
+  registry and be canonically available under the final authority through
+  _resolve_workflow_for_planning(...) — prepared permissions, final
+  operation candidates, the request's resource references, and the current
+  effective composition; unavailable or incompatible requested workflows
+  fail closed with `domain_workflow_unavailable` before planner invocation;
+  approval-pending workflows remain representable)
 → most-restrictive AgentPlanningRequest preparation
+  (selected workflow approval gates joined after selection)
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
 → canonical AgentWorkflowPlan (post-checks: unresolved required operation
@@ -139,6 +149,59 @@ validate wrapper
 → canonical replan on material capability/authority change
 ```
 
+## Final workflow planning eligibility
+
+A workflow may be selected for planning only if it is registered, active,
+available, dependency-compatible, permission-compatible,
+resource-compatible, and composition-compatible. Selection evaluates this
+through the canonical `resolve_domain_workflow(...)` semantics (no second
+resolver), modeled on the final most-restrictive planning authority of the
+current attempt:
+
+```text
+required planning permission missing        → BLOCK (domain_workflow_unavailable)
+required operation unavailable under the
+  final permission-compatible candidates    → BLOCK (domain_workflow_unavailable)
+required resource outside the canonical
+  planning request's resource references    → BLOCK (domain_workflow_unavailable)
+required/supporting Domain outside the
+  current effective composition             → BLOCK (domain_workflow_unavailable)
+inactive / unregistered in the canonical
+  workflow registry                         → BLOCK (domain_workflow_unavailable)
+approval outstanding but representable      → ALLOW + approval obligation
+all constraints satisfied                   → ALLOW
+```
+
+The workflow's own approval gates are acknowledged inside the eligibility
+inspection context solely so approval-pending status can never mask a
+genuine unavailability. They are never treated as granted: outstanding
+gates are projected into the canonical plan as approval obligations and
+execution-time resolution revalidates everything inside
+`DomainWorkflowExecutor`.
+
+## Approval obligation composition
+
+Plan-wide required approvals are additive obligations composed from
+canonical sources only:
+
+```text
+prepared required_approvals
+  = incoming canonical required approvals
+    ∪ global/composition Domain approval requirements
+      (DomainPlanningCapabilityView.required_approval_ids)
+    ∪ approval gates of selected workflows only
+      (joined after selection from the canonical definitions)
+```
+
+Approval gates of available-but-unselected workflows never enter the
+prepared request and never create approval nodes. `required_approval_ids`
+on the capability view carries only the global/composition component.
+Operation-specific approval obligations keep flowing through the existing
+exact-semantics projection (`requires_approval` plus traceable
+`approval_requirement_ids` on canonical approval nodes). No approval is
+ever synthesized as granted, and `WAITING_FOR_APPROVAL` is never conflated
+with `UNAVAILABLE`.
+
 ## Most-restrictive composition rules
 
 ```text
@@ -146,7 +209,11 @@ prepared allowed
   = incoming allowed ∩ Domain available (or Domain available when unrestricted)
 prepared prohibited
   = incoming prohibited ∪ Domain prohibited
-prepared approvals/validations
+prepared approvals
+  = incoming ∪ Domain global/composition ∪ selected workflow approval gates
+    (additive obligations, never removable; gates of available-but-unselected
+    workflows are never included)
+prepared validations
   = stable union (additive obligations, never removable)
 prepared permissions
   = incoming ∩ Domain effective (never added)
@@ -154,7 +221,9 @@ prepared autonomy/budget
   = preserved exactly (never increased; missing Domain value invents nothing)
 prepared metadata
   = incoming preserved + generic "workflow_references" IDs (restricted to
-    workflows whose required permissions are a subset of prepared permissions),
+    workflows that pass full final planning eligibility: registry truth,
+    prepared permissions, final operation candidates, resource references,
+    and current composition),
     generic "operation_candidates" eligible IDs (sorted effective
     operations = prepared allowed minus prepared prohibited, further
     restricted to permission-compatible operations whose canonical
