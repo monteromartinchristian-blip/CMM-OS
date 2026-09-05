@@ -1373,3 +1373,350 @@ def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
     )
     # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_MODIFY_CODE=PASS
     # WORKFLOW_APPROVAL_OBLIGATION_REPRESENTABLE=PASS
+
+
+# ── AT-DP-042 V8 — workflow graph planning obligations (adversarial) ───────
+
+
+class _CountingPlanningService(AgentPlanningService):
+    """Acceptance probe: counts planner invocations without replacing it."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.plan_calls = 0
+
+    def plan(self, request):
+        self.plan_calls += 1
+        return super().plan(request)
+
+
+def _build_subworkflow_acceptance_graph() -> _AcceptanceGraph:
+    """Acceptance graph with required subworkflow dependency workflows.
+
+    Canonical in-memory workflows (official ``DomainWorkflowDefinition`` /
+    ``WorkflowNode`` contracts):
+
+    - ``python.sub_parent_ok`` → required ``python.sub_child_ok@1.0.0``
+      (eligible operation under final authority);
+    - ``python.sub_parent_missing`` → required ``python.sub_missing@1.0.0``
+      (not registered);
+    - ``python.sub_parent_ineligible`` → required
+      ``python.sub_child_bad@1.0.0`` (operation prohibited by final
+      authority).
+    """
+    graph = _AcceptanceGraph(
+        domain_registry=DomainRegistry(),
+        operation_registry=InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
+        workflow_registry=InMemoryDomainWorkflowRegistry(),
+        permission_registry=DomainPermissionRegistry(),
+        authority={
+            "permissions": {"python.use", "filesystem.use"},
+            "prohibited": {"filesystem.delete_file"},
+            "approvals": set(),
+        },
+    )
+    graph.domain_registry.register(
+        _definition(
+            "python",
+            operations=("python.find_symbol",),
+            workflows=(
+                "python.sub_parent_ok",
+                "python.sub_parent_missing",
+                "python.sub_parent_ineligible",
+            ),
+        )
+    )
+    graph.domain_registry.register(
+        _definition("filesystem", operations=("filesystem.delete_file",))
+    )
+    graph.domain_registry.enable("domain:python")
+    graph.domain_registry.enable("domain:filesystem")
+
+    for operation_id in ("python.find_symbol", "filesystem.delete_file"):
+        domain_id = f"domain:{operation_id.split('.')[0]}"
+        graph.operation_calls[operation_id] = 0
+        definition = _operation(operation_id, domain_id)
+        graph.operation_registry.register(
+            definition,
+            _counting_impl(graph.operation_calls, operation_id, definition),
+        )
+
+    def _sub_parent(workflow_id, subworkflow_id):
+        return DomainWorkflowDefinition(
+            workflow_id,
+            "domain:python",
+            "1.0.0",
+            workflow_id,
+            nodes=(
+                WorkflowNode(
+                    "child",
+                    "invoke_subworkflow",
+                    "Child",
+                    subworkflow_id=subworkflow_id,
+                    subworkflow_version="1.0.0",
+                ),
+                WorkflowNode(
+                    "finish",
+                    "complete",
+                    "Finish",
+                    dependencies=("child",),
+                ),
+            ),
+        )
+
+    def _sub_child(workflow_id, operation_id):
+        return DomainWorkflowDefinition(
+            workflow_id,
+            "domain:python",
+            "1.0.0",
+            workflow_id,
+            nodes=(
+                WorkflowNode(
+                    "work",
+                    "execute_operation",
+                    "Work",
+                    operation_id=operation_id,
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode("done", "complete", "Done", dependencies=("work",)),
+            ),
+        )
+
+    graph.workflow_registry.register(
+        _sub_parent("python.sub_parent_ok", "python.sub_child_ok")
+    )
+    graph.workflow_registry.register(
+        _sub_child("python.sub_child_ok", "python.find_symbol")
+    )
+    graph.workflow_registry.register(
+        _sub_parent("python.sub_parent_missing", "python.sub_missing")
+    )
+    graph.workflow_registry.register(
+        _sub_parent("python.sub_parent_ineligible", "python.sub_child_bad")
+    )
+    graph.workflow_registry.register(
+        _sub_child("python.sub_child_bad", "filesystem.delete_file")
+    )
+
+    adapter = DefaultWorkflowPlannerAdapter(
+        planner=TaskPlanner(reasoner=_StubReasoner()),
+        plan_store=graph.store,
+    )
+    graph.service = _CountingPlanningService(adapter)
+
+    def _engine_adapter(node, run):
+        graph.engine_calls.append(node.node_id)
+        return NodeExecution.complete({"node": node.node_id})
+
+    graph.executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"acc-sub-{len(graph.engine_calls)}",
+        operation_adapter=_engine_adapter,
+    )
+    return graph
+
+
+def _subworkflow_acceptance_request(
+    graph: _AcceptanceGraph, requested_workflow_ids: list[str]
+) -> DomainPlannerWorkflowIntegrationRequest:
+    return DomainPlannerWorkflowIntegrationRequest(
+        request_id="int-req-042-acc-subworkflow",
+        resolution_context=_resolution_context(),
+        planning_request=_planning_request(),
+        metadata={"requested_workflow_ids": requested_workflow_ids},
+    )
+
+
+def test_at_dp042_real_node_level_workflow_approval_projection() -> None:
+    """AT-DP-042 (V8): real node-level approval gate reaches the plan.
+
+    Real production Relationships Domain: ``relationships.decision_support``
+    encodes its approval obligation only on the canonical
+    ``REQUEST_APPROVAL`` node while ``approval_gates == ()``. Selecting the
+    workflow under full final eligibility must project the exact node gate
+    into the prepared planning request and keep it traceable and pending on
+    the canonical plan approval nodes — never pre-granted.
+    """
+    from cmm.domains.relationships.definition import (
+        build_relationships_domain_definition,
+    )
+    from cmm.domains.relationships.operations import (
+        build_relationships_operation_definitions,
+    )
+    from cmm.domains.relationships.workflows import (
+        build_relationships_workflow_definitions,
+    )
+
+    definition = build_relationships_domain_definition()
+    graph = _AcceptanceGraph(
+        domain_registry=DomainRegistry(),
+        operation_registry=InMemoryDomainOperationRegistry(
+            InMemoryAgentOperationRegistry()
+        ),
+        workflow_registry=InMemoryDomainWorkflowRegistry(),
+        permission_registry=DomainPermissionRegistry(),
+        authority={
+            "permissions": set(),
+            "prohibited": set(),
+            "approvals": set(),
+        },
+    )
+    graph.domain_registry.register(definition)
+    graph.domain_registry.enable(str(definition.id))
+    definitions = {
+        entry.operation_id: entry
+        for entry in build_relationships_operation_definitions()
+    }
+    for operation_id, entry in definitions.items():
+        graph.operation_calls[operation_id] = 0
+        graph.operation_registry.register(
+            entry,
+            _counting_impl(graph.operation_calls, operation_id, entry),
+        )
+    for workflow in build_relationships_workflow_definitions():
+        graph.workflow_registry.register(workflow)
+    adapter = DefaultWorkflowPlannerAdapter(
+        planner=TaskPlanner(reasoner=_StubReasoner()),
+        plan_store=graph.store,
+    )
+    graph.service = AgentPlanningService(adapter)
+    graph.executor = DomainWorkflowExecutor(id_factory=lambda: "acc-rel-exec")
+
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=graph.domain_registry,
+        workflow_registry=graph.workflow_registry,
+        planning_service=graph.service,
+        workflow_executor=graph.executor,
+        operation_availability=lambda op_id, domain_id: (
+            graph.operation_registry.resolve_active(op_id, required=False)
+            is not None
+        ),
+        permission_ids_provider=lambda composition: tuple(
+            sorted(graph.authority["permissions"])
+        ),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+    )
+
+    result = integrator.integrate(
+        DomainPlannerWorkflowIntegrationRequest(
+            request_id="int-req-042-acc-rel",
+            resolution_context=_resolution_context(
+                id="ctx-042-acc-rel",
+                user_input="Compare relationship options",
+                available_domains=(DomainId(slug="relationships"),),
+                authorized_domains=(DomainId(slug="relationships"),),
+                explicit_domains=(DomainId(slug="relationships"),),
+                resources=(
+                    DomainResolutionResource(
+                        id="r-rel",
+                        resource_type="document",
+                        source="user",
+                        domain_ids=(DomainId(slug="relationships"),),
+                    ),
+                ),
+            ),
+            planning_request=_planning_request(
+                id="req-042-acc-rel",
+                agent_run_id="run-042-acc-rel",
+                objective="Compare relationship options under explicit criteria",
+                allowed_operations=[
+                    "relationships.identify_needs",
+                    "relationships.track_open_questions",
+                ],
+                permissions=[],
+            ),
+            metadata={"requested_workflow_ids": ["relationships.decision_support"]},
+        )
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("relationships.decision_support",)
+    assert "relationships.decision_support" in (
+        result.prepared_planning_request.required_approvals
+    )
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert any(
+        "relationships.decision_support" in node.required_approvers
+        and "relationships.decision_support"
+        in node.metadata.get("approval_requirement_ids", [])
+        for node in result.plan.approval_nodes
+    )
+    assert all(node.pending for node in result.plan.approval_nodes)
+    validation = graph.service.validate_plan(
+        result.plan, request=result.prepared_planning_request
+    )
+    assert validation.is_valid
+    # AT_DP_042_REAL_NODE_LEVEL_APPROVAL_PROJECTION=PASS
+
+
+def test_at_dp042_missing_required_subworkflow_blocks_before_planner() -> None:
+    """AT-DP-042 (V8): missing required child never reaches the planner."""
+    graph = _build_subworkflow_acceptance_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(
+        _subworkflow_acceptance_request(graph, ["python.sub_parent_missing"])
+    )
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    assert graph.service.plan_calls == 0
+    # AT_DP_042_MISSING_REQUIRED_SUBWORKFLOW_BLOCKED=PASS
+    # AT_DP_042_WORKFLOW_GRAPH_FAILS_BEFORE_PLANNER=PASS
+
+
+def test_at_dp042_ineligible_required_subworkflow_blocks_before_planner() -> None:
+    """AT-DP-042 (V8): final-authority-ineligible child blocks the parent.
+
+    ``python.sub_child_bad`` executes ``filesystem.delete_file``, which the
+    final planning authority prohibits; the parent must be blocked before
+    planner invocation even though an unrelated eligible candidate exists.
+    """
+    graph = _build_subworkflow_acceptance_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(
+        _subworkflow_acceptance_request(graph, ["python.sub_parent_ineligible"])
+    )
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    assert graph.service.plan_calls == 0
+    # AT_DP_042_INELIGIBLE_REQUIRED_SUBWORKFLOW_BLOCKED=PASS
+
+
+def test_at_dp042_eligible_parent_child_subworkflow_chain_plans() -> None:
+    """AT-DP-042 (V8): fully eligible parent/child chain plans canonically."""
+    graph = _build_subworkflow_acceptance_graph()
+    integrator = _make_integrator(graph)
+
+    result = integrator.integrate(
+        _subworkflow_acceptance_request(graph, ["python.sub_parent_ok"])
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.sub_parent_ok",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert graph.service.plan_calls == 1
+    validation = graph.service.validate_plan(
+        result.plan, request=result.prepared_planning_request
+    )
+    assert validation.is_valid
+    # AT_DP_042_ELIGIBLE_PARENT_CHILD_CHAIN_PLANS=PASS
+    # AT_DP_042_SUBWORKFLOW_SHARED_ENGINE_EXECUTION_PRESERVED=PASS
