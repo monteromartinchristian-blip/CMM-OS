@@ -3749,3 +3749,744 @@ def test_v7_workflow_planning_eligibility_matrix():
     # Matrix row 8: available-but-unselected workflow gate → DO NOT PROJECT
 
     # WORKFLOW_PLANNING_ELIGIBILITY_MATRIX=PASS
+
+
+# ── Phase 10.42 V8 — workflow graph planning obligations ──────────────────
+#
+# V7 MAJOR-10: node-level REQUEST_APPROVAL / approval_gate obligations of
+# selected workflows must be projected into the canonical planning approval
+# representation.
+# V7 MAJOR-11: required INVOKE_SUBWORKFLOW dependencies must be resolved and
+# final-authority eligible before a parent workflow can be planned.
+
+
+def _production_pack_graph(slug):
+    """Real production Domain Pack graph: domain, operations, workflows live."""
+    import importlib
+
+    definition_builder = getattr(
+        importlib.import_module(f"cmm.domains.{slug}.definition"),
+        f"build_{slug}_domain_definition",
+    )
+    operations_builder = getattr(
+        importlib.import_module(f"cmm.domains.{slug}.operations"),
+        f"build_{slug}_operation_definitions",
+    )
+    workflows_builder = getattr(
+        importlib.import_module(f"cmm.domains.{slug}.workflows"),
+        f"build_{slug}_workflow_definitions",
+    )
+    domain_registry = DomainRegistry()
+    definition = definition_builder()
+    domain_registry.register(definition)
+    domain_registry.enable(str(definition.id))
+    definitions = {
+        definition.operation_id: definition
+        for definition in operations_builder()
+    }
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    for definition in definitions.values():
+        operation_registry.register(definition, _Implementation(definition))
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    for workflow in workflows_builder():
+        workflow_registry.register(workflow)
+    return domain_registry, operation_registry, workflow_registry, definitions
+
+
+def _pack_request(slug, **overrides):
+    from cmm.domains.resolution_contracts import (
+        DomainResolutionContext,
+        DomainResolutionResource,
+    )
+
+    values = {
+        "request_id": f"int-req-042-{slug}",
+        "resolution_context": DomainResolutionContext(
+            id=f"ctx-042-{slug}",
+            user_input=f"Plan a {slug} workflow",
+            goal_id=f"goal-042-{slug}",
+            actor="actor-042",
+            available_domains=(DomainId(slug=slug),),
+            authorized_domains=(DomainId(slug=slug),),
+            explicit_domains=(DomainId(slug=slug),),
+            resources=(
+                DomainResolutionResource(
+                    id=f"r-{slug}",
+                    resource_type="document",
+                    source="user",
+                    domain_ids=(DomainId(slug=slug),),
+                ),
+            ),
+        ),
+        "planning_request": _incoming_request(
+            id=f"req-042-{slug}",
+            goal_id=f"goal-042-{slug}",
+            agent_run_id=f"run-042-{slug}",
+            actor_id="actor-042",
+            objective=f"Plan a {slug} workflow",
+        ),
+        "metadata": {},
+    }
+    values.update(overrides)
+    return DomainPlannerWorkflowIntegrationRequest(**values)
+
+
+def _pack_integrator(
+    domain_registry,
+    operation_registry,
+    workflow_registry,
+    definitions,
+    service,
+    *,
+    effective_permissions=(),
+    prohibited=(),
+):
+    """Real-pack integrator with explicit permission authority."""
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    return DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-pack"),
+        operation_availability=lambda operation_id, domain_id: (
+            operation_registry.resolve_active(operation_id, required=False)
+            is not None
+        ),
+        permission_ids_provider=lambda composition: tuple(effective_permissions),
+        prohibited_operation_ids_provider=lambda composition: tuple(prohibited),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        operation_definition_provider=lambda operation_id: definitions.get(
+            operation_id
+        ),
+    )
+
+
+def _subworkflow_fixtures():
+    """Canonical in-memory python pack for subworkflow eligibility tests."""
+    domain_registry = DomainRegistry()
+    domain_registry.register(
+        _definition(
+            "python",
+            operations=("python.find_symbol", "python.list_imports"),
+            workflows=(
+                "python.sub_parent",
+                "python.opt_parent",
+                "python.cycle_a",
+                "python.cycle_b",
+            ),
+        )
+    )
+    domain_registry.enable("domain:python")
+    domain_registry.register(
+        _definition(
+            "filesystem",
+            operations=("filesystem.read_file", "filesystem.exists"),
+            workflows=(),
+        )
+    )
+    domain_registry.enable("domain:filesystem")
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    for operation_id in ("python.find_symbol", "python.list_imports"):
+        definition = _operation(operation_id, "domain:python")
+        operation_registry.register(definition, _Implementation(definition))
+    for operation_id in ("filesystem.read_file", "filesystem.exists"):
+        definition = _operation(operation_id, "domain:filesystem")
+        operation_registry.register(definition, _Implementation(definition))
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    return domain_registry, operation_registry, workflow_registry
+
+
+def _sub_parent_workflow(
+    subworkflow_id="python.sub_child",
+    subworkflow_version="1.0.0",
+    *,
+    required=True,
+    workflow_id="python.sub_parent",
+):
+    return DomainWorkflowDefinition(
+        workflow_id,
+        "domain:python",
+        "1.0.0",
+        "SubParent",
+        nodes=(
+            WorkflowNode(
+                "child",
+                "invoke_subworkflow",
+                "Child",
+                subworkflow_id=subworkflow_id,
+                subworkflow_version=subworkflow_version,
+                required=required,
+            ),
+            WorkflowNode("finish", "complete", "Finish", dependencies=("child",)),
+        ),
+    )
+
+
+def _sub_child_workflow(
+    operation_id="python.find_symbol",
+    *,
+    version="1.0.0",
+    workflow_id="python.sub_child",
+    permissions=(),
+    gates=(),
+):
+    return DomainWorkflowDefinition(
+        workflow_id,
+        "domain:python",
+        version,
+        "SubChild",
+        required_permissions=tuple(permissions),
+        approval_gates=tuple(gates),
+        nodes=(
+            WorkflowNode(
+                "work",
+                "execute_operation",
+                "Work",
+                operation_id=operation_id,
+                operation_version="1.0.0",
+            ),
+            WorkflowNode("done", "complete", "Done", dependencies=("work",)),
+        ),
+    )
+
+
+def _subworkflow_request(metadata_overrides):
+    metadata = {"requested_workflow_ids": ["python.sub_parent"]}
+    metadata.update(metadata_overrides)
+    return _integration_request_5(metadata=metadata)
+
+
+def test_v8_red_a_real_relationships_node_approval_projection():
+    """V8 MAJOR-10 RED A: real node-level approval gate must be projected.
+
+    ``relationships.decision_support`` carries its approval obligation only
+    on the canonical ``REQUEST_APPROVAL`` node
+    (``approval_gate="relationships.decision_support"``) while
+    ``DomainWorkflowDefinition.approval_gates == ()``. Selecting the
+    workflow must project that exact node gate into the prepared planning
+    request and the canonical plan approval nodes.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+    ) = _production_pack_graph("relationships")
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _pack_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v8-rel",
+        goal_id="goal-042-relationships",
+        agent_run_id="run-042-v8-rel",
+        actor_id="actor-042",
+        objective="Compare relationship options under explicit criteria",
+        permissions=[],
+        allowed_operations=[
+            "relationships.identify_needs",
+            "relationships.track_open_questions",
+        ],
+    )
+    result = integrator.integrate(
+        _pack_request(
+            "relationships",
+            planning_request=incoming,
+            metadata={
+                "requested_workflow_ids": ["relationships.decision_support"],
+            },
+        )
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("relationships.decision_support",)
+    assert "relationships.decision_support" in (
+        result.prepared_planning_request.required_approvals
+    )
+    assert result.plan is not None
+    assert any(
+        "relationships.decision_support" in node.required_approvers
+        and "relationships.decision_support"
+        in node.metadata.get("approval_requirement_ids", [])
+        for node in result.plan.approval_nodes
+    )
+    # REAL_RELATIONSHIPS_DECISION_SUPPORT_NODE_APPROVAL=PROJECTED
+
+
+def test_v8_red_b_real_health_node_approval_projection():
+    """V8 MAJOR-10 RED B: real Health node gate projected exactly once.
+
+    ``health.medication_change_review`` declares the node gate
+    ``health.medication_review`` only. The projected obligation must appear
+    exactly once, deterministically, and remain traceable on the plan.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+    ) = _production_pack_graph("health")
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _pack_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v8-health",
+        goal_id="goal-042-health",
+        agent_run_id="run-042-v8-health",
+        actor_id="actor-042",
+        objective="Review medication changes",
+        permissions=[],
+        allowed_operations=[
+            "health.review_medication_changes",
+            "health.prepare_questions",
+        ],
+    )
+    result = integrator.integrate(
+        _pack_request(
+            "health",
+            planning_request=incoming,
+            metadata={
+                "requested_workflow_ids": ["health.medication_change_review"],
+            },
+        )
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == (
+        "health.medication_change_review",
+    )
+    approvals = result.prepared_planning_request.required_approvals
+    assert approvals.count("health.medication_review") == 1
+    assert result.plan is not None
+    assert any(
+        "health.medication_review" in node.required_approvers
+        and "health.medication_review"
+        in node.metadata.get("approval_requirement_ids", [])
+        for node in result.plan.approval_nodes
+    )
+    # REAL_HEALTH_MEDICATION_REVIEW_NODE_APPROVAL=PROJECTED
+
+
+def test_v8_unselected_node_approval_gate_leakage_zero():
+    """V8 MAJOR-10: unselected node-level gates never leak into a plan.
+
+    Real production Relationships Domain plans an unrelated permitted
+    operation while all node-approval workflows remain available but
+    unselected: no ``relationships.*`` node gate may appear in the prepared
+    requirements or the plan's approval nodes.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+    ) = _production_pack_graph("relationships")
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _pack_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        service,
+    )
+    incoming = _incoming_request(
+        id="req-042-v8-rel-leak",
+        goal_id="goal-042-relationships",
+        agent_run_id="run-042-v8-rel-leak",
+        actor_id="actor-042",
+        objective="Review relationship boundaries without selecting a workflow",
+        permissions=[],
+        allowed_operations=["relationships.review_boundaries"],
+    )
+    result = integrator.integrate(
+        _pack_request("relationships", planning_request=incoming)
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ()
+    leaking = [
+        approval
+        for approval in result.prepared_planning_request.required_approvals
+        if approval.startswith("relationships.")
+    ]
+    assert leaking == []
+    assert result.plan is not None
+    assert all(
+        not any(
+            approval.startswith("relationships.")
+            for approval in node.required_approvers
+        )
+        for node in result.plan.approval_nodes
+    )
+    # UNSELECTED_NODE_APPROVAL_GATE_LEAKAGE=0
+
+
+def test_v8_workflow_approval_deduplication():
+    """V8 MAJOR-10 RED D: duplicate approval sources stay one obligation.
+
+    ``project.feature_implementation`` carries ``approval.file.modify`` both
+    at workflow level and on an approval node. The projected canonical
+    approval set must contain the ID exactly once with stable ordering.
+    """
+    (
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+    ) = _production_pack_graph("project")
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _pack_integrator(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        definitions,
+        service,
+        effective_permissions=("domain-permission:project:1.0.0", "file.modify"),
+    )
+    incoming = _incoming_request(
+        id="req-042-v8-dedup",
+        goal_id="goal-042-project",
+        agent_run_id="run-042-v8-dedup",
+        actor_id="actor-042",
+        objective="Implement feature with deduplicated approval authority",
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+    )
+    result = integrator.integrate(
+        _pack_request(
+            "project",
+            planning_request=incoming,
+            metadata={
+                "requested_workflow_ids": ["project.feature_implementation"],
+            },
+        )
+    )
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.feature_implementation",)
+    approvals = result.prepared_planning_request.required_approvals
+    assert approvals.count("approval.file.modify") == 1
+    assert approvals == sorted(set(approvals))
+    # WORKFLOW_APPROVAL_DEDUPLICATION=PASS
+
+
+def test_v8_red_e_missing_required_subworkflow_blocks_before_planner():
+    """V8 MAJOR-11 RED E: missing required child blocks before the planner.
+
+    Canonical in-memory parent ``python.sub_parent`` requires
+    ``python.sub_child@1.0.0`` which is not registered. The parent must be
+    blocked deterministically before planner invocation and never returned
+    as a valid selected workflow.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry, operation_registry, workflow_registry, service
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    # MISSING_REQUIRED_SUBWORKFLOW_BLOCKS_BEFORE_PLANNER=PASS
+
+
+def test_v8_red_f_ineligible_required_subworkflow_blocks_before_planner():
+    """V8 MAJOR-11 RED F: ineligible required child blocks before planner.
+
+    ``python.sub_child`` executes ``python.list_imports``, which the final
+    planning authority excludes from the eligible candidate set. The parent
+    must be blocked before the planner even though an unrelated safe
+    operation candidate remains.
+    """
+    domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
+    workflow_registry.register(_sub_parent_workflow())
+    workflow_registry.register(_sub_child_workflow(operation_id="python.list_imports"))
+    _, _, service = _planning_stack(_CountingPlanningService)
+    integrator = _integrator_5(
+        domain_registry,
+        operation_registry,
+        workflow_registry,
+        service,
+        prohibited=("python.list_imports",),
+    )
+    result = integrator.integrate(_subworkflow_request({}))
+
+    assert result.blocked is True
+    assert result.plan is None
+    assert result.selected_domain_workflow_ids == ()
+    assert service.plan_calls == 0
+    assert "domain_workflow_dependency_not_available" in result.reason_codes
+    # INELIGIBLE_REQUIRED_SUBWORKFLOW_BLOCKS_BEFORE_PLANNER=PASS
+
+
+def _all_production_pack_names():
+    return (
+        "concerns",
+        "general",
+        "health",
+        "languages",
+        "life_plan",
+        "oppositions",
+        "parenthood",
+        "project",
+        "reflection",
+        "relationships",
+        "sport",
+        "university",
+    )
+
+
+def _canonical_node_approval_sources(workflow):
+    """Audit-side enumeration of one workflow's canonical approval sources.
+
+    Mirrors the canonical permission/execution semantics directly:
+    workflow-level gates plus node-level ``approval_gate`` /
+    ``REQUEST_APPROVAL`` sources (``node.approval_gate or node.node_id``).
+    """
+    from cmm.workflows.enums import WorkflowNodeType
+
+    sources = set(workflow.approval_gates)
+    for node in workflow.nodes:
+        if (
+            node.approval_gate is not None
+            or node.node_type is WorkflowNodeType.REQUEST_APPROVAL
+        ):
+            source = node.approval_gate or node.node_id
+            if source:
+                sources.add(source)
+    return sources
+
+
+def test_v8_production_workflow_approval_inventory_gate():
+    """V8 MAJOR-10: production-wide selected-approval representation gate.
+
+    Every production Domain Pack workflow is selected under a compatible
+    per-pack authority context. The canonical approval sources of each
+    selected workflow graph (workflow-level and node-level) must all be
+    representable in the prepared planning request and traceable on the
+    canonical plan approval nodes.
+    """
+    import importlib
+
+    domain_registry = DomainRegistry()
+    pack_permissions: dict[str, set[str]] = {}
+    pack_resources: dict[str, set[str]] = {}
+    pack_workflows: dict[str, list] = {}
+    pack_slugs: dict[str, str] = {}
+    for module_slug in _all_production_pack_names():
+        definition_builder = getattr(
+            importlib.import_module(f"cmm.domains.{module_slug}.definition"),
+            f"build_{module_slug}_domain_definition",
+        )
+        operations_builder = getattr(
+            importlib.import_module(f"cmm.domains.{module_slug}.operations"),
+            f"build_{module_slug}_operation_definitions",
+        )
+        workflows_builder = getattr(
+            importlib.import_module(f"cmm.domains.{module_slug}.workflows"),
+            f"build_{module_slug}_workflow_definitions",
+        )
+        definition = definition_builder()
+        domain_id = str(definition.id)
+        slug = definition.id.slug
+        domain_registry.register(definition)
+        domain_registry.enable(domain_id)
+        permissions: set[str] = set()
+        resources: set[str] = set()
+        workflows = list(workflows_builder())
+        for workflow in workflows:
+            permissions.update(workflow.required_permissions)
+            resources.update(workflow.required_resources)
+        for operation_definition in operations_builder():
+            permissions.update(operation_definition.required_permissions)
+        pack_permissions[domain_id] = permissions
+        pack_resources[domain_id] = resources
+        pack_workflows[slug] = workflows
+        pack_slugs[slug] = module_slug
+
+    operation_registry = InMemoryDomainOperationRegistry(
+        InMemoryAgentOperationRegistry()
+    )
+    for module_slug in _all_production_pack_names():
+        operations_builder = getattr(
+            importlib.import_module(f"cmm.domains.{module_slug}.operations"),
+            f"build_{module_slug}_operation_definitions",
+        )
+        for operation_definition in operations_builder():
+            operation_registry.register(
+                operation_definition, _Implementation(operation_definition)
+            )
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    for slug in pack_workflows:
+        for workflow in pack_workflows[slug]:
+            workflow_registry.register(workflow)
+
+    _, _, service = _planning_stack()
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=0, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domain_registry,
+        workflow_registry=workflow_registry,
+        planning_service=service,
+        workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-inv"),
+        operation_availability=lambda operation_id, domain_id: (
+            operation_registry.resolve_active(operation_id, required=False)
+            is not None
+        ),
+        permission_ids_provider=lambda composition: tuple(
+            sorted(pack_permissions.get(str(composition.primary_domain), ()))
+        ),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: ("authority:v1",),
+    )
+
+    inspected = 0
+    unrepresented: list[str] = []
+    for slug in pack_workflows:
+        domain_id = f"domain:{slug}"
+        for workflow in pack_workflows[slug]:
+            inspected += 1
+            expected_gates = _canonical_node_approval_sources(workflow)
+            node_operations = sorted(
+                {node.operation_id for node in workflow.nodes if node.operation_id}
+            )
+            incoming = _incoming_request(
+                id=f"req-042-v8-inv-{workflow.workflow_id}",
+                goal_id=f"goal-042-{slug}",
+                agent_run_id=f"run-042-{workflow.workflow_id}",
+                actor_id="actor-042",
+                objective=f"Select {workflow.workflow_id} under full authority",
+                permissions=sorted(pack_permissions[domain_id]),
+                allowed_operations=node_operations,
+                resource_ids=sorted(pack_resources[domain_id]),
+            )
+            result = integrator.integrate(
+                _pack_request(
+                    slug,
+                    request_id=f"int-req-042-{slug}-inv",
+                    planning_request=incoming,
+                    metadata={
+                        "requested_workflow_ids": [workflow.workflow_id],
+                    },
+                )
+            )
+            assert result.blocked is False, (
+                workflow.workflow_id,
+                result.reason_codes,
+            )
+            assert result.selected_domain_workflow_ids == (workflow.workflow_id,)
+            assert result.plan is not None
+            projected = set(result.prepared_planning_request.required_approvals)
+            missing = expected_gates - projected
+            if missing:
+                unrepresented.append(f"{workflow.workflow_id}:{sorted(missing)}")
+                continue
+            for gate in expected_gates:
+                assert any(
+                    gate in node.required_approvers
+                    and gate in node.metadata.get("approval_requirement_ids", [])
+                    for node in result.plan.approval_nodes
+                ), (workflow.workflow_id, gate)
+    assert inspected == 95
+    assert unrepresented == []
+    # UNREPRESENTED_SELECTED_WORKFLOW_APPROVAL_GATE=0
+
+
+def test_v8_production_subworkflow_inventory():
+    """V8 MAJOR-11: production subworkflow reference inventory.
+
+    Enumerates every production ``INVOKE_SUBWORKFLOW`` node and verifies
+    each required reference resolves exactly (id, version) against the
+    canonical registry. Production currently declares none; the check is
+    dynamic so any future reference is verified or fails the gate.
+    """
+    import importlib
+
+    from cmm.workflows.enums import WorkflowNodeType
+
+    workflow_registry = InMemoryDomainWorkflowRegistry()
+    node_count = 0
+    parents: set[str] = set()
+    required_references: list[tuple[str, str, str]] = []
+    for slug in _all_production_pack_names():
+        workflows_builder = getattr(
+            importlib.import_module(f"cmm.domains.{slug}.workflows"),
+            f"build_{slug}_workflow_definitions",
+        )
+        for workflow in workflows_builder():
+            workflow_registry.register(workflow)
+            for node in workflow.nodes:
+                if node.node_type is not WorkflowNodeType.INVOKE_SUBWORKFLOW:
+                    continue
+                node_count += 1
+                parents.add(workflow.workflow_id)
+                if node.required:
+                    required_references.append(
+                        (
+                            workflow.workflow_id,
+                            node.subworkflow_id or "",
+                            node.subworkflow_version or "",
+                        )
+                    )
+    unresolved = [
+        (parent, child_id, child_version)
+        for parent, child_id, child_version in required_references
+        if not child_id
+        or not child_version
+        or _resolves_exact(workflow_registry, child_id, child_version) is None
+    ]
+    assert unresolved == []
+    # PRODUCTION_SUBWORKFLOW_NODE_COUNT=0
+    # PRODUCTION_SUBWORKFLOW_PARENT_COUNT=0
+    # PRODUCTION_REQUIRED_SUBWORKFLOW_REFERENCES=VERIFIED
+
+
+def _resolves_exact(workflow_registry, workflow_id, version):
+    try:
+        return workflow_registry.get(workflow_id, version)
+    except KeyError:
+        return None

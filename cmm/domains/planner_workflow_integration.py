@@ -47,7 +47,7 @@ from cmm.domains.workflow_errors import DomainWorkflowRegistryError
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 from cmm.domains.workflow_resolution import resolve_domain_workflow
-from cmm.workflows.enums import WorkflowAvailabilityStatus
+from cmm.workflows.enums import WorkflowAvailabilityStatus, WorkflowNodeType
 from cmm.workflows.errors import WorkflowRegistryError
 
 
@@ -598,6 +598,36 @@ class _WorkflowSelection:
 
     workflow_ids: tuple[str, ...]
     approval_gate_ids: tuple[str, ...]
+
+
+def _workflow_approval_ids(definition: DomainWorkflowDefinition) -> tuple[str, ...]:
+    """Collect the canonical approval obligations of one workflow definition.
+
+    Sources mirror the existing canonical execution/permission semantics
+    exactly — nothing is inferred from ``node_id``, ``name``, or free
+    metadata:
+
+    - ``DomainWorkflowDefinition.approval_gates`` (workflow-level gates);
+    - any node carrying ``WorkflowNode.approval_gate`` (the canonical
+      ``cmm.domains.permission_adapters`` node decision classifies every
+      gated node as ``APPROVAL_REQUIRED`` with that gate as the source);
+    - ``WorkflowNodeType.REQUEST_APPROVAL`` nodes, whose canonical approval
+      source is ``node.approval_gate or node.node_id`` (the permission
+      adapter's exact fallback for an approval node).
+
+    Deduplicated into one deterministic sorted tuple so overlapping
+    workflow-level and node-level sources yield a single obligation.
+    """
+    ids = set(definition.approval_gates)
+    for node in definition.nodes:
+        if (
+            node.approval_gate is not None
+            or node.node_type is WorkflowNodeType.REQUEST_APPROVAL
+        ):
+            source = node.approval_gate or node.node_id
+            if source:
+                ids.add(source)
+    return tuple(sorted(ids))
 
 
 def _final_operation_authority(
@@ -1232,6 +1262,13 @@ class DefaultDomainPlannerWorkflowIntegrator:
         compatible with the current effective composition. Approval-pending
         workflows remain representable: outstanding gates never mask
         eligibility and are projected as obligations after selection.
+
+        Projected approval obligations are the canonical deduplicated union
+        of every approval source in the selected workflow graph — workflow
+        ``approval_gates`` plus node-level ``approval_gate`` /
+        ``REQUEST_APPROVAL`` obligations (``_workflow_approval_ids``) — so
+        no canonical approval requirement of a selected workflow can
+        disappear between ``DomainWorkflowDefinition`` and the plan.
         """
         if "requested_workflow_ids" not in request.metadata:
             return _WorkflowSelection(workflow_ids=(), approval_gate_ids=())
@@ -1276,7 +1313,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 return None
             if item not in selected:
                 selected.append(item)
-            approval_gates.update(definition.approval_gates)
+            approval_gates.update(_workflow_approval_ids(definition))
         return _WorkflowSelection(
             workflow_ids=tuple(selected),
             approval_gate_ids=tuple(sorted(approval_gates)),
