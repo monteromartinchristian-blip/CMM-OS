@@ -2904,9 +2904,7 @@ def test_v7_workflow_required_operations_subset_of_effective_operations():
 
     assert result.blocked is False
     selected = result.selected_domain_workflow_ids
-    candidates = set(
-        result.prepared_planning_request.metadata["operation_candidates"]
-    )
+    candidates = set(result.prepared_planning_request.metadata["operation_candidates"])
     for workflow_id in selected:
         workflow = workflow_registry.resolve_active(workflow_id)
         required_operations = {
@@ -2927,12 +2925,12 @@ def _resourced_workflow_integrator(service, *, enabled=True):
     from cmm.domains.identifiers import DomainId
     from cmm.domains.operation_contracts import DomainOperationDefinition
     from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
-    from cmm.domains.resolver import DefaultDomainResolver
-    from cmm.domains.resolver_contracts import DomainScoringPolicy
     from cmm.domains.resolution_contracts import (
         DomainResolutionContext,
         DomainResolutionResource,
     )
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
     from cmm.domains.workflow_contracts import DomainWorkflowDefinition
     from cmm.domains.workflow_execution import DomainWorkflowExecutor
     from cmm.workflows.contracts import WorkflowNode
@@ -3107,12 +3105,12 @@ def _supporting_workflow_integrator(service, *, with_helper: bool):
     from cmm.domains.identifiers import DomainId
     from cmm.domains.operation_contracts import DomainOperationDefinition
     from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
-    from cmm.domains.resolver import DefaultDomainResolver
-    from cmm.domains.resolver_contracts import DomainScoringPolicy
     from cmm.domains.resolution_contracts import (
         DomainResolutionContext,
         DomainResolutionResource,
     )
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
     from cmm.domains.workflow_contracts import DomainWorkflowDefinition
     from cmm.domains.workflow_execution import DomainWorkflowExecutor
     from cmm.workflows.contracts import WorkflowNode
@@ -3434,8 +3432,7 @@ def test_v7_selected_workflow_approval_gate_projected():
     assert result.plan is not None
     assert any(
         "approval.file.modify" in node.required_approvers
-        and "approval.file.modify"
-        in node.metadata.get("approval_requirement_ids", [])
+        and "approval.file.modify" in node.metadata.get("approval_requirement_ids", [])
         for node in result.plan.approval_nodes
     )
     # SELECTED_WORKFLOW_APPROVAL_GATE_PROJECTED=PASS
@@ -3499,7 +3496,7 @@ def test_v7_operation_specific_approval_requirements_preserved():
     """
     (
         domain_registry,
-        operation_registry,
+        _operation_registry_unused,
         workflow_registry,
         definitions,
         availability,
@@ -3723,7 +3720,9 @@ def test_v7_workflow_planning_eligibility_matrix():
     )
     assert result6.blocked is False
     assert result6.selected_domain_workflow_ids == ("project.feature_implementation",)
-    assert "approval.file.modify" in result6.prepared_planning_request.required_approvals
+    assert (
+        "approval.file.modify" in result6.prepared_planning_request.required_approvals
+    )
     # Matrix row 6: approval outstanding but representable → ALLOW + obligation
 
     # Row 7: all constraints satisfied → ALLOW.
