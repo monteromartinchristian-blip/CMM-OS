@@ -18,7 +18,11 @@ from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
 )
-from cmm.agent_runtime.enums import WorkflowPlanChangeReason, WorkflowPlanStatus
+from cmm.agent_runtime.enums import (
+    ApprovalRequestStatus,
+    WorkflowPlanChangeReason,
+    WorkflowPlanStatus,
+)
 from cmm.agent_runtime.workflow_planner_adapter import AgentPlanningService
 from cmm.agent_runtime.workflow_planner_contracts import (
     AgentPlanningRequest,
@@ -166,6 +170,314 @@ OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX: tuple[
         may_positive_authority_be_synthesized=False,
     ),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class OperationAvailabilityAuthorityConflictRule:
+    """Most-restrictive conflict semantics for one availability-context field."""
+
+    field: str
+    can_multiple_sources_apply: bool
+    composition_model: str
+    most_restrictive_rule: str
+    fail_closed_conflict_rule: str
+    absent_source_semantics: str
+    explicit_empty_semantics: str
+
+
+OPERATION_AVAILABILITY_AUTHORITY_CONFLICT_MATRIX: tuple[
+    OperationAvailabilityAuthorityConflictRule, ...
+] = (
+    OperationAvailabilityAuthorityConflictRule(
+        field="primary_domain_id",
+        can_multiple_sources_apply=False,
+        composition_model="MODEL_A_SINGLE_OWNER",
+        most_restrictive_rule="resolution.primary_domain / composition.primary_domain is the single owner",
+        fail_closed_conflict_rule="identity mismatch fails closed before planning",
+        absent_source_semantics="absent identity blocks planning",
+        explicit_empty_semantics="empty identity blocks planning",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="supporting_domain_ids",
+        can_multiple_sources_apply=False,
+        composition_model="MODEL_A_SINGLE_OWNER",
+        most_restrictive_rule="composition.supporting_domains is the single owner",
+        fail_closed_conflict_rule="unknown or unauthorized domains fail closed",
+        absent_source_semantics="absent means no supporting domains",
+        explicit_empty_semantics="explicit empty means no supporting domains",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="granted_permissions",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="effective granted = incoming.permissions INTERSECT domain effective permissions; never added",
+        fail_closed_conflict_rule="missing required permission blocks",
+        absent_source_semantics="absent contributes no grant",
+        explicit_empty_semantics="explicit empty contributes no grant",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="denied_permissions",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="effective denies = UNION of all applicable explicit deny sources",
+        fail_closed_conflict_rule="any applicable deny wins; explicit empty never erases another deny",
+        absent_source_semantics="absent contributes no deny",
+        explicit_empty_semantics="explicit empty contributes no deny and erases nothing",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="available_resources",
+        can_multiple_sources_apply=False,
+        composition_model="MODEL_A_SINGLE_OWNER",
+        most_restrictive_rule="planning_request.resource_ids is the single owner for planning availability",
+        fail_closed_conflict_rule="missing required resource blocks",
+        absent_source_semantics="absent means no resources available",
+        explicit_empty_semantics="explicit empty means no resources available",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="capabilities",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="effective = INTERSECTION of all applicable explicit capability sets",
+        fail_closed_conflict_rule="any applicable empty or disjoint constraint blocks; no source may widen another",
+        absent_source_semantics="absent source is ignored, never treated as explicit empty",
+        explicit_empty_semantics="explicit empty remains restrictive and zeroes the intersection",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="available_validation_policy_ids",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="effective = INTERSECTION of all applicable explicit validation policy sets",
+        fail_closed_conflict_rule="any applicable empty or missing policy blocks",
+        absent_source_semantics="absent source is ignored, never treated as explicit empty",
+        explicit_empty_semantics="explicit empty remains restrictive",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="available_rollback_policy_ids",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="effective = INTERSECTION of all applicable explicit rollback policy sets",
+        fail_closed_conflict_rule="any applicable empty or missing policy blocks",
+        absent_source_semantics="absent source is ignored, never treated as explicit empty",
+        explicit_empty_semantics="explicit empty remains restrictive",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="approval_status",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="hard deny wins over pending over approved; pending is never upgraded to approved",
+        fail_closed_conflict_rule="any hard deny (REJECTED/EXPIRED/CANCELLED/SUPERSEDED/APPROVED_WITH_CHANGES) wins",
+        absent_source_semantics="absent source is ignored; single-source positive preserved",
+        explicit_empty_semantics="explicit None means no approval and is never upgraded to approved",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="approval_fingerprint",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="all applicable values must agree; any disagreement fails closed",
+        fail_closed_conflict_rule="conflicting fingerprints force REJECTED with mismatched pair",
+        absent_source_semantics="absent source is ignored",
+        explicit_empty_semantics="explicit None/empty never matches a positive fingerprint",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="request_fingerprint",
+        can_multiple_sources_apply=True,
+        composition_model="MODEL_B_MULTI_CONSTRAINT",
+        most_restrictive_rule="all applicable values must agree; any disagreement fails closed",
+        fail_closed_conflict_rule="conflicting fingerprints force REJECTED with mismatched pair",
+        absent_source_semantics="absent source is ignored; default is empty which mismatches when approval is required",
+        explicit_empty_semantics="explicit empty mismatches any positive fingerprint when approval is required",
+    ),
+    OperationAvailabilityAuthorityConflictRule(
+        field="metadata",
+        can_multiple_sources_apply=False,
+        composition_model="MODEL_A_SINGLE_OWNER",
+        most_restrictive_rule="planning_request.metadata is the single owner for context metadata passthrough; authority fields are composed separately and metadata alone never grants authority",
+        fail_closed_conflict_rule="authority decisions never read grants from raw metadata",
+        absent_source_semantics="absent means empty passthrough",
+        explicit_empty_semantics="explicit empty means empty passthrough",
+    ),
+)
+
+
+def _authority_value_set(value: Any) -> frozenset[str]:
+    """Normalize one explicit positive-set authority value fail-closed."""
+    if value is None:
+        return frozenset()
+    if isinstance(value, (str, bytes)):
+        return frozenset()
+    try:
+        items = tuple(value)
+    except TypeError:
+        return frozenset()
+    return frozenset(item for item in items if isinstance(item, str))
+
+
+def _most_restrictive_optional_sets(
+    sources: Collection[tuple[bool, Any]],
+) -> tuple[str, ...]:
+    """Intersect all applicable explicit positive-set authority sources.
+
+    Each source is ``(is_explicit, values)``. Absent sources are ignored and
+    never treated as explicit empty. When no source is applicable the result
+    is empty (fail closed, preserving the V10 omission fix). Otherwise the
+    result is the sorted intersection, so adding a stricter source can only
+    narrow authority and no precedence path can widen another constraint.
+    """
+    explicit = [_authority_value_set(values) for present, values in sources if present]
+    if not explicit:
+        return ()
+    result = set(explicit[0])
+    for values in explicit[1:]:
+        result.intersection_update(values)
+    return tuple(sorted(result))
+
+
+def _union_denies(
+    sources: Collection[tuple[bool, Any]],
+) -> tuple[str, ...]:
+    """Union all applicable explicit deny sources.
+
+    Absent and explicit-empty sources contribute nothing and erase nothing,
+    so any applicable deny wins monotonically.
+    """
+    result: set[str] = set()
+    for present, values in sources:
+        if present:
+            result.update(_authority_value_set(values))
+    return tuple(sorted(result))
+
+
+_APPROVAL_HARD_DENY_STATUSES = frozenset(
+    {
+        ApprovalRequestStatus.REJECTED,
+        ApprovalRequestStatus.EXPIRED,
+        ApprovalRequestStatus.CANCELLED,
+        ApprovalRequestStatus.SUPERSEDED,
+        ApprovalRequestStatus.APPROVED_WITH_CHANGES,
+    }
+)
+
+_APPROVAL_PENDING_STATUSES = frozenset(
+    {
+        ApprovalRequestStatus.PENDING,
+        ApprovalRequestStatus.POSTPONED,
+    }
+)
+
+_MULTI_SOURCE_FINGERPRINT_CONFLICT_APPROVAL = "__multi_source_approval_conflict__"
+_MULTI_SOURCE_FINGERPRINT_CONFLICT_REQUEST = ""
+
+
+def _normalize_approval_status(value: Any) -> ApprovalRequestStatus | None:
+    """Coerce one approval status fail-closed; unknown values deny."""
+    if value is None:
+        return None
+    if isinstance(value, ApprovalRequestStatus):
+        return value
+    try:
+        return ApprovalRequestStatus(value)
+    except ValueError:
+        return ApprovalRequestStatus.REJECTED
+
+
+def _resolve_approval_authority(
+    planning_metadata: Mapping[str, Any] | None,
+    integration_metadata: Mapping[str, Any] | None,
+) -> tuple[Any, Any, Any]:
+    """Compose approval authority from planning/integration metadata most-restrictively.
+
+    Absent keys are ignored (single-source positive preserved). Explicit
+    values compose as: any hard deny wins; else any pending-like
+    (PENDING/POSTPONED/explicit None) wins over APPROVED and is never
+    upgraded; else APPROVED only when every applicable source approves.
+    Conflicting approval/request fingerprints fail closed by forcing REJECTED
+    with a mismatched pair, so no optimistic fingerprint choice can pass.
+    """
+    plan_meta = dict(planning_metadata or {})
+    req_meta = dict(integration_metadata or {})
+    status_sources = [
+        ("approval_status" in plan_meta, plan_meta.get("approval_status")),
+        ("approval_status" in req_meta, req_meta.get("approval_status")),
+    ]
+    approval_fp_sources = [
+        ("approval_fingerprint" in plan_meta, plan_meta.get("approval_fingerprint")),
+        (
+            "approval_fingerprint" in req_meta,
+            req_meta.get("approval_fingerprint"),
+        ),
+    ]
+    request_fp_sources = [
+        ("request_fingerprint" in plan_meta, plan_meta.get("request_fingerprint")),
+        (
+            "request_fingerprint" in req_meta,
+            req_meta.get("request_fingerprint"),
+        ),
+    ]
+    applicable_statuses = [
+        _normalize_approval_status(value)
+        for present, value in status_sources
+        if present
+    ]
+    if not applicable_statuses:
+        effective_status: Any = None
+    elif any(
+        status in _APPROVAL_HARD_DENY_STATUSES
+        for status in applicable_statuses
+        if status is not None
+    ):
+        hard = sorted(
+            (
+                status
+                for status in applicable_statuses
+                if status in _APPROVAL_HARD_DENY_STATUSES
+            ),
+            key=lambda status: status.value,
+        )
+        effective_status = hard[0]
+    elif any(
+        status is None or status in _APPROVAL_PENDING_STATUSES
+        for status in applicable_statuses
+    ):
+        pending = sorted(
+            (
+                status
+                for status in applicable_statuses
+                if status in _APPROVAL_PENDING_STATUSES
+            ),
+            key=lambda status: status.value,
+        )
+        effective_status = pending[0] if pending else None
+    else:
+        effective_status = ApprovalRequestStatus.APPROVED
+    applicable_approval_fp = [
+        value for present, value in approval_fp_sources if present
+    ]
+    applicable_request_fp = [value for present, value in request_fp_sources if present]
+
+    def _all_equal(values: list[Any]) -> bool:
+        return all(value == values[0] for value in values[1:])
+
+    approval_conflict = len(applicable_approval_fp) > 1 and not _all_equal(
+        applicable_approval_fp
+    )
+    request_conflict = len(applicable_request_fp) > 1 and not _all_equal(
+        applicable_request_fp
+    )
+    if approval_conflict or request_conflict:
+        return (
+            ApprovalRequestStatus.REJECTED,
+            _MULTI_SOURCE_FINGERPRINT_CONFLICT_APPROVAL,
+            _MULTI_SOURCE_FINGERPRINT_CONFLICT_REQUEST,
+        )
+    if applicable_approval_fp:
+        effective_approval_fp = applicable_approval_fp[0]
+    else:
+        effective_approval_fp = None
+    if applicable_request_fp:
+        effective_request_fp = applicable_request_fp[0]
+    else:
+        effective_request_fp = ""
+    return (effective_status, effective_approval_fp, effective_request_fp)
 
 
 def _require_dependency(dependency: object, name: str, method: str) -> None:
@@ -869,37 +1181,19 @@ def _required_subworkflow_closure_for_planning(
                     return False, (), (), "domain_workflow_unavailable"
                 continue
 
-            # Build canonical DomainOperationAvailabilityContext
+            # Build canonical DomainOperationAvailabilityContext.
+            # V12: authority fields use the already-composed most-restrictive
+            # values passed by _select_workflows. Raw planning metadata must
+            # never widen them by precedence, so it is used only for the
+            # non-authority metadata passthrough below.
             meta = dict(planning_request_metadata or {})
-            if "capabilities" in meta:
-                op_capabilities = tuple(meta["capabilities"])
-            elif capabilities:
-                op_capabilities = tuple(capabilities)
-            else:
-                op_capabilities = ()
-
-            if "available_validation_policy_ids" in meta:
-                op_validations = tuple(meta["available_validation_policy_ids"])
-            elif available_validation_policy_ids:
-                op_validations = tuple(available_validation_policy_ids)
-            else:
-                op_validations = ()
-
-            if "available_rollback_policy_ids" in meta:
-                op_rollbacks = tuple(meta["available_rollback_policy_ids"])
-            elif available_rollback_policy_ids:
-                op_rollbacks = tuple(available_rollback_policy_ids)
-            else:
-                op_rollbacks = ()
-
-            op_denied = (
-                tuple(meta["denied_permissions"])
-                if "denied_permissions" in meta
-                else tuple(denied_permissions)
-            )
-            op_approval_status = meta.get("approval_status", approval_status)
-            op_approval_fp = meta.get("approval_fingerprint", approval_fingerprint)
-            op_request_fp = meta.get("request_fingerprint", request_fingerprint)
+            op_capabilities = tuple(capabilities)
+            op_validations = tuple(available_validation_policy_ids)
+            op_rollbacks = tuple(available_rollback_policy_ids)
+            op_denied = tuple(denied_permissions)
+            op_approval_status = approval_status
+            op_approval_fp = approval_fingerprint
+            op_request_fp = request_fingerprint
 
             avail_ctx = DomainOperationAvailabilityContext(
                 primary_domain_id=primary_dom,
@@ -1763,59 +2057,98 @@ class DefaultDomainPlannerWorkflowIntegrator:
         req_meta = dict(request.metadata or {})
         plan_meta = dict(request.planning_request.metadata or {})
 
-        if "capabilities" in plan_meta:
-            auth_capabilities = tuple(plan_meta["capabilities"])
-        elif "capabilities" in req_meta:
-            auth_capabilities = tuple(req_meta["capabilities"])
-        elif self._capabilities_provider is not None and composition is not None:
-            auth_capabilities = tuple(self._capabilities_provider(composition))
-        else:
-            auth_capabilities = ()
-
-        if "available_validation_policy_ids" in plan_meta:
-            auth_validations = tuple(plan_meta["available_validation_policy_ids"])
-        elif "available_validation_policy_ids" in req_meta:
-            auth_validations = tuple(req_meta["available_validation_policy_ids"])
-        elif (
+        # V12: every simultaneously applicable positive authority source
+        # composes most-restrictively. Absent sources are ignored and never
+        # treated as explicit empty; explicit-empty applicable sources remain
+        # restrictive via intersection. No precedence path may widen another.
+        capabilities_provider_present = (
+            self._capabilities_provider is not None and composition is not None
+        )
+        capabilities_provider_values = (
+            self._capabilities_provider(composition)
+            if capabilities_provider_present
+            else ()
+        )
+        validation_provider_present = (
             self._available_validation_policy_ids_provider is not None
             and composition is not None
-        ):
-            auth_validations = tuple(
-                self._available_validation_policy_ids_provider(composition)
-            )
-        else:
-            auth_validations = ()
-
-        if "available_rollback_policy_ids" in plan_meta:
-            auth_rollbacks = tuple(plan_meta["available_rollback_policy_ids"])
-        elif "available_rollback_policy_ids" in req_meta:
-            auth_rollbacks = tuple(req_meta["available_rollback_policy_ids"])
-        elif (
+        )
+        validation_provider_values = (
+            self._available_validation_policy_ids_provider(composition)
+            if validation_provider_present
+            else ()
+        )
+        rollback_provider_present = (
             self._available_rollback_policy_ids_provider is not None
             and composition is not None
-        ):
-            auth_rollbacks = tuple(
-                self._available_rollback_policy_ids_provider(composition)
-            )
-        else:
-            auth_rollbacks = ()
-
-        if "denied_permissions" in plan_meta:
-            auth_denied = tuple(plan_meta["denied_permissions"])
-        elif "denied_permissions" in req_meta:
-            auth_denied = tuple(req_meta["denied_permissions"])
-        else:
-            auth_denied = ()
-
-        auth_approval_status = plan_meta.get(
-            "approval_status", req_meta.get("approval_status")
         )
-        auth_approval_fp = plan_meta.get(
-            "approval_fingerprint", req_meta.get("approval_fingerprint")
+        rollback_provider_values = (
+            self._available_rollback_policy_ids_provider(composition)
+            if rollback_provider_present
+            else ()
         )
-        auth_request_fp = plan_meta.get(
-            "request_fingerprint", req_meta.get("request_fingerprint", "")
+        auth_capabilities = _most_restrictive_optional_sets(
+            [
+                (
+                    "capabilities" in plan_meta,
+                    plan_meta.get("capabilities", ()),
+                ),
+                ("capabilities" in req_meta, req_meta.get("capabilities", ())),
+                (
+                    capabilities_provider_present,
+                    capabilities_provider_values,
+                ),
+            ]
         )
+        auth_validations = _most_restrictive_optional_sets(
+            [
+                (
+                    "available_validation_policy_ids" in plan_meta,
+                    plan_meta.get("available_validation_policy_ids", ()),
+                ),
+                (
+                    "available_validation_policy_ids" in req_meta,
+                    req_meta.get("available_validation_policy_ids", ()),
+                ),
+                (
+                    validation_provider_present,
+                    validation_provider_values,
+                ),
+            ]
+        )
+        auth_rollbacks = _most_restrictive_optional_sets(
+            [
+                (
+                    "available_rollback_policy_ids" in plan_meta,
+                    plan_meta.get("available_rollback_policy_ids", ()),
+                ),
+                (
+                    "available_rollback_policy_ids" in req_meta,
+                    req_meta.get("available_rollback_policy_ids", ()),
+                ),
+                (
+                    rollback_provider_present,
+                    rollback_provider_values,
+                ),
+            ]
+        )
+        auth_denied = _union_denies(
+            [
+                (
+                    "denied_permissions" in plan_meta,
+                    plan_meta.get("denied_permissions", ()),
+                ),
+                (
+                    "denied_permissions" in req_meta,
+                    req_meta.get("denied_permissions", ()),
+                ),
+            ]
+        )
+        (
+            auth_approval_status,
+            auth_approval_fp,
+            auth_request_fp,
+        ) = _resolve_approval_authority(plan_meta, req_meta)
 
         selected: list[str] = []
         approval_gates: set[str] = set()
