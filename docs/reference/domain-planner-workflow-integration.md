@@ -422,6 +422,28 @@ PROHIBITED_CAPABILITY_EXECUTION=0
   `tests/domains/test_domain_agent_runtime_dp041_acceptance.py`
   (`AT-DP-041=PASS`)
 
+## Operation Availability Authority Sourcing (V11)
+
+Phase 10.42 V11 eliminates implicit positive authority defaults (`V10_MAJOR_15`).
+Positive availability authority is never synthesized merely because a field is
+absent from `AgentPlanningRequest.metadata` or integration request metadata.
+
+Core invariants:
+- **Omitted authority must never be broader than explicitly empty authority**:
+  when availability authority fields (`capabilities`,
+  `available_validation_policy_ids`, `available_rollback_policy_ids`,
+  `denied_permissions`, `approval_status`, `approval_fingerprint`,
+  `request_fingerprint`) are omitted from request metadata, they default strictly
+  to fail-closed empty collections or `None`.
+- **Every positive field has an auditable canonical source**: defined in
+  `OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX` covering all 12 fields of
+  `DomainOperationAvailabilityContext`. `may_positive_authority_be_synthesized`
+  is `False` across every field.
+- **Operation definitions are requirements, never availability grants**:
+  `validation_policy_id`, `rollback_policy_id`, and `reversible=True` on
+  `DomainOperationDefinition` declare constraints that execution/planning must
+  satisfy; they do not grant capability or policy availability.
+
 ## Scope boundaries
 
 Phase 10.42 does not implement Phase 10.43 (Validation System integration)
@@ -430,4 +452,4 @@ are discovered from existing declarations, represented in canonical plan
 nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
 
-V10 implementation evidence and validation counts: Phase closure still requires Independent Re-Audit V10.
+V11 implementation evidence: Phase closure still requires Independent Re-Audit V11.
