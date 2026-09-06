@@ -9,10 +9,10 @@ The roadmap distinguishes clearly between:
 - **future implementation work**.
 
 > **Current release:** `v0.8.0`<br>
-> **Implemented:** Phases 0–9 plus Phase 10 through 10.42<br>
+> **Implemented:** Phases 0–9 plus Phase 10 through 10.42, plus Phase 10.43 implemented and pending independent audit<br>
 > **Implemented and audited:** Phases 0–9 plus Phase 10 through **10.42**<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Next milestone:** **Phase 10.43 — Integration with Validation System**
+> **Next milestone:** Independent audit of **Phase 10.43 — Integration with Validation System**
 
 ---
 
@@ -466,7 +466,8 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 The Phase 10.37 — Domain Observability closure stands at audited implementation HEAD `a17326421daa2479f58d7ab45b6a66b1bef75936`; audit V6 bundle SHA-256 `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 
 **Implemented and audited through:** **Phase 10.42 — Integration with Planner and Workflow Engine** (final independent re-audit **V12** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`; final audit report `docs/audits/phase-10.42-independent-reaudit-v12.md`; complete, independently audited and closed).
-**Next action:** **Phase 10.43 — Integration with Validation System**, beginning with a fresh real repository inspection.
+**Phase 10.43 — Integration with Validation System:** implemented and pending independent audit (`DP-043=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-043=PASS` implementation evidence; reference `docs/reference/domain-validation-integration.md`).
+**Next action:** Independent audit of **Phase 10.43 — Integration with Validation System**.
 **Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, and **Phase 10.39 — Preventing Fragmentation** are independently audited and closed. Phase 10.39 final independent re-audit **V4** = `PASS`.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
@@ -625,7 +626,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through **10.42**. **Phase 10.42 — Integration with Planner and Workflow Engine** is complete, independently audited and closed after final independent re-audit **V12** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-042=VERIFIED_EXISTING`, `AT-DP-042=PASS`, audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`, and audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`. **Phase 10.43 — Integration with Validation System** is the next milestone; Phases 10.52–10.53 remain the final planned Domain Packs.
+The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through **10.42**. **Phase 10.42 — Integration with Planner and Workflow Engine** is complete, independently audited and closed after final independent re-audit **V12** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-042=VERIFIED_EXISTING`, `AT-DP-042=PASS`, audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`, and audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`. **Phase 10.43 — Integration with Validation System** is implemented and pending independent audit; Phases 10.52–10.53 remain the final planned Domain Packs.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 
