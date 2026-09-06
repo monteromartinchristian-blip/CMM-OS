@@ -1499,6 +1499,117 @@ def test_at_dp042_real_project_selected_workflow_missing_availability_prerequisi
     print("REAL_PROJECT_AVAILABILITY_AUTHORITY_DOWNGRADE_BLOCKS=PASS")
 
 
+# ── AT-DP-042 V12 — most-restrictive multi-source authority (connected) ───
+
+
+def test_at_dp042_v12_real_project_multi_source_agreement_pass():
+    """AT-DP-042 (V12): planning/integration agreement on real Project passes."""
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+    authority = {
+        "capabilities": ["transaction", "rollback", "validation"],
+        "available_validation_policy_ids": [
+            "validation.project.create_implementation_plan",
+            "validation.project.modify_code",
+            "validation.project.review_status",
+        ],
+        "available_rollback_policy_ids": [
+            "rollback.project.create_implementation_plan",
+            "rollback.project.modify_code",
+            "rollback.project.review_status",
+        ],
+    }
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
+        metadata=dict(authority),
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={
+            "requested_workflow_ids": ["project.feature_implementation"],
+            **authority,
+        },
+    )
+    result = integrator.integrate(request)
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("project.feature_implementation",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    print("REAL_PROJECT_MULTI_SOURCE_AGREEMENT_PASS=PASS")
+
+
+def test_at_dp042_v12_real_project_multi_source_restriction_blocks():
+    """AT-DP-042 (V12): one applicable source removing authority blocks."""
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+    full_authority = {
+        "capabilities": ["transaction", "rollback", "validation"],
+        "available_validation_policy_ids": [
+            "validation.project.create_implementation_plan",
+            "validation.project.modify_code",
+            "validation.project.review_status",
+        ],
+        "available_rollback_policy_ids": [
+            "rollback.project.create_implementation_plan",
+            "rollback.project.modify_code",
+            "rollback.project.review_status",
+        ],
+    }
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
+        metadata=dict(full_authority),
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={
+            "requested_workflow_ids": ["project.feature_implementation"],
+            "capabilities": [],
+            "available_validation_policy_ids": [],
+            "available_rollback_policy_ids": [],
+        },
+    )
+    result = integrator.integrate(request)
+    assert result.blocked is True
+    assert result.selected_domain_workflow_ids == ()
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("REAL_PROJECT_MULTI_SOURCE_RESTRICTION_BLOCKS=PASS")
+
+
 # ── AT-DP-042 V8 — workflow graph planning obligations (adversarial) ───────
 
 
