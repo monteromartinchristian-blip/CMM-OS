@@ -48,6 +48,7 @@ from cmm.domains.validation_validators import (
 from cmm.validation.enums import ValidationStatus
 from cmm.validation.executor import ValidationExecutor
 from cmm.validation.pipeline import ValidationPipeline
+from cmm.validation.policy import ValidationPolicy
 from cmm.validation.registry import ValidationRegistry
 from cmm.validation.results import ValidationResult
 from cmm.validation.steps import ValidationStepResult
@@ -122,7 +123,20 @@ class PipelineDomainValidator:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._monotonic = monotonic or _time_module.monotonic
 
-    def validate(self, request: DomainValidationRequest) -> DomainValidationResult:
+    def validate(
+        self,
+        request: DomainValidationRequest,
+        *,
+        policy: ValidationPolicy | None = None,
+    ) -> DomainValidationResult:
+        if policy is not None and not isinstance(policy, ValidationPolicy):
+            raise DomainValidationExecutionError(
+                "policy must be a canonical ValidationPolicy",
+                details={"policy_type": type(policy).__name__},
+            )
+        if policy is not None:
+            _require_known_domain_policy_steps(policy)
+        t0 = self._monotonic()
         t0 = self._monotonic()
         if not isinstance(t0, (int, float)) or not math.isfinite(t0):
             raise DomainValidationExecutionError(
@@ -220,6 +234,28 @@ def _validate_limits(
         if val <= 0:
             raise DomainValidationExecutionError(
                 f"{name} must be positive", details={"field": name, "value": val}
+            )
+
+
+def _require_known_domain_policy_steps(policy: ValidationPolicy) -> None:
+    """Fail closed on unknown ``domain.*`` policy requirements.
+
+    Phase 10.43 policy bindings resolve to canonical Phase 7
+    ``ValidationPolicy`` objects. Any ``domain.*`` step required by the
+    policy must be one of the eight canonical Domain steps; unknown IDs
+    cannot disappear silently.
+    """
+    for step_id in tuple(policy.required_steps) + tuple(policy.optional_steps):
+        if not isinstance(step_id, str) or not step_id:
+            raise DomainValidationExecutionError(
+                "ValidationPolicy contains a malformed step id",
+                details={"step_id": str(step_id)},
+            )
+        if step_id.startswith("domain.") and step_id not in _DOMAIN_STEP_NAMES:
+            raise DomainValidationExecutionError(
+                f"Unknown domain validation step '{step_id}' in policy "
+                f"'{policy.name}'",
+                details={"step_id": step_id, "policy": policy.name},
             )
 
 
@@ -381,6 +417,14 @@ def ensure_domain_validation_allows_install(result: DomainValidationResult) -> N
 
     if result.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR):
         reason_codes.append("status_failed_or_error")
+    elif result.status not in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    ):
+        # Fail closed on non-terminal or unknown statuses (PENDING/RUNNING or
+        # any future status): only terminal PASSED/WARNING may authorize
+        # installation, and then only when all flag gates below also hold.
+        reason_codes.append("status_not_terminal_success")
 
     if not result.manifest_valid:
         reason_codes.append("manifest_invalid")
@@ -421,8 +465,20 @@ def ensure_domain_validation_allows_install(result: DomainValidationResult) -> N
         )
 
 
+def ensure_domain_validation_allows_update(result: DomainValidationResult) -> None:
+    """Phase 10.43 update gate: failed update validation never partially replaces.
+
+    Delegates to the canonical install gate so install and update share one
+    fail-closed truth. Callers must preserve the previous working Domain
+    state when this raises (the existing loader snapshot/restore or
+    validation-before-registration behavior).
+    """
+    ensure_domain_validation_allows_install(result)
+
+
 __all__ = [
     "PipelineDomainValidator",
     "build_domain_validation_result",
     "ensure_domain_validation_allows_install",
+    "ensure_domain_validation_allows_update",
 ]

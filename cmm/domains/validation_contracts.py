@@ -437,7 +437,10 @@ class DomainValidationResult:
     @property
     def is_install_allowed(self) -> bool:
         """Check if installation is allowed based on validation result."""
-        if self.status in (DomainValidationStatus.FAILED, DomainValidationStatus.ERROR):
+        if self.status not in (
+            DomainValidationStatus.PASSED,
+            DomainValidationStatus.WARNING,
+        ):
             return False
         if not self.manifest_valid:
             return False

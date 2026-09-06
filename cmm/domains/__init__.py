@@ -540,6 +540,7 @@ from cmm.domains.validation import (
     PipelineDomainValidator,
     build_domain_validation_result,
     ensure_domain_validation_allows_install,
+    ensure_domain_validation_allows_update,
 )
 from cmm.domains.validation_context import (
     build_domain_validation_context,
@@ -947,6 +948,7 @@ __all__ = [
     "derive_confidence",
     "derive_cross_domain_status",
     "ensure_domain_validation_allows_install",
+    "ensure_domain_validation_allows_update",
     "get_canonical_domain_namespace",
     "is_canonical_general_event",
     "merge_contradictions",
