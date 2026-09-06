@@ -32,9 +32,10 @@ DOMAIN_PACK_BASE_VALIDATION_IDS: tuple[str, ...] = (
 _PROJECT_IMPACT_TO_CANONICAL_POLICY = {
     "small": "small_change",
     "structural": "structural_change",
-    "public": "structural_change",
+    "public": "public_api_change",
     "broad": "full",
     "high": "full",
+    "full": "full",
 }
 
 
@@ -212,9 +213,13 @@ def build_project_domain_change_policy(
     if not isinstance(impact, str) or not impact.strip():
         raise ValueError("impact must be a non-empty string")
     canonical_key = impact.strip().lower()
-    canonical_policy_name = _PROJECT_IMPACT_TO_CANONICAL_POLICY.get(
-        canonical_key, "small_change"
-    )
+    try:
+        canonical_policy_name = _PROJECT_IMPACT_TO_CANONICAL_POLICY[canonical_key]
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown project impact '{impact}': refusing to downgrade "
+            "to a weaker validation policy"
+        ) from exc
     canonical = DEFAULT_VALIDATION_POLICIES.get(canonical_policy_name)
     canonical_steps: tuple[str, ...] = (
         tuple(canonical.required_steps) if canonical is not None else ()

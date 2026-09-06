@@ -137,7 +137,6 @@ class PipelineDomainValidator:
         if policy is not None:
             _require_known_domain_policy_steps(policy)
         t0 = self._monotonic()
-        t0 = self._monotonic()
         if not isinstance(t0, (int, float)) or not math.isfinite(t0):
             raise DomainValidationExecutionError(
                 "monotonic clock returned non-finite initial value",

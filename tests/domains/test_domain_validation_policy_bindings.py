@@ -27,6 +27,25 @@ from cmm.domains.validation_policy_bindings import (
 from cmm.validation import ValidationPolicy
 
 
+@pytest.mark.parametrize(
+    "impact",
+    (
+        "unknown",
+        "critical-structural",
+        "unexpected-new-impact",
+    ),
+)
+def test_unknown_project_impact_fails_closed(impact: str) -> None:
+    with pytest.raises(ValueError):
+        build_project_domain_change_policy(impact=impact)
+
+
+def test_public_impact_maps_to_canonical_public_api_change() -> None:
+    policy = build_project_domain_change_policy(impact="public")
+    assert policy.metadata["canonical_phase7_policy"] == "public_api_change"
+    assert policy.require_full_suite is True
+
+
 def test_phase_1043_exposes_all_six_policy_family_identities() -> None:
     assert {
         DOMAIN_PACK_INSTALLATION_POLICY_NAME,

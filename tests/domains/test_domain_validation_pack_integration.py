@@ -181,6 +181,24 @@ class TestInstallationPolicyBinding:
             assert not registry.has(step_id)
 
 
+class TestMonotonicSingleRead:
+    def test_validate_reads_monotonic_clock_exactly_twice(self, tmp_path) -> None:
+        # MINOR-01 regression: two consecutive t0 reads corrupt duration
+        # accounting under deterministic clocks. Exactly one initial read
+        # plus one final read must occur.
+        values = iter((100.0, 100.25))
+        calls: list[str] = []
+
+        def _monotonic() -> float:
+            calls.append("read")
+            return next(values)
+
+        request = _pack_request(tmp_path)
+        result = PipelineDomainValidator(monotonic=_monotonic).validate(request)
+        assert len(calls) == 2
+        assert result.duration_ms == 250
+
+
 class TestInstallGateFailClosed:
     def test_failed_blocks(self) -> None:
         with pytest.raises(DomainValidationBlocked):
