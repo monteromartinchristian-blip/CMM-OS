@@ -5926,7 +5926,7 @@ Activate
 The Project Domain will have to use the Validation System for any code changes.
 
 **Phase 10.43 status:** Implemented and pending independent audit.
-`DP-043=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-043=PASS` (implementation
+`DP-043=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-043=PASS_CONNECTED` (implementation
 evidence; independent audit has not yet run). Implementation boundary: six
 policy families (`DomainPackInstallationPolicy`, `DomainPackUpdatePolicy`,
 `DomainOperationPolicy`, `DomainWorkflowPolicy`,
@@ -5935,7 +5935,13 @@ policy families (`DomainPackInstallationPolicy`, `DomainPackUpdatePolicy`,
 `cmm/domains/validation_integration.py`; canonical Phase 7
 `ValidationPolicy`/`ValidationRegistry`/`ValidationPipeline`/
 `ValidationResult` reuse via existing `PipelineDomainValidator` and Phase 9
-`AgentValidationAdapter`; Phase 10.42 planner/workflow projection unchanged;
+`AgentValidationAdapter`; lifecycle enforcement in
+`cmm/domains/loader.py` (install/update policies gate registration);
+runtime enforcement via the orchestrator provider seam, the workflow
+operation adapter, the orchestrated cross-domain operation port, and the
+specialized-result acceptance gate in `cmm/domains/operation_execution.py`
+over the generic Phase 9 `validation_requirements` seam;
+Phase 10.42 planner/workflow projection unchanged;
 connected acceptance
 `tests/domains/test_domain_validation_integration_dp043_acceptance.py`;
 reference `docs/reference/domain-validation-integration.md`. The
