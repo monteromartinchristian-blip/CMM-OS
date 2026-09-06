@@ -574,7 +574,9 @@ from cmm.domains.validation_policy_bindings import (
 )
 from cmm.domains.validation_integration import (
     DomainValidationIntegrationError,
+    build_operation_validation_requirements,
     compose_effective_validation_ids,
+    domain_operation_requires_validation,
     is_ignored_caller_validation_metadata,
     require_canonical_validation_success,
     validate_domain_specialized_result,
@@ -950,8 +952,10 @@ __all__ = [
     "build_domain_pack_update_policy",
     "build_domain_workflow_policy",
     "build_project_domain_change_policy",
+    "build_operation_validation_requirements",
     "compose_effective_validation_ids",
     "compose_required_validation_ids",
+    "domain_operation_requires_validation",
     "is_ignored_caller_validation_metadata",
     "build_initial_domain_operation_catalog",
     "build_initial_reasoning_rule_catalog",

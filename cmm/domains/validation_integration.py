@@ -485,9 +485,117 @@ def is_ignored_caller_validation_metadata(key: str) -> bool:
     return str(key) in _IGNORED_CALLER_METADATA_KEYS
 
 
+def domain_operation_requires_validation(
+    definition_or_policy_id: object,
+) -> bool:
+    """Whether a Domain operation mandates canonical validation.
+
+    Accepts a ``DomainOperationDefinition`` (reads ``validation_policy_id``)
+    or a raw policy-id string. Empty/None means no mandated validation.
+    """
+    policy_id: object = None
+    if isinstance(definition_or_policy_id, str):
+        policy_id = definition_or_policy_id
+    else:
+        try:
+            policy_id = definition_or_policy_id.validation_policy_id  # type: ignore[attr-defined]
+        except AttributeError:
+            policy_id = None
+    if policy_id is None:
+        return False
+    return bool(str(policy_id).strip())
+
+
+def build_operation_validation_requirements(
+    *,
+    validation_policy_id: str | None = None,
+    required_validation_ids: tuple[str, ...] = (),
+    stage: str = "pre_execution",
+    operation_name: str = "",
+    operation_version: str = "1",
+) -> tuple[Any, ...]:
+    """Build Phase 9 ``ValidationRequirement`` objects for a Domain operation.
+
+    Thin binding: preserves every host-derived required ID as a required,
+    blocking requirement so unknown mandatory IDs fail closed in the
+    canonical adapter (which raises for unknown required validators).
+    Known Phase 7 validator IDs execute canonically; the operation's own
+    ``validation_policy_id`` is carried as requirement policy identity.
+    Caller metadata is never consulted.
+    """
+    from cmm.agent_runtime.enums import (
+        AgentValidationStage,
+        ValidationRequirementKind,
+    )
+    from cmm.agent_runtime.validation_integration_contracts import (
+        ValidationRequirement,
+    )
+
+    try:
+        agent_stage = AgentValidationStage(stage)
+    except ValueError as exc:
+        raise DomainValidationIntegrationError(
+            f"unknown validation stage '{stage}'",
+            details={"reason": "malformed_stage"},
+        ) from exc
+
+    cleaned = _clean_required_ids(tuple(required_validation_ids or ()))
+    requirements: list[Any] = []
+    Kind = ValidationRequirementKind
+    for req_id in cleaned:
+        lowered = req_id.lower()
+        if "syntax" in lowered:
+            kind = Kind.SYNTAX
+        elif "ast" in lowered:
+            kind = Kind.AST
+        elif "test" in lowered:
+            kind = Kind.UNIT_TEST
+        elif "security" in lowered:
+            kind = Kind.SECURITY
+        elif "commit" in lowered:
+            kind = Kind.COMMIT_GATE
+        else:
+            kind = Kind.CUSTOM
+        requirements.append(
+            ValidationRequirement(
+                requirement_id=f"req-domain-{operation_name or 'op'}-{req_id}",
+                validation_kind=kind,
+                stage=agent_stage,
+                required=True,
+                blocking=True,
+                policy_id=validation_policy_id,
+                validator_ids=(req_id,),
+                operation_name=operation_name,
+                operation_version=operation_version,
+                metadata={"domain_validation_id": req_id},
+            )
+        )
+    # The operation policy itself is an obligation even when no explicit
+    # required IDs are listed: without this, an operation declaring only a
+    # policy ID would project no executable requirement.
+    if validation_policy_id and not cleaned:
+        requirements.append(
+            ValidationRequirement(
+                requirement_id=f"req-domain-{operation_name or 'op'}-policy",
+                validation_kind=Kind.CUSTOM,
+                stage=agent_stage,
+                required=True,
+                blocking=True,
+                policy_id=validation_policy_id,
+                validator_ids=(validation_policy_id,),
+                operation_name=operation_name,
+                operation_version=operation_version,
+                metadata={"domain_validation_policy": validation_policy_id},
+            )
+        )
+    return tuple(requirements)
+
+
 __all__ = [
     "DomainValidationIntegrationError",
+    "build_operation_validation_requirements",
     "compose_effective_validation_ids",
+    "domain_operation_requires_validation",
     "is_ignored_caller_validation_metadata",
     "require_canonical_validation_success",
     "validate_domain_specialized_result",
