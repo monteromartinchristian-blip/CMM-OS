@@ -611,3 +611,312 @@ class _TrivialImpl:
 
     def execute(self, request) -> dict:
         return {"success": True, "output": {}}
+
+
+class _TrivialImpl:
+    def __init__(self, definition) -> None:
+        self.definition = definition
+
+    def execute(self, request) -> dict:
+        return {"success": True, "output": {}}
+
+
+def _validating_operation(
+    operation_id: str = "flow.op",
+    domain_id: str = "domain:flow",
+    validation_policy_id: str | None = "validation.flow.op",
+    declared_ids: tuple[str, ...] = ("syntax_validator",),
+) -> DomainOperationDefinition:
+    from cmm.agent_runtime.enums import PolicyRiskLevel
+    from cmm.domains.enums import DomainOperationType
+
+    return DomainOperationDefinition(
+        operation_id=operation_id,
+        domain_id=domain_id,
+        version="1.0.0",
+        name="op",
+        description="test operation",
+        operation_type=DomainOperationType.READ,
+        required_permissions=(),
+        risk_level=PolicyRiskLevel.LOW,
+        reversible=False,
+        requires_approval=False,
+        validation_policy_id=validation_policy_id,
+        rollback_policy_id=None,
+        enabled=True,
+        metadata=(
+            {"domain_validation_requirement_ids": list(declared_ids)}
+            if declared_ids
+            else {}
+        ),
+    )
+
+
+def _validating_stack(tmp_path, project_root: str | None = None):
+    import itertools as _itertools
+
+    from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements as _resolver,
+    )
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    _ids = _itertools.count()
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    calls: list = []
+
+    class Impl:
+        def __init__(self, definition) -> None:
+            self.definition = definition
+
+        def execute(self, request) -> dict:
+            calls.append(getattr(request, "operation_name", None))
+            return {"success": True, "output": {"status": "ok"}}
+
+    for op_id in ("flow.first", "flow.second", "flow.child"):
+        definition = _validating_operation(operation_id=op_id)
+        registry.register(definition, Impl(definition))
+
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        operation_validation_provider=_resolver,
+    )
+    from cmm.domains.operation_execution import (
+        build_domain_workflow_operation_adapter as _factory,
+    )
+
+    metadata: dict = {}
+    if project_root is not None:
+        metadata["validation_project_root"] = project_root
+    node_adapter = _factory(
+        orchestrator,
+        primary_domain_id="domain:flow",
+        capabilities=("execute", "validation"),
+        metadata=metadata,
+        id_factory=lambda: f"wf-node-{next(_ids)}",
+    )
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: f"wf-run-{next(_ids)}",
+        operation_adapter=node_adapter,
+    )
+    return executor, orchestrator, calls
+
+
+class TestRealWorkflowValidationNodes:
+    def test_real_domain_workflow_executes_required_validation_nodes(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.workflow_contracts import (
+            DomainWorkflowContext,
+            DomainWorkflowDefinition,
+        )
+        from cmm.workflows.contracts import WorkflowNode
+        from cmm.workflows.enums import WorkflowNodeType, WorkflowRunStatus
+
+        project_dir = tmp_path / "flowproj"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
+        executor, _, calls = _validating_stack(tmp_path, str(project_dir))
+        definition = DomainWorkflowDefinition(
+            workflow_id="flow.main",
+            domain_id="domain:flow",
+            version="1.0.0",
+            name="main",
+            nodes=(
+                WorkflowNode(
+                    node_id="first",
+                    node_type=WorkflowNodeType.EXECUTE_OPERATION,
+                    name="first",
+                    operation_id="flow.first",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode(
+                    node_id="second",
+                    node_type=WorkflowNodeType.EXECUTE_OPERATION,
+                    name="second",
+                    dependencies=("first",),
+                    operation_id="flow.second",
+                    operation_version="1.0.0",
+                ),
+            ),
+        )
+        run = executor.execute(
+            definition,
+            DomainWorkflowContext(
+                "domain:flow",
+                available_operations=frozenset({"flow.first", "flow.second"}),
+            ),
+            {},
+        )
+        assert run.common_run.status is WorkflowRunStatus.COMPLETED
+        assert calls == ["flow.first", "flow.second"]
+
+        # A validation failure in a required node blocks the workflow: the
+        # failing operation implementation never runs.
+        (project_dir / "main.py").write_text("def broken(:\n", encoding="utf-8")
+        executor2, _, calls2 = _validating_stack(tmp_path, str(project_dir))
+        run2 = executor2.execute(
+            definition,
+            DomainWorkflowContext(
+                "domain:flow",
+                available_operations=frozenset({"flow.first", "flow.second"}),
+            ),
+            {},
+        )
+        assert run2.common_run.status is WorkflowRunStatus.FAILED
+        assert calls2 == []
+
+    def test_required_subworkflow_validation_survives_real_dependency_closure(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            compose_effective_validation_ids as _compose,
+        )
+        from cmm.domains.workflow_contracts import (
+            DomainWorkflowContext,
+            DomainWorkflowDefinition,
+        )
+        from cmm.workflows.contracts import WorkflowNode
+        from cmm.workflows.enums import WorkflowNodeType, WorkflowRunStatus
+
+        project_dir = tmp_path / "subproj"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
+
+        # Host-computed dependency closure: parent plus required subworkflow
+        # obligations survive as one effective set (planning-layer closure).
+        closure = _compose(
+            workflow_required=("syntax_validator",),
+            dependency_required=("syntax_validator",),
+        )
+        assert closure == ("syntax_validator",)
+
+        from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+        from cmm.domains.operation_execution import (
+            DefaultDomainOperationOrchestrator,
+            DomainOperationExecutionDelegate,
+        )
+        from cmm.domains.operation_execution import (
+            build_domain_workflow_operation_adapter as _factory,
+        )
+        from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+        from cmm.domains.validation_integration import (
+            resolve_domain_operation_validation_requirements as _resolver,
+        )
+        from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        calls: list = []
+
+        class Impl:
+            def __init__(self, definition) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:
+                calls.append(getattr(request, "operation_name", None))
+                return {"success": True, "output": {"status": "ok"}}
+
+        for op_id in ("flow.parent", "flow.child"):
+            definition = _validating_operation(operation_id=op_id)
+            registry.register(definition, Impl(definition))
+
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(
+            registry, adapter, operation_validation_provider=_resolver
+        )
+        child_definition = DomainWorkflowDefinition(
+            workflow_id="flow.child",
+            domain_id="domain:flow",
+            version="1.0.0",
+            name="child",
+            nodes=(
+                WorkflowNode(
+                    node_id="child-op",
+                    node_type=WorkflowNodeType.EXECUTE_OPERATION,
+                    name="child-op",
+                    operation_id="flow.child",
+                    operation_version="1.0.0",
+                ),
+            ),
+        )
+        import itertools as _itertools2
+
+        _sub_ids = _itertools2.count()
+        _run_ids = _itertools2.count()
+        node_adapter = _factory(
+            orchestrator,
+            primary_domain_id="domain:flow",
+            capabilities=("execute", "validation"),
+            metadata={"validation_project_root": str(project_dir)},
+            additional_validation_ids=closure,
+            workflow_definitions={("flow.child", "1.0.0"): child_definition},
+            available_operations=("flow.parent", "flow.child"),
+            id_factory=lambda: f"wf-sub-{next(_sub_ids)}",
+        )
+        executor = DomainWorkflowExecutor(
+            id_factory=lambda: f"wf-subrun-{next(_run_ids)}",
+            operation_adapter=node_adapter,
+        )
+        parent = DomainWorkflowDefinition(
+            workflow_id="flow.parent",
+            domain_id="domain:flow",
+            version="1.0.0",
+            name="parent",
+            nodes=(
+                WorkflowNode(
+                    node_id="parent-op",
+                    node_type=WorkflowNodeType.EXECUTE_OPERATION,
+                    name="parent-op",
+                    operation_id="flow.parent",
+                    operation_version="1.0.0",
+                ),
+                WorkflowNode(
+                    node_id="child-flow",
+                    node_type=WorkflowNodeType.INVOKE_SUBWORKFLOW,
+                    name="child-flow",
+                    dependencies=("parent-op",),
+                    subworkflow_id="flow.child",
+                    subworkflow_version="1.0.0",
+                ),
+            ),
+        )
+        run = executor.execute(
+            parent,
+            DomainWorkflowContext(
+                "domain:flow",
+                available_operations=frozenset({"flow.parent"}),
+            ),
+            {},
+        )
+        assert run.common_run.status is WorkflowRunStatus.COMPLETED
+        assert calls == ["flow.parent", "flow.child"]
+
+        # Breaking the subworkflow obligation blocks the parent run: the
+        # dependency obligation survived execution, not just planning.
+        (project_dir / "main.py").write_text("def broken(:\n", encoding="utf-8")
+        run2 = executor.execute(
+            parent,
+            DomainWorkflowContext(
+                "domain:flow",
+                available_operations=frozenset({"flow.parent"}),
+            ),
+            {},
+        )
+        assert run2.common_run.status is WorkflowRunStatus.FAILED

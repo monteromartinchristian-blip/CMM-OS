@@ -593,6 +593,11 @@ def build_operation_validation_requirements(
 
 PROJECT_CODE_MUTATION_OPERATION_IDS: tuple[str, ...] = ("project.modify_code",)
 
+#: Registration-time declaration key on ``DomainOperationDefinition.metadata``
+#: for host-declared executable Phase 9 validator IDs. Definition authority
+#: (pack registration), never per-request caller metadata.
+DEFINITION_VALIDATION_REQUIREMENT_IDS_KEY = "domain_validation_requirement_ids"
+
 #: Host-derived executable Phase 9 validator IDs per Domain operation.
 #: Only operations with a canonical executable mapping produce runnable
 #: requirements; every other operation carrying a validation policy ID keeps
@@ -603,39 +608,77 @@ OPERATION_EXECUTABLE_VALIDATION_IDS: dict[str, tuple[str, ...]] = {
 }
 
 
+def resolve_operation_validation_ids(
+    definition: object,
+    additional_ids: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """Resolve the effective executable validation ID set for an operation.
+
+    Deterministic monotonic union of: registration-time declared IDs from
+    the canonical operation definition, the built-in executable mapping for
+    well-known operations, or the operation's own validation policy identity
+    (fail-closed in the canonical adapter when no capable step exists); plus
+    host-computed ``additional_ids`` from workflow, dependency, cross-domain,
+    or Project composition. Duplicates collapse to one obligation. Malformed
+    IDs fail closed here, never downstream.
+    """
+    policy_id = getattr(definition, "validation_policy_id", None)
+    if policy_id is None or not str(policy_id).strip():
+        if additional_ids:
+            return _clean_required_ids(tuple(additional_ids))
+        return ()
+    policy_id_str = str(policy_id).strip()
+    declared: tuple[str, ...] = ()
+    metadata = getattr(definition, "metadata", None)
+    if isinstance(metadata, Mapping):
+        raw_declared = metadata.get(DEFINITION_VALIDATION_REQUIREMENT_IDS_KEY, ())
+        if raw_declared:
+            declared = _clean_required_ids(tuple(raw_declared))
+    operation_id = str(getattr(definition, "operation_id", "") or "")
+    executable = OPERATION_EXECUTABLE_VALIDATION_IDS.get(operation_id, ())
+    if declared:
+        base = declared
+    elif executable:
+        base = tuple(executable)
+    else:
+        base = (policy_id_str,)
+    return _clean_required_ids(tuple(base) + tuple(additional_ids or ()))
+
+
 def resolve_domain_operation_validation_requirements(
     definition: object,
+    additional_ids: tuple[str, ...] = (),
 ) -> tuple[Any, ...]:
     """Resolve host-derived runtime validation requirements for a Domain operation.
 
-    Source of authority is the canonical operation definition (operation ID
-    and ``validation_policy_id``), never caller metadata. Operations without
-    a validation policy ID carry no obligation. ``project.modify_code``
+    Source of authority is the canonical operation definition (operation ID,
+    ``validation_policy_id``, registration-time declared requirement IDs)
+    plus host-computed composition IDs (workflow/dependency/cross-domain),
+    never caller metadata. Operations without a validation policy ID and
+    without additional IDs carry no obligation. ``project.modify_code``
     resolves to the canonical executable code checks; any other operation
     mandating validation resolves to a policy-identity requirement that the
     canonical ``AgentValidationAdapter`` rejects fail-closed when no capable
     step exists.
     """
     policy_id = getattr(definition, "validation_policy_id", None)
-    if policy_id is None or not str(policy_id).strip():
+    if (policy_id is None or not str(policy_id).strip()) and not additional_ids:
         return ()
-    policy_id_str = str(policy_id).strip()
+    policy_id_str = str(policy_id).strip() if policy_id is not None else ""
+    required_ids = resolve_operation_validation_ids(definition, additional_ids)
+    if not required_ids:
+        return ()
     operation_id = str(getattr(definition, "operation_id", "") or "")
     operation_version = str(getattr(definition, "version", "1") or "1")
-    executable = OPERATION_EXECUTABLE_VALIDATION_IDS.get(operation_id)
-    if executable:
-        required_ids = tuple(executable)
-    else:
-        required_ids = (policy_id_str,)
     pre = build_operation_validation_requirements(
-        validation_policy_id=policy_id_str,
+        validation_policy_id=policy_id_str or None,
         required_validation_ids=required_ids,
         stage="pre_execution",
         operation_name=operation_id,
         operation_version=operation_version,
     )
     post = build_operation_validation_requirements(
-        validation_policy_id=policy_id_str,
+        validation_policy_id=policy_id_str or None,
         required_validation_ids=required_ids,
         stage="post_execution",
         operation_name=operation_id,
@@ -663,6 +706,8 @@ def project_change_requires_validation(operation_id: object) -> bool:
 
 
 __all__ = [
+    "DEFINITION_VALIDATION_REQUIREMENT_IDS_KEY",
+    "OPERATION_EXECUTABLE_VALIDATION_IDS",
     "PROJECT_CODE_MUTATION_OPERATION_IDS",
     "DomainValidationIntegrationError",
     "build_operation_validation_requirements",
@@ -673,5 +718,6 @@ __all__ = [
     "project_change_requires_validation",
     "require_canonical_validation_success",
     "resolve_domain_operation_validation_requirements",
+    "resolve_operation_validation_ids",
     "validate_domain_specialized_result",
 ]

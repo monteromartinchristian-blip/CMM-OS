@@ -42,6 +42,20 @@ def _strict_bool(value: Any, field_name: str) -> bool:
     return value
 
 
+def _id_tuple(value: Any, field_name: str) -> tuple[str, ...]:
+    """Tuple of non-empty strings where duplicates are preserved.
+
+    Used for host-computed validation obligation sets: duplicates across
+    contributing sources are expected and deduplicated semantically by the
+    validation composer, never by dropping them here.
+    """
+    if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
+        raise DomainOperationContractError(
+            f"{field_name} must be a sequence of strings", field=field_name
+        )
+    return tuple(_non_empty(item, field_name) for item in value)
+
+
 def _string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
         raise DomainOperationContractError(
@@ -412,6 +426,7 @@ _REQUEST_FIELDS = frozenset(
         "idempotency_key",
         "created_at",
         "metadata",
+        "effective_validation_ids",
     }
 )
 
@@ -436,6 +451,7 @@ class DomainOperationRequest:
     approval_request_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    effective_validation_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for attr in (
@@ -489,6 +505,11 @@ class DomainOperationRequest:
         )
         object.__setattr__(self, "created_at", _aware(self.created_at, "created_at"))
         object.__setattr__(self, "metadata", _json_mapping(self.metadata, "metadata"))
+        object.__setattr__(
+            self,
+            "effective_validation_ids",
+            _id_tuple(self.effective_validation_ids, "effective_validation_ids"),
+        )
 
     def calculate_fingerprint(self) -> str:
         payload = {
@@ -498,6 +519,7 @@ class DomainOperationRequest:
             "agent_run_id": self.agent_run_id,
             "primary_domain_id": self.primary_domain_id,
             "supporting_domain_ids": sorted(self.supporting_domain_ids),
+            "effective_validation_ids": sorted(self.effective_validation_ids),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -523,6 +545,7 @@ class DomainOperationRequest:
             "idempotency_key": self.idempotency_key,
             "created_at": self.created_at.isoformat(),
             "metadata": _thaw(self.metadata),
+            "effective_validation_ids": list(self.effective_validation_ids),
         }
 
     @classmethod

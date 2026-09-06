@@ -358,6 +358,8 @@ from cmm.domains.operation_contracts import (
 from cmm.domains.operation_execution import (
     DefaultDomainOperationOrchestrator,
     DomainOperationExecutionDelegate,
+    OrchestratedCrossDomainOperationPort,
+    build_domain_workflow_operation_adapter,
 )
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.pack import (
@@ -916,6 +918,7 @@ __all__ = [
     "InMemoryDomainResourceRegistry",
     "InMemoryReasoningRuleRegistry",
     "JsonDomainManifestReader",
+    "OrchestratedCrossDomainOperationPort",
     "ParsedDomainPack",
     "PermissionComposition",
     "PipelineDomainValidator",
@@ -949,6 +952,7 @@ __all__ = [
     "build_domain_validation_context",
     "build_domain_validation_result",
     "build_domain_validation_steps",
+    "build_domain_workflow_operation_adapter",
     "build_cross_domain_execution_policy",
     "build_domain_operation_policy",
     "build_domain_pack_installation_policy",

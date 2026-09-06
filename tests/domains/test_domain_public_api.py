@@ -664,6 +664,9 @@ class TestPublicAPI:
                 "is_project_domain_code_mutation",
                 "project_change_requires_validation",
                 "require_canonical_validation_success",
+                "resolve_domain_operation_validation_requirements",
+                "build_domain_workflow_operation_adapter",
+                "OrchestratedCrossDomainOperationPort",
                 "validate_domain_specialized_result",
                 "ensure_domain_validation_allows_update",
             }
@@ -677,7 +680,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 568
+        assert len(cmm.domains.__all__) == 571
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
