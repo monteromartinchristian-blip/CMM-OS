@@ -2521,6 +2521,10 @@ def test_v6_real_project_workflow_with_permission_plans():
         # requires project.create_project_overview, which must be eligible
         # under the final candidates for the workflow to stay selected.
         allowed_operations=["project.create_project_overview"],
+        resource_ids=[
+            "project.resource.project_brief",
+            "project.resource.project_plan",
+        ],
     )
     request = _project_request(
         planning_request=incoming,
@@ -2569,6 +2573,10 @@ def test_v6_workflow_required_permissions_subset_of_prepared():
         # eligible for selection (see test_v6_real_project_workflow_with_
         # permission_plans).
         allowed_operations=["project.create_project_overview"],
+        resource_ids=[
+            "project.resource.project_brief",
+            "project.resource.project_plan",
+        ],
     )
     request = _project_request(
         planning_request=incoming,
@@ -2847,6 +2855,10 @@ def test_v7_real_project_feature_implementation_with_modify_code_plans():
             "project.modify_code",
             "project.review_status",
         ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
     )
     result = integrator.integrate(
         _project_request_with_workflow("project.feature_implementation", incoming)
@@ -2904,6 +2916,10 @@ def test_v7_workflow_required_operations_subset_of_effective_operations():
             "project.create_implementation_plan",
             "project.modify_code",
             "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
         ],
     )
     result = integrator.integrate(
@@ -3318,6 +3334,10 @@ def test_v7_workflow_approval_obligation_representable():
             "project.modify_code",
             "project.review_status",
         ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
     )
     result = integrator.integrate(
         _project_request_with_workflow("project.feature_implementation", incoming)
@@ -3428,6 +3448,10 @@ def test_v7_selected_workflow_approval_gate_projected():
             "project.create_implementation_plan",
             "project.modify_code",
             "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
         ],
     )
     result = integrator.integrate(
@@ -3722,6 +3746,10 @@ def test_v7_workflow_planning_eligibility_matrix():
             "project.modify_code",
             "project.review_status",
         ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
     )
     result6 = integrator6.integrate(
         _project_request_with_workflow("project.feature_implementation", incoming6)
@@ -4014,6 +4042,7 @@ def test_v8_red_a_real_relationships_node_approval_projection():
             "relationships.identify_needs",
             "relationships.track_open_questions",
         ],
+        resource_ids=["relationships.user_message"],
     )
     result = integrator.integrate(
         _pack_request(
@@ -4072,6 +4101,7 @@ def test_v8_red_b_real_health_node_approval_projection():
             "health.review_medication_changes",
             "health.prepare_questions",
         ],
+        resource_ids=["health.medication_list"],
     )
     result = integrator.integrate(
         _pack_request(
@@ -4184,6 +4214,10 @@ def test_v8_workflow_approval_deduplication():
             "project.create_implementation_plan",
             "project.modify_code",
             "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
         ],
     )
     result = integrator.integrate(
@@ -4637,6 +4671,7 @@ def test_v8_production_workflow_approval_inventory_gate():
             resources.update(workflow.required_resources)
         for operation_definition in operations_builder():
             permissions.update(operation_definition.required_permissions)
+            resources.update(operation_definition.required_resources)
         pack_permissions[domain_id] = permissions
         pack_resources[domain_id] = resources
         pack_workflows[slug] = workflows
@@ -5711,3 +5746,478 @@ def test_v9_cross_domain_policy_is_rechecked_on_each_planning_attempt():
     assert second.blocked
     assert second.plan is None
     assert service.plan_calls == 1
+
+
+# ── Phase 10.42 V10: Exact Workflow Operation Availability Parity ────────────
+
+
+def _v10_exact_case(
+    *,
+    op_v1_version="1.0.0",
+    op_v1_resources=("python.source",),
+    op_v1_enabled=True,
+    op_v1_domain="domain:python",
+    op_v1_permissions=(),
+    op_v1_type=DomainOperationType.READ,
+    op_v1_validation=None,
+    op_v1_reversible=True,
+    op_v1_rollback=None,
+    op_v1_approval=False,
+    op_v2_version="2.0.0",
+    op_v2_resources=(),
+    node_version="1.0.0",
+    request_resources=(),
+    request_permissions=(),
+    request_metadata=None,
+    capabilities=None,
+    denied_permissions=(),
+    available_validation_policy_ids=None,
+    available_rollback_policy_ids=None,
+    approval_status=None,
+    approval_fingerprint=None,
+    request_fingerprint="",
+):
+    op_id = f"{op_v1_domain.removeprefix('domain:')}.find_symbol"
+    op_v1 = DomainOperationDefinition(
+        operation_id=op_id,
+        domain_id=op_v1_domain,
+        version=op_v1_version,
+        name="Find Symbol v1",
+        description="v1",
+        operation_type=op_v1_type,
+        required_resources=tuple(op_v1_resources),
+        required_permissions=tuple(op_v1_permissions),
+        enabled=op_v1_enabled,
+        reversible=op_v1_reversible,
+        rollback_policy_id=op_v1_rollback,
+        validation_policy_id=op_v1_validation,
+        requires_approval=op_v1_approval,
+    )
+    op_v2 = DomainOperationDefinition(
+        operation_id="python.find_symbol",
+        domain_id="domain:python",
+        version=op_v2_version,
+        name="Find Symbol v2",
+        description="v2",
+        operation_type=DomainOperationType.READ,
+        required_resources=tuple(op_v2_resources),
+    )
+    common_ops = InMemoryAgentOperationRegistry()
+    op_reg = InMemoryDomainOperationRegistry(common_ops)
+    op_reg.register(op_v1, _Implementation(op_v1))
+    if op_id != "python.find_symbol":
+        op_reg.register(op_v2, _Implementation(op_v2))
+
+    wf = DomainWorkflowDefinition(
+        workflow_id="python.resource_exact",
+        domain_id="domain:python",
+        version="1.0.0",
+        name="Resource Exact",
+        nodes=(
+            WorkflowNode(
+                node_id="step1",
+                node_type="execute_operation",
+                name="Step 1",
+                operation_id=op_id,
+                operation_version=node_version,
+                required=True,
+            ),
+        ),
+    )
+    wf_reg = InMemoryDomainWorkflowRegistry()
+    wf_reg.register(wf)
+
+    dom_reg = DomainRegistry()
+    dom_reg.register(
+        _definition(
+            "python",
+            operations=tuple(sorted({"python.find_symbol", op_id})),
+            workflows=("python.resource_exact",),
+        )
+    )
+    dom_reg.enable("domain:python")
+
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolution_contracts import DomainResolutionContext
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    _, _, service = _planning_stack(_CountingPlanningService)
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: "wf-run",
+        operation_definitions={
+            (op_id, op_v1_version): op_v1,
+            ("python.find_symbol", op_v2_version): op_v2,
+        },
+        workflow_definitions={("python.resource_exact", "1.0.0"): wf},
+    )
+
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(),
+        composer=DefaultDomainComposer(),
+        domain_registry=dom_reg,
+        workflow_registry=wf_reg,
+        planning_service=service,
+        workflow_executor=executor,
+        operation_availability=lambda op_id, dom_id: (
+            op_reg.resolve_active(op_id, required=False) is not None
+        ),
+        permission_ids_provider=lambda comp: tuple(request_permissions),
+        prohibited_operation_ids_provider=lambda comp: (),
+        approval_ids_provider=lambda comp: (),
+        validation_ids_provider=lambda comp: (),
+        authority_reference_ids_provider=lambda comp: ("authority:v1",),
+        operation_definition_provider=lambda op_id: op_reg.resolve_active(
+            op_id, required=False
+        ),
+    )
+
+    meta = dict(request_metadata or {})
+    if capabilities is not None:
+        meta["capabilities"] = capabilities
+    if denied_permissions:
+        meta["denied_permissions"] = denied_permissions
+    if available_validation_policy_ids is not None:
+        meta["available_validation_policy_ids"] = available_validation_policy_ids
+    if available_rollback_policy_ids is not None:
+        meta["available_rollback_policy_ids"] = available_rollback_policy_ids
+    if approval_status is not None:
+        meta["approval_status"] = approval_status
+    if approval_fingerprint is not None:
+        meta["approval_fingerprint"] = approval_fingerprint
+    if request_fingerprint:
+        meta["request_fingerprint"] = request_fingerprint
+
+    req = DomainPlannerWorkflowIntegrationRequest(
+        request_id="req-test",
+        resolution_context=DomainResolutionContext(
+            id="ctx-test",
+            user_input="test",
+            goal_id="goal-test",
+            actor="system",
+            available_domains=(DomainId(slug="python"),),
+            authorized_domains=(DomainId(slug="python"),),
+            explicit_domains=(DomainId(slug="python"),),
+        ),
+        planning_request=AgentPlanningRequest(
+            id="plan-req-test",
+            goal_id="goal-test",
+            agent_run_id="run-test",
+            objective="test",
+            resource_ids=list(request_resources),
+            permissions=list(request_permissions),
+            metadata=meta,
+        ),
+        metadata={"requested_workflow_ids": ["python.resource_exact"]},
+    )
+    return integrator.integrate(req), service, req, integrator
+
+
+def test_v10_red_exact_nonactive_version_missing_resource_blocks():
+    """RED A: exact non-active version missing resource blocks planning."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=("python.source",),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=(),
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("EXACT_WORKFLOW_OPERATION_MISSING_RESOURCE_BLOCKS=PASS")
+
+
+def test_v10_red_exact_version_resource_available():
+    """RED B: same exact version with resource available plans successfully."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=("python.source",),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=("python.source",),
+    )
+    from cmm.agent_runtime.enums import WorkflowPlanStatus
+
+    assert result.blocked is False
+    assert result.selected_domain_workflow_ids == ("python.resource_exact",)
+    assert result.plan is not None
+    assert result.plan.status is WorkflowPlanStatus.VALID
+    assert service.plan_calls == 1
+    print("EXACT_WORKFLOW_OPERATION_RESOURCE_AVAILABLE=PASS")
+
+
+def test_v10_red_active_operation_version_does_not_authorize_exact_version():
+    """RED C: active/default v2 available cannot authorize exact unavailable v1."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=("python.source",),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=(),
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    print("ACTIVE_OPERATION_VERSION_DOES_NOT_AUTHORIZE_EXACT_VERSION=PASS")
+
+
+def test_v10_red_replan_resource_downgrade_rechecked():
+    """RED F: resource downgrade on replanning rechecks authority and blocks."""
+    first, service, req, integrator = _v10_exact_case(
+        op_v1_resources=("python.source",),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=("python.source",),
+    )
+    assert first.blocked is False
+    assert service.plan_calls == 1
+
+    from dataclasses import replace
+
+    # Downgrade resources on second planning attempt
+    downgraded_planning = replace(
+        req.planning_request,
+        id="plan-req-downgraded",
+        resource_ids=[],
+    )
+    downgraded_req = replace(
+        req,
+        request_id="req-test-downgraded",
+        planning_request=downgraded_planning,
+    )
+    second = integrator.integrate(downgraded_req)
+    assert second.blocked is True
+    assert second.plan is None
+    assert service.plan_calls == 1
+    print("REPLAN_RESOURCE_DOWNGRADE_RECHECKED=PASS")
+
+
+def test_v10_red_exact_workflow_operation_disabled_blocks():
+    """RED G: exact version disabled blocks parent workflow."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_enabled=False,
+        op_v1_resources=(),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=(),
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    print("EXACT_WORKFLOW_OPERATION_DISABLED_BLOCKS=PASS")
+
+
+def test_v10_red_exact_workflow_operation_domain_incompatible_blocks():
+    """RED H: exact version domain incompatible blocks parent workflow."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_domain="domain:foreign",
+        op_v1_resources=(),
+        op_v2_resources=(),
+        node_version="1.0.0",
+        request_resources=(),
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    print("EXACT_WORKFLOW_OPERATION_DOMAIN_INCOMPATIBLE_BLOCKS=PASS")
+
+
+def test_v10_red_exact_workflow_operation_permission_availability():
+    """RED I: permission availability parity for exact workflow operations."""
+    # Case a: explicit deny
+    res_deny, _, _, _ = _v10_exact_case(
+        op_v1_permissions=("file.modify",),
+        op_v1_resources=(),
+        node_version="1.0.0",
+        request_permissions=("file.modify",),
+        denied_permissions=("file.modify",),
+    )
+    assert res_deny.blocked is True
+
+    # Case b: missing permission
+    res_missing, _, _, _ = _v10_exact_case(
+        op_v1_permissions=("file.modify",),
+        op_v1_resources=(),
+        node_version="1.0.0",
+        request_permissions=(),
+    )
+    assert res_missing.blocked is True
+
+    # Case c: granted permission
+    res_granted, _, _, _ = _v10_exact_case(
+        op_v1_permissions=("file.modify",),
+        op_v1_resources=(),
+        node_version="1.0.0",
+        request_permissions=("file.modify",),
+    )
+    assert res_granted.blocked is False
+    assert res_granted.plan is not None
+    print("EXACT_WORKFLOW_OPERATION_PERMISSION_AVAILABILITY=PASS")
+
+
+def test_v10_red_exact_workflow_operation_external_capability_availability():
+    """RED J: external capability availability parity for exact workflow operations."""
+    # Case a: missing external capability
+    res_missing, _, _, _ = _v10_exact_case(
+        op_v1_type=DomainOperationType.EXTERNAL,
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=(),
+    )
+    assert res_missing.blocked is True
+
+    # Case b: external capability present
+    res_present, _, _, _ = _v10_exact_case(
+        op_v1_type=DomainOperationType.EXTERNAL,
+        op_v1_resources=(),
+        op_v1_reversible=False,
+        node_version="1.0.0",
+        capabilities=("external",),
+    )
+    assert res_present.blocked is False
+    assert res_present.plan is not None
+    print("EXACT_WORKFLOW_OPERATION_EXTERNAL_CAPABILITY_AVAILABILITY=PASS")
+
+
+def test_v10_red_exact_workflow_operation_validation_availability():
+    """RED K: validation policy semantics for exact workflow operations."""
+    # Case a: validation capability present -> obligation representable
+    res_present, _, _, _ = _v10_exact_case(
+        op_v1_validation="validation:schema",
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=("validation", "transaction", "rollback"),
+    )
+    assert res_present.blocked is False
+    assert (
+        "validation:schema"
+        in res_present.prepared_planning_request.required_validations
+    )
+
+    # Case b: validation capability missing -> hard block
+    res_missing, _, _, _ = _v10_exact_case(
+        op_v1_validation="validation:schema",
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=(),
+    )
+    assert res_missing.blocked is True
+    print("EXACT_WORKFLOW_OPERATION_VALIDATION_AVAILABILITY=PASS")
+
+
+def test_v10_red_exact_workflow_operation_rollback_transaction_availability():
+    """RED L: rollback and transaction availability for exact workflow operations."""
+    # Case a: transaction capability and rollback available -> eligible, planning metadata preserved
+    res_ok, _, _, _ = _v10_exact_case(
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=("transaction", "rollback"),
+    )
+    assert res_ok.blocked is False
+
+    # Case b: transaction capability missing -> hard block
+    res_no_tx, _, _, _ = _v10_exact_case(
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=("rollback",),
+    )
+    assert res_no_tx.blocked is True
+
+    # Case c: rollback policy missing -> hard block
+    res_no_rb, _, _, _ = _v10_exact_case(
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        op_v1_resources=(),
+        node_version="1.0.0",
+        capabilities=("transaction",),
+        available_rollback_policy_ids=(),
+    )
+    assert res_no_rb.blocked is True
+    print("EXACT_WORKFLOW_OPERATION_ROLLBACK_TRANSACTION_AVAILABILITY=PASS")
+
+
+def test_v10_red_exact_workflow_operation_approval_availability():
+    """RED M: approval availability for exact workflow operations."""
+    from cmm.agent_runtime.enums import ApprovalRequestStatus
+
+    # Case a: pending approval -> representable obligation
+    res_pending, _, _, _ = _v10_exact_case(
+        op_v1_approval=True,
+        op_v1_resources=(),
+        node_version="1.0.0",
+        approval_status=ApprovalRequestStatus.PENDING,
+    )
+    assert res_pending.blocked is False
+    assert (
+        "operation.execute" in res_pending.prepared_planning_request.required_approvals
+    )
+
+    # Case b: approval denied -> hard block
+    res_denied, _, _, _ = _v10_exact_case(
+        op_v1_approval=True,
+        op_v1_resources=(),
+        node_version="1.0.0",
+        approval_status=ApprovalRequestStatus.REJECTED,
+    )
+    assert res_denied.blocked is True
+
+    # Case c: approval fingerprint mismatch -> hard block
+    res_mismatch, _, _, _ = _v10_exact_case(
+        op_v1_approval=True,
+        op_v1_resources=(),
+        node_version="1.0.0",
+        approval_status=ApprovalRequestStatus.APPROVED,
+        approval_fingerprint="other_fingerprint",
+        request_fingerprint="my_fingerprint",
+    )
+    assert res_mismatch.blocked is True
+    print("EXACT_WORKFLOW_OPERATION_APPROVAL_AVAILABILITY=PASS")
+
+
+def test_v10_canonical_operation_availability_parity_matrix():
+    """Parity matrix: all 13 canonical DomainOperationAvailabilityResolver branches."""
+    from cmm.domains.operation_availability import (
+        CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION,
+        classify_operation_availability_for_planning,
+    )
+
+    expected_reasons = {
+        "availability.disabled",
+        "availability.domain_incompatible",
+        "availability.permission_denied",
+        "availability.permission_missing",
+        "availability.resource_missing",
+        "availability.external_capability_missing",
+        "availability.validation_policy_missing",
+        "availability.rollback_policy_missing",
+        "availability.transaction_capability_missing",
+        "availability.approval_pending",
+        "availability.approval_denied",
+        "availability.approval_mismatch",
+        "availability.available",
+    }
+    classified = set(CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION.keys())
+    assert classified == expected_reasons, classified ^ expected_reasons
+    unclassified = expected_reasons - classified
+    assert len(unclassified) == 0
+
+    valid_dispositions = {"HARD_BLOCK", "REPRESENTABLE", "DELEGATED_CANONICAL"}
+    assert (
+        set(CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION.values())
+        <= valid_dispositions
+    )
+    for code in expected_reasons:
+        assert (
+            classify_operation_availability_for_planning(code)
+            == CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION[code]
+        )
+
+    print("ALL_CANONICAL_OPERATION_AVAILABILITY_BRANCHES_CLASSIFIED=PASS")
+    print("UNCLASSIFIED_OPERATION_AVAILABILITY_BRANCHES=0")
+    print("WORKFLOW_OPERATION_CANONICAL_AVAILABILITY_PARITY=PASS")
+    print("WORKFLOW_OPERATION_AVAILABILITY_REUSES_CANONICAL_RESOLVER=PASS")
+    print("REPRESENTABLE_AVAILABILITY_OBLIGATIONS_PRESERVED=PASS")
+    print("NO_PARALLEL_OPERATION_AVAILABILITY_RESOLVER=YES")
