@@ -1595,8 +1595,7 @@ def test_at_dp042_real_node_level_workflow_approval_projection() -> None:
         planning_service=graph.service,
         workflow_executor=graph.executor,
         operation_availability=lambda op_id, domain_id: (
-            graph.operation_registry.resolve_active(op_id, required=False)
-            is not None
+            graph.operation_registry.resolve_active(op_id, required=False) is not None
         ),
         permission_ids_provider=lambda composition: tuple(
             sorted(graph.authority["permissions"])

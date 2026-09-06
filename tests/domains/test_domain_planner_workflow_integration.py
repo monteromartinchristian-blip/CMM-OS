@@ -3781,8 +3781,7 @@ def _production_pack_graph(slug):
     domain_registry.register(definition)
     domain_registry.enable(str(definition.id))
     definitions = {
-        definition.operation_id: definition
-        for definition in operations_builder()
+        definition.operation_id: definition for definition in operations_builder()
     }
     operation_registry = InMemoryDomainOperationRegistry(
         InMemoryAgentOperationRegistry()
@@ -3861,8 +3860,7 @@ def _pack_integrator(
         planning_service=service,
         workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-pack"),
         operation_availability=lambda operation_id, domain_id: (
-            operation_registry.resolve_active(operation_id, required=False)
-            is not None
+            operation_registry.resolve_active(operation_id, required=False) is not None
         ),
         permission_ids_provider=lambda composition: tuple(effective_permissions),
         prohibited_operation_ids_provider=lambda composition: tuple(prohibited),
@@ -4078,9 +4076,7 @@ def test_v8_red_b_real_health_node_approval_projection():
     )
 
     assert result.blocked is False
-    assert result.selected_domain_workflow_ids == (
-        "health.medication_change_review",
-    )
+    assert result.selected_domain_workflow_ids == ("health.medication_change_review",)
     approvals = result.prepared_planning_request.required_approvals
     assert approvals.count("health.medication_review") == 1
     assert result.plan is not None
@@ -4444,9 +4440,7 @@ def test_v8_subworkflow_final_authority_propagates():
     """
     domain_registry, operation_registry, workflow_registry = _subworkflow_fixtures()
     workflow_registry.register(_sub_parent_workflow())
-    workflow_registry.register(
-        _sub_child_workflow(permissions=("python.secret",))
-    )
+    workflow_registry.register(_sub_child_workflow(permissions=("python.secret",)))
     _, _, service = _planning_stack(_CountingPlanningService)
     integrator = _integrator_5(
         domain_registry, operation_registry, workflow_registry, service
@@ -4458,9 +4452,7 @@ def test_v8_subworkflow_final_authority_propagates():
     assert result.selected_domain_workflow_ids == ()
     assert service.plan_calls == 0
     assert "domain_workflow_dependency_not_available" in result.reason_codes
-    assert "python.secret" not in set(
-        result.prepared_planning_request.permissions
-    )
+    assert "python.secret" not in set(result.prepared_planning_request.permissions)
     # SUBWORKFLOW_FINAL_AUTHORITY_PROPAGATES=PASS
 
 
@@ -4655,8 +4647,8 @@ def test_v8_production_workflow_approval_inventory_gate():
                 operation_definition, _Implementation(operation_definition)
             )
     workflow_registry = InMemoryDomainWorkflowRegistry()
-    for slug in pack_workflows:
-        for workflow in pack_workflows[slug]:
+    for workflows in pack_workflows.values():
+        for workflow in workflows:
             workflow_registry.register(workflow)
 
     _, _, service = _planning_stack()
@@ -4677,8 +4669,7 @@ def test_v8_production_workflow_approval_inventory_gate():
         planning_service=service,
         workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-inv"),
         operation_availability=lambda operation_id, domain_id: (
-            operation_registry.resolve_active(operation_id, required=False)
-            is not None
+            operation_registry.resolve_active(operation_id, required=False) is not None
         ),
         permission_ids_provider=lambda composition: tuple(
             sorted(pack_permissions.get(str(composition.primary_domain), ()))
@@ -4691,9 +4682,9 @@ def test_v8_production_workflow_approval_inventory_gate():
 
     inspected = 0
     unrepresented: list[str] = []
-    for slug in pack_workflows:
+    for slug, workflows in pack_workflows.items():
         domain_id = f"domain:{slug}"
-        for workflow in pack_workflows[slug]:
+        for workflow in workflows:
             inspected += 1
             expected_gates = _canonical_node_approval_sources(workflow)
             node_operations = sorted(
@@ -4942,7 +4933,9 @@ def _matrix_workflow():
                 dependencies=("validate",),
                 wait_condition={},
             ),
-            WorkflowNode("load", "load_resource", "Load", dependencies=("wait_resource",)),
+            WorkflowNode(
+                "load", "load_resource", "Load", dependencies=("wait_resource",)
+            ),
             WorkflowNode(
                 "ask",
                 "ask_question",
@@ -4951,14 +4944,26 @@ def _matrix_workflow():
                 wait_condition={},
             ),
             WorkflowNode("pause", "pause", "Pause", dependencies=("ask",)),
-            WorkflowNode("propose", "propose_memory", "Propose", dependencies=("pause",)),
-            WorkflowNode("session", "update_session", "Session", dependencies=("propose",)),
-            WorkflowNode("search", "search_knowledge", "Search", dependencies=("session",)),
-            WorkflowNode("resolve", "resolve_entity", "Resolve", dependencies=("search",)),
-            WorkflowNode("profile", "apply_profile", "Profile", dependencies=("resolve",)),
+            WorkflowNode(
+                "propose", "propose_memory", "Propose", dependencies=("pause",)
+            ),
+            WorkflowNode(
+                "session", "update_session", "Session", dependencies=("propose",)
+            ),
+            WorkflowNode(
+                "search", "search_knowledge", "Search", dependencies=("session",)
+            ),
+            WorkflowNode(
+                "resolve", "resolve_entity", "Resolve", dependencies=("search",)
+            ),
+            WorkflowNode(
+                "profile", "apply_profile", "Profile", dependencies=("resolve",)
+            ),
             WorkflowNode("reason", "reason", "Reason", dependencies=("profile",)),
             WorkflowNode("gaps", "detect_gaps", "Gaps", dependencies=("reason",)),
-            WorkflowNode("outcome", "evaluate_outcome", "Outcome", dependencies=("gaps",)),
+            WorkflowNode(
+                "outcome", "evaluate_outcome", "Outcome", dependencies=("gaps",)
+            ),
             WorkflowNode("escalate", "escalate", "Escalate", dependencies=("outcome",)),
             WorkflowNode("finish", "complete", "Finish", dependencies=("escalate",)),
         ),
