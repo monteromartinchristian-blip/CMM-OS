@@ -593,6 +593,56 @@ def build_operation_validation_requirements(
 
 PROJECT_CODE_MUTATION_OPERATION_IDS: tuple[str, ...] = ("project.modify_code",)
 
+#: Host-derived executable Phase 9 validator IDs per Domain operation.
+#: Only operations with a canonical executable mapping produce runnable
+#: requirements; every other operation carrying a validation policy ID keeps
+#: its policy identity as the requirement so the canonical adapter fails
+#: closed on the unresolvable validator instead of silently passing.
+OPERATION_EXECUTABLE_VALIDATION_IDS: dict[str, tuple[str, ...]] = {
+    "project.modify_code": ("syntax_validator", "ast_validator"),
+}
+
+
+def resolve_domain_operation_validation_requirements(
+    definition: object,
+) -> tuple[Any, ...]:
+    """Resolve host-derived runtime validation requirements for a Domain operation.
+
+    Source of authority is the canonical operation definition (operation ID
+    and ``validation_policy_id``), never caller metadata. Operations without
+    a validation policy ID carry no obligation. ``project.modify_code``
+    resolves to the canonical executable code checks; any other operation
+    mandating validation resolves to a policy-identity requirement that the
+    canonical ``AgentValidationAdapter`` rejects fail-closed when no capable
+    step exists.
+    """
+    policy_id = getattr(definition, "validation_policy_id", None)
+    if policy_id is None or not str(policy_id).strip():
+        return ()
+    policy_id_str = str(policy_id).strip()
+    operation_id = str(getattr(definition, "operation_id", "") or "")
+    operation_version = str(getattr(definition, "version", "1") or "1")
+    executable = OPERATION_EXECUTABLE_VALIDATION_IDS.get(operation_id)
+    if executable:
+        required_ids = tuple(executable)
+    else:
+        required_ids = (policy_id_str,)
+    pre = build_operation_validation_requirements(
+        validation_policy_id=policy_id_str,
+        required_validation_ids=required_ids,
+        stage="pre_execution",
+        operation_name=operation_id,
+        operation_version=operation_version,
+    )
+    post = build_operation_validation_requirements(
+        validation_policy_id=policy_id_str,
+        required_validation_ids=required_ids,
+        stage="post_execution",
+        operation_name=operation_id,
+        operation_version=operation_version,
+    )
+    return tuple(pre) + tuple(post)
+
 
 def is_project_domain_code_mutation(operation_id: object) -> bool:
     """Whether an operation ID is a Project Domain code mutation.
@@ -622,5 +672,6 @@ __all__ = [
     "is_project_domain_code_mutation",
     "project_change_requires_validation",
     "require_canonical_validation_success",
+    "resolve_domain_operation_validation_requirements",
     "validate_domain_specialized_result",
 ]

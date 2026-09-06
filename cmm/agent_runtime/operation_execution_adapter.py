@@ -294,15 +294,24 @@ class AgentExecutionAdapter:
         # Step 3b: Pre-Validation Check
         val_result_ids: list[str] = []
         if self._validation_adapter is not None:
+            pre_context_data: dict[str, Any] = {}
+            if request.validation_project_root:
+                pre_context_data["project_root"] = request.validation_project_root
             pre_req = AgentValidationRequest(
                 id=f"val-req-pre-{uuid.uuid4().hex[:8]}",
                 run_id=request.agent_run_id,
                 iteration_id=request.task_id,
                 operation_request_id=request.id,
                 stage=AgentValidationStage.PRE_EXECUTION,
+                requirements=tuple(
+                    req
+                    for req in request.validation_requirements
+                    if req.stage == AgentValidationStage.PRE_EXECUTION
+                ),
                 idempotency_key=f"pre-{request.idempotency_key}"
                 if request.idempotency_key
                 else "",
+                context_data=pre_context_data,
             )
             pre_res = self._validation_adapter.validate(
                 pre_req,
@@ -416,15 +425,24 @@ class AgentExecutionAdapter:
         success = exec_output.get("success", True)
         validation_failed = False
         if self._validation_adapter is not None and success:
+            post_context_data: dict[str, Any] = {}
+            if request.validation_project_root:
+                post_context_data["project_root"] = request.validation_project_root
             post_req = AgentValidationRequest(
                 id=f"val-req-post-{uuid.uuid4().hex[:8]}",
                 run_id=request.agent_run_id,
                 iteration_id=request.task_id,
                 operation_request_id=request.id,
                 stage=AgentValidationStage.POST_EXECUTION,
+                requirements=tuple(
+                    req
+                    for req in request.validation_requirements
+                    if req.stage == AgentValidationStage.POST_EXECUTION
+                ),
                 idempotency_key=f"post-{request.idempotency_key}"
                 if request.idempotency_key
                 else "",
+                context_data=post_context_data,
             )
             post_res = self._validation_adapter.validate(
                 post_req,

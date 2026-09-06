@@ -85,6 +85,7 @@ class DefaultDomainOperationOrchestrator:
         rollback_executor: Any | None = None,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
+        operation_validation_provider: Callable[[Any], tuple[Any, ...]] | None = None,
     ) -> None:
         if getattr(execution_adapter, "registry", None) is not registry.common_registry:
             raise DomainOperationContractError(
@@ -101,6 +102,7 @@ class DefaultDomainOperationOrchestrator:
         self._rollback_executor = rollback_executor
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._id_factory = id_factory or (lambda: f"domain-result:{uuid.uuid4().hex}")
+        self._operation_validation_provider = operation_validation_provider
 
     def execute(self, request: DomainOperationRequest) -> DomainOperationResult:
         definition = self._registry.get(request.operation_id, request.operation_version)
@@ -294,6 +296,10 @@ class DefaultDomainOperationOrchestrator:
             approval_request_id=request.approval_request_id,
             checkpoint_id=checkpoint_id,
             created_at=request.created_at.isoformat(),
+            validation_requirements=self._resolve_host_validation_requirements(
+                definition
+            ),
+            validation_project_root=self._resolve_host_validation_root(request),
             metadata={
                 **_thaw(request.metadata),
                 "transaction_boundary_id": transaction_id,
@@ -333,6 +339,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 cancellation_error,
                 gate_result=gate_result,
+                validation_result_ids=common_result.validation_result_ids,
             )
 
         if not common_result.success:
@@ -350,6 +357,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 original_error,
                 gate_result=gate_result,
+                validation_result_ids=common_result.validation_result_ids,
             )
 
         if "memory_write" in (*common_result.effects, *common_result.side_effects):
@@ -366,6 +374,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 direct_write_error,
                 gate_result=gate_result,
+                validation_result_ids=common_result.validation_result_ids,
             )
 
         output_issues = validate_operation_schema(
@@ -386,6 +395,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 validation_error,
                 gate_result=gate_result,
+                validation_result_ids=common_result.validation_result_ids,
             )
 
         if transaction_id is not None:
@@ -408,6 +418,11 @@ class DefaultDomainOperationOrchestrator:
             result_metadata["permission_authority"] = (
                 gate_result.to_authority_reference_dict()
             )
+        if common_result.validation_result_ids:
+            # Reference-only retention of canonical validation evidence.
+            result_metadata["validation_result_ids"] = tuple(
+                common_result.validation_result_ids
+            )
         return self._result(
             request,
             definition.domain_id,
@@ -420,6 +435,40 @@ class DefaultDomainOperationOrchestrator:
             approval_request_id=request.approval_request_id,
             metadata=result_metadata or None,
         )
+
+    def _resolve_host_validation_requirements(self, definition: Any) -> tuple[Any, ...]:
+        """Resolve host-derived runtime validation requirements.
+
+        Authority is the canonical operation definition via the injected
+        provider (Phase 10.43 thin binding). Caller metadata is never
+        consulted: it cannot add, remove, or weaken requirements here.
+        Without a provider the legacy metadata-only obligation applies.
+        """
+        provider = self._operation_validation_provider
+        if provider is None:
+            return ()
+        resolved = provider(definition)
+        return tuple(resolved or ())
+
+    def _resolve_host_validation_root(
+        self, request: DomainOperationRequest
+    ) -> str | None:
+        """Resolve the validation project root deployment setting.
+
+        Only meaningful while a validation provider is configured; the
+        requirement set itself always stays host-derived from the operation
+        definition.
+        """
+        if self._operation_validation_provider is None:
+            return None
+        metadata = request.metadata
+        try:
+            candidate = metadata.get("validation_project_root")
+        except AttributeError:
+            return None
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+        return None
 
     def _non_executed_result(
         self, request: DomainOperationRequest, domain_id: str, availability: Any
@@ -449,10 +498,14 @@ class DefaultDomainOperationOrchestrator:
         rollback_policy_id: str | None,
         original_error: Mapping[str, Any],
         gate_result: Any | None = None,
+        validation_result_ids: tuple[str, ...] = (),
     ) -> DomainOperationResult:
         meta: dict[str, Any] = {}
         if gate_result is not None:
             meta["permission_authority"] = gate_result.to_authority_reference_dict()
+        if validation_result_ids:
+            # Reference-only retention of canonical validation evidence.
+            meta["validation_result_ids"] = tuple(validation_result_ids)
         metadata = meta or None
 
         if transaction_id is None or self._rollback_executor is None:
@@ -538,10 +591,14 @@ class DefaultDomainOperationOrchestrator:
         rollback_policy_id: str | None,
         original_error: Mapping[str, Any],
         gate_result: Any | None = None,
+        validation_result_ids: tuple[str, ...] = (),
     ) -> DomainOperationResult:
         meta: dict[str, Any] = {}
         if gate_result is not None:
             meta["permission_authority"] = gate_result.to_authority_reference_dict()
+        if validation_result_ids:
+            # Reference-only retention of canonical validation evidence.
+            meta["validation_result_ids"] = tuple(validation_result_ids)
         metadata = meta or None
 
         if transaction_id is None:

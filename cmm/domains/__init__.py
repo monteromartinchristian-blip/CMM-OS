@@ -581,6 +581,7 @@ from cmm.domains.validation_integration import (
     is_project_domain_code_mutation,
     project_change_requires_validation,
     require_canonical_validation_success,
+    resolve_domain_operation_validation_requirements,
     validate_domain_specialized_result,
 )
 
@@ -977,6 +978,7 @@ __all__ = [
     "merge_questions",
     "merge_recommendations",
     "require_canonical_validation_success",
+    "resolve_domain_operation_validation_requirements",
     "validate_domain_operation_transition",
     "validate_domain_specialized_result",
     "validate_event_type_syntax",

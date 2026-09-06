@@ -6,8 +6,14 @@ projection → Agent Runtime plan/node → AgentValidationAdapter → Phase 7.
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import datetime, timezone
+
 import pytest
 
+from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+from cmm.agent_runtime.approval_service import ApprovalService
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
 from cmm.agent_runtime.enums import (
     AgentValidationDecision,
     AgentValidationStage,
@@ -16,6 +22,7 @@ from cmm.agent_runtime.enums import (
 from cmm.agent_runtime.errors import ValidationAdapterError
 from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
 from cmm.agent_runtime.operation_execution_contracts import AgentOperationRequest
+from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
 from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
 from cmm.agent_runtime.validation_integration_contracts import (
     AgentValidationRequest,
@@ -25,10 +32,28 @@ from cmm.agent_runtime.validation_integration_contracts import (
 from cmm.agent_runtime.validation_integration_repository import (
     InMemoryAgentValidationRepository,
 )
-from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.enums import DomainOperationStatus
+from cmm.domains.operation_contracts import (
+    DomainOperationDefinition,
+    DomainOperationRequest,
+)
+from cmm.domains.operation_execution import (
+    DefaultDomainOperationOrchestrator,
+    DomainOperationExecutionDelegate,
+)
+from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+from cmm.domains.permission_adapters import evaluate_domain_operation
+from cmm.domains.permission_gate import DomainPermissionGate
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.project.catalog import PROJECT_DOMAIN_VERSION
+from cmm.domains.project.operations import build_project_operation_definitions
+from cmm.domains.project.permissions import build_project_permission_policy
 from cmm.domains.validation_integration import (
     build_operation_validation_requirements,
     domain_operation_requires_validation,
+    resolve_domain_operation_validation_requirements,
 )
 
 
@@ -318,3 +343,271 @@ class TestOperationRuntimeDecisions:
         result = adapter.execute(_agent_request(permissions=()))
         assert result.success is True
         assert result.validation_result_ids != ()
+
+
+class _RecordingAdapter(AgentValidationAdapter):
+    """Real-pipeline adapter that records received validation requests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list = []
+
+    def validate(self, request, exec_context=None):  # type: ignore[override]
+        self.seen.append(request)
+        return AgentValidationResult(
+            request_id=request.id,
+            run_id=request.run_id,
+            iteration_id=request.iteration_id,
+            operation_request_id=request.operation_request_id,
+            stage=request.stage,
+            status=AgentValidationStatus.PASSED,
+            decision=AgentValidationDecision.CONTINUE,
+        )
+
+
+def _modify_code_stack(tmp_path, *, break_tree: bool, break_on_execute: bool):
+    """Real orchestrator stack for project.modify_code with approval dance."""
+
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "main.py").write_text(
+        "def broken(:\n" if break_tree else "x = 1\n", encoding="utf-8"
+    )
+
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    definition = ops["project.modify_code"]
+    calls: list = []
+
+    class Implementation:
+        def __init__(self) -> None:
+            self.definition = definition
+
+        def execute(self, request) -> dict:
+            calls.append(request)
+            if break_on_execute:
+                (project_dir / "main.py").write_text("def broken(:\n", encoding="utf-8")
+            return {"success": True, "output": {"status": "ok"}}
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    registry.register(definition, Implementation())
+
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_project_permission_policy())
+    resolver = DomainPermissionResolver(perm_registry)
+    service = ApprovalService(InMemoryApprovalRepository())
+
+    request = DomainOperationRequest(
+        request_id="req:modify:1",
+        operation_id="project.modify_code",
+        operation_version=PROJECT_DOMAIN_VERSION,
+        inputs={},
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="task-1",
+        session_id="sess-1",
+        primary_domain_id=definition.domain_id,
+        idempotency_key="idem-modify-1",
+        granted_permissions=definition.required_permissions,
+        available_resources=definition.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={
+            "actor_id": "actor-1",
+            "validation_project_root": str(project_dir),
+        },
+    )
+    decision = evaluate_domain_operation(
+        definition,
+        resolver,
+        request_id=request.request_id,
+        actor_id="actor-1",
+        session_id="sess-1",
+    )
+    approval_request_ids: dict = {}
+    op_exec_approval_id = None
+    for req in decision.approval_requirements:
+        bridged = to_approval_requirement(req, agent_run_id="run-1")
+        app_req = service.create_request_from_requirement(
+            bridged,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": request.calculate_fingerprint(),
+            },
+        )
+        service.approve(app_req.id, actor_id="lead")
+        approval_request_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_approval_id = app_req.id
+
+    class Boundary:
+        id = "transaction:1"
+
+    class TransactionManagerSpy:
+        def start_transaction(self, **kwargs):
+            return Boundary(), "checkpoint:1"
+
+        def register_operation(self, **kwargs) -> None:
+            return None
+
+        def commit(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rollback_started(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rolled_back(self, transaction_id: str) -> None:
+            return None
+
+        def mark_failed(self, transaction_id: str) -> None:
+            return None
+
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    _now = datetime.now(timezone.utc)
+    gate = DomainPermissionGate(resolver, service, clock=lambda: _now)
+
+    class RollbackSpy:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def rollback(self, transaction_id, checkpoint_id=None) -> bool:
+            self.calls += 1
+            return True
+
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        approval_service=service,
+        permission_gate=gate,
+        transaction_manager=TransactionManagerSpy(),
+        rollback_executor=RollbackSpy(),
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
+    )
+    approved_request = dataclasses.replace(
+        request,
+        approval_request_id=op_exec_approval_id,
+        metadata={
+            "actor_id": "actor-1",
+            "approval_request_ids": approval_request_ids,
+            "validation_project_root": str(project_dir),
+        },
+    )
+    return orchestrator, approved_request, calls, project_dir
+
+
+class TestRealOperationRequirementsReachAdapter:
+    def test_real_domain_operation_requirements_reach_agent_validation_request(
+        self,
+    ) -> None:
+        recorder = _RecordingAdapter()
+        adapter = AgentExecutionAdapter(
+            execution_delegate=lambda req: {"success": True, "output": {}},
+            validation_adapter=recorder,
+        )
+        _register_test_operation(adapter)
+        common = adapter.registry
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = dataclasses.replace(
+            _domain_operation(), reversible=False, rollback_policy_id=None
+        )
+        registry.register(definition, _TrivialImpl(definition))
+        orchestrator = DefaultDomainOperationOrchestrator(
+            registry,
+            adapter,
+            operation_validation_provider=(
+                resolve_domain_operation_validation_requirements
+            ),
+        )
+        request = DomainOperationRequest(
+            request_id="req-req-1",
+            operation_id="test.op",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:test",
+            idempotency_key="idem-req-1",
+            capabilities=("execute", "validation"),
+        )
+        result = orchestrator.execute(request)
+        assert result.status.value == "completed"
+        # Both PRE and POST validation requests carried the exact host-derived
+        # canonical requirement IDs from the operation definition.
+        assert len(recorder.seen) == 2
+        for seen_request in recorder.seen:
+            validator_ids = tuple(
+                vid for req in seen_request.requirements for vid in req.validator_ids
+            )
+            assert validator_ids == ("validation.test.op",)
+        # Canonical validation evidence references are retained, not dropped.
+        assert result.metadata.get("validation_result_ids") != ()
+
+    def test_real_pre_validation_failure_prevents_domain_operation_execution(
+        self, tmp_path
+    ) -> None:
+        orchestrator, request, calls, _ = _modify_code_stack(
+            tmp_path, break_tree=True, break_on_execute=False
+        )
+        result = orchestrator.execute(request)
+        assert calls == []
+        assert result.status is not DomainOperationStatus.COMPLETED
+        # The block came from real validation: evidence references retained.
+        assert result.metadata.get("validation_result_ids") != ()
+
+    def test_real_post_validation_failure_prevents_accepted_success(
+        self, tmp_path
+    ) -> None:
+        orchestrator, request, calls, _ = _modify_code_stack(
+            tmp_path, break_tree=False, break_on_execute=True
+        )
+        result = orchestrator.execute(request)
+        assert calls != []
+        assert result.status is not DomainOperationStatus.COMPLETED
+        assert result.metadata.get("validation_result_ids") != ()
+
+    def test_unknown_required_operation_validator_fails_closed(self) -> None:
+        adapter = AgentExecutionAdapter(
+            execution_delegate=lambda req: {"success": True, "output": {}},
+            validation_adapter=AgentValidationAdapter(),
+        )
+        _register_test_operation(adapter)
+        registry = InMemoryDomainOperationRegistry(adapter.registry)
+        definition = dataclasses.replace(
+            _domain_operation(), reversible=False, rollback_policy_id=None
+        )
+        registry.register(definition, _TrivialImpl(definition))
+        orchestrator = DefaultDomainOperationOrchestrator(
+            registry,
+            adapter,
+            operation_validation_provider=(
+                resolve_domain_operation_validation_requirements
+            ),
+        )
+        request = DomainOperationRequest(
+            request_id="req-unk-1",
+            operation_id="test.op",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:test",
+            idempotency_key="idem-unk-1",
+            capabilities=("execute", "validation"),
+        )
+        with pytest.raises(ValidationAdapterError):
+            orchestrator.execute(request)
+
+
+class _TrivialImpl:
+    def __init__(self, definition) -> None:
+        self.definition = definition
+
+    def execute(self, request) -> dict:
+        return {"success": True, "output": {}}

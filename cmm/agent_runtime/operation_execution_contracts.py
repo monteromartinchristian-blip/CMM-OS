@@ -19,6 +19,7 @@ from cmm.agent_runtime.enums import (
     OperationEnvironment,
 )
 from cmm.agent_runtime.errors import InvalidAgentOperationContractError
+from cmm.agent_runtime.validation_integration_contracts import ValidationRequirement
 from kernel.llm.model_selection import ModelRequirements
 
 
@@ -81,6 +82,8 @@ class AgentOperationRequest:
     checkpoint_id: str | None = None
     created_at: str = field(default_factory=_now_iso)
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    validation_requirements: tuple[ValidationRequirement, ...] = ()
+    validation_project_root: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id or not isinstance(self.id, str) or not self.id.strip():
@@ -152,6 +155,29 @@ class AgentOperationRequest:
             ),
         )
         object.__setattr__(self, "metadata", _freeze_mapping(dict(self.metadata)))
+        normalized_requirements: list[ValidationRequirement] = []
+        for item in tuple(self.validation_requirements or ()):
+            if isinstance(item, ValidationRequirement):
+                normalized_requirements.append(item)
+            elif isinstance(item, Mapping):
+                normalized_requirements.append(
+                    ValidationRequirement.from_dict(dict(item))
+                )
+            else:
+                raise InvalidAgentOperationContractError(
+                    "validation_requirements must contain ValidationRequirement "
+                    f"entries, got {type(item).__name__}."
+                )
+        object.__setattr__(
+            self, "validation_requirements", tuple(normalized_requirements)
+        )
+        if self.validation_project_root is not None and (
+            not isinstance(self.validation_project_root, str)
+            or not self.validation_project_root.strip()
+        ):
+            raise InvalidAgentOperationContractError(
+                "validation_project_root must be a non-empty string or None."
+            )
 
     def calculate_fingerprint(self) -> str:
         """Calculate a deterministic sha256 fingerprint for this operation request."""
@@ -164,6 +190,10 @@ class AgentOperationRequest:
             "constraints": sorted(self.constraints),
             "permissions": sorted(self.permissions),
             "expected_effects": sorted(self.expected_effects),
+            "validation_requirements": [
+                req.to_dict() for req in self.validation_requirements
+            ],
+            "validation_project_root": self.validation_project_root,
         }
         encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -189,6 +219,10 @@ class AgentOperationRequest:
             "checkpoint_id": self.checkpoint_id,
             "created_at": self.created_at,
             "metadata": dict(self.metadata),
+            "validation_requirements": [
+                req.to_dict() for req in self.validation_requirements
+            ],
+            "validation_project_root": self.validation_project_root,
         }
 
     @classmethod
@@ -213,6 +247,8 @@ class AgentOperationRequest:
             checkpoint_id=data.get("checkpoint_id"),
             created_at=data.get("created_at", _now_iso()),
             metadata=data.get("metadata", {}),
+            validation_requirements=tuple(data.get("validation_requirements", ())),
+            validation_project_root=data.get("validation_project_root"),
         )
 
 
