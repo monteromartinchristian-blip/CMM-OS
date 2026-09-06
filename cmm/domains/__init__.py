@@ -578,6 +578,8 @@ from cmm.domains.validation_integration import (
     compose_effective_validation_ids,
     domain_operation_requires_validation,
     is_ignored_caller_validation_metadata,
+    is_project_domain_code_mutation,
+    project_change_requires_validation,
     require_canonical_validation_success,
     validate_domain_specialized_result,
 )
@@ -957,6 +959,8 @@ __all__ = [
     "compose_required_validation_ids",
     "domain_operation_requires_validation",
     "is_ignored_caller_validation_metadata",
+    "is_project_domain_code_mutation",
+    "project_change_requires_validation",
     "build_initial_domain_operation_catalog",
     "build_initial_reasoning_rule_catalog",
     "derive_confidence",

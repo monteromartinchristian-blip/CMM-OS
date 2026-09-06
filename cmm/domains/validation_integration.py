@@ -591,12 +591,36 @@ def build_operation_validation_requirements(
     return tuple(requirements)
 
 
+PROJECT_CODE_MUTATION_OPERATION_IDS: tuple[str, ...] = ("project.modify_code",)
+
+
+def is_project_domain_code_mutation(operation_id: object) -> bool:
+    """Whether an operation ID is a Project Domain code mutation.
+
+    Semantic capability check, not caller metadata: only canonical Project
+    code-mutating operation IDs count. Unknown IDs fail closed by returning
+    False here and being rejected at the declaration/availability boundary.
+    """
+    return (
+        isinstance(operation_id, str)
+        and operation_id in PROJECT_CODE_MUTATION_OPERATION_IDS
+    )
+
+
+def project_change_requires_validation(operation_id: object) -> bool:
+    """Project code mutations always require canonical Phase 7 validation."""
+    return is_project_domain_code_mutation(operation_id)
+
+
 __all__ = [
+    "PROJECT_CODE_MUTATION_OPERATION_IDS",
     "DomainValidationIntegrationError",
     "build_operation_validation_requirements",
     "compose_effective_validation_ids",
     "domain_operation_requires_validation",
     "is_ignored_caller_validation_metadata",
+    "is_project_domain_code_mutation",
+    "project_change_requires_validation",
     "require_canonical_validation_success",
     "validate_domain_specialized_result",
 ]
