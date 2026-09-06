@@ -32,6 +32,11 @@ from cmm.domains.errors import (
     DomainContractValidationError,
     DomainResolutionBlockedError,
 )
+from cmm.domains.operation_availability import (
+    DomainOperationAvailabilityContext,
+    DomainOperationAvailabilityResolver,
+    classify_operation_availability_for_planning,
+)
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.permission_adapters import (
     WorkflowNodePermissionBranch,
@@ -669,6 +674,10 @@ def _required_subworkflow_closure_for_planning(
     available_permission_ids: Collection[str],
     available_resource_ids: Collection[str],
     operation_definition_provider=None,
+    exact_operation_definition_provider=None,
+    availability_resolver: DomainOperationAvailabilityResolver | None = None,
+    primary_domain_id: str = "",
+    planning_request_metadata: Mapping[str, Any] | None = None,
     operation_index=None,
     workflow_index=None,
     permission_context=None,
@@ -705,12 +714,28 @@ def _required_subworkflow_closure_for_planning(
             for decision in requirements
             for item in decision.approval_requirements
         )
+    primary_dom = primary_domain_id or (
+        next(iter(effective_domain_ids))
+        if effective_domain_ids
+        else definition.domain_id
+    )
+    supporting_doms = (
+        tuple(supporting_domain_ids)
+        if supporting_domain_ids
+        else tuple(d for d in effective_domain_ids if d != primary_dom)
+    )
     for node in definition.nodes:
         branch = workflow_node_permission_branch(node)
         if branch is WorkflowNodePermissionBranch.OPERATION:
-            operation = workflow_node_reference(
-                operation_index or {}, node.operation_id, node.operation_version
-            )
+            operation = None
+            if exact_operation_definition_provider is not None:
+                operation = exact_operation_definition_provider(
+                    node.operation_id, node.operation_version
+                )
+            if operation is None:
+                operation = workflow_node_reference(
+                    operation_index or {}, node.operation_id, node.operation_version
+                )
             if (
                 operation is None
                 and resolver is None
@@ -722,20 +747,81 @@ def _required_subworkflow_closure_for_planning(
                     or candidate.version == node.operation_version
                 ):
                     operation = candidate
-            eligible = (
-                operation is not None
-                and operation.enabled
-                and operation.domain_id in effective_domain_ids
-                and operation.operation_id == node.operation_id
-                and (
-                    node.operation_version is None
-                    or operation.version == node.operation_version
+            if operation is None:
+                if node.required:
+                    return False, (), (), "domain_workflow_unavailable"
+                continue
+            if (
+                node.operation_id not in available_operation_ids
+                or operation.operation_id != node.operation_id
+                or (
+                    node.operation_version is not None
+                    and operation.version != node.operation_version
                 )
-                and node.operation_id in available_operation_ids
-                and set(operation.required_permissions) <= set(available_permission_ids)
+            ):
+                if node.required:
+                    return False, (), (), "domain_workflow_unavailable"
+                continue
+
+            # Build canonical DomainOperationAvailabilityContext
+            meta = dict(planning_request_metadata or {})
+            if "capabilities" in meta:
+                op_capabilities = tuple(meta["capabilities"])
+            else:
+                op_capabilities = ("validation", "rollback", "transaction")
+
+            if "available_validation_policy_ids" in meta:
+                op_validations = tuple(meta["available_validation_policy_ids"])
+            else:
+                op_validations = (
+                    (operation.validation_policy_id,)
+                    if operation.validation_policy_id
+                    and "validation" in op_capabilities
+                    else ()
+                )
+
+            if "available_rollback_policy_ids" in meta:
+                op_rollbacks = tuple(meta["available_rollback_policy_ids"])
+            else:
+                op_rollbacks = (
+                    (operation.rollback_policy_id,)
+                    if operation.rollback_policy_id and "rollback" in op_capabilities
+                    else ()
+                )
+
+            op_denied = tuple(meta.get("denied_permissions", ()))
+            op_approval_status = meta.get("approval_status")
+            op_approval_fp = meta.get("approval_fingerprint")
+            op_request_fp = meta.get("request_fingerprint", "")
+
+            avail_ctx = DomainOperationAvailabilityContext(
+                primary_domain_id=primary_dom,
+                supporting_domain_ids=supporting_doms,
+                granted_permissions=tuple(available_permission_ids),
+                denied_permissions=op_denied,
+                available_resources=tuple(available_resource_ids),
+                capabilities=op_capabilities,
+                available_validation_policy_ids=op_validations,
+                available_rollback_policy_ids=op_rollbacks,
+                approval_status=op_approval_status,
+                approval_fingerprint=op_approval_fp,
+                request_fingerprint=op_request_fp,
+                metadata=meta,
             )
+
+            resolver_inst = (
+                availability_resolver or DomainOperationAvailabilityResolver()
+            )
+            avail = resolver_inst.resolve(operation, avail_ctx, now=now)
+            disposition = classify_operation_availability_for_planning(avail)
+
+            if disposition == "HARD_BLOCK":
+                if node.required:
+                    return False, (), (), "domain_workflow_unavailable"
+                continue
+
             decision = None
-            if eligible and resolver is not None:
+            if resolver is not None:
                 decision = evaluate_domain_workflow_node(
                     node,
                     definition,
@@ -746,15 +832,19 @@ def _required_subworkflow_closure_for_planning(
                     operations={(node.operation_id, node.operation_version): operation},
                     now=now,
                 )
-                eligible = decision.decision is not PermissionOutcome.DENY
-            if not eligible:
-                if node.required:
-                    return False, (), (), "domain_workflow_unavailable"
-                continue
+                if decision.decision is PermissionOutcome.DENY:
+                    if node.required:
+                        return False, (), (), "domain_workflow_unavailable"
+                    continue
+
             approvals.update(_workflow_approval_ids(definition, nodes=(node,)))
             descriptor = _operation_semantics(operation, ())
             validations.update(descriptor["required_validations"])
-            if descriptor["requires_approval"] or not descriptor["reversible"]:
+            if (
+                descriptor["requires_approval"]
+                or not descriptor["reversible"]
+                or disposition == "REPRESENTABLE"
+            ):
                 approvals.add(PermissionCapability.OPERATION_EXECUTE.value)
             if decision is not None:
                 approvals.update(
@@ -829,6 +919,10 @@ def _required_subworkflow_closure_for_planning(
                     available_permission_ids=available_permission_ids,
                     available_resource_ids=available_resource_ids,
                     operation_definition_provider=operation_definition_provider,
+                    exact_operation_definition_provider=exact_operation_definition_provider,
+                    availability_resolver=availability_resolver,
+                    primary_domain_id=primary_dom,
+                    planning_request_metadata=planning_request_metadata,
                     operation_index=operation_index,
                     workflow_index=workflow_index,
                     permission_context=permission_context,
@@ -1053,11 +1147,19 @@ class DefaultDomainPlannerWorkflowIntegrator:
             Callable[[str], DomainOperationDefinition | None] | None
         ) = None,
         operation_dependency_provider: (Callable[[str], Collection[str]] | None) = None,
+        availability_resolver: DomainOperationAvailabilityResolver | None = None,
+        exact_operation_definition_provider: (
+            Callable[[str, str | None], DomainOperationDefinition | None] | None
+        ) = None,
     ) -> None:
         _require_dependency(resolver, "resolver", "resolve")
         _require_dependency(composer, "composer", "compose")
         _require_dependency(planning_service, "planning_service", "plan")
         _require_dependency(workflow_executor, "workflow_executor", "execute_result")
+        if availability_resolver is not None:
+            _require_dependency(
+                availability_resolver, "availability_resolver", "resolve"
+            )
         if type(domain_registry) is not DomainRegistry:
             raise DomainContractValidationError(
                 "domain_registry must be a DomainRegistry",
@@ -1087,6 +1189,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
         for name, provider in (
             ("operation_definition_provider", operation_definition_provider),
             ("operation_dependency_provider", operation_dependency_provider),
+            (
+                "exact_operation_definition_provider",
+                exact_operation_definition_provider,
+            ),
         ):
             if provider is not None and not callable(provider):
                 raise DomainContractValidationError(
@@ -1106,6 +1212,12 @@ class DefaultDomainPlannerWorkflowIntegrator:
         self._authority_reference_ids_provider = authority_reference_ids_provider
         self._operation_definition_provider = operation_definition_provider
         self._operation_dependency_provider = operation_dependency_provider
+        self._availability_resolver = (
+            availability_resolver
+            if availability_resolver is not None
+            else DomainOperationAvailabilityResolver()
+        )
+        self._exact_operation_definition_provider = exact_operation_definition_provider
 
     def integrate(
         self,
@@ -1552,6 +1664,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 available_permission_ids=granted,
                 available_resource_ids=resource_references,
                 operation_definition_provider=self._operation_definition_provider,
+                exact_operation_definition_provider=self._exact_operation_definition_provider,
+                availability_resolver=self._availability_resolver,
+                primary_domain_id=view.primary_domain_id,
+                planning_request_metadata=request.planning_request.metadata,
                 operation_index=(
                     self._workflow_executor.planning_operation_definitions()
                     if hasattr(

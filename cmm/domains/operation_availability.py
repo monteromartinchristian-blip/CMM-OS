@@ -380,8 +380,66 @@ class DomainOperationAvailabilityResolver:
         )
 
 
+CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION: MappingProxyType[str, str] = (
+    MappingProxyType(
+        {
+            "availability.disabled": "HARD_BLOCK",
+            "availability.domain_incompatible": "HARD_BLOCK",
+            "availability.permission_denied": "HARD_BLOCK",
+            "availability.permission_missing": "HARD_BLOCK",
+            "availability.resource_missing": "HARD_BLOCK",
+            "availability.external_capability_missing": "HARD_BLOCK",
+            "availability.validation_policy_missing": "HARD_BLOCK",
+            "availability.rollback_policy_missing": "HARD_BLOCK",
+            "availability.transaction_capability_missing": "HARD_BLOCK",
+            "availability.approval_pending": "REPRESENTABLE",
+            "availability.approval_denied": "HARD_BLOCK",
+            "availability.approval_mismatch": "HARD_BLOCK",
+            "availability.available": "DELEGATED_CANONICAL",
+        }
+    )
+)
+
+
+def classify_operation_availability_for_planning(
+    target: DomainOperationAvailability | str,
+) -> str:
+    """Map canonical DomainOperationAvailability outcome to planning action.
+
+    Returns one of:
+    - 'HARD_BLOCK': canonical prerequisite failed; cannot be planned.
+    - 'REPRESENTABLE': requires approval or pending gate; eligible for planning
+      as an approval obligation without executing or granting authority.
+    - 'DELEGATED_CANONICAL': canonically available; eligible for planning.
+    """
+    if isinstance(target, str):
+        return CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION.get(
+            target, "HARD_BLOCK"
+        )
+    if not isinstance(target, DomainOperationAvailability):
+        raise TypeError(
+            f"Expected DomainOperationAvailability or str reason code, got {type(target).__name__}"
+        )
+    for code in target.reason_codes:
+        disposition = CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION.get(code)
+        if disposition == "HARD_BLOCK":
+            return "HARD_BLOCK"
+    for code in target.reason_codes:
+        disposition = CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION.get(code)
+        if disposition == "REPRESENTABLE":
+            return "REPRESENTABLE"
+    if (
+        target.status is DomainOperationStatus.AVAILABLE
+        or "availability.available" in target.reason_codes
+    ):
+        return "DELEGATED_CANONICAL"
+    return "HARD_BLOCK"
+
+
 __all__ = [
+    "CANONICAL_OPERATION_AVAILABILITY_BRANCH_CLASSIFICATION",
     "DomainOperationAvailability",
     "DomainOperationAvailabilityContext",
     "DomainOperationAvailabilityResolver",
+    "classify_operation_availability_for_planning",
 ]
