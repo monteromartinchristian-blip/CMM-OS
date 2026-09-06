@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.41 — Integration with Agent Runtime**. Final independent re-audit **V3** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-041=VERIFIED_EXISTING`; `AT-DP-041=PASS`; audited implementation HEAD `6972e7495bccc0e69ccaa7d007f915ef891e8913`; audit V3 bundle SHA-256 `c9677d836843de8068ba5ed3c0e7d8cd87e12bc4df34e1e2361195f5d8f28458`. Next milestone: **Phase 10.42 — Integration with Planner and Workflow Engine**.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.42 — Integration with Planner and Workflow Engine**. Final independent re-audit **V12** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`. Next milestone: **Phase 10.43 — Integration with Validation System**.
 
 ⸻
 
@@ -5860,16 +5860,7 @@ The Planner should not:
 
 ⸻
 
-**Phase 10.42 implementation status:** implementation complete, pending
-independent audit. `DP-042=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-042=PASS`.
-Canonical integrator `DefaultDomainPlannerWorkflowIntegrator`
-(`cmm/domains/planner_workflow_integration.py`); immutable contracts
-(`cmm/domains/planner_workflow_integration_contracts.py`); one generic
-Domain-agnostic Phase 9 `workflow_references` metadata seam
-(`cmm/agent_runtime/workflow_planner_adapter.py`,
-`AGENT_RUNTIME_TO_DOMAIN_IMPORTS=0`); reference
-`docs/reference/domain-planner-workflow-integration.md`. Phase 10.43 is next
-only after audit PASS and docs-only closure.
+**Phase 10.42 status:** Complete — independently audited and closed. Final independent re-audit **V12**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`; independent report `docs/audits/phase-10.42-independent-reaudit-v12.md`. Canonical integrator `cmm/domains/planner_workflow_integration.py`; contracts `cmm/domains/planner_workflow_integration_contracts.py`; reference `docs/reference/domain-planner-workflow-integration.md`. **Phase 10.43 — Integration with Validation System** is now the next milestone.
 
 ⸻
 

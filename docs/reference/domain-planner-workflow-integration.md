@@ -1,7 +1,15 @@
 # Domain ↔ Planner and Workflow Engine Integration (Phase 10.42)
 
-**Status:** Phase 10.42 implemented, pending independent audit.
-`DP-042=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-042=PASS`.
+**Status:** Phase 10.42 complete, independently audited and closed.
+`DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`.
+
+**Final independent verification:** Re-audit **V12** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `CLOSURE_ELIGIBLE=YES`.
+
+**Audited implementation HEAD:** `f3fabd15865fb9ede792e041eede9ba403b8f586`.
+
+**Audit V12 bundle SHA-256:** `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`.
+
+**Independent audit report:** `docs/audits/phase-10.42-independent-reaudit-v12.md`.
 
 Phase 10.42 is an **integration phase, not an ownership phase**. It lets the
 canonical Phase 9 planning path use registered, available,
@@ -486,9 +494,5 @@ are discovered from existing declarations, represented in canonical plan
 nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
 
-V11 implementation evidence: Phase closure still requires Independent Re-Audit V11.
 
-V12 implementation evidence: most-restrictive multi-source composition
-(`V11_MAJOR_16` remediation) with fresh per-attempt recomputation and
-connected Project agreement/restriction acceptance; Phase closure still
-requires Independent Re-Audit V12.
+**Final V12 closure evidence:** Independent Re-Audit **V12** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Phase 10.42 is complete, independently audited and closed. Phase 10.43 remains outside this reference and is the next milestone.
