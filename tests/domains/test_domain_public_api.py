@@ -639,6 +639,35 @@ class TestPublicAPI:
                 "DomainPlanningCapabilityView",
             }
         )
+        # Phase 10.43 – Domain Validation System integration (thin bindings)
+        expected.update(
+            {
+                "CROSS_DOMAIN_EXECUTION_POLICY_NAME",
+                "DOMAIN_OPERATION_POLICY_NAME",
+                "DOMAIN_PACK_BASE_VALIDATION_IDS",
+                "DOMAIN_PACK_INSTALLATION_POLICY_NAME",
+                "DOMAIN_PACK_UPDATE_POLICY_NAME",
+                "DOMAIN_WORKFLOW_POLICY_NAME",
+                "PROJECT_DOMAIN_CHANGE_POLICY_NAME",
+                "DomainValidationIntegrationError",
+                "build_cross_domain_execution_policy",
+                "build_domain_operation_policy",
+                "build_domain_pack_installation_policy",
+                "build_domain_pack_update_policy",
+                "build_domain_workflow_policy",
+                "build_project_domain_change_policy",
+                "compose_required_validation_ids",
+                "compose_effective_validation_ids",
+                "build_operation_validation_requirements",
+                "domain_operation_requires_validation",
+                "is_ignored_caller_validation_metadata",
+                "is_project_domain_code_mutation",
+                "project_change_requires_validation",
+                "require_canonical_validation_success",
+                "validate_domain_specialized_result",
+                "ensure_domain_validation_allows_update",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -648,7 +677,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 544
+        assert len(cmm.domains.__all__) == 568
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
