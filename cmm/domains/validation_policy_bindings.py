@@ -62,11 +62,11 @@ def _clean_extra_ids(extra: Iterable[str] | None, field: str) -> tuple[str, ...]
     if extra is None:
         return ()
     if isinstance(extra, (str, bytes)):
-        raise ValueError(f"{field} must be an iterable of non-empty strings")
+        raise TypeError(f"{field} must be an iterable of non-empty strings")
     try:
         items = tuple(extra)
     except TypeError as exc:
-        raise ValueError(f"{field} must be iterable") from exc
+        raise TypeError(f"{field} must be iterable") from exc
     for item in items:
         if not isinstance(item, str) or not item:
             raise ValueError(f"{field} must contain only non-empty strings")
@@ -223,7 +223,9 @@ def build_project_domain_change_policy(
         canonical_steps,
         _clean_extra_ids(required_validation_ids, "required_validation_ids"),
     )
-    require_full = bool(canonical.require_full_suite) if canonical is not None else False
+    require_full = (
+        bool(canonical.require_full_suite) if canonical is not None else False
+    )
     # Broad/high-impact changes escalate to full-suite semantics even if the
     # canonical catalog entry ever changes.
     if canonical_key in ("broad", "high", "full"):

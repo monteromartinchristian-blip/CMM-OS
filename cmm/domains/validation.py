@@ -253,8 +253,7 @@ def _require_known_domain_policy_steps(policy: ValidationPolicy) -> None:
             )
         if step_id.startswith("domain.") and step_id not in _DOMAIN_STEP_NAMES:
             raise DomainValidationExecutionError(
-                f"Unknown domain validation step '{step_id}' in policy "
-                f"'{policy.name}'",
+                f"Unknown domain validation step '{step_id}' in policy '{policy.name}'",
                 details={"step_id": step_id, "policy": policy.name},
             )
 

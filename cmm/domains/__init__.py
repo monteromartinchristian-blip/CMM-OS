@@ -572,6 +572,13 @@ from cmm.domains.validation_policy_bindings import (
     build_project_domain_change_policy,
     compose_required_validation_ids,
 )
+from cmm.domains.validation_integration import (
+    DomainValidationIntegrationError,
+    compose_effective_validation_ids,
+    is_ignored_caller_validation_metadata,
+    require_canonical_validation_success,
+    validate_domain_specialized_result,
+)
 
 __all__ = [
     "ALL_DOMAIN_STEPS",
@@ -887,6 +894,7 @@ __all__ = [
     "DomainValidationBlocked",
     "DomainValidationContextInvalid",
     "DomainValidationError",
+    "DomainValidationIntegrationError",
     "DomainValidationExecutionContext",
     "DomainValidationExecutionError",
     "DomainValidationRequest",
@@ -942,7 +950,9 @@ __all__ = [
     "build_domain_pack_update_policy",
     "build_domain_workflow_policy",
     "build_project_domain_change_policy",
+    "compose_effective_validation_ids",
     "compose_required_validation_ids",
+    "is_ignored_caller_validation_metadata",
     "build_initial_domain_operation_catalog",
     "build_initial_reasoning_rule_catalog",
     "derive_confidence",
@@ -958,7 +968,9 @@ __all__ = [
     "merge_gaps",
     "merge_questions",
     "merge_recommendations",
+    "require_canonical_validation_success",
     "validate_domain_operation_transition",
+    "validate_domain_specialized_result",
     "validate_event_type_syntax",
     "validate_specialized_event_namespace",
 ]

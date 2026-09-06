@@ -162,7 +162,11 @@ class TestInstallationPolicyBinding:
         # The validator must delegate to the canonical Phase 7 pipeline:
         # injecting a real ValidationPipeline with its own registry works and
         # domain handlers are registered temporarily, not duplicated.
-        from cmm.validation import ValidationExecutor, ValidationPipeline, ValidationRegistry
+        from cmm.validation import (
+            ValidationExecutor,
+            ValidationPipeline,
+            ValidationRegistry,
+        )
 
         registry = ValidationRegistry()
         executor = ValidationExecutor()
@@ -274,9 +278,7 @@ class TestUpdateAtomicity:
         # No partial B state.
         assert registry.get("greeter", "2.0.0") is None
 
-    def test_loader_reload_preserves_previous_on_build_failure(
-        self, tmp_path
-    ) -> None:
+    def test_loader_reload_preserves_previous_on_build_failure(self, tmp_path) -> None:
         # Existing atomic loader behavior reused: a broken candidate never
         # partially replaces the active domain.
         registry = DomainRegistry()

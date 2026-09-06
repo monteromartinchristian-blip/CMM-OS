@@ -53,15 +53,11 @@ def test_pack_policy_reuses_canonical_validation_policy() -> None:
 def test_all_builders_return_canonical_validation_policy() -> None:
     assert isinstance(build_domain_pack_update_policy(), ValidationPolicy)
     assert isinstance(
-        build_domain_operation_policy(
-            required_validation_ids=("domain.contracts",)
-        ),
+        build_domain_operation_policy(required_validation_ids=("domain.contracts",)),
         ValidationPolicy,
     )
     assert isinstance(
-        build_domain_workflow_policy(
-            required_validation_ids=("domain.contracts",)
-        ),
+        build_domain_workflow_policy(required_validation_ids=("domain.contracts",)),
         ValidationPolicy,
     )
     assert isinstance(
@@ -192,7 +188,5 @@ def test_project_policy_is_stricter_than_empty_operation_policy() -> None:
     project_policy = build_project_domain_change_policy()
     # Project code-change policy must carry real obligations even when an
     # ordinary operation declares none.
-    assert len(project_policy.required_steps) > len(
-        operation_policy.required_steps
-    )
+    assert len(project_policy.required_steps) > len(operation_policy.required_steps)
     assert project_policy.stop_on_blocking_failure is True
