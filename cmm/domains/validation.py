@@ -306,9 +306,7 @@ def _apply_policy_to_request(
     """
     required = tuple(policy.required_steps)
     domain_required = tuple(step for step in required if step in _DOMAIN_STEP_NAMES)
-    unsatisfiable = tuple(
-        step for step in required if not step.startswith("domain.")
-    )
+    unsatisfiable = tuple(step for step in required if not step.startswith("domain."))
     if unsatisfiable:
         raise DomainValidationExecutionError(
             "ValidationPolicy requires steps this Domain pack bridge cannot execute",

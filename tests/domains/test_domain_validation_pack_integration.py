@@ -291,15 +291,11 @@ class TestRealInstallPathAppliesPackPolicy:
         with pytest.raises(DomainValidationExecutionError):
             PipelineDomainValidator().validate(request, policy=weak_policy)
 
-    def test_non_domain_required_step_is_not_silently_dropped(
-        self, tmp_path
-    ) -> None:
+    def test_non_domain_required_step_is_not_silently_dropped(self, tmp_path) -> None:
         # This pack bridge can only execute domain.* steps: a required
         # non-domain step must fail closed, never be ignored.
         request = _pack_request(tmp_path)
-        policy = build_domain_pack_installation_policy(
-            extra_required_steps=("syntax",)
-        )
+        policy = build_domain_pack_installation_policy(extra_required_steps=("syntax",))
         with pytest.raises(DomainValidationExecutionError):
             PipelineDomainValidator().validate(request, policy=policy)
 
@@ -332,9 +328,7 @@ class TestRealReloadPathAppliesUpdatePolicy:
             "license": "MIT",
             "minimum_cmm_version": "99.0.0",
         }
-        (bad_dir / "manifest.json").write_text(
-            json.dumps(manifest), encoding="utf-8"
-        )
+        (bad_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         cand_b = make_candidate(bad_dir, "keeper", "2.0.0")
         failed = loader.reload(cand_b)
         assert failed.status == DomainLoadStatus.FAILED
@@ -344,9 +338,7 @@ class TestRealReloadPathAppliesUpdatePolicy:
 
         # Corrected version B updates only after canonical validation.
         manifest["minimum_cmm_version"] = "0.1.0"
-        (bad_dir / "manifest.json").write_text(
-            json.dumps(manifest), encoding="utf-8"
-        )
+        (bad_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         cand_b_fixed = make_candidate(bad_dir, "keeper", "2.0.0")
         assert loader.reload(cand_b_fixed).status == DomainLoadStatus.LOADED
         assert registry.get("keeper", "2.0.0") is not None
