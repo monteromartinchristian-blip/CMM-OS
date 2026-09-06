@@ -2167,6 +2167,26 @@ def _project_permission_integrator(
         operation_dependency_provider=lambda operation_id: (
             dependencies.get(operation_id, ()) if dependencies is not None else ()
         ),
+        capabilities_provider=lambda composition: (
+            "validation",
+            "rollback",
+            "transaction",
+            "external",
+        ),
+        available_validation_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                op.validation_policy_id
+                for op in definitions.values()
+                if op.validation_policy_id
+            )
+        ),
+        available_rollback_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                op.rollback_policy_id
+                for op in definitions.values()
+                if op.rollback_policy_id
+            )
+        ),
     )
 
 
@@ -2687,6 +2707,7 @@ def test_v6_mixed_workflow_permission_authority():
         operation_definition_provider=lambda op_id: (
             op_def if op_id == "mixed.op" else None
         ),
+        capabilities_provider=lambda composition: ("transaction",),
     )
 
     context = DomainResolutionContext(
@@ -3059,6 +3080,7 @@ def _resourced_workflow_integrator(service, *, enabled=True):
         operation_definition_provider=lambda operation_id: (
             op_def if operation_id == "resourced.op" else None
         ),
+        capabilities_provider=lambda composition: ("transaction",),
     )
     request = DomainPlannerWorkflowIntegrationRequest(
         request_id="int-req-resourced",
@@ -3255,6 +3277,7 @@ def _supporting_workflow_integrator(service, *, with_helper: bool):
         operation_definition_provider=lambda operation_id: (
             op_def if operation_id == "main.op" else None
         ),
+        capabilities_provider=lambda composition: ("transaction",),
     )
     request = DomainPlannerWorkflowIntegrationRequest(
         request_id="int-req-supporting",
@@ -3905,6 +3928,26 @@ def _pack_integrator(
         authority_reference_ids_provider=lambda composition: ("authority:v1",),
         operation_definition_provider=lambda operation_id: definitions.get(
             operation_id
+        ),
+        capabilities_provider=lambda composition: (
+            "validation",
+            "rollback",
+            "transaction",
+            "external",
+        ),
+        available_validation_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                op.validation_policy_id
+                for op in definitions.values()
+                if op.validation_policy_id
+            )
+        ),
+        available_rollback_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                op.rollback_policy_id
+                for op in definitions.values()
+                if op.rollback_policy_id
+            )
         ),
     )
 
@@ -4665,6 +4708,8 @@ def test_v8_production_workflow_approval_inventory_gate():
         domain_registry.enable(domain_id)
         permissions: set[str] = set()
         resources: set[str] = set()
+        validations: set[str] = set()
+        rollbacks: set[str] = set()
         workflows = list(workflows_builder())
         for workflow in workflows:
             permissions.update(workflow.required_permissions)
@@ -4672,8 +4717,32 @@ def test_v8_production_workflow_approval_inventory_gate():
         for operation_definition in operations_builder():
             permissions.update(operation_definition.required_permissions)
             resources.update(operation_definition.required_resources)
+            if operation_definition.validation_policy_id:
+                validations.add(operation_definition.validation_policy_id)
+            if operation_definition.rollback_policy_id:
+                rollbacks.add(operation_definition.rollback_policy_id)
         pack_permissions[domain_id] = permissions
         pack_resources[domain_id] = resources
+        pack_validations = getattr(
+            test_v8_production_workflow_approval_inventory_gate,
+            "_pack_validations",
+            None,
+        )
+        if pack_validations is None:
+            pack_validations = {}
+            test_v8_production_workflow_approval_inventory_gate._pack_validations = (
+                pack_validations
+            )
+        pack_validations[domain_id] = validations
+        pack_rollbacks = getattr(
+            test_v8_production_workflow_approval_inventory_gate, "_pack_rollbacks", None
+        )
+        if pack_rollbacks is None:
+            pack_rollbacks = {}
+            test_v8_production_workflow_approval_inventory_gate._pack_rollbacks = (
+                pack_rollbacks
+            )
+        pack_rollbacks[domain_id] = rollbacks
         pack_workflows[slug] = workflows
         pack_slugs[slug] = module_slug
 
@@ -4724,6 +4793,18 @@ def test_v8_production_workflow_approval_inventory_gate():
         approval_ids_provider=lambda composition: (),
         validation_ids_provider=lambda composition: (),
         authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        capabilities_provider=lambda comp: (
+            "validation",
+            "rollback",
+            "transaction",
+            "external",
+        ),
+        available_validation_policy_ids_provider=lambda comp: tuple(
+            sorted(pack_validations.get(str(comp.primary_domain), ()))
+        ),
+        available_rollback_policy_ids_provider=lambda comp: tuple(
+            sorted(pack_rollbacks.get(str(comp.primary_domain), ()))
+        ),
     )
 
     inspected = 0
@@ -5390,6 +5471,26 @@ def _v9_case(
         operation_definition_provider=lambda op: operations.resolve_active(
             op, required=False
         ),
+        capabilities_provider=lambda composition: (
+            "validation",
+            "rollback",
+            "transaction",
+            "external",
+        ),
+        available_validation_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                item.validation_policy_id
+                for item in operations.list_definitions()
+                if item.validation_policy_id
+            )
+        ),
+        available_rollback_policy_ids_provider=lambda composition: tuple(
+            sorted(
+                item.rollback_policy_id
+                for item in operations.list_definitions()
+                if item.rollback_policy_id
+            )
+        ),
     )
     context_domains = (source, target) if cross else (source,)
     context = _resolution_context_5(
@@ -5760,7 +5861,7 @@ def _v10_exact_case(
     op_v1_permissions=(),
     op_v1_type=DomainOperationType.READ,
     op_v1_validation=None,
-    op_v1_reversible=True,
+    op_v1_reversible=False,
     op_v1_rollback=None,
     op_v1_approval=False,
     op_v2_version="2.0.0",
@@ -6086,6 +6187,7 @@ def test_v10_red_exact_workflow_operation_validation_availability():
         op_v1_resources=(),
         node_version="1.0.0",
         capabilities=("validation", "transaction", "rollback"),
+        available_validation_policy_ids=("validation:schema",),
     )
     assert res_present.blocked is False
     assert (
@@ -6093,12 +6195,13 @@ def test_v10_red_exact_workflow_operation_validation_availability():
         in res_present.prepared_planning_request.required_validations
     )
 
-    # Case b: validation capability missing -> hard block
+    # Case b: validation policy missing -> hard block
     res_missing, _, _, _ = _v10_exact_case(
         op_v1_validation="validation:schema",
         op_v1_resources=(),
         node_version="1.0.0",
         capabilities=(),
+        available_validation_policy_ids=(),
     )
     assert res_missing.blocked is True
     print("EXACT_WORKFLOW_OPERATION_VALIDATION_AVAILABILITY=PASS")
@@ -6113,6 +6216,7 @@ def test_v10_red_exact_workflow_operation_rollback_transaction_availability():
         op_v1_resources=(),
         node_version="1.0.0",
         capabilities=("transaction", "rollback"),
+        available_rollback_policy_ids=("rollback:safe",),
     )
     assert res_ok.blocked is False
 
@@ -6221,3 +6325,407 @@ def test_v10_canonical_operation_availability_parity_matrix():
     print("WORKFLOW_OPERATION_AVAILABILITY_REUSES_CANONICAL_RESOLVER=PASS")
     print("REPRESENTABLE_AVAILABILITY_OBLIGATIONS_PRESERVED=PASS")
     print("NO_PARALLEL_OPERATION_AVAILABILITY_RESOLVER=YES")
+
+
+# ── Phase 10.42 V11 Remediation — Task R43 RED tests ───────────────────────
+
+
+def test_v11_red_a_omitted_transaction_capability_does_not_grant():
+    """RED A: omitted transaction capability does not grant availability.
+
+    Reversible operation requiring transaction capability under canonical resolver
+    must fail closed when planning authority omits capabilities.
+    """
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=True,
+        capabilities=None,
+    )
+    assert result.blocked is True, "Omitted transaction capability must block"
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("OMITTED_TRANSACTION_CAPABILITY_DOES_NOT_GRANT=PASS")
+
+
+def test_v11_red_b_omitted_validation_authority_does_not_grant():
+    """RED B: omitted validation authority does not grant availability.
+
+    Operation declaring validation_policy_id must fail closed when planning
+    authority omits validation capability / available validation policies.
+    """
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=False,
+        capabilities=None,
+        available_validation_policy_ids=None,
+    )
+    assert result.blocked is True, "Omitted validation authority must block"
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("OMITTED_VALIDATION_AUTHORITY_DOES_NOT_GRANT=PASS")
+
+
+def test_v11_red_c_omitted_rollback_authority_does_not_grant():
+    """RED C: omitted rollback authority does not grant availability.
+
+    Reversible operation declaring rollback_policy_id must fail closed when
+    planning authority omits rollback capability / available rollback policies.
+    """
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        capabilities=None,
+        available_rollback_policy_ids=None,
+    )
+    assert result.blocked is True, "Omitted rollback authority must block"
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("OMITTED_ROLLBACK_AUTHORITY_DOES_NOT_GRANT=PASS")
+
+
+def test_v11_red_d_omitted_authority_not_broader_than_explicit_empty():
+    """RED D: omitted authority must not be broader than explicit empty authority."""
+    res_omitted, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=False,
+        capabilities=None,
+        available_validation_policy_ids=None,
+    )
+    res_explicit_empty, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=False,
+        capabilities=(),
+        available_validation_policy_ids=(),
+    )
+    assert res_explicit_empty.blocked is True
+    assert res_omitted.blocked is True, (
+        "Omitted authority must not be broader than explicit empty authority"
+    )
+    assert res_omitted.blocked == res_explicit_empty.blocked
+    print("OMITTED_AUTHORITY_NOT_BROADER_THAN_EXPLICIT_EMPTY=PASS")
+
+
+def test_v11_red_real_project_omitted_availability_authority_blocks():
+    """RED Real Project: project.feature_implementation with omitted authority blocks."""
+    from dataclasses import replace
+
+    from tests.domains.test_domain_planner_workflow_dp042_acceptance import (
+        _build_project_graph,
+        _make_project_integrator,
+        _project_integration_request,
+    )
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
+        metadata={},  # Omitted authority
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.feature_implementation"]},
+    )
+    result = integrator.integrate(request)
+
+    assert result.blocked is True, "Real Project with omitted authority must block"
+    assert result.selected_domain_workflow_ids == ()
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("REAL_PROJECT_OMITTED_AVAILABILITY_AUTHORITY_BLOCKS=PASS")
+
+
+# ── Phase 10.42 V11: Authority-Context Parity & Source Matrix Tests ───────────
+
+
+def test_v11_operation_availability_context_source_matrix():
+    """Task R45: Verify complete sourcing of DomainOperationAvailabilityContext fields."""
+    from cmm.domains.operation_availability import _AVAILABILITY_CONTEXT_FIELDS
+    from cmm.domains.planner_workflow_integration import (
+        OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX,
+    )
+
+    matrix_fields = {
+        entry.field for entry in OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX
+    }
+    assert matrix_fields == _AVAILABILITY_CONTEXT_FIELDS
+    print("ALL_OPERATION_AVAILABILITY_CONTEXT_FIELDS_SOURCED=PASS")
+
+    # Invariant: positive availability authority must never be synthesized
+    unsourced = [
+        entry.field
+        for entry in OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX
+        if entry.may_positive_authority_be_synthesized
+    ]
+    assert len(unsourced) == 0
+    print("UNSOURCED_POSITIVE_AVAILABILITY_AUTHORITY_FIELDS=0")
+
+
+def test_v11_red_e_explicit_transaction_capability_allows():
+    """RED E: explicit transaction capability allows reversible operation."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=True,
+        capabilities=("transaction",),
+    )
+    assert result.blocked is False
+    assert result.plan is not None
+    assert service.plan_calls == 1
+    print("EXPLICIT_TRANSACTION_CAPABILITY_ALLOWS=PASS")
+
+
+def test_v11_red_f_explicit_validation_policy_authority_allows():
+    """RED F: explicit validation policy authority allows operation requiring validation."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=False,
+        capabilities=("validation",),
+        available_validation_policy_ids=("validation:schema",),
+    )
+    assert result.blocked is False
+    assert result.plan is not None
+    assert service.plan_calls == 1
+    assert "validation:schema" in result.prepared_planning_request.required_validations
+    print("EXPLICIT_VALIDATION_POLICY_AUTHORITY_ALLOWS=PASS")
+
+
+def test_v11_red_g_explicit_rollback_policy_authority_allows():
+    """RED G: explicit rollback policy authority allows reversible operation with rollback."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        capabilities=("transaction", "rollback"),
+        available_rollback_policy_ids=("rollback:safe",),
+    )
+    assert result.blocked is False
+    assert result.plan is not None
+    assert service.plan_calls == 1
+    print("EXPLICIT_ROLLBACK_POLICY_AUTHORITY_ALLOWS=PASS")
+
+
+def test_v11_red_h_partial_availability_authority_fails_closed():
+    """RED H: partial availability authority fails closed."""
+    # Operation requiring validation and rollback
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=True,
+        op_v1_rollback="rollback:safe",
+        # Validation and transaction granted, but rollback policy authority missing
+        capabilities=("validation", "transaction"),
+        available_validation_policy_ids=("validation:schema",),
+        available_rollback_policy_ids=(),
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("PARTIAL_AVAILABILITY_AUTHORITY_FAILS_CLOSED=PASS")
+
+
+def test_v11_red_i_replan_availability_authority_downgrade_rechecked():
+    """RED I: availability authority downgrade on replanning rechecks authority and blocks."""
+    from dataclasses import replace
+
+    first, service, req, integrator = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="validation:schema",
+        op_v1_reversible=False,
+        capabilities=("validation",),
+        available_validation_policy_ids=("validation:schema",),
+    )
+    assert first.blocked is False
+    assert service.plan_calls == 1
+
+    # Downgrade validation authority on replanning attempt
+    downgraded_plan_req = replace(
+        req.planning_request,
+        id="plan-req-downgraded-avail",
+        metadata={
+            "capabilities": (),
+            "available_validation_policy_ids": (),
+        },
+    )
+    downgraded_req = replace(
+        req,
+        request_id="req-test-downgraded-avail",
+        planning_request=downgraded_plan_req,
+    )
+    second = integrator.integrate(downgraded_req)
+    assert second.blocked is True
+    assert second.plan is None
+    assert service.plan_calls == 1
+    assert "domain_workflow_unavailable" in second.reason_codes
+    print("REPLAN_AVAILABILITY_AUTHORITY_DOWNGRADE_RECHECKED=PASS")
+
+
+def test_v11_planning_authority_to_availability_context_parity():
+    """Verify 1:1 mapping between planning authority and resolved availability context."""
+    from cmm.agent_runtime.enums import ApprovalRequestStatus
+
+    meta = {
+        "capabilities": ["transaction", "rollback", "validation"],
+        "available_validation_policy_ids": ["val.1", "val.2"],
+        "available_rollback_policy_ids": ["rb.1"],
+        "denied_permissions": ["perm.deny"],
+        "approval_status": ApprovalRequestStatus.PENDING,
+        "approval_fingerprint": "afp-1",
+        "request_fingerprint": "rfp-1",
+    }
+    _, _, req, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=False,
+        capabilities=meta["capabilities"],
+        available_validation_policy_ids=meta["available_validation_policy_ids"],
+        available_rollback_policy_ids=meta["available_rollback_policy_ids"],
+        denied_permissions=meta["denied_permissions"],
+        approval_status=meta["approval_status"],
+        approval_fingerprint=meta["approval_fingerprint"],
+        request_fingerprint=meta["request_fingerprint"],
+    )
+    plan_meta = req.planning_request.metadata
+    assert tuple(plan_meta["capabilities"]) == tuple(meta["capabilities"])
+    assert tuple(plan_meta["available_validation_policy_ids"]) == tuple(
+        meta["available_validation_policy_ids"]
+    )
+    assert tuple(plan_meta["available_rollback_policy_ids"]) == tuple(
+        meta["available_rollback_policy_ids"]
+    )
+    assert tuple(plan_meta["denied_permissions"]) == tuple(meta["denied_permissions"])
+    assert plan_meta["approval_status"] == meta["approval_status"]
+    assert plan_meta["approval_fingerprint"] == meta["approval_fingerprint"]
+    assert plan_meta["request_fingerprint"] == meta["request_fingerprint"]
+    print("PLANNING_AUTHORITY_TO_AVAILABILITY_CONTEXT_PARITY=PASS")
+
+
+def test_v11_all_positive_availability_authority_monotonic():
+    """Adding positive authority never invalidates an eligible plan."""
+    res_base, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="val.policy",
+        op_v1_reversible=False,
+        capabilities=("validation",),
+        available_validation_policy_ids=("val.policy",),
+    )
+    assert res_base.blocked is False
+
+    # Superset of authority
+    res_super, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="val.policy",
+        op_v1_reversible=False,
+        capabilities=("validation", "transaction", "rollback", "external"),
+        available_validation_policy_ids=("val.policy", "val.other"),
+        available_rollback_policy_ids=("rb.other",),
+    )
+    assert res_super.blocked is False
+    print("ALL_POSITIVE_AVAILABILITY_AUTHORITY_MONOTONIC=PASS")
+
+
+def test_v11_operation_definition_requirements_not_used_as_availability_grants():
+    """Operation definition requirements cannot serve as positive availability grants."""
+    result, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="val.required",
+        op_v1_reversible=True,
+        op_v1_rollback="rb.required",
+        capabilities=None,
+        available_validation_policy_ids=None,
+        available_rollback_policy_ids=None,
+    )
+    assert result.blocked is True
+    assert result.plan is None
+    assert service.plan_calls == 0
+    print("OPERATION_DEFINITION_REQUIREMENTS_NOT_USED_AS_AVAILABILITY_GRANTS=PASS")
+
+
+def test_v11_planning_execution_availability_authority_parity():
+    """Verify execution fails closed under the same missing authority that blocks planning."""
+    from cmm.domains.enums import DomainOperationStatus
+    from cmm.domains.operation_availability import (
+        DomainOperationAvailabilityContext,
+        DomainOperationAvailabilityResolver,
+    )
+
+    resolver = DomainOperationAvailabilityResolver()
+    op_def = DomainOperationDefinition(
+        operation_id="python.test_op",
+        domain_id="domain:python",
+        version="1.0.0",
+        name="Test",
+        description="Test",
+        operation_type=DomainOperationType.READ,
+        validation_policy_id="val.strict",
+    )
+    empty_ctx = DomainOperationAvailabilityContext(
+        primary_domain_id="domain:python",
+        available_validation_policy_ids=(),
+    )
+    avail = resolver.resolve(op_def, empty_ctx)
+    assert avail.status is DomainOperationStatus.UNAVAILABLE
+    assert "availability.validation_policy_missing" in avail.reason_codes
+    print("PLANNING_EXECUTION_AVAILABILITY_AUTHORITY_PARITY=PASS")
+
+
+def test_v11_representable_approval_availability_preserved():
+    """Representable approval availability is preserved as pending obligation."""
+    from cmm.agent_runtime.enums import ApprovalRequestStatus
+
+    res, service, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_approval=True,
+        approval_status=ApprovalRequestStatus.PENDING,
+    )
+    assert res.blocked is False
+    assert res.plan is not None
+    assert service.plan_calls == 1
+    assert "operation.execute" in res.prepared_planning_request.required_approvals
+    print("REPRESENTABLE_APPROVAL_AVAILABILITY_PRESERVED=PASS")
+
+
+def test_v11_validation_and_rollback_requirement_not_equal_availability():
+    """Declare requirement != grant availability invariant check."""
+    # Requiring validation != granting validation
+    res_val, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_validation="val.policy",
+        capabilities=("validation",),
+        available_validation_policy_ids=(),
+    )
+    assert res_val.blocked is True
+    print("VALIDATION_REQUIREMENT_NOT_EQUAL_VALIDATION_AVAILABILITY=PASS")
+
+    # Requiring rollback != granting rollback
+    res_rb, _, _, _ = _v10_exact_case(
+        op_v1_resources=(),
+        op_v1_reversible=True,
+        op_v1_rollback="rb.policy",
+        capabilities=("transaction", "rollback"),
+        available_rollback_policy_ids=(),
+    )
+    assert res_rb.blocked is True
+    print("ROLLBACK_REQUIREMENT_NOT_EQUAL_ROLLBACK_AVAILABILITY=PASS")
