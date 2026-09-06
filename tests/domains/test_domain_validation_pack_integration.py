@@ -199,6 +199,159 @@ class TestMonotonicSingleRead:
         assert result.duration_ms == 250
 
 
+class TestRealInstallPathAppliesPackPolicy:
+    def _breaking_dir(self, root, slug: str, version: str):
+        from tests.domains._loader_helpers import write_domain_dir
+
+        domain_dir = write_domain_dir(root, slug, version)
+        manifest = {
+            "id": slug,
+            "version": version,
+            "author": "tester",
+            "license": "MIT",
+            "minimum_cmm_version": "99.0.0",
+        }
+        (domain_dir / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        return domain_dir
+
+    def test_real_install_path_applies_domain_pack_installation_policy(
+        self, tmp_path
+    ) -> None:
+        from tests.domains.test_domain_api_lifecycle import _make_api
+
+        api, registry = _make_api()
+        # Valid pack installs through the real host lifecycle.
+        good_dir = tmp_path / "good"
+        good_dir.mkdir()
+        from tests.domains._loader_helpers import make_candidate, write_domain_dir
+
+        valid_dir = write_domain_dir(good_dir, "greeter", "1.0.0")
+        valid_candidate = make_candidate(valid_dir, "greeter", "1.0.0")
+        from cmm.domains.enums import DomainLoadStatus, DomainStatus
+
+        loaded = api.install_domain(valid_candidate)
+        assert loaded.status == DomainLoadStatus.LOADED
+        # Validation success authorizes registration only: no enablement,
+        # no trust elevation, no permission grant.
+        record = registry.get_record("greeter", "1.0.0")
+        assert record.status == DomainStatus.REGISTERED
+        assert record.definition.enabled is False
+
+        # Pack violating a mandatory Domain check is blocked before any
+        # registration: real host install path, real Phase 7 execution.
+        bad_dir = self._breaking_dir(tmp_path / "bad", "breaker", "1.0.0")
+        bad_candidate = make_candidate(bad_dir, "breaker", "1.0.0")
+        blocked = api.install_domain(bad_candidate)
+        assert blocked.status == DomainLoadStatus.FAILED
+        assert blocked.errors != ()
+        assert registry.contains("breaker") is False
+
+    def test_install_policy_selected_and_applied_by_host(self, tmp_path) -> None:
+        from tests.domains._loader_helpers import make_candidate, write_domain_dir
+
+        seen: dict[str, object] = {}
+
+        class _SpyValidator(PipelineDomainValidator):
+            def validate(self, request, *, policy=None):  # type: ignore[override]
+                seen["policy"] = policy
+                return super().validate(request, policy=policy)
+
+        registry = DomainRegistry()
+        loader = DeclarativeDomainLoader(
+            manifest_reader=JsonDomainManifestReader(),
+            registry=registry,
+            pack_validator=_SpyValidator(),
+        )
+        domain_dir = write_domain_dir(tmp_path / "packs", "greeter", "1.0.0")
+        candidate = make_candidate(domain_dir, "greeter", "1.0.0")
+        from cmm.domains.enums import DomainLoadStatus
+
+        assert loader.load(candidate).status == DomainLoadStatus.LOADED
+        policy = seen.get("policy")
+        assert isinstance(policy, ValidationPolicy)
+        assert (
+            policy.metadata.get("domain_policy_family")
+            == "DomainPackInstallationPolicy"
+        )
+        # The mandatory Domain validation set is enforced, not merely named.
+        assert set(DOMAIN_PACK_BASE_VALIDATION_IDS) <= set(policy.required_steps)
+
+    def test_weakened_installation_policy_fails_closed(self, tmp_path) -> None:
+        from cmm.domains.validation_policy_bindings import (
+            DOMAIN_PACK_INSTALLATION_POLICY_NAME,
+        )
+
+        request = _pack_request(tmp_path)
+        weak_policy = ValidationPolicy(
+            name=DOMAIN_PACK_INSTALLATION_POLICY_NAME,
+            required_steps=("domain.manifest",),
+        )
+        with pytest.raises(DomainValidationExecutionError):
+            PipelineDomainValidator().validate(request, policy=weak_policy)
+
+    def test_non_domain_required_step_is_not_silently_dropped(
+        self, tmp_path
+    ) -> None:
+        # This pack bridge can only execute domain.* steps: a required
+        # non-domain step must fail closed, never be ignored.
+        request = _pack_request(tmp_path)
+        policy = build_domain_pack_installation_policy(
+            extra_required_steps=("syntax",)
+        )
+        with pytest.raises(DomainValidationExecutionError):
+            PipelineDomainValidator().validate(request, policy=policy)
+
+
+class TestRealReloadPathAppliesUpdatePolicy:
+    def test_real_reload_path_applies_domain_pack_update_policy_atomically(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainLoadStatus
+        from tests.domains._loader_helpers import make_candidate, write_domain_dir
+
+        registry = DomainRegistry()
+        loader = DeclarativeDomainLoader(
+            manifest_reader=JsonDomainManifestReader(),
+            registry=registry,
+        )
+        dir_a = write_domain_dir(tmp_path / "packs", "keeper", "1.0.0")
+        cand_a = make_candidate(dir_a, "keeper", "1.0.0")
+        assert loader.load(cand_a).status == DomainLoadStatus.LOADED
+
+        # Version B violates a mandatory check: update validation fails,
+        # version A remains authoritative, no partial B survives.
+        dir_b = tmp_path / "packs_b"
+        dir_b.mkdir()
+        bad_dir = write_domain_dir(dir_b, "keeper", "2.0.0")
+        manifest = {
+            "id": "keeper",
+            "version": "2.0.0",
+            "author": "tester",
+            "license": "MIT",
+            "minimum_cmm_version": "99.0.0",
+        }
+        (bad_dir / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        cand_b = make_candidate(bad_dir, "keeper", "2.0.0")
+        failed = loader.reload(cand_b)
+        assert failed.status == DomainLoadStatus.FAILED
+        assert registry.get("keeper", "1.0.0") is not None
+        assert registry.get("keeper", "2.0.0") is None
+        assert loader.get_loaded("domain:keeper", "1.0.0") is not None
+
+        # Corrected version B updates only after canonical validation.
+        manifest["minimum_cmm_version"] = "0.1.0"
+        (bad_dir / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        cand_b_fixed = make_candidate(bad_dir, "keeper", "2.0.0")
+        assert loader.reload(cand_b_fixed).status == DomainLoadStatus.LOADED
+        assert registry.get("keeper", "2.0.0") is not None
+
+
 class TestInstallGateFailClosed:
     def test_failed_blocks(self) -> None:
         with pytest.raises(DomainValidationBlocked):

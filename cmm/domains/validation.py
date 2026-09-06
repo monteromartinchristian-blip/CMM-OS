@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import math
 import time as _time_module
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -136,6 +137,7 @@ class PipelineDomainValidator:
             )
         if policy is not None:
             _require_known_domain_policy_steps(policy)
+            request = _apply_policy_to_request(request, policy)
         t0 = self._monotonic()
         if not isinstance(t0, (int, float)) or not math.isfinite(t0):
             raise DomainValidationExecutionError(
@@ -152,7 +154,7 @@ class PipelineDomainValidator:
             )
         )
 
-        validation_context = build_domain_validation_context(request)
+        validation_context = build_domain_validation_context(request, policy=policy)
         steps = build_domain_validation_steps(request)
 
         # Build shared scan session for security + fragmentation
@@ -255,6 +257,75 @@ def _require_known_domain_policy_steps(policy: ValidationPolicy) -> None:
                 f"Unknown domain validation step '{step_id}' in policy '{policy.name}'",
                 details={"step_id": step_id, "policy": policy.name},
             )
+
+
+_PACK_INSTALL_POLICY_FAMILIES = frozenset(
+    {
+        "DomainPackInstallationPolicy",
+        "DomainPackUpdatePolicy",
+    }
+)
+
+_PACK_INSTALL_POLICY_NAMES = frozenset(
+    {
+        "domainpackinstallationpolicy",
+        "domainpackupdatepolicy",
+    }
+)
+
+
+def _policy_family(policy: ValidationPolicy) -> str | None:
+    metadata = getattr(policy, "metadata", None)
+    if isinstance(metadata, Mapping):
+        family = metadata.get("domain_policy_family")
+        if family is not None:
+            return str(family)
+    # Hand-built policies may carry only the canonical family name.
+    name = str(getattr(policy, "name", ""))
+    if name in _PACK_INSTALL_POLICY_FAMILIES or name in _PACK_INSTALL_POLICY_NAMES:
+        return name
+    return None
+
+
+def _apply_policy_to_request(
+    request: DomainValidationRequest,
+    policy: ValidationPolicy,
+) -> DomainValidationRequest:
+    """Bind a canonical policy to the effective Domain validation request.
+
+    The policy controls the actual Phase 7 execution: required ``domain.*``
+    steps become the requested step set, so mandatory policy steps cannot
+    be ignored by the pipeline. Fail-closed rules:
+
+    - required non-``domain.*`` steps cannot be executed by this Domain
+      pack bridge and are rejected instead of silently dropped;
+    - install/update policy families must cover the full mandatory Domain
+      step set; a weakened family policy is rejected;
+    - conflicts with explicit request exclusions surface as errors from
+      the canonical step builder (no silent weakening).
+    """
+    required = tuple(policy.required_steps)
+    domain_required = tuple(step for step in required if step in _DOMAIN_STEP_NAMES)
+    unsatisfiable = tuple(
+        step for step in required if not step.startswith("domain.")
+    )
+    if unsatisfiable:
+        raise DomainValidationExecutionError(
+            "ValidationPolicy requires steps this Domain pack bridge cannot execute",
+            details={
+                "policy": policy.name,
+                "unsatisfiable_steps": list(unsatisfiable),
+            },
+        )
+    family = _policy_family(policy)
+    if family in _PACK_INSTALL_POLICY_FAMILIES | _PACK_INSTALL_POLICY_NAMES:
+        missing = _DOMAIN_STEP_NAMES - set(domain_required)
+        if missing:
+            raise DomainValidationExecutionError(
+                f"Pack policy '{family}' omits mandatory Domain validation steps",
+                details={"policy": policy.name, "missing_steps": sorted(missing)},
+            )
+    return replace(request, requested_steps=domain_required)
 
 
 def _resolve_di(

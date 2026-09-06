@@ -42,6 +42,16 @@ from cmm.domains.manifest_reader import DomainManifestReader
 from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainRegistryStoreSnapshot
+from cmm.domains.validation import (
+    PipelineDomainValidator,
+    ensure_domain_validation_allows_install,
+    ensure_domain_validation_allows_update,
+)
+from cmm.domains.validation_contracts import DomainValidationRequest
+from cmm.domains.validation_policy_bindings import (
+    build_domain_pack_installation_policy,
+    build_domain_pack_update_policy,
+)
 
 
 def _default_clock() -> datetime:
@@ -95,11 +105,15 @@ class DeclarativeDomainLoader:
         manifest_reader: DomainManifestReader,
         registry: DomainRegistry,
         clock: Callable[[], datetime] | None = None,
+        pack_validator: PipelineDomainValidator | None = None,
     ) -> None:
         self._discovery = discovery
         self._manifest_reader = manifest_reader
         self._registry = registry
         self._clock = clock or _default_clock
+        self._pack_validator = (
+            pack_validator if pack_validator is not None else PipelineDomainValidator()
+        )
         self._lock = threading.RLock()
         self._loaded: dict[tuple[str, str], DomainLoadResult] = {}
         # Keyed by (source_id, candidate_id, checksum): candidate_id alone
@@ -142,6 +156,24 @@ class DeclarativeDomainLoader:
                     pack=None,
                     registry_record=None,
                     errors=tuple(build_errors),
+                    warnings=(),
+                    loaded_at=self._clock(),
+                )
+
+            # Phase 10.43 lifecycle gate: the candidate pack is validated
+            # under the canonical DomainPackInstallationPolicy through the
+            # Phase 7 pipeline BEFORE any registry mutation. A blocking
+            # finding fails the load with no partial state.
+            gate_errors = self._validate_pack_for_lifecycle(
+                candidate, pack, kind="install"
+            )
+            if gate_errors is not None:
+                return DomainLoadResult(
+                    candidate=candidate,
+                    status=DomainLoadStatus.FAILED,
+                    pack=None,
+                    registry_record=None,
+                    errors=tuple(gate_errors),
                     warnings=(),
                     loaded_at=self._clock(),
                 )
@@ -283,6 +315,24 @@ class DeclarativeDomainLoader:
                     loaded_at=self._clock(),
                 )
 
+            # Phase 10.43 lifecycle gate: the update candidate is validated
+            # under the canonical DomainPackUpdatePolicy BEFORE any registry
+            # mutation. On failure the previous version stays authoritative
+            # with no partial replacement.
+            gate_errors = self._validate_pack_for_lifecycle(
+                candidate, pack, kind="update"
+            )
+            if gate_errors is not None:
+                return DomainLoadResult(
+                    candidate=candidate,
+                    status=DomainLoadStatus.FAILED,
+                    pack=None,
+                    registry_record=None,
+                    errors=tuple(gate_errors),
+                    warnings=(),
+                    loaded_at=self._clock(),
+                )
+
             new_slug = pack.definition.id.slug
             previous_key = self._find_loaded_key(new_slug, None)
 
@@ -390,6 +440,55 @@ class DeclarativeDomainLoader:
             )
 
     # ── Private helpers ──────────────────────────────────────────────────
+
+    def _validate_pack_for_lifecycle(
+        self,
+        candidate: DomainCandidate,
+        pack: DomainPack,
+        *,
+        kind: str,
+    ) -> tuple[str, ...] | None:
+        """Validate a built pack under the lifecycle policy for *kind*.
+
+        Returns ``None`` when canonical validation allows the lifecycle to
+        continue, otherwise a tuple of error strings. Never mutates registry
+        or loader state. Domain test execution remains deferred, so the gate
+        runs non-strict: blocking structural/security/compatibility findings
+        still fail the load while the deferred test step cannot permanently
+        block installation.
+        """
+        from cmm.domains.errors import DomainValidationError
+
+        try:
+            if kind == "update":
+                policy = build_domain_pack_update_policy()
+            else:
+                policy = build_domain_pack_installation_policy()
+            request = DomainValidationRequest(
+                pack=pack,
+                root_path=pack.root_path,
+                candidate=candidate,
+                registry_snapshot=self._registry.snapshot_state(),
+                strict=False,
+                run_tests=False,
+            )
+            result = self._pack_validator.validate(request, policy=policy)
+            if kind == "update":
+                ensure_domain_validation_allows_update(result)
+            else:
+                ensure_domain_validation_allows_install(result)
+        except DomainValidationError as exc:
+            details = getattr(exc, "details", {}) or {}
+            reason_codes = details.get("reason_codes") or details.get(
+                "blocking_finding_codes"
+            )
+            suffix = f" ({', '.join(reason_codes)})" if reason_codes else ""
+            return (f"Domain pack validation blocks {kind}{suffix}",)
+        except Exception as exc:  # noqa: BLE001 - fail closed, never swallow
+            return (
+                f"Domain pack validation error during {kind}: {type(exc).__name__}",
+            )
+        return None
 
     def _rollback_registry_or_raise(
         self,
