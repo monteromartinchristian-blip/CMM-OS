@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from cmm.validation import ValidationPolicy
 from cmm.domains.validation_policy_bindings import (
     CROSS_DOMAIN_EXECUTION_POLICY_NAME,
     DOMAIN_OPERATION_POLICY_NAME,
@@ -25,6 +24,7 @@ from cmm.domains.validation_policy_bindings import (
     build_project_domain_change_policy,
     compose_required_validation_ids,
 )
+from cmm.validation import ValidationPolicy
 
 
 def test_phase_1043_exposes_all_six_policy_family_identities() -> None:

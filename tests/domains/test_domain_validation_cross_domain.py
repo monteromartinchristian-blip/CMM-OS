@@ -137,9 +137,7 @@ class TestCrossDomainComposition:
         # composing with no groups yields empty, but composing with host
         # groups always preserves them (monotonic).
         assert set(host_effective) <= set(
-            compose_required_validation_ids(
-                host_effective, ("domain.contracts",)
-            )
+            compose_required_validation_ids(host_effective, ("domain.contracts",))
         )
 
     def test_unknown_mandatory_id_fails_closed(self) -> None:
