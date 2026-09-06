@@ -131,7 +131,7 @@ validate wrapper
   each requested workflow must resolve active from the canonical workflow
   registry and be canonically available under the final authority through
   _resolve_workflow_for_planning(...) — prepared permissions, final
-  operation candidates, the request's resource references, and the current
+  permitted operation IDs, exact node definitions, the request's resource references, and the current
   effective composition; unavailable or incompatible requested workflows
   fail closed with `domain_workflow_unavailable` before planner invocation;
   every required INVOKE_SUBWORKFLOW dependency must additionally resolve
@@ -142,7 +142,8 @@ validate wrapper
 → most-restrictive AgentPlanningRequest preparation
   (canonical approval obligations of the selected workflow graph joined
   after selection: workflow-level gates, node-level approval sources, and
-  the required-subworkflow closure's obligations)
+  internal operation approvals/validations, eligible child obligations,
+  and canonical cross-domain approval actions)
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
 → canonical AgentWorkflowPlan (post-checks: unresolved required operation
@@ -167,7 +168,7 @@ current attempt:
 ```text
 required planning permission missing        → BLOCK (domain_workflow_unavailable)
 required operation unavailable under the
-  final permission-compatible candidates    → BLOCK (domain_workflow_unavailable)
+  final exact-version authority              → BLOCK (domain_workflow_unavailable)
 required resource outside the canonical
   planning request's resource references    → BLOCK (domain_workflow_unavailable)
 required/supporting Domain outside the
@@ -178,6 +179,8 @@ required INVOKE_SUBWORKFLOW child missing,
   disabled, or final-authority ineligible
   (recursively, version-exact, cycle-safe)  → BLOCK
                                               (domain_workflow_dependency_not_available)
+optional operation or child unavailable     → skip its obligations; no parent block
+required child handoff permission DENY       → BLOCK (domain_workflow_dependency_not_available)
 approval outstanding but representable      → ALLOW + approval obligation
 all constraints satisfied                   → ALLOW
 ```
@@ -189,42 +192,74 @@ gates are projected into the canonical plan as approval obligations and
 execution-time resolution revalidates everything inside
 `DomainWorkflowExecutor`.
 
-### Required subworkflow closure
+### Selected workflow graph obligations (V9)
 
-Every `required` `INVOKE_SUBWORKFLOW` node reachable from a selected
-workflow is checked before planner invocation through
-`_required_subworkflow_closure_for_planning(...)`:
+`_required_subworkflow_closure_for_planning(...)` now inspects operation and
+subworkflow permission branches throughout the selected graph. It uses the
+canonical branch classification and reference lookup in `permission_adapters`.
 
-- the exact referenced child (`subworkflow_id`, `subworkflow_version`)
-  must resolve from the canonical `InMemoryDomainWorkflowRegistry`
-  (never silently latest, never another active version);
-- the child must be canonically available under the **same final
-  planning authority** as the parent (same prepared permissions, same
-  permission-compatible operation candidates, same resource references,
-  same effective composition), evaluated through the canonical
-  `_resolve_workflow_for_planning(...)` projection;
-- required children are checked recursively (parent → child →
-  grandchild); a repeated (workflow_id, version) key in the evaluation
-  chain is a versioned subworkflow cycle and fails closed deterministically,
-  mirroring the canonical registry-wide cycle rule in
-  `cmm.workflows.registry`;
-- optional (`required=False`) subworkflow nodes follow the canonical
-  execution/permission contract, where an unavailable optional node is
-  skipped instead of blocking the workflow;
-- the closure is pure and side-effect free; the child's canonical approval
-  obligations are flattened into the parent's projected approval set so no
-  nested obligation can disappear.
+For operation nodes, the exact ID/version must identify an enabled definition
+under the final available/allowed/prohibited operation authority. Required
+permissions are checked on that exact definition. Generic planner candidates
+may use a different default version; that version's permission requirements
+must not replace the selected node's version. An unavailable required operation
+blocks before planning; an unavailable optional operation contributes no
+obligations. `resolve_domain_workflow` uses the same required/optional distinction,
+allowing the shared engine to skip an optional denied operation.
+
+The existing `_operation_semantics` projection serves both planner-selected
+operations and internal graph operations. The latter contribute only static
+approval and validation obligations to the generic canonical request. Internal
+operations are not expanded into new planner tasks or execution state.
+
+Required child references resolve exactly through `InMemoryDomainWorkflowRegistry`
+and are checked recursively under the same prepared permissions, operation
+limits, resource references and effective composition. A repeated resolved
+ID/version fails the branch closed. Eligible optional children contribute their
+approval and validation obligations; missing, disabled, unavailable or denied
+optional children contribute neither a parent block nor obligations.
+
+When the executor has a permission gate, its read-only
+`planning_permission_context`, `planning_operation_definitions` and
+`planning_workflow_definitions` expose the existing policy evaluator, clock and
+copies of the exact definitions that execution will revalidate. Planning must
+not fill missing gate references from another registry. The existing definition
+provider remains usable for static planning where no execution gate is wired;
+an exact reference that cannot be established fails closed. A required
+cross-domain child without the canonical policy context also fails closed.
+These inspection methods do not issue gate decisions, create grants, consume
+approvals, execute nodes or retain planning state.
+
+`evaluate_domain_workflow_requirements` and `evaluate_domain_workflow_node`
+keep policy decisions under the existing permission owner. Cross-domain child
+invocations use the same `evaluate_subworkflow_handoff` helper as the canonical
+node evaluator, which calls `DomainPermissionResolver.resolve_cross_domain`.
+Source and target ownership come from registered definitions, including when
+an ID prefix differs from its owning Domain. The original actor and explicit
+resolution-context session are retained; when no session is supplied the
+existing agent-run identity is used as the fallback.
+
+Approval actions are obligations, never grants. Canonical cross-domain workflow
+invocation uses `CrossDomainPermissionRequest.requires_approval=True`; therefore
+an allowed handoff is represented as `APPROVAL_REQUIRED`, not converted to an
+approval-free `ALLOW`. Runtime gate evaluation still owns context-bound approval
+fingerprints and grant consumption. Plan approval nodes carry the canonical
+action IDs through `approval_requirement_ids` and remain pending.
 
 ## Canonical workflow node planning classification
+
+`WorkflowNodePermissionBranch` classifies the canonical operation, subworkflow,
+approval and non-permissioned branches. The parity tests exhaust this enum and
+compare connected planning with canonical decisions across every node type.
 
 Every `WorkflowNodeType` member carries an explicit Phase 10.42 planning
 classification, guarded by a dynamic enum-coverage test:
 
 | Node type | Classification |
 |---|---|
-| `EXECUTE_OPERATION` | operation eligibility (`resolve_domain_workflow` candidate check) |
+| `EXECUTE_OPERATION` | exact definition/version, required/optional eligibility, canonical permission decision, internal approval and validation projection |
 | `REQUEST_APPROVAL` | workflow approval extraction (`_workflow_approval_ids`) |
-| `INVOKE_SUBWORKFLOW` | required subworkflow eligibility (`_required_subworkflow_closure_for_planning`) |
+| `INVOKE_SUBWORKFLOW` | exact child eligibility, canonical handoff and child permissions, required/optional aggregation and eligible child obligations |
 | `WAIT_FOR_RESOURCE` / `LOAD_RESOURCE` | deferred runtime resource semantics; no canonical node-level resource identity — workflow resource obligations live only on `DomainWorkflowDefinition.required_resources` |
 | `VALIDATE` | deferred runtime validation (`WorkflowEngine` evaluates node conditions fail-closed); planning validation obligations travel only through the canonical `required_validations` seam |
 | `ASK_QUESTION` / `PAUSE` / `ESCALATE` | deferred runtime control flow (WorkflowEngine / Phase 9 runtime); no planning-time capability or approval field |
@@ -252,7 +287,7 @@ prepared required_approvals
       (joined after selection: workflow-level approval_gates ∪ node-level
       approval sources — approval_gate carriers and REQUEST_APPROVAL nodes
       with the canonical `approval_gate or node_id` identity — ∪ the
-      required-subworkflow closure's obligations; deduplicated, stable
+      eligible child, internal operation and cross-domain obligations; deduplicated, stable
       order)
 ```
 
@@ -394,3 +429,5 @@ or Phase 10.44 (Memory / Knowledge Graph integration). Required validations
 are discovered from existing declarations, represented in canonical plan
 nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
+
+V9 implementation evidence and validation counts: [remediation handoff](../audits/phase-10.42-remediation-v9.md). Phase closure still requires Independent Re-Audit V9.
