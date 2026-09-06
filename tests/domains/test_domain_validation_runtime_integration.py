@@ -920,3 +920,107 @@ class TestRealWorkflowValidationNodes:
             {},
         )
         assert run2.common_run.status is WorkflowRunStatus.FAILED
+
+
+def _specialized_stack(output_payload: dict):
+    """Orchestrator stack whose implementation returns a specialized result."""
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements as _resolver,
+    )
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    definition = _validating_operation(
+        operation_id="flow.special",
+        validation_policy_id="validation.flow.special",
+        declared_ids=(),
+    )
+
+    class Impl:
+        def __init__(self) -> None:
+            self.definition = definition
+
+        def execute(self, request) -> dict:
+            return {"success": True, "output": dict(output_payload)}
+
+    registry.register(definition, Impl())
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=_RecordingAdapter(),
+    )
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        operation_validation_provider=_resolver,
+    )
+    request = DomainOperationRequest(
+        request_id="req-spec-1",
+        operation_id="flow.special",
+        operation_version="1.0.0",
+        inputs={},
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="task-1",
+        primary_domain_id="domain:flow",
+        idempotency_key="idem-spec-1",
+        capabilities=("execute", "validation"),
+    )
+    return orchestrator, request
+
+
+class TestRealSpecializedResultAcceptance:
+    def test_real_operation_outcome_rejects_invalid_specialized_result(self) -> None:
+        orchestrator, request = _specialized_stack(
+            {
+                "domain_id": "domain:other",
+                "operation_id": "flow.special",
+                "status": "ok",
+            }
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+    def test_real_operation_outcome_rejects_operation_mismatch(self) -> None:
+        orchestrator, request = _specialized_stack(
+            {
+                "domain_id": "domain:flow",
+                "operation_id": "flow.impostor",
+                "status": "ok",
+            }
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+    def test_real_operation_outcome_rejects_impossible_success(self) -> None:
+        orchestrator, request = _specialized_stack(
+            {
+                "domain_id": "domain:flow",
+                "operation_id": "flow.special",
+                "status": "success",
+                "validation_failed": True,
+            }
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+    def test_real_operation_outcome_accepts_coherent_specialized_result(self) -> None:
+        orchestrator, request = _specialized_stack(
+            {
+                "domain_id": "domain:flow",
+                "operation_id": "flow.special",
+                "status": "ok",
+            }
+        )
+        result = orchestrator.execute(request)
+        assert result.status is DomainOperationStatus.COMPLETED
+
+    def test_plain_output_without_identity_is_not_specialized(self) -> None:
+        orchestrator, request = _specialized_stack({"status": "ok"})
+        result = orchestrator.execute(request)
+        assert result.status is DomainOperationStatus.COMPLETED

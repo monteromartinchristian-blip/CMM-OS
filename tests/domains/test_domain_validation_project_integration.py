@@ -184,3 +184,136 @@ class TestImpactEscalation:
     def test_broad_change_escalates_to_full_suite(self) -> None:
         broad = build_project_domain_change_policy(impact="broad")
         assert broad.require_full_suite is True
+
+
+class TestRealProjectMutationValidation:
+    def test_real_project_modify_code_requires_current_phase7_validation(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+        from tests.domains.test_domain_validation_runtime_integration import (
+            _modify_code_stack,
+        )
+
+        # Baseline: valid tree validates and the mutation is accepted.
+        orchestrator, request, _, project_dir = _modify_code_stack(
+            tmp_path, break_tree=False, break_on_execute=False
+        )
+        assert orchestrator.execute(request).status is DomainOperationStatus.COMPLETED
+
+        # The mutation itself introduces a regression: current canonical
+        # validation fails and accepted success becomes impossible.
+        breaking_orch, breaking_request, _, _ = _modify_code_stack(
+            tmp_path, break_tree=False, break_on_execute=True
+        )
+        breaking = breaking_orch.execute(breaking_request)
+        assert breaking.status is not DomainOperationStatus.COMPLETED
+
+        # Correcting the regression restores acceptance: validation is
+        # re-executed against current state, never reused from history.
+        (project_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
+        fixed_orch, fixed_request, _, _ = _modify_code_stack(
+            tmp_path, break_tree=False, break_on_execute=False
+        )
+        assert (
+            fixed_orch.execute(fixed_request).status is DomainOperationStatus.COMPLETED
+        )
+
+    def test_historic_project_run_validation_does_not_exempt_new_mutation(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+        from cmm.domains.operation_availability import (
+            DomainOperationAvailabilityContext,
+            DomainOperationAvailabilityResolver,
+        )
+        from cmm.domains.project.operations import build_project_operation_definitions
+        from tests.domains.test_domain_validation_runtime_integration import (
+            _modify_code_stack,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        run_validation = ops["project.run_validation"]
+        # run_validation is registered and available: availability is not
+        # evidence, and it never exempts a later mutation.
+        resolver = DomainOperationAvailabilityResolver()
+        availability = resolver.resolve(
+            run_validation,
+            DomainOperationAvailabilityContext(
+                primary_domain_id=run_validation.domain_id,
+                supporting_domain_ids=(),
+                granted_permissions=(),
+                denied_permissions=(),
+                available_resources=run_validation.required_resources,
+                capabilities=("execute", "transaction", "rollback", "validation"),
+                available_validation_policy_ids=(
+                    (run_validation.validation_policy_id,)
+                    if run_validation.validation_policy_id
+                    else ()
+                ),
+                available_rollback_policy_ids=(
+                    (run_validation.rollback_policy_id,)
+                    if run_validation.rollback_policy_id
+                    else ()
+                ),
+                approval_status=None,
+                approval_fingerprint=None,
+                request_fingerprint="fp",
+                metadata={},
+            ),
+        )
+        assert availability.status is DomainOperationStatus.AVAILABLE
+
+        orchestrator, request, _, _ = _modify_code_stack(
+            tmp_path, break_tree=True, break_on_execute=False
+        )
+        blocked = orchestrator.execute(request)
+        assert blocked.status is not DomainOperationStatus.COMPLETED
+        assert blocked.metadata.get("validation_result_ids") != ()
+
+    def test_project_prepare_commit_remains_owned_by_phase7_commit_gate(
+        self, tmp_path
+    ) -> None:
+        from pathlib import Path
+
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+            require_canonical_validation_success,
+        )
+        from cmm.validation import (
+            ValidationContext,
+            build_default_validation_pipeline,
+        )
+        from cmm.validation.catalog import ast_step, syntax_step
+
+        project_dir = tmp_path / "commitproj"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "main.py").write_text("def broken(:\n", encoding="utf-8")
+
+        def _canonical_result():
+            pipeline = build_default_validation_pipeline()
+            context = ValidationContext(project_root=Path(project_dir))
+            return pipeline.run(context, (syntax_step(), ast_step()))
+
+        # Real canonical failure: no evidence to project, gate denies.
+        failing = _canonical_result()
+        assert failing.status.value == "failed"
+        with pytest.raises(DomainValidationIntegrationError):
+            require_canonical_validation_success(
+                required_validation_ids=("syntax",),
+                canonical_results=(failing,),
+            )
+        policy = build_project_domain_change_policy(impact="small")
+        assert CommitGateEvaluator.evaluate(failing, policy).allowed is False
+
+        # Corrected tree: real canonical evidence, existing gate decides.
+        (project_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
+        passing = _canonical_result()
+        assert passing.status.value == "passed"
+        refs = require_canonical_validation_success(
+            required_validation_ids=("syntax", "ast"),
+            canonical_results=(passing,),
+        )
+        assert refs == (passing.id,)
+        gate = CommitGateEvaluator.evaluate(passing, policy)
+        assert gate.validation_result_id == passing.id

@@ -411,6 +411,25 @@ class DefaultDomainOperationOrchestrator:
                 validation_result_ids=common_result.validation_result_ids,
             )
 
+        if self._operation_validation_provider is not None and isinstance(
+            common_result.output, Mapping
+        ):
+            acceptance_error = self._check_specialized_result_acceptance(
+                definition, common_result.output
+            )
+            if acceptance_error is not None:
+                return self._failure_with_rollback(
+                    request,
+                    definition.domain_id,
+                    started_at,
+                    transaction_id,
+                    checkpoint_id,
+                    definition.rollback_policy_id,
+                    acceptance_error,
+                    gate_result=gate_result,
+                    validation_result_ids=common_result.validation_result_ids,
+                )
+
         if transaction_id is not None:
             self._transaction_manager.register_operation(
                 transaction_boundary_id=transaction_id,
@@ -491,6 +510,58 @@ class DefaultDomainOperationOrchestrator:
             return None
         if isinstance(candidate, str) and candidate.strip():
             return candidate
+        return None
+
+    def _check_specialized_result_acceptance(
+        self, definition: Any, output: Mapping[str, Any]
+    ) -> Mapping[str, Any] | None:
+        """Enforce structural result validation at the acceptance boundary.
+
+        Specialized structured results (outputs carrying Domain/operation/
+        workflow identity or validation references) must cohere with the
+        executed definition before success is accepted. Plain outputs
+        without identity markers are not specialized results and pass
+        through. The validator is structural only: it never rewrites
+        content, raises confidence, or grants authority.
+        """
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+            validate_domain_specialized_result,
+        )
+
+        markers = (
+            "domain_id",
+            "domainId",
+            "primary_domain",
+            "operation_id",
+            "operationId",
+            "operation_name",
+            "workflow_id",
+            "workflowId",
+            "workflow_name",
+            "validation_result_ids",
+            "validation_ids",
+            "validation_failed",
+            "confidence",
+        )
+        if not any(key in output for key in markers):
+            return None
+        try:
+            validate_domain_specialized_result(
+                result=_thaw(output),
+                expected_domain_id=str(definition.domain_id),
+                expected_operation_id=str(definition.operation_id),
+                required_validation_ids=(),
+                canonical_validation_results=(),
+            )
+        except DomainValidationIntegrationError as exc:
+            return DomainOperationValidationError(
+                "Domain operation specialized result failed acceptance validation",
+                details={
+                    "reason_code": "result.acceptance_rejected",
+                    "error_type": type(exc).__name__,
+                },
+            ).to_dict()
         return None
 
     def _non_executed_result(
