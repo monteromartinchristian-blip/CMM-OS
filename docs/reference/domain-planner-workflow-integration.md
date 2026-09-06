@@ -134,9 +134,15 @@ validate wrapper
   operation candidates, the request's resource references, and the current
   effective composition; unavailable or incompatible requested workflows
   fail closed with `domain_workflow_unavailable` before planner invocation;
+  every required INVOKE_SUBWORKFLOW dependency must additionally resolve
+  exactly (id, version) and be final-authority eligible recursively,
+  cycle-safe, or the parent fails closed with
+  `domain_workflow_dependency_not_available` before planner invocation;
   approval-pending workflows remain representable)
 → most-restrictive AgentPlanningRequest preparation
-  (selected workflow approval gates joined after selection)
+  (canonical approval obligations of the selected workflow graph joined
+  after selection: workflow-level gates, node-level approval sources, and
+  the required-subworkflow closure's obligations)
 → pre-planning blocks (no permitted operations, unsatisfiable permissions)
 → AgentPlanningService.plan(prepared request)
 → canonical AgentWorkflowPlan (post-checks: unresolved required operation
@@ -168,6 +174,10 @@ required/supporting Domain outside the
   current effective composition             → BLOCK (domain_workflow_unavailable)
 inactive / unregistered in the canonical
   workflow registry                         → BLOCK (domain_workflow_unavailable)
+required INVOKE_SUBWORKFLOW child missing,
+  disabled, or final-authority ineligible
+  (recursively, version-exact, cycle-safe)  → BLOCK
+                                              (domain_workflow_dependency_not_available)
 approval outstanding but representable      → ALLOW + approval obligation
 all constraints satisfied                   → ALLOW
 ```
@@ -179,6 +189,55 @@ gates are projected into the canonical plan as approval obligations and
 execution-time resolution revalidates everything inside
 `DomainWorkflowExecutor`.
 
+### Required subworkflow closure
+
+Every `required` `INVOKE_SUBWORKFLOW` node reachable from a selected
+workflow is checked before planner invocation through
+`_required_subworkflow_closure_for_planning(...)`:
+
+- the exact referenced child (`subworkflow_id`, `subworkflow_version`)
+  must resolve from the canonical `InMemoryDomainWorkflowRegistry`
+  (never silently latest, never another active version);
+- the child must be canonically available under the **same final
+  planning authority** as the parent (same prepared permissions, same
+  permission-compatible operation candidates, same resource references,
+  same effective composition), evaluated through the canonical
+  `_resolve_workflow_for_planning(...)` projection;
+- required children are checked recursively (parent → child →
+  grandchild); a repeated (workflow_id, version) key in the evaluation
+  chain is a versioned subworkflow cycle and fails closed deterministically,
+  mirroring the canonical registry-wide cycle rule in
+  `cmm.workflows.registry`;
+- optional (`required=False`) subworkflow nodes follow the canonical
+  execution/permission contract, where an unavailable optional node is
+  skipped instead of blocking the workflow;
+- the closure is pure and side-effect free; the child's canonical approval
+  obligations are flattened into the parent's projected approval set so no
+  nested obligation can disappear.
+
+## Canonical workflow node planning classification
+
+Every `WorkflowNodeType` member carries an explicit Phase 10.42 planning
+classification, guarded by a dynamic enum-coverage test:
+
+| Node type | Classification |
+|---|---|
+| `EXECUTE_OPERATION` | operation eligibility (`resolve_domain_workflow` candidate check) |
+| `REQUEST_APPROVAL` | workflow approval extraction (`_workflow_approval_ids`) |
+| `INVOKE_SUBWORKFLOW` | required subworkflow eligibility (`_required_subworkflow_closure_for_planning`) |
+| `WAIT_FOR_RESOURCE` / `LOAD_RESOURCE` | deferred runtime resource semantics; no canonical node-level resource identity — workflow resource obligations live only on `DomainWorkflowDefinition.required_resources` |
+| `VALIDATE` | deferred runtime validation (`WorkflowEngine` evaluates node conditions fail-closed); planning validation obligations travel only through the canonical `required_validations` seam |
+| `ASK_QUESTION` / `PAUSE` / `ESCALATE` | deferred runtime control flow (WorkflowEngine / Phase 9 runtime); no planning-time capability or approval field |
+| `PROPOSE_MEMORY` / `UPDATE_SESSION` | deferred runtime state mutation owned by existing Phase 9/10 safeguards; no planning mutation authority |
+| `SEARCH_KNOWLEDGE` / `RESOLVE_ENTITY` / `APPLY_PROFILE` / `REASON` / `DETECT_GAPS` / `EVALUATE_OUTCOME` | deferred runtime cognitive nodes; no separate planning authority |
+| `COMPLETE` | terminal marker only; no capability authority |
+
+Approval sources are never inferred from `node_id`, `name`, or free
+metadata: the canonical extraction mirrors
+`cmm.domains.permission_adapters` node decisions exactly (`approval_gate`
+carriers and `REQUEST_APPROVAL` nodes, with the adapter's
+`node.approval_gate or node.node_id` source identity).
+
 ## Approval obligation composition
 
 Plan-wide required approvals are additive obligations composed from
@@ -189,8 +248,12 @@ prepared required_approvals
   = incoming canonical required approvals
     ∪ global/composition Domain approval requirements
       (DomainPlanningCapabilityView.required_approval_ids)
-    ∪ approval gates of selected workflows only
-      (joined after selection from the canonical definitions)
+    ∪ canonical approval obligations of selected workflows only
+      (joined after selection: workflow-level approval_gates ∪ node-level
+      approval sources — approval_gate carriers and REQUEST_APPROVAL nodes
+      with the canonical `approval_gate or node_id` identity — ∪ the
+      required-subworkflow closure's obligations; deduplicated, stable
+      order)
 ```
 
 Approval gates of available-but-unselected workflows never enter the
@@ -210,9 +273,10 @@ prepared allowed
 prepared prohibited
   = incoming prohibited ∪ Domain prohibited
 prepared approvals
-  = incoming ∪ Domain global/composition ∪ selected workflow approval gates
-    (additive obligations, never removable; gates of available-but-unselected
-    workflows are never included)
+  = incoming ∪ Domain global/composition ∪ canonical approval obligations
+    of selected workflows (workflow-level + node-level + required
+    subworkflow closure; additive obligations, never removable; gates of
+    available-but-unselected workflows are never included)
 prepared validations
   = stable union (additive obligations, never removable)
 prepared permissions
