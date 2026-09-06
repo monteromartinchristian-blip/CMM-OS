@@ -1333,12 +1333,15 @@ def test_at_dp042_selected_approval_gated_workflow_projects_canonical_requiremen
     # SELECTED_WORKFLOW_APPROVAL_GATE_PROJECTED=PASS
 
 
-def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
-    """AT-DP-042 (V7): fully eligible real workflow plans with obligation.
+def test_at_dp042_real_project_selected_workflow_without_internal_resources_blocked():
+    """AT-DP-042 (V10): selected workflow missing internal operation resources blocks.
 
-    ``project.feature_implementation`` with ``file.modify`` present in both
-    permission authorities stays selected, plans canonically, and keeps its
-    outstanding approval gate as a projected obligation.
+    Real production ``project.feature_implementation`` requires
+    ``project.create_implementation_plan`` (requiring ``project.resource.project_plan``
+    and ``project.resource.source_code``) and ``project.modify_code`` (requiring
+    ``project.resource.source_code``). When planning authority omits these
+    internal operation resources, the workflow must be rejected before planner
+    invocation.
     """
     from dataclasses import replace
 
@@ -1357,6 +1360,51 @@ def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
             "project.modify_code",
             "project.review_status",
         ],
+        resource_ids=[],
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.feature_implementation"]},
+    )
+    result = integrator.integrate(request)
+
+    assert result.blocked is True
+    assert result.selected_domain_workflow_ids == ()
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("REAL_PROJECT_FEATURE_IMPLEMENTATION_WITHOUT_INTERNAL_RESOURCES=BLOCKED")
+
+
+def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
+    """AT-DP-042 (V7/V10): fully eligible real workflow plans with obligation.
+
+    ``project.feature_implementation`` with ``file.modify`` present in both
+    permission authorities and required internal resources present stays
+    selected, plans canonically, and keeps its outstanding approval gate as
+    a projected obligation.
+    """
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
     )
     request = replace(
         base,
@@ -1374,6 +1422,7 @@ def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
         "approval.file.modify" in node.required_approvers
         for node in result.plan.approval_nodes
     )
+    print("REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_INTERNAL_RESOURCES=PASS")
     # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_MODIFY_CODE=PASS
     # WORKFLOW_APPROVAL_OBLIGATION_REPRESENTABLE=PASS
 
@@ -1639,6 +1688,7 @@ def test_at_dp042_real_node_level_workflow_approval_projection() -> None:
                     "relationships.track_open_questions",
                 ],
                 permissions=[],
+                resource_ids=["relationships.user_message"],
             ),
             metadata={"requested_workflow_ids": ["relationships.decision_support"]},
         )
