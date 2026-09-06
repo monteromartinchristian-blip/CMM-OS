@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any
+from enum import Enum
+from typing import Any, TypeVar
 
 from cmm.agent_runtime.agent_security_enums import SensitivityLevel
 from cmm.agent_runtime.domain_permission_contracts import (
+    EffectivePermissionResult,
     PermissionApprovalRequirement,
     PermissionCapability,
     PermissionOutcome,
@@ -20,6 +22,7 @@ from cmm.agent_runtime.domain_permission_contracts import (
 from cmm.domains.enums import DomainOperationType
 from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.permission_contracts import (
+    CrossDomainPermissionDecision,
     CrossDomainPermissionRequest,
     DomainPermissionRequest,
 )
@@ -351,6 +354,79 @@ def evaluate_domain_operation(
     )
 
 
+def evaluate_subworkflow_handoff(
+    node: WorkflowNode,
+    workflow: DomainWorkflowDefinition,
+    child: DomainWorkflowDefinition,
+    resolver: DomainPermissionResolver,
+    *,
+    request_id: str,
+    actor_id: str,
+    session_id: str,
+    now: datetime | None = None,
+) -> CrossDomainPermissionDecision:
+    """Reuse the canonical cross-domain invocation policy; never grant approval."""
+    cross = resolver.resolve_cross_domain(
+        CrossDomainPermissionRequest(
+            f"{request_id}:{node.node_id}:cross",
+            workflow.domain_id,
+            child.domain_id,
+            requested_workflows=(child.workflow_id,),
+            reason="subworkflow",
+            actor_id=actor_id,
+            session_id=session_id,
+            sensitivity_level=child.sensitivity,
+            capability=PermissionCapability.WORKFLOW_EXECUTE,
+        ),
+        now=now,
+    )
+    return cross
+
+
+class WorkflowNodePermissionBranch(str, Enum):
+    """Canonical capability-sensitive branches, with parity coverage in planning."""
+
+    OPERATION = "operation"
+    SUBWORKFLOW = "subworkflow"
+    APPROVAL = "approval"
+    NONE = "none"
+
+
+def workflow_node_permission_branch(node: WorkflowNode) -> WorkflowNodePermissionBranch:
+    if node.operation_id is not None:
+        return WorkflowNodePermissionBranch.OPERATION
+    if node.subworkflow_id is not None:
+        return WorkflowNodePermissionBranch.SUBWORKFLOW
+    if (
+        node.approval_gate is not None
+        or node.node_type is WorkflowNodeType.REQUEST_APPROVAL
+    ):
+        return WorkflowNodePermissionBranch.APPROVAL
+    return WorkflowNodePermissionBranch.NONE
+
+
+_ReferencedDefinition = TypeVar("_ReferencedDefinition")
+
+
+def workflow_node_reference(
+    index: Mapping[tuple[str, str | None], _ReferencedDefinition],
+    identifier: str,
+    version: str | None,
+) -> _ReferencedDefinition | None:
+    """Canonical exact lookup; only an unspecified version permits default lookup."""
+    definition = index.get((identifier, version))
+    if definition is None and version is None:
+        definition = next(
+            (
+                candidate
+                for (item_id, _), candidate in index.items()
+                if item_id == identifier
+            ),
+            None,
+        )
+    return definition
+
+
 def _node_decision(
     node: WorkflowNode,
     workflow: DomainWorkflowDefinition,
@@ -363,17 +439,11 @@ def _node_decision(
     workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition],
     now: datetime | None = None,
 ) -> DomainWorkflowNodePermissionDecision:
-    if node.operation_id is not None:
-        operation = operations.get((node.operation_id, node.operation_version))
-        if operation is None and node.operation_version is None:
-            operation = next(
-                (
-                    candidate
-                    for (operation_id, _), candidate in operations.items()
-                    if operation_id == node.operation_id
-                ),
-                None,
-            )
+    branch = workflow_node_permission_branch(node)
+    if branch is WorkflowNodePermissionBranch.OPERATION:
+        operation = workflow_node_reference(
+            operations, node.operation_id, node.operation_version
+        )
         if operation is None:
             return DomainWorkflowNodePermissionDecision(
                 node.node_id,
@@ -411,17 +481,10 @@ def _node_decision(
             requirements,
             result.effective_constraints,
         )
-    if node.subworkflow_id is not None:
-        child = workflows.get((node.subworkflow_id, node.subworkflow_version))
-        if child is None and node.subworkflow_version is None:
-            child = next(
-                (
-                    candidate
-                    for (workflow_id, _), candidate in workflows.items()
-                    if workflow_id == node.subworkflow_id
-                ),
-                None,
-            )
+    if branch is WorkflowNodePermissionBranch.SUBWORKFLOW:
+        child = workflow_node_reference(
+            workflows, node.subworkflow_id, node.subworkflow_version
+        )
         if child is None:
             return DomainWorkflowNodePermissionDecision(
                 node.node_id,
@@ -433,18 +496,14 @@ def _node_decision(
         cross_requirements: tuple[PermissionApprovalRequirement, ...] = ()
         cross_reasons: tuple[str, ...] = ()
         if child.domain_id != workflow.domain_id:
-            cross = resolver.resolve_cross_domain(
-                CrossDomainPermissionRequest(
-                    f"{request_id}:{node.node_id}:cross",
-                    workflow.domain_id,
-                    child.domain_id,
-                    requested_workflows=(child.workflow_id,),
-                    reason="subworkflow",
-                    actor_id=actor_id,
-                    session_id=session_id,
-                    sensitivity_level=child.sensitivity,
-                    capability=PermissionCapability.WORKFLOW_EXECUTE,
-                ),
+            cross = evaluate_subworkflow_handoff(
+                node,
+                workflow,
+                child,
+                resolver,
+                request_id=request_id,
+                actor_id=actor_id,
+                session_id=session_id,
                 now=now,
             )
             if cross.decision is PermissionOutcome.DENY:
@@ -490,10 +549,7 @@ def _node_decision(
             (child.workflow_id,),
             requirements,
         )
-    if (
-        node.approval_gate is not None
-        or node.node_type is WorkflowNodeType.REQUEST_APPROVAL
-    ):
+    if branch is WorkflowNodePermissionBranch.APPROVAL:
         requirement = PermissionApprovalRequirement(
             requirement_id=f"workflow:{workflow.workflow_id}:{workflow.version}:{node.node_id}:{request_id}",
             action=PermissionCapability.WORKFLOW_EXECUTE,
@@ -526,19 +582,16 @@ def _node_decision(
     )
 
 
-def evaluate_domain_workflow(
+def evaluate_domain_workflow_requirements(
     workflow: DomainWorkflowDefinition,
     resolver: DomainPermissionResolver,
     *,
     request_id: str,
     actor_id: str,
     session_id: str,
-    operations: Mapping[tuple[str, str | None], DomainOperationDefinition]
-    | None = None,
-    workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition] | None = None,
     now: datetime | None = None,
-) -> DomainWorkflowPermissionDecision:
-    """Evaluate each actual workflow node; no node is scheduled or executed."""
+) -> tuple[EffectivePermissionResult, tuple[DomainOperationRequirementDecision, ...]]:
+    """Inspect workflow-level policy requirements without traversing its graph."""
     root = resolver.resolve(
         request_for_workflow(
             request_id=request_id,
@@ -614,6 +667,30 @@ def evaluate_domain_workflow(
                 effective.effective_constraints,
             )
         )
+    return root.effective_permissions, tuple(requirements)
+
+
+def evaluate_domain_workflow(
+    workflow: DomainWorkflowDefinition,
+    resolver: DomainPermissionResolver,
+    *,
+    request_id: str,
+    actor_id: str,
+    session_id: str,
+    operations: Mapping[tuple[str, str | None], DomainOperationDefinition]
+    | None = None,
+    workflows: Mapping[tuple[str, str | None], DomainWorkflowDefinition] | None = None,
+    now: datetime | None = None,
+) -> DomainWorkflowPermissionDecision:
+    """Evaluate each actual workflow node; no node is scheduled or executed."""
+    effective, requirements = evaluate_domain_workflow_requirements(
+        workflow,
+        resolver,
+        request_id=request_id,
+        actor_id=actor_id,
+        session_id=session_id,
+        now=now,
+    )
     operation_index = operations or {}
     workflow_index = workflows or {}
     nodes = tuple(
@@ -630,10 +707,7 @@ def evaluate_domain_workflow(
         )
         for node in workflow.nodes
     )
-    if (
-        not workflow.enabled
-        or root.effective_permissions.decision is PermissionOutcome.DENY
-    ):
+    if not workflow.enabled or effective.decision is PermissionOutcome.DENY:
         reason = (
             "workflow_disabled"
             if not workflow.enabled
@@ -663,7 +737,7 @@ def evaluate_domain_workflow(
     )
     approvals = _dedupe_requirements(
         (
-            *root.effective_permissions.approval_requirements,
+            *effective.approval_requirements,
             *(
                 requirement
                 for item in requirements
@@ -691,7 +765,7 @@ def evaluate_domain_workflow(
         else PermissionOutcome.APPROVAL_REQUIRED
         if approvals
         or requirement_approval
-        or root.effective_permissions.decision is PermissionOutcome.APPROVAL_REQUIRED
+        or effective.decision is PermissionOutcome.APPROVAL_REQUIRED
         or approval_nodes
         else PermissionOutcome.ALLOW
     )
@@ -714,7 +788,7 @@ def evaluate_domain_workflow(
         approval_nodes,
         nodes,
         tuple(requirements),
-        root.effective_permissions.effective_constraints,
+        effective.effective_constraints,
     )
 
 

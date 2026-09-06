@@ -4,10 +4,12 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from cmm.domains.operation_contracts import DomainOperationDefinition
 from cmm.domains.permission_gate import (
     DomainPermissionGate,
     PermissionGateOutcome,
     PermissionGateReason,
+    PermissionResolverProtocol,
 )
 from cmm.domains.workflow_contracts import (
     DomainWorkflowContext,
@@ -57,6 +59,26 @@ class DomainWorkflowExecutor:
         self._maximum_depth = maximum_depth
         self._definitions: dict[tuple[str, str], DomainWorkflowDefinition] = {}
         self._permission_states: dict[str, dict[str, Any]] = {}
+
+    def planning_permission_context(
+        self,
+    ) -> tuple[PermissionResolverProtocol, datetime] | None:
+        """Expose the same policy authority that execution will revalidate."""
+        if self._permission_gate is None:
+            return None
+        return self._permission_gate.planning_permission_context()
+
+    def planning_operation_definitions(
+        self,
+    ) -> dict[tuple[str, str | None], DomainOperationDefinition]:
+        """Copy exact registered definitions; never expose mutable runtime state."""
+        return dict(self._operation_definitions)
+
+    def planning_workflow_definitions(
+        self,
+    ) -> dict[tuple[str, str | None], DomainWorkflowDefinition]:
+        """Copy the exact child definitions used by the execution permission gate."""
+        return dict(self._workflow_definitions)
 
     def execute(
         self,

@@ -14,6 +14,10 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionCapability,
+    PermissionOutcome,
+)
 from cmm.agent_runtime.enums import WorkflowPlanChangeReason, WorkflowPlanStatus
 from cmm.agent_runtime.workflow_planner_adapter import AgentPlanningService
 from cmm.agent_runtime.workflow_planner_contracts import (
@@ -29,6 +33,14 @@ from cmm.domains.errors import (
     DomainResolutionBlockedError,
 )
 from cmm.domains.operation_contracts import DomainOperationDefinition
+from cmm.domains.permission_adapters import (
+    WorkflowNodePermissionBranch,
+    evaluate_domain_workflow_node,
+    evaluate_domain_workflow_requirements,
+    evaluate_subworkflow_handoff,
+    workflow_node_permission_branch,
+    workflow_node_reference,
+)
 from cmm.domains.planner_workflow_integration_contracts import (
     DomainPlannerWorkflowIntegrationRequest,
     DomainPlannerWorkflowIntegrationResult,
@@ -47,6 +59,7 @@ from cmm.domains.workflow_errors import DomainWorkflowRegistryError
 from cmm.domains.workflow_execution import DomainWorkflowExecutor
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 from cmm.domains.workflow_resolution import resolve_domain_workflow
+from cmm.workflows.contracts import WorkflowNode
 from cmm.workflows.enums import WorkflowAvailabilityStatus, WorkflowNodeType
 from cmm.workflows.errors import WorkflowRegistryError
 
@@ -323,6 +336,39 @@ def _stable_union(first: Collection[str], second: Collection[str]) -> list[str]:
     return ordered
 
 
+def _operation_semantics(
+    definition: DomainOperationDefinition, approval_ids: Collection[str]
+) -> dict[str, Any]:
+    """One canonical field projection for selected operations and graph obligations."""
+    timeout_raw = definition.metadata.get("timeout_seconds")
+    if (
+        isinstance(timeout_raw, bool)
+        or not isinstance(timeout_raw, (int, float))
+        or not timeout_raw > 0
+    ):
+        timeout: float | None = None
+    else:
+        timeout = float(timeout_raw)
+    return {
+        "required_permissions": list(definition.required_permissions),
+        "required_validations": (
+            [definition.validation_policy_id] if definition.validation_policy_id else []
+        ),
+        "requires_approval": bool(definition.requires_approval),
+        "approval_ids": (list(approval_ids) if definition.requires_approval else []),
+        "reversible": bool(definition.reversible),
+        "rollback_operation": definition.rollback_policy_id,
+        "risk": definition.risk_level.value,
+        "timeout_seconds": timeout,
+        "metadata": {
+            "domain_id": definition.domain_id,
+            "operation_id": definition.operation_id,
+            "operation_version": definition.version,
+            "operation_type": definition.operation_type.value,
+        },
+    }
+
+
 def _build_operation_semantics(
     *,
     capability_view: DomainPlanningCapabilityView,
@@ -353,39 +399,10 @@ def _build_operation_semantics(
                 "DomainOperationDefinition or None",
                 field="operation_definition_provider",
             )
-        timeout_raw = definition.metadata.get("timeout_seconds")
-        if (
-            isinstance(timeout_raw, bool)
-            or not isinstance(timeout_raw, (int, float))
-            or not timeout_raw > 0
-        ):
-            timeout: float | None = None
-        else:
-            timeout = float(timeout_raw)
-        semantics[operation_id] = {
-            "required_permissions": list(definition.required_permissions),
-            "required_validations": (
-                [definition.validation_policy_id]
-                if definition.validation_policy_id
-                else []
-            ),
-            "requires_approval": bool(definition.requires_approval),
-            "approval_ids": (
-                list(capability_view.required_approval_ids)
-                if definition.requires_approval
-                else []
-            ),
-            "reversible": bool(definition.reversible),
-            "rollback_operation": definition.rollback_policy_id,
-            "risk": definition.risk_level.value,
-            "timeout_seconds": timeout,
-            "metadata": {
-                "domain_id": definition.domain_id,
-                "operation_id": definition.operation_id,
-                "operation_version": definition.version,
-                "operation_type": definition.operation_type.value,
-            },
-        }
+        semantics[operation_id] = _operation_semantics(
+            definition,
+            capability_view.required_approval_ids,
+        )
     return semantics
 
 
@@ -605,9 +622,14 @@ class _WorkflowSelection:
     workflow_ids: tuple[str, ...]
     approval_gate_ids: tuple[str, ...]
     failure_reason: str | None = None
+    validation_ids: tuple[str, ...] = ()
 
 
-def _workflow_approval_ids(definition: DomainWorkflowDefinition) -> tuple[str, ...]:
+def _workflow_approval_ids(
+    definition: DomainWorkflowDefinition,
+    *,
+    nodes: Collection[WorkflowNode] | None = None,
+) -> tuple[str, ...]:
     """Collect the canonical approval obligations of one workflow definition.
 
     Sources mirror the existing canonical execution/permission semantics
@@ -626,7 +648,7 @@ def _workflow_approval_ids(definition: DomainWorkflowDefinition) -> tuple[str, .
     workflow-level and node-level sources yield a single obligation.
     """
     ids = set(definition.approval_gates)
-    for node in definition.nodes:
+    for node in definition.nodes if nodes is None else nodes:
         if (
             node.approval_gate is not None
             or node.node_type is WorkflowNodeType.REQUEST_APPROVAL
@@ -646,76 +668,186 @@ def _required_subworkflow_closure_for_planning(
     available_operation_ids: Collection[str],
     available_permission_ids: Collection[str],
     available_resource_ids: Collection[str],
+    operation_definition_provider=None,
+    operation_index=None,
+    workflow_index=None,
+    permission_context=None,
+    request_id="planning",
+    actor_id="agent-runtime",
+    session_id="planning",
     ancestry: tuple[tuple[str, str], ...] = (),
-) -> tuple[bool, tuple[str, ...]]:
-    """Check required subworkflow dependencies under the final authority.
+) -> tuple[bool, tuple[str, ...], tuple[str, ...], str | None]:
+    """Project eligible graph obligations through canonical Domain owners.
 
-    For every ``required`` ``INVOKE_SUBWORKFLOW`` node reachable from the
-    selected workflow, the exact referenced child (``subworkflow_id``,
-    ``subworkflow_version``) must resolve from the canonical workflow
-    registry and be fully available under the same final planning authority
-    as the parent — same prepared permissions, same permission-compatible
-    operation candidates, same planning resource references, same effective
-    composition — evaluated through the canonical
-    ``_resolve_workflow_for_planning(...)`` projection (no second resolver).
-    Required children are checked recursively; optional nodes follow the
-    canonical execution/permission semantics, where an unavailable optional
-    node is skipped instead of blocking the workflow.
-
-    ``ancestry`` carries the (workflow_id, version) chain currently being
-    evaluated; a repeated key is a versioned subworkflow cycle, which fails
-    closed deterministically (mirroring the canonical registry-wide cycle
-    rule in ``cmm.workflows.registry``). The helper is pure and side-effect
-    free. Returns ``(eligible, approval_ids)`` where ``approval_ids`` is the
-    deduplicated canonical approval obligations of every eligible required
-    child in the closure, to be projected with the parent's own obligations.
+    Recursion checks registry identity, availability and cycles. Permission
+    branches stay in permission_adapters; this traversal schedules nothing.
+    An ineligible optional branch contributes neither a block nor obligations.
     """
-    approval_ids: set[str] = set()
-    for node in definition.nodes:
-        if node.node_type is not WorkflowNodeType.INVOKE_SUBWORKFLOW:
-            continue
-        if not node.required:
-            continue
-        child_id = node.subworkflow_id
-        child_version = node.subworkflow_version
-        if not child_id or not child_version:
-            # Non-canonical reference: the canonical graph validator rejects
-            # it at registration; fail closed here as well.
-            return False, ()
-        key = (child_id, child_version)
-        if key in ancestry:
-            return False, ()
-        try:
-            child = workflow_registry.get(child_id, child_version)
-        except (KeyError, WorkflowRegistryError, DomainWorkflowRegistryError):
-            return False, ()
-        resolution = _resolve_workflow_for_planning(
-            definition=child,
-            effective_domain_ids=effective_domain_ids,
-            supporting_domain_ids=supporting_domain_ids,
-            available_operation_ids=available_operation_ids,
-            available_permission_ids=available_permission_ids,
-            available_resource_ids=available_resource_ids,
+    approvals = set(definition.approval_gates)
+    validations: set[str] = set()
+    resolver, now = permission_context if permission_context else (None, None)
+    if resolver is not None:
+        effective, requirements = evaluate_domain_workflow_requirements(
+            definition,
+            resolver,
+            request_id=request_id,
+            actor_id=actor_id,
+            session_id=session_id,
+            now=now,
         )
-        if resolution.status is not WorkflowAvailabilityStatus.AVAILABLE:
-            return False, ()
-        approval_ids.update(_workflow_approval_ids(child))
-        nested_eligible, nested_approval_ids = (
-            _required_subworkflow_closure_for_planning(
+        if effective.decision is PermissionOutcome.DENY or any(
+            item.decision is PermissionOutcome.DENY for item in requirements
+        ):
+            return False, (), (), "domain_workflow_unavailable"
+        approvals.update(item.action.value for item in effective.approval_requirements)
+        approvals.update(
+            item.action.value
+            for decision in requirements
+            for item in decision.approval_requirements
+        )
+    for node in definition.nodes:
+        branch = workflow_node_permission_branch(node)
+        if branch is WorkflowNodePermissionBranch.OPERATION:
+            operation = workflow_node_reference(
+                operation_index or {}, node.operation_id, node.operation_version
+            )
+            if (
+                operation is None
+                and resolver is None
+                and operation_definition_provider is not None
+            ):
+                candidate = operation_definition_provider(node.operation_id)
+                if candidate is not None and (
+                    node.operation_version is None
+                    or candidate.version == node.operation_version
+                ):
+                    operation = candidate
+            eligible = (
+                operation is not None
+                and operation.enabled
+                and operation.domain_id in effective_domain_ids
+                and operation.operation_id == node.operation_id
+                and (
+                    node.operation_version is None
+                    or operation.version == node.operation_version
+                )
+                and node.operation_id in available_operation_ids
+                and set(operation.required_permissions) <= set(available_permission_ids)
+            )
+            decision = None
+            if eligible and resolver is not None:
+                decision = evaluate_domain_workflow_node(
+                    node,
+                    definition,
+                    resolver,
+                    request_id=request_id,
+                    actor_id=actor_id,
+                    session_id=session_id,
+                    operations={(node.operation_id, node.operation_version): operation},
+                    now=now,
+                )
+                eligible = decision.decision is not PermissionOutcome.DENY
+            if not eligible:
+                if node.required:
+                    return False, (), (), "domain_workflow_unavailable"
+                continue
+            approvals.update(_workflow_approval_ids(definition, nodes=(node,)))
+            descriptor = _operation_semantics(operation, ())
+            validations.update(descriptor["required_validations"])
+            if descriptor["requires_approval"] or not descriptor["reversible"]:
+                approvals.add(PermissionCapability.OPERATION_EXECUTE.value)
+            if decision is not None:
+                approvals.update(
+                    item.action.value for item in decision.approval_requirements
+                )
+            continue
+        if branch is WorkflowNodePermissionBranch.APPROVAL:
+            approvals.update(_workflow_approval_ids(definition, nodes=(node,)))
+            continue
+        if branch is WorkflowNodePermissionBranch.NONE:
+            continue
+        if branch is not WorkflowNodePermissionBranch.SUBWORKFLOW:
+            return False, (), (), "domain_workflow_unavailable"
+        child = None
+        canonical_child = None
+        if resolver is not None:
+            canonical_child = workflow_node_reference(
+                workflow_index or {}, node.subworkflow_id, node.subworkflow_version
+            )
+        try:
+            if node.subworkflow_version is not None:
+                child = workflow_registry.get(
+                    node.subworkflow_id, node.subworkflow_version
+                )
+            elif resolver is not None and canonical_child is not None:
+                child = workflow_registry.get(
+                    canonical_child.workflow_id, canonical_child.version
+                )
+            elif resolver is None:
+                child = workflow_registry.resolve_active(node.subworkflow_id)
+        except (KeyError, WorkflowRegistryError, DomainWorkflowRegistryError):
+            pass
+        key = (child.workflow_id, child.version) if child is not None else None
+        eligible = child is not None and key not in ancestry
+        if eligible and resolver is not None:
+            eligible = canonical_child == child
+        cross = None
+        if eligible:
+            resolution = _resolve_workflow_for_planning(
                 definition=child,
-                workflow_registry=workflow_registry,
                 effective_domain_ids=effective_domain_ids,
                 supporting_domain_ids=supporting_domain_ids,
                 available_operation_ids=available_operation_ids,
                 available_permission_ids=available_permission_ids,
                 available_resource_ids=available_resource_ids,
-                ancestry=(*ancestry, key),
             )
-        )
-        if not nested_eligible:
-            return False, ()
-        approval_ids.update(nested_approval_ids)
-    return True, tuple(sorted(approval_ids))
+            eligible = resolution.status is WorkflowAvailabilityStatus.AVAILABLE
+        if eligible and child.domain_id != definition.domain_id:
+            if resolver is None:
+                eligible = False
+            else:
+                cross = evaluate_subworkflow_handoff(
+                    node,
+                    definition,
+                    child,
+                    resolver,
+                    request_id=request_id,
+                    actor_id=actor_id,
+                    session_id=session_id,
+                    now=now,
+                )
+                eligible = cross.decision is not PermissionOutcome.DENY
+        child_approvals = child_validations = ()
+        if eligible:
+            eligible, child_approvals, child_validations, _ = (
+                _required_subworkflow_closure_for_planning(
+                    definition=child,
+                    workflow_registry=workflow_registry,
+                    effective_domain_ids=effective_domain_ids,
+                    supporting_domain_ids=supporting_domain_ids,
+                    available_operation_ids=available_operation_ids,
+                    available_permission_ids=available_permission_ids,
+                    available_resource_ids=available_resource_ids,
+                    operation_definition_provider=operation_definition_provider,
+                    operation_index=operation_index,
+                    workflow_index=workflow_index,
+                    permission_context=permission_context,
+                    request_id=f"{request_id}:{node.node_id}",
+                    actor_id=actor_id,
+                    session_id=session_id,
+                    ancestry=(*ancestry, key),
+                )
+            )
+        if not eligible:
+            if node.required:
+                return False, (), (), "domain_workflow_dependency_not_available"
+            continue
+        approvals.update(_workflow_approval_ids(definition, nodes=(node,)))
+        approvals.update(child_approvals)
+        validations.update(child_validations)
+        if cross is not None:
+            approvals.update(item.action.value for item in cross.approval_requirements)
+    return True, tuple(sorted(approvals)), tuple(sorted(validations)), None
 
 
 def _final_operation_authority(
@@ -765,6 +897,7 @@ def _prepare_planning_request(
     capability_view: DomainPlanningCapabilityView,
     selected_workflow_ids: Collection[str] = (),
     workflow_approval_ids: Collection[str] = (),
+    workflow_validation_ids: Collection[str] = (),
     operation_semantics: Mapping[str, Mapping[str, Any]] | None = None,
     operation_dependencies: Collection[Any] | None = None,
     operation_definition_provider: (
@@ -837,7 +970,10 @@ def _prepare_planning_request(
         workflow_approval_ids,
     )
     validations = _stable_union(
-        incoming.required_validations, capability_view.required_validation_ids
+        _stable_union(
+            incoming.required_validations, capability_view.required_validation_ids
+        ),
+        workflow_validation_ids,
     )
 
     metadata = dict(incoming.metadata)
@@ -1130,10 +1266,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
             for permission in request.planning_request.permissions
             if permission in domain_permissions
         ]
-        # Final most-restrictive operation authority, computed once and shared
-        # with request preparation so workflow selection validates against the
-        # same final candidate set the planner will consume.
-        _, _, operation_candidates = _final_operation_authority(
+        # Preserve the same allow/prohibit authority. Graph nodes check the
+        # permissions of their exact versions, while generic planner candidates
+        # check the provider's current default version.
+        workflow_allowed, workflow_prohibited, _ = _final_operation_authority(
             incoming=request.planning_request,
             capability_view=view,
             permissions=prepared_permissions,
@@ -1144,7 +1280,10 @@ class DefaultDomainPlannerWorkflowIntegrator:
             view=view,
             workflow_registry=self._workflow_registry,
             prepared_permissions=prepared_permissions,
-            available_operation_ids=operation_candidates,
+            available_operation_ids=_stable_operation_candidates(
+                allowed_operations=workflow_allowed,
+                prohibited_operations=workflow_prohibited,
+            ),
             available_resource_ids=request.planning_request.resource_ids,
         )
         if selection.failure_reason is not None:
@@ -1167,6 +1306,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             capability_view=view,
             selected_workflow_ids=selection.workflow_ids,
             workflow_approval_ids=selection.approval_gate_ids,
+            workflow_validation_ids=selection.validation_ids,
             operation_semantics=operation_semantics,
             operation_dependencies=operation_dependencies,
             operation_definition_provider=self._operation_definition_provider,
@@ -1323,8 +1463,8 @@ class DefaultDomainPlannerWorkflowIntegrator:
             return "identity_conflict"
         return None
 
-    @staticmethod
     def _select_workflows(
+        self,
         request: DomainPlannerWorkflowIntegrationRequest,
         view: DomainPlanningCapabilityView,
         workflow_registry: InMemoryDomainWorkflowRegistry,
@@ -1333,40 +1473,16 @@ class DefaultDomainPlannerWorkflowIntegrator:
         available_operation_ids: Collection[str] = (),
         available_resource_ids: Collection[str] = (),
     ) -> _WorkflowSelection:
-        """Select explicitly requested workflows; failure_reason means fail closed.
+        """Select explicit references under the final operation and policy authority.
 
-        Available workflows are planning capabilities, never automatically
-        selected actions: without an explicit request nothing is selected.
-
-        Every selected workflow must satisfy final planning eligibility as a
-        whole, evaluated through the canonical
-        ``_resolve_workflow_for_planning(...)`` projection (no second
-        resolver): it must resolve active from the canonical workflow
-        registry, its required permissions must hold under the final
-        prepared permissions, every EXECUTE_OPERATION node's operation must
-        be in the final permission-compatible operation candidate set, its
-        required resources must be covered by the canonical planning
-        request's resource references, and its Domain references must be
-        compatible with the current effective composition. Approval-pending
-        workflows remain representable: outstanding gates never mask
-        eligibility and are projected as obligations after selection.
-
-        Every required ``INVOKE_SUBWORKFLOW`` dependency must likewise be
-        final-authority eligible before the parent can be planned: the
-        exact referenced child version must resolve from the canonical
-        registry and satisfy the same eligibility projection recursively
-        (``_required_subworkflow_closure_for_planning``, cycle-safe). A
-        missing or ineligible required child fails the parent closed with
-        ``domain_workflow_dependency_not_available`` before planner
-        invocation.
-
-        Projected approval obligations are the canonical deduplicated union
-        of every approval source in the selected workflow graph — workflow
-        ``approval_gates`` plus node-level ``approval_gate`` /
-        ``REQUEST_APPROVAL`` obligations (``_workflow_approval_ids``) plus
-        the required-subworkflow closure's obligations — so no canonical
-        approval requirement of a selected workflow can disappear between
-        ``DomainWorkflowDefinition`` and the plan.
+        Registry availability, prepared permissions, resource references and
+        composition are checked through the canonical availability resolver.
+        The graph projection checks each exact operation definition and each
+        child against the execution gate's existing policy context when wired.
+        Its pure canonical permission helpers do not issue gate decisions or
+        consume approvals. Required invalid nodes block before planning;
+        eligible optional branches contribute obligations and denied optional
+        branches contribute neither obligations nor a parent block.
         """
         if "requested_workflow_ids" not in request.metadata:
             return _WorkflowSelection(workflow_ids=(), approval_gate_ids=())
@@ -1392,6 +1508,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
         resource_references = frozenset(available_resource_ids)
         selected: list[str] = []
         approval_gates: set[str] = set()
+        validations: set[str] = set()
         for item in requested:
             if item not in available:
                 return _WorkflowSelection(
@@ -1421,31 +1538,57 @@ class DefaultDomainPlannerWorkflowIntegrator:
                     (),
                     failure_reason="domain_workflow_unavailable",
                 )
-            dependency_eligible, dependency_approvals = (
-                _required_subworkflow_closure_for_planning(
-                    definition=definition,
-                    workflow_registry=workflow_registry,
-                    effective_domain_ids=effective_domain_ids,
-                    supporting_domain_ids=view.supporting_domain_ids,
-                    available_operation_ids=eligible_operations,
-                    available_permission_ids=granted,
-                    available_resource_ids=resource_references,
-                    ancestry=((definition.workflow_id, definition.version),),
-                )
+            (
+                dependency_eligible,
+                dependency_approvals,
+                dependency_validations,
+                graph_failure,
+            ) = _required_subworkflow_closure_for_planning(
+                definition=definition,
+                workflow_registry=workflow_registry,
+                effective_domain_ids=effective_domain_ids,
+                supporting_domain_ids=view.supporting_domain_ids,
+                available_operation_ids=eligible_operations,
+                available_permission_ids=granted,
+                available_resource_ids=resource_references,
+                operation_definition_provider=self._operation_definition_provider,
+                operation_index=(
+                    self._workflow_executor.planning_operation_definitions()
+                    if hasattr(
+                        self._workflow_executor, "planning_operation_definitions"
+                    )
+                    else {}
+                ),
+                workflow_index=(
+                    self._workflow_executor.planning_workflow_definitions()
+                    if hasattr(self._workflow_executor, "planning_workflow_definitions")
+                    else {}
+                ),
+                permission_context=(
+                    self._workflow_executor.planning_permission_context()
+                    if hasattr(self._workflow_executor, "planning_permission_context")
+                    else None
+                ),
+                request_id=request.request_id,
+                actor_id=request.planning_request.actor_id,
+                session_id=request.resolution_context.session_id
+                or request.planning_request.agent_run_id,
+                ancestry=((definition.workflow_id, definition.version),),
             )
             if not dependency_eligible:
                 return _WorkflowSelection(
                     (),
                     (),
-                    failure_reason="domain_workflow_dependency_not_available",
+                    failure_reason=graph_failure,
                 )
             if item not in selected:
                 selected.append(item)
-            approval_gates.update(_workflow_approval_ids(definition))
             approval_gates.update(dependency_approvals)
+            validations.update(dependency_validations)
         return _WorkflowSelection(
             workflow_ids=tuple(selected),
             approval_gate_ids=tuple(sorted(approval_gates)),
+            validation_ids=tuple(sorted(validations)),
         )
 
     @staticmethod

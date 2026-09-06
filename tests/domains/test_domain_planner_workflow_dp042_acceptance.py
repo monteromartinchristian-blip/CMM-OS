@@ -392,6 +392,9 @@ def _make_integrator(graph: _AcceptanceGraph) -> DefaultDomainPlannerWorkflowInt
         workflow_registry=graph.workflow_registry,
         planning_service=graph.service,
         workflow_executor=graph.executor,
+        operation_definition_provider=lambda op: (
+            graph.operation_registry.resolve_active(op, required=False)
+        ),
         operation_availability=lambda op_id, domain_id: (
             graph.operation_registry.resolve_active(op_id, required=False) is not None
         ),
@@ -1594,6 +1597,9 @@ def test_at_dp042_real_node_level_workflow_approval_projection() -> None:
         workflow_registry=graph.workflow_registry,
         planning_service=graph.service,
         workflow_executor=graph.executor,
+        operation_definition_provider=lambda op: (
+            graph.operation_registry.resolve_active(op, required=False)
+        ),
         operation_availability=lambda op_id, domain_id: (
             graph.operation_registry.resolve_active(op_id, required=False) is not None
         ),
@@ -1719,3 +1725,60 @@ def test_at_dp042_eligible_parent_child_subworkflow_chain_plans() -> None:
     assert validation.is_valid
     # AT_DP_042_ELIGIBLE_PARENT_CHILD_CHAIN_PLANS=PASS
     # AT_DP_042_SUBWORKFLOW_SHARED_ENGINE_EXECUTION_PRESERVED=PASS
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        {"version": "9.9.9"},
+        {"optional_missing": True},
+        {"approval": True, "validation": True},
+        {"child": True, "cross": True, "cross_denied": True},
+        {"child": True, "cross": True},
+        {"child": True, "optional_child": True, "child_approval": True},
+    ],
+)
+def test_at_dp042_v9_canonical_workflow_node_authority(case):
+    from cmm.agent_runtime.workflow_planner_validator import AgentWorkflowPlanValidator
+
+    from .test_domain_planner_workflow_integration import _v9_case
+
+    result, service, canonical = _v9_case(**case)
+    denied = bool(case.get("cross_denied") or case.get("version") == "9.9.9")
+    assert result.blocked == denied
+    assert service.plan_calls == int(not denied)
+    if denied:
+        assert canonical.decision.value == "deny"
+        assert result.plan is None
+        return
+    assert (
+        AgentWorkflowPlanValidator()
+        .validate(result.plan, request=result.prepared_planning_request)
+        .is_valid
+    )
+    assert all("find_symbol" not in op.operation_name for op in result.plan.operations)
+    expected_approvals = set()
+    if case.get("approval"):
+        expected_approvals.add("operation.execute")
+    if case.get("cross"):
+        expected_approvals.add("domain.cross_access")
+    if case.get("optional_child"):
+        expected_approvals.update(("child.board", "child.policy"))
+    assert expected_approvals <= set(
+        result.prepared_planning_request.required_approvals
+    )
+    for approval in expected_approvals:
+        assert any(
+            approval in node.metadata.get("approval_requirement_ids", ())
+            and node.pending
+            for node in result.plan.approval_nodes
+        )
+    if case.get("validation"):
+        assert (
+            "internal.validation"
+            in result.prepared_planning_request.required_validations
+        )
+        assert any(
+            "internal.validation" in node.metadata.get("validation_requirement_ids", ())
+            for node in result.plan.validation_nodes
+        )

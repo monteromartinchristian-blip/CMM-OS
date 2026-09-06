@@ -273,6 +273,16 @@ class DomainPermissionGate:
         self._issued_decision_ids: set[str] = set()
         self._decision_id_lock = Lock()
 
+    def planning_permission_context(
+        self,
+    ) -> tuple[PermissionResolverProtocol, datetime]:
+        """Return the existing policy evaluator and clock for read-only inspection.
+
+        This does not issue gate evidence, look up grants, or consume approval.
+        Execution must still go through the normal gate methods.
+        """
+        return self._resolver, self._clock()
+
     def _next_decision_id(self) -> str:
         with self._decision_id_lock:
             decision_id = self._id_factory()

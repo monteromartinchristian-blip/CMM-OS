@@ -37,6 +37,7 @@ def resolve_domain_workflow(
     for node in definition.nodes:
         if (
             node.node_type is WorkflowNodeType.EXECUTE_OPERATION
+            and node.required
             and node.operation_id not in context.available_operations
         ):
             unavailable_nodes.append(node.node_id)

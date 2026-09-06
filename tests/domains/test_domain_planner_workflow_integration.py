@@ -52,6 +52,7 @@ from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.workflow_contracts import DomainWorkflowDefinition
 from cmm.domains.workflow_registry import InMemoryDomainWorkflowRegistry
 from cmm.workflows.contracts import WorkflowNode
+from cmm.workflows.enums import WorkflowNodeType
 
 
 def _definition(slug, **kwargs):
@@ -707,6 +708,9 @@ def _integrator_5(
         workflow_executor=executor
         if executor is not None
         else DomainWorkflowExecutor(id_factory=lambda: "wf-id-1"),
+        operation_definition_provider=lambda op: operation_registry.resolve_active(
+            op, required=False
+        ),
         operation_availability=lambda op_id, domain_id: (
             operation_registry.resolve_active(op_id, required=False) is not None
         ),
@@ -1080,7 +1084,10 @@ def test_replan_supersedes_previous_through_canonical_service():
     )
     first = integrator.integrate(_integration_request_5())
     assert first.blocked is False
-    assert first.prepared_planning_request.required_approvals == ["review-board"]
+    assert first.prepared_planning_request.required_approvals == [
+        "operation.execute",
+        "review-board",
+    ]
     assert len(first.plan.approval_nodes) > 0
 
     # Material authority change: the domain now requires change-board approval.
@@ -1104,6 +1111,7 @@ def test_replan_supersedes_previous_through_canonical_service():
     assert store.get(first.plan.id).status == WorkflowPlanStatus.SUPERSEDED
     assert result.prepared_planning_request.required_approvals == [
         "change-board",
+        "operation.execute",
         "review-board",
     ]
     assert len(result.plan.approval_nodes) > 0
@@ -4668,6 +4676,9 @@ def test_v8_production_workflow_approval_inventory_gate():
         workflow_registry=workflow_registry,
         planning_service=service,
         workflow_executor=DomainWorkflowExecutor(id_factory=lambda: "wf-id-inv"),
+        operation_definition_provider=lambda op: operation_registry.resolve_active(
+            op, required=False
+        ),
         operation_availability=lambda operation_id, domain_id: (
             operation_registry.resolve_active(operation_id, required=False) is not None
         ),
@@ -4681,12 +4692,42 @@ def test_v8_production_workflow_approval_inventory_gate():
     )
 
     inspected = 0
+    operation_nodes = with_version = without_version = 0
+    subworkflow_nodes = cross_domain_nodes = optional_subworkflow_nodes = 0
     unrepresented: list[str] = []
     for slug, workflows in pack_workflows.items():
         domain_id = f"domain:{slug}"
         for workflow in workflows:
             inspected += 1
             expected_gates = _canonical_node_approval_sources(workflow)
+            expected_validations = set()
+            for node in workflow.nodes:
+                if node.operation_id:
+                    exact = (
+                        operation_registry.get(
+                            node.operation_id, node.operation_version
+                        )
+                        if node.operation_version is not None
+                        else operation_registry.resolve_active(node.operation_id)
+                    )
+                    assert exact.operation_id == node.operation_id
+                    if node.operation_version is not None:
+                        assert exact.version == node.operation_version
+                    if node.node_type is WorkflowNodeType.EXECUTE_OPERATION:
+                        operation_nodes += 1
+                        with_version += int(node.operation_version is not None)
+                        without_version += int(node.operation_version is None)
+                    if exact.requires_approval or not exact.reversible:
+                        expected_gates.add("operation.execute")
+                    if exact.validation_policy_id:
+                        expected_validations.add(exact.validation_policy_id)
+                if node.subworkflow_id:
+                    subworkflow_nodes += 1
+                    optional_subworkflow_nodes += int(not node.required)
+                    child = workflow_registry.get(
+                        node.subworkflow_id, node.subworkflow_version
+                    )
+                    cross_domain_nodes += int(child.domain_id != workflow.domain_id)
             node_operations = sorted(
                 {node.operation_id for node in workflow.nodes if node.operation_id}
             )
@@ -4717,6 +4758,14 @@ def test_v8_production_workflow_approval_inventory_gate():
             assert result.selected_domain_workflow_ids == (workflow.workflow_id,)
             assert result.plan is not None
             projected = set(result.prepared_planning_request.required_approvals)
+            assert expected_validations <= set(
+                result.prepared_planning_request.required_validations
+            )
+            for validation in expected_validations:
+                assert any(
+                    validation in node.metadata.get("validation_requirement_ids", ())
+                    for node in result.plan.validation_nodes
+                ), (workflow.workflow_id, validation)
             missing = expected_gates - projected
             if missing:
                 unrepresented.append(f"{workflow.workflow_id}:{sorted(missing)}")
@@ -4727,8 +4776,27 @@ def test_v8_production_workflow_approval_inventory_gate():
                     and gate in node.metadata.get("approval_requirement_ids", [])
                     for node in result.plan.approval_nodes
                 ), (workflow.workflow_id, gate)
+    # The production bootstrap catalogue also constructs workflow nodes. Its
+    # four compatibility definitions contain no executable/reference branches.
+    from cmm.domains.workflow_catalog import initial_domain_workflows
+
+    bootstrap = initial_domain_workflows()
+    assert len(bootstrap) == 4
+    assert all(
+        node.operation_id is None and node.subworkflow_id is None
+        for workflow in bootstrap
+        for node in workflow.nodes
+    )
     assert inspected == 95
     assert unrepresented == []
+    print(f"PRODUCTION_WORKFLOW_OPERATION_NODES={operation_nodes}")
+    print(f"PRODUCTION_WORKFLOW_OPERATION_NODES_WITH_VERSION={with_version}")
+    print(f"PRODUCTION_WORKFLOW_OPERATION_NODES_WITHOUT_VERSION={without_version}")
+    print("PRODUCTION_WORKFLOW_OPERATION_VERSION_REFERENCES=VERIFIED")
+    print("UNREPRESENTED_WORKFLOW_INTERNAL_OPERATION_OBLIGATIONS=0")
+    print(f"PRODUCTION_SUBWORKFLOW_NODE_COUNT={subworkflow_nodes}")
+    print(f"PRODUCTION_CROSS_DOMAIN_SUBWORKFLOW_NODE_COUNT={cross_domain_nodes}")
+    print(f"PRODUCTION_OPTIONAL_SUBWORKFLOW_NODE_COUNT={optional_subworkflow_nodes}")
     # UNREPRESENTED_SELECTED_WORKFLOW_APPROVAL_GATE=0
 
 
@@ -4999,7 +5067,8 @@ def test_v8_non_binding_node_types_add_no_planning_constraints():
     assert result.plan.status is WorkflowPlanStatus.VALID
     # No approval obligation may be inferred from ESCALATE or any other
     # non-approval node form.
-    assert result.prepared_planning_request.required_approvals == []
+    assert result.prepared_planning_request.required_approvals == ["operation.execute"]
+    # V9: the fixture includes an irreversible operation; inert nodes add nothing.
     # VALIDATE nodes do not mint planning-time validation requirements: the
     # only validation obligation is the one injected by the composition.
     assert result.prepared_planning_request.required_validations == ["python.schema"]
@@ -5032,3 +5101,613 @@ def test_v8_production_node_types_are_classified():
                 used.add(node.node_type.name)
     assert used <= set(_V8_WORKFLOW_NODE_TYPE_CLASSIFICATION)
     assert used <= {node_type.name for node_type in WorkflowNodeType}
+
+
+# V9: compare the connected planning result with canonical node permissions.
+def _v9_case(
+    *,
+    version="1.0.0",
+    optional_missing=False,
+    approval=False,
+    validation=False,
+    child=False,
+    optional_child=False,
+    cross=False,
+    cross_denied=False,
+    operation_required=True,
+    operation_denied=False,
+    operation_disabled=False,
+    second_version=False,
+    child_state="eligible",
+    child_approval=False,
+    alias_child=False,
+    capture=None,
+    session_id=None,
+    node_type=None,
+    node_gate=None,
+    execution_operations_missing=False,
+    execution_child_missing=False,
+    stale_child=False,
+):
+    from dataclasses import replace
+
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.domains.permission_adapters import evaluate_domain_workflow
+    from cmm.domains.permission_contracts import DomainPermissionPolicy
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.workflow_execution import DomainWorkflowExecutor
+
+    source = "project" if cross else "python"
+    target = "health" if cross else source
+    domains = DomainRegistry()
+    operation = _operation(
+        f"{source}.find_symbol",
+        f"domain:{source}",
+        requires_approval=approval,
+        reversible=True,
+        validation_policy_id="internal.validation" if validation else None,
+    )
+    unrelated = tuple(
+        _operation(f"{source}.aaa_inspect_{index}", f"domain:{source}", reversible=True)
+        for index in range(8)
+    )
+    operations = InMemoryDomainOperationRegistry(InMemoryAgentOperationRegistry())
+    for definition in (operation, *unrelated):
+        operations.register(
+            definition,
+            None
+            if operation_disabled and definition is operation
+            else _Implementation(definition),
+        )
+    if second_version:
+        newer = replace(
+            operation, version="2.0.0", required_permissions=("file.modify",)
+        )
+        operations.register(newer, _Implementation(newer))
+    parent_id = f"{source}.parent"
+    child_id = "alias.child" if alias_child else f"{target}.child"
+    domains.register(
+        _definition(
+            source,
+            operations=(
+                operation.operation_id,
+                *(item.operation_id for item in unrelated),
+            ),
+            workflows=(parent_id,),
+        )
+    )
+    domains.enable(f"domain:{source}")
+    if cross:
+        domains.register(_definition(target, workflows=(child_id,)))
+        domains.enable(f"domain:{target}")
+    internal = WorkflowNode(
+        "internal",
+        "execute_operation",
+        "Internal",
+        operation_id=operation.operation_id,
+        operation_version=version,
+        required=operation_required,
+        approval_gate=node_gate,
+    )
+    nodes = (
+        [internal]
+        if node_type is None or node_type == "execute_operation"
+        else [
+            WorkflowNode(
+                "internal",
+                node_type,
+                "Node",
+                wait_condition={"ready": True}
+                if node_type in {"wait_for_resource", "ask_question"}
+                else None,
+                approval_gate="node.board" if node_type == "request_approval" else None,
+            )
+        ]
+    )
+    if optional_missing:
+        nodes.append(
+            WorkflowNode(
+                "optional",
+                "execute_operation",
+                "Optional",
+                operation_id=f"{source}.missing",
+                operation_version="1.0.0",
+                required=False,
+            )
+        )
+    workflows = InMemoryDomainWorkflowRegistry()
+    child_definition = None
+    if child:
+        child_definition = _workflow(
+            child_id,
+            f"domain:{target}",
+            nodes=(
+                WorkflowNode(
+                    "approval",
+                    "request_approval",
+                    "Approve",
+                    approval_gate="child.policy",
+                ),
+                WorkflowNode("done", "complete", "Done", dependencies=("approval",)),
+            )
+            if child_approval
+            else (WorkflowNode("done", "complete", "Done"),),
+            enabled=child_state != "disabled",
+            required_resources=("child.resource",) if child_state == "resource" else (),
+            approval_gates=("child.board",) if optional_child else (),
+            sensitivity="internal",
+        )
+        if child_state != "missing":
+            workflows.register(child_definition)
+        nodes = [
+            WorkflowNode(
+                "child",
+                "invoke_subworkflow",
+                "Child",
+                subworkflow_id=child_id,
+                subworkflow_version="1.0.0",
+                required=not optional_child,
+            )
+        ]
+    parent = _workflow(parent_id, f"domain:{source}", nodes=tuple(nodes))
+    workflows.register(parent)
+    policies = DomainPermissionRegistry()
+    capabilities = (
+        PermissionCapability.OPERATION_EXECUTE,
+        PermissionCapability.WORKFLOW_EXECUTE,
+        PermissionCapability.DOMAIN_CROSS_ACCESS,
+    )
+    policies.register(
+        DomainPermissionPolicy(
+            source,
+            f"domain:{source}",
+            "1.0.0",
+            allowed_capabilities=capabilities,
+            prohibited_operations=(operation.operation_id,) if operation_denied else (),
+            prohibited_workflows=(child_id,)
+            if child_state == "permission" and not cross
+            else (),
+            allow_cross_domain_access=True,
+            allowed_target_domains=(f"domain:{target}",) if cross else (),
+        )
+    )
+    if cross:
+        policies.register(
+            DomainPermissionPolicy(
+                target,
+                f"domain:{target}",
+                "1.0.0",
+                allowed_capabilities=capabilities,
+                prohibited_workflows=(child_id,) if child_state == "permission" else (),
+                allow_inbound_cross_domain_access=not cross_denied,
+                allowed_source_domains=(f"domain:{source}",),
+            )
+        )
+
+    class RecordingResolver(DomainPermissionResolver):
+        def resolve_cross_domain(self, request, **kwargs):
+            if capture is not None:
+                capture.setdefault("cross_requests", []).append(request)
+            return super().resolve_cross_domain(request, **kwargs)
+
+    permission_resolver = RecordingResolver(policies)
+    operation_index = {
+        (item.operation_id, item.version): item
+        for item in operations.list_definitions()
+    }
+    workflow_index = (
+        {(child_id, "1.0.0"): child_definition}
+        if child_definition and child_state != "missing"
+        else {}
+    )
+    if execution_operations_missing:
+        operation_index = {}
+    if execution_child_missing:
+        workflow_index = {}
+    if stale_child:
+        workflow_index[(child_id, "1.0.0")] = replace(
+            child_definition, required_permissions=("file.modify",)
+        )
+    canonical = evaluate_domain_workflow(
+        parent,
+        permission_resolver,
+        request_id="v9",
+        actor_id="actor-042",
+        session_id=session_id or "run-042-5",
+        operations=operation_index,
+        workflows=workflow_index,
+    )
+    _, _, service = _planning_stack(_CountingPlanningService)
+
+    from cmm.domains.composer import DefaultDomainComposer
+    from cmm.domains.resolution_contracts import DomainResolutionResource
+    from cmm.domains.resolver import DefaultDomainResolver
+    from cmm.domains.resolver_contracts import DomainScoringPolicy
+
+    gate = DomainPermissionGate(permission_resolver)
+    executor = DomainWorkflowExecutor(
+        id_factory=lambda: "v9-run",
+        permission_gate=gate,
+        operation_definitions=operation_index,
+        workflow_definitions=workflow_index,
+    )
+    integrator = DefaultDomainPlannerWorkflowIntegrator(
+        resolver=DefaultDomainResolver(
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=1, supporting_margin=100.0
+            )
+        ),
+        composer=DefaultDomainComposer(),
+        domain_registry=domains,
+        workflow_registry=workflows,
+        planning_service=service,
+        workflow_executor=executor,
+        operation_availability=lambda op, domain: (
+            operations.resolve_active(op, required=False) is not None
+        ),
+        permission_ids_provider=lambda composition: (),
+        prohibited_operation_ids_provider=lambda composition: (),
+        approval_ids_provider=lambda composition: (),
+        validation_ids_provider=lambda composition: (),
+        authority_reference_ids_provider=lambda composition: (),
+        operation_definition_provider=lambda op: operations.resolve_active(
+            op, required=False
+        ),
+    )
+    context_domains = (source, target) if cross else (source,)
+    context = _resolution_context_5(
+        session_id=session_id,
+        available_domains=tuple(DomainId(slug=slug) for slug in context_domains),
+        authorized_domains=tuple(DomainId(slug=slug) for slug in context_domains),
+        explicit_domains=(DomainId(slug=source),),
+        resources=tuple(
+            DomainResolutionResource(
+                id=f"v9:{slug}",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId(slug=slug),),
+            )
+            for slug in context_domains
+        ),
+    )
+    request = _integration_request_5(
+        resolution_context=context, metadata={"requested_workflow_ids": [parent_id]}
+    )
+    request = replace(
+        request,
+        planning_request=replace(
+            request.planning_request,
+            permissions=[],
+            allowed_operations=[
+                *(item.operation_id for item in unrelated),
+                operation.operation_id,
+            ],
+        ),
+    )
+    before = request.planning_request.to_dict()
+    result = integrator.integrate(request)
+    assert request.planning_request.to_dict() == before
+    assert gate._issued_decision_ids == set()
+    assert executor._permission_states == {}
+    assert executor._definitions == {}
+    if result.plan is not None:
+        assert all(
+            "find_symbol" not in op.operation_name for op in result.plan.operations
+        )
+        assert all(node.pending for node in result.plan.approval_nodes)
+    if capture is not None:
+        capture.update(
+            integrator=integrator,
+            parent=parent,
+            child=child_definition,
+            resolver=permission_resolver,
+            executor=executor,
+            request=request,
+            operation_index=operation_index,
+        )
+    return result, service, canonical
+
+
+def test_v9_red_exact_workflow_operation_version():
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(version="9.9.9")
+    assert canonical.decision is PermissionOutcome.DENY
+    assert "operation_not_registered" in canonical.node_decisions[0].reasons
+    assert result.blocked, (result.blocked, service.plan_calls, result.plan.status)
+    assert service.plan_calls == 0
+
+
+def test_v9_red_optional_unavailable_operation():
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(optional_missing=True)
+    assert canonical.decision is PermissionOutcome.ALLOW
+    assert not result.blocked, result.reason_codes
+    assert service.plan_calls == 1
+
+
+def test_v9_red_internal_operation_approval():
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, _, canonical = _v9_case(approval=True)
+    assert canonical.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert not result.blocked
+    assert result.prepared_planning_request.required_approvals
+    assert result.plan.approval_nodes
+
+
+def test_v9_red_internal_operation_validation():
+    result, _, _ = _v9_case(validation=True)
+    assert not result.blocked
+    assert (
+        "internal.validation" in result.prepared_planning_request.required_validations
+    )
+
+
+def test_v9_red_optional_eligible_child_approval():
+    result, _, _ = _v9_case(child=True, optional_child=True)
+    assert not result.blocked
+    assert "child.board" in result.prepared_planning_request.required_approvals
+
+
+def test_v9_red_required_cross_domain_deny():
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(child=True, cross=True, cross_denied=True)
+    assert canonical.decision is PermissionOutcome.DENY
+    assert result.blocked, (result.blocked, service.plan_calls, result.plan.status)
+    assert service.plan_calls == 0
+
+
+def test_v9_red_required_cross_domain_approval():
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, _, canonical = _v9_case(child=True, cross=True)
+    assert canonical.decision is PermissionOutcome.APPROVAL_REQUIRED
+    assert not result.blocked
+    assert "domain.cross_access" in result.prepared_planning_request.required_approvals
+
+
+@pytest.mark.parametrize("required", [True, False])
+@pytest.mark.parametrize(
+    "mode", ["allow", "deny", "missing", "disabled", "approval", "validation", "older"]
+)
+def test_v9_operation_permission_branch_matrix(required, mode):
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(
+        operation_required=required,
+        operation_denied=mode == "deny",
+        operation_disabled=mode == "disabled",
+        version="9.9.9" if mode == "missing" else "1.0.0",
+        approval=mode == "approval",
+        validation=mode == "validation",
+        second_version=mode == "older",
+    )
+    denied = mode in {"deny", "missing", "disabled"}
+    assert (canonical.node_decisions[0].decision is PermissionOutcome.DENY) == denied
+    assert result.blocked == (required and denied)
+    assert service.plan_calls == int(not result.blocked)
+    if not result.blocked:
+        assert (
+            "operation.execute" in result.prepared_planning_request.required_approvals
+        ) == (mode == "approval")
+        assert (
+            "internal.validation"
+            in result.prepared_planning_request.required_validations
+        ) == (mode == "validation")
+        assert result.plan.validation.is_valid
+
+
+@pytest.mark.parametrize("required", [True, False])
+@pytest.mark.parametrize(
+    "state", ["eligible", "missing", "permission", "disabled", "resource"]
+)
+def test_v9_subworkflow_permission_branch_matrix(required, state):
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(
+        child=True, optional_child=not required, child_state=state, child_approval=True
+    )
+    assert result.blocked == (required and state != "eligible")
+    assert service.plan_calls == int(not result.blocked)
+    if state == "eligible":
+        assert canonical.decision is PermissionOutcome.APPROVAL_REQUIRED
+    if not result.blocked:
+        assert (
+            "child.policy" in result.prepared_planning_request.required_approvals
+        ) == (state == "eligible")
+        if state != "eligible":
+            assert result.prepared_planning_request.required_approvals == []
+
+
+@pytest.mark.parametrize("required", [True, False])
+@pytest.mark.parametrize("denied", [True, False])
+def test_v9_cross_domain_required_optional_authority(required, denied):
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    capture = {}
+    result, service, canonical = _v9_case(
+        child=True,
+        optional_child=not required,
+        cross=True,
+        cross_denied=denied,
+        alias_child=True,
+        capture=capture,
+    )
+    assert canonical.node_decisions[0].decision is (
+        PermissionOutcome.DENY if denied else PermissionOutcome.APPROVAL_REQUIRED
+    )
+    assert result.blocked == (required and denied)
+    assert service.plan_calls == int(not result.blocked)
+    if not result.blocked:
+        assert (
+            "domain.cross_access" in result.prepared_planning_request.required_approvals
+        ) == (not denied)
+    requests = capture["cross_requests"]
+    assert len(requests) >= 2  # canonical evaluator and connected planning path
+    for request in requests:
+        assert request.source_domain == "domain:project"
+        assert request.target_domain == "domain:health"
+        assert request.requested_workflows == ("alias.child",)
+        assert request.capability.value == "workflow.execute"
+        assert request.sensitivity_level.value == "internal"
+        assert (
+            request.requires_approval
+        )  # canonical invocation never manufactures ALLOW
+
+
+def test_v9_optional_denied_operation_drops_static_obligations():
+    result, _, _ = _v9_case(
+        operation_required=False, operation_denied=True, approval=True, validation=True
+    )
+    assert not result.blocked
+    assert result.prepared_planning_request.required_approvals == []
+    assert result.prepared_planning_request.required_validations == []
+
+
+def test_v9_validation_is_traceable_in_canonical_plan():
+    result, _, _ = _v9_case(validation=True)
+    assert any(
+        "internal.validation" in node.metadata.get("validation_requirement_ids", ())
+        for node in result.plan.validation_nodes
+    )
+
+
+@pytest.mark.parametrize("required", [True, False])
+@pytest.mark.parametrize("missing", ["operation", "child", "stale_child"])
+def test_v9_execution_authority_snapshot_is_not_filled_from_planning_registry(
+    required, missing
+):
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+
+    result, service, canonical = _v9_case(
+        child=missing != "operation",
+        optional_child=not required,
+        operation_required=required,
+        execution_operations_missing=missing == "operation",
+        execution_child_missing=missing == "child",
+        stale_child=missing == "stale_child",
+    )
+    assert canonical.decision is (
+        PermissionOutcome.DENY if required else PermissionOutcome.ALLOW
+    )
+    assert result.blocked == required
+    assert service.plan_calls == int(not required)
+    if not result.blocked:
+        assert result.prepared_planning_request.required_approvals == []
+
+
+def test_v9_denied_optional_operation_gate_does_not_leak():
+    result, _, _ = _v9_case(
+        operation_required=False, operation_denied=True, node_gate="optional.board"
+    )
+    assert not result.blocked
+    assert result.prepared_planning_request.required_approvals == []
+
+
+@pytest.mark.parametrize("node_type", list(WorkflowNodeType))
+def test_v9_planning_permission_branch_parity(node_type):
+    from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+    from cmm.domains.permission_adapters import (
+        WorkflowNodePermissionBranch,
+        workflow_node_permission_branch,
+    )
+    from cmm.workflows.enums import WorkflowNodeType
+
+    covered = {
+        WorkflowNodePermissionBranch.OPERATION,
+        WorkflowNodePermissionBranch.SUBWORKFLOW,
+        WorkflowNodePermissionBranch.APPROVAL,
+        WorkflowNodePermissionBranch.NONE,
+    }
+    assert set(WorkflowNodePermissionBranch) == covered
+    capture = {}
+    result, service, canonical = _v9_case(
+        node_type=node_type.value,
+        child=node_type is WorkflowNodeType.INVOKE_SUBWORKFLOW,
+        capture=capture,
+    )
+    node = capture["parent"].nodes[0]
+    branch = workflow_node_permission_branch(node)
+    assert branch in covered
+    expected = (
+        PermissionOutcome.APPROVAL_REQUIRED
+        if branch is WorkflowNodePermissionBranch.APPROVAL
+        else PermissionOutcome.ALLOW
+    )
+    assert canonical.node_decisions[0].decision is expected
+    assert not result.blocked
+    assert service.plan_calls == 1
+    assert bool(result.prepared_planning_request.required_approvals) == (
+        expected is PermissionOutcome.APPROVAL_REQUIRED
+    )
+
+
+def test_v9_shared_executor_skips_optional_denied_operation():
+    from cmm.domains.workflow_contracts import DomainWorkflowContext
+    from cmm.workflows.engine import NodeExecution
+    from cmm.workflows.enums import WorkflowNodeStatus, WorkflowRunStatus
+
+    capture = {}
+    result, _, _ = _v9_case(optional_missing=True, capture=capture)
+    assert not result.blocked
+    executor = capture["executor"]
+    invoked = []
+
+    def adapter(node, run):
+        invoked.append(node.node_id)
+        return NodeExecution.complete({"ok": True})
+
+    executor._operation_adapter = adapter
+    execution = executor.execute_result(
+        capture["parent"],
+        DomainWorkflowContext(
+            primary_domain_id="domain:python",
+            available_operations=frozenset({"python.find_symbol"}),
+            metadata={"actor_id": "actor-042", "session_id": "run-042-5"},
+        ),
+        {},
+    )
+    assert execution.status is WorkflowRunStatus.COMPLETED
+    assert (
+        execution.common_result.node_results["optional"].status
+        is WorkflowNodeStatus.SKIPPED
+    )
+    assert invoked == ["internal"]
+
+
+def test_v9_cross_domain_preserves_explicit_session_identity():
+    capture = {}
+    result, _, _ = _v9_case(
+        child=True, cross=True, session_id="session:v9:explicit", capture=capture
+    )
+    assert not result.blocked
+    assert all(
+        request.session_id == "session:v9:explicit"
+        for request in capture["cross_requests"]
+    )
+    assert all(request.actor_id == "actor-042" for request in capture["cross_requests"])
+    assert tuple(str(domain) for domain in result.composition.supporting_domains) == (
+        "domain:health",
+    )
+
+
+def test_v9_cross_domain_policy_is_rechecked_on_each_planning_attempt():
+    from dataclasses import replace
+
+    capture = {}
+    first, service, _ = _v9_case(child=True, cross=True, capture=capture)
+    assert not first.blocked
+    registry = capture["resolver"]._registry
+    old = registry.active_for_domain("domain:health")
+    registry.register(
+        replace(old, version="2.0.0", allow_inbound_cross_domain_access=False)
+    )
+    second = capture["integrator"].integrate(capture["request"])
+    assert second.blocked
+    assert second.plan is None
+    assert service.plan_calls == 1
