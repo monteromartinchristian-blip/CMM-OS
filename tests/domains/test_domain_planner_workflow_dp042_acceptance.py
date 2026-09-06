@@ -409,6 +409,14 @@ def _make_integrator(graph: _AcceptanceGraph) -> DefaultDomainPlannerWorkflowInt
         ),
         validation_ids_provider=lambda composition: ("python.schema",),
         authority_reference_ids_provider=lambda composition: ("authority:v1",),
+        capabilities_provider=lambda composition: (
+            "validation",
+            "rollback",
+            "transaction",
+            "external",
+        ),
+        available_validation_policy_ids_provider=lambda composition: ("python.schema",),
+        available_rollback_policy_ids_provider=lambda composition: (),
     )
 
 
@@ -1405,6 +1413,19 @@ def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
             "project.resource.project_plan",
             "project.resource.source_code",
         ],
+        metadata={
+            "capabilities": ["transaction", "rollback", "validation"],
+            "available_validation_policy_ids": [
+                "validation.project.create_implementation_plan",
+                "validation.project.modify_code",
+                "validation.project.review_status",
+            ],
+            "available_rollback_policy_ids": [
+                "rollback.project.create_implementation_plan",
+                "rollback.project.modify_code",
+                "rollback.project.review_status",
+            ],
+        },
     )
     request = replace(
         base,
@@ -1423,8 +1444,59 @@ def test_at_dp042_real_project_selected_workflow_full_eligibility_plans():
         for node in result.plan.approval_nodes
     )
     print("REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_INTERNAL_RESOURCES=PASS")
-    # REAL_PROJECT_FEATURE_IMPLEMENTATION_WITH_MODIFY_CODE=PASS
-    # WORKFLOW_APPROVAL_OBLIGATION_REPRESENTABLE=PASS
+    print("REAL_PROJECT_INTERNAL_OPERATION_AVAILABILITY_AUTHORITY_EXPLICIT=PASS")
+    print("REAL_PROJECT_FEATURE_IMPLEMENTATION_FULL_CANONICAL_AVAILABILITY=PASS")
+
+
+def test_at_dp042_real_project_selected_workflow_missing_availability_prerequisite_blocked():
+    """AT-DP-042 (V11 RED K): missing any operation availability prerequisite blocks planning."""
+    from dataclasses import replace
+
+    graph = _build_project_graph()
+    graph.authority["permissions"].update(
+        {"domain-permission:project:1.0.0", "file.modify"}
+    )
+    integrator = _make_project_integrator(graph)
+
+    base = _project_integration_request()
+    # Missing 'transaction' capability
+    planning_request = replace(
+        base.planning_request,
+        permissions=["domain-permission:project:1.0.0", "file.modify"],
+        allowed_operations=[
+            "project.create_implementation_plan",
+            "project.modify_code",
+            "project.review_status",
+        ],
+        resource_ids=[
+            "project.resource.project_plan",
+            "project.resource.source_code",
+        ],
+        metadata={
+            "capabilities": ["rollback", "validation"],
+            "available_validation_policy_ids": [
+                "validation.project.create_implementation_plan",
+                "validation.project.modify_code",
+                "validation.project.review_status",
+            ],
+            "available_rollback_policy_ids": [
+                "rollback.project.create_implementation_plan",
+                "rollback.project.modify_code",
+                "rollback.project.review_status",
+            ],
+        },
+    )
+    request = replace(
+        base,
+        planning_request=planning_request,
+        metadata={"requested_workflow_ids": ["project.feature_implementation"]},
+    )
+    result = integrator.integrate(request)
+    assert result.blocked is True
+    assert result.selected_domain_workflow_ids == ()
+    assert result.plan is None
+    assert "domain_workflow_unavailable" in result.reason_codes
+    print("REAL_PROJECT_AVAILABILITY_AUTHORITY_DOWNGRADE_BLOCKS=PASS")
 
 
 # ── AT-DP-042 V8 — workflow graph planning obligations (adversarial) ───────
