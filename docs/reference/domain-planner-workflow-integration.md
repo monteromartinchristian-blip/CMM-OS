@@ -444,6 +444,40 @@ Core invariants:
   `DomainOperationDefinition` declare constraints that execution/planning must
   satisfy; they do not grant capability or policy availability.
 
+## Multi-Source Availability Authority Composition (V12)
+
+Phase 10.42 V12 fixes `V11_MAJOR_16` without adding authority sources,
+stores, resolvers, or state. Every `DomainOperationAvailabilityContext`
+field has an explicit conflict rule in
+`OPERATION_AVAILABILITY_AUTHORITY_CONFLICT_MATRIX` (all 12 fields covered;
+`UNCLASSIFIED_MULTI_SOURCE_AUTHORITY_FIELDS=0`).
+
+Composition is centralized in pure Domain-side helpers
+(`_most_restrictive_optional_sets`, `_union_denies`,
+`_resolve_approval_authority`) and applied fresh on every planning attempt
+(no cached composition):
+
+```text
+capabilities / available_validation_policy_ids / available_rollback_policy_ids
+  = INTERSECTION of all applicable explicit sets
+    (planning_request.metadata / integration_request.metadata / provider)
+denied_permissions
+  = UNION of all applicable explicit deny sets
+approval_status
+  = hard deny wins > pending-like wins > approved;
+    pending is never upgraded to approved
+approval_fingerprint / request_fingerprint
+  = all applicable values must agree; any disagreement forces
+    REJECTED with a mismatched pair (fails closed)
+```
+
+Absent sources are ignored and never treated as explicit empty
+(single-source positive preserved); explicit-empty applicable sources remain
+restrictive (intersection zeroes, denies erase nothing, explicit `None`
+approval is never upgraded). Adding a stricter applicable source can only
+narrow authority. Planning remains side-effect-free; execution remains
+canonical.
+
 ## Scope boundaries
 
 Phase 10.42 does not implement Phase 10.43 (Validation System integration)
@@ -453,3 +487,8 @@ nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
 
 V11 implementation evidence: Phase closure still requires Independent Re-Audit V11.
+
+V12 implementation evidence: most-restrictive multi-source composition
+(`V11_MAJOR_16` remediation) with fresh per-attempt recomputation and
+connected Project agreement/restriction acceptance; Phase closure still
+requires Independent Re-Audit V12.
