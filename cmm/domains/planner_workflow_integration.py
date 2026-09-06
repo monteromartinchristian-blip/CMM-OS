@@ -69,6 +69,105 @@ from cmm.workflows.enums import WorkflowAvailabilityStatus, WorkflowNodeType
 from cmm.workflows.errors import WorkflowRegistryError
 
 
+@dataclass(frozen=True, slots=True)
+class OperationAvailabilityContextSourceClassification:
+    field: str
+    semantic_role: str
+    canonical_planning_source: str
+    default_when_absent: Any
+    may_positive_authority_be_synthesized: bool = False
+
+
+OPERATION_AVAILABILITY_CONTEXT_SOURCE_MATRIX: tuple[
+    OperationAvailabilityContextSourceClassification, ...
+] = (
+    OperationAvailabilityContextSourceClassification(
+        field="primary_domain_id",
+        semantic_role="Primary domain identity governing operation resolution",
+        canonical_planning_source="resolution.primary_domain / composition.primary_domain",
+        default_when_absent=None,
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="supporting_domain_ids",
+        semantic_role="Supporting domain identities composed for the plan",
+        canonical_planning_source="composition.supporting_domains",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="granted_permissions",
+        semantic_role="Effective permissions granted for planning",
+        canonical_planning_source="planning_request.permissions / permission_ids_provider",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="denied_permissions",
+        semantic_role="Explicitly denied permissions for planning",
+        canonical_planning_source="planning_request.metadata['denied_permissions'] / integration_request.metadata['denied_permissions']",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="available_resources",
+        semantic_role="Available resources present for operation prerequisites",
+        canonical_planning_source="planning_request.resource_ids / resolution.resources",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="capabilities",
+        semantic_role="Runtime service capabilities available for operations",
+        canonical_planning_source="planning_request.metadata['capabilities'] / integration_request.metadata['capabilities'] / capabilities_provider",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="available_validation_policy_ids",
+        semantic_role="Set of validation policies currently available/registered",
+        canonical_planning_source="planning_request.metadata['available_validation_policy_ids'] / integration_request.metadata['available_validation_policy_ids'] / available_validation_policy_ids_provider",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="available_rollback_policy_ids",
+        semantic_role="Set of rollback policies currently available/registered",
+        canonical_planning_source="planning_request.metadata['available_rollback_policy_ids'] / integration_request.metadata['available_rollback_policy_ids'] / available_rollback_policy_ids_provider",
+        default_when_absent=(),
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="approval_status",
+        semantic_role="Current status of approval request (APPROVED/PENDING/etc)",
+        canonical_planning_source="planning_request.metadata['approval_status'] / integration_request.metadata['approval_status']",
+        default_when_absent=None,
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="approval_fingerprint",
+        semantic_role="Fingerprint of approval request to verify request match",
+        canonical_planning_source="planning_request.metadata['approval_fingerprint'] / integration_request.metadata['approval_fingerprint']",
+        default_when_absent=None,
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="request_fingerprint",
+        semantic_role="Fingerprint of current planning request",
+        canonical_planning_source="planning_request.metadata['request_fingerprint'] / integration_request.metadata['request_fingerprint']",
+        default_when_absent="",
+        may_positive_authority_be_synthesized=False,
+    ),
+    OperationAvailabilityContextSourceClassification(
+        field="metadata",
+        semantic_role="Additional planning request metadata",
+        canonical_planning_source="planning_request.metadata / integration_request.metadata",
+        default_when_absent={},
+        may_positive_authority_be_synthesized=False,
+    ),
+)
+
+
 def _require_dependency(dependency: object, name: str, method: str) -> None:
     if dependency is None or not callable(getattr(dependency, method, None)):
         raise DomainContractValidationError(
@@ -685,6 +784,13 @@ def _required_subworkflow_closure_for_planning(
     actor_id="agent-runtime",
     session_id="planning",
     ancestry: tuple[tuple[str, str], ...] = (),
+    capabilities: Collection[str] = (),
+    available_validation_policy_ids: Collection[str] = (),
+    available_rollback_policy_ids: Collection[str] = (),
+    denied_permissions: Collection[str] = (),
+    approval_status: Any = None,
+    approval_fingerprint: str | None = None,
+    request_fingerprint: str = "",
 ) -> tuple[bool, tuple[str, ...], tuple[str, ...], str | None]:
     """Project eligible graph obligations through canonical Domain owners.
 
@@ -767,32 +873,33 @@ def _required_subworkflow_closure_for_planning(
             meta = dict(planning_request_metadata or {})
             if "capabilities" in meta:
                 op_capabilities = tuple(meta["capabilities"])
+            elif capabilities:
+                op_capabilities = tuple(capabilities)
             else:
-                op_capabilities = ("validation", "rollback", "transaction")
+                op_capabilities = ()
 
             if "available_validation_policy_ids" in meta:
                 op_validations = tuple(meta["available_validation_policy_ids"])
+            elif available_validation_policy_ids:
+                op_validations = tuple(available_validation_policy_ids)
             else:
-                op_validations = (
-                    (operation.validation_policy_id,)
-                    if operation.validation_policy_id
-                    and "validation" in op_capabilities
-                    else ()
-                )
+                op_validations = ()
 
             if "available_rollback_policy_ids" in meta:
                 op_rollbacks = tuple(meta["available_rollback_policy_ids"])
+            elif available_rollback_policy_ids:
+                op_rollbacks = tuple(available_rollback_policy_ids)
             else:
-                op_rollbacks = (
-                    (operation.rollback_policy_id,)
-                    if operation.rollback_policy_id and "rollback" in op_capabilities
-                    else ()
-                )
+                op_rollbacks = ()
 
-            op_denied = tuple(meta.get("denied_permissions", ()))
-            op_approval_status = meta.get("approval_status")
-            op_approval_fp = meta.get("approval_fingerprint")
-            op_request_fp = meta.get("request_fingerprint", "")
+            op_denied = (
+                tuple(meta["denied_permissions"])
+                if "denied_permissions" in meta
+                else tuple(denied_permissions)
+            )
+            op_approval_status = meta.get("approval_status", approval_status)
+            op_approval_fp = meta.get("approval_fingerprint", approval_fingerprint)
+            op_request_fp = meta.get("request_fingerprint", request_fingerprint)
 
             avail_ctx = DomainOperationAvailabilityContext(
                 primary_domain_id=primary_dom,
@@ -930,6 +1037,13 @@ def _required_subworkflow_closure_for_planning(
                     actor_id=actor_id,
                     session_id=session_id,
                     ancestry=(*ancestry, key),
+                    capabilities=capabilities,
+                    available_validation_policy_ids=available_validation_policy_ids,
+                    available_rollback_policy_ids=available_rollback_policy_ids,
+                    denied_permissions=denied_permissions,
+                    approval_status=approval_status,
+                    approval_fingerprint=approval_fingerprint,
+                    request_fingerprint=request_fingerprint,
                 )
             )
         if not eligible:
@@ -1151,6 +1265,15 @@ class DefaultDomainPlannerWorkflowIntegrator:
         exact_operation_definition_provider: (
             Callable[[str, str | None], DomainOperationDefinition | None] | None
         ) = None,
+        capabilities_provider: (
+            Callable[[DomainComposition], Collection[str]] | None
+        ) = None,
+        available_validation_policy_ids_provider: (
+            Callable[[DomainComposition], Collection[str]] | None
+        ) = None,
+        available_rollback_policy_ids_provider: (
+            Callable[[DomainComposition], Collection[str]] | None
+        ) = None,
     ) -> None:
         _require_dependency(resolver, "resolver", "resolve")
         _require_dependency(composer, "composer", "compose")
@@ -1193,6 +1316,15 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 "exact_operation_definition_provider",
                 exact_operation_definition_provider,
             ),
+            ("capabilities_provider", capabilities_provider),
+            (
+                "available_validation_policy_ids_provider",
+                available_validation_policy_ids_provider,
+            ),
+            (
+                "available_rollback_policy_ids_provider",
+                available_rollback_policy_ids_provider,
+            ),
         ):
             if provider is not None and not callable(provider):
                 raise DomainContractValidationError(
@@ -1218,6 +1350,13 @@ class DefaultDomainPlannerWorkflowIntegrator:
             else DomainOperationAvailabilityResolver()
         )
         self._exact_operation_definition_provider = exact_operation_definition_provider
+        self._capabilities_provider = capabilities_provider
+        self._available_validation_policy_ids_provider = (
+            available_validation_policy_ids_provider
+        )
+        self._available_rollback_policy_ids_provider = (
+            available_rollback_policy_ids_provider
+        )
 
     def integrate(
         self,
@@ -1391,6 +1530,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
             request=request,
             view=view,
             workflow_registry=self._workflow_registry,
+            composition=composition,
             prepared_permissions=prepared_permissions,
             available_operation_ids=_stable_operation_candidates(
                 allowed_operations=workflow_allowed,
@@ -1581,6 +1721,7 @@ class DefaultDomainPlannerWorkflowIntegrator:
         view: DomainPlanningCapabilityView,
         workflow_registry: InMemoryDomainWorkflowRegistry,
         *,
+        composition: DomainComposition | None = None,
         prepared_permissions: Collection[str] = (),
         available_operation_ids: Collection[str] = (),
         available_resource_ids: Collection[str] = (),
@@ -1618,6 +1759,64 @@ class DefaultDomainPlannerWorkflowIntegrator:
         granted = frozenset(prepared_permissions)
         eligible_operations = frozenset(available_operation_ids)
         resource_references = frozenset(available_resource_ids)
+
+        req_meta = dict(request.metadata or {})
+        plan_meta = dict(request.planning_request.metadata or {})
+
+        if "capabilities" in plan_meta:
+            auth_capabilities = tuple(plan_meta["capabilities"])
+        elif "capabilities" in req_meta:
+            auth_capabilities = tuple(req_meta["capabilities"])
+        elif self._capabilities_provider is not None and composition is not None:
+            auth_capabilities = tuple(self._capabilities_provider(composition))
+        else:
+            auth_capabilities = ()
+
+        if "available_validation_policy_ids" in plan_meta:
+            auth_validations = tuple(plan_meta["available_validation_policy_ids"])
+        elif "available_validation_policy_ids" in req_meta:
+            auth_validations = tuple(req_meta["available_validation_policy_ids"])
+        elif (
+            self._available_validation_policy_ids_provider is not None
+            and composition is not None
+        ):
+            auth_validations = tuple(
+                self._available_validation_policy_ids_provider(composition)
+            )
+        else:
+            auth_validations = ()
+
+        if "available_rollback_policy_ids" in plan_meta:
+            auth_rollbacks = tuple(plan_meta["available_rollback_policy_ids"])
+        elif "available_rollback_policy_ids" in req_meta:
+            auth_rollbacks = tuple(req_meta["available_rollback_policy_ids"])
+        elif (
+            self._available_rollback_policy_ids_provider is not None
+            and composition is not None
+        ):
+            auth_rollbacks = tuple(
+                self._available_rollback_policy_ids_provider(composition)
+            )
+        else:
+            auth_rollbacks = ()
+
+        if "denied_permissions" in plan_meta:
+            auth_denied = tuple(plan_meta["denied_permissions"])
+        elif "denied_permissions" in req_meta:
+            auth_denied = tuple(req_meta["denied_permissions"])
+        else:
+            auth_denied = ()
+
+        auth_approval_status = plan_meta.get(
+            "approval_status", req_meta.get("approval_status")
+        )
+        auth_approval_fp = plan_meta.get(
+            "approval_fingerprint", req_meta.get("approval_fingerprint")
+        )
+        auth_request_fp = plan_meta.get(
+            "request_fingerprint", req_meta.get("request_fingerprint", "")
+        )
+
         selected: list[str] = []
         approval_gates: set[str] = set()
         validations: set[str] = set()
@@ -1690,6 +1889,13 @@ class DefaultDomainPlannerWorkflowIntegrator:
                 session_id=request.resolution_context.session_id
                 or request.planning_request.agent_run_id,
                 ancestry=((definition.workflow_id, definition.version),),
+                capabilities=auth_capabilities,
+                available_validation_policy_ids=auth_validations,
+                available_rollback_policy_ids=auth_rollbacks,
+                denied_permissions=auth_denied,
+                approval_status=auth_approval_status,
+                approval_fingerprint=auth_approval_fp,
+                request_fingerprint=auth_request_fp,
             )
             if not dependency_eligible:
                 return _WorkflowSelection(
