@@ -430,4 +430,4 @@ are discovered from existing declarations, represented in canonical plan
 nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
 
-V9 implementation evidence and validation counts: [remediation handoff](../audits/phase-10.42-remediation-v9.md). Phase closure still requires Independent Re-Audit V9.
+V10 implementation evidence and validation counts: Phase closure still requires Independent Re-Audit V10.
