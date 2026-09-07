@@ -1490,7 +1490,7 @@ def test_permission_gate_result_to_authority_reference_dict():
             assert forbidden not in item
 
 
-def test_orchestrator_execute_preserves_permission_authority_on_success():
+def test_orchestrator_execute_preserves_permission_authority_on_success(tmp_path):
     from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
     from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
     from cmm.domains.operation_contracts import (
@@ -1506,6 +1506,14 @@ def test_orchestrator_execute_preserves_permission_authority_on_success():
     from cmm.domains.permission_resolution import DomainPermissionResolver
     from cmm.domains.project.operations import build_project_operation_definitions
     from cmm.domains.project.permissions import build_project_permission_policy
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements,
+    )
+
+    # Real canonical validation runs against this minimal valid project root.
+    validation_root = tmp_path / "validation-root"
+    validation_root.mkdir(parents=True, exist_ok=True)
+    (validation_root / "main.py").write_text("x = 1\n", encoding="utf-8")
 
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     definition = ops["project.modify_code"]
@@ -1620,6 +1628,7 @@ def test_orchestrator_execute_preserves_permission_authority_on_success():
         permission_gate=gate,
         transaction_manager=TransactionManagerSpy(),
         rollback_executor=RollbackSpy(),
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
     )
 
     op_req = DomainOperationRequest(
@@ -1640,6 +1649,7 @@ def test_orchestrator_execute_preserves_permission_authority_on_success():
         metadata={
             "actor_id": "actor-1",
             "approval_request_ids": approval_request_ids,
+            "validation_project_root": str(validation_root),
         },
     )
 

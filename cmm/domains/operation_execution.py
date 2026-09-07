@@ -46,6 +46,7 @@ from cmm.domains.permission_gate import (
     PermissionGateReason,
 )
 from cmm.domains.validation_integration import (
+    DomainValidationIntegrationError,
     compose_effective_validation_ids,
     resolve_operation_validation_ids,
 )
@@ -77,6 +78,22 @@ class DomainOperationExecutionDelegate:
         if not isinstance(output, Mapping):
             raise TypeError("domain operation implementation must return a mapping")
         return output
+
+
+def _operation_has_validation_obligation(
+    definition: Any, request: DomainOperationRequest
+) -> bool:
+    """Whether an operation carries a mandatory validation obligation.
+
+    Canonical authority is the operation definition's ``validation_policy_id``
+    (a non-empty value declares mandatory validation) plus host-computed
+    composition obligations carried on ``effective_validation_ids``. Caller
+    metadata is never consulted here.
+    """
+    policy_id = getattr(definition, "validation_policy_id", None)
+    if policy_id is not None and str(policy_id).strip():
+        return True
+    return bool(request.effective_validation_ids)
 
 
 class DefaultDomainOperationOrchestrator:
@@ -411,9 +428,7 @@ class DefaultDomainOperationOrchestrator:
                 validation_result_ids=common_result.validation_result_ids,
             )
 
-        if self._operation_validation_provider is not None and isinstance(
-            common_result.output, Mapping
-        ):
+        if isinstance(common_result.output, Mapping):
             acceptance_error = self._check_specialized_result_acceptance(
                 definition, common_result.output
             )
@@ -478,18 +493,44 @@ class DefaultDomainOperationOrchestrator:
         composition obligations carried on the typed
         ``effective_validation_ids`` channel (workflow/dependency/
         cross-domain). Caller metadata is never consulted: it cannot add,
-        remove, or weaken requirements here. Without a provider the legacy
-        metadata-only obligation applies.
+        remove, or weaken requirements here. A validation-mandated operation
+        (non-null ``validation_policy_id`` or composition obligations) with
+        NO provider fails closed: metadata-only compatibility is never a
+        substitute for materialized validation requirements.
         """
         provider = self._operation_validation_provider
         if provider is None:
+            if _operation_has_validation_obligation(definition, request):
+                raise DomainValidationIntegrationError(
+                    "operation mandates validation but no "
+                    "operation_validation_provider is configured",
+                    details={
+                        "operation_id": str(
+                            getattr(definition, "operation_id", "")
+                        ),
+                        "reason": "missing_validation_provider",
+                    },
+                )
             return ()
         additional = tuple(request.effective_validation_ids or ())
+        impact = getattr(request, "validation_impact", None)
+        changed_files = tuple(getattr(request, "validation_changed_files", ()) or ())
         try:
-            resolved = provider(definition, additional)
+            resolved = provider(
+                definition,
+                additional,
+                impact=impact,
+                changed_files=changed_files,
+            )
         except TypeError:
-            # Backward compatibility for single-argument providers.
-            resolved = provider(definition)
+            try:
+                resolved = provider(definition, additional, impact=impact)
+            except TypeError:
+                try:
+                    resolved = provider(definition, additional)
+                except TypeError:
+                    # Backward compatibility for single-argument providers.
+                    resolved = provider(definition)
         return tuple(resolved or ())
 
     def _resolve_host_validation_root(

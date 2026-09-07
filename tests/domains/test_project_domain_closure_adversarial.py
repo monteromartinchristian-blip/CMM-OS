@@ -34,6 +34,9 @@ from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapte
 from cmm.cognitive.reasoning_rule_registry import InMemoryReasoningRuleRegistry
 from cmm.development.analyzer import ProjectContext
 from cmm.domains.approval_bridge import to_approval_requirement
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains.errors import (
     DomainOperationRegistryError,
     DomainPermissionRegistryError,
@@ -739,8 +742,11 @@ def test_attack_direct_execution_bypass_rejected() -> None:
 # ── Attack Class 20: FILE_MODIFY_WITHOUT_APPROVAL_REJECTED ────────────────────
 
 
-def test_attack_file_modify_without_approval_rejected() -> None:
+def test_attack_file_modify_without_approval_rejected(tmp_path) -> None:
     """File modification capability strictly requires approval and cannot be executed via generic approval alone."""
+    validation_root = tmp_path / "validation-root"
+    validation_root.mkdir(parents=True, exist_ok=True)
+    (validation_root / "main.py").write_text("x = 1\n", encoding="utf-8")
     policy = build_project_permission_policy()
     perm_reg = DomainPermissionRegistry()
     perm_reg.register(policy)
@@ -823,6 +829,7 @@ def test_attack_file_modify_without_approval_rejected() -> None:
         permission_gate=gate,
         transaction_manager=tx_mgr,
         rollback_executor=rollback_exec,
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
     )
 
     proto_req = DomainOperationRequest(
@@ -960,7 +967,11 @@ def test_attack_file_modify_without_approval_rejected() -> None:
     valid_dual_req = replace(
         proto_req,
         approval_request_id=op_exec_id,
-        metadata={"actor_id": "actor:dev", "approval_request_ids": approval_ids},
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": approval_ids,
+            "validation_project_root": str(validation_root),
+        },
     )
     res_dual = orchestrator.execute(valid_dual_req)
     assert res_dual.status is DomainOperationStatus.COMPLETED
@@ -1195,6 +1206,7 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
         permission_gate=gate,
         transaction_manager=tx_mgr,
         rollback_executor=rollback_exec,
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
     )
 
     proto_req = DomainOperationRequest(
@@ -1252,7 +1264,11 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
         available_resources=proto_req.available_resources,
         capabilities=proto_req.capabilities,
         approval_request_id=op_exec_app_id,
-        metadata={"actor_id": "actor:dev", "approval_request_ids": app_ids},
+        metadata={
+            "actor_id": "actor:dev",
+            "approval_request_ids": app_ids,
+            "validation_project_root": str(tmp_path),
+        },
     )
     res = orchestrator.execute(exec_req)
     assert res.status is DomainOperationStatus.ROLLED_BACK

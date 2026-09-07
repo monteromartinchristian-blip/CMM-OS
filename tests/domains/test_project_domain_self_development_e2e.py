@@ -52,6 +52,9 @@ from cmm.development.models import DevelopmentPlan
 from cmm.development.providers import DeterministicPlanningProvider
 from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.identifiers import DomainId
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains.memory_contracts import sha256_digest
 from cmm.domains.operation_contracts import (
     DomainOperationDefinition,
@@ -446,6 +449,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         permission_gate=gate,
         transaction_manager=tx_manager,
         rollback_executor=rollback_executor,
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
     )
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -515,6 +521,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         permission_gate=gate,
         transaction_manager=tx_manager,
         rollback_executor=rollback_executor,
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
     )
 
     trial_action = {
@@ -583,6 +592,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         metadata={
             "actor_id": "actor:dev",
             "approval_request_ids": trial_approval_ids,
+            "validation_project_root": str(repo_dir),
         },
     )
 
@@ -664,6 +674,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         metadata={
             "actor_id": "actor:dev",
             "approval_request_ids": approval_request_ids,
+            "validation_project_root": str(repo_dir),
         },
     )
 

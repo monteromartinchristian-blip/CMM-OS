@@ -68,6 +68,16 @@ from cmm.domains.operation_execution import (
     DefaultDomainOperationOrchestrator,
     DomainOperationExecutionDelegate,
 )
+from cmm.agent_runtime.enums import (
+    AgentValidationDecision,
+    AgentValidationStage,
+    AgentValidationStatus,
+)
+from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+from cmm.agent_runtime.validation_integration_contracts import AgentValidationResult
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
 from cmm.domains.permission_contracts import DomainPermissionPolicy
 from cmm.domains.permission_gate import DomainPermissionGate
@@ -481,6 +491,7 @@ def _dispatch_adapter(
     transaction_manager=None,
     rollback_executor=None,
     validation_adapter=None,
+    operation_validation_provider=None,
 ) -> DomainOperationDispatchAdapter:
     common = graph.operation_registry.common_registry
     execution_adapter = AgentExecutionAdapter(
@@ -494,6 +505,7 @@ def _dispatch_adapter(
         permission_gate=permission_gate,
         transaction_manager=transaction_manager,
         rollback_executor=rollback_executor,
+        operation_validation_provider=operation_validation_provider,
     )
     return DomainOperationDispatchAdapter(orchestrator)
 
@@ -1055,6 +1067,32 @@ def _project_dispatch_request(
     )
 
 
+class _RecordingValidationAdapter(AgentValidationAdapter):
+    """Real-pipeline adapter that records requirement materialization.
+
+    The DP-042 dispatch path is a planning/projection acceptance, not a
+    validation acceptance; this adapter records that the Phase 10.43
+    provider materialized non-empty required validation sets and defers
+    pass/block evidence to the dedicated Phase 10.43 suites.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list = []
+
+    def validate(self, request, exec_context=None):  # type: ignore[override]
+        self.seen.append(request)
+        return AgentValidationResult(
+            request_id=request.id,
+            run_id=request.run_id,
+            iteration_id=request.iteration_id,
+            operation_request_id=request.operation_request_id,
+            stage=request.stage,
+            status=AgentValidationStatus.PASSED,
+            decision=AgentValidationDecision.CONTINUE,
+        )
+
+
 def test_at_dp042_real_project_pack_operation_planning_chain() -> None:
     """AT-DP-042 (V3): real ``domain:project`` capability → plan → execution.
 
@@ -1122,18 +1160,30 @@ def test_at_dp042_real_project_pack_operation_planning_chain() -> None:
             rollback_calls.append((transaction_id, checkpoint_id))
             return {"rolled_back": True}
 
+    recording_adapter = _RecordingValidationAdapter()
     dispatch = _dispatch_adapter(
         graph,
         transaction_manager=TransactionManager(CheckpointManager()),
         rollback_executor=_RecordingRollbackExecutor(),
-        validation_adapter=AgentValidationAdapter(),
+        validation_adapter=recording_adapter,
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
     )
     outcome = dispatch(_project_dispatch_request(graph, planned_operation))
 
     assert outcome["success"] is True
     assert graph.operation_calls[planned_operation] == 1
     assert rollback_calls == []
-
+    # Phase 10.43 fail-closed wiring: the dispatched validation-mandated
+    # Project operation materialized real runtime validation requirements
+    # through the canonical provider (recorded on both validation stages).
+    assert recording_adapter.seen
+    for seen_request in recording_adapter.seen:
+        assert seen_request.requirements
+        assert all(
+            requirement.required for requirement in seen_request.requirements
+        )
     assert outcome["success"] is True
     assert graph.operation_calls[planned_operation] == 1
 

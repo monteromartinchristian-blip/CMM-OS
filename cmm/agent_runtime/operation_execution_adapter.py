@@ -218,6 +218,15 @@ class AgentExecutionAdapter:
             raise ValidationAdapterError(
                 f"Operation '{request.operation_name}' mandates validation, but no AgentValidationAdapter was injected."
             )
+        # Fail-safe runtime requirement materialization: a validation-mandated
+        # operation with no materialized requirement has no validation to run,
+        # so it can never be treated as validated. This is a defense-in-depth
+        # guard at the canonical Agent execution boundary; operations without a
+        # validation mandate keep full backward compatibility with empty sets.
+        if requires_val and not request.validation_requirements:
+            raise ValidationAdapterError(
+                f"Operation '{request.operation_name}' mandates validation, but no validation requirements were materialized."
+            )
 
         # Step 2b: Checkpoint Creation (if required or manager present)
         checkpoint_id: str | None = request.checkpoint_id

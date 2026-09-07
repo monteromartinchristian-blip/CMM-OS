@@ -39,6 +39,9 @@ from cmm.domains.approval_bridge import to_approval_requirement
 from cmm.domains.contracts import DomainResult
 from cmm.domains.errors import DomainOperationRegistryError
 from cmm.domains.identifiers import DomainId
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains.memory_contracts import (
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
@@ -978,6 +981,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         permission_gate=perm_gate,
         transaction_manager=acc_tx_mgr,
         rollback_executor=acc_rollback_exec,
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
     )
 
     acc_op_req_proto = DomainOperationRequest(
@@ -1049,6 +1053,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         metadata={
             "actor_id": "actor:self_dev",
             "approval_request_ids": acc_approval_ids,
+            "validation_project_root": str(acc_repo_dir),
         },
     )
     acc_op_res = acc_orchestrator.execute(acc_op_req)
@@ -1077,6 +1082,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         permission_gate=perm_gate,
         transaction_manager=acc_tx_mgr,
         rollback_executor=acc_rollback_exec,
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
     )
     fail_runtime_action = {
         "version": 1,
@@ -1164,6 +1170,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         metadata={
             "actor_id": "actor:self_dev",
             "approval_request_ids": fail_approval_ids,
+            "validation_project_root": str(acc_repo_dir),
         },
     )
     fail_res = fail_orchestrator.execute(fail_op_req)

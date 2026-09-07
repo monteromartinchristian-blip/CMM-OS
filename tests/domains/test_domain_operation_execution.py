@@ -11,6 +11,9 @@ from cmm.agent_runtime.operation_execution_contracts import (
     AgentOperationRequest,
 )
 from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+from cmm.domains.validation_integration import (
+    resolve_domain_operation_validation_requirements,
+)
 from cmm.domains import (
     DefaultDomainOperationOrchestrator,
     DomainOperationDefinition,
@@ -233,7 +236,11 @@ def test_validation_policy_is_delegated_to_common_adapter() -> None:
             )
 
     adapter = Adapter()
-    result = DefaultDomainOperationOrchestrator(Registry(), adapter).execute(  # type: ignore[arg-type]
+    result = DefaultDomainOperationOrchestrator(
+        Registry(),
+        adapter,
+        operation_validation_provider=resolve_domain_operation_validation_requirements,
+    ).execute(  # type: ignore[arg-type]
         _request(capabilities=("execute", "validation"))
     )
     assert result.status is DomainOperationStatus.COMPLETED

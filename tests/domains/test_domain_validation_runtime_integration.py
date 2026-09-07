@@ -1023,4 +1023,224 @@ class TestRealSpecializedResultAcceptance:
     def test_plain_output_without_identity_is_not_specialized(self) -> None:
         orchestrator, request = _specialized_stack({"status": "ok"})
         result = orchestrator.execute(request)
+# ── V2→V3 remediation: BLOCKER-V2-01 provider fail-open ────────────────────────
+
+
+class TestV2Blocker01ProviderFailClosed:
+    """A validation-mandated operation must fail closed without a provider."""
+
+    def test_validation_mandated_operation_fails_closed_when_provider_is_omitted(
+        self,
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+        )
+
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.required",
+            validation_policy_id="validation.flow.required",
+            declared_ids=(),
+        )
+        calls: list = []
+
+        class Impl:
+            def __init__(self, definition) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:  # pragma: no cover
+                calls.append(request)
+                return {"success": True, "output": {}}
+
+        registry.register(definition, Impl(definition))
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        # Real orchestrator WITHOUT operation_validation_provider.
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-provider-omitted",
+            operation_id="flow.required",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-provider-omitted",
+            capabilities=("execute", "validation"),
+        )
+        with pytest.raises(DomainValidationIntegrationError):
+            orchestrator.execute(request)
+        assert calls == []
+
+    def test_validation_obligation_without_provider_fails_closed(self) -> None:
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+        )
+
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.needs",
+            validation_policy_id="validation.flow.needs",
+            declared_ids=(),
+        )
+
+        class Impl:
+            def __init__(self, definition) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:  # pragma: no cover
+                raise AssertionError("must not execute")
+
+        registry.register(definition, Impl(definition))
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-needs-provider",
+            operation_id="flow.needs",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-needs-provider",
+            capabilities=("execute", "validation"),
+        )
+        with pytest.raises(DomainValidationIntegrationError):
+            orchestrator.execute(request)
+
+    def test_no_obligation_operation_stays_compatible_without_provider(self) -> None:
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.free",
+            validation_policy_id=None,
+            declared_ids=(),
+        )
+        registry.register(definition, _TrivialImpl(definition))
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-free",
+            operation_id="flow.free",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-free",
+            capabilities=("execute", "validation"),
+        )
+        result = orchestrator.execute(request)
+        assert result.status is DomainOperationStatus.COMPLETED
+
+
+class TestV2Blocker01SpecializedResultUnconditional:
+    """Structural specialized-result acceptance must not depend on the provider."""
+
+    def test_invalid_specialized_result_is_rejected_even_without_validation_provider(
+        self,
+    ) -> None:
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.special-free",
+            validation_policy_id=None,
+            declared_ids=(),
+        )
+
+        class Impl:
+            def __init__(self, definition) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:  # pragma: no cover
+                return {
+                    "success": True,
+                    "output": {
+                        "domain_id": "domain:other",
+                        "operation_id": "flow.special-free",
+                        "status": "ok",
+                    },
+                }
+
+        registry.register(definition, Impl(definition))
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-special-free",
+            operation_id="flow.special-free",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-special-free",
+            capabilities=("execute", "validation"),
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+    def test_coherent_specialized_result_accepted_without_provider(self) -> None:
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.special-free",
+            validation_policy_id=None,
+            declared_ids=(),
+        )
+
+        class Impl:
+            def __init__(self, definition) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:  # pragma: no cover
+                return {
+                    "success": True,
+                    "output": {
+                        "domain_id": "domain:flow",
+                        "operation_id": "flow.special-free",
+                        "status": "ok",
+                    },
+                }
+
+        registry.register(definition, Impl(definition))
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-special-free-ok",
+            operation_id="flow.special-free",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-special-free-ok",
+            capabilities=("execute", "validation"),
+        )
+        result = orchestrator.execute(request)
         assert result.status is DomainOperationStatus.COMPLETED
