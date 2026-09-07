@@ -8,7 +8,8 @@ commit gate, runtime, or result model is introduced here.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any
 
 from cmm.validation.enums import ValidationStatus
@@ -632,6 +633,148 @@ PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS: dict[str, tuple[str, ...]] = {
 #: Impact values that escalate to the strongest canonical ``full`` policy.
 _PROJECT_FULL_IMPACT_KEYS = frozenset({"broad", "high", "full"})
 
+#: Relative severity order for project change impacts.
+_IMPACT_SEVERITY: dict[str, int] = {
+    "small": 1,
+    "structural": 2,
+    "public": 3,
+    "broad": 4,
+    "high": 4,
+    "full": 4,
+}
+
+
+def combine_validation_impacts(
+    host_impact: str | None,
+    caller_hint: str | None,
+) -> str:
+    """Combine host-derived impact with caller hint monotonically.
+
+    Caller hint can only increase severity, never downgrade host truth.
+    Defaults to 'small' if neither specifies an impact.
+    """
+    h = (host_impact or "").strip().lower()
+    c = (caller_hint or "").strip().lower()
+    if not h and not c:
+        return "small"
+    if not h:
+        return c
+    if not c:
+        return h
+    h_sev = _IMPACT_SEVERITY.get(h, 1)
+    c_sev = _IMPACT_SEVERITY.get(c, 1)
+    return c if c_sev > h_sev else h
+
+
+def combine_validation_changed_files(
+    host_files: Iterable[str] | None,
+    caller_files: Iterable[str] | None,
+) -> tuple[str, ...]:
+    """Monotonic union of host-derived changed files and caller hints.
+
+    Caller hints can add files to the validation scope, but cannot remove
+    host-derived changed files.
+    """
+    merged: set[str] = set()
+    if host_files:
+        for f in host_files:
+            s = str(f).strip()
+            if s:
+                merged.add(s)
+    if caller_files:
+        for f in caller_files:
+            s = str(f).strip()
+            if s:
+                merged.add(s)
+    return tuple(sorted(merged))
+
+
+def derive_host_project_change_impact(
+    project_root: str | Path | None,
+    changed_files: Iterable[str] = (),
+    *,
+    before_snapshot: Any = None,
+    after_snapshot: Any = None,
+) -> tuple[str, tuple[str, ...]]:
+    """Derive canonical Phase 7 changed files and impact from host state.
+
+    Uses canonical Phase 7 ChangeSetBuilder, snapshots, and diff_python_sources.
+    Returns (impact_name, tuple_of_changed_files).
+    """
+    if not project_root:
+        files = tuple(str(f).strip() for f in changed_files if str(f).strip())
+        return "small", files
+
+    root = Path(project_root).resolve(strict=False)
+    if not root.exists():
+        files = tuple(str(f).strip() for f in changed_files if str(f).strip())
+        return "small", files
+
+    from cmm.validation.impact.diff import diff_python_sources
+    from cmm.validation.impact.snapshots import ChangeSetBuilder
+
+    derived_files: set[str] = set()
+    derived_impact: str = "small"
+
+    try:
+        if before_snapshot is not None and after_snapshot is not None:
+            builder = ChangeSetBuilder()
+            change_set = builder._compare_snapshots(
+                project_root=root,
+                before=before_snapshot,
+                after=after_snapshot,
+                source="snapshots",
+                requires_full_suite=False,
+            )
+            for f in change_set.changed_files:
+                derived_files.add(str(f))
+
+            before_map = {str(item.path): item for item in before_snapshot.files}
+            after_map = {str(item.path): item for item in after_snapshot.files}
+            has_public = False
+            has_structural = False
+            has_import = False
+
+            for rel_path in change_set.changed_files:
+                p_str = str(rel_path)
+                if not p_str.endswith(".py"):
+                    continue
+                b_item = before_map.get(p_str)
+                a_item = after_map.get(p_str)
+                mod_name = p_str[:-3].replace("/", ".")
+                b_src = b_item.content if b_item and b_item.exists else None
+                a_src = a_item.content if a_item and a_item.exists else None
+                diff = diff_python_sources(
+                    module_name=mod_name,
+                    before_source=b_src,
+                    after_source=a_src,
+                )
+                if diff.public_api_changed:
+                    has_public = True
+                elif diff.signature_changed or diff.symbol_changes:
+                    has_structural = True
+                elif diff.import_changes:
+                    has_import = True
+
+            if has_public:
+                derived_impact = "public"
+            elif has_structural or has_import:
+                derived_impact = "structural"
+            else:
+                derived_impact = "small"
+        else:
+            for p in sorted(root.glob("*.py")):
+                if p.is_file() and not p.name.startswith((".", "test_")):
+                    try:
+                        rel = p.relative_to(root)
+                        derived_files.add(str(rel))
+                    except ValueError:
+                        derived_files.add(p.name)
+    except Exception:  # noqa: BLE001, S110 - best-effort derivation falls back safely
+        pass
+
+    return derived_impact, tuple(sorted(derived_files))
+
 
 def resolve_operation_validation_ids(
     definition: object,
@@ -715,6 +858,7 @@ def resolve_domain_operation_validation_requirements(
     *,
     impact: str | None = None,
     changed_files: tuple[str, ...] = (),
+    project_root: str | Path | None = None,
 ) -> tuple[Any, ...]:
     """Resolve host-derived runtime validation requirements for a Domain operation.
 
@@ -735,17 +879,25 @@ def resolve_domain_operation_validation_requirements(
     policy_id_str = str(policy_id).strip() if policy_id is not None else ""
     operation_id = str(getattr(definition, "operation_id", "") or "")
     if operation_id in PROJECT_CODE_MUTATION_OPERATION_IDS:
+        host_impact, host_files = derive_host_project_change_impact(
+            project_root,
+            changed_files=changed_files,
+        )
+        effective_impact = combine_validation_impacts(host_impact, impact)
+        effective_files = combine_validation_changed_files(host_files, changed_files)
         required_ids = resolve_project_domain_change_validation_ids(
             definition,
             additional_ids,
-            impact=impact,
+            impact=effective_impact,
         )
+        resource_scope = effective_files
     else:
         required_ids = resolve_operation_validation_ids(definition, additional_ids)
+        resource_scope = tuple(changed_files) if changed_files else ()
+
     if not required_ids:
         return ()
     operation_version = str(getattr(definition, "version", "1") or "1")
-    resource_scope = tuple(changed_files) if changed_files else ()
     pre = build_operation_validation_requirements(
         validation_policy_id=policy_id_str or None,
         required_validation_ids=required_ids,
@@ -790,7 +942,10 @@ __all__ = [
     "PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS",
     "DomainValidationIntegrationError",
     "build_operation_validation_requirements",
+    "combine_validation_changed_files",
+    "combine_validation_impacts",
     "compose_effective_validation_ids",
+    "derive_host_project_change_impact",
     "domain_operation_requires_validation",
     "is_ignored_caller_validation_metadata",
     "is_project_domain_code_mutation",

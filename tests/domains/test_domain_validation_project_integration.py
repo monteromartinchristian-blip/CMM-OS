@@ -322,7 +322,15 @@ class TestRealProjectMutationValidation:
 # ── V2→V3 remediation: BLOCKER-V2-02 Project change policy in real runtime ─────
 
 
-def _affected_test_stack(tmp_path, *, break_test: bool):
+def _affected_test_stack(
+    tmp_path,
+    *,
+    break_test: bool = False,
+    custom_mutation=None,
+    validation_impact="small",
+    validation_changed_files=None,
+    suffix: str | None = None,
+):
     """Real orchestrator stack for project.modify_code with an affected test.
 
     The temp project carries ``main.py`` with a valid function and
@@ -373,16 +381,27 @@ def _affected_test_stack(tmp_path, *, break_test: bool):
         "from main import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
         encoding="utf-8",
     )
+    import shutil
+
+    for pycache in project_dir.rglob("__pycache__"):
+        shutil.rmtree(pycache, ignore_errors=True)
 
     class Implementation:
         def __init__(self) -> None:
             self.definition = definition
 
         def execute(self, request) -> dict:
-            if break_test:
+            import shutil
+
+            if custom_mutation is not None:
+                custom_mutation(project_dir)
+            elif break_test:
+                # Formatter-clean and lint-clean code where only affected pytest test fails
                 (project_dir / "main.py").write_text(
-                    "def add(a,b):\n    return a-b\n", encoding="utf-8"
+                    "def add(a, b):\n    return a - b\n", encoding="utf-8"
                 )
+            for pycache in project_dir.rglob("__pycache__"):
+                shutil.rmtree(pycache, ignore_errors=True)
             return {"success": True, "output": {"status": "ok"}}
 
     common = InMemoryAgentOperationRegistry()
@@ -394,9 +413,12 @@ def _affected_test_stack(tmp_path, *, break_test: bool):
     resolver = DomainPermissionResolver(perm_registry)
     service = ApprovalService(InMemoryApprovalRepository())
 
-    suffix = "break" if break_test else "pass"
+    eff_suffix = suffix or ("break" if break_test else "pass")
+    effective_files = (
+        () if validation_changed_files is None else tuple(validation_changed_files)
+    )
     request = DomainOperationRequest(
-        request_id=f"req:aff:{suffix}",
+        request_id=f"req:aff:{eff_suffix}",
         operation_id="project.modify_code",
         operation_version=definition.version,
         inputs={},
@@ -405,7 +427,7 @@ def _affected_test_stack(tmp_path, *, break_test: bool):
         task_id="task-1",
         session_id="sess-1",
         primary_domain_id=definition.domain_id,
-        idempotency_key=f"idem-aff-{suffix}",
+        idempotency_key=f"idem-aff-{eff_suffix}",
         granted_permissions=definition.required_permissions,
         available_resources=definition.required_resources,
         capabilities=("execute", "transaction", "rollback", "validation"),
@@ -413,7 +435,8 @@ def _affected_test_stack(tmp_path, *, break_test: bool):
             "actor_id": "actor-1",
             "validation_project_root": str(project_dir),
         },
-        validation_changed_files=("main.py",),
+        validation_impact=validation_impact,
+        validation_changed_files=effective_files,
     )
     decision = evaluate_domain_operation(
         definition,
@@ -494,8 +517,11 @@ def _affected_test_stack(tmp_path, *, break_test: bool):
             "actor_id": "actor-1",
             "approval_request_ids": approval_request_ids,
             "validation_project_root": str(project_dir),
+            "validation_impact": validation_impact,
+            "validation_changed_files": effective_files,
         },
-        validation_changed_files=("main.py",),
+        validation_impact=validation_impact,
+        validation_changed_files=effective_files,
     )
     return orchestrator, approved_request, project_dir
 
@@ -644,40 +670,111 @@ class TestV2Blocker02ProjectChangePolicy:
         (tmp_path / "affproj" / "main.py").write_text(
             "def add(a, b):\n    return a + b\n", encoding="utf-8"
         )
-        fixed_orch, fixed_request, _ = _affected_test_stack(tmp_path, break_test=False)
+        fixed_orch, fixed_request, _ = _affected_test_stack(
+            tmp_path, break_test=False, suffix="repair"
+        )
         assert (
             fixed_orch.execute(fixed_request).status is DomainOperationStatus.COMPLETED
         )
 
     def test_caller_cannot_downgrade_project_impact(self) -> None:
-        import inspect
+        from cmm.domains.validation_integration import combine_validation_impacts
 
-        import cmm.domains.validation_integration as vi
-        from cmm.domains.validation_integration import (
-            resolve_project_domain_change_validation_ids,
-        )
+        # Host detects structural or public impact; caller specifies small hint.
+        # Stronger host impact must govern and cannot be downgraded.
+        assert combine_validation_impacts("structural", "small") == "structural"
+        assert combine_validation_impacts("public", "small") == "public"
+        assert combine_validation_impacts("full", "small") == "full"
+        # Caller can escalate severity, but never downgrade host truth.
+        assert combine_validation_impacts("small", "full") == "full"
 
-        ops = {op.operation_id: op for op in build_project_operation_definitions()}
-        definition = ops["project.modify_code"]
-        # Host-derived impact governs; caller metadata cannot weaken it.
-        small = resolve_project_domain_change_validation_ids(definition, impact="small")
-        assert "formatter_check" in small
-        # No metadata-downgrade channel exists: impact is host-owned only.
-        assert small == resolve_project_domain_change_validation_ids(
-            definition, impact="small"
+    def test_project_modify_code_derives_changed_files_when_request_omits_them(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+
+        # Caller request omits validation_changed_files (empty tuple / None).
+        orch_fail, req_fail, _ = _affected_test_stack(
+            tmp_path / "case1",
+            break_test=True,
+            validation_changed_files=(),
         )
-        assert (
-            "metadata"
-            not in inspect.signature(
-                vi.resolve_project_domain_change_validation_ids
-            ).parameters
+        # Even without caller-provided files, the host derives main.py from the
+        # mutation and runs affected tests on main.py, which fails and blocks acceptance.
+        res_fail = orch_fail.execute(req_fail)
+        assert res_fail.status is not DomainOperationStatus.COMPLETED
+
+        # Valid mutation also derives main.py and passes affected tests.
+        orch_pass, req_pass, _ = _affected_test_stack(
+            tmp_path / "case2",
+            break_test=False,
+            validation_changed_files=(),
         )
-        assert (
-            "metadata"
-            not in inspect.signature(
-                vi.resolve_domain_operation_validation_requirements
-            ).parameters
+        res_pass = orch_pass.execute(req_pass)
+        assert res_pass.status is DomainOperationStatus.COMPLETED
+
+    def test_project_changed_file_hint_cannot_remove_host_changed_file(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+
+        # Host mutation modifies main.py (broken test).
+        # Caller supplies validation_changed_files=("other.py",) in an attempt to hide main.py.
+        hint_dir = tmp_path / "hint_proj"
+        orch, req, _ = _affected_test_stack(
+            hint_dir,
+            break_test=True,
+            validation_changed_files=("other.py",),
         )
+        (hint_dir / "affproj" / "other.py").write_text("y = 2\n", encoding="utf-8")
+        res = orch.execute(req)
+        # Caller hint cannot remove main.py from the effective validation scope.
+        # Affected tests still execute against main.py and fail.
+        assert res.status is not DomainOperationStatus.COMPLETED
+
+    def test_host_structural_or_public_impact_overrides_caller_small_hint(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+
+        # Host mutation introduces structural change (function signature change).
+        def structural_mutation(project_dir) -> None:
+            (project_dir / "main.py").write_text(
+                "def add(a, b, c=0):\n    return a + b + c\n",
+                encoding="utf-8",
+            )
+
+        orch, req, _ = _affected_test_stack(
+            tmp_path / "struct_proj",
+            custom_mutation=structural_mutation,
+            validation_impact="small",
+        )
+        res = orch.execute(req)
+        # Host structural impact overrides caller's small hint.
+        # Stronger canonical policy fails closed on unmappable steps rather than downgrading.
+        assert res.status is not DomainOperationStatus.COMPLETED
+
+    def test_project_runtime_derives_impact_when_request_omits_validation_impact(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+
+        # Caller omits validation_impact entirely (validation_impact=None).
+        # For a structural change, the host derives structural and refuses to default to small.
+        def structural_mutation(project_dir) -> None:
+            (project_dir / "main.py").write_text(
+                "def add(a, b, c=0):\n    return a + b + c\n",
+                encoding="utf-8",
+            )
+
+        orch, req, _ = _affected_test_stack(
+            tmp_path / "no_impact_proj",
+            custom_mutation=structural_mutation,
+            validation_impact=None,
+        )
+        res = orch.execute(req)
+        # Runtime derives structural impact and fails closed (does not silently default to small).
+        assert res.status is not DomainOperationStatus.COMPLETED
 
     def test_unknown_mandatory_policy_step_fails_closed(self) -> None:
         from cmm.domains.validation_integration import (

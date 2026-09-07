@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from cmm.agent_runtime.enums import (
@@ -47,8 +48,13 @@ from cmm.domains.permission_gate import (
 )
 from cmm.domains.validation_integration import (
     DomainValidationIntegrationError,
+    combine_validation_changed_files,
+    combine_validation_impacts,
     compose_effective_validation_ids,
+    derive_host_project_change_impact,
+    is_project_domain_code_mutation,
     resolve_operation_validation_ids,
+    resolve_project_domain_change_validation_ids,
 )
 from cmm.domains.validation_policy_bindings import (
     build_cross_domain_execution_policy,
@@ -337,8 +343,24 @@ class DefaultDomainOperationOrchestrator:
                 "session_id": request.session_id,
                 "requires_validation": definition.validation_policy_id is not None,
                 "validation_policy_id": definition.validation_policy_id,
+                "validation_impact": getattr(request, "validation_impact", None),
+                "validation_changed_files": tuple(
+                    getattr(request, "validation_changed_files", ()) or ()
+                ),
             },
         )
+        before_snapshot = None
+        host_proj_root = self._resolve_host_validation_root(request)
+        if host_proj_root and is_project_domain_code_mutation(definition.operation_id):
+            try:
+                from cmm.validation.impact.snapshots import _scan_project_snapshot
+
+                _p = Path(host_proj_root)
+                if _p.exists():
+                    before_snapshot = _scan_project_snapshot(_p, source="before")
+            except Exception:  # noqa: BLE001 - pre-snapshot capture failure falls back to None
+                before_snapshot = None
+
         common_result = self._execution_adapter.execute(common_request)
         if not isinstance(common_result, AgentOperationExecutionResult):
             raise TypeError(
@@ -389,6 +411,63 @@ class DefaultDomainOperationOrchestrator:
                 gate_result=gate_result,
                 validation_result_ids=common_result.validation_result_ids,
             )
+
+        if (
+            common_result.success
+            and before_snapshot is not None
+            and host_proj_root
+            and is_project_domain_code_mutation(definition.operation_id)
+        ):
+            try:
+                from cmm.validation.impact.snapshots import _scan_project_snapshot
+
+                _p = Path(host_proj_root)
+                if _p.exists():
+                    after_snapshot = _scan_project_snapshot(_p, source="after")
+                    derived_impact, _derived_files = derive_host_project_change_impact(
+                        _p,
+                        before_snapshot=before_snapshot,
+                        after_snapshot=after_snapshot,
+                    )
+                    effective_impact = combine_validation_impacts(
+                        derived_impact, getattr(request, "validation_impact", None)
+                    )
+                    if effective_impact != "small":
+                        required_ids = resolve_project_domain_change_validation_ids(
+                            definition, impact=effective_impact
+                        )
+                        missing_ids = set(required_ids) - set(
+                            common_result.validation_result_ids
+                        )
+                        if missing_ids:
+                            raise DomainValidationIntegrationError(
+                                f"escalated validation requirements not satisfied: {sorted(missing_ids)}",
+                                details={
+                                    "reason": "escalated_validation_requirements_unsatisfied",
+                                    "missing_ids": tuple(sorted(missing_ids)),
+                                    "required_ids": required_ids,
+                                    "executed_ids": tuple(
+                                        common_result.validation_result_ids
+                                    ),
+                                },
+                            )
+            except Exception as exc:  # noqa: BLE001 - validation escalation check catches all errors to fail closed
+                escalation_error = {
+                    "code": "VALIDATION_ESCALATION_FAILED",
+                    "message": str(exc),
+                    "details": {"reason_code": "validation.escalation_failed"},
+                }
+                return self._failure_with_rollback(
+                    request,
+                    definition.domain_id,
+                    started_at,
+                    transaction_id,
+                    checkpoint_id,
+                    definition.rollback_policy_id,
+                    escalation_error,
+                    gate_result=gate_result,
+                    validation_result_ids=common_result.validation_result_ids,
+                )
 
         if "memory_write" in (*common_result.effects, *common_result.side_effects):
             direct_write_error = DomainOperationValidationError(
@@ -505,32 +584,48 @@ class DefaultDomainOperationOrchestrator:
                     "operation mandates validation but no "
                     "operation_validation_provider is configured",
                     details={
-                        "operation_id": str(
-                            getattr(definition, "operation_id", "")
-                        ),
+                        "operation_id": str(getattr(definition, "operation_id", "")),
                         "reason": "missing_validation_provider",
                     },
                 )
             return ()
         additional = tuple(request.effective_validation_ids or ())
-        impact = getattr(request, "validation_impact", None)
-        changed_files = tuple(getattr(request, "validation_changed_files", ()) or ())
+        project_root = self._resolve_host_validation_root(request)
+        caller_impact = getattr(request, "validation_impact", None)
+        caller_files = tuple(getattr(request, "validation_changed_files", ()) or ())
+
+        host_impact, host_files = derive_host_project_change_impact(
+            project_root,
+            changed_files=caller_files,
+        )
+        effective_impact = combine_validation_impacts(host_impact, caller_impact)
+        effective_files = combine_validation_changed_files(host_files, caller_files)
+
         try:
             resolved = provider(
                 definition,
                 additional,
-                impact=impact,
-                changed_files=changed_files,
+                impact=effective_impact,
+                changed_files=effective_files,
+                project_root=project_root,
             )
         except TypeError:
             try:
-                resolved = provider(definition, additional, impact=impact)
+                resolved = provider(
+                    definition,
+                    additional,
+                    impact=effective_impact,
+                    changed_files=effective_files,
+                )
             except TypeError:
                 try:
-                    resolved = provider(definition, additional)
+                    resolved = provider(definition, additional, impact=effective_impact)
                 except TypeError:
-                    # Backward compatibility for single-argument providers.
-                    resolved = provider(definition)
+                    try:
+                        resolved = provider(definition, additional)
+                    except TypeError:
+                        # Backward compatibility for single-argument providers.
+                        resolved = provider(definition)
         return tuple(resolved or ())
 
     def _resolve_host_validation_root(
@@ -969,6 +1064,14 @@ def build_domain_workflow_operation_adapter(
         )
         run_inputs = getattr(run, "inputs", None)
         node_bindings = getattr(node, "input_bindings", None)
+        merged_meta = {**base_metadata, **node_metadata}
+        wf_impact = None
+        wf_files: tuple[str, ...] = ()
+        if is_project_domain_code_mutation(str(operation_id)):
+            wf_impact, wf_files = derive_host_project_change_impact(
+                merged_meta.get("validation_project_root"),
+                changed_files=merged_meta.get("validation_changed_files", ()),
+            )
         domain_request = DomainOperationRequest(
             request_id=new_ids(),
             operation_id=str(operation_id),
@@ -991,6 +1094,8 @@ def build_domain_workflow_operation_adapter(
             ),
             metadata={**base_metadata, **node_metadata},
             effective_validation_ids=workflow_additional,
+            validation_impact=wf_impact,
+            validation_changed_files=wf_files,
         )
         result = orchestrator.execute(domain_request)
         if result.status is DomainOperationStatus.COMPLETED:
@@ -1218,6 +1323,13 @@ class OrchestratedCrossDomainOperationPort:
             )
             supporting = tuple(item for item in supporting if item != primary_domain)
             request_inputs = self._operation_inputs.get(operation_id, {})
+            xop_impact = None
+            xop_files: tuple[str, ...] = ()
+            if is_project_domain_code_mutation(operation_id):
+                xop_impact, xop_files = derive_host_project_change_impact(
+                    self._metadata.get("validation_project_root"),
+                    changed_files=self._metadata.get("validation_changed_files", ()),
+                )
             domain_request = DomainOperationRequest(
                 request_id=self._id_factory(),
                 operation_id=operation_id,
@@ -1235,6 +1347,8 @@ class OrchestratedCrossDomainOperationPort:
                 idempotency_key=f"{self._agent_run_id}:{operation_id}",
                 metadata=dict(self._metadata),
                 effective_validation_ids=union_all,
+                validation_impact=xop_impact,
+                validation_changed_files=xop_files,
             )
             self.calls.append((operation_id, union_all))
             try:

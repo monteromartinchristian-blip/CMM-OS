@@ -49,6 +49,10 @@ from cmm.domains.operation_contracts import DomainOperationRequest
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resolver_contracts import DomainResolutionResult
+from cmm.domains.validation_integration import (
+    derive_host_project_change_impact,
+    is_project_domain_code_mutation,
+)
 
 PROJECTION_NAMESPACE = "domain_intelligence"
 
@@ -187,6 +191,16 @@ class DomainOperationDispatchAdapter:
                 "approval_request_ids": dict(context.get("approval_request_ids", {})),
             }
         )
+        val_impact = None
+        val_files: tuple[str, ...] = ()
+        val_root = getattr(request, "validation_project_root", None) or metadata.get(
+            "validation_project_root"
+        )
+        if is_project_domain_code_mutation(request.operation_name):
+            val_impact, val_files = derive_host_project_change_impact(
+                val_root,
+                changed_files=metadata.get("validation_changed_files", ()),
+            )
         domain_request = DomainOperationRequest(
             request_id=request.id,
             operation_id=request.operation_name,
@@ -215,6 +229,8 @@ class DomainOperationDispatchAdapter:
             idempotency_key=request.idempotency_key,
             created_at=datetime.fromisoformat(request.created_at),
             metadata=metadata,
+            validation_impact=val_impact,
+            validation_changed_files=val_files,
         )
         result = self._orchestrator.execute(domain_request)
         success = result.status is DomainOperationStatus.COMPLETED
