@@ -27,3 +27,23 @@ def test_parse_ruff_results_invalid_json():
     result = parse_ruff_results("{not-json", 2, "stderr", "")
     assert result["status"] == "error"
     assert result["findings"][0].code == "TOOL_NOT_AVAILABLE"
+
+
+def test_parse_ruff_results_list_form_json():
+    import json
+
+    payload = json.dumps(
+        [
+            {
+                "code": "F401",
+                "message": "`os` imported but unused",
+                "filename": "src/a.py",
+                "location": {"row": 1, "column": 8},
+                "end_location": {"row": 1, "column": 10},
+            }
+        ]
+    )
+    result = parse_ruff_results(payload, 1, payload, "")
+    assert result["status"] == "failed"
+    assert len(result["findings"]) == 1
+    assert result["findings"][0].code == "F401"

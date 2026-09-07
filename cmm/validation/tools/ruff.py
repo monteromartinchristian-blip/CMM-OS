@@ -252,7 +252,13 @@ def parse_ruff_results(
                 "exit_code": exit_code,
             }
 
-        messages = payload.get("messages") if isinstance(payload, Mapping) else None
+        if isinstance(payload, list):
+            messages = payload
+        elif isinstance(payload, Mapping):
+            messages = payload.get("messages")
+        else:
+            messages = None
+
         findings: list[ValidationFinding] = []
         if isinstance(messages, list):
             for item in messages:
@@ -297,6 +303,22 @@ def parse_ruff_results(
                         metadata=metadata,
                     )
                 )
+
+        if exit_code != 0 and not findings:
+            fallback_finding = ValidationFinding(
+                code="RUFF_LINT_FAILED",
+                message="Ruff reported a non-zero exit code but no diagnostics were extracted.",
+                severity=ValidationSeverity.ERROR,
+                source="ruff",
+                blocking=True,
+                metadata={
+                    "command": list(command_tuple),
+                    "stdout": stdout,
+                    "stderr": stderr,
+                },
+            )
+            findings.append(fallback_finding)
+
         artifact = ValidationArtifact(
             id="ruff-result",
             kind="lint_report",
@@ -316,7 +338,7 @@ def parse_ruff_results(
                 "files_checked": len(selected) or 0,
             },
         )
-        status = ValidationStatus.FAILED if findings else ValidationStatus.PASSED
+        status = ValidationStatus.FAILED if (findings or exit_code != 0) else ValidationStatus.PASSED
         return {
             "status": status,
             "findings": findings,

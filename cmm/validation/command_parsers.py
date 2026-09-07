@@ -6,6 +6,7 @@ from pathlib import Path
 
 from cmm.validation.context import ValidationContext
 from cmm.validation.steps import ValidationStep, ValidationStepResult
+from cmm.validation.testing.pytest_parser import parse_pytest_result
 from cmm.validation.tools.bandit import parse_bandit_results
 from cmm.validation.tools.mypy import parse_mypy_results
 from cmm.validation.tools.pip_audit import parse_pip_audit_results
@@ -79,6 +80,15 @@ class CommandResultParser:
                 project_root=context.project_root,
                 command=step.command,
                 selected_files=selected_files,
+            )
+        elif parser == "pytest":
+            junit_xml = step.metadata.get("pytest_junitxml") or step.metadata.get("junit_xml")
+            if isinstance(junit_xml, str) and not Path(junit_xml).is_absolute() and context.project_root:
+                junit_xml = context.project_root / junit_xml
+            return parse_pytest_result(
+                step=step,
+                generic_result=result,
+                junit_xml=junit_xml,
             )
         else:
             return result

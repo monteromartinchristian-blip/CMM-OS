@@ -496,22 +496,35 @@ def parse_pytest_result(
             )
             status = ValidationStatus.ERROR
         elif xml_text is None:
-            findings.append(
-                ValidationFinding(
-                    code="PYTEST_REPORT_MISSING",
-                    message="Pytest JUnit XML report was not available.",
-                    severity=ValidationSeverity.ERROR,
-                    source="pytest",
-                    blocking=True,
-                    metadata={
-                        "report_path": None
-                        if report_path is None
-                        else str(report_path),
-                        "exit_code": generic_result.exit_code,
-                    },
+            if generic_result.exit_code == 1 and report_path is None:
+                findings.append(
+                    ValidationFinding(
+                        code="PYTEST_TEST_FAILED",
+                        message="Pytest reported test failures.",
+                        severity=ValidationSeverity.ERROR,
+                        source="pytest",
+                        blocking=True,
+                        metadata={"exit_code": 1},
+                    )
                 )
-            )
-            status = ValidationStatus.ERROR
+                status = ValidationStatus.FAILED
+            else:
+                findings.append(
+                    ValidationFinding(
+                        code="PYTEST_REPORT_MISSING",
+                        message="Pytest JUnit XML report was not available.",
+                        severity=ValidationSeverity.ERROR,
+                        source="pytest",
+                        blocking=True,
+                        metadata={
+                            "report_path": None
+                            if report_path is None
+                            else str(report_path),
+                            "exit_code": generic_result.exit_code,
+                        },
+                    )
+                )
+                status = ValidationStatus.ERROR
         else:
             for case in failed_cases:
                 code = "PYTEST_TEST_FAILED"

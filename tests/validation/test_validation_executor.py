@@ -233,3 +233,74 @@ def test_execute_internal(tmp_path: Path):
     s_missing = ValidationStep(name="nope", step_type=ValidationStepType.INTERNAL)
     r_missing2 = ex.execute(ctx, s_missing, reg)
     assert r_missing2.status == ValidationStatus.ERROR
+
+
+def test_pytest_command_exit_1_produces_canonical_failed(tmp_path: Path):
+    ex = ValidationExecutor()
+    ctx = _context(tmp_path)
+    exit_script = _script(tmp_path, "exit1.py", "import sys\nsys.exit(1)\n")
+    step = ValidationStep(
+        name="affected_tests",
+        step_type=ValidationStepType.COMMAND,
+        command=(sys.executable, str(exit_script)),
+        timeout_seconds=5,
+        allowed_exit_codes=(0, 1, 2, 3, 4, 5),
+        metadata={"result_parser": "pytest"},
+    )
+    res = ex.execute(ctx, step)
+    assert res.status == ValidationStatus.FAILED
+
+
+def test_pytest_command_exit_codes_mapped_canonically(tmp_path: Path):
+    ex = ValidationExecutor()
+    ctx = _context(tmp_path)
+
+    for code, expected_status in [
+        (2, ValidationStatus.CANCELLED),
+        (3, ValidationStatus.ERROR),
+        (4, ValidationStatus.ERROR),
+        (5, ValidationStatus.FAILED),
+    ]:
+        script = _script(tmp_path, f"exit{code}.py", f"import sys\nsys.exit({code})\n")
+        step = ValidationStep(
+            name="affected_tests",
+            step_type=ValidationStepType.COMMAND,
+            command=(sys.executable, str(script)),
+            timeout_seconds=5,
+            required=True,
+            allowed_exit_codes=(0, 1, 2, 3, 4, 5),
+            metadata={"result_parser": "pytest"},
+        )
+        res = ex.execute(ctx, step)
+        assert res.status == expected_status, f"Exit code {code} did not produce {expected_status}"
+
+
+def test_pytest_command_with_junitxml_produces_failed_and_findings(tmp_path: Path):
+    ex = ValidationExecutor()
+    ctx = _context(tmp_path)
+    xml_report = tmp_path / "report.xml"
+    xml_report.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1" errors="0" failures="1" skipped="0">
+    <testcase classname="test_sample" name="test_broken" time="0.001">
+        <failure message="assert 1 == 2">def test_broken(): assert 1 == 2</failure>
+    </testcase>
+</testsuite>""",
+        encoding="utf-8",
+    )
+    exit_script = _script(tmp_path, "run_pytest.py", "import sys\nsys.exit(1)\n")
+    step = ValidationStep(
+        name="affected_tests",
+        step_type=ValidationStepType.COMMAND,
+        command=(sys.executable, str(exit_script)),
+        timeout_seconds=5,
+        allowed_exit_codes=(0, 1, 2, 3, 4, 5),
+        metadata={
+            "result_parser": "pytest",
+            "pytest_junitxml": str(xml_report),
+        },
+    )
+    res = ex.execute(ctx, step)
+    assert res.status == ValidationStatus.FAILED
+    assert len(res.findings) >= 1
+    assert any(f.code == "PYTEST_TEST_FAILED" for f in res.findings)
