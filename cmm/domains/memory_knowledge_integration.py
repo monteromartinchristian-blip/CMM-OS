@@ -59,6 +59,7 @@ DEFAULT_IMPACT_RELATION_KINDS: frozenset[str] = frozenset(
         "caused_by",
         "refines",
         "supersedes",
+        "related_to",
     }
 )
 
