@@ -309,52 +309,15 @@ class DefaultDomainOperationOrchestrator:
         # ── End Permission Gate ──────────────────────────────────────────
 
         started_at = self._clock()
-        transaction_id: str | None = None
-        checkpoint_id: str | None = None
-        if definition.reversible and self._transaction_manager is not None:
-            boundary, checkpoint_id = self._transaction_manager.start_transaction(
-                agent_run_id=request.agent_run_id,
-                goal_id=str(request.metadata.get("goal_id", "domain-operation")),
-                workflow_id=request.workflow_id,
-                iteration_id=request.task_id,
-                kind="compensable",
-                name=f"domain-operation:{definition.operation_id}",
-                resource_keys=definition.required_resources,
-                has_approval=approval_status is ApprovalRequestStatus.APPROVED,
-                requires_checkpoint=True,
-            )
-            transaction_id = boundary.id
-
-        common_request = AgentOperationRequest(
-            id=request.request_id,
-            agent_run_id=request.agent_run_id,
-            workflow_id=request.workflow_id,
-            task_id=request.task_id,
-            operation_name=request.operation_id,
-            operation_version=request.operation_version,
-            parameters=_thaw(request.inputs),
-            permissions=request.granted_permissions,
-            idempotency_key=request.idempotency_key,
-            approval_request_id=request.approval_request_id,
-            checkpoint_id=checkpoint_id,
-            created_at=request.created_at.isoformat(),
-            validation_requirements=self._resolve_host_validation_requirements(
-                definition, request
-            ),
-            validation_project_root=self._resolve_host_validation_root(request),
-            metadata={
-                **_thaw(request.metadata),
-                "transaction_boundary_id": transaction_id,
-                "domain_id": definition.domain_id,
-                "session_id": request.session_id,
-                "requires_validation": definition.validation_policy_id is not None,
-                "validation_policy_id": definition.validation_policy_id,
-                "validation_impact": getattr(request, "validation_impact", None),
-                "validation_changed_files": tuple(
-                    getattr(request, "validation_changed_files", ()) or ()
-                ),
-            },
+        # ── V6 preflight before transaction (MAJOR-V5-01) ─────────────
+        # Project validation/provider/root preflight and the required
+        # canonical before snapshot must succeed BEFORE a transaction/
+        # checkpoint is created. Any fail-closed preflight rejection then
+        # propagates with zero ACTIVE transaction/checkpoint residue.
+        validation_requirements = self._resolve_host_validation_requirements(
+            definition, request
         )
+        validation_project_root = self._resolve_host_validation_root(request)
         before_snapshot = None
         host_proj_root = self._resolve_host_validation_root(
             request, definition=definition
@@ -396,6 +359,50 @@ class DefaultDomainOperationOrchestrator:
                     },
                 )
 
+        transaction_id: str | None = None
+        checkpoint_id: str | None = None
+        if definition.reversible and self._transaction_manager is not None:
+            boundary, checkpoint_id = self._transaction_manager.start_transaction(
+                agent_run_id=request.agent_run_id,
+                goal_id=str(request.metadata.get("goal_id", "domain-operation")),
+                workflow_id=request.workflow_id,
+                iteration_id=request.task_id,
+                kind="compensable",
+                name=f"domain-operation:{definition.operation_id}",
+                resource_keys=definition.required_resources,
+                has_approval=approval_status is ApprovalRequestStatus.APPROVED,
+                requires_checkpoint=True,
+            )
+            transaction_id = boundary.id
+
+        common_request = AgentOperationRequest(
+            id=request.request_id,
+            agent_run_id=request.agent_run_id,
+            workflow_id=request.workflow_id,
+            task_id=request.task_id,
+            operation_name=request.operation_id,
+            operation_version=request.operation_version,
+            parameters=_thaw(request.inputs),
+            permissions=request.granted_permissions,
+            idempotency_key=request.idempotency_key,
+            approval_request_id=request.approval_request_id,
+            checkpoint_id=checkpoint_id,
+            created_at=request.created_at.isoformat(),
+            validation_requirements=validation_requirements,
+            validation_project_root=validation_project_root,
+            metadata={
+                **_thaw(request.metadata),
+                "transaction_boundary_id": transaction_id,
+                "domain_id": definition.domain_id,
+                "session_id": request.session_id,
+                "requires_validation": definition.validation_policy_id is not None,
+                "validation_policy_id": definition.validation_policy_id,
+                "validation_impact": getattr(request, "validation_impact", None),
+                "validation_changed_files": tuple(
+                    getattr(request, "validation_changed_files", ()) or ()
+                ),
+            },
+        )
         common_result = self._execution_adapter.execute(common_request)
         if not isinstance(common_result, AgentOperationExecutionResult):
             raise TypeError(
