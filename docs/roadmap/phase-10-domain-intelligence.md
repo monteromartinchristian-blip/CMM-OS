@@ -5926,7 +5926,7 @@ Activate
 The Project Domain will have to use the Validation System for any code changes.
 
 **Phase 10.43 status:** Implemented and pending independent audit.
-`DP-043=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-043=PASS_CONNECTED` (implementation
+`DP-043=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; `AT-DP-043=PASS_CONNECTED` (implementation
 evidence; independent audit has not yet run). Implementation boundary: six
 policy families (`DomainPackInstallationPolicy`, `DomainPackUpdatePolicy`,
 `DomainOperationPolicy`, `DomainWorkflowPolicy`,
@@ -5943,7 +5943,13 @@ specialized-result acceptance gate in `cmm/domains/operation_execution.py`
 over the generic Phase 9 `validation_requirements` seam;
 Phase 10.42 planner/workflow projection unchanged;
 connected acceptance
-`tests/domains/test_domain_validation_integration_dp043_acceptance.py`;
+`tests/domains/test_domain_validation_integration_dp043_acceptance.py`
+(including V3 provider-omission fail-closed, empty-requirements fail-closed,
+provider-independent specialized gate, Project affected-test rejection with
+repair, and impact escalation via the canonical Project change policy);
+V3 runtime: no metadata-only success for validation-mandated operations,
+`ProjectDomainChangePolicy` governs `project.modify_code` with canonical
+Phase 7 escalation, Phase 7 commit gate remains owner;
 reference `docs/reference/domain-validation-integration.md`. The
 independently audited boundary remains Phase 10.42 until ChatGPT returns
 PASS. Next action is independent audit preparation, not Phase 10.44.

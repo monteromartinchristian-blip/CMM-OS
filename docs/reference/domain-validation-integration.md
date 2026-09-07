@@ -1,7 +1,7 @@
 # Domain ↔ Validation System Integration (Phase 10.43)
 
 **Status:** Implemented and pending independent audit.
-`DP-043=IMPLEMENTED_PENDING_AUDIT`; `AT-DP-043=PASS_CONNECTED`
+`DP-043=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; `AT-DP-043=PASS_CONNECTED`
 (implementation evidence; independent audit has not yet run).
 
 **Independently audited boundary:** Phase 10.42 (unchanged until ChatGPT
@@ -37,7 +37,7 @@ Domain code changes — without creating parallel validation infrastructure.
 | Domain Pack structural validation | Existing `cmm.domains.validation.PipelineDomainValidator` | Extended with optional canonical `policy` parameter only |
 | Install gate | `cmm.domains.validation.ensure_domain_validation_allows_install` | Hardened fail-closed; update alias `ensure_domain_validation_allows_update` delegates to it |
 | Operation runtime validation | Phase 9 `cmm.agent_runtime.validation_execution_adapter.AgentValidationAdapter` via `cmm.agent_runtime.operation_execution_adapter.AgentExecutionAdapter` | Host-derived `ValidationRequirement`s on `AgentOperationRequest.validation_requirements` (built by `DefaultDomainOperationOrchestrator` from the canonical definition via the injected provider); PRE/POST requests carry stage-filtered requirements plus `validation_project_root`; unknown required validators raise `ValidationAdapterError` |
-| Operation validation provider | `cmm.domains.validation_integration.resolve_domain_operation_validation_requirements` (thin binding, injected into the orchestrator) | Maps definition → executable IDs: registration-time `domain_validation_requirement_ids`, built-in `project.modify_code` → `syntax_validator`/`ast_validator`, otherwise the policy identity itself (fail-closed); unions host-computed `additional_ids` (workflow/dependency/cross-domain) |
+| Operation validation provider | `cmm.domains.validation_integration.resolve_domain_operation_validation_requirements` (thin binding, injected into the orchestrator) | Maps definition → executable IDs via the canonical Project change policy for `project.modify_code` (impact-sensitive, fail-closed on unmappable steps: `formatter_check`/`lint`/`syntax_validator`/`ast_validator`/`affected_tests_step` for `small`), otherwise registration-time `domain_validation_requirement_ids`, built-in executable mapping, or the policy identity itself (fail-closed); unions host-computed `additional_ids` (workflow/dependency/cross-domain) with host-owned `validation_impact`/`validation_changed_files` typed channels and `resource_scope` propagation |
 | Workflow runtime bridge | `cmm.domains.operation_execution.build_domain_workflow_operation_adapter` | Routes operation nodes through the orchestrator with `DomainWorkflowPolicy`-bound additional IDs; required subworkflow nodes recurse through child executors sharing the adapter; maps results to `NodeExecution` |
 | Cross-domain runtime bridge | `cmm.domains.operation_execution.OrchestratedCrossDomainOperationPort` | Resolves coordinated operations canonically, derives the restrictive union via `compose_effective_validation_ids`, executes each through the orchestrator with `effective_validation_ids`, records the `CrossDomainExecutionPolicy` and effective set in result metadata |
 | Specialized result acceptance | `DefaultDomainOperationOrchestrator` outcome path + `validate_domain_specialized_result` | Identity-carrying outputs are structurally validated before `COMPLETED`; plain outputs pass through |
@@ -181,12 +181,19 @@ canonical result → existing Phase 9 decision
     (CONTINUE / BLOCK / RETRY / ROLLBACK / REPLAN / ESCALATE / PAUSE / ABORT)
 ```
 
-The orchestrator calls the injected provider
-(`operation_validation_provider`; `None` preserves the legacy
-metadata-only obligation for existing callers). Executable mapping:
+The orchestrator requires the injected provider for any validation-mandated
+operation: `operation_validation_provider=None` with a non-null
+`validation_policy_id` (or composition obligations) fails closed
+(`DomainValidationIntegrationError`, no metadata-only success). An empty
+mandatory requirement set (`requires_validation=True` with
+`validation_requirements=()`) fails closed at the canonical Agent execution
+boundary (`ValidationAdapterError`). Executable mapping:
 registration-time `domain_validation_requirement_ids` from the canonical
-definition win; otherwise `project.modify_code` resolves to
-`syntax_validator`/`ast_validator`; any other operation mandating
+definition win; `project.modify_code` resolves through the canonical
+`ProjectDomainChangePolicy` selected by host-owned impact
+(`resolve_project_domain_change_validation_ids`, deterministic fail-closed
+mapping `PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS`; unmappable mandatory
+steps raise instead of being silently omitted); any other operation mandating
 validation resolves to its policy identity, which the canonical adapter
 rejects fail-closed (`ValidationAdapterError`) when no capable step
 exists. Host-computed `effective_validation_ids` on the typed request
@@ -274,17 +281,31 @@ confidence, resolves contradictions, or infers facts. Production call
 site: `DefaultDomainOperationOrchestrator` invokes it on
 identity-carrying operation outputs before accepting `COMPLETED`
 (`_check_specialized_result_acceptance`); plain outputs without identity
-markers pass through untouched.
+markers pass through untouched. The gate is unconditional and
+provider-independent: invalid specialized results are rejected even when
+no `operation_validation_provider` is configured.
 
 ## Project Domain code-change validation
 
 `project.modify_code` retains its canonical declaration
 (`validation_policy_id="validation.project.modify_code"`). Runtime
-enforcement path: the orchestrator provider resolves it to the canonical
-executable code checks (`syntax_validator`, `ast_validator`) executed
-PRE and POST through the real `AgentValidationAdapter` → Phase 7 chain;
-a failing tree blocks execution and a regression introduced by the
-mutation blocks accepted success. `is_project_domain_code_mutation` /
+enforcement path: the orchestrator provider resolves it through the
+canonical `ProjectDomainChangePolicy` selected by host-owned impact
+(`build_project_domain_change_policy` → canonical Phase 7 policy →
+`resolve_project_domain_change_validation_ids` → Phase 9
+`ValidationRequirement` values with `resource_scope` carrying
+host-declared changed files → `AgentValidationAdapter` → Phase 7
+validators), executed PRE and POST through the real
+`AgentValidationAdapter` → Phase 7 chain. The `small` baseline requires
+`formatter_check`, `lint`, `syntax` (`syntax_validator`), `ast`
+(`ast_validator`), and `affected_tests` (`affected_tests_step`); a
+syntactically valid change that breaks an affected test is rejected and
+accepted only after current canonical validation passes. Stronger impacts
+(`structural`/`public`/`broad`/`high`/`full`) escalate to the corresponding
+canonical Phase 7 policies and fail closed on mandatory steps without an
+executable mapping (never silently downgraded to `small`). Caller metadata
+cannot lower host-owned impact (the stronger host-derived impact wins).
+`is_project_domain_code_mutation` /
 `project_change_requires_validation` identify code mutations semantically
 (not via caller metadata). `project.run_validation` availability never
 exempts a later mutation (availability is not evidence; only current
@@ -329,7 +350,7 @@ tests enforce this.
 ## DP-043
 
 `DP-043 — Canonical Domain Validation Integration`:
-`IMPLEMENTED_PENDING_AUDIT`. Final `VERIFIED_EXISTING` determination belongs
+`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`. Final `VERIFIED_EXISTING` determination belongs
 to the independent auditor.
 
 ## AT-DP-043
@@ -337,9 +358,13 @@ to the independent auditor.
 `tests/domains/test_domain_validation_integration_dp043_acceptance.py`:
 `PASS_CONNECTED` (implementation evidence). Covers real pack
 install/update through the canonical lifecycle, real operation PRE/POST
-through orchestrator → adapter → Phase 7, real workflow node execution
-including subworkflows, real cross-domain union through engine + port,
-real Project mutation fail→fix→pass with commit-gate ownership,
+through orchestrator → adapter → Phase 7, provider-omission fail-closed
+with adapter present, empty mandatory requirement fail-closed,
+unconditional specialized-result gate without provider, real workflow node
+execution including subworkflows, real cross-domain union through engine +
+port, real Project mutation fail→fix→pass with valid-syntax affected-test
+rejection and impact escalation through the canonical Project change
+policy, commit-gate ownership,
 specialized-result acceptance, and architectural proof using real
 canonical components and official in-memory implementations (no
 fixed-decision doubles, no manual unions in place of execution, no
