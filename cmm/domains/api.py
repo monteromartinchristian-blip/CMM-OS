@@ -547,5 +547,3 @@ class DefaultDomainAPI:
             memory_inventory=memory_inventory,
             inventory=inventory,
         )
-
-
