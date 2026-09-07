@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from cmm.validation.enums import ValidationStatus
+from cmm.validation.impact.analyzer import ChangeImpactAnalyzer
+from cmm.validation.impact.contracts import ChangeImpactResult, ChangeType
+from cmm.validation.impact.snapshots import ChangeSetBuilder
 from cmm.validation.results import ValidationResult
 
 _SUCCESS_STEP_STATUSES = frozenset({ValidationStatus.PASSED, ValidationStatus.WARNING})
@@ -689,6 +692,43 @@ def combine_validation_changed_files(
     return tuple(sorted(merged))
 
 
+#: Change kinds that always escalate beyond a local change, even when
+#: no individual affected symbol is reported.
+_PROJECT_STRUCTURAL_CHANGE_TYPES = frozenset(
+    {
+        ChangeType.PUBLIC_API_CHANGE,
+        ChangeType.SYMBOL_CHANGE,
+        ChangeType.IMPORT_CHANGE,
+        ChangeType.RENAMED_FILE,
+        ChangeType.NEW_FILE,
+        ChangeType.DELETED_FILE,
+    }
+)
+
+
+def project_policy_impact_from_canonical_result(
+    result: ChangeImpactResult,
+) -> str:
+    """Translate a canonical Phase 7 ``ChangeImpactResult`` to Project policy impact.
+
+    Thin adapter only: reads canonical result fields
+    (``requires_full_suite``, ``uncertainty``, ``public_api_changed``,
+    ``affected_symbols``, ``change_type``) and returns one of the existing
+    Project impact names (``small``/``structural``/``public``/``full``).
+    It never inspects source diffs itself. Conservative: any canonical
+    escalation signal escalates; only a clean local change maps to ``small``.
+    """
+    if result.requires_full_suite or tuple(result.uncertainty or ()):
+        return "full"
+    if result.public_api_changed:
+        return "public"
+    if tuple(result.affected_symbols or ()):
+        return "structural"
+    if result.change_type in _PROJECT_STRUCTURAL_CHANGE_TYPES:
+        return "structural"
+    return "small"
+
+
 def derive_host_project_change_impact(
     project_root: str | Path | None,
     changed_files: Iterable[str] = (),
@@ -698,82 +738,59 @@ def derive_host_project_change_impact(
 ) -> tuple[str, tuple[str, ...]]:
     """Derive canonical Phase 7 changed files and impact from host state.
 
-    Uses canonical Phase 7 ChangeSetBuilder, snapshots, and diff_python_sources.
-    Returns (impact_name, tuple_of_changed_files).
+    Two modes:
+
+    - Snapshot pair present (post-mutation): authoritative. Builds the
+      canonical ``ChangeSet`` via ``ChangeSetBuilder`` and consumes the
+      canonical ``ChangeImpactAnalyzer`` result through
+      ``project_policy_impact_from_canonical_result``. Any failure
+      (missing/unreadable root, builder/analyzer error) fails closed by
+      raising ``DomainValidationIntegrationError`` — never a silent
+      ``small`` fallback.
+    - No snapshots (pre-execution): provisional. The mutation does not
+      exist yet, so no host change can be derived; returns caller hints
+      only. POST validation re-derives authoritatively from the real
+      mutation ChangeSet.
     """
-    if not project_root:
-        files = tuple(str(f).strip() for f in changed_files if str(f).strip())
-        return "small", files
-
-    root = Path(project_root).resolve(strict=False)
-    if not root.exists():
-        files = tuple(str(f).strip() for f in changed_files if str(f).strip())
-        return "small", files
-
-    from cmm.validation.impact.diff import diff_python_sources
-    from cmm.validation.impact.snapshots import ChangeSetBuilder
-
-    derived_files: set[str] = set()
-    derived_impact: str = "small"
-
+    caller_files = tuple(
+        str(item).strip() for item in (changed_files or ()) if str(item).strip()
+    )
+    if before_snapshot is None or after_snapshot is None:
+        return "small", caller_files
+    if not project_root or not str(project_root).strip():
+        raise DomainValidationIntegrationError(
+            "project host change derivation requires a trusted project root",
+            details={"reason": "missing_project_root"},
+        )
+    root = Path(str(project_root))
+    if not root.exists() or not root.is_dir():
+        raise DomainValidationIntegrationError(
+            f"trusted project root '{root}' is missing or not a directory",
+            details={"reason": "invalid_project_root", "project_root": str(root)},
+        )
     try:
-        if before_snapshot is not None and after_snapshot is not None:
-            builder = ChangeSetBuilder()
-            change_set = builder._compare_snapshots(
-                project_root=root,
-                before=before_snapshot,
-                after=after_snapshot,
-                source="snapshots",
-                requires_full_suite=False,
-            )
-            for f in change_set.changed_files:
-                derived_files.add(str(f))
-
-            before_map = {str(item.path): item for item in before_snapshot.files}
-            after_map = {str(item.path): item for item in after_snapshot.files}
-            has_public = False
-            has_structural = False
-            has_import = False
-
-            for rel_path in change_set.changed_files:
-                p_str = str(rel_path)
-                if not p_str.endswith(".py"):
-                    continue
-                b_item = before_map.get(p_str)
-                a_item = after_map.get(p_str)
-                mod_name = p_str[:-3].replace("/", ".")
-                b_src = b_item.content if b_item and b_item.exists else None
-                a_src = a_item.content if a_item and a_item.exists else None
-                diff = diff_python_sources(
-                    module_name=mod_name,
-                    before_source=b_src,
-                    after_source=a_src,
-                )
-                if diff.public_api_changed:
-                    has_public = True
-                elif diff.signature_changed or diff.symbol_changes:
-                    has_structural = True
-                elif diff.import_changes:
-                    has_import = True
-
-            if has_public:
-                derived_impact = "public"
-            elif has_structural or has_import:
-                derived_impact = "structural"
-            else:
-                derived_impact = "small"
-        else:
-            for p in sorted(root.glob("*.py")):
-                if p.is_file() and not p.name.startswith((".", "test_")):
-                    try:
-                        rel = p.relative_to(root)
-                        derived_files.add(str(rel))
-                    except ValueError:
-                        derived_files.add(p.name)
-    except Exception:  # noqa: BLE001, S110 - best-effort derivation falls back safely
-        pass
-
-    return derived_impact, tuple(sorted(derived_files))
+        change_set = ChangeSetBuilder().build_from_snapshots(
+            project_root=root,
+            before=before_snapshot,
+            after=after_snapshot,
+        )
+    except DomainValidationIntegrationError:
+        raise
+    except Exception as exc:
+        raise DomainValidationIntegrationError(
+            "canonical Phase 7 ChangeSet derivation failed: refusing to validate",
+            details={"reason": "changeset_derivation_failed", "error": str(exc)},
+        ) from exc
+    try:
+        impact_result = ChangeImpactAnalyzer().analyze(change_set)
+    except Exception as exc:
+        raise DomainValidationIntegrationError(
+            "canonical Phase 7 change-impact analysis failed: refusing to validate",
+            details={"reason": "impact_analysis_failed", "error": str(exc)},
+        ) from exc
+    impact = project_policy_impact_from_canonical_result(impact_result)
+    host_files = tuple(sorted(str(path) for path in change_set.changed_files))
+    return impact, combine_validation_changed_files(host_files, caller_files)
 
 
 def resolve_operation_validation_ids(
@@ -950,6 +967,7 @@ __all__ = [
     "is_ignored_caller_validation_metadata",
     "is_project_domain_code_mutation",
     "project_change_requires_validation",
+    "project_policy_impact_from_canonical_result",
     "require_canonical_validation_success",
     "resolve_domain_operation_validation_requirements",
     "resolve_operation_validation_ids",

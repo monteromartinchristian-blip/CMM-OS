@@ -791,3 +791,145 @@ class TestV2Blocker02ProjectChangePolicy:
                 definition, impact="structural"
             )
         assert excinfo.value.details.get("reason") == "unmapped_mandatory_policy_step"
+
+
+def _project_snapshots(tmp_path, *, before_src: str, after_src: str):
+    """Scan canonical before/after snapshots for a nested src-layout module."""
+    from cmm.validation.impact.snapshots import scan_project_snapshot
+
+    module = tmp_path / "src" / "pkg" / "module.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(before_src, encoding="utf-8")
+    before = scan_project_snapshot(tmp_path, source="before")
+    module.write_text(after_src, encoding="utf-8")
+    after = scan_project_snapshot(tmp_path, source="after")
+    return before, after
+
+
+def _canonical_impact_result(tmp_path, *, before_src: str, after_src: str):
+    """Run the real ChangeSetBuilder → ChangeImpactAnalyzer path."""
+    from cmm.validation.impact import ChangeImpactAnalyzer, ChangeSetBuilder
+    from cmm.validation.impact.snapshots import scan_project_snapshot
+
+    module = tmp_path / "src" / "pkg" / "module.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(before_src, encoding="utf-8")
+    before = scan_project_snapshot(tmp_path, source="before")
+    module.write_text(after_src, encoding="utf-8")
+    after = scan_project_snapshot(tmp_path, source="after")
+    change_set = ChangeSetBuilder().build_from_snapshots(
+        project_root=tmp_path,
+        before=before,
+        after=after,
+    )
+    return ChangeImpactAnalyzer().analyze(change_set)
+
+
+class TestCanonicalChangeImpactOwnership:
+    """Phase 10.43 V5: Project impact is owned by Phase 7, not Domain code."""
+
+    def test_domain_layer_has_no_local_impact_classifier(self) -> None:
+        import inspect
+
+        import cmm.domains.validation_integration as mod
+
+        assert "diff_python_sources" not in inspect.getsource(mod)
+
+    def test_canonical_body_only_change_maps_to_small_policy(self, tmp_path) -> None:
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
+        )
+
+        result = _canonical_impact_result(
+            tmp_path,
+            before_src="def add(a, b):\n    return a + b\n",
+            after_src="def add(a, b):\n    return a - b\n",
+        )
+        assert result.requires_full_suite is False
+        assert result.public_api_changed is False
+        assert project_policy_impact_from_canonical_result(result) == "small"
+
+    def test_canonical_signature_change_maps_to_structural_policy(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
+        )
+
+        result = _canonical_impact_result(
+            tmp_path,
+            before_src="def add(a, b):\n    return a + b\n",
+            after_src="def add(a, b, c=0):\n    return a + b + c\n",
+        )
+        assert project_policy_impact_from_canonical_result(result) == "structural"
+
+    def test_canonical_public_api_change_cannot_collapse_to_small(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
+        )
+
+        result = _canonical_impact_result(
+            tmp_path,
+            before_src="def add(a, b):\n    return a + b\n",
+            after_src="def total(a, b):\n    return a + b\n",
+        )
+        assert result.public_api_changed is True
+        assert project_policy_impact_from_canonical_result(result) != "small"
+
+    def test_requires_full_suite_cannot_collapse_to_small(self) -> None:
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
+        )
+        from cmm.validation.impact import ChangeImpactResult, ChangeType
+
+        result = ChangeImpactResult(
+            change_type=ChangeType.STRUCTURAL_CHANGE,
+            affected_modules=("pkg.module",),
+            affected_symbols=(),
+            affected_tests=(),
+            public_api_changed=False,
+            confidence=0.9,
+            requires_full_suite=True,
+            uncertainty=(),
+        )
+        assert project_policy_impact_from_canonical_result(result) != "small"
+
+    def test_uncertainty_cannot_collapse_to_small(self) -> None:
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
+        )
+        from cmm.validation.impact import ChangeImpactResult, ChangeType
+
+        result = ChangeImpactResult(
+            change_type=ChangeType.STRUCTURAL_CHANGE,
+            affected_modules=("pkg.module",),
+            affected_symbols=(),
+            affected_tests=(),
+            public_api_changed=False,
+            confidence=0.9,
+            requires_full_suite=False,
+            uncertainty=("python_change_without_diff",),
+        )
+        assert project_policy_impact_from_canonical_result(result) != "small"
+
+    def test_derive_host_change_uses_canonical_analyzer_for_snapshot_pair(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            derive_host_project_change_impact,
+        )
+
+        before, after = _project_snapshots(
+            tmp_path,
+            before_src="def add(a, b):\n    return a + b\n",
+            after_src="def add(a, b):\n    return a - b\n",
+        )
+        impact, files = derive_host_project_change_impact(
+            str(tmp_path),
+            before_snapshot=before,
+            after_snapshot=after,
+        )
+        assert impact == "small"
+        assert files == ("src/pkg/module.py",)
