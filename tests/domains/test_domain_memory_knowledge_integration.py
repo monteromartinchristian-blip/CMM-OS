@@ -6,7 +6,7 @@ import pytest
 
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import KnowledgeKind, KnowledgeRelationKind
-from cmm.cognitive.knowledge import KnowledgeItem, KnowledgeRelation
+from cmm.cognitive.knowledge import Contradiction, KnowledgeItem, KnowledgeRelation
 from cmm.cognitive.store_memory import InMemoryKnowledgeStore
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
@@ -18,6 +18,8 @@ from cmm.domains.memory_contracts import (
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
     DomainMemoryReferenceKind,
+    DomainMemoryTemporalKind,
+    DomainMemoryTemporalSnapshot,
     DomainMemoryViewRequest,
 )
 from cmm.domains.memory_knowledge_integration import (
@@ -36,6 +38,9 @@ def _make_ref(
     canonical_id: str,
     domain_id: str = "domain:health",
     applicable_domains: tuple[str, ...] = (),
+    temporal: DomainMemoryTemporalSnapshot | None = None,
+    has_unknown_ordering: bool = False,
+    superseded_by_id: str | None = None,
 ) -> DomainMemoryReference:
     return DomainMemoryReference(
         reference_id=ref_id,
@@ -43,6 +48,9 @@ def _make_ref(
         canonical_id=canonical_id,
         domain_id=domain_id,
         applicable_domains=applicable_domains,
+        temporal=temporal,
+        has_unknown_ordering=has_unknown_ordering,
+        superseded_by_id=superseded_by_id,
         evidence_ids=(f"ev:{ref_id}",),
         resource_ids=(f"res:{ref_id}",),
     )
@@ -55,6 +63,8 @@ def _setup_view_and_request(
     references: tuple[DomainMemoryReference, ...] = (),
     permission_decisions: tuple[DomainMemoryPermissionDecisionSnapshot, ...] = (),
     req_permission_ids: tuple[str, ...] = (),
+    requested_capabilities: tuple[DomainMemoryKnowledgeProjectionCapability, ...]
+    | None = None,
 ) -> tuple[
     DomainMemoryKnowledgeProjectionRequest,
     DomainMemoryViewRequest,
@@ -74,6 +84,15 @@ def _setup_view_and_request(
     )
     view = DefaultDomainMemoryViewResolver().resolve(memory_request, memory_inventory)
 
+    caps = (
+        requested_capabilities
+        if requested_capabilities is not None
+        else (
+            DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+        )
+    )
+
     request = DomainMemoryKnowledgeProjectionRequest(
         request_id="proj_req:1",
         primary_domain=DomainId(primary_domain.removeprefix("domain:")),
@@ -86,10 +105,7 @@ def _setup_view_and_request(
         composition_reference_id="comp_ref:1",
         permission_decision_ids=req_permission_ids
         or tuple(p.decision_id for p in permission_decisions),
-        requested_capabilities=(
-            DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
-            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
-        ),
+        requested_capabilities=caps,
     )
     inventory = DomainMemoryKnowledgeInventory()
     return request, memory_request, view, memory_inventory, inventory
@@ -393,3 +409,217 @@ def test_relation_preserves_canonical_kind_without_causal_strengthening() -> Non
     assert rel_ref.kind == "related_to"
     assert rel_ref.kind != "affects"
     assert rel_ref.kind != "caused_by"
+
+
+# ── Task 4: Timeline and Contradiction projection tests ───────────────────
+
+
+def test_timeline_ordering_and_unknown_ordering_separation() -> None:
+    t1 = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.TIMELESS,
+        valid_from="2026-01-01T09:00:00+00:00",
+        observed_at="2026-01-01T09:00:00+00:00",
+    )
+    t2 = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.TIMELESS,
+        valid_from="2026-02-01T09:00:00+00:00",
+        observed_at="2026-02-01T09:00:00+00:00",
+    )
+    t_unk = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.UNKNOWN,
+    )
+
+    ref_t2 = _make_ref("ref:t2", "item:t2", temporal=t2)
+    ref_t1 = _make_ref("ref:t1", "item:t1", temporal=t1)
+    ref_unk = _make_ref(
+        "ref:unk", "item:unk", temporal=t_unk, has_unknown_ordering=True
+    )
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref_t2, ref_t1, ref_unk),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.TIMELINE,
+            DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
+        ),
+    )
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Deterministic chronological timeline ordering
+    assert projection.timeline_reference_ids == ("ref:t1", "ref:t2")
+    # Unknown ordering collected separately and never assigned a guessed position
+    assert projection.unknown_ordering_reference_ids == ("ref:unk",)
+
+
+def test_timeline_does_not_merge_incompatible_periods() -> None:
+    t_old = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.TIMELESS,
+        valid_from="2025-01-01T00:00:00+00:00",
+        valid_to="2025-06-01T00:00:00+00:00",
+    )
+    t_new = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.TIMELESS,
+        valid_from="2026-01-01T00:00:00+00:00",
+        valid_to="2026-06-01T00:00:00+00:00",
+    )
+    ref_old = _make_ref("ref:old", "item:old", temporal=t_old)
+    ref_new = _make_ref("ref:new", "item:new", temporal=t_new)
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref_old, ref_new),
+        permission_decisions=(perm,),
+        requested_capabilities=(DomainMemoryKnowledgeProjectionCapability.TIMELINE,),
+    )
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Disjoint intervals are not combined into a synthetic period
+    assert projection.timeline_reference_ids == ("ref:old", "ref:new")
+    # Verified projection schema contains no synthetic period fields
+    assert "combined_period" not in projection.to_dict()
+    assert "synthetic_interval" not in projection.to_dict()
+
+
+def test_canonical_contradiction_projection() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.CONTRADICTIONS,
+            DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
+        ),
+    )
+
+    canonical_contra = Contradiction(
+        id="contra:1",
+        item_a_id="item:b",
+        item_b_id="item:a",
+    )
+    inv = DomainMemoryKnowledgeInventory(contradictions=(canonical_contra,))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert len(projection.contradiction_refs) == 1
+    c_ref = projection.contradiction_refs[0]
+    assert c_ref.contradiction_id == "contra:1"
+    # Canonically sorted participant references
+    assert c_ref.reference_ids == ("ref:a", "ref:b")
+
+
+def test_contradiction_suppressed_when_participant_hidden() -> None:
+    ref_a = _make_ref("ref:a", "item:a", domain_id="domain:health")
+    ref_b = _make_ref("ref:b", "item:b", domain_id="domain:university")
+    # Health only, university denied
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:health_only",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.CONTRADICTIONS,
+        ),
+    )
+
+    canonical_contra = Contradiction(
+        id="contra:1",
+        item_a_id="item:a",
+        item_b_id="item:b",
+    )
+    inv = DomainMemoryKnowledgeInventory(contradictions=(canonical_contra,))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Participant item:b is hidden -> contradiction suppressed
+    assert projection.contradiction_refs == ()
+
+
+def test_succession_is_not_treated_as_contradiction() -> None:
+    ref_newer = _make_ref("ref:newer", "item:newer")
+    ref_older = _make_ref(
+        "ref:older",
+        "item:older",
+        superseded_by_id="item:newer",
+    )
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref_older, ref_newer),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.CONTRADICTIONS,
+        ),
+    )
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Succession alone never synthesizes a contradiction
+    assert projection.contradiction_refs == ()

@@ -7,6 +7,8 @@ Agent Runtime update proposals.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
     DomainMemoryKnowledgeProjectionError,
@@ -14,6 +16,7 @@ from cmm.domains.errors import (
 from cmm.domains.memory_contracts import (
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
+    DomainMemoryTemporalKind,
     DomainMemoryView,
     DomainMemoryViewRequest,
 )
@@ -163,9 +166,98 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                 )
 
         relation_refs = tuple(sorted(relation_refs_list, key=lambda r: r.relation_id))
+
+        # 6. Timeline and unknown ordering projection
         timeline_ref_ids: tuple[str, ...] = ()
         unknown_ordering_ids: tuple[str, ...] = ()
+        if (
+            DomainMemoryKnowledgeProjectionCapability.TIMELINE
+            in request.requested_capabilities
+        ):
+            timeline_items: list[tuple[datetime, str]] = []
+            unknown_set: set[str] = set()
+
+            for r in selected_refs:
+                if r.has_unknown_ordering:
+                    unknown_set.add(r.reference_id)
+                    continue
+
+                if (
+                    r.temporal is None
+                    or r.temporal.kind == DomainMemoryTemporalKind.UNKNOWN
+                ):
+                    if r.temporal is not None or r.has_unknown_ordering:
+                        unknown_set.add(r.reference_id)
+                    continue
+
+                anchor_str = (
+                    r.temporal.valid_from
+                    or r.temporal.observed_at
+                    or r.temporal.last_verified_at
+                    or r.temporal.valid_to
+                    or r.temporal.expires_at
+                )
+                if not anchor_str:
+                    unknown_set.add(r.reference_id)
+                    continue
+
+                try:
+                    dt = datetime.fromisoformat(anchor_str)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    timeline_items.append((dt, r.reference_id))
+                except (ValueError, TypeError):
+                    unknown_set.add(r.reference_id)
+
+            for d in view.excluded_decisions:
+                if d.code.value in (
+                    "excluded_ordering_unknown",
+                    "excluded_temporal_unknown",
+                ):
+                    unknown_set.add(d.reference_id)
+
+            timeline_items.sort(key=lambda item: (item[0], item[1]))
+            timeline_ref_ids = tuple(item[1] for item in timeline_items)
+            unknown_ordering_ids = tuple(sorted(unknown_set))
+
+        # 7. Canonical contradiction projection
         contradiction_refs: tuple[DomainMemoryKnowledgeContradictionRef, ...] = ()
+        if (
+            DomainMemoryKnowledgeProjectionCapability.CONTRADICTIONS
+            in request.requested_capabilities
+        ):
+            c_refs_list: list[DomainMemoryKnowledgeContradictionRef] = []
+            for c in inventory.contradictions:
+                src_ref = ref_by_canonical_id.get(c.item_a_id)
+                tgt_ref = ref_by_canonical_id.get(c.item_b_id)
+                if src_ref is None or tgt_ref is None:
+                    # Partial participant missing / hidden -> fail closed
+                    continue
+                if src_ref.reference_id == tgt_ref.reference_id:
+                    continue
+
+                res_ref_id: str | None = None
+                if (
+                    getattr(c, "preferred_id", None)
+                    and c.preferred_id in ref_by_canonical_id
+                ):
+                    res_ref_id = ref_by_canonical_id[c.preferred_id].reference_id
+                elif getattr(c, "resolution_reference_id", None) is not None:
+                    res_ref_id = c.resolution_reference_id
+
+                c_refs_list.append(
+                    DomainMemoryKnowledgeContradictionRef(
+                        contradiction_id=c.id,
+                        reference_ids=tuple(
+                            sorted([src_ref.reference_id, tgt_ref.reference_id])
+                        ),
+                        resolution_reference_id=res_ref_id,
+                    )
+                )
+            contradiction_refs = tuple(
+                sorted(c_refs_list, key=lambda x: x.contradiction_id)
+            )
+
         dependency_paths: tuple[DomainMemoryKnowledgePath, ...] = ()
         impact_paths: tuple[DomainMemoryKnowledgePath, ...] = ()
         proposal_binding_ids: tuple[str, ...] = ()
