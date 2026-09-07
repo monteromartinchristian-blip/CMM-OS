@@ -1,11 +1,12 @@
 # Domain ↔ Validation System Integration (Phase 10.43)
 
-**Status:** Implemented and pending independent audit.
-`DP-043=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; `AT-DP-043=PASS_CONNECTED`
-(implementation evidence; independent audit has not yet run).
+**Status:** Complete, independently audited and closed.
+`DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`; final independent re-audit **V6** `PASS`.
+**Audited implementation HEAD:** `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`.
+**Audit V6 bundle SHA-256:** `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
+**Final independent audit:** `docs/audits/phase-10.43-independent-final-reaudit-v6.md`.
 
-**Independently audited boundary:** Phase 10.42 (unchanged until ChatGPT
-returns PASS for Phase 10.43).
+**Independently audited boundary:** Phase 10.43.
 
 Phase 10.43 is an **integration phase, not a new validation system**. Domain
 Intelligence declares specialized validation policies and obligations; all
@@ -213,7 +214,9 @@ the host-registered operation implementation declares its execution root
 via `host_project_root`, and caller metadata `validation_project_root` is
 at most a transport hint that must resolve to the same tree (mismatch
 rejects the request; missing/undeclared/invalid host roots fail closed
-before any mutation). For other operations the legacy deployment-setting
+before any mutation). Project validation/provider/root/before-snapshot preflight
+completes before `TransactionManager.start_transaction()`, so rejected preflight
+leaves zero active transaction/checkpoint residue. For other operations the legacy deployment-setting
 behavior is preserved; requirement sets always stay host-derived.
 
 Helpers in `cmm.domains.validation_integration`:
@@ -412,14 +415,13 @@ tests enforce this.
 
 ## DP-043
 
-`DP-043 — Canonical Domain Validation Integration`:
-`IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`. Final `VERIFIED_EXISTING` determination belongs
-to the independent auditor.
+`DP-043 — Canonical Domain Validation Integration`: `VERIFIED_EXISTING`.
+Verified by final independent re-audit **V6** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, and `CLOSURE_ELIGIBLE=YES`.
 
 ## AT-DP-043
 
 `tests/domains/test_domain_validation_integration_dp043_acceptance.py`:
-`PASS_CONNECTED` (implementation evidence). Covers real pack
+`PASS` (final independent V6 acceptance). Covers real pack
 install/update through the canonical lifecycle, real operation PRE/POST
 through orchestrator → adapter → Phase 7, provider-omission fail-closed
 with adapter present, empty mandatory requirement fail-closed,

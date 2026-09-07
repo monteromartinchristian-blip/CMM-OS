@@ -495,4 +495,4 @@ nodes, and never bypassed; broader validation-system ownership stays with
 Phase 10.43.
 
 
-**Final V12 closure evidence:** Independent Re-Audit **V12** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Phase 10.42 is complete, independently audited and closed. Phase 10.43 remains outside this reference and is the next milestone.
+**Final V12 closure evidence:** Independent Re-Audit **V12** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Phase 10.42 is complete, independently audited and closed. Phase 10.43 remains outside the implementation scope of this Phase 10.42 reference and is now complete, independently audited and closed after final independent re-audit V6 `PASS`.

@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.42 — Integration with Planner and Workflow Engine**. Final independent re-audit **V12** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`. **Phase 10.43 — Integration with Validation System** is implemented and pending independent audit; the audited boundary remains 10.42 until ChatGPT returns PASS.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.43 — Integration with Validation System**. Final independent re-audit **V6** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`; audit V6 bundle SHA-256 `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
 
 ⸻
 
@@ -5860,7 +5860,7 @@ The Planner should not:
 
 ⸻
 
-**Phase 10.42 status:** Complete — independently audited and closed. Final independent re-audit **V12**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`; independent report `docs/audits/phase-10.42-independent-reaudit-v12.md`. Canonical integrator `cmm/domains/planner_workflow_integration.py`; contracts `cmm/domains/planner_workflow_integration_contracts.py`; reference `docs/reference/domain-planner-workflow-integration.md`. **Phase 10.43 — Integration with Validation System** is implemented and pending independent audit (see 10.43 status below).
+**Phase 10.42 status:** Complete — independently audited and closed. Final independent re-audit **V12**: `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-042=VERIFIED_EXISTING`; `AT-DP-042=PASS`; `CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD `f3fabd15865fb9ede792e041eede9ba403b8f586`; audit V12 bundle SHA-256 `5584102dfe682cf035d9092cc0fffd5c151e21dc8c46c8f7e835471eee90f9c4`; independent report `docs/audits/phase-10.42-independent-reaudit-v12.md`. Canonical integrator `cmm/domains/planner_workflow_integration.py`; contracts `cmm/domains/planner_workflow_integration_contracts.py`; reference `docs/reference/domain-planner-workflow-integration.md`. **Phase 10.43 — Integration with Validation System** is complete, independently audited and closed after final independent re-audit **V6** `PASS`.
 
 ⸻
 
@@ -5925,9 +5925,13 @@ Activate
 
 The Project Domain will have to use the Validation System for any code changes.
 
-**Phase 10.43 status:** Implemented and pending independent audit.
-`DP-043=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`; `AT-DP-043=PASS_CONNECTED` (implementation
-evidence; independent audit has not yet run). Implementation boundary: six
+**Phase 10.43 status:** Complete — independently audited and closed.
+**Final independent re-audit V6:** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`.
+**Audited implementation HEAD:** `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`.
+**Audit V6 bundle SHA-256:** `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
+**Final independent audit report:** `docs/audits/phase-10.43-independent-final-reaudit-v6.md`.
+**Final audit-report commit:** `494d8b98afb7ce885b779f1cc4b3b7e15e61509f`.
+Implementation boundary: six
 policy families (`DomainPackInstallationPolicy`, `DomainPackUpdatePolicy`,
 `DomainOperationPolicy`, `DomainWorkflowPolicy`,
 `CrossDomainExecutionPolicy`, `ProjectDomainChangePolicy`) in
@@ -5964,8 +5968,8 @@ covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
 reference `docs/reference/domain-validation-integration.md`. The
-independently audited boundary remains Phase 10.42 until ChatGPT returns
-PASS. Next action is independent audit preparation, not Phase 10.44.
+independently audited Domain Intelligence boundary now extends through Phase 10.43.
+Phase 10.44 remains not started and is the next milestone after this closure commit.
 
 ⸻
 
