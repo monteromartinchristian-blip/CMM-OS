@@ -707,6 +707,8 @@ def resolve_project_domain_change_validation_ids(
             )
         executable.extend(mapped)
     return _clean_required_ids(tuple(executable) + tuple(additional_ids or ()))
+
+
 def resolve_domain_operation_validation_requirements(
     definition: object,
     additional_ids: tuple[str, ...] = (),
