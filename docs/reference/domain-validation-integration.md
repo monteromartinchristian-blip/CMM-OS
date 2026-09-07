@@ -181,6 +181,15 @@ canonical result → existing Phase 9 decision
     (CONTINUE / BLOCK / RETRY / ROLLBACK / REPLAN / ESCALATE / PAUSE / ABORT)
 ```
 
+For `project.modify_code` the flow above is specialized: only PRE
+requirements travel with the pre-mutation request. After the mutation, the
+orchestrator captures the after snapshot, derives the actual canonical
+Phase 7 `ChangeSet`/`ChangeImpactResult`, materializes POST requirements
+from that post-change truth, and executes them through the same canonical
+`AgentValidationAdapter` (`_run_post_mutation_project_validation`).
+Pre-mutation scope is never reused for POST. See "Project Domain
+code-change validation" below.
+
 The orchestrator requires the injected provider for any validation-mandated
 operation: `operation_validation_provider=None` with a non-null
 `validation_policy_id` (or composition obligations) fails closed
@@ -199,18 +208,28 @@ rejects fail-closed (`ValidationAdapterError`) when no capable step
 exists. Host-computed `effective_validation_ids` on the typed request
 channel union in additional composition obligations (monotonic; callers
 can only add, never remove, definition-derived requirements).
-`validation_project_root` scopes file selection (deployment setting, the
-established Phase 9 pattern); requirement sets stay host-derived.
+For `project.modify_code`, `validation_project_root` is host authority:
+the host-registered operation implementation declares its execution root
+via `host_project_root`, and caller metadata `validation_project_root` is
+at most a transport hint that must resolve to the same tree (mismatch
+rejects the request; missing/undeclared/invalid host roots fail closed
+before any mutation). For other operations the legacy deployment-setting
+behavior is preserved; requirement sets always stay host-derived.
 
 Helpers in `cmm.domains.validation_integration`:
 `domain_operation_requires_validation`,
 `resolve_operation_validation_ids` (pure ID union),
-`resolve_domain_operation_validation_requirements` (PRE+POST),
+`resolve_domain_operation_validation_requirements` (PRE+POST for ordinary
+operations; PRE-only for `project.modify_code`, whose POST is recomputed
+post-mutation),
 `build_operation_validation_requirements` (preserves every host-derived ID
 as required/blocking so unknown mandatory IDs fail closed in the canonical
-adapter). Canonical validation evidence references are retained on
-`DomainOperationResult.metadata["validation_result_ids"]` (reference-only).
-No competing decision model was added. Missing adapter with
+adapter), `project_policy_impact_from_canonical_result` (thin adapter from
+canonical `ChangeImpactResult` fields to Project policy impact; no source
+re-classification). Canonical validation evidence references are retained on
+`DomainOperationResult.metadata["validation_result_ids"]` (reference-only),
+including the authoritative post-mutation POST result. No competing
+decision model was added. Missing adapter with
 `requires_validation=True` raises the existing Phase 9
 `ValidationAdapterError` (fail closed, no silent skip).
 
@@ -298,10 +317,37 @@ host-derived changed files → `AgentValidationAdapter` → Phase 7
 validators), executed PRE and POST through the real
 `AgentValidationAdapter` → Phase 7 chain.
 
-Host change derivation and monotonic combination (V4 remediation):
-- Canonical change scope and impact are derived directly from the host
-  project directory using canonical Phase 7 `ChangeSetBuilder`, snapshot
-  differencing, and `diff_python_sources` (`derive_host_project_change_impact`).
+Host change derivation and monotonic combination (V5 remediation):
+- Project impact owner is the canonical Phase 7 `ChangeImpactAnalyzer`.
+  `derive_host_project_change_impact` builds the canonical `ChangeSet`
+  via `ChangeSetBuilder.build_from_snapshots` from in-memory before/after
+  snapshots (`scan_project_snapshot`), runs `ChangeImpactAnalyzer.analyze`,
+  and translates the canonical result to Project policy impact with
+  `project_policy_impact_from_canonical_result` (preserves
+  `requires_full_suite`, `uncertainty`, `public_api_changed`,
+  `affected_symbols`, and structural change kinds; only a clean local
+  change maps to `small`). Domain code does not classify Python
+  source diffs independently.
+- Pre-execution scope is provisional: before the mutation exists, no host
+  change can be derived, so only caller hints are carried. There is no
+  top-level-file heuristic; nested/src-layout files are discovered from
+  the real mutation ChangeSet.
+- Post-execution POST is authoritative:
+  `DefaultDomainOperationOrchestrator._run_post_mutation_project_validation`
+  captures the after snapshot, derives the actual changed files and
+  canonical impact, materializes POST requirements from post-change
+  truth, and executes them through the same canonical
+  `AgentValidationAdapter`. Pre-mutation scope is never reused.
+- Fail-closed derivation: missing/undeclared/mismatched/unreadable host
+  root, before/after snapshot capture failure, `ChangeSetBuilder` or
+  `ChangeImpactAnalyzer` failure, unmappable mandatory policy steps, empty
+  POST requirement set, missing POST adapter, POST infrastructure failure,
+  or a non-`CONTINUE` POST decision all prevent acceptance. Pre-mutation
+  failures raise `DomainValidationIntegrationError` before execution;
+  post-mutation failures roll back via `_failure_with_rollback` (rejected
+  with `POST_VALIDATION_FAILED`) using the configured rollback executor —
+  the canonical `CheckpointRestorationRollbackExecutor` in acceptance,
+  which restores mutated file content, not just status.
 - Host-derived impact and caller hints are combined monotonically via
   `combine_validation_impacts` using the strict severity hierarchy
   (`small` < `structural` < `public` < `broad`/`high`/`full`). Caller hints
@@ -309,14 +355,6 @@ Host change derivation and monotonic combination (V4 remediation):
 - Changed files are union-merged via `combine_validation_changed_files`.
   Caller hints cannot hide or remove host-changed files from the validation
   scope.
-- Post-execution escalation safeguard: `DefaultDomainOperationOrchestrator`
-  captures a project snapshot before execution and scans after execution. If
-  the resulting diff escalates impact beyond `small` (structural or public API
-  change), the orchestrator resolves the escalated policy requirements; if any
-  mandatory policy step lacks an executable validator mapping (or was not
-  executed), the orchestrator fails closed (rolls back and rejects with
-  `VALIDATION_ESCALATION_FAILED`), refusing to accept the mutation with only
-  `small_change` validation.
 - Command result parser fail-closed hardening: in `CommandResultParser.parse()`,
   a non-zero pytest exit code with a missing XML report fails closed with
   `PYTEST_TEST_FAILED` (exit code is authoritative failure evidence); zero
@@ -388,10 +426,12 @@ with adapter present, empty mandatory requirement fail-closed,
 unconditional specialized-result gate without provider, real workflow node
 execution including subworkflows, real cross-domain union through engine +
 port, real Project mutation fail→fix→pass with valid-syntax affected-test
-rejection verified via failure evidence and host change derivation without
-caller hints, impact escalation via real runtime operations (structural
-and public API changes) that fail closed with rollback when unmapped
-mandatory policy steps exist, commit-gate ownership, specialized-result
+rejection verified via failure evidence, nested src-layout regression
+blocked by affected_tests from the actual mutation ChangeSet with no
+caller hints, caller decoy-root rejection against the trusted host root,
+canonical `ChangeImpactAnalyzer` escalation (structural/public) failing
+closed with canonical file-content restoration, post-mutation
+derivation-failure fail-closed, commit-gate ownership, specialized-result
 acceptance, and architectural proof using real canonical components and
 official in-memory implementations (no fixed-decision doubles, no manual
 unions in place of execution, no synthetic validation results on

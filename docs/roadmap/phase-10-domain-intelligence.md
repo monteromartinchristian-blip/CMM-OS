@@ -5954,6 +5954,15 @@ post-execution snapshot escalation check with rollback, command result parser
 fail-closed hardening (pytest non-zero exit without XML, ruff non-zero exit without diagnostics),
 `ProjectDomainChangePolicy` governs `project.modify_code` with canonical Phase 7
 escalation, Phase 7 commit gate remains owner;
+V5 runtime: Project impact owner is the canonical Phase 7 `ChangeImpactAnalyzer`
+(`ChangeSetBuilder.build_from_snapshots` over before/after host snapshots; Domain
+local classifier removed), validation root is the trusted host-registered
+implementation root (caller metadata is a match-checked hint only), POST
+validation is recomputed post-mutation from the actual ChangeSet through the
+same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
+covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
+and post-validation rejection uses canonical rollback restoration
+(`CheckpointRestorationRollbackExecutor`);
 reference `docs/reference/domain-validation-integration.md`. The
 independently audited boundary remains Phase 10.42 until ChatGPT returns
 PASS. Next action is independent audit preparation, not Phase 10.44.
