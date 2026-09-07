@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from cmm.cognitive.contracts import Confidence
-from cmm.cognitive.enums import KnowledgeKind
-from cmm.cognitive.knowledge import KnowledgeItem
+from cmm.cognitive.enums import KnowledgeKind, KnowledgeRelationKind
+from cmm.cognitive.knowledge import KnowledgeItem, KnowledgeRelation
 from cmm.cognitive.store_memory import InMemoryKnowledgeStore
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
@@ -266,3 +266,130 @@ def test_projection_does_not_mutate_cognitive_store() -> None:
 
     assert projection.selected_reference_ids == ("ref:1",)
     assert store.count_items() == initial_count
+
+
+# ── Task 3: Relation projection tests ──────────────────────────────────────
+
+
+def test_canonical_relation_projection_maps_authorized_endpoints() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+    )
+
+    canonical_rel = KnowledgeRelation(
+        id="rel:a_to_b",
+        source_id="item:a",
+        target_id="item:b",
+        kind=KnowledgeRelationKind.SUPPORTS,
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert len(projection.relation_refs) == 1
+    rel_ref = projection.relation_refs[0]
+    assert rel_ref.relation_id == "rel:a_to_b"
+    assert rel_ref.source_reference_id == "ref:a"
+    assert rel_ref.target_reference_id == "ref:b"
+    assert rel_ref.kind == "supports"
+
+
+def test_relation_suppressed_when_endpoint_hidden() -> None:
+    ref_a = _make_ref("ref:a", "item:a", domain_id="domain:health")
+    ref_b = _make_ref("ref:b", "item:b", domain_id="domain:university")
+    # Only allow domain:health, domain:university is denied/excluded
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:health_only",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+    )
+
+    canonical_rel = KnowledgeRelation(
+        id="rel:a_to_b",
+        source_id="item:a",
+        target_id="item:b",
+        kind=KnowledgeRelationKind.SUPPORTS,
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Endpoint item:b is hidden -> relation must NOT be emitted
+    assert projection.relation_refs == ()
+    # Hidden endpoint must not leak
+    assert "ref:b" not in projection.selected_reference_ids
+    assert "item:b" not in str(projection.to_dict())
+
+
+def test_relation_preserves_canonical_kind_without_causal_strengthening() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+    )
+
+    # Weaker relation: RELATED_TO
+    canonical_rel = KnowledgeRelation(
+        id="rel:related",
+        source_id="item:a",
+        target_id="item:b",
+        kind=KnowledgeRelationKind.RELATED_TO,
+        confidence=Confidence(value=0.8),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert len(projection.relation_refs) == 1
+    rel_ref = projection.relation_refs[0]
+    # Exact canonical kind, no causal promotion
+    assert rel_ref.kind == "related_to"
+    assert rel_ref.kind != "affects"
+    assert rel_ref.kind != "caused_by"

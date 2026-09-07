@@ -133,7 +133,36 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                 )
             )
 
-        relation_refs: tuple[DomainMemoryKnowledgeRelationRef, ...] = ()
+        # 5. Canonical relation projection
+        ref_by_canonical_id = {r.canonical_id: r for r in selected_refs}
+        relation_refs_list: list[DomainMemoryKnowledgeRelationRef] = []
+        if (
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS
+            in request.requested_capabilities
+        ):
+            for rel in inventory.relations:
+                src_ref = ref_by_canonical_id.get(rel.source_id)
+                tgt_ref = ref_by_canonical_id.get(rel.target_id)
+                if src_ref is None or tgt_ref is None:
+                    # Endpoint hidden or unavailable -> suppress relation fail-closed
+                    continue
+                if src_ref.reference_id == tgt_ref.reference_id:
+                    continue
+                kind_val = (
+                    rel.kind.value if hasattr(rel.kind, "value") else str(rel.kind)
+                )
+                prov = rel.provenance if rel.provenance else None
+                relation_refs_list.append(
+                    DomainMemoryKnowledgeRelationRef(
+                        relation_id=rel.id,
+                        source_reference_id=src_ref.reference_id,
+                        target_reference_id=tgt_ref.reference_id,
+                        kind=kind_val,
+                        provenance_reference=prov,
+                    )
+                )
+
+        relation_refs = tuple(sorted(relation_refs_list, key=lambda r: r.relation_id))
         timeline_ref_ids: tuple[str, ...] = ()
         unknown_ordering_ids: tuple[str, ...] = ()
         contradiction_refs: tuple[DomainMemoryKnowledgeContradictionRef, ...] = ()
