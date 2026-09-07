@@ -623,3 +623,301 @@ def test_succession_is_not_treated_as_contradiction() -> None:
 
     # Succession alone never synthesizes a contradiction
     assert projection.contradiction_refs == ()
+
+
+# ── Task 5: Dependency and Impact path tests ──────────────────────────────
+
+
+def test_two_hop_dependency_path_preserves_hops_and_relation_identities() -> None:
+    ref_cap = _make_ref("ref:study-capacity", "item:study-capacity")
+    ref_goal = _make_ref("ref:study-goal", "item:study-goal")
+    ref_plan = _make_ref("ref:life-plan", "item:life-plan")
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_cap, ref_goal, ref_plan),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+        ),
+    )
+
+    rel1 = KnowledgeRelation(
+        id="rel:dep:1",
+        source_id="item:study-capacity",
+        target_id="item:study-goal",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    rel2 = KnowledgeRelation(
+        id="rel:part:2",
+        source_id="item:study-goal",
+        target_id="item:life-plan",
+        kind="part_of",
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert len(projection.dependency_paths) == 1
+    path = projection.dependency_paths[0]
+    assert len(path.hops) == 2
+    assert path.hops[0].relation_id == "rel:dep:1"
+    assert path.hops[0].source_reference_id == "ref:study-capacity"
+    assert path.hops[0].target_reference_id == "ref:study-goal"
+    assert path.hops[0].kind == "depends_on"
+
+    assert path.hops[1].relation_id == "rel:part:2"
+    assert path.hops[1].source_reference_id == "ref:study-goal"
+    assert path.hops[1].target_reference_id == "ref:life-plan"
+    assert path.hops[1].kind == "part_of"
+
+
+def test_path_traversal_cycle_safety() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+        ),
+    )
+
+    rel_ab = KnowledgeRelation(
+        id="rel:ab",
+        source_id="item:a",
+        target_id="item:b",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    rel_ba = KnowledgeRelation(
+        id="rel:ba",
+        source_id="item:b",
+        target_id="item:a",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(rel_ab, rel_ba))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Terminates deterministically and emits no repeated-edge infinite path
+    assert len(projection.dependency_paths) == 2
+    for p in projection.dependency_paths:
+        # Every hop in a path has a unique relation ID (no repeated edges)
+        hop_rel_ids = [h.relation_id for h in p.hops]
+        assert len(hop_rel_ids) == len(set(hop_rel_ids))
+
+
+def test_path_hops_retain_canonical_relation_identity_without_synthetic_direct_edge() -> (
+    None
+):
+    ref_cap = _make_ref("ref:study-capacity", "item:study-capacity")
+    ref_goal = _make_ref("ref:study-goal", "item:study-goal")
+    ref_plan = _make_ref("ref:life-plan", "item:life-plan")
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_cap, ref_goal, ref_plan),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+        ),
+    )
+
+    rel1 = KnowledgeRelation(
+        id="rel:dep:1",
+        source_id="item:study-capacity",
+        target_id="item:study-goal",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    rel2 = KnowledgeRelation(
+        id="rel:part:2",
+        source_id="item:study-goal",
+        target_id="item:life-plan",
+        kind="part_of",
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert len(projection.dependency_paths) == 1
+    serialized = projection.dependency_paths[0].to_dict()
+    assert "hops" in serialized
+    assert len(serialized["hops"]) == 2
+    assert serialized["hops"][0]["relation_id"] == "rel:dep:1"
+    assert serialized["hops"][1]["relation_id"] == "rel:part:2"
+
+    # No synthetic direct A -> C relation emitted
+    assert all(
+        not (
+            r.source_reference_id == "ref:study-capacity"
+            and r.target_reference_id == "ref:life-plan"
+        )
+        for r in projection.relation_refs
+    )
+
+
+def test_path_suppressed_when_intermediate_hop_hidden() -> None:
+    ref_a = _make_ref("ref:a", "item:a", domain_id="domain:health")
+    ref_b = _make_ref("ref:b", "item:b", domain_id="domain:university")
+    ref_c = _make_ref("ref:c", "item:c", domain_id="domain:health")
+
+    # Only health allowed, university excluded
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:health_only",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b, ref_c),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+        ),
+    )
+
+    rel1 = KnowledgeRelation(
+        id="rel:1",
+        source_id="item:a",
+        target_id="item:b",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    rel2 = KnowledgeRelation(
+        id="rel:2",
+        source_id="item:b",
+        target_id="item:c",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Intermediate hop item:b is hidden -> no path exposes hidden node
+    assert projection.dependency_paths == ()
+    assert projection.relation_refs == ()
+
+
+def test_impact_path_allows_correlated_without_causal_strengthening() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+    ref_c = _make_ref("ref:c", "item:c")
+
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b, ref_c),
+        permission_decisions=(perm,),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+            DomainMemoryKnowledgeProjectionCapability.IMPACT_PATHS,
+            DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+        ),
+    )
+
+    rel_ab = KnowledgeRelation(
+        id="rel:ab",
+        source_id="item:a",
+        target_id="item:b",
+        kind="correlated_with",
+        confidence=Confidence(value=0.9),
+    )
+    rel_bc = KnowledgeRelation(
+        id="rel:bc",
+        source_id="item:b",
+        target_id="item:c",
+        kind="depends_on",
+        confidence=Confidence(value=0.9),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(rel_ab, rel_bc))
+
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # correlated_with is not in DEPENDENCY_KINDS -> no dependency path
+    assert projection.dependency_paths == ()
+
+    # correlated_with IS in IMPACT_KINDS -> impact path exists
+    assert len(projection.impact_paths) == 1
+    impact_path = projection.impact_paths[0]
+    assert len(impact_path.hops) == 2
+    assert impact_path.hops[0].kind == "correlated_with"
+    assert impact_path.hops[1].kind == "depends_on"
+
+    # No synthetic direct causal edge emitted
+    assert all(
+        not (r.source_reference_id == "ref:a" and r.target_reference_id == "ref:c")
+        for r in projection.relation_refs
+    )
+    assert all(r.kind != "caused_by" for r in projection.relation_refs)
+    assert all(h.kind != "caused_by" for h in impact_path.hops)

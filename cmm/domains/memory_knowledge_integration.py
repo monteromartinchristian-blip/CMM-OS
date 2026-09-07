@@ -25,6 +25,7 @@ from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeIntegrator,
     DomainMemoryKnowledgeInventory,
     DomainMemoryKnowledgePath,
+    DomainMemoryKnowledgePathHop,
     DomainMemoryKnowledgeProjection,
     DomainMemoryKnowledgeProjectionCapability,
     DomainMemoryKnowledgeProjectionRequest,
@@ -34,6 +35,34 @@ from cmm.domains.memory_validation import (
     DefaultDomainMemoryIntegrationValidator,
     DomainMemoryIntegrationValidator,
 )
+
+DEFAULT_DEPENDENCY_RELATION_KINDS: frozenset[str] = frozenset(
+    {
+        "depends_on",
+        "part_of",
+        "blocks",
+        "enables",
+        "derived_from",
+        "supports",
+    }
+)
+
+DEFAULT_IMPACT_RELATION_KINDS: frozenset[str] = frozenset(
+    {
+        "depends_on",
+        "part_of",
+        "blocks",
+        "enables",
+        "derived_from",
+        "supports",
+        "correlated_with",
+        "caused_by",
+        "refines",
+        "supersedes",
+    }
+)
+
+DEFAULT_MAX_PATH_DEPTH = 10
 
 
 def _is_shared_identity(
@@ -50,6 +79,76 @@ def _is_shared_identity(
     return len(ref_domains & participating) >= 2
 
 
+def _derive_knowledge_paths(
+    relation_refs: tuple[DomainMemoryKnowledgeRelationRef, ...],
+    allowed_kinds: frozenset[str],
+    max_depth: int = DEFAULT_MAX_PATH_DEPTH,
+) -> tuple[DomainMemoryKnowledgePath, ...]:
+    """Pure, cycle-safe derivation of multi-hop knowledge paths.
+
+    Operates strictly over already-projected relation references with no hidden store
+    lookups or graph object creation. Emits deterministic paths of length >= 2.
+    """
+    eligible_rels = [r for r in relation_refs if r.kind in allowed_kinds]
+    if not eligible_rels:
+        return ()
+
+    adj: dict[str, list[DomainMemoryKnowledgeRelationRef]] = {}
+    for r in eligible_rels:
+        adj.setdefault(r.source_reference_id, []).append(r)
+
+    for rel_list in adj.values():
+        rel_list.sort(key=lambda r: (r.target_reference_id, r.relation_id))
+
+    paths: list[DomainMemoryKnowledgePath] = []
+    start_nodes = sorted(adj.keys())
+
+    for start_node in start_nodes:
+
+        def dfs(
+            current_node: str,
+            current_hops: list[DomainMemoryKnowledgePathHop],
+            used_relation_ids: set[str],
+        ) -> None:
+            if len(current_hops) >= 2:
+                paths.append(DomainMemoryKnowledgePath.create(current_hops))
+
+            if len(current_hops) >= max_depth:
+                return
+
+            for rel in adj.get(current_node, ()):
+                if rel.relation_id in used_relation_ids:
+                    continue
+
+                hop = DomainMemoryKnowledgePathHop(
+                    relation_id=rel.relation_id,
+                    source_reference_id=rel.source_reference_id,
+                    target_reference_id=rel.target_reference_id,
+                    kind=rel.kind,
+                )
+                used_relation_ids.add(rel.relation_id)
+                current_hops.append(hop)
+
+                dfs(rel.target_reference_id, current_hops, used_relation_ids)
+
+                current_hops.pop()
+                used_relation_ids.remove(rel.relation_id)
+
+        dfs(start_node, [], set())
+
+    # Deterministic ordering of emitted paths
+    return tuple(
+        sorted(
+            paths,
+            key=lambda p: (
+                p.hops[0].source_reference_id,
+                p.hops[-1].target_reference_id,
+                p.path_id,
+            ),
+        )
+    )
+
+
 class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
     """Default implementation of DomainMemoryKnowledgeIntegrator.
 
@@ -61,12 +160,26 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         self,
         *,
         memory_validator: DomainMemoryIntegrationValidator | None = None,
+        dependency_relation_kinds: frozenset[str] | None = None,
+        impact_relation_kinds: frozenset[str] | None = None,
+        max_path_depth: int = DEFAULT_MAX_PATH_DEPTH,
     ) -> None:
         self._memory_validator = (
             memory_validator
             if memory_validator is not None
             else DefaultDomainMemoryIntegrationValidator()
         )
+        self._dependency_relation_kinds = (
+            dependency_relation_kinds
+            if dependency_relation_kinds is not None
+            else DEFAULT_DEPENDENCY_RELATION_KINDS
+        )
+        self._impact_relation_kinds = (
+            impact_relation_kinds
+            if impact_relation_kinds is not None
+            else DEFAULT_IMPACT_RELATION_KINDS
+        )
+        self._max_path_depth = max_path_depth
 
     def project(
         self,
@@ -139,10 +252,15 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         # 5. Canonical relation projection
         ref_by_canonical_id = {r.canonical_id: r for r in selected_refs}
         relation_refs_list: list[DomainMemoryKnowledgeRelationRef] = []
-        if (
-            DomainMemoryKnowledgeProjectionCapability.RELATIONS
-            in request.requested_capabilities
-        ):
+        needs_relations = bool(
+            {
+                DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+                DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES,
+                DomainMemoryKnowledgeProjectionCapability.IMPACT_PATHS,
+            }
+            & set(request.requested_capabilities)
+        )
+        if needs_relations:
             for rel in inventory.relations:
                 src_ref = ref_by_canonical_id.get(rel.source_id)
                 tgt_ref = ref_by_canonical_id.get(rel.target_id)
@@ -165,7 +283,15 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                     )
                 )
 
-        relation_refs = tuple(sorted(relation_refs_list, key=lambda r: r.relation_id))
+        all_relation_refs = tuple(
+            sorted(relation_refs_list, key=lambda r: r.relation_id)
+        )
+        relation_refs = (
+            all_relation_refs
+            if DomainMemoryKnowledgeProjectionCapability.RELATIONS
+            in request.requested_capabilities
+            else ()
+        )
 
         # 6. Timeline and unknown ordering projection
         timeline_ref_ids: tuple[str, ...] = ()
@@ -258,8 +384,29 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                 sorted(c_refs_list, key=lambda x: x.contradiction_id)
             )
 
+        # 8. Dependency and impact paths
         dependency_paths: tuple[DomainMemoryKnowledgePath, ...] = ()
+        if (
+            DomainMemoryKnowledgeProjectionCapability.DEPENDENCIES
+            in request.requested_capabilities
+        ):
+            dependency_paths = _derive_knowledge_paths(
+                all_relation_refs,
+                self._dependency_relation_kinds,
+                self._max_path_depth,
+            )
+
         impact_paths: tuple[DomainMemoryKnowledgePath, ...] = ()
+        if (
+            DomainMemoryKnowledgeProjectionCapability.IMPACT_PATHS
+            in request.requested_capabilities
+        ):
+            impact_paths = _derive_knowledge_paths(
+                all_relation_refs,
+                self._impact_relation_kinds,
+                self._max_path_depth,
+            )
+
         proposal_binding_ids: tuple[str, ...] = ()
 
         return DomainMemoryKnowledgeProjection.create(
