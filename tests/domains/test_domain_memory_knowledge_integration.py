@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from unittest.mock import MagicMock
+
 import pytest
 
+from cmm.agent_runtime.knowledge_update_contracts import KnowledgeUpdateContext
+from cmm.agent_runtime.knowledge_update_proposal_engine import (
+    KnowledgeUpdateProposalEngine,
+)
+from cmm.agent_runtime.knowledge_update_repository import (
+    InMemoryKnowledgeUpdateRepository,
+)
 from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import KnowledgeKind, KnowledgeRelationKind
 from cmm.cognitive.knowledge import Contradiction, KnowledgeItem, KnowledgeRelation
@@ -15,12 +26,16 @@ from cmm.domains.errors import (
 from cmm.domains.identifiers import DomainId
 from cmm.domains.memory_contracts import (
     DomainMemoryPermissionDecisionSnapshot,
+    DomainMemoryProposalBinding,
+    DomainMemoryProposalSnapshot,
     DomainMemoryReference,
     DomainMemoryReferenceInventory,
     DomainMemoryReferenceKind,
     DomainMemoryTemporalKind,
     DomainMemoryTemporalSnapshot,
+    DomainMemoryTraceSnapshot,
     DomainMemoryViewRequest,
+    DomainMemoryViewSnapshot,
 )
 from cmm.domains.memory_knowledge_integration import (
     DefaultDomainMemoryKnowledgeIntegrator,
@@ -30,6 +45,7 @@ from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeProjectionCapability,
     DomainMemoryKnowledgeProjectionRequest,
 )
+from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidator
 from cmm.domains.memory_view import DefaultDomainMemoryViewResolver
 
 
@@ -921,3 +937,383 @@ def test_impact_path_allows_correlated_without_causal_strengthening() -> None:
     )
     assert all(r.kind != "caused_by" for r in projection.relation_refs)
     assert all(h.kind != "caused_by" for h in impact_path.hops)
+
+
+# ── Task 6: Proposal binding tests ────────────────────────────────────────
+
+
+def _make_proposal_binding_id(
+    domain_id: str,
+    trace_id: str,
+    view_id: str,
+    view_digest: str,
+    agent_knowledge_proposal_ids: tuple[str, ...],
+    affected_reference_ids: tuple[str, ...],
+    permission_decision_ids: tuple[str, ...],
+) -> str:
+    content = {
+        "domain_id": domain_id,
+        "trace_id": trace_id,
+        "view_id": view_id,
+        "view_digest": view_digest,
+        "memory_proposal_ids": [],
+        "agent_knowledge_proposal_ids": sorted(set(agent_knowledge_proposal_ids)),
+        "affected_reference_ids": sorted(set(affected_reference_ids)),
+        "permission_decision_ids": sorted(set(permission_decision_ids)),
+        "approval_request_ids": [],
+        "approval_decision_ids": [],
+    }
+    canonical_json = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    content_digest = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    return f"binding:{domain_id}:{trace_id}:{view_id}:{content_digest[:12]}"
+
+
+def _setup_proposal_binding_context(
+    *,
+    propose_allowed: bool = True,
+    proposal_id: str | None = None,
+    tamper_binding: bool = False,
+):
+    ref1 = _make_ref("ref:1", "item:1")
+    perm_read = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    perm_propose = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:propose:1",
+        allowed=propose_allowed,
+        capabilities=("PROPOSE",) if propose_allowed else ("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+
+    trace_snap = DomainMemoryTraceSnapshot(
+        trace_id="trace:1", primary_domain="domain:health"
+    )
+
+    mem_req = DomainMemoryViewRequest(
+        request_id="mem_req:1",
+        primary_domain="domain:health",
+        trace_id="trace:1",
+        candidates=(ref1,),
+        permission_decision_ids=("perm:read:1", "perm:propose:1"),
+    )
+
+    initial_inv = DomainMemoryReferenceInventory(
+        references=(ref1,),
+        permission_decisions=(perm_read, perm_propose),
+        traces=(trace_snap,),
+    )
+
+    resolver = DefaultDomainMemoryViewResolver()
+    view = resolver.resolve(mem_req, initial_inv)
+
+    view_snap = DomainMemoryViewSnapshot(
+        view_id=view.view_id,
+        request_id=mem_req.request_id,
+        primary_domain=view.primary_domain,
+        trace_id="trace:1",
+        view_digest=view.content_digest,
+    )
+
+    pid = proposal_id or "prop:1"
+    prop_snap = DomainMemoryProposalSnapshot(
+        proposal_id=pid,
+        proposal_kind="agent_knowledge_update",
+        affected_reference_ids=("ref:1",),
+        required_capabilities=("PROPOSE",),
+    )
+
+    mem_inv_full = DomainMemoryReferenceInventory(
+        references=(ref1,),
+        permission_decisions=(perm_read, perm_propose),
+        traces=(trace_snap,),
+        views=(view_snap,),
+        proposals=(prop_snap,),
+    )
+
+    binding_id = _make_proposal_binding_id(
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=(pid,),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:propose:1",),
+    )
+
+    if tamper_binding:
+        binding_id = binding_id[:-4] + "dead"
+
+    binding = DomainMemoryProposalBinding(
+        binding_id=binding_id,
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=(pid,),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:propose:1",),
+    )
+
+    req = DomainMemoryKnowledgeProjectionRequest(
+        request_id="proj_req:1",
+        primary_domain=DomainId("health"),
+        supporting_domains=(),
+        memory_view_id=view.view_id,
+        memory_view_digest=view.digest,
+        resolution_reference_id="res_ref:1",
+        composition_reference_id="comp_ref:1",
+        permission_decision_ids=("perm:read:1", "perm:propose:1"),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.RELATION_PROPOSALS,
+        ),
+    )
+
+    return req, mem_req, view, mem_inv_full, binding
+
+
+def test_real_canonical_relation_proposal_and_validated_binding_projection() -> None:
+    repo = InMemoryKnowledgeUpdateRepository()
+    engine = KnowledgeUpdateProposalEngine(repository=repo)
+    ctx = KnowledgeUpdateContext(
+        context_id="ctx-1",
+        agent_run_id="run-1",
+        goal_id="goal-1",
+    )
+    mock_goal = MagicMock()
+    mock_goal.goal_id = "goal-1"
+    mock_goal.title = "Test Goal"
+    mock_goal.kind = "general"
+
+    mock_dec = MagicMock()
+    mock_dec.decision_kind = "complete"
+    mock_dec.confidence = 0.95
+
+    prop = engine.create_proposal(
+        context=ctx,
+        goal=mock_goal,
+        completion_decision=mock_dec,
+    )
+    assert prop.proposal_id != ""
+
+    req, mem_req, view, mem_inv, binding = _setup_proposal_binding_context(
+        proposal_id=prop.proposal_id,
+    )
+
+    validator = DefaultDomainMemoryIntegrationValidator()
+    assert validator.validate_binding(binding, mem_inv).is_valid is True
+
+    inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Valid binding appears in projection
+    assert binding.binding_id in projection.proposal_binding_ids
+
+    # Proposal payload is NOT copied into projection
+    proj_dict = projection.to_dict()
+    assert "additions" not in proj_dict
+    assert "proposals" not in proj_dict
+    assert "decisions" not in proj_dict
+
+
+def test_tampered_proposal_binding_excluded_fail_closed() -> None:
+    req, mem_req, view, mem_inv, valid_binding = _setup_proposal_binding_context(
+        proposal_id="prop:valid",
+    )
+    # Tampered / unrecorded proposal binding: binding is structurally valid but references
+    # an unrecorded proposal not present in mem_inv.proposals
+    unrecorded_binding_id = _make_proposal_binding_id(
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=("prop:unrecorded",),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:propose:1",),
+    )
+    unrecorded_binding = DomainMemoryProposalBinding(
+        binding_id=unrecorded_binding_id,
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=("prop:unrecorded",),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:propose:1",),
+    )
+
+    inv = DomainMemoryKnowledgeInventory(
+        proposal_bindings=(valid_binding, unrecorded_binding)
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert valid_binding.binding_id in projection.proposal_binding_ids
+    assert unrecorded_binding.binding_id not in projection.proposal_binding_ids
+
+
+def test_read_only_authority_cannot_authorize_proposal_binding() -> None:
+    # PROPOSE permission is disabled (propose_allowed=False -> only READ capability)
+    req, mem_req, view, mem_inv, binding = _setup_proposal_binding_context(
+        propose_allowed=False,
+    )
+
+    validator = DefaultDomainMemoryIntegrationValidator()
+    res = validator.validate_binding(binding, mem_inv)
+    assert res.is_valid is False
+
+    inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Unvalidated binding excluded fail-closed
+    assert projection.proposal_binding_ids == ()
+
+
+def test_projection_never_mutates_proposal_or_writes_to_cognitive_store() -> None:
+    repo = InMemoryKnowledgeUpdateRepository()
+    engine = KnowledgeUpdateProposalEngine(repository=repo)
+    ctx = KnowledgeUpdateContext(
+        context_id="ctx-1",
+        agent_run_id="run-1",
+        goal_id="goal-1",
+    )
+    mock_goal = MagicMock()
+    mock_goal.goal_id = "goal-1"
+    mock_goal.title = "Test Goal"
+    mock_goal.kind = "general"
+
+    mock_dec = MagicMock()
+    mock_dec.decision_kind = "complete"
+    mock_dec.confidence = 0.95
+
+    prop = engine.create_proposal(
+        context=ctx,
+        goal=mock_goal,
+        completion_decision=mock_dec,
+    )
+    initial_prop = repo.get_proposal(prop.proposal_id)
+
+    store = InMemoryKnowledgeStore()
+    store_items_before = len(store.list_items())
+    store_relations_before = len(store.list_relations())
+
+    req, mem_req, view, mem_inv, binding = _setup_proposal_binding_context(
+        proposal_id=prop.proposal_id,
+    )
+    inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    assert binding.binding_id in projection.proposal_binding_ids
+
+    # Proposal state in repository is unchanged
+    assert repo.get_proposal(prop.proposal_id) == initial_prop
+
+    # Store state is unchanged
+    assert len(store.list_items()) == store_items_before
+    assert len(store.list_relations()) == store_relations_before
+
+
+def test_missing_authority_adversarial_downgrade() -> None:
+    # Downgrade authority: propose permission missing
+    ref1 = _make_ref("ref:1", "item:1")
+    perm_read = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    trace_snap = DomainMemoryTraceSnapshot(
+        trace_id="trace:1", primary_domain="domain:health"
+    )
+    mem_req = DomainMemoryViewRequest(
+        request_id="mem_req:1",
+        primary_domain="domain:health",
+        trace_id="trace:1",
+        candidates=(ref1,),
+        permission_decision_ids=("perm:read:1",),
+    )
+    mem_inv = DomainMemoryReferenceInventory(
+        references=(ref1,),
+        permission_decisions=(perm_read,),
+        traces=(trace_snap,),
+    )
+    resolver = DefaultDomainMemoryViewResolver()
+    view = resolver.resolve(mem_req, mem_inv)
+
+    binding_id = _make_proposal_binding_id(
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=("prop:unauth",),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:read:1",),
+    )
+    binding = DomainMemoryProposalBinding(
+        binding_id=binding_id,
+        domain_id="domain:health",
+        trace_id="trace:1",
+        view_id=view.view_id,
+        view_digest=view.content_digest,
+        agent_knowledge_proposal_ids=("prop:unauth",),
+        affected_reference_ids=("ref:1",),
+        permission_decision_ids=("perm:read:1",),
+    )
+
+    req = DomainMemoryKnowledgeProjectionRequest(
+        request_id="proj_req:1",
+        primary_domain=DomainId("health"),
+        supporting_domains=(),
+        memory_view_id=view.view_id,
+        memory_view_digest=view.digest,
+        resolution_reference_id="res_ref:1",
+        composition_reference_id="comp_ref:1",
+        permission_decision_ids=("perm:read:1",),
+        requested_capabilities=(
+            DomainMemoryKnowledgeProjectionCapability.RELATION_PROPOSALS,
+        ),
+    )
+    inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = integrator.project(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+
+    # Proposal binding projected = no
+    assert projection.proposal_binding_ids == ()

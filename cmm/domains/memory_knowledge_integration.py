@@ -407,7 +407,23 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                 self._max_path_depth,
             )
 
+        # 9. Proposal bindings
         proposal_binding_ids: tuple[str, ...] = ()
+        if (
+            DomainMemoryKnowledgeProjectionCapability.RELATION_PROPOSALS
+            in request.requested_capabilities
+        ):
+            valid_binding_ids: list[str] = []
+            for b in inventory.proposal_bindings:
+                if b.view_id != view.view_id or b.view_digest not in (
+                    view.digest,
+                    view.content_digest,
+                ):
+                    continue
+                val_res = self._memory_validator.validate_binding(b, memory_inventory)
+                if val_res.is_valid:
+                    valid_binding_ids.append(b.binding_id)
+            proposal_binding_ids = tuple(sorted(set(valid_binding_ids)))
 
         return DomainMemoryKnowledgeProjection.create(
             request_id=request.request_id,
