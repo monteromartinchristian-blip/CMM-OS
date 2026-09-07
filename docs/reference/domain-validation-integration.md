@@ -294,25 +294,50 @@ canonical `ProjectDomainChangePolicy` selected by host-owned impact
 (`build_project_domain_change_policy` → canonical Phase 7 policy →
 `resolve_project_domain_change_validation_ids` → Phase 9
 `ValidationRequirement` values with `resource_scope` carrying
-host-declared changed files → `AgentValidationAdapter` → Phase 7
+host-derived changed files → `AgentValidationAdapter` → Phase 7
 validators), executed PRE and POST through the real
-`AgentValidationAdapter` → Phase 7 chain. The `small` baseline requires
-`formatter_check`, `lint`, `syntax` (`syntax_validator`), `ast`
-(`ast_validator`), and `affected_tests` (`affected_tests_step`); a
-syntactically valid change that breaks an affected test is rejected and
-accepted only after current canonical validation passes. Stronger impacts
-(`structural`/`public`/`broad`/`high`/`full`) escalate to the corresponding
-canonical Phase 7 policies and fail closed on mandatory steps without an
-executable mapping (never silently downgraded to `small`). Caller metadata
-cannot lower host-owned impact (the stronger host-derived impact wins).
-`is_project_domain_code_mutation` /
-`project_change_requires_validation` identify code mutations semantically
-(not via caller metadata). `project.run_validation` availability never
-exempts a later mutation (availability is not evidence; only current
-validation counts). `project.prepare_commit` remains downstream of
-canonical validation and the Phase 7 commit gate
-(`CommitGateEvaluator.evaluate` with a `ProjectDomainChangePolicy`
-selected by impact); Domain code never issues commit authorization.
+`AgentValidationAdapter` → Phase 7 chain.
+
+Host change derivation and monotonic combination (V4 remediation):
+- Canonical change scope and impact are derived directly from the host
+  project directory using canonical Phase 7 `ChangeSetBuilder`, snapshot
+  differencing, and `diff_python_sources` (`derive_host_project_change_impact`).
+- Host-derived impact and caller hints are combined monotonically via
+  `combine_validation_impacts` using the strict severity hierarchy
+  (`small` < `structural` < `public` < `broad`/`high`/`full`). Caller hints
+  can only escalate obligations, never downgrade host-observed impact.
+- Changed files are union-merged via `combine_validation_changed_files`.
+  Caller hints cannot hide or remove host-changed files from the validation
+  scope.
+- Post-execution escalation safeguard: `DefaultDomainOperationOrchestrator`
+  captures a project snapshot before execution and scans after execution. If
+  the resulting diff escalates impact beyond `small` (structural or public API
+  change), the orchestrator resolves the escalated policy requirements; if any
+  mandatory policy step lacks an executable validator mapping (or was not
+  executed), the orchestrator fails closed (rolls back and rejects with
+  `VALIDATION_ESCALATION_FAILED`), refusing to accept the mutation with only
+  `small_change` validation.
+- Command result parser fail-closed hardening: in `CommandResultParser.parse()`,
+  a non-zero pytest exit code with a missing XML report fails closed with
+  `PYTEST_TEST_FAILED` (exit code is authoritative failure evidence); zero
+  tests discovered in `full_suite_step` returns not-applicable; ruff non-zero
+  exit without JSON diagnostics fails closed as execution failure.
+
+The `small` baseline requires `formatter_check`, `lint`, `syntax`
+(`syntax_validator`), `ast` (`ast_validator`), and `affected_tests`
+(`affected_tests_step`); a syntactically valid change that breaks an affected
+test is rejected and accepted only after current canonical validation passes.
+Stronger impacts (`structural`/`public`/`broad`/`high`/`full`) escalate to the
+corresponding canonical Phase 7 policies and fail closed on mandatory steps
+without an executable mapping (never silently downgraded to `small`).
+`is_project_domain_code_mutation` / `project_change_requires_validation`
+identify code mutations semantically (not via caller metadata).
+`project.run_validation` availability never exempts a later mutation
+(availability is not evidence; only current validation counts).
+`project.prepare_commit` remains downstream of canonical validation and the
+Phase 7 commit gate (`CommitGateEvaluator.evaluate` with a
+`ProjectDomainChangePolicy` selected by impact); Domain code never issues commit
+authorization.
 
 ## Error/fail-closed semantics
 
@@ -363,12 +388,14 @@ with adapter present, empty mandatory requirement fail-closed,
 unconditional specialized-result gate without provider, real workflow node
 execution including subworkflows, real cross-domain union through engine +
 port, real Project mutation fail→fix→pass with valid-syntax affected-test
-rejection and impact escalation through the canonical Project change
-policy, commit-gate ownership,
-specialized-result acceptance, and architectural proof using real
-canonical components and official in-memory implementations (no
-fixed-decision doubles, no manual unions in place of execution, no
-synthetic validation results on architectural paths).
+rejection verified via failure evidence and host change derivation without
+caller hints, impact escalation via real runtime operations (structural
+and public API changes) that fail closed with rollback when unmapped
+mandatory policy steps exist, commit-gate ownership, specialized-result
+acceptance, and architectural proof using real canonical components and
+official in-memory implementations (no fixed-decision doubles, no manual
+unions in place of execution, no synthetic validation results on
+architectural paths).
 
 ## Known limits / out of scope
 

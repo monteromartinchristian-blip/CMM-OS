@@ -5946,10 +5946,14 @@ connected acceptance
 `tests/domains/test_domain_validation_integration_dp043_acceptance.py`
 (including V3 provider-omission fail-closed, empty-requirements fail-closed,
 provider-independent specialized gate, Project affected-test rejection with
-repair, and impact escalation via the canonical Project change policy);
-V3 runtime: no metadata-only success for validation-mandated operations,
-`ProjectDomainChangePolicy` governs `project.modify_code` with canonical
-Phase 7 escalation, Phase 7 commit gate remains owner;
+repair and host change derivation without caller hints, and impact escalation via
+real runtime operations failing closed with rollback on unmapped steps);
+V4 runtime: canonical change scope and impact derived from Phase 7 `ChangeSetBuilder`
+and `diff_python_sources` combined monotonically with caller hints refusing downgrade,
+post-execution snapshot escalation check with rollback, command result parser
+fail-closed hardening (pytest non-zero exit without XML, ruff non-zero exit without diagnostics),
+`ProjectDomainChangePolicy` governs `project.modify_code` with canonical Phase 7
+escalation, Phase 7 commit gate remains owner;
 reference `docs/reference/domain-validation-integration.md`. The
 independently audited boundary remains Phase 10.42 until ChatGPT returns
 PASS. Next action is independent audit preparation, not Phase 10.44.
