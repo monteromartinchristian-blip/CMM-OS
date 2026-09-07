@@ -513,6 +513,7 @@ def build_operation_validation_requirements(
     stage: str = "pre_execution",
     operation_name: str = "",
     operation_version: str = "1",
+    resource_scope: tuple[str, ...] = (),
 ) -> tuple[Any, ...]:
     """Build Phase 9 ``ValidationRequirement`` objects for a Domain operation.
 
@@ -521,7 +522,10 @@ def build_operation_validation_requirements(
     canonical adapter (which raises for unknown required validators).
     Known Phase 7 validator IDs execute canonically; the operation's own
     ``validation_policy_id`` is carried as requirement policy identity.
-    Caller metadata is never consulted.
+    ``resource_scope`` carries host-declared changed files (e.g. the mutated
+    files of a Project code change) so the canonical adapter can scope
+    affected-test selection without consulting caller metadata. Caller
+    metadata is never consulted.
     """
     from cmm.agent_runtime.enums import (
         AgentValidationStage,
@@ -565,6 +569,7 @@ def build_operation_validation_requirements(
                 blocking=True,
                 policy_id=validation_policy_id,
                 validator_ids=(req_id,),
+                resource_scope=resource_scope,
                 operation_name=operation_name,
                 operation_version=operation_version,
                 metadata={"domain_validation_id": req_id},
@@ -583,6 +588,7 @@ def build_operation_validation_requirements(
                 blocking=True,
                 policy_id=validation_policy_id,
                 validator_ids=(validation_policy_id,),
+                resource_scope=resource_scope,
                 operation_name=operation_name,
                 operation_version=operation_version,
                 metadata={"domain_validation_policy": validation_policy_id},
@@ -606,6 +612,25 @@ DEFINITION_VALIDATION_REQUIREMENT_IDS_KEY = "domain_validation_requirement_ids"
 OPERATION_EXECUTABLE_VALIDATION_IDS: dict[str, tuple[str, ...]] = {
     "project.modify_code": ("syntax_validator", "ast_validator"),
 }
+
+#: Deterministic mapping from canonical Phase 7 change-policy step IDs to the
+#: executable Phase 9 validator IDs the canonical ``AgentValidationAdapter``
+#: can run. Steps without an entry have no executable counterpart in the
+#: runtime, so a Project change policy that mandates them fails closed (the
+#: resolver raises) rather than silently dropping the obligation. Covers the
+#: full ``small_change`` baseline; stronger impacts (structural/public/full)
+#: contain custom validators the runtime cannot execute and therefore also
+#: fail closed, which proves escalation is never downgraded to ``small``.
+PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS: dict[str, tuple[str, ...]] = {
+    "formatter_check": ("formatter_check",),
+    "lint": ("lint",),
+    "syntax": ("syntax_validator",),
+    "ast": ("ast_validator",),
+    "affected_tests": ("affected_tests_step",),
+}
+
+#: Impact values that escalate to the strongest canonical ``full`` policy.
+_PROJECT_FULL_IMPACT_KEYS = frozenset({"broad", "high", "full"})
 
 
 def resolve_operation_validation_ids(
@@ -645,9 +670,49 @@ def resolve_operation_validation_ids(
     return _clean_required_ids(tuple(base) + tuple(additional_ids or ()))
 
 
+def resolve_project_domain_change_validation_ids(
+    definition: object,
+    additional_ids: tuple[str, ...] = (),
+    impact: str | None = None,
+) -> tuple[str, ...]:
+    """Resolve executable validation IDs from the canonical Project change policy.
+
+    Authority is the host-owned impact (never caller metadata) selecting a
+    canonical Phase 7 ``ValidationPolicy`` via
+    ``build_project_domain_change_policy``. Each required policy step is
+    mapped to its executable Phase 9 validator ID(s); mandatory steps without
+    an executable counterpart fail closed here (raise) rather than being
+    silently dropped. The result replaces the old fixed syntax+AST mapping
+    as the authoritative Project mutation obligation set.
+    """
+    from cmm.domains.validation_policy_bindings import (
+        build_project_domain_change_policy,
+    )
+
+    effective_impact = impact if impact and str(impact).strip() else "small"
+    policy = build_project_domain_change_policy(impact=effective_impact)
+    executable: list[str] = []
+    for step in policy.required_steps:
+        mapped = PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS.get(step)
+        if mapped is None:
+            raise DomainValidationIntegrationError(
+                f"project change policy step '{step}' has no executable "
+                "Phase 9 validator mapping: refusing to downgrade the "
+                "canonical policy",
+                details={
+                    "reason": "unmapped_mandatory_policy_step",
+                    "policy_step": step,
+                    "impact": effective_impact,
+                },
+            )
+        executable.extend(mapped)
+    return _clean_required_ids(tuple(executable) + tuple(additional_ids or ()))
 def resolve_domain_operation_validation_requirements(
     definition: object,
     additional_ids: tuple[str, ...] = (),
+    *,
+    impact: str | None = None,
+    changed_files: tuple[str, ...] = (),
 ) -> tuple[Any, ...]:
     """Resolve host-derived runtime validation requirements for a Domain operation.
 
@@ -656,7 +721,8 @@ def resolve_domain_operation_validation_requirements(
     plus host-computed composition IDs (workflow/dependency/cross-domain),
     never caller metadata. Operations without a validation policy ID and
     without additional IDs carry no obligation. ``project.modify_code``
-    resolves to the canonical executable code checks; any other operation
+    resolves to the canonical Project change-policy executable set
+    (impact-sensitive, fail-closed on unmappable steps); any other operation
     mandating validation resolves to a policy-identity requirement that the
     canonical ``AgentValidationAdapter`` rejects fail-closed when no capable
     step exists.
@@ -665,17 +731,26 @@ def resolve_domain_operation_validation_requirements(
     if (policy_id is None or not str(policy_id).strip()) and not additional_ids:
         return ()
     policy_id_str = str(policy_id).strip() if policy_id is not None else ""
-    required_ids = resolve_operation_validation_ids(definition, additional_ids)
+    operation_id = str(getattr(definition, "operation_id", "") or "")
+    if operation_id in PROJECT_CODE_MUTATION_OPERATION_IDS:
+        required_ids = resolve_project_domain_change_validation_ids(
+            definition,
+            additional_ids,
+            impact=impact,
+        )
+    else:
+        required_ids = resolve_operation_validation_ids(definition, additional_ids)
     if not required_ids:
         return ()
-    operation_id = str(getattr(definition, "operation_id", "") or "")
     operation_version = str(getattr(definition, "version", "1") or "1")
+    resource_scope = tuple(changed_files) if changed_files else ()
     pre = build_operation_validation_requirements(
         validation_policy_id=policy_id_str or None,
         required_validation_ids=required_ids,
         stage="pre_execution",
         operation_name=operation_id,
         operation_version=operation_version,
+        resource_scope=resource_scope,
     )
     post = build_operation_validation_requirements(
         validation_policy_id=policy_id_str or None,
@@ -683,6 +758,7 @@ def resolve_domain_operation_validation_requirements(
         stage="post_execution",
         operation_name=operation_id,
         operation_version=operation_version,
+        resource_scope=resource_scope,
     )
     return tuple(pre) + tuple(post)
 
@@ -709,6 +785,7 @@ __all__ = [
     "DEFINITION_VALIDATION_REQUIREMENT_IDS_KEY",
     "OPERATION_EXECUTABLE_VALIDATION_IDS",
     "PROJECT_CODE_MUTATION_OPERATION_IDS",
+    "PROJECT_PHASE7_STEP_EXECUTABLE_VALIDATOR_IDS",
     "DomainValidationIntegrationError",
     "build_operation_validation_requirements",
     "compose_effective_validation_ids",
@@ -719,5 +796,6 @@ __all__ = [
     "require_canonical_validation_success",
     "resolve_domain_operation_validation_requirements",
     "resolve_operation_validation_ids",
+    "resolve_project_domain_change_validation_ids",
     "validate_domain_specialized_result",
 ]

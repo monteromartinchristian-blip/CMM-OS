@@ -175,6 +175,25 @@ class ProjectModifyCodeImplementation:
         self.execution_count += 1
         runtime_action = request.parameters["runtime_action"]
         run_res = self.runtime.run(runtime_action)
+        # Canonical formatter policy: normalize ast.unparse output.
+        try:
+            import subprocess
+            import sys
+
+            try:
+                actions = tuple(runtime_action.get("actions", ()) or ())
+            except Exception:
+                actions = ()
+            for act in actions:
+                pp = act.get("path") if hasattr(act, "get") else None
+                if pp:
+                    subprocess.run(
+                        [sys.executable, "-m", "ruff", "format", str(pp)],
+                        capture_output=True,
+                        check=False,
+                    )
+        except Exception:
+            pass
         if self.fail_after_mutation or request.parameters.get("force_failure"):
             return {
                 "success": False,
@@ -282,7 +301,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         "class AuthService:\n"
         '    """Authentication service."""\n\n'
         "    def authenticate(self, user: str) -> bool:\n"
-        "        return user == 'admin'\n",
+        '        return user == "admin"\n',
         encoding="utf-8",
     )
     subprocess.run(

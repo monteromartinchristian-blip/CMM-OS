@@ -54,6 +54,8 @@ from cmm.validation import (
     affected_tests_step,
     ast_step,
     build_default_validation_pipeline,
+    formatter_check_step,
+    lint_check_step,
     resolve_validation_policy,
     syntax_step,
 )
@@ -83,6 +85,8 @@ _STEP_BUILDERS: dict[str, Callable[[ValidationContext], ValidationStep | None]] 
     "syntax_validator": lambda ctx: syntax_step(),
     "ast_validator": lambda ctx: ast_step(),
     "affected_tests_step": lambda ctx: affected_tests_step(ctx),
+    "formatter_check": lambda ctx: formatter_check_step(ctx),
+    "lint": lambda ctx: lint_check_step(ctx),
 }
 
 _ESCALATE_GATE_CODES = frozenset({"authorization_required", "authorization_denied"})

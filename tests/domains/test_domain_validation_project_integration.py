@@ -317,3 +317,380 @@ class TestRealProjectMutationValidation:
         assert refs == (passing.id,)
         gate = CommitGateEvaluator.evaluate(passing, policy)
         assert gate.validation_result_id == passing.id
+
+
+# ── V2→V3 remediation: BLOCKER-V2-02 Project change policy in real runtime ─────
+
+
+def _affected_test_stack(tmp_path, *, break_test: bool):
+    """Real orchestrator stack for project.modify_code with an affected test.
+
+    The temp project carries ``main.py`` with a valid function and
+    ``tests/test_main.py`` asserting its behavior. When ``break_test`` is True
+    the implementation rewrites ``main.py`` to a semantically broken but
+    syntactically valid version (also unformatted, so the canonical
+    ``small_change`` formatter gate -- part of the new Project policy --
+    rejects it), proving the real ``project.modify_code`` path no longer
+    accepts valid-syntax regressions under the old fixed syntax+AST mapping.
+    """
+    import dataclasses
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+    from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+    from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.operation_contracts import DomainOperationRequest
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.permission_adapters import evaluate_domain_operation
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.project.permissions import build_project_permission_policy
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements,
+    )
+
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    definition = ops["project.modify_code"]
+
+    project_dir = tmp_path / "affproj"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "main.py").write_text(
+        "def add(a, b):\n    return a + b\n", encoding="utf-8"
+    )
+    tests_dir = project_dir / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+    (tests_dir / "test_main.py").write_text(
+        "from main import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
+        encoding="utf-8",
+    )
+
+    class Implementation:
+        def __init__(self) -> None:
+            self.definition = definition
+
+        def execute(self, request) -> dict:
+            if break_test:
+                (project_dir / "main.py").write_text(
+                    "def add(a,b):\n    return a-b\n", encoding="utf-8"
+                )
+            return {"success": True, "output": {"status": "ok"}}
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    registry.register(definition, Implementation())
+
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_project_permission_policy())
+    resolver = DomainPermissionResolver(perm_registry)
+    service = ApprovalService(InMemoryApprovalRepository())
+
+    suffix = "break" if break_test else "pass"
+    request = DomainOperationRequest(
+        request_id=f"req:aff:{suffix}",
+        operation_id="project.modify_code",
+        operation_version=definition.version,
+        inputs={},
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="task-1",
+        session_id="sess-1",
+        primary_domain_id=definition.domain_id,
+        idempotency_key=f"idem-aff-{suffix}",
+        granted_permissions=definition.required_permissions,
+        available_resources=definition.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={
+            "actor_id": "actor-1",
+            "validation_project_root": str(project_dir),
+        },
+        validation_changed_files=("main.py",),
+    )
+    decision = evaluate_domain_operation(
+        definition,
+        resolver,
+        request_id=request.request_id,
+        actor_id="actor-1",
+        session_id="sess-1",
+    )
+    approval_request_ids: dict = {}
+    op_exec_approval_id = None
+    for req in decision.approval_requirements:
+        bridged = to_approval_requirement(req, agent_run_id="run-1")
+        app_req = service.create_request_from_requirement(
+            bridged,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": request.calculate_fingerprint(),
+            },
+        )
+        service.approve(app_req.id, actor_id="lead")
+        approval_request_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_approval_id = app_req.id
+
+    class Boundary:
+        id = "transaction:1"
+
+    class TransactionManagerSpy:
+        def start_transaction(self, **kwargs):
+            return Boundary(), "checkpoint:1"
+
+        def register_operation(self, **kwargs) -> None:
+            return None
+
+        def commit(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rollback_started(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rolled_back(self, transaction_id: str) -> None:
+            return None
+
+        def mark_failed(self, transaction_id: str) -> None:
+            return None
+
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=AgentValidationAdapter(),
+    )
+    _now = datetime.now(timezone.utc)
+    gate = DomainPermissionGate(resolver, service, clock=lambda: _now)
+
+    class RollbackSpy:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def rollback(self, transaction_id, checkpoint_id=None) -> bool:
+            self.calls += 1
+            return True
+
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        approval_service=service,
+        permission_gate=gate,
+        transaction_manager=TransactionManagerSpy(),
+        rollback_executor=RollbackSpy(),
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
+    )
+    approved_request = dataclasses.replace(
+        request,
+        approval_request_id=op_exec_approval_id,
+        metadata={
+            "actor_id": "actor-1",
+            "approval_request_ids": approval_request_ids,
+            "validation_project_root": str(project_dir),
+        },
+        validation_changed_files=("main.py",),
+    )
+    return orchestrator, approved_request, project_dir
+
+
+class TestV2Blocker02ProjectChangePolicy:
+    """The real project.modify_code runtime must derive its validation
+    requirements from the canonical Project/Phase 7 change policy
+    (impact-sensitive), not the old fixed syntax+AST mapping."""
+
+    def test_resolver_routes_modify_code_through_canonical_small_policy(
+        self,
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            resolve_project_domain_change_validation_ids,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+        ids = resolve_project_domain_change_validation_ids(definition)
+        # Canonical small_change set: formatter_check, lint, syntax, ast,
+        # affected_tests -- NOT the old fixed syntax+ast pair.
+        assert "formatter_check" in ids
+        assert "lint" in ids
+        assert "syntax_validator" in ids
+        assert "ast_validator" in ids
+        assert "affected_tests_step" in ids
+
+    def test_project_modify_code_uses_canonical_small_change_requirements(
+        self, tmp_path
+    ) -> None:
+        from cmm.agent_runtime.validation_integration_contracts import (
+            ValidationRequirement,
+        )
+        from cmm.domains.validation_integration import (
+            resolve_domain_operation_validation_requirements,
+        )
+
+        project_dir = tmp_path / "reqproj"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+
+        requirements = resolve_domain_operation_validation_requirements(
+            definition,
+            impact="small",
+            changed_files=("main.py",),
+        )
+        assert requirements
+        assert all(
+            isinstance(r, ValidationRequirement) and r.required and r.blocking
+            for r in requirements
+        )
+        validator_ids = sorted(vid for r in requirements for vid in r.validator_ids)
+        assert "formatter_check" in validator_ids
+        assert "lint" in validator_ids
+        assert "syntax_validator" in validator_ids
+        assert "ast_validator" in validator_ids
+        assert "affected_tests_step" in validator_ids
+        # changed_files propagated to requirement resource scope.
+        assert requirements[0].resource_scope == ("main.py",)
+
+    def test_project_structural_change_uses_stronger_canonical_policy(
+        self,
+    ) -> None:
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+            resolve_project_domain_change_validation_ids,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+        small = resolve_project_domain_change_validation_ids(definition, impact="small")
+        # structural demands custom validators the runtime cannot execute, so
+        # it fails closed -- proving escalation is never silently downgraded
+        # to the weaker small policy.
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(
+                definition, impact="structural"
+            )
+        # public/broad/high/full escalate to stronger policies and also fail
+        # closed on unmappable mandatory steps.
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(definition, impact="public")
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(definition, impact="broad")
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(definition, impact="full")
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(definition, impact="high")
+        assert set(small) <= {
+            "formatter_check",
+            "lint",
+            "syntax_validator",
+            "ast_validator",
+            "affected_tests_step",
+        }
+
+    def test_project_modify_code_blocks_valid_syntax_when_affected_test_fails(
+        self, tmp_path
+    ) -> None:
+        import ast
+        import subprocess
+        import sys
+
+        from cmm.domains.enums import DomainOperationStatus
+
+        # Valid syntax + a passing affected test: accepted.
+        orchestrator, request, _ = _affected_test_stack(tmp_path, break_test=False)
+        assert orchestrator.execute(request).status is DomainOperationStatus.COMPLETED
+
+        # Introduce a regression that breaks the affected test while keeping
+        # syntax and AST valid; the mutation must be blocked by the real
+        # project.modify_code path under the canonical small_change policy.
+        breaking_orch, breaking_request, _ = _affected_test_stack(
+            tmp_path, break_test=True
+        )
+        breaking = breaking_orch.execute(breaking_request)
+        assert breaking.status is not DomainOperationStatus.COMPLETED
+
+        # The broken tree is syntactically valid Python with a valid AST.
+        broken_text = (tmp_path / "affproj" / "main.py").read_text(encoding="utf-8")
+        compile(broken_text, "main.py", "exec")
+        ast.parse(broken_text)
+
+        # Direct affected-test evidence: pytest fails on the broken tree.
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "-q",
+                "tests/test_main.py",
+            ],
+            cwd=(tmp_path / "affproj"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert probe.returncode != 0
+
+        # Repair restores acceptance only after current validation passes.
+        (tmp_path / "affproj" / "main.py").write_text(
+            "def add(a, b):\n    return a + b\n", encoding="utf-8"
+        )
+        fixed_orch, fixed_request, _ = _affected_test_stack(tmp_path, break_test=False)
+        assert (
+            fixed_orch.execute(fixed_request).status is DomainOperationStatus.COMPLETED
+        )
+
+    def test_caller_cannot_downgrade_project_impact(self) -> None:
+        import inspect
+
+        import cmm.domains.validation_integration as vi
+        from cmm.domains.validation_integration import (
+            resolve_project_domain_change_validation_ids,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+        # Host-derived impact governs; caller metadata cannot weaken it.
+        small = resolve_project_domain_change_validation_ids(definition, impact="small")
+        assert "formatter_check" in small
+        # No metadata-downgrade channel exists: impact is host-owned only.
+        assert small == resolve_project_domain_change_validation_ids(
+            definition, impact="small"
+        )
+        assert (
+            "metadata"
+            not in inspect.signature(
+                vi.resolve_project_domain_change_validation_ids
+            ).parameters
+        )
+        assert (
+            "metadata"
+            not in inspect.signature(
+                vi.resolve_domain_operation_validation_requirements
+            ).parameters
+        )
+
+    def test_unknown_mandatory_policy_step_fails_closed(self) -> None:
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+            resolve_project_domain_change_validation_ids,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+        # Any mandatory Phase 7 step without an executable mapping fails
+        # closed instead of being silently omitted.
+        with pytest.raises(DomainValidationIntegrationError) as excinfo:
+            resolve_project_domain_change_validation_ids(
+                definition, impact="structural"
+            )
+        assert excinfo.value.details.get("reason") == "unmapped_mandatory_policy_step"

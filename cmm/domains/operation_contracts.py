@@ -427,6 +427,8 @@ _REQUEST_FIELDS = frozenset(
         "created_at",
         "metadata",
         "effective_validation_ids",
+        "validation_impact",
+        "validation_changed_files",
     }
 )
 
@@ -452,6 +454,8 @@ class DomainOperationRequest:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Mapping[str, Any] = field(default_factory=dict)
     effective_validation_ids: tuple[str, ...] = ()
+    validation_impact: str | None = None
+    validation_changed_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for attr in (
@@ -510,6 +514,16 @@ class DomainOperationRequest:
             "effective_validation_ids",
             _id_tuple(self.effective_validation_ids, "effective_validation_ids"),
         )
+        object.__setattr__(
+            self,
+            "validation_impact",
+            _optional_text(self.validation_impact, "validation_impact"),
+        )
+        object.__setattr__(
+            self,
+            "validation_changed_files",
+            _id_tuple(self.validation_changed_files, "validation_changed_files"),
+        )
 
     def calculate_fingerprint(self) -> str:
         payload = {
@@ -520,6 +534,8 @@ class DomainOperationRequest:
             "primary_domain_id": self.primary_domain_id,
             "supporting_domain_ids": sorted(self.supporting_domain_ids),
             "effective_validation_ids": sorted(self.effective_validation_ids),
+            "validation_impact": self.validation_impact or "",
+            "validation_changed_files": sorted(self.validation_changed_files),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -546,6 +562,8 @@ class DomainOperationRequest:
             "created_at": self.created_at.isoformat(),
             "metadata": _thaw(self.metadata),
             "effective_validation_ids": list(self.effective_validation_ids),
+            "validation_impact": self.validation_impact,
+            "validation_changed_files": list(self.validation_changed_files),
         }
 
     @classmethod

@@ -771,7 +771,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
                     "code": (
                         "def feature(self) -> str:\n"
                         '    """Feature docstring."""\n'
-                        "    return 'ok'\n"
+                        '    return "ok"\n'
                     ),
                 },
                 "reason": "Add feature method",
@@ -812,6 +812,25 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         def execute(self, request: Any) -> dict[str, Any]:
             runtime_action = request.parameters["runtime_action"]
             run_res = Runtime().run(runtime_action)
+            # Canonical formatter policy: normalize ast.unparse output.
+            try:
+                import subprocess
+                import sys
+
+                try:
+                    actions = tuple(runtime_action.get("actions", ()) or ())
+                except Exception:
+                    actions = ()
+                for act in actions:
+                    pp = act.get("path") if hasattr(act, "get") else None
+                    if pp:
+                        subprocess.run(
+                            [sys.executable, "-m", "ruff", "format", str(pp)],
+                            capture_output=True,
+                            check=False,
+                        )
+            except Exception:
+                pass
             if self.fail or request.parameters.get("force_failure"):
                 return {
                     "success": False,
@@ -963,7 +982,7 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
                 "code": (
                     "def feature(self) -> str:\n"
                     '    """Feature docstring."""\n'
-                    "    return 'ok'\n"
+                    '    return "ok"\n'
                 ),
             }
         ],
