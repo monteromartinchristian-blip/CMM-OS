@@ -740,6 +740,38 @@ class DomainAgentRuntimeIntegrationBlockedError(
     pass
 
 
+# ── Phase 10.44 – Domain Memory Knowledge Integration Errors ────────────────
+
+
+class DomainMemoryKnowledgeIntegrationError(DomainError):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_INTEGRATION_ERROR"
+
+
+class DomainMemoryKnowledgeContractError(
+    DomainMemoryKnowledgeIntegrationError,
+    ValueError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_CONTRACT_ERROR"
+
+
+class DomainMemoryKnowledgeProjectionError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_PROJECTION_ERROR"
+
+
+class DomainMemoryKnowledgeAuthorizationError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_AUTHORIZATION_ERROR"
+
+
+class DomainMemoryKnowledgeSerializationError(
+    DomainMemoryKnowledgeIntegrationError,
+):
+    code = "DOMAIN_MEMORY_KNOWLEDGE_SERIALIZATION_ERROR"
+
+
 # ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
 
 
@@ -986,6 +1018,11 @@ __all__ = [
     "DomainLoaderError",
     "DomainMemoryContractError",
     "DomainMemoryError",
+    "DomainMemoryKnowledgeAuthorizationError",
+    "DomainMemoryKnowledgeContractError",
+    "DomainMemoryKnowledgeIntegrationError",
+    "DomainMemoryKnowledgeProjectionError",
+    "DomainMemoryKnowledgeSerializationError",
     "DomainMemoryPermissionError",
     "DomainMemoryPrivacyError",
     "DomainMemoryProposalBindingError",
