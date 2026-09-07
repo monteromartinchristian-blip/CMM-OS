@@ -989,44 +989,416 @@ class TestAcceptanceV3FailClosedInvariants:
         )
 
     def test_project_impact_escalation_via_real_runtime(self, tmp_path) -> None:
-        from tests.domains.test_domain_validation_project_integration import (
-            _affected_test_stack,
+        # V5 canonical path: a structural/public mutation is classified by
+        # the real Phase 7 ChangeImpactAnalyzer (never Domain heuristics),
+        # POST requirements fail closed on unmappable stronger policy steps,
+        # and canonical rollback restores the mutated tree.
+        from cmm.domains.validation_integration import (
+            project_policy_impact_from_canonical_result,
         )
+        from cmm.validation.impact import ChangeImpactAnalyzer, ChangeSetBuilder
+        from cmm.validation.impact.snapshots import scan_project_snapshot
 
         # 1. Structural change: function signature change with caller hint "small"
         def structural_mutation(project_dir) -> None:
-            (project_dir / "main.py").write_text(
+            (project_dir / "src" / "pkg" / "module.py").write_text(
                 "def add(a, b, c=0):\n    return a + b + c\n",
                 encoding="utf-8",
             )
 
-        orch_struct, req_struct, _ = _affected_test_stack(
-            tmp_path / "struct_proj",
-            custom_mutation=structural_mutation,
+        orch_struct, req_struct, struct_dir, _ = _canonical_project_stack(
+            tmp_path,
+            mutation=structural_mutation,
+            suffix="struct",
             validation_impact="small",
-            validation_changed_files=(),
+        )
+        original_struct = (struct_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
         )
         res_struct = orch_struct.execute(req_struct)
         assert res_struct.status is DomainOperationStatus.ROLLED_BACK
         assert res_struct.error is not None
-        assert res_struct.error.get("code") == "VALIDATION_ESCALATION_FAILED"
-        assert "refusing to downgrade" in res_struct.error.get("message", "")
+        assert res_struct.error.get("code") == "POST_VALIDATION_FAILED"
+        # Canonical rollback restored the mutated file content.
+        assert (struct_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
+        ) == original_struct
 
         # 2. Public API change: adding new exported function with caller hint "small"
         def public_mutation(project_dir) -> None:
-            (project_dir / "main.py").write_text(
-                "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
+            (project_dir / "src" / "pkg" / "module.py").write_text(
+                "def add(a, b):\n"
+                "    return a + b\n"
+                "\n"
+                "\n"
+                "def multiply(a, b):\n"
+                "    return a * b\n",
                 encoding="utf-8",
             )
 
-        orch_pub, req_pub, _ = _affected_test_stack(
-            tmp_path / "pub_proj",
-            custom_mutation=public_mutation,
+        orch_pub, req_pub, pub_dir, _ = _canonical_project_stack(
+            tmp_path,
+            mutation=public_mutation,
+            suffix="public",
             validation_impact="small",
-            validation_changed_files=(),
+        )
+        original_pub = (pub_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
         )
         res_pub = orch_pub.execute(req_pub)
         assert res_pub.status is DomainOperationStatus.ROLLED_BACK
         assert res_pub.error is not None
-        assert res_pub.error.get("code") == "VALIDATION_ESCALATION_FAILED"
-        assert "refusing to downgrade" in res_pub.error.get("message", "")
+        assert res_pub.error.get("code") == "POST_VALIDATION_FAILED"
+        assert (pub_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
+        ) == original_pub
+
+        # The canonical analyzer independently escalates both mutation
+        # shapes: Phase 10.43 policy follows ChangeImpactResult, never the
+        # caller's "small" hint.
+        import shutil
+
+        for label, mutate in (
+            ("struct", structural_mutation),
+            ("public", public_mutation),
+        ):
+            scratch = tmp_path / f"scratch-{label}"
+            if scratch.exists():
+                shutil.rmtree(scratch)
+            shutil.copytree(
+                struct_dir if label == "struct" else pub_dir,
+                scratch,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            before = scan_project_snapshot(scratch, source="before")
+            mutate(scratch)
+            after = scan_project_snapshot(scratch, source="after")
+            change_set = ChangeSetBuilder().build_from_snapshots(
+                project_root=scratch,
+                before=before,
+                after=after,
+            )
+            assert project_policy_impact_from_canonical_result(
+                ChangeImpactAnalyzer().analyze(change_set)
+            ) in ("structural", "public", "full")
+
+
+# ── I. V5 canonical Project proof: actual ChangeSet, trusted root, restoration ─
+
+
+class _TreeResourceVersionProvider:
+    """Canonical-storage resource provider snapshotting a whole project tree.
+
+    Test-side storage double (the same established pattern as the
+    self-development e2e ``RepoResourceVersionProvider``): capture/verify/
+    restore whole-tree bytes so the canonical
+    ``CheckpointRestorationRollbackExecutor`` can genuinely restore mutated
+    file content through ``CheckpointManager``/``TransactionManager``.
+    """
+
+    def __init__(self, repo_path) -> None:
+        import hashlib
+        from pathlib import Path
+
+        self._hashlib = hashlib
+        self._Path = Path
+        self.repo_path = Path(repo_path)
+        self._snapshots: dict[str, dict] = {}
+
+    def _current_state(self) -> dict:
+        files_state = {}
+        for path in self.repo_path.rglob("*"):
+            if path.is_file() and ".git" not in path.parts:
+                files_state[path] = path.read_bytes()
+        return files_state
+
+    def capture_version(self, resource_key: str) -> str:
+        files_state = self._current_state()
+        digest_content = "".join(
+            f"{path.relative_to(self.repo_path)}:"
+            f"{self._hashlib.sha256(data).hexdigest()};"
+            for path, data in sorted(files_state.items(), key=lambda item: str(item[0]))
+        )
+        digest = self._hashlib.sha256(digest_content.encode("utf-8")).hexdigest()
+        self._snapshots[digest] = files_state
+        return digest
+
+    def verify_version(self, resource_key: str, expected_version: str) -> bool:
+        return self.capture_version(resource_key) == expected_version
+
+    def restore_version(self, resource_key: str, target_version: str) -> bool:
+        if target_version not in self._snapshots:
+            return False
+        snapshot = self._snapshots[target_version]
+        current_files = {
+            path
+            for path in self.repo_path.rglob("*")
+            if path.is_file() and ".git" not in path.parts
+        }
+        for path in current_files - set(snapshot.keys()):
+            path.unlink()
+        for path, data in snapshot.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        return True
+
+
+def _canonical_project_stack(
+    tmp_path,
+    *,
+    mutation=None,
+    suffix: str = "v5",
+    hint: str | None = "omit",
+    validation_impact: str | None = None,
+):
+    """Project mutation stack with canonical transaction/rollback ownership.
+
+    Nested src-layout fixture with no top-level ``*.py`` files. The
+    host-registered implementation declares ``host_project_root``; caller
+    metadata carries only the requested hint (``"omit"`` sends none).
+    Rollback uses the canonical ``CheckpointRestorationRollbackExecutor``
+    over real ``TransactionManager``/``CheckpointManager``/
+    ``CheckpointRestorationManager`` so restoration of file content (not
+    just status) is proven. Returns
+    ``(orchestrator, request, project_dir, adapter)``.
+    """
+    import dataclasses
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.checkpoint_manager import CheckpointManager
+    from cmm.agent_runtime.checkpoint_repository import InMemoryCheckpointRepository
+    from cmm.agent_runtime.checkpoint_restoration import CheckpointRestorationManager
+    from cmm.agent_runtime.checkpoint_rollback_executor import (
+        CheckpointRestorationRollbackExecutor,
+    )
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+    from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+    from cmm.agent_runtime.transaction_manager import TransactionManager
+    from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.operation_contracts import DomainOperationRequest
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.permission_adapters import evaluate_domain_operation
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.project.operations import build_project_operation_definitions
+    from cmm.domains.project.permissions import build_project_permission_policy
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements,
+    )
+
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    definition = ops["project.modify_code"]
+
+    project_dir = tmp_path / f"canonproj-{suffix}"
+    pkg_dir = project_dir / "src" / "pkg"
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "module.py").write_text(
+        "def add(a, b):\n    return a + b\n", encoding="utf-8"
+    )
+    tests_dir = project_dir / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+    (tests_dir / "test_module.py").write_text(
+        "from src.pkg.module import add\n"
+        "\n"
+        "\n"
+        "def test_add():\n"
+        "    assert add(1, 2) == 3\n",
+        encoding="utf-8",
+    )
+
+    class Implementation:
+        def __init__(self) -> None:
+            self.definition = definition
+            self.host_project_root = str(project_dir)
+
+        def execute(self, request) -> dict:
+            if mutation is not None:
+                mutation(project_dir)
+            return {"success": True, "output": {"status": "ok"}}
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    registry.register(definition, Implementation())
+
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_project_permission_policy())
+    resolver = DomainPermissionResolver(perm_registry)
+    service = ApprovalService(InMemoryApprovalRepository())
+
+    metadata: dict = {"actor_id": "actor-1"}
+    if hint is not None and hint != "omit":
+        metadata["validation_project_root"] = hint
+
+    request = DomainOperationRequest(
+        request_id=f"req:canon:{suffix}",
+        operation_id="project.modify_code",
+        operation_version=definition.version,
+        inputs={},
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="task-1",
+        session_id="sess-1",
+        primary_domain_id=definition.domain_id,
+        idempotency_key=f"idem-canon-{suffix}",
+        granted_permissions=definition.required_permissions,
+        available_resources=definition.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata=metadata,
+        validation_impact=validation_impact,
+        validation_changed_files=(),
+    )
+    decision = evaluate_domain_operation(
+        definition,
+        resolver,
+        request_id=request.request_id,
+        actor_id="actor-1",
+        session_id="sess-1",
+    )
+    approval_request_ids: dict = {}
+    op_exec_approval_id = None
+    for req in decision.approval_requirements:
+        bridged = to_approval_requirement(req, agent_run_id="run-1")
+        app_req = service.create_request_from_requirement(
+            bridged,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": request.calculate_fingerprint(),
+            },
+        )
+        service.approve(app_req.id, actor_id="lead")
+        approval_request_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_approval_id = app_req.id
+
+    resource_provider = _TreeResourceVersionProvider(project_dir)
+    checkpoint_repo = InMemoryCheckpointRepository()
+    checkpoint_manager = CheckpointManager(
+        repository=checkpoint_repo, resource_provider=resource_provider
+    )
+    transaction_manager = TransactionManager(checkpoint_manager)
+    restoration_manager = CheckpointRestorationManager(
+        repository=checkpoint_repo, resource_provider=resource_provider
+    )
+    rollback_executor = CheckpointRestorationRollbackExecutor(
+        transaction_manager=transaction_manager,
+        restoration_manager=restoration_manager,
+    )
+
+    validation_adapter = AgentValidationAdapter()
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=validation_adapter,
+    )
+    _now = datetime.now(timezone.utc)
+    gate = DomainPermissionGate(resolver, service, clock=lambda: _now)
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        approval_service=service,
+        permission_gate=gate,
+        transaction_manager=transaction_manager,
+        rollback_executor=rollback_executor,
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
+    )
+    approved_request = dataclasses.replace(
+        request,
+        approval_request_id=op_exec_approval_id,
+        metadata={**metadata, "approval_request_ids": approval_request_ids},
+    )
+    return orchestrator, approved_request, project_dir, adapter
+
+
+class TestAcceptanceProjectDomainV5Canonical:
+    """V5 Project acceptance: canonical ChangeSet, trusted root, restoration."""
+
+    def test_nested_regression_blocked_and_rolled_back_with_restoration(
+        self, tmp_path
+    ) -> None:
+        def break_mutation(project_dir) -> None:
+            (project_dir / "src" / "pkg" / "module.py").write_text(
+                "def add(a, b):\n    return a - b\n", encoding="utf-8"
+            )
+
+        orchestrator, request, project_dir, adapter = _canonical_project_stack(
+            tmp_path, mutation=break_mutation, suffix="nestedbreak"
+        )
+        original = (project_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
+        )
+        result = orchestrator.execute(request)
+        assert result.status is DomainOperationStatus.ROLLED_BACK
+        # Canonical restoration: mutated file content is actually restored.
+        assert (project_dir / "src" / "pkg" / "module.py").read_text(
+            encoding="utf-8"
+        ) == original
+
+        # Canonical POST evidence: actual nested changed file fed POST
+        # validation and affected_tests is the blocking step.
+        repository = adapter.validation_adapter.repository
+        post_result = repository.find_by_idempotency_key(
+            "post-mutation-idem-canon-nestedbreak"
+        )
+        assert post_result is not None
+        post_request = repository.get_request(post_result.request_id)
+        post_scope = tuple(
+            scope
+            for requirement in post_request.requirements
+            for scope in requirement.resource_scope
+        )
+        assert "src/pkg/module.py" in post_scope
+        report = post_result.validation_report or {}
+        step_by_name = {step["name"]: step for step in report.get("steps", ())}
+        assert step_by_name.get("affected_tests", {}).get("status") == "failed"
+
+        # The restored tree validates clean: a no-op mutation is accepted.
+        clean_orch, clean_request, _, _ = _canonical_project_stack(
+            tmp_path, mutation=None, suffix="nestedclean"
+        )
+        assert (
+            clean_orch.execute(clean_request).status is DomainOperationStatus.COMPLETED
+        )
+
+    def test_post_mutation_derivation_failure_fails_closed(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import cmm.domains.validation_integration as integration_mod
+
+        class _BoomBuilder:
+            def build_from_snapshots(self, **kwargs):
+                raise RuntimeError("changeset unavailable")
+
+        monkeypatch.setattr(integration_mod, "ChangeSetBuilder", lambda: _BoomBuilder())
+        orchestrator, request, _, _ = _canonical_project_stack(
+            tmp_path, mutation=None, suffix="derivefail"
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+    def test_caller_decoy_root_cannot_redirect_validation(self, tmp_path) -> None:
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+        )
+
+        decoy = tmp_path / "decoy"
+        decoy.mkdir(parents=True, exist_ok=True)
+        (decoy / "main.py").write_text("x = 1\n", encoding="utf-8")
+        orchestrator, request, _, _ = _canonical_project_stack(
+            tmp_path, mutation=None, suffix="decoy", hint=str(decoy)
+        )
+        with pytest.raises(DomainValidationIntegrationError):
+            orchestrator.execute(request)
