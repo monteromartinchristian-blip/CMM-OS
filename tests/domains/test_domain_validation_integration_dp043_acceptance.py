@@ -761,3 +761,246 @@ class TestAcceptanceArchitecture:
             primary_required=("domain.contracts",),
             supporting_required=("domain.permissions",),
         ) == ("domain.contracts", "domain.permissions")
+
+
+# ── H. V2→V3 remediation: BLOCKER-V2-03 connected fail-closed invariants ──────
+
+
+class TestAcceptanceV3FailClosedInvariants:
+    """Connected DP-043 closure: provider omission, empty requirements,
+    unconditional specialized gate, Project affected-test, and impact
+    escalation through the real runtime path."""
+
+    def test_provider_omission_fails_closed_with_adapter_present(self) -> None:
+        from cmm.agent_runtime.operation_registry import (
+            InMemoryAgentOperationRegistry,
+        )
+        from cmm.domains.operation_contracts import DomainOperationRequest
+        from cmm.domains.operation_execution import (
+            DefaultDomainOperationOrchestrator,
+            DomainOperationExecutionDelegate,
+        )
+        from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+        )
+        from tests.domains.test_domain_validation_runtime_integration import (
+            _validating_operation,
+        )
+
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.v3-required",
+            validation_policy_id="validation.flow.v3-required",
+            declared_ids=(),
+        )
+
+        class Impl:
+            def __init__(self) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:  # pragma: no cover
+                raise AssertionError("must not execute without provider")
+
+        registry.register(definition, Impl())
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-v3-provider-omitted",
+            operation_id="flow.v3-required",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-v3-provider-omitted",
+            capabilities=("execute", "validation"),
+        )
+        with pytest.raises(DomainValidationIntegrationError):
+            orchestrator.execute(request)
+
+    def test_empty_requirements_fail_closed_for_mandated_operation(self) -> None:
+        from datetime import datetime, timezone
+
+        from cmm.agent_runtime.operation_execution_adapter import (
+            AgentExecutionAdapter as ExecAdapter,
+        )
+        from cmm.agent_runtime.operation_execution_contracts import (
+            AgentOperationRequest,
+            OperationDescriptor,
+        )
+
+        adapter = ExecAdapter(
+            execution_delegate=lambda req: {"success": True, "output": {}},
+            validation_adapter=AgentValidationAdapter(),
+        )
+        adapter.register_operation(
+            OperationDescriptor(
+                name="accept.v3empty",
+                version="1",
+                description="v3 empty requirements",
+                input_schema={"type": "object"},
+            )
+        )
+        request = AgentOperationRequest(
+            id="req-v3-empty",
+            agent_run_id="run-v3",
+            workflow_id="wf-v3",
+            task_id="task-v3",
+            operation_name="accept.v3empty",
+            operation_version="1",
+            parameters={},
+            idempotency_key="idem-v3-empty",
+            environment="local",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            metadata={"requires_validation": True},
+            validation_requirements=(),
+        )
+        with pytest.raises(ValidationAdapterError):
+            adapter.execute(request)
+
+    def test_specialized_result_gate_without_provider(self) -> None:
+        from cmm.agent_runtime.operation_registry import (
+            InMemoryAgentOperationRegistry,
+        )
+        from cmm.domains.operation_contracts import DomainOperationRequest
+        from cmm.domains.operation_execution import (
+            DefaultDomainOperationOrchestrator,
+            DomainOperationExecutionDelegate,
+        )
+        from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+        from tests.domains.test_domain_validation_runtime_integration import (
+            _validating_operation,
+        )
+
+        common = InMemoryAgentOperationRegistry()
+        registry = InMemoryDomainOperationRegistry(common)
+        definition = _validating_operation(
+            operation_id="flow.v3-special",
+            validation_policy_id=None,
+            declared_ids=(),
+        )
+
+        class Impl:
+            def __init__(self) -> None:
+                self.definition = definition
+
+            def execute(self, request) -> dict:
+                return {
+                    "success": True,
+                    "output": {
+                        "domain_id": "domain:other",
+                        "operation_id": "flow.v3-special",
+                        "status": "ok",
+                    },
+                }
+
+        registry.register(definition, Impl())
+        adapter = AgentExecutionAdapter(
+            registry=common,
+            execution_delegate=DomainOperationExecutionDelegate(registry),
+            validation_adapter=AgentValidationAdapter(),
+        )
+        orchestrator = DefaultDomainOperationOrchestrator(registry, adapter)
+        request = DomainOperationRequest(
+            request_id="req-v3-special",
+            operation_id="flow.v3-special",
+            operation_version="1.0.0",
+            inputs={},
+            agent_run_id="run-1",
+            workflow_id="wf-1",
+            task_id="task-1",
+            primary_domain_id="domain:flow",
+            idempotency_key="idem-v3-special",
+            capabilities=("execute", "validation"),
+        )
+        assert (
+            orchestrator.execute(request).status is not DomainOperationStatus.COMPLETED
+        )
+
+    def test_project_affected_test_failure_via_real_path(self, tmp_path) -> None:
+        import ast
+        import subprocess
+        import sys
+
+        from tests.domains.test_domain_validation_project_integration import (
+            _affected_test_stack,
+        )
+
+        orchestrator, request, _ = _affected_test_stack(tmp_path, break_test=False)
+        assert orchestrator.execute(request).status is DomainOperationStatus.COMPLETED
+
+        breaking_orch, breaking_request, _ = _affected_test_stack(
+            tmp_path, break_test=True
+        )
+        breaking = breaking_orch.execute(breaking_request)
+        assert breaking.status is not DomainOperationStatus.COMPLETED
+
+        broken_text = (tmp_path / "affproj" / "main.py").read_text(encoding="utf-8")
+        compile(broken_text, "main.py", "exec")
+        ast.parse(broken_text)
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "-q",
+                "tests/test_main.py",
+            ],
+            cwd=(tmp_path / "affproj"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert probe.returncode != 0
+
+        (tmp_path / "affproj" / "main.py").write_text(
+            "def add(a, b):\n    return a + b\n", encoding="utf-8"
+        )
+        fixed_orch, fixed_request, _ = _affected_test_stack(tmp_path, break_test=False)
+        assert (
+            fixed_orch.execute(fixed_request).status is DomainOperationStatus.COMPLETED
+        )
+
+    def test_project_impact_escalation_via_real_runtime(self) -> None:
+        from cmm.domains.project.operations import (
+            build_project_operation_definitions,
+        )
+        from cmm.domains.validation_integration import (
+            DomainValidationIntegrationError,
+            resolve_domain_operation_validation_requirements,
+            resolve_project_domain_change_validation_ids,
+        )
+
+        ops = {op.operation_id: op for op in build_project_operation_definitions()}
+        definition = ops["project.modify_code"]
+        small = resolve_project_domain_change_validation_ids(definition, impact="small")
+        assert set(small) == {
+            "formatter_check",
+            "lint",
+            "syntax_validator",
+            "ast_validator",
+            "affected_tests_step",
+        }
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(
+                definition, impact="structural"
+            )
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_domain_operation_validation_requirements(
+                definition, impact="structural", changed_files=("main.py",)
+            )
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_project_domain_change_validation_ids(definition, impact="public")
+        with pytest.raises(DomainValidationIntegrationError):
+            resolve_domain_operation_validation_requirements(
+                definition, impact="full", changed_files=("main.py",)
+            )
