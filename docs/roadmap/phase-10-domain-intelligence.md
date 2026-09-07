@@ -5967,9 +5967,8 @@ same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
 covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
-reference `docs/reference/domain-validation-integration.md`. The
-independently audited Domain Intelligence boundary now extends through Phase 10.43.
-Phase 10.44 remains not started and is the next milestone after this closure commit.
+reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.43.
+Phase 10.44 implementation is complete; independent audit is pending.
 
 ⸻
 
@@ -6023,6 +6022,31 @@ It should not:
 * duplicate entities;
 * convertir correlaciones en causalidad;
 * mezclar periodos incompatible.
+
+Implementation Status (Phase 10.44):
+- Status: `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+- Requirement: `DP-044` (`SRC-R10:R10-C44`)
+- Acceptance: `AT-DP-044=PASS` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`)
+- Closure Eligibility: `CLOSURE_ELIGIBLE=NOT_YET_ASSESSED` (independent audit pending)
+- Audited Baseline: Phase 10.43 remains the latest independently audited and closed milestone.
+- Delivered Architecture:
+  - Stateless coordinator `DefaultDomainMemoryKnowledgeIntegrator` in `cmm/domains/memory_knowledge_integration.py`
+  - Immutable projection contracts in `cmm/domains/memory_knowledge_integration_contracts.py`
+  - Domain error hierarchy extensions in `cmm/domains/errors.py`
+  - Public facade seam `DefaultDomainAPI.project_memory_knowledge` in `cmm/domains/api.py`
+  - Reuses Phase 10.18 `DomainMemoryView`, `DefaultDomainMemoryViewResolver`, and `DefaultDomainMemoryIntegrationValidator`
+  - Reuses Phase 8 canonical `KnowledgeItem`, `KnowledgeRelation`, `Contradiction`, and `InMemoryKnowledgeStore`
+  - Reuses Phase 9 `KnowledgeUpdateProposalEngine` and `InMemoryKnowledgeUpdateRepository` via Phase 10.18 `DomainMemoryProposalBinding`
+  - Zero Domain-owned Knowledge Graph, store, repository, persistence, temporal engine, contradiction engine, or causal inference
+  - Zero direct imports of `cmm.memory` or `TechnicalMemory` in Phase 10.44 code
+  - Zero mutations to cognitive stores during projection
+  - Pure fail-closed suppression of dangling relation/contradiction endpoints
+  - Multi-hop dependency and impact path derivation preserves canonical relation IDs and kinds without causal strengthening
+  - Connected acceptance test `AT-DP-044` passes end-to-end with 66 dedicated Phase 10.44 tests green
+  - Reference documentation: `docs/reference/domain-memory-knowledge-graph-integration.md`
+  - Specification: `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
+  - Implementation plan: `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
+  - Next action: Prepare exact-HEAD audit bundle for Phase 10.44 independent audit (Phase 10.45 has not started).
 
 ⸻
 
