@@ -389,6 +389,10 @@ def _affected_test_stack(
     class Implementation:
         def __init__(self) -> None:
             self.definition = definition
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree, never caller
+            # metadata.
+            self.host_project_root = str(project_dir)
 
         def execute(self, request) -> dict:
             import shutil
@@ -823,6 +827,246 @@ def _canonical_impact_result(tmp_path, *, before_src: str, after_src: str):
         after=after,
     )
     return ChangeImpactAnalyzer().analyze(change_set)
+
+
+def _nested_src_stack(tmp_path, *, break_on_execute: bool, suffix: str):
+    """Orchestrator stack for a nested src-layout project with no top-level files.
+
+    Fixture::
+
+        nestedproj/
+          src/__init__.py
+          src/pkg/__init__.py
+          src/pkg/module.py
+          tests/__init__.py
+          tests/test_module.py
+
+    The caller omits both ``validation_changed_files`` and
+    ``validation_impact``; the trusted host root comes from the
+    host-registered implementation, never request metadata authority.
+    Returns (orchestrator, request, project_dir, adapter).
+    """
+    import dataclasses
+    from datetime import datetime, timezone
+
+    from cmm.agent_runtime.approval_repository import InMemoryApprovalRepository
+    from cmm.agent_runtime.approval_service import ApprovalService
+    from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+    from cmm.agent_runtime.operation_execution_adapter import AgentExecutionAdapter
+    from cmm.agent_runtime.operation_registry import InMemoryAgentOperationRegistry
+    from cmm.agent_runtime.validation_execution_adapter import AgentValidationAdapter
+    from cmm.domains.approval_bridge import to_approval_requirement
+    from cmm.domains.operation_contracts import DomainOperationRequest
+    from cmm.domains.operation_execution import (
+        DefaultDomainOperationOrchestrator,
+        DomainOperationExecutionDelegate,
+    )
+    from cmm.domains.operation_registry import InMemoryDomainOperationRegistry
+    from cmm.domains.permission_adapters import evaluate_domain_operation
+    from cmm.domains.permission_gate import DomainPermissionGate
+    from cmm.domains.permission_registry import DomainPermissionRegistry
+    from cmm.domains.permission_resolution import DomainPermissionResolver
+    from cmm.domains.project.permissions import build_project_permission_policy
+    from cmm.domains.validation_integration import (
+        resolve_domain_operation_validation_requirements,
+    )
+
+    ops = {op.operation_id: op for op in build_project_operation_definitions()}
+    definition = ops["project.modify_code"]
+
+    project_dir = tmp_path / "nestedproj"
+    pkg_dir = project_dir / "src" / "pkg"
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "module.py").write_text(
+        "def add(a, b):\n    return a + b\n", encoding="utf-8"
+    )
+    tests_dir = project_dir / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "__init__.py").write_text("", encoding="utf-8")
+    (tests_dir / "test_module.py").write_text(
+        "from src.pkg.module import add\n"
+        "\n"
+        "\n"
+        "def test_add():\n"
+        "    assert add(1, 2) == 3\n",
+        encoding="utf-8",
+    )
+
+    class Implementation:
+        def __init__(self) -> None:
+            self.definition = definition
+            self.host_project_root = str(project_dir)
+
+        def execute(self, request) -> dict:
+            if break_on_execute:
+                (pkg_dir / "module.py").write_text(
+                    "def add(a, b):\n    return a - b\n", encoding="utf-8"
+                )
+            return {"success": True, "output": {"status": "ok"}}
+
+    common = InMemoryAgentOperationRegistry()
+    registry = InMemoryDomainOperationRegistry(common)
+    registry.register(definition, Implementation())
+
+    perm_registry = DomainPermissionRegistry()
+    perm_registry.register(build_project_permission_policy())
+    resolver = DomainPermissionResolver(perm_registry)
+    service = ApprovalService(InMemoryApprovalRepository())
+
+    request = DomainOperationRequest(
+        request_id=f"req:nested:{suffix}",
+        operation_id="project.modify_code",
+        operation_version=definition.version,
+        inputs={},
+        agent_run_id="run-1",
+        workflow_id="wf-1",
+        task_id="task-1",
+        session_id="sess-1",
+        primary_domain_id=definition.domain_id,
+        idempotency_key=f"idem-nested-{suffix}",
+        granted_permissions=definition.required_permissions,
+        available_resources=definition.required_resources,
+        capabilities=("execute", "transaction", "rollback", "validation"),
+        metadata={"actor_id": "actor-1"},
+    )
+    decision = evaluate_domain_operation(
+        definition,
+        resolver,
+        request_id=request.request_id,
+        actor_id="actor-1",
+        session_id="sess-1",
+    )
+    approval_request_ids: dict = {}
+    op_exec_approval_id = None
+    for req in decision.approval_requirements:
+        bridged = to_approval_requirement(req, agent_run_id="run-1")
+        app_req = service.create_request_from_requirement(
+            bridged,
+            requested_by="agent:dev",
+            metadata_override={
+                "domain_request_fingerprint": request.calculate_fingerprint(),
+            },
+        )
+        service.approve(app_req.id, actor_id="lead")
+        approval_request_ids[req.requirement_id] = app_req.id
+        if req.action is PermissionCapability.OPERATION_EXECUTE:
+            op_exec_approval_id = app_req.id
+
+    class Boundary:
+        id = "transaction:1"
+
+    class TransactionManagerSpy:
+        def start_transaction(self, **kwargs):
+            return Boundary(), "checkpoint:1"
+
+        def register_operation(self, **kwargs) -> None:
+            return None
+
+        def commit(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rollback_started(self, transaction_id: str) -> None:
+            return None
+
+        def mark_rolled_back(self, transaction_id: str) -> None:
+            return None
+
+        def mark_failed(self, transaction_id: str) -> None:
+            return None
+
+    class RollbackSpy:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def rollback(self, transaction_id, checkpoint_id=None) -> bool:
+            self.calls += 1
+            return True
+
+    validation_adapter = AgentValidationAdapter()
+    adapter = AgentExecutionAdapter(
+        registry=common,
+        execution_delegate=DomainOperationExecutionDelegate(registry),
+        validation_adapter=validation_adapter,
+    )
+    _now = datetime.now(timezone.utc)
+    gate = DomainPermissionGate(resolver, service, clock=lambda: _now)
+    orchestrator = DefaultDomainOperationOrchestrator(
+        registry,
+        adapter,
+        approval_service=service,
+        permission_gate=gate,
+        transaction_manager=TransactionManagerSpy(),
+        rollback_executor=RollbackSpy(),
+        operation_validation_provider=(
+            resolve_domain_operation_validation_requirements
+        ),
+    )
+    approved_request = dataclasses.replace(
+        request,
+        approval_request_id=op_exec_approval_id,
+        metadata={
+            "actor_id": "actor-1",
+            "approval_request_ids": approval_request_ids,
+        },
+    )
+    return orchestrator, approved_request, project_dir, adapter
+
+
+class TestNestedPostMutationScope:
+    """BLOCKER-V4-01: POST validation consumes the actual mutation ChangeSet."""
+
+    def test_nested_semantic_regression_blocked_by_affected_tests(
+        self, tmp_path
+    ) -> None:
+        from cmm.domains.enums import DomainOperationStatus
+
+        # No top-level *.py files exist: a top-level heuristic could never
+        # select src/pkg/module.py. Only the actual ChangeSet can.
+        assert list(tmp_path.glob("*.py")) == []
+
+        orchestrator, request, project_dir, adapter = _nested_src_stack(
+            tmp_path, break_on_execute=True, suffix="break"
+        )
+        result = orchestrator.execute(request)
+        assert result.status is not DomainOperationStatus.COMPLETED
+
+        # The authoritative POST validation ran against the actual mutation.
+        repository = adapter.validation_adapter.repository
+        post_result = repository.find_by_idempotency_key(
+            "post-mutation-idem-nested-break"
+        )
+        assert post_result is not None
+        post_request = repository.get_request(post_result.request_id)
+        post_scope = tuple(
+            scope
+            for requirement in post_request.requirements
+            for scope in requirement.resource_scope
+        )
+        assert "src/pkg/module.py" in post_scope
+
+        # The canonical report proves affected_tests selected the nested
+        # module's test and failed on the semantic regression.
+        report = post_result.validation_report
+        assert report, "POST validation must carry the canonical report"
+        step_by_name = {step["name"]: step for step in report.get("steps", ())}
+        assert "affected_tests" in step_by_name
+        affected = step_by_name["affected_tests"]
+        assert affected["status"] == "failed"
+        assert "tests/test_module.py" in str(
+            affected.get("metadata", {}).get("affected_tests", ())
+        )
+
+        # Repair restores acceptance only after current validation passes.
+        (project_dir / "src" / "pkg" / "module.py").write_text(
+            "def add(a, b):\n    return a + b\n", encoding="utf-8"
+        )
+        fixed_orch, fixed_request, _, _ = _nested_src_stack(
+            tmp_path, break_on_execute=False, suffix="repair"
+        )
+        fixed = fixed_orch.execute(fixed_request)
+        assert fixed.status is DomainOperationStatus.COMPLETED
 
 
 class TestCanonicalChangeImpactOwnership:

@@ -772,6 +772,9 @@ def test_attack_file_modify_without_approval_rejected(tmp_path) -> None:
         def __init__(self, definition: Any) -> None:
             self.definition = definition
             self.execution_count = 0
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree.
+            self.host_project_root = str(validation_root)
 
         def execute(self, request: Any) -> dict[str, Any]:
             self.execution_count += 1
@@ -1161,6 +1164,9 @@ def test_attack_mutation_requires_shared_rollback_path(tmp_path: Path) -> None:
     class _FailingModifyImpl:
         def __init__(self, definition: Any) -> None:
             self.definition = definition
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree.
+            self.host_project_root = str(tmp_path)
 
         def execute(self, request: Any) -> dict[str, Any]:
             test_file.write_bytes(b"# Corrupted content from failing operation\n")

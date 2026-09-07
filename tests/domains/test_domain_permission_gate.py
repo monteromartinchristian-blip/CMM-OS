@@ -1521,6 +1521,9 @@ def test_orchestrator_execute_preserves_permission_authority_on_success(tmp_path
     class Implementation:
         def __init__(self) -> None:
             self.definition = definition
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree.
+            self.host_project_root = str(validation_root)
 
         def execute(self, request: Any) -> dict[str, object]:
             return {"success": True, "output": {"status": "ok"}}

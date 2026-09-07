@@ -381,6 +381,10 @@ def _modify_code_stack(tmp_path, *, break_tree: bool, break_on_execute: bool):
     class Implementation:
         def __init__(self) -> None:
             self.definition = definition
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree, never caller
+            # metadata.
+            self.host_project_root = str(project_dir)
 
         def execute(self, request) -> dict:
             calls.append(request)

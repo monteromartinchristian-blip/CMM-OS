@@ -10,6 +10,8 @@ from typing import Any
 
 from cmm.agent_runtime.enums import (
     AgentOperationExecutionStatus,
+    AgentValidationDecision,
+    AgentValidationStage,
     ApprovalRequestStatus,
     OperationRecoveryKind,
 )
@@ -22,6 +24,10 @@ from cmm.agent_runtime.operation_execution_contracts import (
     AgentOperationRequest,
 )
 from cmm.agent_runtime.operation_schema import validate_operation_schema
+from cmm.agent_runtime.validation_integration_contracts import (
+    AgentValidationRequest,
+    ValidationExecutionContext,
+)
 from cmm.domains.enums import DomainOperationStatus
 from cmm.domains.errors import (
     DomainOperationContractError,
@@ -54,12 +60,12 @@ from cmm.domains.validation_integration import (
     derive_host_project_change_impact,
     is_project_domain_code_mutation,
     resolve_operation_validation_ids,
-    resolve_project_domain_change_validation_ids,
 )
 from cmm.domains.validation_policy_bindings import (
     build_cross_domain_execution_policy,
     build_domain_workflow_policy,
 )
+from cmm.validation.impact.snapshots import scan_project_snapshot
 from cmm.workflows.engine import NodeExecution
 
 
@@ -350,16 +356,45 @@ class DefaultDomainOperationOrchestrator:
             },
         )
         before_snapshot = None
-        host_proj_root = self._resolve_host_validation_root(request)
-        if host_proj_root and is_project_domain_code_mutation(definition.operation_id):
+        host_proj_root = self._resolve_host_validation_root(
+            request, definition=definition
+        )
+        if is_project_domain_code_mutation(definition.operation_id):
+            # Trusted host root is mandatory for a code mutation, and the
+            # before-state capture must succeed before anything executes.
+            # Any failure here fails closed with no mutation attempted.
+            if not host_proj_root:
+                raise DomainValidationIntegrationError(
+                    "project code mutation requires a trusted host project root",
+                    details={
+                        "operation_id": str(definition.operation_id),
+                        "reason": "missing_project_root",
+                    },
+                )
             try:
-                from cmm.validation.impact.snapshots import _scan_project_snapshot
-
-                _p = Path(host_proj_root)
-                if _p.exists():
-                    before_snapshot = _scan_project_snapshot(_p, source="before")
-            except Exception:  # noqa: BLE001 - pre-snapshot capture failure falls back to None
-                before_snapshot = None
+                before_snapshot = scan_project_snapshot(
+                    Path(host_proj_root), source="before"
+                )
+            except DomainValidationIntegrationError:
+                raise
+            except Exception as exc:
+                raise DomainValidationIntegrationError(
+                    "pre-mutation project snapshot capture failed: refusing "
+                    "to execute without before-state",
+                    details={
+                        "operation_id": str(definition.operation_id),
+                        "reason": "before_snapshot_failed",
+                        "error": str(exc),
+                    },
+                ) from exc
+            if before_snapshot is None:
+                raise DomainValidationIntegrationError(
+                    "pre-mutation project snapshot unavailable: refusing to execute",
+                    details={
+                        "operation_id": str(definition.operation_id),
+                        "reason": "before_snapshot_failed",
+                    },
+                )
 
         common_result = self._execution_adapter.execute(common_request)
         if not isinstance(common_result, AgentOperationExecutionResult):
@@ -412,50 +447,36 @@ class DefaultDomainOperationOrchestrator:
                 validation_result_ids=common_result.validation_result_ids,
             )
 
+        post_validation_ids: tuple[str, ...] | None = None
         if (
             common_result.success
-            and before_snapshot is not None
             and host_proj_root
             and is_project_domain_code_mutation(definition.operation_id)
         ):
+            # Authoritative POST: the actual mutation ChangeSet feeds POST
+            # requirements through the same canonical AgentValidationAdapter.
+            # Pre-mutation scope is never reused. Any failure rolls back.
             try:
-                from cmm.validation.impact.snapshots import _scan_project_snapshot
-
-                _p = Path(host_proj_root)
-                if _p.exists():
-                    after_snapshot = _scan_project_snapshot(_p, source="after")
-                    derived_impact, _derived_files = derive_host_project_change_impact(
-                        _p,
-                        before_snapshot=before_snapshot,
-                        after_snapshot=after_snapshot,
-                    )
-                    effective_impact = combine_validation_impacts(
-                        derived_impact, getattr(request, "validation_impact", None)
-                    )
-                    if effective_impact != "small":
-                        required_ids = resolve_project_domain_change_validation_ids(
-                            definition, impact=effective_impact
-                        )
-                        missing_ids = set(required_ids) - set(
-                            common_result.validation_result_ids
-                        )
-                        if missing_ids:
-                            raise DomainValidationIntegrationError(
-                                f"escalated validation requirements not satisfied: {sorted(missing_ids)}",
-                                details={
-                                    "reason": "escalated_validation_requirements_unsatisfied",
-                                    "missing_ids": tuple(sorted(missing_ids)),
-                                    "required_ids": required_ids,
-                                    "executed_ids": tuple(
-                                        common_result.validation_result_ids
-                                    ),
-                                },
-                            )
-            except Exception as exc:  # noqa: BLE001 - validation escalation check catches all errors to fail closed
-                escalation_error = {
-                    "code": "VALIDATION_ESCALATION_FAILED",
+                post_validation_ids = self._run_post_mutation_project_validation(
+                    definition,
+                    request,
+                    common_request,
+                    common_result,
+                    host_root=host_proj_root,
+                    before_snapshot=before_snapshot,
+                )
+            except DomainValidationIntegrationError as exc:
+                blocked_ids = tuple(
+                    exc.details.get("validation_result_ids", ())
+                    or common_result.validation_result_ids
+                )
+                post_error = {
+                    "code": "POST_VALIDATION_FAILED",
                     "message": str(exc),
-                    "details": {"reason_code": "validation.escalation_failed"},
+                    "details": {
+                        "reason_code": "validation.post_failed",
+                        "operation_id": str(definition.operation_id),
+                    },
                 }
                 return self._failure_with_rollback(
                     request,
@@ -464,10 +485,15 @@ class DefaultDomainOperationOrchestrator:
                     transaction_id,
                     checkpoint_id,
                     definition.rollback_policy_id,
-                    escalation_error,
+                    post_error,
                     gate_result=gate_result,
-                    validation_result_ids=common_result.validation_result_ids,
+                    validation_result_ids=blocked_ids,
                 )
+        effective_validation_ids = (
+            tuple(post_validation_ids)
+            if post_validation_ids is not None
+            else tuple(common_result.validation_result_ids)
+        )
 
         if "memory_write" in (*common_result.effects, *common_result.side_effects):
             direct_write_error = DomainOperationValidationError(
@@ -483,7 +509,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 direct_write_error,
                 gate_result=gate_result,
-                validation_result_ids=common_result.validation_result_ids,
+                validation_result_ids=effective_validation_ids,
             )
 
         output_issues = validate_operation_schema(
@@ -504,7 +530,7 @@ class DefaultDomainOperationOrchestrator:
                 definition.rollback_policy_id,
                 validation_error,
                 gate_result=gate_result,
-                validation_result_ids=common_result.validation_result_ids,
+                validation_result_ids=effective_validation_ids,
             )
 
         if isinstance(common_result.output, Mapping):
@@ -521,7 +547,7 @@ class DefaultDomainOperationOrchestrator:
                     definition.rollback_policy_id,
                     acceptance_error,
                     gate_result=gate_result,
-                    validation_result_ids=common_result.validation_result_ids,
+                    validation_result_ids=effective_validation_ids,
                 )
 
         if transaction_id is not None:
@@ -544,11 +570,10 @@ class DefaultDomainOperationOrchestrator:
             result_metadata["permission_authority"] = (
                 gate_result.to_authority_reference_dict()
             )
-        if common_result.validation_result_ids:
-            # Reference-only retention of canonical validation evidence.
-            result_metadata["validation_result_ids"] = tuple(
-                common_result.validation_result_ids
-            )
+        if effective_validation_ids:
+            # Reference-only retention of canonical validation evidence,
+            # including the authoritative post-mutation POST result.
+            result_metadata["validation_result_ids"] = tuple(effective_validation_ids)
         return self._result(
             request,
             definition.domain_id,
@@ -590,7 +615,9 @@ class DefaultDomainOperationOrchestrator:
                 )
             return ()
         additional = tuple(request.effective_validation_ids or ())
-        project_root = self._resolve_host_validation_root(request)
+        project_root = self._resolve_host_validation_root(
+            request, definition=definition
+        )
         caller_impact = getattr(request, "validation_impact", None)
         caller_files = tuple(getattr(request, "validation_changed_files", ()) or ())
 
@@ -601,12 +628,41 @@ class DefaultDomainOperationOrchestrator:
         effective_impact = combine_validation_impacts(host_impact, caller_impact)
         effective_files = combine_validation_changed_files(host_files, caller_files)
 
+        resolved = self._invoke_validation_provider(
+            definition,
+            additional,
+            impact=effective_impact,
+            changed_files=effective_files,
+            project_root=project_root,
+        )
+        if is_project_domain_code_mutation(getattr(definition, "operation_id", "")):
+            # A code mutation's POST requirements are recomputed after
+            # execution from the actual ChangeSet; only PRE requirements
+            # travel with the pre-mutation request into the common adapter.
+            return tuple(
+                req
+                for req in resolved
+                if req.stage == AgentValidationStage.PRE_EXECUTION
+            )
+        return resolved
+
+    def _invoke_validation_provider(
+        self,
+        definition: Any,
+        additional: tuple[Any, ...],
+        *,
+        impact: str | None,
+        changed_files: tuple[str, ...],
+        project_root: str | None,
+    ) -> tuple[Any, ...]:
+        """Invoke the injected validation provider with arity fallback."""
+        provider = self._operation_validation_provider
         try:
             resolved = provider(
                 definition,
                 additional,
-                impact=effective_impact,
-                changed_files=effective_files,
+                impact=impact,
+                changed_files=changed_files,
                 project_root=project_root,
             )
         except TypeError:
@@ -614,12 +670,12 @@ class DefaultDomainOperationOrchestrator:
                 resolved = provider(
                     definition,
                     additional,
-                    impact=effective_impact,
-                    changed_files=effective_files,
+                    impact=impact,
+                    changed_files=changed_files,
                 )
             except TypeError:
                 try:
-                    resolved = provider(definition, additional, impact=effective_impact)
+                    resolved = provider(definition, additional, impact=impact)
                 except TypeError:
                     try:
                         resolved = provider(definition, additional)
@@ -628,17 +684,169 @@ class DefaultDomainOperationOrchestrator:
                         resolved = provider(definition)
         return tuple(resolved or ())
 
-    def _resolve_host_validation_root(
-        self, request: DomainOperationRequest
-    ) -> str | None:
-        """Resolve the validation project root deployment setting.
+    def _run_post_mutation_project_validation(
+        self,
+        definition: Any,
+        request: DomainOperationRequest,
+        common_request: AgentOperationRequest,
+        common_result: AgentOperationExecutionResult,
+        *,
+        host_root: str,
+        before_snapshot: Any,
+    ) -> tuple[str, ...]:
+        """Run authoritative POST validation from the actual mutation ChangeSet.
 
-        Only meaningful while a validation provider is configured; the
-        requirement set itself always stays host-derived from the operation
-        definition.
+        Captures the after snapshot, derives the canonical Phase 7 ChangeSet
+        and ChangeImpactResult, materializes POST requirements from
+        post-change truth, and executes them through the same canonical
+        AgentValidationAdapter that ran PRE validation. Raises
+        DomainValidationIntegrationError fail-closed (the caller rolls back)
+        when derivation fails, POST requirements cannot be satisfied, or
+        POST validation does not allow acceptance. Returns the combined
+        PRE + authoritative POST validation result IDs.
+        """
+        operation_id = str(getattr(definition, "operation_id", ""))
+        if before_snapshot is None:
+            raise DomainValidationIntegrationError(
+                "post-mutation validation requires the pre-mutation snapshot",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "before_snapshot_failed",
+                },
+            )
+        caller_files = tuple(getattr(request, "validation_changed_files", ()) or ())
+        try:
+            after_snapshot = scan_project_snapshot(Path(host_root), source="after")
+        except Exception as exc:
+            raise DomainValidationIntegrationError(
+                "post-mutation project snapshot capture failed: refusing acceptance",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "after_snapshot_failed",
+                    "error": str(exc),
+                },
+            ) from exc
+        actual_impact, actual_files = derive_host_project_change_impact(
+            host_root,
+            changed_files=caller_files,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+        )
+        additional = tuple(request.effective_validation_ids or ())
+        if self._operation_validation_provider is None:
+            raise DomainValidationIntegrationError(
+                "project mutation mandates validation but no "
+                "operation_validation_provider is configured",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "missing_validation_provider",
+                },
+            )
+        post_requirements = tuple(
+            req
+            for req in self._invoke_validation_provider(
+                definition,
+                additional,
+                impact=actual_impact,
+                changed_files=actual_files,
+                project_root=host_root,
+            )
+            if req.stage == AgentValidationStage.POST_EXECUTION
+        )
+        if not post_requirements:
+            raise DomainValidationIntegrationError(
+                "no POST validation requirements materialized from the actual "
+                "mutation ChangeSet: refusing acceptance",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "missing_post_requirements",
+                    "impact": actual_impact,
+                },
+            )
+        validation_adapter = getattr(
+            self._execution_adapter, "validation_adapter", None
+        )
+        if validation_adapter is None:
+            raise DomainValidationIntegrationError(
+                f"Operation '{operation_id}' mandates validation, but no "
+                "AgentValidationAdapter is available for POST validation.",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "missing_validation_adapter",
+                },
+            )
+        post_request = AgentValidationRequest(
+            id=f"val-req-post-mutation-{uuid.uuid4().hex[:8]}",
+            run_id=common_result.agent_run_id,
+            iteration_id=common_result.task_id,
+            operation_request_id=common_result.request_id,
+            stage=AgentValidationStage.POST_EXECUTION,
+            requirements=post_requirements,
+            idempotency_key=(
+                f"post-mutation-{common_request.idempotency_key}"
+                if common_request.idempotency_key
+                else ""
+            ),
+            context_data={"project_root": host_root},
+        )
+        exec_context = ValidationExecutionContext(
+            run_id=common_result.agent_run_id,
+            iteration_id=common_result.task_id,
+            operation_name=common_result.operation_name,
+            environment=common_request.environment,
+        )
+        try:
+            post_result = validation_adapter.validate(
+                post_request, exec_context=exec_context
+            )
+        except Exception as exc:
+            raise DomainValidationIntegrationError(
+                "post-mutation validation infrastructure failure: refusing acceptance",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "post_validation_infrastructure_failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "validation_result_ids": tuple(common_result.validation_result_ids),
+                },
+            ) from exc
+        combined_ids = tuple(common_result.validation_result_ids) + (
+            post_result.request_id,
+        )
+        if post_result.decision != AgentValidationDecision.CONTINUE:
+            raise DomainValidationIntegrationError(
+                "post-mutation validation did not allow acceptance: "
+                f"{post_result.decision.value}",
+                details={
+                    "operation_id": operation_id,
+                    "reason": "post_validation_blocked",
+                    "decision": post_result.decision.value,
+                    "impact": actual_impact,
+                    "changed_files": list(actual_files),
+                    "validation_result_ids": combined_ids,
+                },
+            )
+        return combined_ids
+
+    def _resolve_host_validation_root(
+        self, request: DomainOperationRequest, definition: Any = None
+    ) -> str | None:
+        """Resolve the validation project root.
+
+        For Project code mutations the root is host authority resolved via
+        the registered operation implementation (see
+        ``_resolve_trusted_project_root``); caller metadata can never supply
+        it. Other operations keep the legacy deployment-setting behavior.
+        Only meaningful while a validation provider is configured.
         """
         if self._operation_validation_provider is None:
             return None
+        operation_id = (
+            getattr(definition, "operation_id", None)
+            if definition is not None
+            else getattr(request, "operation_id", None)
+        )
+        if is_project_domain_code_mutation(operation_id or ""):
+            return self._resolve_trusted_project_root(request)
         metadata = request.metadata
         try:
             candidate = metadata.get("validation_project_root")
@@ -647,6 +855,74 @@ class DefaultDomainOperationOrchestrator:
         if isinstance(candidate, str) and candidate.strip():
             return candidate
         return None
+
+    def _resolve_trusted_project_root(self, request: DomainOperationRequest) -> str:
+        """Resolve the host-authoritative validation root for a code mutation.
+
+        Authority is the host-registered operation implementation's declared
+        execution root (``host_project_root``) — the same host object that
+        performs the mutation. Caller metadata ``validation_project_root``
+        is at most a transport hint: when present it must resolve to the
+        same tree, otherwise the request is rejected. Missing, undeclared,
+        or invalid host roots fail closed before any mutation executes.
+        """
+        hint: str | None = None
+        try:
+            raw_hint = request.metadata.get("validation_project_root")
+        except AttributeError:
+            raw_hint = None
+        if isinstance(raw_hint, str) and raw_hint.strip():
+            hint = raw_hint.strip()
+        try:
+            implementation = self._registry.get_implementation(
+                request.operation_id, request.operation_version
+            )
+        except Exception as exc:
+            raise DomainValidationIntegrationError(
+                "project code mutation has no host execution context: refusing "
+                "to validate without a trusted project root",
+                details={
+                    "operation_id": str(request.operation_id),
+                    "reason": "missing_host_implementation",
+                },
+            ) from exc
+        host_raw = getattr(implementation, "host_project_root", None)
+        if host_raw is None or not str(host_raw).strip():
+            raise DomainValidationIntegrationError(
+                "host operation implementation declares no project root: "
+                "refusing caller-visible metadata as validation authority",
+                details={
+                    "operation_id": str(request.operation_id),
+                    "reason": "missing_host_project_root",
+                },
+            )
+        host_path = Path(str(host_raw).strip())
+        if not host_path.exists() or not host_path.is_dir():
+            raise DomainValidationIntegrationError(
+                f"host project root '{host_path}' is missing or not a directory",
+                details={
+                    "operation_id": str(request.operation_id),
+                    "reason": "invalid_host_project_root",
+                    "project_root": str(host_path),
+                },
+            )
+        if hint is not None:
+            try:
+                matches = Path(hint).resolve(strict=False) == host_path.resolve(
+                    strict=False
+                )
+            except Exception:  # noqa: BLE001 - unresolvable hint never matches host truth
+                matches = False
+            if not matches:
+                raise DomainValidationIntegrationError(
+                    "caller validation root does not match the host execution "
+                    "root: validation authority stays with the host tree",
+                    details={
+                        "operation_id": str(request.operation_id),
+                        "reason": "caller_root_mismatch",
+                    },
+                )
+        return str(host_path)
 
     def _check_specialized_result_acceptance(
         self, definition: Any, output: Mapping[str, Any]

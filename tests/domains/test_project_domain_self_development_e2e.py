@@ -165,11 +165,18 @@ class ProjectModifyCodeImplementation:
         runtime: SemanticRuntime | None = None,
         *,
         fail_after_mutation: bool = False,
+        host_project_root: str | Path | None = None,
     ) -> None:
         self.definition = definition
         self.runtime = runtime or Runtime()
         self.fail_after_mutation = fail_after_mutation
         self.execution_count = 0
+        # Host authority: the implementation declares the tree it mutates;
+        # the orchestrator validates that tree, never caller metadata.
+        # Set explicitly by the host harness before registration.
+        self.host_project_root = (
+            str(host_project_root) if host_project_root is not None else None
+        )
 
     def execute(self, request: AgentOperationRequest) -> dict[str, Any]:
         self.execution_count += 1
@@ -449,7 +456,7 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
         transaction_manager=tx_manager, restoration_manager=rest_manager
     )
 
-    modify_impl = ProjectModifyCodeImplementation(modify_op)
+    modify_impl = ProjectModifyCodeImplementation(modify_op, host_project_root=repo_dir)
     common_registry = InMemoryAgentOperationRegistry()
     operation_registry = InMemoryDomainOperationRegistry(common_registry)
     operation_registry.register(modify_op, modify_impl)
@@ -524,7 +531,9 @@ def test_software_and_self_development_lifecycle_e2e(tmp_path: Path) -> None:
     # ═══════════════════════════════════════════════════════════════════════════
     # 9. Forced Downstream Failure & Real Rollback via Orchestrator
     # ═══════════════════════════════════════════════════════════════════════════
-    trial_impl = ProjectModifyCodeImplementation(modify_op, fail_after_mutation=True)
+    trial_impl = ProjectModifyCodeImplementation(
+        modify_op, fail_after_mutation=True, host_project_root=repo_dir
+    )
     trial_common = InMemoryAgentOperationRegistry()
     trial_op_reg = InMemoryDomainOperationRegistry(trial_common)
     trial_op_reg.register(modify_op, trial_impl)
@@ -1123,7 +1132,7 @@ def test_generic_operation_approval_alone_cannot_modify_code(tmp_path: Path) -> 
     ops = {op.operation_id: op for op in build_project_operation_definitions()}
     modify_op = ops["project.modify_code"]
 
-    modify_impl = ProjectModifyCodeImplementation(modify_op)
+    modify_impl = ProjectModifyCodeImplementation(modify_op, host_project_root=repo_dir)
     common_registry = InMemoryAgentOperationRegistry()
     domain_registry = InMemoryDomainOperationRegistry(common_registry)
     domain_registry.register(modify_op, modify_impl)

@@ -808,6 +808,9 @@ def test_at_dp_030_connected_acceptance(tmp_path: Path) -> None:
         def __init__(self, definition: Any, *, fail: bool = False) -> None:
             self.definition = definition
             self.fail = fail
+            # Host authority: the implementation declares the tree it
+            # mutates; the orchestrator validates that tree.
+            self.host_project_root = str(acc_repo_dir)
 
         def execute(self, request: Any) -> dict[str, Any]:
             runtime_action = request.parameters["runtime_action"]
