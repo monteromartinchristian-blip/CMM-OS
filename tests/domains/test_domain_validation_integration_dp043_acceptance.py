@@ -933,14 +933,30 @@ class TestAcceptanceV3FailClosedInvariants:
             _affected_test_stack,
         )
 
-        orchestrator, request, _ = _affected_test_stack(tmp_path, break_test=False)
+        orchestrator, request, _ = _affected_test_stack(
+            tmp_path, break_test=False, validation_changed_files=()
+        )
         assert orchestrator.execute(request).status is DomainOperationStatus.COMPLETED
 
         breaking_orch, breaking_request, _ = _affected_test_stack(
-            tmp_path, break_test=True
+            tmp_path, break_test=True, validation_changed_files=()
         )
         breaking = breaking_orch.execute(breaking_request)
         assert breaking.status is not DomainOperationStatus.COMPLETED
+
+        # Verify affected_tests step status is FAILED in failure evidence and caused rejection
+        val_repo = breaking_orch._execution_adapter._validation_adapter._repository
+        post_results = val_repo.get_results_by_operation_request_id(
+            breaking_request.request_id
+        )
+        assert len(post_results) >= 2
+        post_val = post_results[-1]
+        assert post_val.status.value == "failed"
+        report = post_val.validation_report or {}
+        step_statuses = {
+            s.get("name"): s.get("status") for s in report.get("steps", [])
+        }
+        assert step_statuses.get("affected_tests") == "failed"
 
         broken_text = (tmp_path / "affproj" / "main.py").read_text(encoding="utf-8")
         compile(broken_text, "main.py", "exec")
@@ -965,42 +981,52 @@ class TestAcceptanceV3FailClosedInvariants:
         (tmp_path / "affproj" / "main.py").write_text(
             "def add(a, b):\n    return a + b\n", encoding="utf-8"
         )
-        fixed_orch, fixed_request, _ = _affected_test_stack(tmp_path, break_test=False)
+        fixed_orch, fixed_request, _ = _affected_test_stack(
+            tmp_path, break_test=False, validation_changed_files=(), suffix="repair"
+        )
         assert (
             fixed_orch.execute(fixed_request).status is DomainOperationStatus.COMPLETED
         )
 
-    def test_project_impact_escalation_via_real_runtime(self) -> None:
-        from cmm.domains.project.operations import (
-            build_project_operation_definitions,
-        )
-        from cmm.domains.validation_integration import (
-            DomainValidationIntegrationError,
-            resolve_domain_operation_validation_requirements,
-            resolve_project_domain_change_validation_ids,
+    def test_project_impact_escalation_via_real_runtime(self, tmp_path) -> None:
+        from tests.domains.test_domain_validation_project_integration import (
+            _affected_test_stack,
         )
 
-        ops = {op.operation_id: op for op in build_project_operation_definitions()}
-        definition = ops["project.modify_code"]
-        small = resolve_project_domain_change_validation_ids(definition, impact="small")
-        assert set(small) == {
-            "formatter_check",
-            "lint",
-            "syntax_validator",
-            "ast_validator",
-            "affected_tests_step",
-        }
-        with pytest.raises(DomainValidationIntegrationError):
-            resolve_project_domain_change_validation_ids(
-                definition, impact="structural"
+        # 1. Structural change: function signature change with caller hint "small"
+        def structural_mutation(project_dir) -> None:
+            (project_dir / "main.py").write_text(
+                "def add(a, b, c=0):\n    return a + b + c\n",
+                encoding="utf-8",
             )
-        with pytest.raises(DomainValidationIntegrationError):
-            resolve_domain_operation_validation_requirements(
-                definition, impact="structural", changed_files=("main.py",)
+
+        orch_struct, req_struct, _ = _affected_test_stack(
+            tmp_path / "struct_proj",
+            custom_mutation=structural_mutation,
+            validation_impact="small",
+            validation_changed_files=(),
+        )
+        res_struct = orch_struct.execute(req_struct)
+        assert res_struct.status is DomainOperationStatus.ROLLED_BACK
+        assert res_struct.error is not None
+        assert res_struct.error.get("code") == "VALIDATION_ESCALATION_FAILED"
+        assert "refusing to downgrade" in res_struct.error.get("message", "")
+
+        # 2. Public API change: adding new exported function with caller hint "small"
+        def public_mutation(project_dir) -> None:
+            (project_dir / "main.py").write_text(
+                "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b\n",
+                encoding="utf-8",
             )
-        with pytest.raises(DomainValidationIntegrationError):
-            resolve_project_domain_change_validation_ids(definition, impact="public")
-        with pytest.raises(DomainValidationIntegrationError):
-            resolve_domain_operation_validation_requirements(
-                definition, impact="full", changed_files=("main.py",)
-            )
+
+        orch_pub, req_pub, _ = _affected_test_stack(
+            tmp_path / "pub_proj",
+            custom_mutation=public_mutation,
+            validation_impact="small",
+            validation_changed_files=(),
+        )
+        res_pub = orch_pub.execute(req_pub)
+        assert res_pub.status is DomainOperationStatus.ROLLED_BACK
+        assert res_pub.error is not None
+        assert res_pub.error.get("code") == "VALIDATION_ESCALATION_FAILED"
+        assert "refusing to downgrade" in res_pub.error.get("message", "")
