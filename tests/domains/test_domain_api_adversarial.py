@@ -6,7 +6,9 @@ the per-task focused suites. Every case proves a real canonical boundary.
 
 from __future__ import annotations
 
+import ast
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -143,3 +145,55 @@ class TestFacadeStateBoundaries:
         assert result.status == DomainLoadStatus.LOADED
         assert result.registry_record is not None
         assert result.candidate.candidate_id == "greeter:1.0.0"
+
+
+class TestMemoryKnowledgeProjectionAdversarialBoundaries:
+    """Phase 10.44 AST boundary tests asserting pure facade delegation."""
+
+    @staticmethod
+    def _parse_api_ast() -> ast.Module:
+        api_path = Path(__file__).resolve().parent.parent.parent / "cmm" / "domains" / "api.py"
+        return ast.parse(api_path.read_text(encoding="utf-8"), filename=str(api_path))
+
+    def test_api_does_not_import_memory_or_technical_memory(self) -> None:
+        tree = self._parse_api_ast()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("cmm.memory"), alias.name
+                    assert "TechnicalMemory" not in alias.name, alias.name
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                assert not mod.startswith("cmm.memory"), mod
+                for alias in node.names:
+                    assert "TechnicalMemory" not in alias.name, alias.name
+
+    def test_project_memory_knowledge_only_delegates_to_integrator(self) -> None:
+        tree = self._parse_api_ast()
+        default_domain_api = None
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == "DefaultDomainAPI":
+                default_domain_api = node
+                break
+        assert default_domain_api is not None, "DefaultDomainAPI class not found"
+
+        project_method = None
+        for item in default_domain_api.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "project_memory_knowledge":
+                project_method = item
+                break
+        assert project_method is not None, "project_memory_knowledge method not found"
+
+        forbidden_names = {"add", "update", "invalidate", "relate", "save", "commit"}
+        calls = []
+        for node in ast.walk(project_method):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                calls.append(node.func.attr)
+                assert (
+                    node.func.attr not in forbidden_names
+                ), f"Forbidden mutation method {node.func.attr} called in project_memory_knowledge"
+
+        assert calls == ["project"], (
+            f"Expected only project delegation call, found {calls}"
+        )
+

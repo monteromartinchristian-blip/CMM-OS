@@ -19,6 +19,12 @@ from cmm.domains.contracts import DomainCapability
 from cmm.domains.discovery import DomainDiscovery, FileSystemDomainDiscovery
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.manifest_reader import JsonDomainManifestReader
+from cmm.domains.memory_knowledge_integration import (
+    DefaultDomainMemoryKnowledgeIntegrator,
+)
+from cmm.domains.memory_knowledge_integration_contracts import (
+    DomainMemoryKnowledgeIntegrator,
+)
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolver import DefaultDomainResolver, DomainResolver
 from cmm.domains.session_persistence import SharedSessionDomainAdapter
@@ -53,6 +59,7 @@ APPROVED_METHODS = (
     "resolve_conflict",
     "assemble_trace",
     "validate_trace",
+    "project_memory_knowledge",
 )
 
 
@@ -75,6 +82,7 @@ def _make_collaborators() -> dict[str, object]:
         "trace_assembler": DomainTraceAssembler(),
         "trace_validator": DefaultDomainTraceReferenceValidator(),
         "trust_policy_lookup": None,
+        "memory_knowledge_integrator": DefaultDomainMemoryKnowledgeIntegrator(),
     }
 
 
@@ -137,6 +145,18 @@ class TestConstructorWiring:
         assert api._conflict_resolver is collaborators["conflict_resolver"]
         assert api._trace_assembler is collaborators["trace_assembler"]
         assert api._trace_validator is collaborators["trace_validator"]
+        assert (
+            api._memory_knowledge_integrator
+            is collaborators["memory_knowledge_integrator"]
+        )
+
+    def test_default_memory_knowledge_integrator_created_if_omitted(self) -> None:
+        collaborators = _make_collaborators()
+        del collaborators["memory_knowledge_integrator"]
+        api = DefaultDomainAPI(**collaborators)
+        assert isinstance(
+            api._memory_knowledge_integrator, DefaultDomainMemoryKnowledgeIntegrator
+        )
 
     def test_missing_required_collaborator_rejected(self) -> None:
         collaborators = _make_collaborators()
@@ -218,12 +238,21 @@ class TestCanonicalProtocolTyping:
         assert hints["discovery"] is DomainDiscovery
         assert hints["resolver"] is DomainResolver
         assert hints["trace_validator"] is DomainTraceReferenceValidator
+        assert (
+            hints["memory_knowledge_integrator"]
+            == DomainMemoryKnowledgeIntegrator | None
+        )
 
     def test_constructor_signature_parameter_names_present(self) -> None:
         import inspect
 
         params = inspect.signature(DefaultDomainAPI.__init__).parameters
-        for name in ("discovery", "resolver", "trace_validator"):
+        for name in (
+            "discovery",
+            "resolver",
+            "trace_validator",
+            "memory_knowledge_integrator",
+        ):
             assert name in params, name
 
     def test_get_capabilities_annotation_is_canonical_capability_tuple(self) -> None:
@@ -247,14 +276,23 @@ class TestCanonicalProtocolTyping:
             def validate(self, trace, inventory):  # type: ignore[no-untyped-def]
                 raise AssertionError("not called in wiring test")
 
+        class _AltMemoryKnowledgeIntegrator:
+            def project(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
         collaborators = _make_collaborators()
         collaborators["discovery"] = _AltDiscovery()
         collaborators["resolver"] = _AltResolver()
         collaborators["trace_validator"] = _AltTraceValidator()
+        collaborators["memory_knowledge_integrator"] = _AltMemoryKnowledgeIntegrator()
         api = DefaultDomainAPI(**collaborators)
         assert api._discovery is collaborators["discovery"]
         assert api._resolver is collaborators["resolver"]
         assert api._trace_validator is collaborators["trace_validator"]
+        assert (
+            api._memory_knowledge_integrator
+            is collaborators["memory_knowledge_integrator"]
+        )
 
     def test_concrete_defaults_still_satisfy_constructor_boundary(self) -> None:
         collaborators = _make_collaborators()
@@ -262,3 +300,64 @@ class TestCanonicalProtocolTyping:
         assert isinstance(api._discovery, FileSystemDomainDiscovery)
         assert isinstance(api._resolver, DefaultDomainResolver)
         assert isinstance(api._trace_validator, DefaultDomainTraceReferenceValidator)
+        assert isinstance(
+            api._memory_knowledge_integrator, DefaultDomainMemoryKnowledgeIntegrator
+        )
+
+
+class _RecordingMemoryKnowledgeIntegrator:
+    """Recording integrator double verifying exact identity forwarding."""
+
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.recorded_args: dict[str, object] = {}
+
+    def project(
+        self,
+        request: Any,
+        *,
+        memory_request: Any,
+        view: Any,
+        memory_inventory: Any,
+        inventory: Any,
+    ) -> Any:
+        self.recorded_args = {
+            "request": request,
+            "memory_request": memory_request,
+            "view": view,
+            "memory_inventory": memory_inventory,
+            "inventory": inventory,
+        }
+        return self.result
+
+
+class TestMemoryKnowledgeProjectionDelegation:
+    def test_project_memory_knowledge_delegates_to_injected_integrator(self) -> None:
+        fixed_projection = object()
+        recorder = _RecordingMemoryKnowledgeIntegrator(fixed_projection)
+        collaborators = _make_collaborators()
+        collaborators["memory_knowledge_integrator"] = recorder
+        api = DefaultDomainAPI(**collaborators)
+
+        req = object()
+        mem_req = object()
+        view = object()
+        mem_inv = object()
+        inv = object()
+
+        res = api.project_memory_knowledge(
+            req,  # type: ignore[arg-type]
+            memory_request=mem_req,  # type: ignore[arg-type]
+            view=view,  # type: ignore[arg-type]
+            memory_inventory=mem_inv,  # type: ignore[arg-type]
+            inventory=inv,  # type: ignore[arg-type]
+        )
+
+        assert res is fixed_projection
+        assert recorder.recorded_args["request"] is req
+        assert recorder.recorded_args["memory_request"] is mem_req
+        assert recorder.recorded_args["view"] is view
+        assert recorder.recorded_args["memory_inventory"] is mem_inv
+        assert recorder.recorded_args["inventory"] is inv
+
+

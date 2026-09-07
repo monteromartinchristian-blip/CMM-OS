@@ -671,6 +671,27 @@ class TestPublicAPI:
                 "ensure_domain_validation_allows_update",
             }
         )
+        # Phase 10.44 – Domain Memory and Knowledge Graph Integration
+        expected.update(
+            {
+                "DefaultDomainMemoryKnowledgeIntegrator",
+                "DomainMemoryKnowledgeAuthorizationError",
+                "DomainMemoryKnowledgeContractError",
+                "DomainMemoryKnowledgeContradictionRef",
+                "DomainMemoryKnowledgeIntegrationError",
+                "DomainMemoryKnowledgeIntegrator",
+                "DomainMemoryKnowledgeInventory",
+                "DomainMemoryKnowledgePath",
+                "DomainMemoryKnowledgePathHop",
+                "DomainMemoryKnowledgeProjection",
+                "DomainMemoryKnowledgeProjectionCapability",
+                "DomainMemoryKnowledgeProjectionError",
+                "DomainMemoryKnowledgeProjectionRequest",
+                "DomainMemoryKnowledgeRelationRef",
+                "DomainMemoryKnowledgeSerializationError",
+                "FORBIDDEN_PAYLOAD_FIELDS",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -680,7 +701,8 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 571
+        assert len(cmm.domains.__all__) == 587
+
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

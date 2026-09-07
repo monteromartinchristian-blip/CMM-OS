@@ -1362,3 +1362,48 @@ __all__ += [
     "DomainPlannerWorkflowIntegrator",
     "DomainPlanningCapabilityView",
 ]
+
+# Phase 10.44 – Domain Memory and Knowledge Graph Integration
+from cmm.domains.errors import (
+    DomainMemoryKnowledgeAuthorizationError,
+    DomainMemoryKnowledgeContractError,
+    DomainMemoryKnowledgeIntegrationError,
+    DomainMemoryKnowledgeProjectionError,
+    DomainMemoryKnowledgeSerializationError,
+)
+from cmm.domains.memory_knowledge_integration import (
+    DefaultDomainMemoryKnowledgeIntegrator,
+)
+from cmm.domains.memory_knowledge_integration_contracts import (
+    FORBIDDEN_PAYLOAD_FIELDS,
+    DomainMemoryKnowledgeContradictionRef,
+    DomainMemoryKnowledgeIntegrator,
+    DomainMemoryKnowledgeInventory,
+    DomainMemoryKnowledgePath,
+    DomainMemoryKnowledgePathHop,
+    DomainMemoryKnowledgeProjection,
+    DomainMemoryKnowledgeProjectionCapability,
+    DomainMemoryKnowledgeProjectionRequest,
+    DomainMemoryKnowledgeRelationRef,
+)
+
+__all__ += [
+    "FORBIDDEN_PAYLOAD_FIELDS",
+    "DefaultDomainMemoryKnowledgeIntegrator",
+    "DomainMemoryKnowledgeAuthorizationError",
+    "DomainMemoryKnowledgeContractError",
+    "DomainMemoryKnowledgeContradictionRef",
+    "DomainMemoryKnowledgeIntegrationError",
+    "DomainMemoryKnowledgeIntegrator",
+    "DomainMemoryKnowledgeInventory",
+    "DomainMemoryKnowledgePath",
+    "DomainMemoryKnowledgePathHop",
+    "DomainMemoryKnowledgeProjection",
+    "DomainMemoryKnowledgeProjectionCapability",
+    "DomainMemoryKnowledgeProjectionError",
+    "DomainMemoryKnowledgeProjectionRequest",
+    "DomainMemoryKnowledgeRelationRef",
+    "DomainMemoryKnowledgeSerializationError",
+]
+
+

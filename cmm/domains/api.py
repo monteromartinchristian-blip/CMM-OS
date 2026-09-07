@@ -50,6 +50,20 @@ from cmm.domains.errors import DomainRegistryValidationError
 from cmm.domains.identifiers import DomainId
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.loader_contracts import DomainLoadResult
+from cmm.domains.memory_contracts import (
+    DomainMemoryReferenceInventory,
+    DomainMemoryView,
+    DomainMemoryViewRequest,
+)
+from cmm.domains.memory_knowledge_integration import (
+    DefaultDomainMemoryKnowledgeIntegrator,
+)
+from cmm.domains.memory_knowledge_integration_contracts import (
+    DomainMemoryKnowledgeIntegrator,
+    DomainMemoryKnowledgeInventory,
+    DomainMemoryKnowledgeProjection,
+    DomainMemoryKnowledgeProjectionRequest,
+)
 from cmm.domains.operation_contracts import (
     DomainOperationRequest,
     DomainOperationResult,
@@ -189,6 +203,16 @@ class DomainAPI(Protocol):
         self, trace: DomainTrace, inventory: DomainTraceReferenceInventory
     ) -> DomainTraceValidationResult: ...
 
+    def project_memory_knowledge(
+        self,
+        request: DomainMemoryKnowledgeProjectionRequest,
+        *,
+        memory_request: DomainMemoryViewRequest,
+        view: DomainMemoryView,
+        memory_inventory: DomainMemoryReferenceInventory,
+        inventory: DomainMemoryKnowledgeInventory,
+    ) -> DomainMemoryKnowledgeProjection: ...
+
 
 _REQUIRED_COLLABORATORS = (
     "domain_registry",
@@ -227,6 +251,7 @@ class DefaultDomainAPI:
         trace_assembler: DomainTraceAssembler,
         trace_validator: DomainTraceReferenceValidator,
         trust_policy_lookup: Callable[[str], DomainTrustPolicy | None] | None = None,
+        memory_knowledge_integrator: DomainMemoryKnowledgeIntegrator | None = None,
     ) -> None:
         for name in _REQUIRED_COLLABORATORS:
             if locals()[name] is None:
@@ -247,6 +272,11 @@ class DefaultDomainAPI:
         self._trace_assembler = trace_assembler
         self._trace_validator = trace_validator
         self._trust_policy_lookup = trust_policy_lookup
+        self._memory_knowledge_integrator = (
+            memory_knowledge_integrator
+            if memory_knowledge_integrator is not None
+            else DefaultDomainMemoryKnowledgeIntegrator()
+        )
 
     # ── Registry and inspection ──────────────────────────────────────────
 
@@ -497,3 +527,25 @@ class DefaultDomainAPI:
     ) -> DomainTraceValidationResult:
         """Delegate to the canonical trace reference validator."""
         return self._trace_validator.validate(trace, inventory)
+
+    # ── Memory and knowledge integration ─────────────────────────────────
+
+    def project_memory_knowledge(
+        self,
+        request: DomainMemoryKnowledgeProjectionRequest,
+        *,
+        memory_request: DomainMemoryViewRequest,
+        view: DomainMemoryView,
+        memory_inventory: DomainMemoryReferenceInventory,
+        inventory: DomainMemoryKnowledgeInventory,
+    ) -> DomainMemoryKnowledgeProjection:
+        """Delegate to the pure ``DomainMemoryKnowledgeIntegrator``."""
+        return self._memory_knowledge_integrator.project(
+            request,
+            memory_request=memory_request,
+            view=view,
+            memory_inventory=memory_inventory,
+            inventory=inventory,
+        )
+
+
