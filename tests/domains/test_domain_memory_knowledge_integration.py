@@ -1416,21 +1416,18 @@ def test_real_canonical_relation_proposal_and_validated_binding_projection() -> 
         agent_run_id="run-1",
         goal_id="goal-1",
     )
-    mock_goal = MagicMock()
-    mock_goal.goal_id = "goal-1"
-    mock_goal.title = "Test Goal"
-    mock_goal.kind = "general"
-
-    mock_dec = MagicMock()
-    mock_dec.decision_kind = "complete"
-    mock_dec.confidence = 0.95
+    checkpoint = MagicMock(spec=["checkpoint_id", "dependencies"])
+    checkpoint.checkpoint_id = "chk-rel-1"
+    checkpoint.dependencies = ["item:target:1"]
 
     prop = engine.create_proposal(
         context=ctx,
-        goal=mock_goal,
-        completion_decision=mock_dec,
+        checkpoints=(checkpoint,),
     )
     assert prop.proposal_id != ""
+    assert prop.relations, "Phase 9 LINK path produced no relation"
+    assert prop.relations[0].relation_type == "depends_on"
+    assert prop.relations[0].target_item_id == "item:target:1"
 
     req, mem_req, view, mem_inv, binding = _setup_proposal_binding_context(
         proposal_id=prop.proposal_id,

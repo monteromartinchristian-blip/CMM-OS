@@ -87,6 +87,11 @@ from tests.domains.test_domain_api_contracts import _make_collaborators
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 EARLIER = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
 LATER = datetime(2026, 9, 10, 18, 0, tzinfo=timezone.utc)
+T_REF = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+CUR_FROM = datetime(2026, 9, 1, 0, 0, tzinfo=timezone.utc)
+CUR_TO = datetime(2026, 9, 30, 0, 0, tzinfo=timezone.utc)
+OLD_FROM = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
+OLD_TO = datetime(2026, 7, 31, 0, 0, tzinfo=timezone.utc)
 
 
 def _compute_binding_id(
@@ -147,10 +152,22 @@ def test_at_dp044_connected_acceptance() -> None:
         active_domains=(),
         resources=(
             DomainResolutionResource(
-                id="res-ref-044",
+                id="res-ref-044-health",
                 resource_type="document",
                 source="user",
                 domain_ids=(DomainId("health"),),
+            ),
+            DomainResolutionResource(
+                id="res-ref-044-opp",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId("oppositions"),),
+            ),
+            DomainResolutionResource(
+                id="res-ref-044-life",
+                resource_type="document",
+                source="user",
+                domain_ids=(DomainId("life-plan"),),
             ),
         ),
         created_at=NOW,
@@ -170,8 +187,9 @@ def test_at_dp044_connected_acceptance() -> None:
     composer = DefaultDomainComposer(id_factory=lambda: "comp-044", clock=lambda: NOW)
     composition = composer.compose(
         resolution,
-        (def_uni, def_health),
+        (def_uni, def_health, def_opp, def_life),
     )
+    assert composition.resolution_id == resolution.id
     assert composition.status in {
         DomainCompositionStatus.COMPOSED,
         DomainCompositionStatus.PARTIAL,
@@ -188,9 +206,9 @@ def test_at_dp044_connected_acceptance() -> None:
         kind=KnowledgeKind.FACT,
         confidence=Confidence(value=0.96),
         temporal_scope=TemporalScope(
-            kind=TemporalScopeKind.TIMELESS,
-            observed_at=EARLIER,
-            valid_from=EARLIER,
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=CUR_FROM,
+            valid_until=CUR_TO,
         ),
         created_at=EARLIER,
         updated_at=EARLIER,
@@ -202,9 +220,9 @@ def test_at_dp044_connected_acceptance() -> None:
         kind=KnowledgeKind.FACT,
         confidence=Confidence(value=0.92),
         temporal_scope=TemporalScope(
-            kind=TemporalScopeKind.TIMELESS,
-            observed_at=NOW,
-            valid_from=NOW,
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=CUR_FROM,
+            valid_until=CUR_TO,
         ),
         created_at=NOW,
         updated_at=NOW,
@@ -216,9 +234,9 @@ def test_at_dp044_connected_acceptance() -> None:
         kind=KnowledgeKind.DECISION,
         confidence=Confidence(value=0.90),
         temporal_scope=TemporalScope(
-            kind=TemporalScopeKind.TIMELESS,
-            observed_at=NOW,
-            valid_from=NOW,
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=CUR_FROM,
+            valid_until=CUR_TO,
         ),
         created_at=NOW,
         updated_at=NOW,
@@ -230,9 +248,9 @@ def test_at_dp044_connected_acceptance() -> None:
         kind=KnowledgeKind.DECISION,
         confidence=Confidence(value=0.98),
         temporal_scope=TemporalScope(
-            kind=TemporalScopeKind.TIMELESS,
-            observed_at=LATER,
-            valid_from=LATER,
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=CUR_FROM,
+            valid_until=CUR_TO,
         ),
         created_at=LATER,
         updated_at=LATER,
@@ -244,9 +262,9 @@ def test_at_dp044_connected_acceptance() -> None:
         kind=KnowledgeKind.FACT,
         confidence=Confidence(value=0.65),
         temporal_scope=TemporalScope(
-            kind=TemporalScopeKind.TIMELESS,
-            observed_at=NOW,
-            valid_from=NOW,
+            kind=TemporalScopeKind.INTERVAL,
+            valid_from=CUR_FROM,
+            valid_until=CUR_TO,
         ),
         created_at=NOW,
         updated_at=NOW,
@@ -330,9 +348,9 @@ def test_at_dp044_connected_acceptance() -> None:
         domain_id="domain:health",
         applicable_domains=("domain:health", "domain:university"),
         temporal=DomainMemoryTemporalSnapshot(
-            kind=DomainMemoryTemporalKind.TIMELESS,
-            valid_from=EARLIER.isoformat(),
-            observed_at=EARLIER.isoformat(),
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from="2026-09-01T00:00:00+00:00",
+            valid_to="2026-09-30T00:00:00+00:00",
         ),
         evidence_ids=("ev:health:1",),
         resource_ids=("res:health:1",),
@@ -344,9 +362,9 @@ def test_at_dp044_connected_acceptance() -> None:
         domain_id="domain:university",
         applicable_domains=("domain:university",),
         temporal=DomainMemoryTemporalSnapshot(
-            kind=DomainMemoryTemporalKind.TIMELESS,
-            valid_from=NOW.isoformat(),
-            observed_at=NOW.isoformat(),
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from="2026-09-02T00:00:00+00:00",
+            valid_to="2026-09-30T00:00:00+00:00",
         ),
         evidence_ids=("ev:uni:1",),
         resource_ids=("res:uni:1",),
@@ -358,9 +376,9 @@ def test_at_dp044_connected_acceptance() -> None:
         domain_id="domain:oppositions",
         applicable_domains=("domain:oppositions",),
         temporal=DomainMemoryTemporalSnapshot(
-            kind=DomainMemoryTemporalKind.TIMELESS,
-            valid_from=NOW.isoformat(),
-            observed_at=NOW.isoformat(),
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from="2026-09-03T00:00:00+00:00",
+            valid_to="2026-09-30T00:00:00+00:00",
         ),
         evidence_ids=("ev:opp:1",),
         resource_ids=("res:opp:1",),
@@ -372,9 +390,9 @@ def test_at_dp044_connected_acceptance() -> None:
         domain_id="domain:life-plan",
         applicable_domains=("domain:life-plan",),
         temporal=DomainMemoryTemporalSnapshot(
-            kind=DomainMemoryTemporalKind.TIMELESS,
-            valid_from=LATER.isoformat(),
-            observed_at=LATER.isoformat(),
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from="2026-09-04T00:00:00+00:00",
+            valid_to="2026-09-30T00:00:00+00:00",
         ),
         evidence_ids=("ev:plan:1",),
         resource_ids=("res:plan:1",),
@@ -386,9 +404,9 @@ def test_at_dp044_connected_acceptance() -> None:
         domain_id="domain:health",
         applicable_domains=("domain:health",),
         temporal=DomainMemoryTemporalSnapshot(
-            kind=DomainMemoryTemporalKind.TIMELESS,
-            valid_from=NOW.isoformat(),
-            observed_at=NOW.isoformat(),
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from="2026-09-02T12:00:00+00:00",
+            valid_to="2026-09-30T00:00:00+00:00",
         ),
         evidence_ids=("ev:conflict:1",),
         resource_ids=("res:conflict:1",),
@@ -404,6 +422,67 @@ def test_at_dp044_connected_acceptance() -> None:
         resource_ids=("res:unknown:1",),
     )
 
+    ref_history = DomainMemoryReference(
+        reference_id="ref:uni:history",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="item:uni:study_capacity:history",
+        domain_id="domain:university",
+        applicable_domains=("domain:university",),
+        temporal=DomainMemoryTemporalSnapshot(
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from=OLD_FROM.isoformat(),
+            valid_to=OLD_TO.isoformat(),
+        ),
+        superseded_by_id=item_study.id,
+        evidence_ids=("ev:history:1",),
+        resource_ids=("res:history:1",),
+    )
+    ref_invalidated = DomainMemoryReference(
+        reference_id="ref:health:invalidated",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="item:health:invalidated",
+        domain_id="domain:health",
+        applicable_domains=("domain:health",),
+        temporal=DomainMemoryTemporalSnapshot(
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from=OLD_FROM.isoformat(),
+            valid_to=OLD_TO.isoformat(),
+            invalidated=True,
+            invalidation_reason="superseded",
+        ),
+        evidence_ids=("ev:invalidated:1",),
+        resource_ids=("res:invalidated:1",),
+    )
+    ref_expired = DomainMemoryReference(
+        reference_id="ref:opp:expired",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="item:opp:expired",
+        domain_id="domain:oppositions",
+        applicable_domains=("domain:oppositions",),
+        temporal=DomainMemoryTemporalSnapshot(
+            kind=DomainMemoryTemporalKind.INTERVAL,
+            valid_from=OLD_FROM.isoformat(),
+            valid_to=OLD_TO.isoformat(),
+            expires_at=OLD_TO.isoformat(),
+        ),
+        evidence_ids=("ev:expired:1",),
+        resource_ids=("res:expired:1",),
+    )
+    ref_timeless = DomainMemoryReference(
+        reference_id="ref:uni:timeless",
+        kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
+        canonical_id="item:uni:timeless",
+        domain_id="domain:university",
+        applicable_domains=("domain:university",),
+        temporal=DomainMemoryTemporalSnapshot(
+            kind=DomainMemoryTemporalKind.TIMELESS,
+            valid_from=NOW.isoformat(),
+            observed_at=NOW.isoformat(),
+        ),
+        evidence_ids=("ev:timeless:1",),
+        resource_ids=("res:timeless:1",),
+    )
+
     all_references = (
         ref_health,
         ref_study,
@@ -411,6 +490,10 @@ def test_at_dp044_connected_acceptance() -> None:
         ref_plan,
         ref_conflict,
         ref_unknown,
+        ref_history,
+        ref_invalidated,
+        ref_expired,
+        ref_timeless,
     )
 
     perm_uni = DomainMemoryPermissionDecisionSnapshot(
@@ -460,6 +543,7 @@ def test_at_dp044_connected_acceptance() -> None:
         ),
         candidates=all_references,
         permission_decision_ids=tuple(p.decision_id for p in permissions),
+        temporal_reference=T_REF.isoformat(),
     )
     mem_inv_initial = DomainMemoryReferenceInventory(
         references=all_references,
@@ -495,6 +579,7 @@ def test_at_dp044_connected_acceptance() -> None:
         resolution_reference_id="res-044",
         composition_reference_id="comp-044",
         permission_decision_ids=tuple(p.decision_id for p in permissions),
+        temporal_reference=T_REF.isoformat(),
         requested_capabilities=(
             DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
             DomainMemoryKnowledgeProjectionCapability.RELATIONS,
@@ -517,6 +602,8 @@ def test_at_dp044_connected_acceptance() -> None:
         view=view,
         memory_inventory=mem_inv_initial,
         inventory=inventory,
+        resolution=resolution,
+        composition=composition,
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -576,10 +663,16 @@ def test_at_dp044_connected_acceptance() -> None:
     }
     assert all_hop_rel_ids.issubset(projected_rel_ids)
 
-    # 10. timeline IDs derive only from references with canonical temporal metadata
-    assert len(projection.timeline_reference_ids) >= 4
-    # Earliest is ref:health:1 (EARLIER), then ref:uni:1 (NOW), etc.
-    assert projection.timeline_reference_ids[0] == "ref:health:1"
+    # 10. timeline IDs derive only from references with canonical temporal metadata.
+    # INTERVAL anchors are canonical valid_from values (health 09-01 < uni 09-02
+    # < conflict 09-02T12 < opp 09-03 < plan 09-04); TIMELESS ref is unanchored.
+    assert projection.timeline_reference_ids == (
+        "ref:health:1",
+        "ref:uni:1",
+        "ref:health:conflict",
+        "ref:opp:1",
+        "ref:plan:1",
+    )
 
     # 11. upstream-excluded state is not reintroduced
     assert set(projection.selected_reference_ids).isdisjoint(
@@ -654,24 +747,33 @@ def test_at_dp044_connected_acceptance() -> None:
     ctx = KnowledgeUpdateContext(
         context_id="ctx-prop-044", agent_run_id="run-044", goal_id="goal-044"
     )
-    mock_goal = MagicMock()
-    mock_goal.goal_id = "goal-044"
-    mock_goal.title = "Exam Prep Proposal"
-    mock_goal.kind = "general"
-    mock_decision = MagicMock()
-    mock_decision.decision_kind = "complete"
-    mock_decision.confidence = 0.95
 
+    def _checkpoint(**kwargs):  # type: ignore[no-untyped-def]
+        checkpoint = MagicMock(spec=list(kwargs.keys()))
+        for key, value in kwargs.items():
+            setattr(checkpoint, key, value)
+        return checkpoint
+
+    # Canonical Phase 9 DEPENDENCY path: checkpoint.dependencies ->
+    # KnowledgeCandidateKind.DEPENDENCY -> KnowledgeUpdatePolicyAdapter LINK ->
+    # AgentKnowledgeUpdateProposal.relations with relation_type="depends_on".
+    real_checkpoint = _checkpoint(
+        checkpoint_id="chk-rel-044",
+        dependencies=[item_goal.id],
+    )
     real_proposal = prop_engine.create_proposal(
         context=ctx,
-        goal=mock_goal,
-        completion_decision=mock_decision,
+        checkpoints=(real_checkpoint,),
     )
+    assert real_proposal.relations, "Phase 9 LINK path produced no relation"
+    assert len(real_proposal.relations) >= 1
+    assert real_proposal.relations[0].relation_type == "depends_on"
+    assert real_proposal.relations[0].target_item_id == item_goal.id
 
     prop_snap = DomainMemoryProposalSnapshot(
         proposal_id=real_proposal.proposal_id,
         proposal_kind="agent_knowledge_update",
-        affected_reference_ids=("ref:uni:1",),
+        affected_reference_ids=("ref:opp:1",),
         required_capabilities=("PROPOSE",),
     )
     trace_snap = DomainMemoryTraceSnapshot(
@@ -700,7 +802,7 @@ def test_at_dp044_connected_acceptance() -> None:
         view_id=view.view_id,
         view_digest=view.content_digest,
         agent_knowledge_proposal_ids=(real_proposal.proposal_id,),
-        affected_reference_ids=("ref:uni:1",),
+        affected_reference_ids=("ref:opp:1",),
         permission_decision_ids=("perm:propose:044",),
     )
     proposal_binding = DomainMemoryProposalBinding(
@@ -710,7 +812,7 @@ def test_at_dp044_connected_acceptance() -> None:
         view_id=view.view_id,
         view_digest=view.content_digest,
         agent_knowledge_proposal_ids=(real_proposal.proposal_id,),
-        affected_reference_ids=("ref:uni:1",),
+        affected_reference_ids=("ref:opp:1",),
         permission_decision_ids=("perm:propose:044",),
     )
 
@@ -733,15 +835,33 @@ def test_at_dp044_connected_acceptance() -> None:
         view=view,
         memory_inventory=mem_inv_with_prop,
         inventory=inventory_with_proposal,
+        resolution=resolution,
+        composition=composition,
     )
+    assert projection_with_proposal.request_digest == req.digest
     assert binding_id in projection_with_proposal.proposal_binding_ids
-    # Cognitive store remains untouched
+    assert projection_with_proposal.request_digest == req.digest
+    # Cognitive store remains untouched (items and relations)
     assert {i.id: i.statement for i in store.list_items()} == store_items_before
+    assert {
+        r.id: (r.source_id, r.target_id, r.kind) for r in store.list_relations()
+    } == store_relations_before
     # Proposal in repository has NOT been applied to store or decided
     fetched_proposal = prop_repo.get_proposal(real_proposal.proposal_id)
     assert fetched_proposal is not None
+    assert fetched_proposal.relations
+    assert fetched_proposal.relations[0].target_item_id == item_goal.id
     assert prop_repo.get_decision(real_proposal.proposal_id) is None
     assert prop_repo.get_result(real_proposal.proposal_id) is None
+    # The proposed relation is pending only: no established Phase 8 canonical
+    # relation links the checkpoint source to the goal target.
+    assert all(
+        not (
+            r.source_id == real_proposal.relations[0].source_item_id
+            and r.target_id == item_goal.id
+        )
+        for r in store.list_relations()
+    )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 10: Downgraded-authority adversarial branch
@@ -769,12 +889,17 @@ def test_at_dp044_connected_acceptance() -> None:
     downgraded_req = DomainMemoryKnowledgeProjectionRequest(
         request_id="proj-req-044-downgraded",
         primary_domain=DomainId("university"),
-        supporting_domains=(DomainId("oppositions"), DomainId("life-plan")),
+        supporting_domains=(
+            DomainId("health"),
+            DomainId("oppositions"),
+            DomainId("life-plan"),
+        ),
         memory_view_id=downgraded_view.view_id,
         memory_view_digest=downgraded_view.digest,
         resolution_reference_id="res-044",
         composition_reference_id="comp-044",
         permission_decision_ids=tuple(p.decision_id for p in downgraded_permissions),
+        temporal_reference=T_REF.isoformat(),
         requested_capabilities=req.requested_capabilities,
     )
 
@@ -784,6 +909,8 @@ def test_at_dp044_connected_acceptance() -> None:
         view=downgraded_view,
         memory_inventory=downgraded_mem_inv,
         inventory=inventory,
+        resolution=resolution,
+        composition=composition,
     )
 
     # Health reference is completely suppressed
@@ -810,16 +937,58 @@ def test_at_dp044_connected_acceptance() -> None:
     assert study_goal_rels[0].kind != "causes"
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 12: Temporal adversarial branch
+    # Step 12: Temporal adversarial branch — old/current incompatible periods
     # ─────────────────────────────────────────────────────────────────────────
-    # References maintain chronological separation without synthetic intervals
+    # Canonical INTERVAL timeline order (valid_from anchors, deterministic
+    # reference-ID ties carry no semantic claim).
     assert projection.timeline_reference_ids == (
         "ref:health:1",
+        "ref:uni:1",
         "ref:health:conflict",
         "ref:opp:1",
-        "ref:uni:1",
         "ref:plan:1",
     )
+    # 1. History preserved: the old superseded/invalidated/expired objects are
+    # still present in the canonical inventory (not silently deleted).
+    assert {r.reference_id for r in mem_inv_initial.references} >= {
+        "ref:uni:history",
+        "ref:health:invalidated",
+        "ref:opp:expired",
+        "ref:uni:1",
+    }
+    # 2. Phase 10.18 current view selects only the current valid state.
+    assert "ref:uni:1" in view_selected_ids
+    assert "ref:uni:history" not in view_selected_ids
+    assert "ref:health:invalidated" not in view_selected_ids
+    assert "ref:opp:expired" not in view_selected_ids
+    # 3. Old superseded/invalidated/expired state is represented in the
+    # resolver's exclusions/history rather than silently deleted.
+    excluded_ids = {d.reference_id for d in view.excluded_decisions}
+    assert {
+        "ref:uni:history",
+        "ref:health:invalidated",
+        "ref:opp:expired",
+    } <= excluded_ids
+    # 4. Phase 10.44 does not reintroduce historical state as current.
+    assert "ref:uni:history" not in projection.timeline_reference_ids
+    assert "ref:health:invalidated" not in projection.selected_reference_ids
+    assert "ref:opp:expired" not in projection.selected_reference_ids
+    # 5. No synthetic merged interval is emitted.
+    assert "combined_period" not in str(projection.to_dict())
+    assert "synthetic_interval" not in str(projection.to_dict())
+    assert "merged" not in str(projection.to_dict()).lower()
+    # 6. Temporal succession alone creates no contradiction.
+    assert {c.contradiction_id for c in projection.contradiction_refs} == {
+        "contra:health:study_excess"
+    }
+    # 7. Incompatible periods remain separate canonical history: old interval
+    # ended (OLD_TO) before the current interval began (CUR_FROM).
+    assert OLD_TO < CUR_FROM
+    # 8. Current valid state is the only current truth in the projection.
+    assert "ref:uni:1" in projection.timeline_reference_ids
+    # TIMELESS incidental timestamps never anchor chronology.
+    assert "ref:uni:timeless" not in projection.timeline_reference_ids
+    assert "ref:uni:timeless" in projection.unknown_ordering_reference_ids
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 13: Emit stable acceptance marker
