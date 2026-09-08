@@ -46,7 +46,7 @@ from cmm.cognitive.knowledge import (
 from cmm.cognitive.store_memory import InMemoryKnowledgeStore
 from cmm.domains.api import DefaultDomainAPI
 from cmm.domains.composer import DefaultDomainComposer
-from cmm.domains.enums import DomainCompositionStatus
+from cmm.domains.enums import DomainCompositionStatus, DomainResolutionStatus
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.life_plan.definition import build_life_plan_domain_definition
@@ -184,6 +184,8 @@ def test_at_dp044_connected_acceptance() -> None:
     resolution = resolver.resolve(res_context)
     assert resolution.primary_domain == DomainId("university")
     assert DomainId("health") in resolution.supporting_domains
+    # V3 BLOCKER-01: the AT authority source is a resolved final resolution.
+    assert resolution.status == DomainResolutionStatus.RESOLVED
 
     composer = DefaultDomainComposer(id_factory=lambda: "comp-044", clock=lambda: NOW)
     composition = composer.compose(

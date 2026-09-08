@@ -52,7 +52,10 @@ from cmm.domains.memory_knowledge_integration_contracts import (
 )
 from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidator
 from cmm.domains.memory_view import DefaultDomainMemoryViewResolver
-from cmm.domains.resolver_contracts import DomainResolutionResult
+from cmm.domains.resolver_contracts import (
+    DomainResolutionReason,
+    DomainResolutionResult,
+)
 
 
 def _canonical_authority(req):  # type: ignore[no-untyped-def]
@@ -1946,4 +1949,127 @@ def test_projection_rejects_failed_canonical_composition() -> None:
             inventory=inv,
             resolution=res,
             composition=failed_comp,
+        )
+
+
+# ── V3 BLOCKER-01: resolved final authority (resolution status boundary) ─────
+# Exact canonical type alone does not establish final authority:
+# DomainResolutionResult legitimately represents unresolved states. Every
+# non-RESOLVED status must fail closed before projection construction.
+
+
+def test_projection_rejects_ambiguous_resolution() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    _resolved, comp = _canonical_authority(req)
+    ambiguous_res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.AMBIGUOUS,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+        ambiguous_domains=(DomainId("university"), DomainId("oppositions")),
+        requires_clarification=True,
+        recommended_question="Which domain did you intend?",
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=ambiguous_res,
+            composition=comp,
+        )
+
+
+def test_projection_rejects_insufficient_information_resolution() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    _resolved, comp = _canonical_authority(req)
+    insufficient_res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.INSUFFICIENT_INFORMATION,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+        requires_clarification=True,
+        recommended_question="Could you provide more detail?",
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=insufficient_res,
+            composition=comp,
+        )
+
+
+def test_projection_rejects_blocked_resolution() -> None:
+    # BLOCKED canonical resolutions cannot carry a primary domain, so they
+    # must never reach projection under any structural disguise.
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    _resolved, comp = _canonical_authority(req)
+    blocked_res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.BLOCKED,
+        primary_domain=None,
+        supporting_domains=req.supporting_domains,
+        rejected_domains=(DomainId("health"),),
+        reasons=(
+            DomainResolutionReason(
+                code="block:authority:1",
+                message="Resolution is blocked",
+                blocking=True,
+            ),
+        ),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=blocked_res,
+            composition=comp,
         )

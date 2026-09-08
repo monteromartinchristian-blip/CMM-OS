@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from cmm.cognitive.enums import KnowledgeRelationKind
 from cmm.domains.composition_contracts import DomainComposition
-from cmm.domains.enums import DomainCompositionStatus
+from cmm.domains.enums import DomainCompositionStatus, DomainResolutionStatus
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
     DomainMemoryKnowledgeProjectionError,
@@ -250,6 +250,12 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         if type(resolution) is not DomainResolutionResult:
             raise DomainMemoryKnowledgeAuthorizationError(
                 "resolution must be a canonical DomainResolutionResult"
+            )
+        # Final authority requires the canonical RESOLVED status; the exact
+        # type alone also legitimately represents unresolved states.
+        if resolution.status is not DomainResolutionStatus.RESOLVED:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution must be RESOLVED for domain memory knowledge projection"
             )
         if type(composition) is not DomainComposition:
             raise DomainMemoryKnowledgeAuthorizationError(
