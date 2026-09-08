@@ -1,20 +1,23 @@
 # Phase 10.44 — Integration with Memory and Knowledge Graph
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
+**Status:** Complete — independently audited and closed
 **Requirement:** `DP-044` (`SRC-R10:R10-C44`)
-**Acceptance Test:** `AT-DP-044` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py` — implementation marker `PASS_REPORTED`)
+**Acceptance Test:** `AT-DP-044=PASS` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`; independently verified in final re-audit V4)
 **Specification:** `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
 **Implementation Plan:** `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
 
 ```text
-DP-044=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
-AT-DP-044=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
-V1 independent audit = FAIL (docs/audits/phase-10.44-independent-audit-v1.md)
-V2 independent re-audit = FAIL (docs/audits/phase-10.44-independent-reaudit-v2.md)
-V3 independent re-audit = FAIL (docs/audits/phase-10.44-independent-reaudit-v3.md)
-V3 blockers remediated; independent V4 re-audit pending
-independently audited closure boundary = 10.43 (Phase 10.44 not closed)
+DP-044=VERIFIED_EXISTING
+AT-DP-044=PASS
+CLOSURE_ELIGIBLE=YES
+V1 independent audit = FAIL (historical; docs/audits/phase-10.44-independent-audit-v1.md)
+V2 independent re-audit = FAIL (historical; docs/audits/phase-10.44-independent-reaudit-v2.md)
+V3 independent re-audit = FAIL (historical; docs/audits/phase-10.44-independent-reaudit-v3.md)
+V4 final independent re-audit = PASS (docs/audits/phase-10.44-independent-final-reaudit-v4.md)
+AUDITED_IMPLEMENTATION_HEAD=548b3fbaee6a0c67458121d60402ab909f0886c2
+AUDIT_V4_BUNDLE_SHA256=c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38
+AUDIT_V4_REPORT_COMMIT=25875631636caa90806fa5ac35cbc7c770f4c265
+independently audited closure boundary = 10.44
 ```
 
 ---
@@ -207,4 +210,4 @@ DomainMemoryKnowledgeProjectionRequest
 - `tests/domains/test_domain_memory_knowledge_integration.py`: 42 integration tests covering view validation, canonical authority binding (exact canonical `DomainResolutionResult`/`DomainComposition` types with coherent supporting domains; duck-typed impostors fail closed; only `RESOLVED` resolution status is final authority — `AMBIGUOUS`, `INSUFFICIENT_INFORMATION`, and `BLOCKED` real canonical resolutions fail closed; the Phase 10.18 memory request must carry the same canonical resolution reference as the projection request/resolution/composition, so a stale or unbound memory view is rejected; COMPOSED/PARTIAL accepted, BLOCKED/FAILED rejected), authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
 - `tests/domains/test_domain_memory_knowledge_architecture.py`: 10 boundary tests verifying 0 AST imports of `cmm.memory`, 0 reverse imports from cognitive/agent_runtime, no parallel owners, no store mutation, and no sensitive leakage.
 - `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, real `DomainResolutionResult.status == RESOLVED` and the connected resolution chain (`mem_req.resolution_reference_id == req.resolution_reference_id == resolution.id == composition.resolution_id`; `view.request_digest == mem_req.digest`), the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), the identical proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority with no binding projected and proposal repository decisions/results unchanged, downgraded READ-suppression authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, canonical supersession lineage exclusion pointing at the current reference identity, no merge, succession not contradiction).
-- **Connected Acceptance Output:** `AT-DP-044=PASS_REPORTED` (implementation evidence only; V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` recorded; V3 blockers remediated; independent verification remains pending V4 re-audit).
+- **Connected Acceptance Output:** `AT-DP-044=PASS` — independently executed and verified in final re-audit V4; V1/V2/V3 FAIL reports remain preserved as historical audit evidence; `DP-044=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`.

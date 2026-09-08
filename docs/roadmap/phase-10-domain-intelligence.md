@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.43 — Integration with Validation System**. Final independent re-audit **V6** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`; audit V6 bundle SHA-256 `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.44 — Integration with Memory and Knowledge Graph**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`.
 
 ⸻
 
@@ -5967,8 +5967,8 @@ same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
 covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
-reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.43.
-Phase 10.44 is implemented but **not closed**: V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` are recorded; V3 blockers are remediated pending independent V4 re-audit.
+reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.44.
+Phase 10.44 is **complete, independently audited and closed** after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`.
 
 ⸻
 
@@ -6024,12 +6024,12 @@ It should not:
 * mezclar periodos incompatible.
 
 Implementation Status (Phase 10.44):
-- Status: `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
+- Status: Complete — independently audited and closed
 - Requirement: `DP-044` (`SRC-R10:R10-C44`)
-- Acceptance: `AT-DP-044=PASS_REPORTED` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`; implementation marker, pending independent re-verification)
-- Audit History: V1 independent audit `FAIL` (`docs/audits/phase-10.44-independent-audit-v1.md`); V2 independent re-audit `FAIL` (`docs/audits/phase-10.44-independent-reaudit-v2.md`); V3 independent re-audit `FAIL` (`docs/audits/phase-10.44-independent-reaudit-v3.md`); V3 blockers remediated; independent V4 re-audit pending
-- Closure Eligibility: `CLOSURE_ELIGIBLE=NO` (pending independent V4 re-audit; Phase 10.44 is not closed)
-- Audited Baseline: Phase 10.43 remains the latest independently audited and closed milestone.
+- Acceptance: `AT-DP-044=PASS` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`; independently verified in final re-audit V4)
+- Audit History: V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` remain preserved as historical evidence; final independent re-audit **V4** `PASS` recorded in `docs/audits/phase-10.44-independent-final-reaudit-v4.md` (`BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`; audit-report commit `25875631636caa90806fa5ac35cbc7c770f4c265`)
+- Closure Eligibility: `CLOSURE_ELIGIBLE=YES` — final independent V4 re-audit `PASS`
+- Audited Baseline: Phase 10.44 is the latest independently audited and closed milestone (`DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`).
 - Delivered Architecture:
   - Stateless coordinator `DefaultDomainMemoryKnowledgeIntegrator` in `cmm/domains/memory_knowledge_integration.py`
   - Immutable projection contracts in `cmm/domains/memory_knowledge_integration_contracts.py`
@@ -6048,7 +6048,7 @@ Implementation Status (Phase 10.44):
   - Reference documentation: `docs/reference/domain-memory-knowledge-graph-integration.md`
   - Specification: `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
   - Implementation plan: `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
-  - Next action: Submit the exact-HEAD bundle for the Phase 10.44 independent V4 re-audit (Phase 10.45 has not started).
+  - Next milestone: Phase 10.45 — Integration with Interfaces (not started).
 
 ⸻
 

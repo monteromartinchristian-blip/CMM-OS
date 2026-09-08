@@ -10,10 +10,10 @@ The roadmap distinguishes clearly between:
 
 > **Current release:** `v0.8.0`<br>
 > **Implemented:** Phases 0–9 plus Phase 10 through **10.44**<br>
-> **Implemented and audited:** Phases 0–9 plus Phase 10 through **10.43**<br>
+> **Implemented and audited:** Phases 0–9 plus Phase 10 through **10.44**<br>
 > **Current test baseline:** tracked in the latest independently audited phase-closure evidence<br>
-> **Phase 10.44:** implemented but not closed; V1, V2, and V3 independent audits `FAIL` recorded; V3 blockers remediated pending independent V4 re-audit<br>
-> **Next action:** Phase 10.44 independent V4 re-audit
+> **Phase 10.44:** complete, independently audited and closed after final independent re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`<br>
+> **Next milestone:** Phase 10.45 — Integration with Interfaces (not started)
 
 ---
 
@@ -463,17 +463,17 @@ CMM OS will move from executing isolated commands to maintaining persistent obje
 
 **Status:** In progress.
 
-**Current progress:** Phase 10.19–10.43 are complete, independently audited and closed. **Phase 10.44 — Integration with Memory and Knowledge Graph** is implemented but **not closed**: V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` are recorded; V3 blockers are remediated; status `DP-044=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT` / `AT-DP-044=PASS_REPORTED` / `CLOSURE_ELIGIBLE=NO`; independent V4 re-audit pending. **Phase 10.43 — Integration with Validation System** closed after final independent re-audit **V6** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; audited implementation HEAD `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`; audit V6 bundle SHA-256 `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`.
+**Current progress:** Phase 10.19–10.44 are complete, independently audited and closed. **Phase 10.44 — Integration with Memory and Knowledge Graph** closed after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`; final audit report `docs/audits/phase-10.44-independent-final-reaudit-v4.md`. **Phase 10.45 — Integration with Interfaces** has not started.
 The Phase 10.37 — Domain Observability closure stands at audited implementation HEAD `a17326421daa2479f58d7ab45b6a66b1bef75936`; audit V6 bundle SHA-256 `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 
-**Implemented and audited through:** **Phase 10.43 — Integration with Validation System** (final independent re-audit **V6** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-043=VERIFIED_EXISTING`; `AT-DP-043=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`; audit V6 bundle SHA-256 `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`; final audit report `docs/audits/phase-10.43-independent-final-reaudit-v6.md`; complete, independently audited and closed).
-**Phase 10.44 — Integration with Memory and Knowledge Graph:** implemented, **not closed**; V1 independent audit `FAIL` (`docs/audits/phase-10.44-independent-audit-v1.md`), V2 independent re-audit `FAIL` (`docs/audits/phase-10.44-independent-reaudit-v2.md`), and V3 independent re-audit `FAIL` (`docs/audits/phase-10.44-independent-reaudit-v3.md`) recorded; V3 blockers remediated pending independent V4 re-audit (`DP-044=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`; `AT-DP-044=PASS_REPORTED`; `CLOSURE_ELIGIBLE=NO`).
-**Next action:** Phase 10.44 independent V4 re-audit of the exact-HEAD bundle (Phase 10.45 has not started).
+**Implemented and audited through:** **Phase 10.44 — Integration with Memory and Knowledge Graph** (final independent re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`; final audit report `docs/audits/phase-10.44-independent-final-reaudit-v4.md`; complete, independently audited and closed).
+**Phase 10.44 — Integration with Memory and Knowledge Graph:** complete, independently audited and closed; V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` remain preserved as historical evidence; final independent re-audit **V4** `PASS` (`docs/audits/phase-10.44-independent-final-reaudit-v4.md`) with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-044=VERIFIED_EXISTING`, `AT-DP-044=PASS`, and `CLOSURE_ELIGIBLE=YES`.
+**Next milestone:** Phase 10.45 — Integration with Interfaces (not started).
 **Phase 10.37 — Domain Observability**, **Phase 10.38 — Security**, and **Phase 10.39 — Preventing Fragmentation** are independently audited and closed. Phase 10.39 final independent re-audit **V4** = `PASS`.
 The 10.18 closure includes deterministic reference-only domain view resolution over shared memory, reference-only update proposal bindings, strict capability separation, fail-closed integration validation, and token-aware recursive privacy guards.
 The 10.19 implementation provides the General Domain (`domain:general`) with 9 resources, `GeneralProfile`, 6 rules, 8 operations, 4 workflows, low-risk/fail-closed permissions, memory proposals, prudent fallback, and a canonical bootstrap path (`build_standard_general_domain_bootstrap`). Registration is atomic via validation-first semantics plus snapshot/restore rollback across all registries. The canonical catalog (`cmm/domains/general/catalog.py`) is the single source of truth for structural IDs. The canonical bootstrap exposes a `DefaultDomainResolver` configured with `fallback_domain=domain:general`. All eight operations are declared and remain **UNAVAILABLE** by default; real implementations must be injected explicitly. `general.create_task` and `general.update_goal` carry a proposal-only contract (output `proposal` + `binding`) and never imply direct effects.
 
-The **canonical requirements matrix records** Phases 10.16–10.43 plus the later 10.52–10.53 Domain Packs. **Phase 10.42 — Integration with Planner and Workflow Engine** is independently audited and closed after final re-audit **V12** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-042=VERIFIED_EXISTING`, and `AT-DP-042=PASS`. The matrix is the
+The **canonical requirements matrix records** Phases 10.16–10.44 plus the later 10.52–10.53 Domain Packs. **Phase 10.42 — Integration with Planner and Workflow Engine** is independently audited and closed after final re-audit **V12** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-042=VERIFIED_EXISTING`, and `AT-DP-042=PASS`. The matrix is the
 [Domain Intelligence Requirements Matrix](docs/reference/domain-intelligence-requirements-matrix.md),
 supported by the
 [Domain Prompt Clause Coverage](docs/audits/domain-prompt-clause-coverage.md).
@@ -627,7 +627,7 @@ CMM OS will operate as a coherent local platform rather than a collection of eng
 
 # Release direction
 
-The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through **10.43**. **Phase 10.43 — Integration with Validation System** is complete, independently audited and closed after final independent re-audit **V6** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-043=VERIFIED_EXISTING`, `AT-DP-043=PASS`, audited implementation HEAD `4e6519f2eb03b0ae312d6500df0c16f50e99f1e1`, and audit V6 bundle SHA-256 `2a1f6512136ba2639cff7c899100dfb14f9d6e191f4e2a29cf55eab02a0235b0`. **Phase 10.44 — Integration with Memory and Knowledge Graph** is implemented but **not closed** (`DP-044=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`, `AT-DP-044=PASS_REPORTED`); V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` are recorded; V3 blockers are remediated pending independent V4 re-audit; Phases 10.52–10.53 remain the final planned Domain Packs.
+The current published release is `v0.8.0`. The independently audited closure baseline covers Phases 0–9 plus Phase 10 through **10.44**. **Phase 10.44 — Integration with Memory and Knowledge Graph** is complete, independently audited and closed after final independent re-audit **V4** `PASS` with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-044=VERIFIED_EXISTING`, `AT-DP-044=PASS`, `CLOSURE_ELIGIBLE=YES`, audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`, and audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`. **Phase 10.45 — Integration with Interfaces** has not started; Phases 10.52–10.53 remain the final planned Domain Packs.
 
 Future versioning will follow implemented capabilities rather than planned phase numbers alone. Each release should include:
 
