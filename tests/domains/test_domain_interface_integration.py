@@ -48,6 +48,9 @@ from cmm.domains.errors import DomainInterfaceAuthorityError
 from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
 from cmm.domains.interface_integration_contracts import (
+    DomainInterfaceIntent,
+    DomainInterfaceIntentKind,
+    DomainInterfaceIntentResult,
     DomainInterfaceProjectionRequest,
     DomainInterfaceStatus,
     DomainInterfaceViewKind,
@@ -59,6 +62,13 @@ from cmm.domains.observability_contracts import (
     DomainObservabilityLogEntry,
     DomainObservabilityReport,
 )
+from cmm.domains.permission_contracts import (
+    CrossDomainPermissionRequest,
+    DomainPermissionPolicy,
+    PermissionOutcome,
+)
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.presentation_contracts import (
     DomainOutputIntent,
     DomainOutputIntentType,
@@ -70,6 +80,8 @@ from cmm.domains.presentation_contracts import (
 )
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainRegistryRecord
+from cmm.domains.resolution_contracts import DomainResolutionContext
+from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resolver_contracts import (
     DomainResolutionReason,
     DomainResolutionResult,
@@ -1906,3 +1918,696 @@ class TestReviewCenterProjection:
                 request=request,
                 approvals="approval-req:operation:1",
             )
+
+
+# ── Phase 10.45 selector delegation fixtures ────────────────────────────────
+
+_SELECTOR = (DomainInterfaceViewKind.SELECTOR,)
+
+
+def _selector_context(
+    *,
+    explicit: tuple[str, ...] = (),
+    authorized: tuple[str, ...] = (),
+    available: tuple[str, ...] = ("domain:health", "domain:general"),
+    metadata: dict[str, object] | None = None,
+) -> DomainResolutionContext:
+    """Canonical resolution context over slug references, mirroring resolver tests."""
+    return DomainResolutionContext(
+        id="ctx:selector:1",
+        user_input="selector intent delegation test",
+        explicit_domains=tuple(
+            DomainId(domain.removeprefix("domain:")) for domain in explicit
+        ),
+        available_domains=tuple(
+            DomainId(domain.removeprefix("domain:")) for domain in available
+        ),
+        authorized_domains=tuple(
+            DomainId(domain.removeprefix("domain:")) for domain in authorized
+        ),
+        metadata=metadata if metadata is not None else {},
+    )
+
+
+def _selector_intent(
+    kind: DomainInterfaceIntentKind,
+    *,
+    target_domain: str | None = None,
+    intent_id: str = "intent:selector:1",
+    reason: str | None = None,
+    resolution_reference_id: str = "resolution:1",
+    composition_reference_id: str = "composition:1",
+) -> DomainInterfaceIntent:
+    return DomainInterfaceIntent(
+        intent_id=intent_id,
+        kind=kind,
+        resolution_reference_id=resolution_reference_id,
+        composition_reference_id=composition_reference_id,
+        target_domain=target_domain,
+        reason=reason,
+    )
+
+
+def _cross_domain_request(
+    *,
+    target_domain: str,
+    source_domain: str = "domain:health",
+    requires_approval: bool = True,
+) -> CrossDomainPermissionRequest:
+    return CrossDomainPermissionRequest(
+        request_id="cross-domain:selector:1",
+        source_domain=source_domain,
+        target_domain=target_domain,
+        reason="selector supporting-domain intent",
+        actor_id="actor:selector:1",
+        session_id="session:1",
+        requires_approval=requires_approval,
+        sensitivity_level="internal",
+    )
+
+
+def _register_outbound_policy(
+    registry: DomainPermissionRegistry,
+    *,
+    domain_id: str,
+    allowed_target_domains: tuple[str, ...] = ("domain:general",),
+) -> None:
+    registry.register(
+        DomainPermissionPolicy(
+            policy_id=f"policy:outbound:{domain_id.removeprefix('domain:')}",
+            domain_id=domain_id,
+            version="1.0.0",
+            allow_cross_domain_access=True,
+            allowed_target_domains=allowed_target_domains,
+            allowed_capabilities=(PermissionCapability.DOMAIN_CROSS_ACCESS,),
+            allowed_sensitivity_levels=("internal",),
+        )
+    )
+
+
+def _register_inbound_policy(
+    registry: DomainPermissionRegistry,
+    *,
+    domain_id: str,
+    allowed_source_domains: tuple[str, ...] | None = None,
+) -> None:
+    policy: dict[str, object] = {
+        "policy_id": f"policy:inbound:{domain_id.removeprefix('domain:')}",
+        "domain_id": domain_id,
+        "version": "1.0.0",
+        "allow_inbound_cross_domain_access": True,
+        "allowed_sensitivity_levels": ("internal",),
+    }
+    if allowed_source_domains is not None:
+        policy["allowed_source_domains"] = allowed_source_domains
+    registry.register(DomainPermissionPolicy(**policy))
+
+
+class TestSelectorViewProjection:
+    def test_selector_view_mirrors_canonical_resolution_selection_state(
+        self,
+    ) -> None:
+        context = _selector_context(
+            explicit=("domain:health",),
+            authorized=("domain:health", "domain:general"),
+        )
+        resolved = DefaultDomainResolver().resolve(context)
+        assert resolved.status is DomainResolutionStatus.RESOLVED
+        assert resolved.primary_domain is not None
+        composition = _make_composition(
+            composition_id="composition:selector:1",
+            resolution_id=resolved.id,
+            primary_domain=str(resolved.primary_domain),
+            supporting_domains=tuple(str(d) for d in resolved.supporting_domains),
+        )
+        request = _make_request(
+            requested_views=_SELECTOR,
+            resolution_reference_id=resolved.id,
+            composition_reference_id="composition:selector:1",
+        )
+        projection = DefaultDomainInterfaceIntegrator().project(
+            request=request,
+            resolution=resolved,
+            composition=composition,
+        )
+        view = projection.selector
+        assert view is not None
+        # The selector view copies the canonical selection state verbatim:
+        # no relabeling, no domain reordering, no invented rejection reasons.
+        assert view.primary_domain == str(resolved.primary_domain)
+        assert view.supporting_domains == tuple(
+            str(domain) for domain in resolved.supporting_domains
+        )
+        assert view.rejected_domains == tuple(
+            str(domain) for domain in resolved.rejected_domains
+        )
+        assert view.ambiguous_domains == tuple(
+            str(domain) for domain in resolved.ambiguous_domains
+        )
+        assert view.reason_refs == tuple(
+            dict.fromkeys(r.code for r in resolved.reasons)
+        )
+        assert view.requires_clarification is resolved.requires_clarification
+        assert view.status is DomainInterfaceStatus.READY
+
+    def test_selector_view_not_fabricated_when_not_requested(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        projection = _project_views(
+            env, request=_make_request(requested_views=_CONVERSATIONAL)
+        )
+        assert projection.selector is None
+        assert projection.conversational is not None
+
+
+class TestSelectorIntentSubmission:
+    def test_auto_resolve_intent_granted_matches_canonical_resolver_authority(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        context = _selector_context(
+            explicit=("domain:health",),
+            authorized=("domain:health", "domain:general"),
+        )
+        resolver = DefaultDomainResolver()
+        expected = resolver.resolve(context)
+        assert expected.status is DomainResolutionStatus.RESOLVED
+        assert expected.primary_domain == DomainId("health")
+        assert expected.reasons
+        integrator = DefaultDomainInterfaceIntegrator(resolver=resolver)
+        result = integrator.submit_intent(
+            intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=context,
+        )
+        assert isinstance(result, DomainInterfaceIntentResult)
+        assert result.intent_id == "intent:selector:1"
+        assert result.accepted is True
+        assert result.status is DomainInterfaceStatus.READY
+        assert result.resolution_reference_id == env.resolution.id
+        assert result.composition_reference_id == env.composition.id
+        # The outcome reason comes from the canonical resolver, never from a
+        # Phase 10.45 heuristic.
+        assert result.reason_code == expected.reasons[0].code
+
+    def test_auto_resolve_intent_pending_when_canonical_ambiguity_requires_clarification(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        context = _selector_context(
+            explicit=("domain:health", "domain:general"),
+            authorized=("domain:health", "domain:general"),
+        )
+        resolver = DefaultDomainResolver()
+        expected = resolver.resolve(context)
+        assert expected.status is DomainResolutionStatus.AMBIGUOUS
+        assert expected.requires_clarification is True
+        integrator = DefaultDomainInterfaceIntegrator(resolver=resolver)
+        result = integrator.submit_intent(
+            intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=context,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.PENDING
+        assert result.reason_code == expected.reasons[0].code
+
+    def test_select_primary_intent_granted_when_canonical_target_is_selected(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        context = _selector_context(
+            explicit=("domain:health",),
+            authorized=("domain:health", "domain:general"),
+        )
+        resolver = DefaultDomainResolver()
+        expected = resolver.resolve(context)
+        assert expected.status is DomainResolutionStatus.RESOLVED
+        assert str(expected.primary_domain) == "domain:health"
+        integrator = DefaultDomainInterfaceIntegrator(resolver=resolver)
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.SELECT_PRIMARY,
+                target_domain="domain:health",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=context,
+        )
+        assert result.accepted is True
+        assert result.status is DomainInterfaceStatus.READY
+        assert result.reason_code == expected.reasons[0].code
+
+    def test_select_primary_intent_rejects_target_not_expressed_by_canonical_context(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """Explicit-domain preference is expressed through canonical contexts only."""
+        env = canonical_projection_fixture
+        context = _selector_context(
+            explicit=("domain:health",),
+            authorized=("domain:health", "domain:general"),
+        )
+        integrator = DefaultDomainInterfaceIntegrator(resolver=DefaultDomainResolver())
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(
+                    DomainInterfaceIntentKind.SELECT_PRIMARY,
+                    target_domain="domain:general",
+                ),
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=context,
+            )
+
+    def test_select_primary_intent_pending_when_canonical_authority_ambiguous(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        context = _selector_context(
+            explicit=("domain:health", "domain:general"),
+            authorized=("domain:health", "domain:general"),
+        )
+        resolver = DefaultDomainResolver()
+        expected = resolver.resolve(context)
+        assert expected.status is DomainResolutionStatus.AMBIGUOUS
+        integrator = DefaultDomainInterfaceIntegrator(resolver=resolver)
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.SELECT_PRIMARY,
+                target_domain="domain:health",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=context,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.PENDING
+        assert result.reason_code == expected.reasons[0].code
+
+    def test_add_supporting_intent_denied_matches_canonical_permission_decision(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """A permission-denied supporting domain returns the canonical rejection."""
+        env = canonical_projection_fixture
+        permission_registry = DomainPermissionRegistry()
+        _register_outbound_policy(
+            permission_registry,
+            domain_id="domain:health",
+            allowed_target_domains=("domain:general",),
+        )
+        permission_resolver = DomainPermissionResolver(permission_registry)
+        request = _cross_domain_request(target_domain="domain:general")
+        expected = permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.DENY
+        assert expected.reasons
+        before_resolution = env.resolution.to_dict()
+        before_composition = env.composition.to_dict()
+        before_policies = permission_registry.snapshot_state()
+        integrator = DefaultDomainInterfaceIntegrator(
+            permission_resolver=permission_resolver
+        )
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.ADD_SUPPORTING,
+                target_domain="domain:general",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+            permission_request=request,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.BLOCKED
+        assert result.reason_code == expected.reasons[0]
+        # Denied intent leaves composition, resolution and permission state
+        # exactly unchanged.
+        assert env.resolution.to_dict() == before_resolution
+        assert env.composition.to_dict() == before_composition
+        assert permission_registry.snapshot_state() == before_policies
+
+    def test_add_supporting_intent_requires_permission_evidence_and_coherence(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        permission_resolver = DomainPermissionResolver(DomainPermissionRegistry())
+        integrator = DefaultDomainInterfaceIntegrator(
+            permission_resolver=permission_resolver
+        )
+        intent = _selector_intent(
+            DomainInterfaceIntentKind.ADD_SUPPORTING,
+            target_domain="domain:general",
+        )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=intent,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+            )
+        # Permission evidence must bind to the same target as the intent.
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=intent,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+                permission_request=_cross_domain_request(
+                    target_domain="domain:finance"
+                ),
+            )
+        # Permission evidence must originate from the composed primary domain.
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=intent,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+                permission_request=_cross_domain_request(
+                    target_domain="domain:general",
+                    source_domain="domain:legal",
+                ),
+            )
+
+    def test_add_supporting_intent_approval_required_reports_pending(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        permission_registry = DomainPermissionRegistry()
+        _register_outbound_policy(
+            permission_registry,
+            domain_id="domain:health",
+            allowed_target_domains=("domain:general", "domain:finance"),
+        )
+        _register_inbound_policy(permission_registry, domain_id="domain:finance")
+        permission_resolver = DomainPermissionResolver(permission_registry)
+        request = _cross_domain_request(target_domain="domain:finance")
+        expected = permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.APPROVAL_REQUIRED
+        integrator = DefaultDomainInterfaceIntegrator(
+            permission_resolver=permission_resolver
+        )
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.ADD_SUPPORTING,
+                target_domain="domain:finance",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+            permission_request=request,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.PENDING
+        assert result.reason_code == expected.reasons[0]
+
+    def test_add_supporting_intent_allowed_permission_still_requires_later_platform(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """Canonical ALLOW establishes eligibility; application has no Phase 10 seam."""
+        env = canonical_projection_fixture
+        permission_registry = DomainPermissionRegistry()
+        _register_outbound_policy(
+            permission_registry,
+            domain_id="domain:health",
+            allowed_target_domains=("domain:general", "domain:finance"),
+        )
+        _register_inbound_policy(permission_registry, domain_id="domain:finance")
+        permission_resolver = DomainPermissionResolver(permission_registry)
+        request = _cross_domain_request(
+            target_domain="domain:finance",
+            requires_approval=False,
+        )
+        expected = permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.ALLOW
+        integrator = DefaultDomainInterfaceIntegrator(
+            permission_resolver=permission_resolver
+        )
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.ADD_SUPPORTING,
+                target_domain="domain:finance",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+            permission_request=request,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.UNAVAILABLE
+        assert (
+            result.reason_code == "domain_selector_supporting_application_unavailable"
+        )
+
+    def test_privilege_escalation_add_supporting_rejected_without_any_state_change(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """Adding a domain with broader access cannot bypass canonical permission."""
+        env = canonical_projection_fixture
+        permission_registry = DomainPermissionRegistry()
+        _register_outbound_policy(
+            permission_registry,
+            domain_id="domain:health",
+            allowed_target_domains=("domain:general",),
+        )
+        _register_inbound_policy(
+            permission_registry,
+            domain_id="domain:finance",
+            allowed_source_domains=("domain:health",),
+        )
+        permission_resolver = DomainPermissionResolver(permission_registry)
+        request = _cross_domain_request(target_domain="domain:finance")
+        expected = permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.DENY
+        before_resolution = env.resolution.to_dict()
+        before_composition = env.composition.to_dict()
+        before_policies = tuple(
+            policy.to_dict() for policy in permission_registry.list_policies()
+        )
+        integrator = DefaultDomainInterfaceIntegrator(
+            permission_resolver=permission_resolver
+        )
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.ADD_SUPPORTING,
+                target_domain="domain:finance",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+            permission_request=request,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.BLOCKED
+        assert result.reason_code == expected.reasons[0]
+        # Privilege escalation is denied without permission or autonomy change
+        # and without any direct registry/session mutation by Phase 10.45.
+        assert env.resolution.to_dict() == before_resolution
+        assert env.composition.to_dict() == before_composition
+        assert (
+            tuple(policy.to_dict() for policy in permission_registry.list_policies())
+            == before_policies
+        )
+
+    def test_selector_intent_disabled_domain_fails_closed(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """A disabled domain cannot be selected through the canonical resolver."""
+        env = canonical_projection_fixture
+        registry_versions = {
+            "legal": [
+                {
+                    "version": "1.0.0",
+                    "status": DomainStatus.DISABLED.value,
+                    "kind": DomainKind.CORE.value,
+                },
+            ],
+        }
+        context = _selector_context(
+            explicit=("domain:legal",),
+            authorized=("domain:legal", "domain:general"),
+            available=("domain:legal", "domain:general"),
+            metadata={"_resolution_registry_versions": registry_versions},
+        )
+        resolver = DefaultDomainResolver()
+        expected = resolver.resolve(context)
+        assert expected.status is DomainResolutionStatus.BLOCKED
+        blocking = tuple(reason for reason in expected.reasons if reason.blocking)
+        assert blocking
+        assert blocking[0].code == "DOMAIN_DISABLED_REJECTED"
+        before_resolution = env.resolution.to_dict()
+        before_composition = env.composition.to_dict()
+        integrator = DefaultDomainInterfaceIntegrator(resolver=resolver)
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.SELECT_PRIMARY,
+                target_domain="domain:legal",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=context,
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.BLOCKED
+        assert result.reason_code == blocking[0].code
+        assert env.resolution.to_dict() == before_resolution
+        assert env.composition.to_dict() == before_composition
+
+    def test_withdraw_supporting_intent_unavailable_for_current_member(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """Withdrawal delegates to a selection/session seam Phase 10 does not own."""
+        env = canonical_projection_fixture
+        integrator = DefaultDomainInterfaceIntegrator()
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.WITHDRAW_SUPPORTING,
+                target_domain="domain:general",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.UNAVAILABLE
+        assert result.reason_code == "domain_selector_withdrawal_unavailable"
+
+    def test_withdraw_supporting_intent_rejects_unbound_target(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """A target outside the composed membership is an incoherent request."""
+        env = canonical_projection_fixture
+        integrator = DefaultDomainInterfaceIntegrator()
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(
+                    DomainInterfaceIntentKind.WITHDRAW_SUPPORTING,
+                    target_domain="domain:finance",
+                ),
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+            )
+
+    def test_explain_selection_intent_read_only_canonical_reason_refs(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        resolution = _make_resolution(
+            reasons=(
+                DomainResolutionReason(
+                    code="DOMAIN_SELECTION_EXPLICIT_PRIORITY",
+                    message="explicit preference honored for explain intent",
+                    domain_id=DomainId("health"),
+                    blocking=False,
+                ),
+            )
+        )
+        integrator = DefaultDomainInterfaceIntegrator()
+        result = integrator.submit_intent(
+            intent=_selector_intent(DomainInterfaceIntentKind.EXPLAIN_SELECTION),
+            resolution=resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+        )
+        assert result.accepted is True
+        assert result.status is DomainInterfaceStatus.READY
+        assert result.reason_code == "DOMAIN_SELECTION_EXPLICIT_PRIORITY"
+        assert result.resolution_reference_id == resolution.id
+        assert result.composition_reference_id == env.composition.id
+
+    def test_request_policy_change_intent_returns_explicit_unsupported_verdict(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """No authoritative policy-change seam exists in Phase 10.45."""
+        env = canonical_projection_fixture
+        integrator = DefaultDomainInterfaceIntegrator()
+        result = integrator.submit_intent(
+            intent=_selector_intent(
+                DomainInterfaceIntentKind.REQUEST_POLICY_CHANGE,
+                reason="raise the supporting-domain limit",
+            ),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(),
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.UNAVAILABLE
+        assert (
+            result.reason_code
+            == "domain_selector_policy_change_requires_later_platform"
+        )
+
+    def test_submit_intent_rejects_non_resolved_authority_state(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture.with_resolution_status(
+            DomainResolutionStatus.BLOCKED
+        )
+        integrator = DefaultDomainInterfaceIntegrator(resolver=DefaultDomainResolver())
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+            )
+
+    def test_submit_intent_rejects_unbound_or_duck_typed_canonical_inputs(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        integrator = DefaultDomainInterfaceIntegrator(resolver=DefaultDomainResolver())
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(
+                    DomainInterfaceIntentKind.AUTO_RESOLVE,
+                    resolution_reference_id="resolution:unbound",
+                ),
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+            )
+        duck_typed = SimpleNamespace(
+            id=env.resolution.id,
+            status=DomainResolutionStatus.RESOLVED,
+            primary_domain=DomainId("health"),
+            supporting_domains=(DomainId("general"),),
+        )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+                resolution=duck_typed,
+                composition=env.composition,
+                resolution_context=_selector_context(),
+            )
+        diverging = _make_composition(
+            supporting_domains=("domain:general", "domain:finance"),
+        )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+                resolution=env.resolution,
+                composition=diverging,
+                resolution_context=_selector_context(),
+            )
+
+    def test_submit_intent_without_delegated_resolver_reports_unavailable(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        integrator = DefaultDomainInterfaceIntegrator()
+        result = integrator.submit_intent(
+            intent=_selector_intent(DomainInterfaceIntentKind.AUTO_RESOLVE),
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=_selector_context(
+                explicit=("domain:health",),
+                authorized=("domain:health", "domain:general"),
+            ),
+        )
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.UNAVAILABLE
+        assert result.reason_code == "domain_selector_resolver_unavailable"

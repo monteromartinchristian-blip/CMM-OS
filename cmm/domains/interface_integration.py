@@ -2,8 +2,9 @@
 
 Thin, stateless, interface-neutral integration boundary over canonical Domain
 Intelligence authority. ``project()`` verifies canonical coherence and returns
-immutable interface projections; selector intents (added in later blocks)
-delegate only to existing canonical authority. View assembly is read-only over
+immutable interface projections; ``submit_intent()`` delegates selector
+intents only to existing canonical authority (resolver and permission
+evaluator) and never mutates canonical state. View assembly is read-only over
 the canonical inputs passed in: conversational state honors presentation
 display visibility, and the Domain Center read-projects registry lifecycle
 state plus canonical observability authority without ever fabricating content.
@@ -34,25 +35,52 @@ from cmm.domains.interface_integration_contracts import (
     CrossDomainInterfaceView,
     DomainCenterDomainView,
     DomainCenterView,
+    DomainInterfaceIntent,
+    DomainInterfaceIntentKind,
+    DomainInterfaceIntentResult,
     DomainInterfaceProjection,
     DomainInterfaceProjectionRequest,
     DomainInterfaceStatus,
     DomainInterfaceViewKind,
     DomainReviewCenterView,
     DomainReviewItemView,
+    DomainSelectorView,
 )
 from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeProjection,
 )
 from cmm.domains.observability_contracts import DomainObservabilityReport
+from cmm.domains.permission_contracts import (
+    CrossDomainPermissionDecision,
+    CrossDomainPermissionRequest,
+    PermissionOutcome,
+)
+from cmm.domains.permission_resolution import DomainPermissionResolver
 from cmm.domains.presentation_contracts import (
     DomainPresentationItemType,
     DomainPresentationPlan,
     DomainPresentationValidationState,
 )
 from cmm.domains.registry import DomainRegistry
+from cmm.domains.resolution_contracts import DomainResolutionContext
+from cmm.domains.resolver import DomainResolver
 from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.session_contracts import DomainSessionContext
+
+# Interface-owned outcome tokens used only where no canonical authority
+# produced a reason: they state the missing Phase 10 seam explicitly and never
+# pretend to be canonical reason refs.
+_REASON_SUPPORTING_APPLICATION_UNAVAILABLE = (
+    "domain_selector_supporting_application_unavailable"
+)
+_REASON_WITHDRAWAL_UNAVAILABLE = "domain_selector_withdrawal_unavailable"
+_REASON_POLICY_CHANGE_UNAVAILABLE = (
+    "domain_selector_policy_change_requires_later_platform"
+)
+_REASON_RESOLVER_UNAVAILABLE = "domain_selector_resolver_unavailable"
+_REASON_PERMISSION_EVALUATOR_UNAVAILABLE = (
+    "domain_selector_permission_evaluator_unavailable"
+)
 
 __all__ = [
     "DefaultDomainInterfaceIntegrator",
@@ -79,6 +107,17 @@ class DomainInterfaceIntegrator(Protocol):
         cross_domain_snapshot: CrossDomainContextSnapshot | None = None,
         approvals: tuple[ApprovalRequest, ...] | None = None,
     ) -> DomainInterfaceProjection:
+        raise NotImplementedError
+
+    def submit_intent(
+        self,
+        *,
+        intent: DomainInterfaceIntent,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
+        permission_request: CrossDomainPermissionRequest | None = None,
+    ) -> DomainInterfaceIntentResult:
         raise NotImplementedError
 
 
@@ -646,15 +685,202 @@ def _project_review_center(
     return DomainReviewCenterView(items=tuple(items))
 
 
+def _project_selector(resolution: DomainResolutionResult) -> DomainSelectorView:
+    """Mirror the canonical resolution selection state verbatim."""
+    assert resolution.primary_domain is not None
+    return DomainSelectorView(
+        primary_domain=str(resolution.primary_domain),
+        supporting_domains=tuple(
+            str(domain) for domain in resolution.supporting_domains
+        ),
+        rejected_domains=tuple(str(domain) for domain in resolution.rejected_domains),
+        ambiguous_domains=tuple(str(domain) for domain in resolution.ambiguous_domains),
+        reason_refs=tuple(dict.fromkeys(reason.code for reason in resolution.reasons)),
+        requires_clarification=resolution.requires_clarification,
+        # Only RESOLVED canonical state reaches projection: the selector view
+        # reports the selection the interface is bound to as ready.
+        status=DomainInterfaceStatus.READY,
+    )
+
+
+def _validate_intent_authority(
+    *,
+    intent: DomainInterfaceIntent,
+    resolution: DomainResolutionResult,
+    composition: DomainComposition,
+    resolution_context: DomainResolutionContext,
+    permission_request: CrossDomainPermissionRequest | None,
+) -> None:
+    """Verify exact canonical authority for one selector intent, failing closed."""
+    if type(intent) is not DomainInterfaceIntent:
+        raise DomainInterfaceAuthorityError(
+            "intent must be a canonical DomainInterfaceIntent"
+        )
+    if type(resolution) is not DomainResolutionResult:
+        raise DomainInterfaceAuthorityError(
+            "resolution must be a canonical DomainResolutionResult"
+        )
+    if resolution.status is not DomainResolutionStatus.RESOLVED:
+        raise DomainInterfaceAuthorityError(
+            "resolution must be RESOLVED for selector intent submission"
+        )
+    if type(composition) is not DomainComposition:
+        raise DomainInterfaceAuthorityError(
+            "composition must be a canonical DomainComposition"
+        )
+    if composition.status not in (
+        DomainCompositionStatus.COMPOSED,
+        DomainCompositionStatus.PARTIAL,
+    ):
+        raise DomainInterfaceAuthorityError(
+            "composition status must be COMPOSED or PARTIAL"
+        )
+    if type(resolution_context) is not DomainResolutionContext:
+        raise DomainInterfaceAuthorityError(
+            "resolution_context must be a canonical DomainResolutionContext"
+        )
+    if permission_request is not None and type(permission_request) is not (
+        CrossDomainPermissionRequest
+    ):
+        raise DomainInterfaceAuthorityError(
+            "permission_request must be a canonical CrossDomainPermissionRequest"
+        )
+    if intent.resolution_reference_id != resolution.id:
+        raise DomainInterfaceAuthorityError("intent resolution reference mismatch")
+    if intent.composition_reference_id != composition.id:
+        raise DomainInterfaceAuthorityError("intent composition reference mismatch")
+    if composition.resolution_id != resolution.id:
+        raise DomainInterfaceAuthorityError("intent composition resolution mismatch")
+    if resolution.primary_domain is None or str(composition.primary_domain) != str(
+        resolution.primary_domain
+    ):
+        raise DomainInterfaceAuthorityError(
+            "resolution and composition primary domains diverge"
+        )
+    if frozenset(str(d) for d in composition.supporting_domains) != frozenset(
+        str(d) for d in resolution.supporting_domains
+    ):
+        raise DomainInterfaceAuthorityError(
+            "composition supporting domains diverge from resolution"
+        )
+
+
+def _canonical_reason_code(
+    canonical: DomainResolutionResult, status: DomainResolutionStatus
+) -> str:
+    """First blocking canonical reason, else first reason, else status token."""
+    for reason in canonical.reasons:
+        if reason.blocking:
+            return reason.code
+    if canonical.reasons:
+        return canonical.reasons[0].code
+    return f"domain_resolution_{status.value}"
+
+
+def _resolution_verdict(
+    *,
+    intent: DomainInterfaceIntent,
+    resolution: DomainResolutionResult,
+    composition: DomainComposition,
+    canonical: DomainResolutionResult,
+) -> DomainInterfaceIntentResult:
+    """Present one canonical resolver outcome without reinterpreting it."""
+    granted = canonical.status is DomainResolutionStatus.RESOLVED
+    if granted and intent.kind is DomainInterfaceIntentKind.SELECT_PRIMARY:
+        granted = (
+            canonical.primary_domain is not None
+            and str(canonical.primary_domain) == intent.target_domain
+        )
+    if granted:
+        status = DomainInterfaceStatus.READY
+    elif canonical.status is DomainResolutionStatus.UNSUPPORTED:
+        status = DomainInterfaceStatus.UNAVAILABLE
+    elif canonical.status in (
+        DomainResolutionStatus.BLOCKED,
+        DomainResolutionStatus.FAILED,
+    ) or any(reason.blocking for reason in canonical.reasons):
+        status = DomainInterfaceStatus.BLOCKED
+    else:
+        status = DomainInterfaceStatus.PENDING
+    return DomainInterfaceIntentResult(
+        intent_id=intent.intent_id,
+        accepted=granted,
+        status=status,
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
+        reason_code=_canonical_reason_code(canonical, canonical.status),
+    )
+
+
+def _permission_verdict(
+    *,
+    intent: DomainInterfaceIntent,
+    resolution: DomainResolutionResult,
+    composition: DomainComposition,
+    decision: CrossDomainPermissionDecision,
+) -> DomainInterfaceIntentResult:
+    """Present one canonical cross-domain permission outcome verbatim."""
+    if decision.decision is PermissionOutcome.DENY:
+        status = DomainInterfaceStatus.BLOCKED
+        reason_code = (
+            decision.reasons[0] if decision.reasons else "domain_permission_denied"
+        )
+    elif decision.decision is PermissionOutcome.APPROVAL_REQUIRED:
+        status = DomainInterfaceStatus.PENDING
+        reason_code = (
+            decision.reasons[0]
+            if decision.reasons
+            else "domain_permission_approval_required"
+        )
+    else:
+        # Canonical permission granted; applying the membership change needs a
+        # composition/session seam that Phase 10.45 does not own.
+        status = DomainInterfaceStatus.UNAVAILABLE
+        reason_code = _REASON_SUPPORTING_APPLICATION_UNAVAILABLE
+    return DomainInterfaceIntentResult(
+        intent_id=intent.intent_id,
+        accepted=False,
+        status=status,
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
+        reason_code=reason_code,
+    )
+
+
+def _unsupported_verdict(
+    *,
+    intent: DomainInterfaceIntent,
+    resolution: DomainResolutionResult,
+    composition: DomainComposition,
+    reason_code: str,
+) -> DomainInterfaceIntentResult:
+    return DomainInterfaceIntentResult(
+        intent_id=intent.intent_id,
+        accepted=False,
+        status=DomainInterfaceStatus.UNAVAILABLE,
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
+        reason_code=reason_code,
+    )
+
+
 class DefaultDomainInterfaceIntegrator:
     """Default implementation of ``DomainInterfaceIntegrator``.
 
-    Stateless: ``project()`` performs no store lookups and no writes. View
-    assembly blocks are added incrementally over canonical inputs only.
+    Stateless: ``project()`` performs no store lookups and no writes, and
+    ``submit_intent()`` delegates only through the injected canonical resolver
+    and permission evaluator. View assembly blocks are added incrementally
+    over canonical inputs only.
     """
 
-    def __init__(self) -> None:
-        pass
+    def __init__(
+        self,
+        *,
+        resolver: DomainResolver | None = None,
+        permission_resolver: DomainPermissionResolver | None = None,
+    ) -> None:
+        self._resolver = resolver
+        self._permission_resolver = permission_resolver
 
     def project(
         self,
@@ -692,6 +918,9 @@ class DefaultDomainInterfaceIntegrator:
                 composition=composition,
                 presentation=presentation,
             )
+        selector = None
+        if DomainInterfaceViewKind.SELECTOR in requested:
+            selector = _project_selector(resolution)
         domain_center = None
         if DomainInterfaceViewKind.DOMAIN_CENTER in requested and registry is not None:
             domain_center = _project_domain_center(
@@ -720,9 +949,129 @@ class DefaultDomainInterfaceIntegrator:
             composition_reference_id=composition.id,
             session_reference_id=request.session_reference_id,
             conversational=conversational,
-            selector=None,
+            selector=selector,
             domain_center=domain_center,
             cross_domain=cross_domain,
             review_center=review_center,
             content_digest="",
+        )
+
+    def submit_intent(
+        self,
+        *,
+        intent: DomainInterfaceIntent,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
+        permission_request: CrossDomainPermissionRequest | None = None,
+    ) -> DomainInterfaceIntentResult:
+        """Delegate one selector intent to canonical authority, never mutating."""
+        _validate_intent_authority(
+            intent=intent,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=resolution_context,
+            permission_request=permission_request,
+        )
+        if intent.kind is DomainInterfaceIntentKind.EXPLAIN_SELECTION:
+            # Read-only: the bound canonical resolution already carries the
+            # authoritative selection reasons.
+            return DomainInterfaceIntentResult(
+                intent_id=intent.intent_id,
+                accepted=True,
+                status=DomainInterfaceStatus.READY,
+                resolution_reference_id=resolution.id,
+                composition_reference_id=composition.id,
+                reason_code=_canonical_reason_code(resolution, resolution.status),
+            )
+        if intent.kind is DomainInterfaceIntentKind.REQUEST_POLICY_CHANGE:
+            # Phase 10 has no authoritative policy-change mutation seam; the
+            # intent is explicitly reported as requires-later-platform.
+            return _unsupported_verdict(
+                intent=intent,
+                resolution=resolution,
+                composition=composition,
+                reason_code=_REASON_POLICY_CHANGE_UNAVAILABLE,
+            )
+        if intent.kind is DomainInterfaceIntentKind.WITHDRAW_SUPPORTING:
+            membership = {str(domain) for domain in composition.supporting_domains}
+            if intent.target_domain not in membership:
+                raise DomainInterfaceAuthorityError(
+                    "withdraw intent target is not a composed supporting domain"
+                )
+            return _unsupported_verdict(
+                intent=intent,
+                resolution=resolution,
+                composition=composition,
+                reason_code=_REASON_WITHDRAWAL_UNAVAILABLE,
+            )
+        if intent.kind in (
+            DomainInterfaceIntentKind.AUTO_RESOLVE,
+            DomainInterfaceIntentKind.SELECT_PRIMARY,
+        ):
+            if self._resolver is None:
+                return _unsupported_verdict(
+                    intent=intent,
+                    resolution=resolution,
+                    composition=composition,
+                    reason_code=_REASON_RESOLVER_UNAVAILABLE,
+                )
+            if intent.kind is DomainInterfaceIntentKind.SELECT_PRIMARY:
+                explicit_domains = {
+                    str(domain) for domain in resolution_context.explicit_domains
+                }
+                if intent.target_domain not in explicit_domains:
+                    raise DomainInterfaceAuthorityError(
+                        "select_primary target must be expressed as an explicit "
+                        "domain in the canonical resolution context"
+                    )
+            canonical = self._resolver.resolve(resolution_context)
+            if type(canonical) is not DomainResolutionResult:
+                raise DomainInterfaceAuthorityError(
+                    "resolver delegation did not return a canonical "
+                    "DomainResolutionResult"
+                )
+            return _resolution_verdict(
+                intent=intent,
+                resolution=resolution,
+                composition=composition,
+                canonical=canonical,
+            )
+        if intent.kind is DomainInterfaceIntentKind.ADD_SUPPORTING:
+            if permission_request is None:
+                raise DomainInterfaceAuthorityError(
+                    "add_supporting intent requires canonical cross-domain "
+                    "permission evidence"
+                )
+            if self._permission_resolver is None:
+                return _unsupported_verdict(
+                    intent=intent,
+                    resolution=resolution,
+                    composition=composition,
+                    reason_code=_REASON_PERMISSION_EVALUATOR_UNAVAILABLE,
+                )
+            if (
+                permission_request.source_domain != str(resolution.primary_domain)
+                or permission_request.target_domain != intent.target_domain
+            ):
+                raise DomainInterfaceAuthorityError(
+                    "permission evidence does not bind to the intent target "
+                    "and composed primary domain"
+                )
+            decision = self._permission_resolver.resolve_cross_domain(
+                permission_request
+            )
+            if type(decision) is not CrossDomainPermissionDecision:
+                raise DomainInterfaceAuthorityError(
+                    "permission delegation did not return a canonical "
+                    "CrossDomainPermissionDecision"
+                )
+            return _permission_verdict(
+                intent=intent,
+                resolution=resolution,
+                composition=composition,
+                decision=decision,
+            )
+        raise DomainInterfaceAuthorityError(
+            f"unsupported selector intent kind: {intent.kind.value}"
         )
