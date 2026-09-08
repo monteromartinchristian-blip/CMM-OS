@@ -8,6 +8,8 @@ the developer assistant's instruction policy.
 
 CMM OS turns interchangeable AI models into components of a larger persistent system. Rather than making one model or one chat interface the product, it provides the surrounding architecture for context, memory, structured knowledge, reasoning, goals, domain specialization, permissions, validation, controlled execution, recovery, and human supervision.
 
+**CMMChat** is the first-party conversational client/UI for CMM OS and is already under active interface development. It consumes versioned CMM OS contracts while CMM OS remains authoritative for intelligence, memory, Domains, Agents, capabilities, tools, permissions, approvals, privacy, validation, autonomy, budgets, and execution. CMM OS Core/Runtime does not depend on the CMMChat implementation, and alternative clients remain supported through the same stable interfaces.
+
 CMM OS began as **Code Management Machine Operating System**, a semantic software-engineering runtime. That engineering foundation remains part of the project, but it no longer defines the project's scope.
 
 > **Current release:** `v0.8.0`<br>
@@ -132,7 +134,7 @@ Phase 10 specializes the shared system for real areas of work and life through d
 
 **Planned integration phase: Phase 11 — Stable Integrated Platform**
 
-Phase 11 will turn the existing engines into the complete product surface: orchestration, persistent application services, conversational interfaces, storage, integrations, a provider-independent Model Gateway, observability, configuration, backup and recovery, and reusable interfaces such as API, MCP, and CLI.
+Phase 11 will turn the existing engines into the complete product surface: orchestration, persistent application services, conversational interfaces, first-class configurable Bots, a provider-independent Platform Capability Catalog, controlled tool execution, independently authorized Web/Browser/Computer Use, storage, integrations, a provider-independent Model Gateway, observability, configuration, backup and recovery, and reusable interfaces such as API, MCP, CLI, and the first-party CMMChat client.
 
 This distinction is deliberate: CMM OS already has substantial working infrastructure, while the complete personal-platform experience remains an active engineering objective.
 
@@ -287,7 +289,7 @@ Integrate the system into a stable local platform
 - **Phase 8 — Cognitive Layer:** resources, provenance, epistemic knowledge models, temporal reasoning, contradictions, confidence, information gaps, questions, sessions, and structured reasoning traces.
 - **Phase 9 — Autonomous Agent Runtime:** persistent goals, observations, planning, policy evaluation, approvals, budgets, execution, validation, recovery, and outcome evaluation.
 - **Phase 10 — Domain Intelligence:** reusable domain packs, profiles, rules, workflows, operations, permissions, memory policies, and cross-domain coordination.
-- **Phase 11 — Stable Integrated Platform:** orchestration, backend and API, storage, migrations, local Docker runtime, UI, observability, backup, recovery, and complete end-to-end integration.
+- **Phase 11 — Stable Integrated Platform:** orchestration, backend and API, first-class Bots, provider-independent capabilities and controlled tools, Web/Browser/Computer Use, CMMChat first-party client integration, storage, migrations, local Docker runtime, UI, observability, backup, recovery, and complete end-to-end integration.
 
 Read the complete roadmap in [`ROADMAP.md`](ROADMAP.md).
 

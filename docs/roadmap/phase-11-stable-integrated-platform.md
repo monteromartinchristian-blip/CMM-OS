@@ -297,6 +297,7 @@ Central coordination point:
 OrchestrationRequest(
     user_id="user-123",
     session_id="session-456",
+    bot_id=None,
     input={...},
     channel="conversation",
     context={...},
@@ -328,6 +329,10 @@ OrchestrationResult(
 - select the domain;
 - select the cognitive profile;
 - decide whether an agent must participate;
+- resolve requested PlatformCapabilities against user, session, Domain, resource, privacy, sensitivity, availability, autonomy, budget, and approval constraints;
+- distinguish requested capabilities from effective authority;
+- determine which compatible tools and canonical operations may satisfy the resulting effective capability set;
+- prevent Bot configuration, Agent binding, fallback, or model/provider output from widening authority;
 - determine which tools and operations are allowed;
 - check permissions;
 - create or resume sessions;
@@ -451,6 +456,9 @@ The API must expose stable resources for:
 - knowledge;
 - domains;
 - agents;
+- bots;
+- capabilities;
+- tools;
 - configuration;
 - events;
 - metrics;
@@ -487,6 +495,19 @@ POST   /memory/search
 
 GET    /domains
 GET    /agents
+GET    /bots
+POST   /bots
+GET    /bots/{id}
+PATCH  /bots/{id}
+POST   /bots/{id}/duplicate
+POST   /bots/{id}/archive
+
+GET    /capabilities
+GET    /capabilities/{id}
+
+GET    /tools
+GET    /tools/{id}
+
 GET    /system/health
 ```
 
@@ -558,6 +579,12 @@ ErrorResult(
 - filters;
 - traceability;
 - documented contracts.
+
+## Bot and Capability Application Services
+
+Phase 11 adds conceptual `BotService`, `CapabilityService`, and `ToolCatalogService` application seams. They expose product configuration, effective capability resolution, and implementation availability without owning Agent execution, canonical operations, approvals, autonomy, budgets, validation, or secrets.
+
+`/tools` is an implementation and availability inspection surface; it is not a second executable operation endpoint.
 
 ## Completion Criteria
 
@@ -697,7 +724,10 @@ Build the main natural-interaction interface for CMM OS.
 - streamed responses;
 - cancellation;
 - attachments;
-- quick commands.
+- quick commands;
+- optional Bot association;
+- requested/effective capability visibility;
+- optional canonical Agent-backed status.
 
 ## Conversation Message
 
@@ -705,6 +735,7 @@ Build the main natural-interaction interface for CMM OS.
 ConversationMessage(
     id="message-123",
     session_id="session-456",
+    bot_id=None,
     role="user",
     content=[...],
     created_at="...",
@@ -713,6 +744,8 @@ ConversationMessage(
     metadata={...},
 )
 ```
+
+A conversation may be associated with a `bot_id`, but normal conversation must remain possible without Bot or Agent binding. The interface must distinguish requested capabilities from effective capability state and show blocked, unavailable, or approval-required states without treating them as executable authority.
 
 ## Assistant Response
 
@@ -1316,6 +1349,35 @@ Centralize technical and functional system configuration.
 - iteration limits;
 - cost limits.
 
+### Bots
+
+- identity and description;
+- instructions;
+- Communication Profile;
+- model and routing policy;
+- Domains;
+- knowledge and memory scope;
+- requested PlatformCapabilities;
+- autonomy preference within the canonical ceiling;
+- optional Agent binding;
+- versioning;
+- import and export.
+
+Bot configuration expresses requested product behavior. It does not grant effective permissions, approvals, autonomy, budgets, secrets, or execution authority.
+
+### Tools / Capabilities
+
+- Platform Capability Catalog;
+- requested and effective capability state;
+- implementation availability;
+- connection and health state;
+- local or remote execution metadata;
+- privacy and sensitivity requirements;
+- scopes;
+- approvals;
+- audit;
+- replaceable implementation adapters.
+
 ### Domains
 
 - enable;
@@ -1413,6 +1475,14 @@ Policy-Based Access Control
 Resource-Level Permissions
 ```
 
+## Bot and Capability Authorization Boundary
+
+A Bot may request PlatformCapabilities, but Bot configuration is never itself an authorization source.
+
+Effective capability authority must be derived through the canonical permission and policy owners. Agent binding cannot grant permissions, increase autonomy or budgets, remove approvals, transfer secrets, or activate Computer Use by implication.
+
+For sensitive or mutating capabilities, missing authority fails closed. Explicit deny wins.
+
 ## Capabilities
 
 - local authentication;
@@ -1484,7 +1554,12 @@ Protect data, credentials, operations, and communications.
 - sanitization;
 - input validation;
 - file controls;
+- Bot definitions must never contain credentials, API keys, refresh tokens, cookies, or operating-system authorization tokens;
+- authenticated-browser sessions must use independently authorized and scoped session/origin access;
+- Computer Use must use explicit application/resource scope, visible execution state, cancellation, human takeover, and revalidation before automated resume;
 - destructive-operation blocking.
+
+Bot configuration, Agent binding, model output, provider payloads, fallback, and imported configuration must never be treated as permission or capability-escalation authorities.
 
 ## Threat Model
 
@@ -1570,6 +1645,8 @@ For:
 - large logs;
 - results.
 
+Phase 11 persistence must also cover versioned Bot definitions, Bot capability requests, PlatformCapability descriptors or references, and effective capability-policy decision records. Secrets remain outside those records.
+
 ## Storage Abstraction
 
 Provider-independent contracts:
@@ -1580,7 +1657,9 @@ Provider-independent contracts:
 - `KnowledgeRepository`;
 - `MemoryRepository`;
 - `EventRepository`;
-- `DocumentRepository`.
+- `DocumentRepository`;
+- planned `BotRepository`;
+- planned `CapabilityDecisionRepository`.
 
 ## Capabilities
 
@@ -1752,7 +1831,9 @@ Exportable elements:
 - decisions;
 - timeline;
 - documents;
-- configuration.
+- configuration;
+- versioned Bot definitions;
+- portable Bot requested-capability policies.
 
 ## Import
 
@@ -1767,6 +1848,14 @@ It must support:
 - change preview;
 - cancellation;
 - rollback.
+
+## Bot Portability Rule
+
+Portable Bot configuration is not portable effective authority.
+
+Bot import/export must exclude credentials, tokens, cookies, hidden approval decisions, operating-system grants, and other secrets. Requested capabilities may travel as declarative configuration; privileged effective capability state must always be recomputed on the destination system.
+
+Imported Bot definitions default to no privileged effective authority until canonical policy resolution explicitly permits it.
 
 ## Completion Criteria
 
@@ -1798,6 +1887,8 @@ PluginDefinition(
     entrypoint="...",
 )
 ```
+
+A plugin's declared capabilities describe what its implementation may satisfy; they do not grant user or Bot authority. Side-effecting tool implementations remain behind canonical permission, approval, validation, operation, and runtime boundaries.
 
 ## Plugin Types
 
@@ -1883,7 +1974,11 @@ Connect CMM OS to external services without coupling them to the core.
 - APIs;
 - webhooks;
 - search services;
+- browser automation adapters;
+- Computer Use adapters;
 - document systems.
+
+A concrete integration may implement one or more PlatformCapabilities, but implementation availability never grants effective authority. Capability authorization remains a CMM OS policy decision.
 
 ## Integration Adapter
 
@@ -1966,6 +2061,12 @@ The Model Gateway must isolate the Cognitive Layer, Agent Runtime, Domain Intell
 - privacy enforcement;
 - audit generation;
 - local and remote execution.
+
+## Capability and Tool-Call Boundary
+
+Model tool calls are normalized requests for capability use; they are not permission grants. A provider response cannot enable a PlatformCapability, widen scope, lower an approval requirement, increase autonomy or budget, or activate Computer Use.
+
+Fallback and provider substitution must preserve or strengthen the effective capability envelope established before the model call.
 
 ## Model Request
 
@@ -2169,6 +2270,36 @@ Event(
 - `plugin.failed`;
 - `security.alert`.
 
+Additional Phase 11 events for Bots and platform capabilities include:
+
+- `bot.created`;
+- `bot.updated`;
+- `bot.disabled`;
+- `bot.enabled`;
+- `bot.archived`;
+- `bot.imported`;
+- `bot.exported`;
+- `bot.agent_binding.updated`;
+- `bot.capability.requested`;
+- `bot.capability.updated`;
+- `capability.resolution.completed`;
+- `capability.allowed`;
+- `capability.blocked`;
+- `capability.approval_required`;
+- `tool.selected`;
+- `tool.execution.started`;
+- `tool.execution.completed`;
+- `tool.execution.failed`;
+- `computer_use.started`;
+- `computer_use.waiting_for_human`;
+- `computer_use.human_control`;
+- `computer_use.resumed`;
+- `computer_use.cancelled`;
+- `computer_use.completed`;
+- `computer_use.failed`.
+
+These events reuse the canonical Event System. No Bot-specific or Computer-Use-specific parallel event bus is permitted.
+
 ## Capabilities
 
 - publishing;
@@ -2217,6 +2348,8 @@ Structured logs containing:
 - duration;
 - result.
 
+Bot/capability-aware logs should include optional `bot_id`, `capability_id`, and tool implementation identity where applicable, without exposing secrets.
+
 ## Metrics
 
 Minimum metrics:
@@ -2236,7 +2369,11 @@ Minimum metrics:
 - storage;
 - events;
 - plugins;
-- integrations.
+- integrations;
+- Bot usage;
+- capability resolutions and policy blocks;
+- tool executions;
+- Computer Use sessions, cancellations, and human handoffs.
 
 ## Tracing
 
@@ -2433,6 +2570,8 @@ Build a modular interface capable of evolving without coupling itself to interna
 ## Modules
 
 - Conversation;
+- Bots;
+- Tools / Capabilities;
 - Goals;
 - Workflows;
 - Review Center;
@@ -2443,6 +2582,16 @@ Build a modular interface capable of evolving without coupling itself to interna
 - Agents;
 - Configuration;
 - System Health.
+
+## First-Party Client Boundary
+
+**CMMChat** is the first-party conversational client/UI for CMM OS and is already under active interface development.
+
+CMMChat consumes versioned CMM OS application contracts. CMM OS remains authoritative for intelligence, capabilities, tools, permissions, Agents, data, validation, privacy, approvals, budgets, autonomy, and execution.
+
+CMM OS Core/Runtime must not depend on the CMMChat implementation. Alternative clients remain possible through the same stable interfaces.
+
+Bots are the user-facing assistant/product abstraction. Agents remain the advanced persistent runtime/execution abstraction.
 
 ## Principles
 
@@ -2657,7 +2806,11 @@ AuditRecord(
 - migrations;
 - backups;
 - sensitive access;
-- agent actions.
+- agent actions;
+- Bot definition and Agent-binding changes;
+- requested/effective capability decisions;
+- tool implementation selection and execution;
+- Computer Use lifecycle, scope, approvals, cancellation, and human handoff.
 
 ## Capabilities
 
@@ -2758,6 +2911,10 @@ For connections between:
 - Executor and Validation;
 - Memory and Knowledge Graph;
 - API and services;
+- Bot services and the canonical Agent Registry;
+- PlatformCapability resolution and Domain permissions;
+- tool implementations and the canonical Operation Registry;
+- Computer Use approvals, cancellation, and human handoff;
 - plugins and integrations.
 
 ### Contract Tests
@@ -2769,6 +2926,8 @@ For:
 - plugins;
 - storage;
 - models;
+- Bot definitions;
+- PlatformCapability descriptors and resolution states;
 - external interfaces.
 
 ### End-to-End Tests
@@ -2844,6 +3003,9 @@ Make it possible to install, use, administer, extend, and maintain CMM OS.
 - installation;
 - quick start;
 - conversation;
+- Bots;
+- Tools / Capabilities;
+- Computer Use and human takeover;
 - goals;
 - workflows;
 - approvals;
@@ -2862,6 +3024,9 @@ Make it possible to install, use, administer, extend, and maintain CMM OS.
 - storage;
 - security;
 - agents;
+- Bot contracts and lifecycle;
+- PlatformCapability and tool-resolution architecture;
+- Web, Browser, authenticated-browser, and Computer Use security;
 - Cognitive Layer;
 - plugins;
 - migrations;
@@ -3461,6 +3626,7 @@ Contains provider-independent contracts and domain logic:
 - agents;
 - domains;
 - permissions;
+- platform capability contracts;
 - policies.
 
 ### Runtime
@@ -3489,6 +3655,8 @@ Provides persistence and synchronization:
 - export;
 - synchronization adapters.
 
+CMMChat is the first-party conversational client/UI and is already under active interface development. It consumes the same versioned contracts available to alternative clients.
+
 ### Clients
 
 Expose the platform:
@@ -3511,7 +3679,7 @@ Connect external systems:
 - Actions;
 - plugins.
 
-Dependencies must point inward toward stable contracts. Core must not depend on clients, providers, deployment targets, or cloud services.
+Dependencies must point inward toward stable contracts. Core and Runtime must not depend on CMMChat or any other client, provider, deployment target, or cloud service.
 
 ---
 
@@ -3709,6 +3877,7 @@ Expose CMM OS capabilities through stable interfaces so the platform can serve i
 
 - REST API;
 - streaming API;
+- CMMChat through versioned application and streaming contracts;
 - MCP server;
 - OpenAI Actions-compatible endpoints;
 - CLI;
@@ -3722,6 +3891,7 @@ All interfaces must reuse the same:
 - authentication;
 - authorization;
 - permissions;
+- PlatformCapability resolution;
 - privacy policies;
 - validation;
 - routing;
@@ -3730,7 +3900,9 @@ All interfaces must reuse the same:
 - error contracts;
 - versioned schemas.
 
-Clients must not bypass the Orchestrator, Model Gateway, Validation System, or permission checks.
+Clients must not bypass the Orchestrator, Model Gateway, Validation System, PlatformCapability resolution, canonical operations, or permission checks.
+
+CMMChat is a first-party client, not an execution authority owner.
 
 ---
 
@@ -3751,6 +3923,7 @@ Initial MCP tools may expose:
 - request a validated operation;
 - review approvals;
 - inspect audit records;
+- inspect authorized PlatformCapabilities and implementation availability;
 - export authorized context.
 
 ## REST Capabilities
@@ -3763,6 +3936,9 @@ The REST API may expose:
 /api/v1/knowledge
 /api/v1/memory
 /api/v1/domains
+/api/v1/bots
+/api/v1/capabilities
+/api/v1/tools
 /api/v1/models
 /api/v1/evaluations
 /api/v1/audit
@@ -3781,7 +3957,7 @@ Actions-compatible endpoints must:
 - record every external invocation;
 - enforce rate and budget limits.
 
-Adapters must remain replaceable and must not contain domain logic.
+Adapters must remain replaceable and must not contain domain logic. They may expose or implement PlatformCapabilities, but they must never grant capability authority or create a parallel executable registry.
 
 ---
 
@@ -3807,6 +3983,7 @@ A package may include:
 
 - manifest;
 - operation schemas;
+- PlatformCapability descriptors or requirements;
 - prompts;
 - validation rules;
 - permissions;
@@ -3823,6 +4000,8 @@ A skill or plugin must not:
 
 - contain secrets;
 - silently broaden permissions;
+- create an alternative capability/permission authority;
+- create a second executable Tool Registry or Agent Runtime;
 - bypass CMM OS validation;
 - duplicate the primary memory store;
 - couple the core to one assistant vendor;
@@ -3893,7 +4072,11 @@ Ensure that accumulated knowledge, workflows, policies, and domain logic remain 
 - audit records;
 - exported memory;
 - documentation;
-- skills and plugins.
+- skills and plugins;
+- versioned Bot definitions;
+- portable requested-capability policies without secrets or effective grants.
+
+Portable Bot configuration must remain provider-independent. Credentials, cookies, operating-system grants, and privileged effective capability state are not portable assets; effective authority must be recomputed by the destination runtime.
 
 ## Exit Modes
 
@@ -5416,6 +5599,198 @@ These capabilities may be developed after the platform has been stabilized.
 
 ---
 
+# 11.59 — Bot Identity and Configuration Layer
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce a first-class user-facing Bot abstraction without duplicating the Phase 9 Agent Runtime or any canonical execution authority.
+
+## Core Boundary
+
+```text
+Bot
+= product identity and configuration
+
+Agent
+= persistent execution/runtime entity
+
+Bot != Agent
+```
+
+A Bot may define or reference identity, instructions, Communication Profile, model/routing policy, Domain context, knowledge scope, memory scope, requested PlatformCapabilities, autonomy preference within the canonical ceiling, optional Agent binding, and version/lifecycle state.
+
+## Bot Modes
+
+```text
+CONVERSATIONAL
+TOOL_ENABLED
+AGENT_BACKED
+```
+
+- `CONVERSATIONAL`: normal conversation with no persistent Agent requirement.
+- `TOOL_ENABLED`: may request authorized PlatformCapabilities without becoming an Agent.
+- `AGENT_BACKED`: presents a user-facing identity while execution is delegated to an existing canonical Phase 9 Agent.
+
+## Authority Invariants
+
+A Bot must never own a second Agent Runtime; grant effective permissions; increase canonical autonomy or budgets; suppress approvals; bypass Domain permissions, canonical operations, or validation; activate Computer Use merely through Agent binding; or persist credentials, API keys, refresh tokens, cookies, operating-system authorization tokens, or other secrets.
+
+Imported Bot configuration carries requested behavior only. Effective privileged authority must be recomputed by CMM OS.
+
+## CMMChat Product Surface
+
+CMMChat is the first-party client/UI expected to expose the Bot workspace. Its current interface development is independent from implementation of this runtime contract.
+
+CMMChat may create, edit, display, import, export, and bind Bots through versioned application contracts, but CMM OS remains authoritative for runtime policy and execution.
+
+## Design Point
+
+`DP-059` — CMM OS must support a first-class, versioned, provider-independent Bot definition that remains distinct from Agent, Domain, Operation, PlatformCapability, ToolImplementation, and model provider, with optional Agent binding that cannot grant execution authority.
+
+## Future Connected Acceptance
+
+`AT-DP-059` is planned and not yet implemented. It must eventually prove through canonical or official in-memory components that conversational, tool-enabled, and Agent-backed Bots preserve all authority boundaries, invalid bindings fail closed, Computer Use is not implied, serialization excludes secrets, and versioned definitions round-trip deterministically.
+
+---
+
+# 11.60 — Platform Capability Catalog and Tool Resolution
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce provider-independent platform capability descriptors and most-restrictive capability resolution without creating a second executable Tool Registry.
+
+## Core Distinctions
+
+```text
+PlatformCapability
+!= DomainCapability
+!= ToolImplementation
+!= Operation
+```
+
+`PlatformCapability` describes a stable functional ability; `DomainCapability` retains existing Phase 10 specialization semantics; `ToolImplementation` is replaceable; `Operation` remains the canonical executable contract.
+
+## PlatformCapabilityCatalog
+
+The catalog is descriptive/resolutive. It may register and resolve descriptors, report availability, expose compatible implementation references, and surface risk/privacy/approval metadata.
+
+It must not execute tools, grant permissions, own Agent runtime state, approval state, autonomy, budgets, secrets, or replace the canonical Operation Registry.
+
+## Effective Capability Resolution
+
+```text
+Bot requested capabilities
+∩ user policy
+∩ session policy
+∩ Domain permissions
+∩ resource permissions
+∩ privacy policy
+∩ sensitivity rules
+∩ integration availability
+∩ operation availability
+∩ autonomy ceiling
+∩ budget limits
+∩ approval policy
+= effective capability set
+```
+
+Explicit deny wins. Sensitive or mutating capability with missing authority fails closed. Domain policy, Agent binding, model/provider output, and fallback may never widen effective authority.
+
+## Tool Resolution
+
+```text
+PlatformCapability
+↓
+effective capability resolution
+↓
+compatible implementation candidates
+↓
+policy-compatible implementation
+↓
+canonical Operation
+↓
+canonical Runtime / Execution
+```
+
+## Design Point
+
+`DP-060` — CMM OS must expose a provider-independent Platform Capability Catalog that describes and resolves effective capability availability without executing capabilities directly or replacing the canonical Operation Registry.
+
+## Future Connected Acceptance
+
+`AT-DP-060` is planned and not yet implemented. It must eventually prove that requested capability never implies authorization, deny wins, unavailable implementations remain unavailable, approval-required state is not executable authority, execution uses the canonical operation/runtime path, no second executable registry exists, and concrete implementation replacement preserves the PlatformCapability contract.
+
+---
+
+# 11.61 — Web, Browser and Computer Use
+
+## Status
+
+Planned. This subphase is architecturally designed but not yet implemented, independently audited, or closed.
+
+## Objective
+
+Introduce Web Search, Browser, authenticated-browser access, and Computer Use as separate independently authorized PlatformCapabilities with progressively stronger safety requirements.
+
+## Capability Separation
+
+```text
+web.search
+!= browser.navigate
+!= browser.read_authenticated
+!= computer.use
+```
+
+Granting one capability never implicitly grants another.
+
+## Web Search
+
+`web.search` supports authorized discovery and source retrieval. It does not imply browser control, authenticated sessions, filesystem mutation, arbitrary network access, or Computer Use.
+
+## Browser
+
+`browser.navigate` and `browser.read` support controlled navigation and page inspection. Authenticated browser access requires separate authority through `browser.read_authenticated` or a later equivalent capability and must preserve scoped session/origin access, credential isolation, audit, human takeover, and approval for sensitive side effects.
+
+## Computer Use
+
+`computer.use` is high impact and requires explicit fail-closed authorization, application/resource scope, least privilege, visible active state, cancellation, human takeover, canonical approval for sensitive or irreversible effects, credential isolation, audit, timeout/recovery, validation after mutations where applicable, and no activation merely because a Bot is Agent-backed.
+
+## Human-in-the-Loop State
+
+```text
+RUNNING_AUTOMATED
+WAITING_FOR_HUMAN
+HUMAN_CONTROL
+RESUMING_AUTOMATION
+COMPLETED
+FAILED
+CANCELLED
+```
+
+Automated resume after human control must recompute effective authority.
+
+## Provider Independence
+
+Concrete implementations may later include native browser adapters, OpenBot, Tencent BrowserSkill, platform Computer Use providers, remote desktop adapters, or other local/remote automation runtimes. No concrete implementation becomes the core contract.
+
+## Design Point
+
+`DP-061` — Web Search, Browser, authenticated-browser access, and Computer Use must remain separate independently authorized capabilities, with Computer Use explicitly scoped, cancellable, auditable, human-takeover capable, and subject to stronger canonical approval rules.
+
+## Future Connected Acceptance
+
+`AT-DP-061` is planned and not yet implemented. It must eventually prove independent authorization of Web, Browser, authenticated-browser, and Computer Use; no Agent-binding escalation; canonical approval for sensitive actions; human handoff, cancellation, resume revalidation, credential isolation, canonical audit/event evidence, and implementation-independent semantics.
+
+---
+
 # Final Acceptance Test
 
 The phase will be considered complete when CMM OS can reliably execute the following scenario:
@@ -5458,6 +5833,14 @@ The phase will be considered complete when CMM OS can reliably execute the follo
 36. A backup is created.
 37. The backup is successfully restored in a clean environment.
 38. The global suite remains green.
+39. The user opens the Bot workspace through a first-party client such as CMMChat.
+40. A `TOOL_ENABLED` Bot requests `web.search` without becoming an Agent.
+41. Effective capability resolution permits Web Search while independently denying Browser and Computer Use.
+42. Computer Use is explicitly granted for a scoped target and a sensitive effect reaches the canonical approval path.
+43. The Computer Use session enters human takeover and recomputes authority before automated resume.
+44. An `AGENT_BACKED` Bot resolves through the canonical Agent Registry without receiving wider permissions, autonomy, budgets, or approvals.
+45. A concrete tool implementation is replaced without changing the Bot or PlatformCapability contract.
+46. Export/import preserves portable Bot configuration while excluding secrets and privileged effective authority.
 
 ---
 
@@ -5480,6 +5863,10 @@ CMM OS will stop being a set of specialized engines and become a complete person
 - recovering from failures;
 - coordinating domains;
 - integrating with external services;
+- exposing configurable user-facing Bots without duplicating the Agent Runtime;
+- resolving provider-independent PlatformCapabilities through canonical policy and operations;
+- supporting independently authorized Web Search, Browser, and supervised Computer Use;
+- serving CMMChat as a first-party client without coupling Core/Runtime to its implementation;
 - operating locally;
 - presenting results through configurable communication profiles;
 - preserving meaning while adapting language, register, and channel;

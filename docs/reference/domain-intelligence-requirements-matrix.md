@@ -71,7 +71,7 @@ All hashes are SHA-256. `external-private` means that the source is deliberately
 | `SRC-P8INV` | [Cognitive Layer invariants](../architecture/cognitive-layer-invariants.md) | current at analysis | repository | `b20fef7e8d44af5441f92b5397c0a0af86a883e44f86b54be1efcc908edd7d76` |
 | `SRC-P9TRACE` | [Phase 9 Agent Runtime trace](../architecture/phase-9-agent-runtime-trace.md) | current at analysis | repository | `36bcb5e6b9077bcc93232ff63b36152112375edd8875242a5b9680d22f2275c7` |
 | `SRC-DP` | [Domain Profiles design](../superpowers/specs/2026-08-01-domain-profiles-design.md) | 2026-08-01 | repository | `ef765c7084ca5d49c3d4bf267078b9f95cfca2abbbe9960886881e061fff539a` |
-| `SRC-R11` | [Detailed Phase 11 roadmap](../roadmap/phase-11-stable-integrated-platform.md) | current at analysis | repository | `c54190a8838c2bbd0ad36c271cd9c2a1ccdbb61df255651692dfe9fdc94ba2a8` |
+| `SRC-R11` | [Detailed Phase 11 roadmap](../roadmap/phase-11-stable-integrated-platform.md) | current at analysis | repository | `09c4917061eb671788770fbfea19d9c58ec07ce2fa8bc71b89e4b95e54761310` |
 
 ## 5. Canonical requirements
 
@@ -176,6 +176,12 @@ These requirements define Phase 10.16 scope without designing its implementation
 | `F11-005` | Preserve restricted originals while redacting/tokenizing derivatives and filtering outputs by recipient. | `SRC-CRS:CRS-C10` | Phase 11 | `PrivacyMetadata` exists; operational enforcement pending | `VERIFIED_EXISTING` | `AT-F11-PII-01` |
 | `F11-006` | Version artifacts and propagate claim invalidation to affected outputs. | `SRC-DGS:DGS-C11` | Phase 11 | Artifact repository capability | `NEW_CONTRACT_REQUIRED` | `AT-F11-ART-01` |
 | `F11-007` | Record provider, model, egress, latency, cost, cache, and tool/provider audit outside DomainTrace. | `SRC-R11:R11-CMG` | Phase 11 | Model Gateway/Model Usage Audit roadmap | `REQUIRES_PHASE_INSPECTION` | `AT-F11-MG-01` |
+| `F11-008` | Define first-class versioned Bot identity/configuration with explicit `Bot != Agent` separation, three Bot modes, optional canonical Agent binding, and no Bot-owned secrets or runtime authority. | `SRC-R11:R11-C59` | Phase 11 | planned Bot contracts/repository/service reusing canonical Agent authority | `NEW_CONTRACT_REQUIRED` | `AT-F11-BOT-01` |
+| `F11-009` | Define a provider-independent Platform Capability Catalog and most-restrictive effective-capability resolution where requested capability never implies authorization. | `SRC-R11:R11-C60` | Phase 11 | planned PlatformCapability contracts integrating existing Domain permissions | `NEW_CONTRACT_REQUIRED` | `AT-F11-CAP-01` |
+| `F11-010` | Bind tool implementations to PlatformCapabilities through canonical operations/adapters without creating a second executable Tool Registry. | `SRC-R11:R11-C60` | Phase 11 | planned capability-to-implementation resolution over canonical operation/runtime infrastructure | `REQUIRES_PHASE_INSPECTION` | `AT-F11-TOOL-01` |
+| `F11-011` | Keep Web Search, Browser navigation/read, and authenticated-browser access as distinct independently authorized PlatformCapabilities. | `SRC-R11:R11-C61` | Phase 11 | planned Web/Browser capability contracts and replaceable adapters | `NEW_CONTRACT_REQUIRED` | `AT-F11-WEB-01` |
+| `F11-012` | Require explicit least-privilege Computer Use authorization, scoped targets, canonical approvals, visible execution, cancellation, human takeover, resume revalidation, credential isolation, and audit. | `SRC-R11:R11-C61` | Phase 11 | planned Computer Use contracts over canonical policy/approval/event infrastructure | `NEW_CONTRACT_REQUIRED` | `AT-F11-CU-01` |
+| `F11-013` | Version and persist portable Bot definitions and requested capability policies while excluding secrets and privileged effective authority from import/export. | `SRC-R11:R11-C59` | Phase 11 | planned Bot persistence/import/export reusing Phase 11 storage and portability | `NEW_CONTRACT_REQUIRED` | `AT-F11-BOT-PORT-01` |
 
 ### 5.7 Data extraction requirements (`DATA-*`)
 
@@ -360,6 +366,12 @@ Phase 11 owns:
 | `AT-F11-PII-01` | Restricted originals remain intact while derivatives and outputs apply their respective policies. | Phase 11 |
 | `AT-F11-ART-01` | Invalidating a knowledge item identifies every dependent artifact. | Phase 11 |
 | `AT-F11-MG-01` | Provider/model audit is available without appearing in DomainTrace content. | Phase 11 |
+| `AT-F11-BOT-01` | Planned: conversational/tool-enabled/Agent-backed Bots preserve canonical authority boundaries and exclude secrets. | Phase 11 |
+| `AT-F11-CAP-01` | Planned: effective PlatformCapability resolution is most-restrictive; explicit deny wins and requested capability is not authority. | Phase 11 |
+| `AT-F11-TOOL-01` | Planned: authorized capability execution uses the canonical Operation Registry/runtime with no second executable registry. | Phase 11 |
+| `AT-F11-WEB-01` | Planned: Web Search, Browser read/navigation, and authenticated-browser authority can be independently allowed or denied. | Phase 11 |
+| `AT-F11-CU-01` | Planned: Computer Use requires explicit authority, supports approval/cancellation/human takeover/resume revalidation, isolates credentials, and emits canonical audit/event evidence. | Phase 11 |
+| `AT-F11-BOT-PORT-01` | Planned: Bot export/import preserves portable versioned configuration while excluding secrets and privileged effective authority. | Phase 11 |
 | `AT-DATA-01` | Compiled prompts and repository fixtures contain no literal private identifiers. | Phase 11 |
 | `AT-DATA-02` | Health and sport state is versioned knowledge, not static configuration. | 10.18 |
 | `AT-DATA-03` | Academic and opposition plans retain provenance, validity, and decision status. | 10.18 |

@@ -573,6 +573,13 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - configuration and secrets management;
 - authentication and authorization;
 - conversational interface;
+- first-class configurable Bots with explicit Bot/Agent separation;
+- provider-independent Platform Capability Catalog with restrictive effective-capability resolution;
+- canonical tool binding through existing operations, adapters, permissions, approvals, validation, autonomy, and budgets;
+- independently authorized Web Search, Browser, authenticated-browser, and Computer Use capabilities;
+- human-in-the-loop Computer Use with explicit scope, cancellation, takeover, authority revalidation, and audit;
+- Bot and Tools / Capabilities product workspaces;
+- CMMChat as the first-party conversational client/UI, already under active interface development and consuming versioned CMM OS contracts;
 - configurable communication profiles with neutral fallback;
 - channel-aware response rendering that preserves facts, uncertainty, warnings, and approvals;
 - external audio ingestion and Plaud synchronization through a replaceable MCP adapter;
@@ -595,10 +602,12 @@ Integrate all previous capabilities into a stable, observable, recoverable, and 
 - complete end-to-end validation;
 - release and operational documentation.
 
+CMMChat is a client of CMM OS, not an authority owner. CMM OS remains authoritative for intelligence, capabilities, tools, permissions, Agents, data, validation, privacy, approvals, autonomy, budgets, and execution; Core/Runtime must not depend on the CMMChat implementation.
+
 ### Platform flow
 
 ```text
-User / UI / API / CLI
+User / CMMChat / UI / API / CLI
         ↓
 Orchestrator
         ↓
