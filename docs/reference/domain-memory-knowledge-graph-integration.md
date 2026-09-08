@@ -68,7 +68,8 @@ Phase 10.44 introduces frozen, slotted, immutable contracts in `cmm/domains/memo
   - `RELATION_PROPOSALS`: validated Phase 10.18 proposal bindings.
 
 - **`DomainMemoryKnowledgeProjectionRequest`**: Immutable input request specifying:
-  - `request_id`, `primary_domain`, `supporting_domains`, `memory_view_id`, `memory_view_digest`, `resolution_reference_id`, `composition_reference_id`, `permission_decision_ids`, `requested_capabilities`.
+  - `request_id`, `primary_domain`, `supporting_domains`, `memory_view_id`, `memory_view_digest`, `resolution_reference_id`, `composition_reference_id`, `permission_decision_ids`, `requested_capabilities`, `trace_id`, `session_id`, `temporal_reference`.
+  - Deterministic read-only `digest` property (SHA-256 over the canonical `to_dict()`); covers every authority/semantic field above. `trace_id`/`session_id` are context-bound identifiers carried into the digest, not independently verified authority proofs.
 
 - **`DomainMemoryKnowledgeInventory`**: Read-only explicit inventory of:
   - `relations`: tuple of canonical `KnowledgeRelation`.
@@ -76,7 +77,8 @@ Phase 10.44 introduces frozen, slotted, immutable contracts in `cmm/domains/memo
   - `proposal_bindings`: tuple of `DomainMemoryProposalBinding`.
 
 - **`DomainMemoryKnowledgeRelationRef`**: Immutable projection of a canonical relation hop:
-  - `relation_id`, `source_reference_id`, `target_reference_id`, `kind`, `confidence`.
+  - `relation_id`, `source_reference_id`, `target_reference_id`, `kind`, `provenance_reference`.
+  - `kind` must be a live canonical Phase 8 `KnowledgeRelationKind` value (`supports`, `contradicts`, `derived_from`, `refines`, `supersedes`, `equivalent_to`, `related_to`, `answers`, `raises_question`); any free-string/malformed kind fails closed. This vocabulary is distinct from the Phase 9 proposal `relation_type="depends_on"` (dependency-proposal semantics, not Cognitive relation truth).
 
 - **`DomainMemoryKnowledgeContradictionRef`**: Immutable projection of a canonical contradiction:
   - `contradiction_id`, `reference_ids`, `resolution_reference_id`.
@@ -85,10 +87,11 @@ Phase 10.44 introduces frozen, slotted, immutable contracts in `cmm/domains/memo
   - `relation_id`, `source_reference_id`, `target_reference_id`, `kind`.
 
 - **`DomainMemoryKnowledgePath`**: Cycle-safe multi-hop path (length >= 2):
-  - `path_id`, `hops`, `length`.
+  - `path_id`, `hops`, `content_digest` (`path_id` is content-bound to the ordered-hop digest; hop `kind` values obey the same canonical `KnowledgeRelationKind` boundary).
 
 - **`DomainMemoryKnowledgeProjection`**: Complete deterministic projection output:
-  - `projection_id`, `request_id`, `primary_domain`, `supporting_domains`, `memory_view_id`, `selected_reference_ids`, `excluded_reference_ids`, `shared_identity_reference_ids`, `relation_refs`, `timeline_reference_ids`, `unknown_ordering_reference_ids`, `contradiction_refs`, `dependency_paths`, `impact_paths`, `proposal_binding_ids`, `content_digest`.
+  - `projection_id`, `request_id`, `request_digest`, `memory_view_id`, `memory_view_digest`, `selected_reference_ids`, `shared_identity_reference_ids`, `relation_refs`, `timeline_reference_ids`, `unknown_ordering_reference_ids`, `contradiction_refs`, `dependency_paths`, `impact_paths`, `proposal_binding_ids`, `excluded_reference_ids`, `content_digest`.
+  - `request_digest` is the exact `DomainMemoryKnowledgeProjectionRequest.digest` that produced the projection and is included in `content_digest`/`projection_id` derivation, `to_dict()`, `from_dict()`, and round-trip validation.
 
 ---
 
@@ -103,11 +106,18 @@ DomainMemoryKnowledgeProjectionRequest
 1. Request / View / MemoryRequest Coherence Check
     ├── Verify memory_view_id == view.view_id
     ├── Verify memory_view_digest == view.digest
-    └── Verify primary_domain and request_id coherence
+    ├── Verify primary_domain and request_id coherence
+    ├── Verify supporting_domains coherence with the Phase 10.18 request
+    ├── Verify temporal_reference coherence with the Phase 10.18 request
+    ├── Require explicit caller-supplied canonical resolution + composition
+    ├── Verify resolution_reference_id == resolution.id
+    ├── Verify composition_reference_id == composition.id
+    ├── Verify composition.resolution_id == resolution.id
+    └── Verify resolution/composition primary domains match the request
     │
     ▼
 2. Authority Coherence Validation
-    └── Ensure requested permission_decision_ids ⊆ memory_request.permission_decision_ids
+    └── Ensure requested permission_decision_ids exactly equal the validated memory request IDs (fail-closed on divergence)
     │
     ▼
 3. Phase 10.18 View Validation
@@ -121,12 +131,15 @@ DomainMemoryKnowledgeProjectionRequest
     ▼
 5. Canonical Relation Projection
     ├── Filter inventory relations where source and target are both in selected_references
+    ├── Reject any relation whose kind is not a live `KnowledgeRelationKind` instance (fail-closed, no string fallback)
     └── Suppress fail-closed if either endpoint was excluded or missing
     │
     ▼
 6. Chronological Timeline Projection
-    ├── Separate references with known aware timestamps from unknown_ordering
-    └── Sort deterministically by (valid_from/observed_at, reference_id)
+    ├── POINT_IN_TIME anchors on canonical observed_at only
+    ├── INTERVAL anchors on canonical interval-start valid_from only (structurally valid intervals)
+    ├── TIMELESS / UNKNOWN / domain-only safety kinds carry no chronology (unknown ordering)
+    └── Sort deterministically by (canonical anchor, reference_id); ties imply no stronger semantics
     │
     ▼
 7. Canonical Contradiction Projection
@@ -149,7 +162,7 @@ DomainMemoryKnowledgeProjectionRequest
     │
     ▼
 11. Content Digest & Deterministic Projection Assembly
-    └── Compute sha256 content digest and domain-memory-knowledge-projection ID
+    └── Compute sha256 content digest (including request_digest) and domain-memory-knowledge-projection ID
 ```
 
 ---
@@ -159,7 +172,8 @@ DomainMemoryKnowledgeProjectionRequest
 - **Phase 10.18 Memory Views:** The projection operates exclusively over an already-resolved `DomainMemoryView`. Candidates, exclusions, and sensitivity restrictions are respected without modification.
 - **Phase 10.18 View Validator:** `DefaultDomainMemoryIntegrationValidator.validate_view(...)` is invoked to enforce structural integrity, authority coverage, and temporal validity before any projection logic runs.
 - **Phase 10.18 Proposal Bindings:** `DomainMemoryProposalBinding` connects agent knowledge update proposals to domain views, traces, affected references, and permission decisions.
-- **Phase 9 Knowledge Update Proposals:** The proposal engine (`KnowledgeUpdateProposalEngine`) and repository (`InMemoryKnowledgeUpdateRepository`) remain the sole proposal creators and containers. No proposals are applied or mutated during projection.
+- **Phase 9 Knowledge Update Proposals:** The proposal engine (`KnowledgeUpdateProposalEngine`) and repository (`InMemoryKnowledgeUpdateRepository`) remain the sole proposal creators and containers. No proposals are applied or mutated during projection. The relation-proposal checkpoint exercises the real LINK path (checkpoint with `dependencies` → `KnowledgeCandidateKind.DEPENDENCY` → `LINK` → `AgentKnowledgeUpdateProposal.relations` with `relation_type="depends_on"`), binds the exact proposal ID through `DefaultDomainMemoryIntegrationValidator.validate_binding(...)`, and proves the proposal stays pending with Cognitive stores unchanged.
+- **Phase 10.18 Temporal Authority:** The old/current incompatible-period adversarial branch resolves history vs current through the real `DefaultDomainMemoryViewResolver` (superseded, invalidated, and expired references excluded upstream and preserved in inventory history, never merged or reintroduced by Phase 10.44).
 
 ---
 
@@ -184,6 +198,5 @@ DomainMemoryKnowledgeProjectionRequest
 - `tests/domains/test_domain_memory_knowledge_integration_contracts.py`: 32 unit contract tests (validation, immutability, serialization, round-trips).
 - `tests/domains/test_domain_memory_knowledge_integration.py`: 26 integration tests covering view validation, authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
 - `tests/domains/test_domain_memory_knowledge_architecture.py`: 7 boundary tests verifying 0 AST imports of `cmm.memory`, 0 reverse imports from cognitive/agent_runtime, no parallel owners, no store mutation, and no sensitive leakage.
-- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, downgraded authority adversarial branch, causal adversarial branch, and temporal adversarial branch.
-- **Total Phase 10.44 Test Suite:** **66 passed locally in 1.50s**.
-- **Connected Acceptance Output:** `AT-DP-044=PASS`.
+- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), downgraded authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, no merge, succession not contradiction).
+- **Connected Acceptance Output:** `AT-DP-044=PASS` (implementation evidence only; independent verification remains pending V2 re-audit).
