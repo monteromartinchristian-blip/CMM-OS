@@ -423,6 +423,10 @@ def test_at_dp044_connected_acceptance() -> None:
         resource_ids=("res:unknown:1",),
     )
 
+    # Superseded earlier version of the current study-capacity plan. Its window
+    # covers T_REF, so supersession (not expiry) is what excludes it: the
+    # superseding pointer is the current reference identity (ref:uni:1), never
+    # a bare canonical KnowledgeItem id.
     ref_history = DomainMemoryReference(
         reference_id="ref:uni:history",
         kind=DomainMemoryReferenceKind.KNOWLEDGE_ITEM,
@@ -431,10 +435,10 @@ def test_at_dp044_connected_acceptance() -> None:
         applicable_domains=("domain:university",),
         temporal=DomainMemoryTemporalSnapshot(
             kind=DomainMemoryTemporalKind.INTERVAL,
-            valid_from=OLD_FROM.isoformat(),
-            valid_to=OLD_TO.isoformat(),
+            valid_from=CUR_FROM.isoformat(),
+            valid_to=CUR_TO.isoformat(),
         ),
-        superseded_by_id=item_study.id,
+        superseded_by_id=ref_study.reference_id,
         evidence_ids=("ev:history:1",),
         resource_ids=("res:history:1",),
     )
@@ -1049,6 +1053,15 @@ def test_at_dp044_connected_acceptance() -> None:
         "ref:health:invalidated",
         "ref:opp:expired",
     } <= excluded_ids
+    # V2 BLOCKER-03: the superseded lineage decision points at the actual
+    # current DomainMemoryReference identity (ref:uni:1), not at a bare
+    # canonical KnowledgeItem id.
+    history_exclusion = [
+        d for d in view.excluded_decisions if d.reference_id == "ref:uni:history"
+    ]
+    assert len(history_exclusion) == 1
+    assert history_exclusion[0].code.value == "excluded_superseded"
+    assert history_exclusion[0].related_reference_ids == ("ref:uni:1",)
     # 4. Phase 10.44 does not reintroduce historical state as current.
     assert "ref:uni:history" not in projection.timeline_reference_ids
     assert "ref:health:invalidated" not in projection.selected_reference_ids
