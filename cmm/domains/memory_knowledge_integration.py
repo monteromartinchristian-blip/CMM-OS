@@ -273,6 +273,16 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
             raise DomainMemoryKnowledgeAuthorizationError(
                 "composition resolution mismatch"
             )
+        # The Phase 10.18 memory view is only authoritative when its request is
+        # content-bound to the same canonical resolution identity.
+        if memory_request.resolution_reference_id is None:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "memory request must reference the canonical resolution"
+            )
+        if memory_request.resolution_reference_id != resolution.id:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "memory request resolution reference mismatch"
+            )
         if composition.status not in (
             DomainCompositionStatus.COMPOSED,
             DomainCompositionStatus.PARTIAL,

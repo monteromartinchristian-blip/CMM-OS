@@ -136,6 +136,7 @@ def _setup_view_and_request(
         candidates=references,
         permission_decision_ids=tuple(p.decision_id for p in permission_decisions),
         temporal_reference=temporal_reference,
+        resolution_reference_id="res_ref:1",
     )
     memory_inventory = DomainMemoryReferenceInventory(
         references=references,
@@ -1348,6 +1349,7 @@ def _setup_proposal_binding_context(
         trace_id="trace:1",
         candidates=(ref1,),
         permission_decision_ids=("perm:read:1", "perm:propose:1"),
+        resolution_reference_id="res_ref:1",
     )
 
     initial_inv = DomainMemoryReferenceInventory(
@@ -1612,6 +1614,7 @@ def test_missing_authority_adversarial_downgrade() -> None:
         trace_id="trace:1",
         candidates=(ref1,),
         permission_decision_ids=("perm:read:1",),
+        resolution_reference_id="res_ref:1",
     )
     mem_inv = DomainMemoryReferenceInventory(
         references=(ref1,),
@@ -2073,3 +2076,162 @@ def test_projection_rejects_blocked_resolution() -> None:
             resolution=blocked_res,
             composition=comp,
         )
+
+
+# ── V3 BLOCKER-02: memory view bound to the same canonical resolution ────────
+# The actual Phase 10.18 view is only authoritative for the projection when its
+# memory request is content-bound to the same canonical resolution identity
+# (memory_request.resolution_reference_id == request == resolution == composition).
+
+
+def test_projection_rejects_memory_request_without_resolution_reference() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    mem_inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    mem_req = DomainMemoryViewRequest(
+        request_id="mem_req:1",
+        primary_domain="domain:health",
+        supporting_domains=(DomainId("university"), DomainId("oppositions")),
+        candidates=(ref,),
+        permission_decision_ids=(perm.decision_id,),
+    )
+    view = DefaultDomainMemoryViewResolver().resolve(mem_req, mem_inv)
+    req = DomainMemoryKnowledgeProjectionRequest(
+        request_id="proj_req:1",
+        primary_domain=DomainId("health"),
+        supporting_domains=(DomainId("university"), DomainId("oppositions")),
+        memory_view_id=view.view_id,
+        memory_view_digest=view.digest,
+        resolution_reference_id="res_ref:1",
+        composition_reference_id="comp_ref:1",
+        permission_decision_ids=(perm.decision_id,),
+        requested_capabilities=(DomainMemoryKnowledgeProjectionCapability.RELATIONS,),
+    )
+    resolution = DomainResolutionResult(
+        id="res_ref:1",
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    composition = DomainComposition(
+        id="comp_ref:1",
+        resolution_id="res_ref:1",
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        integrator.project(
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=DomainMemoryKnowledgeInventory(),
+            resolution=resolution,
+            composition=composition,
+        )
+
+
+def test_projection_rejects_memory_request_bound_to_different_resolution() -> None:
+    # The Phase 10.18 view is valid for its own (stale) request; the projection
+    # request/resolution/composition point at a different resolution identity.
+    # Without the memory-request binding the stale view would be projected.
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    mem_inv = DomainMemoryReferenceInventory(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    stale_mem_req = DomainMemoryViewRequest(
+        request_id="mem_req:stale",
+        primary_domain="domain:health",
+        supporting_domains=(DomainId("university"), DomainId("oppositions")),
+        candidates=(ref,),
+        permission_decision_ids=(perm.decision_id,),
+        resolution_reference_id="res:stale",
+    )
+    stale_view = DefaultDomainMemoryViewResolver().resolve(stale_mem_req, mem_inv)
+    req = DomainMemoryKnowledgeProjectionRequest(
+        request_id="proj_req:current",
+        primary_domain=DomainId("health"),
+        supporting_domains=(DomainId("university"), DomainId("oppositions")),
+        memory_view_id=stale_view.view_id,
+        memory_view_digest=stale_view.digest,
+        resolution_reference_id="res:current",
+        composition_reference_id="comp_ref:1",
+        permission_decision_ids=(perm.decision_id,),
+        requested_capabilities=(DomainMemoryKnowledgeProjectionCapability.RELATIONS,),
+    )
+    resolution = DomainResolutionResult(
+        id="res:current",
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    composition = DomainComposition(
+        id="comp_ref:1",
+        resolution_id="res:current",
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        integrator.project(
+            req,
+            memory_request=stale_mem_req,
+            view=stale_view,
+            memory_inventory=mem_inv,
+            inventory=DomainMemoryKnowledgeInventory(),
+            resolution=resolution,
+            composition=composition,
+        )
+
+
+def test_projection_accepts_memory_view_bound_to_same_resolution() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res, comp = _canonical_authority(req)
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    # Full identity chain: memory request -> projection request -> resolution
+    # -> composition, with the view content-bound to the memory request digest.
+    assert mem_req.resolution_reference_id == res.id
+    assert mem_req.resolution_reference_id == req.resolution_reference_id
+    assert req.resolution_reference_id == res.id
+    assert comp.resolution_id == res.id
+    assert view.request_digest == mem_req.digest
+    assert projection.request_digest == req.digest
+    assert projection.selected_reference_ids == ("ref:1",)

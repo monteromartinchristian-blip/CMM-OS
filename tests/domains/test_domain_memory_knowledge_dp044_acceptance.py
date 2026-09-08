@@ -551,6 +551,9 @@ def test_at_dp044_connected_acceptance() -> None:
         candidates=all_references,
         permission_decision_ids=tuple(p.decision_id for p in permissions),
         temporal_reference=T_REF.isoformat(),
+        # V3 BLOCKER-02: the Phase 10.18 request is content-bound to the real
+        # canonical resolution identity before the view is resolved.
+        resolution_reference_id=resolution.id,
     )
     mem_inv_initial = DomainMemoryReferenceInventory(
         references=all_references,
@@ -583,8 +586,8 @@ def test_at_dp044_connected_acceptance() -> None:
         ),
         memory_view_id=view.view_id,
         memory_view_digest=view.digest,
-        resolution_reference_id="res-044",
-        composition_reference_id="comp-044",
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
         permission_decision_ids=tuple(p.decision_id for p in permissions),
         temporal_reference=T_REF.isoformat(),
         requested_capabilities=(
@@ -612,6 +615,15 @@ def test_at_dp044_connected_acceptance() -> None:
         resolution=resolution,
         composition=composition,
     )
+
+    # V3 BLOCKER-02: the real Phase 10.18 view is content-bound to the same
+    # canonical resolution identity used by the projection request, the
+    # resolution, and the composition (no transplanted/stale view accepted).
+    assert mem_req.resolution_reference_id == resolution.id
+    assert req.resolution_reference_id == resolution.id
+    assert composition.resolution_id == resolution.id
+    assert view.request_digest == mem_req.digest
+    assert projection.request_digest == req.digest
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 8: Assert positive DP-044 checkpoints (all 24 requirements)
@@ -932,8 +944,8 @@ def test_at_dp044_connected_acceptance() -> None:
         ),
         memory_view_id=downgraded_view.view_id,
         memory_view_digest=downgraded_view.digest,
-        resolution_reference_id="res-044",
-        composition_reference_id="comp-044",
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
         permission_decision_ids=tuple(p.decision_id for p in downgraded_permissions),
         temporal_reference=T_REF.isoformat(),
         requested_capabilities=req.requested_capabilities,
