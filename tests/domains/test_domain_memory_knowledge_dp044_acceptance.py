@@ -60,6 +60,7 @@ from cmm.domains.memory_contracts import (
     DomainMemoryTemporalKind,
     DomainMemoryTemporalSnapshot,
     DomainMemoryTraceSnapshot,
+    DomainMemoryValidationCode,
     DomainMemoryViewRequest,
     DomainMemoryViewSnapshot,
 )
@@ -864,7 +865,9 @@ def test_at_dp044_connected_acceptance() -> None:
     )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 10: Downgraded-authority adversarial branch
+    # Step 10: Downgraded-authority adversarial branch — the SAME Step 9 real
+    # proposal binding is replayed under revoked READ (health) and revoked
+    # PROPOSE authority, and must not be accepted.
     # ─────────────────────────────────────────────────────────────────────────
     perm_health_revoked = DomainMemoryPermissionDecisionSnapshot(
         decision_id="perm:read:health",
@@ -873,18 +876,45 @@ def test_at_dp044_connected_acceptance() -> None:
         target_domain_id="domain:university",
         source_domain_id="domain:health",
     )
+    perm_propose_revoked = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:propose:044",
+        allowed=False,
+        capabilities=(),
+        target_domain_id="domain:university",
+        source_domain_id="domain:university",
+    )
     downgraded_permissions = (
         perm_uni,
         perm_health_revoked,
         perm_opp,
         perm_life,
-        perm_propose,
+        perm_propose_revoked,
+    )
+    # V2 BLOCKER-02: the downgraded branch must actually revoke the PROPOSE
+    # capability the Step 9 proposal binding requires.
+    assert not any(
+        p.allowed and "PROPOSE" in p.capabilities for p in downgraded_permissions
     )
     downgraded_mem_inv = DomainMemoryReferenceInventory(
         references=all_references,
         permission_decisions=downgraded_permissions,
+        traces=(trace_snap,),
+        views=(view_snap,),
+        proposals=(prop_snap,),
     )
     downgraded_view = view_resolver.resolve(mem_req, downgraded_mem_inv)
+
+    # The same Phase 10.18 validator that accepted the binding in Step 9
+    # rejects it when PROPOSE is revoked (denied decision, no fallback).
+    binding_val_downgraded = view_validator.validate_binding(
+        proposal_binding,
+        downgraded_mem_inv,
+    )
+    assert binding_val_downgraded.is_valid is False
+    assert (
+        binding_val_downgraded.code
+        == DomainMemoryValidationCode.INVALID_PERMISSION_DENIED
+    )
 
     downgraded_req = DomainMemoryKnowledgeProjectionRequest(
         request_id="proj-req-044-downgraded",
@@ -908,7 +938,7 @@ def test_at_dp044_connected_acceptance() -> None:
         memory_request=mem_req,
         view=downgraded_view,
         memory_inventory=downgraded_mem_inv,
-        inventory=inventory,
+        inventory=inventory_with_proposal,
         resolution=resolution,
         composition=composition,
     )
@@ -922,8 +952,58 @@ def test_at_dp044_connected_acceptance() -> None:
     assert "contra:health:study_excess" not in {
         c.contradiction_id for c in downgraded_projection.contradiction_refs
     }
+    # V2 BLOCKER-02: the SAME Step 9 proposal binding is not accepted under the
+    # downgraded authority snapshot.
+    assert downgraded_projection.proposal_binding_ids == ()
+    # Proposal repository decision/result unchanged: still no decision, no
+    # result, and the proposal keeps its pending relation content.
+    assert prop_repo.get_decision(real_proposal.proposal_id) is None
+    assert prop_repo.get_result(real_proposal.proposal_id) is None
+    fetched_proposal_downgraded = prop_repo.get_proposal(real_proposal.proposal_id)
+    assert fetched_proposal_downgraded is not None
+    assert fetched_proposal_downgraded.relations
+    assert fetched_proposal_downgraded.relations[0].relation_type == "depends_on"
+    assert fetched_proposal_downgraded.relations[0].target_item_id == item_goal.id
+    # No approval chain exists or is consumed for the replayed binding
+    assert proposal_binding.approval_request_ids == ()
+    assert proposal_binding.approval_decision_ids == ()
+    assert prop_snap.requires_confirmation is False
     # Cognitive store remains untouched
     assert {i.id: i.statement for i in store.list_items()} == store_items_before
+    assert {
+        r.id: (r.source_id, r.target_id, r.kind) for r in store.list_relations()
+    } == store_relations_before
+    assert {
+        c.id: (c.item_a_id, c.item_b_id) for c in store.list_contradictions()
+    } == store_contradictions_before
+
+    # Isolated PROPOSE-only downgrade: same Step 9 view and binding, only the
+    # PROPOSE decision revoked -> the binding is excluded while every
+    # READ-authorized reference still projects.
+    propose_only_mem_inv = DomainMemoryReferenceInventory(
+        references=all_references,
+        permission_decisions=(
+            perm_uni,
+            perm_health,
+            perm_opp,
+            perm_life,
+            perm_propose_revoked,
+        ),
+        traces=(trace_snap,),
+        views=(view_snap,),
+        proposals=(prop_snap,),
+    )
+    propose_only_projection = api.project_memory_knowledge(
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=propose_only_mem_inv,
+        inventory=inventory_with_proposal,
+        resolution=resolution,
+        composition=composition,
+    )
+    assert propose_only_projection.proposal_binding_ids == ()
+    assert "ref:health:1" in propose_only_projection.selected_reference_ids
 
     # ─────────────────────────────────────────────────────────────────────────
     # Step 11: Causal adversarial branch
