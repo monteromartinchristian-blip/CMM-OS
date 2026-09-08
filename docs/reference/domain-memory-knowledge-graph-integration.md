@@ -1,15 +1,19 @@
 # Phase 10.44 — Integration with Memory and Knowledge Graph
 
-**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
 **Requirement:** `DP-044` (`SRC-R10:R10-C44`)
-**Acceptance Test:** `AT-DP-044` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py` — `PASS`)
+**Acceptance Test:** `AT-DP-044` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py` — implementation marker `PASS_REPORTED`)
 **Specification:** `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
 **Implementation Plan:** `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
 
 ```text
-DP-044=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-AT-DP-044=PASS
-CLOSURE_ELIGIBLE=NOT_YET_ASSESSED
+DP-044=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT
+AT-DP-044=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
+V1 independent audit = FAIL (docs/audits/phase-10.44-independent-audit-v1.md)
+V2 independent re-audit = FAIL (docs/audits/phase-10.44-independent-reaudit-v2.md)
+V2 findings remediated; independent V3 re-audit pending
+independently audited closure boundary = 10.43 (Phase 10.44 not closed)
 ```
 
 ---
@@ -86,7 +90,7 @@ Phase 10.44 introduces frozen, slotted, immutable contracts in `cmm/domains/memo
 - **`DomainMemoryKnowledgePathHop`**: Explicit single hop in a path:
   - `relation_id`, `source_reference_id`, `target_reference_id`, `kind`.
 
-- **`DomainMemoryKnowledgePath`**: Cycle-safe multi-hop path (length >= 2):
+- **`DomainMemoryKnowledgePath`**: Cycle-safe path over one or more connected hops (the public contract validates at least one hop; production dependency/impact derivation emits only paths of length >= 2):
   - `path_id`, `hops`, `content_digest` (`path_id` is content-bound to the ordered-hop digest; hop `kind` values obey the same canonical `KnowledgeRelationKind` boundary).
 
 - **`DomainMemoryKnowledgeProjection`**: Complete deterministic projection output:
@@ -195,8 +199,8 @@ DomainMemoryKnowledgeProjectionRequest
 
 ## 8. Verification Evidence
 
-- `tests/domains/test_domain_memory_knowledge_integration_contracts.py`: 32 unit contract tests (validation, immutability, serialization, round-trips).
-- `tests/domains/test_domain_memory_knowledge_integration.py`: 26 integration tests covering view validation, authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
-- `tests/domains/test_domain_memory_knowledge_architecture.py`: 7 boundary tests verifying 0 AST imports of `cmm.memory`, 0 reverse imports from cognitive/agent_runtime, no parallel owners, no store mutation, and no sensitive leakage.
-- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), downgraded authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, no merge, succession not contradiction).
-- **Connected Acceptance Output:** `AT-DP-044=PASS` (implementation evidence only; independent verification remains pending V2 re-audit).
+- `tests/domains/test_domain_memory_knowledge_integration_contracts.py`: 53 unit contract tests (validation, immutability, serialization, round-trips).
+- `tests/domains/test_domain_memory_knowledge_integration.py`: 36 integration tests covering view validation, canonical authority binding (exact canonical `DomainResolutionResult`/`DomainComposition` types with coherent supporting domains; duck-typed impostors fail closed; COMPOSED/PARTIAL accepted, BLOCKED/FAILED rejected), authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
+- `tests/domains/test_domain_memory_knowledge_architecture.py`: 10 boundary tests verifying 0 AST imports of `cmm.memory`, 0 reverse imports from cognitive/agent_runtime, no parallel owners, no store mutation, and no sensitive leakage.
+- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), the identical proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority with no binding projected and proposal repository decisions/results unchanged, downgraded READ-suppression authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, canonical supersession lineage exclusion pointing at the current reference identity, no merge, succession not contradiction).
+- **Connected Acceptance Output:** `AT-DP-044=PASS_REPORTED` (implementation evidence only; V1 independent audit `FAIL` and V2 independent re-audit `FAIL` recorded; independent verification remains pending V3 re-audit).

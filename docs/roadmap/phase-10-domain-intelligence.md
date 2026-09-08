@@ -5968,7 +5968,7 @@ covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
 reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.43.
-Phase 10.44 implementation is complete; independent audit is pending.
+Phase 10.44 is implemented but **not closed**: V1 independent audit `FAIL` and V2 independent re-audit `FAIL` are recorded; V2 findings are remediated pending independent V3 re-audit.
 
 ⸻
 
@@ -6024,10 +6024,11 @@ It should not:
 * mezclar periodos incompatible.
 
 Implementation Status (Phase 10.44):
-- Status: `IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+- Status: `IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT`
 - Requirement: `DP-044` (`SRC-R10:R10-C44`)
-- Acceptance: `AT-DP-044=PASS` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`)
-- Closure Eligibility: `CLOSURE_ELIGIBLE=NOT_YET_ASSESSED` (independent audit pending)
+- Acceptance: `AT-DP-044=PASS_REPORTED` (`tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`; implementation marker, pending independent re-verification)
+- Audit History: V1 independent audit `FAIL` (`docs/audits/phase-10.44-independent-audit-v1.md`); V2 independent re-audit `FAIL` (`docs/audits/phase-10.44-independent-reaudit-v2.md`); V2 findings remediated; independent V3 re-audit pending
+- Closure Eligibility: `CLOSURE_ELIGIBLE=NO` (pending independent V3 re-audit; Phase 10.44 is not closed)
 - Audited Baseline: Phase 10.43 remains the latest independently audited and closed milestone.
 - Delivered Architecture:
   - Stateless coordinator `DefaultDomainMemoryKnowledgeIntegrator` in `cmm/domains/memory_knowledge_integration.py`
@@ -6037,16 +6038,17 @@ Implementation Status (Phase 10.44):
   - Reuses Phase 10.18 `DomainMemoryView`, `DefaultDomainMemoryViewResolver`, and `DefaultDomainMemoryIntegrationValidator`
   - Reuses Phase 8 canonical `KnowledgeItem`, `KnowledgeRelation`, `Contradiction`, and `InMemoryKnowledgeStore`
   - Reuses Phase 9 `KnowledgeUpdateProposalEngine` and `InMemoryKnowledgeUpdateRepository` via Phase 10.18 `DomainMemoryProposalBinding`
+  - Canonical authority binding: projection accepts only exact canonical `DomainResolutionResult`/`DomainComposition` objects whose id/status/primary/supporting-domain fields are coherent with the request (COMPOSED or PARTIAL only), and rejects duck-typed impostors fail-closed
   - Zero Domain-owned Knowledge Graph, store, repository, persistence, temporal engine, contradiction engine, or causal inference
   - Zero direct imports of `cmm.memory` or `TechnicalMemory` in Phase 10.44 code
   - Zero mutations to cognitive stores during projection
   - Pure fail-closed suppression of dangling relation/contradiction endpoints
   - Multi-hop dependency and impact path derivation preserves canonical relation IDs and kinds without causal strengthening
-  - Connected acceptance test `AT-DP-044` passes end-to-end with 66 dedicated Phase 10.44 tests green
+  - Connected acceptance test `AT-DP-044` passes end-to-end with 100 dedicated Phase 10.44 tests green, including the identical Phase 9 relation proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority and the canonical supersession lineage decision pointing at the current reference identity
   - Reference documentation: `docs/reference/domain-memory-knowledge-graph-integration.md`
   - Specification: `docs/superpowers/specs/2026-09-07-phase-10.44-integration-with-memory-and-knowledge-graph-design.md`
   - Implementation plan: `docs/superpowers/plans/2026-09-07-phase-10.44-memory-knowledge-graph-integration-implementation-plan.md`
-  - Next action: Prepare exact-HEAD audit bundle for Phase 10.44 independent audit (Phase 10.45 has not started).
+  - Next action: Submit the exact-HEAD bundle for the Phase 10.44 independent V3 re-audit (Phase 10.45 has not started).
 
 ⸻
 
