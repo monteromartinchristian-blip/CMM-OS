@@ -772,6 +772,44 @@ class DomainMemoryKnowledgeSerializationError(
     code = "DOMAIN_MEMORY_KNOWLEDGE_SERIALIZATION_ERROR"
 
 
+# ── Phase 10.45 – Domain Interface Integration Errors ───────────────────────
+
+
+class DomainInterfaceIntegrationError(DomainError):
+    code = "DOMAIN_INTERFACE_INTEGRATION_ERROR"
+
+
+class DomainInterfaceContractError(
+    DomainInterfaceIntegrationError,
+    ValueError,
+):
+    code = "DOMAIN_INTERFACE_CONTRACT_ERROR"
+
+
+class DomainInterfaceSerializationError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_SERIALIZATION_ERROR"
+
+
+class DomainInterfaceAuthorityError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_AUTHORITY_ERROR"
+
+
+class DomainInterfaceVisibilityError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_VISIBILITY_ERROR"
+
+
+class DomainInterfaceIntentError(
+    DomainInterfaceIntegrationError,
+):
+    code = "DOMAIN_INTERFACE_INTENT_ERROR"
+
+
 # ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
 
 
@@ -1012,6 +1050,12 @@ __all__ = [
     "DomainEventRegistryError",
     "DomainEventSerializationError",
     "DomainEventValidationError",
+    "DomainInterfaceAuthorityError",
+    "DomainInterfaceContractError",
+    "DomainInterfaceIntegrationError",
+    "DomainInterfaceIntentError",
+    "DomainInterfaceSerializationError",
+    "DomainInterfaceVisibilityError",
     "DomainLoadFailed",
     "DomainLoadRejected",
     "DomainLoadRollbackFailed",
