@@ -17,6 +17,10 @@ from cmm.domains.api import DefaultDomainAPI, DomainAPI
 from cmm.domains.conflict_resolution import DomainConflictResolver
 from cmm.domains.contracts import DomainCapability
 from cmm.domains.discovery import DomainDiscovery, FileSystemDomainDiscovery
+from cmm.domains.interface_integration import (
+    DefaultDomainInterfaceIntegrator,
+    DomainInterfaceIntegrator,
+)
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.memory_knowledge_integration import (
@@ -60,6 +64,8 @@ APPROVED_METHODS = (
     "assemble_trace",
     "validate_trace",
     "project_memory_knowledge",
+    "project_interface",
+    "submit_interface_intent",
 )
 
 
@@ -83,6 +89,7 @@ def _make_collaborators() -> dict[str, object]:
         "trace_validator": DefaultDomainTraceReferenceValidator(),
         "trust_policy_lookup": None,
         "memory_knowledge_integrator": DefaultDomainMemoryKnowledgeIntegrator(),
+        "interface_integrator": DefaultDomainInterfaceIntegrator(),
     }
 
 
@@ -149,6 +156,7 @@ class TestConstructorWiring:
             api._memory_knowledge_integrator
             is collaborators["memory_knowledge_integrator"]
         )
+        assert api._interface_integrator is collaborators["interface_integrator"]
 
     def test_default_memory_knowledge_integrator_created_if_omitted(self) -> None:
         collaborators = _make_collaborators()
@@ -157,6 +165,12 @@ class TestConstructorWiring:
         assert isinstance(
             api._memory_knowledge_integrator, DefaultDomainMemoryKnowledgeIntegrator
         )
+
+    def test_default_interface_integrator_created_if_omitted(self) -> None:
+        collaborators = _make_collaborators()
+        del collaborators["interface_integrator"]
+        api = DefaultDomainAPI(**collaborators)
+        assert isinstance(api._interface_integrator, DefaultDomainInterfaceIntegrator)
 
     def test_missing_required_collaborator_rejected(self) -> None:
         collaborators = _make_collaborators()
@@ -242,6 +256,7 @@ class TestCanonicalProtocolTyping:
             hints["memory_knowledge_integrator"]
             == DomainMemoryKnowledgeIntegrator | None
         )
+        assert hints["interface_integrator"] == DomainInterfaceIntegrator | None
 
     def test_constructor_signature_parameter_names_present(self) -> None:
         import inspect
@@ -252,6 +267,7 @@ class TestCanonicalProtocolTyping:
             "resolver",
             "trace_validator",
             "memory_knowledge_integrator",
+            "interface_integrator",
         ):
             assert name in params, name
 
@@ -280,11 +296,19 @@ class TestCanonicalProtocolTyping:
             def project(self, *args, **kwargs):  # type: ignore[no-untyped-def]
                 raise AssertionError("not called in wiring test")
 
+        class _AltInterfaceIntegrator:
+            def project(self, **kwargs):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
+            def submit_intent(self, **kwargs):  # type: ignore[no-untyped-def]
+                raise AssertionError("not called in wiring test")
+
         collaborators = _make_collaborators()
         collaborators["discovery"] = _AltDiscovery()
         collaborators["resolver"] = _AltResolver()
         collaborators["trace_validator"] = _AltTraceValidator()
         collaborators["memory_knowledge_integrator"] = _AltMemoryKnowledgeIntegrator()
+        collaborators["interface_integrator"] = _AltInterfaceIntegrator()
         api = DefaultDomainAPI(**collaborators)
         assert api._discovery is collaborators["discovery"]
         assert api._resolver is collaborators["resolver"]
@@ -293,6 +317,7 @@ class TestCanonicalProtocolTyping:
             api._memory_knowledge_integrator
             is collaborators["memory_knowledge_integrator"]
         )
+        assert api._interface_integrator is collaborators["interface_integrator"]
 
     def test_concrete_defaults_still_satisfy_constructor_boundary(self) -> None:
         collaborators = _make_collaborators()
@@ -303,6 +328,7 @@ class TestCanonicalProtocolTyping:
         assert isinstance(
             api._memory_knowledge_integrator, DefaultDomainMemoryKnowledgeIntegrator
         )
+        assert isinstance(api._interface_integrator, DefaultDomainInterfaceIntegrator)
 
 
 class _RecordingMemoryKnowledgeIntegrator:

@@ -1405,3 +1405,60 @@ __all__ += [
     "DomainMemoryKnowledgeRelationRef",
     "DomainMemoryKnowledgeSerializationError",
 ]
+
+# Phase 10.45 – Domain Interface Integration (projection and intent seam)
+from cmm.domains.errors import (
+    DomainInterfaceAuthorityError,
+    DomainInterfaceContractError,
+    DomainInterfaceIntegrationError,
+    DomainInterfaceIntentError,
+    DomainInterfaceSerializationError,
+    DomainInterfaceVisibilityError,
+)
+from cmm.domains.interface_integration import (
+    DefaultDomainInterfaceIntegrator,
+    DomainInterfaceIntegrator,
+)
+from cmm.domains.interface_integration_contracts import (
+    ConversationalDomainView,
+    CrossDomainInterfaceView,
+    DomainCenterDomainView,
+    DomainCenterView,
+    DomainInterfaceIntent,
+    DomainInterfaceIntentKind,
+    DomainInterfaceIntentResult,
+    DomainInterfaceProjection,
+    DomainInterfaceProjectionRequest,
+    DomainInterfaceReference,
+    DomainInterfaceStatus,
+    DomainInterfaceViewKind,
+    DomainReviewCenterView,
+    DomainReviewItemView,
+    DomainSelectorView,
+)
+
+__all__ += [
+    "ConversationalDomainView",
+    "CrossDomainInterfaceView",
+    "DefaultDomainInterfaceIntegrator",
+    "DomainCenterDomainView",
+    "DomainCenterView",
+    "DomainInterfaceAuthorityError",
+    "DomainInterfaceContractError",
+    "DomainInterfaceIntegrationError",
+    "DomainInterfaceIntegrator",
+    "DomainInterfaceIntent",
+    "DomainInterfaceIntentError",
+    "DomainInterfaceIntentKind",
+    "DomainInterfaceIntentResult",
+    "DomainInterfaceProjection",
+    "DomainInterfaceProjectionRequest",
+    "DomainInterfaceReference",
+    "DomainInterfaceSerializationError",
+    "DomainInterfaceStatus",
+    "DomainInterfaceViewKind",
+    "DomainInterfaceVisibilityError",
+    "DomainReviewCenterView",
+    "DomainReviewItemView",
+    "DomainSelectorView",
+]

@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from cmm.agent_runtime.approval_contracts import ApprovalRequest
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.conflict_resolution import DomainConflictResolver
 from cmm.domains.conflict_resolution_contracts import (
@@ -40,6 +41,10 @@ from cmm.domains.conflict_resolution_contracts import (
     DomainConflictResolutionPolicy,
 )
 from cmm.domains.contracts import DomainCapability, DomainDefinition
+from cmm.domains.cross_domain_contracts import (
+    CrossDomainContextSnapshot,
+    CrossDomainResult,
+)
 from cmm.domains.discovery import DomainDiscovery
 from cmm.domains.discovery_contracts import (
     DomainCandidate,
@@ -49,6 +54,16 @@ from cmm.domains.discovery_contracts import (
 from cmm.domains.enums import DomainSourceKind
 from cmm.domains.errors import DomainRegistryValidationError
 from cmm.domains.identifiers import DomainId
+from cmm.domains.interface_integration import (
+    DefaultDomainInterfaceIntegrator,
+    DomainInterfaceIntegrator,
+)
+from cmm.domains.interface_integration_contracts import (
+    DomainInterfaceIntent,
+    DomainInterfaceIntentResult,
+    DomainInterfaceProjection,
+    DomainInterfaceProjectionRequest,
+)
 from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.loader_contracts import DomainLoadResult
 from cmm.domains.memory_contracts import (
@@ -65,10 +80,13 @@ from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeProjection,
     DomainMemoryKnowledgeProjectionRequest,
 )
+from cmm.domains.observability_contracts import DomainObservabilityReport
 from cmm.domains.operation_contracts import (
     DomainOperationRequest,
     DomainOperationResult,
 )
+from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.presentation_contracts import DomainPresentationPlan
 from cmm.domains.registry import DomainRegistry
 from cmm.domains.registry_contracts import DomainQuery
 from cmm.domains.resolution_contracts import DomainResolutionContext
@@ -216,6 +234,32 @@ class DomainAPI(Protocol):
         composition: DomainComposition | None = None,
     ) -> DomainMemoryKnowledgeProjection: ...
 
+    def project_interface(
+        self,
+        request: DomainInterfaceProjectionRequest,
+        *,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        presentation: DomainPresentationPlan | None = None,
+        session: DomainSessionContext | None = None,
+        memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
+        registry: DomainRegistry | None = None,
+        observability_report: DomainObservabilityReport | None = None,
+        cross_domain_result: CrossDomainResult | None = None,
+        cross_domain_snapshot: CrossDomainContextSnapshot | None = None,
+        approvals: tuple[ApprovalRequest, ...] | None = None,
+    ) -> DomainInterfaceProjection: ...
+
+    def submit_interface_intent(
+        self,
+        *,
+        intent: DomainInterfaceIntent,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
+        permission_request: CrossDomainPermissionRequest | None = None,
+    ) -> DomainInterfaceIntentResult: ...
+
 
 _REQUIRED_COLLABORATORS = (
     "domain_registry",
@@ -255,6 +299,7 @@ class DefaultDomainAPI:
         trace_validator: DomainTraceReferenceValidator,
         trust_policy_lookup: Callable[[str], DomainTrustPolicy | None] | None = None,
         memory_knowledge_integrator: DomainMemoryKnowledgeIntegrator | None = None,
+        interface_integrator: DomainInterfaceIntegrator | None = None,
     ) -> None:
         for name in _REQUIRED_COLLABORATORS:
             if locals()[name] is None:
@@ -279,6 +324,11 @@ class DefaultDomainAPI:
             memory_knowledge_integrator
             if memory_knowledge_integrator is not None
             else DefaultDomainMemoryKnowledgeIntegrator()
+        )
+        self._interface_integrator = (
+            interface_integrator
+            if interface_integrator is not None
+            else DefaultDomainInterfaceIntegrator()
         )
 
     # ── Registry and inspection ──────────────────────────────────────────
@@ -553,4 +603,54 @@ class DefaultDomainAPI:
             inventory=inventory,
             resolution=resolution,
             composition=composition,
+        )
+
+    # ── Interface integration (Phase 10.45) ──────────────────────────────
+
+    def project_interface(
+        self,
+        request: DomainInterfaceProjectionRequest,
+        *,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        presentation: DomainPresentationPlan | None = None,
+        session: DomainSessionContext | None = None,
+        memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
+        registry: DomainRegistry | None = None,
+        observability_report: DomainObservabilityReport | None = None,
+        cross_domain_result: CrossDomainResult | None = None,
+        cross_domain_snapshot: CrossDomainContextSnapshot | None = None,
+        approvals: tuple[ApprovalRequest, ...] | None = None,
+    ) -> DomainInterfaceProjection:
+        """Delegate to the stateless ``DomainInterfaceIntegrator``."""
+        return self._interface_integrator.project(
+            request=request,
+            resolution=resolution,
+            composition=composition,
+            presentation=presentation,
+            session=session,
+            memory_knowledge=memory_knowledge,
+            registry=registry,
+            observability_report=observability_report,
+            cross_domain_result=cross_domain_result,
+            cross_domain_snapshot=cross_domain_snapshot,
+            approvals=approvals,
+        )
+
+    def submit_interface_intent(
+        self,
+        *,
+        intent: DomainInterfaceIntent,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
+        permission_request: CrossDomainPermissionRequest | None = None,
+    ) -> DomainInterfaceIntentResult:
+        """Delegate one selector intent to canonical authority."""
+        return self._interface_integrator.submit_intent(
+            intent=intent,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=resolution_context,
+            permission_request=permission_request,
         )

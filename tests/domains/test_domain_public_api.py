@@ -692,6 +692,34 @@ class TestPublicAPI:
                 "FORBIDDEN_PAYLOAD_FIELDS",
             }
         )
+        # Phase 10.45 – Domain Interface Integration projection/intent seam
+        expected.update(
+            {
+                "ConversationalDomainView",
+                "CrossDomainInterfaceView",
+                "DefaultDomainInterfaceIntegrator",
+                "DomainCenterDomainView",
+                "DomainCenterView",
+                "DomainInterfaceAuthorityError",
+                "DomainInterfaceContractError",
+                "DomainInterfaceIntegrationError",
+                "DomainInterfaceIntegrator",
+                "DomainInterfaceIntent",
+                "DomainInterfaceIntentError",
+                "DomainInterfaceIntentKind",
+                "DomainInterfaceIntentResult",
+                "DomainInterfaceProjection",
+                "DomainInterfaceProjectionRequest",
+                "DomainInterfaceReference",
+                "DomainInterfaceSerializationError",
+                "DomainInterfaceStatus",
+                "DomainInterfaceViewKind",
+                "DomainInterfaceVisibilityError",
+                "DomainReviewCenterView",
+                "DomainReviewItemView",
+                "DomainSelectorView",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -701,8 +729,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 587
-
+        assert len(cmm.domains.__all__) == 610
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
