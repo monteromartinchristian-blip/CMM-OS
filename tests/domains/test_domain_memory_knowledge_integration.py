@@ -306,6 +306,181 @@ def test_authority_coherence_and_exclusions() -> None:
         )
 
 
+def test_request_digest_changes_projection_identity() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    first = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    assert first.request_digest == req.digest
+    assert first.to_dict()["request_digest"] == req.digest
+    from dataclasses import replace as _replace
+
+    alt_req = _replace(req, temporal_reference="2026-09-07T12:00:00+00:00")
+    assert alt_req.digest != req.digest
+    alt_mem_req = _replace(mem_req, temporal_reference="2026-09-07T12:00:00+00:00")
+    alt_view = DefaultDomainMemoryViewResolver().resolve(alt_mem_req, mem_inv)
+    alt_req2 = _replace(
+        alt_req,
+        memory_view_id=alt_view.view_id,
+        memory_view_digest=alt_view.digest,
+    )
+    second = _project(
+        integrator,
+        alt_req2,
+        memory_request=alt_mem_req,
+        view=alt_view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    assert second.request_digest == alt_req2.digest
+    assert second.content_digest != first.content_digest
+    assert second.projection_id != first.projection_id
+
+
+def test_supporting_domain_divergence_fails_closed() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    from dataclasses import replace as _replace
+
+    divergent = _replace(req, supporting_domains=(DomainId("university"),))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            divergent,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+        )
+
+
+def test_resolution_composition_mismatch_fails_closed() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    res, comp = _fake_authority(req)
+    bad_res = _FakeResolution()
+    bad_res.id = "res:other"
+    bad_res.primary_domain = req.primary_domain
+    bad_res.supporting_domains = req.supporting_domains
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=bad_res,
+            composition=comp,
+        )
+    bad_comp = _FakeComposition()
+    bad_comp.id = "comp:other"
+    bad_comp.resolution_id = res.id
+    bad_comp.primary_domain = req.primary_domain
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=bad_comp,
+        )
+    broken_link = _FakeComposition()
+    broken_link.id = comp.id
+    broken_link.resolution_id = "res:unlinked"
+    broken_link.primary_domain = req.primary_domain
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=broken_link,
+        )
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=None,
+            composition=None,
+        )
+
+
+def test_temporal_reference_mismatch_fails_closed() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+        temporal_reference="2026-09-07T12:00:00+00:00",
+    )
+    from dataclasses import replace as _replace
+
+    divergent = _replace(req, temporal_reference=None)
+    assert divergent.digest != req.digest
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            divergent,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+        )
+
+
 def test_projection_does_not_mutate_cognitive_store() -> None:
     store = InMemoryKnowledgeStore()
     k_item = KnowledgeItem(
