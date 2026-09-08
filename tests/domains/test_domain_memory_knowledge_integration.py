@@ -19,6 +19,11 @@ from cmm.cognitive.contracts import Confidence
 from cmm.cognitive.enums import KnowledgeKind, KnowledgeRelationKind
 from cmm.cognitive.knowledge import Contradiction, KnowledgeItem, KnowledgeRelation
 from cmm.cognitive.store_memory import InMemoryKnowledgeStore
+from cmm.domains.composition_contracts import (
+    DomainComposition,
+    DomainCompositionConflict,
+)
+from cmm.domains.enums import DomainCompositionStatus, DomainResolutionStatus
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
     DomainMemoryKnowledgeProjectionError,
@@ -47,31 +52,30 @@ from cmm.domains.memory_knowledge_integration_contracts import (
 )
 from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidator
 from cmm.domains.memory_view import DefaultDomainMemoryViewResolver
+from cmm.domains.resolver_contracts import DomainResolutionResult
 
 
-class _FakeResolution:
-    id = "res_ref:1"
-    primary_domain = None  # set per-test via _fake_authority
-    supporting_domains = ()
-
-
-class _FakeComposition:
-    id = "comp_ref:1"
-    resolution_id = "res_ref:1"
-    primary_domain = None
-
-
-def _fake_authority(req):  # type: ignore[no-untyped-def]
-    res = _FakeResolution()
-    res.primary_domain = req.primary_domain
-    res.supporting_domains = req.supporting_domains
-    comp = _FakeComposition()
-    comp.primary_domain = req.primary_domain
-    return res, comp
+def _canonical_authority(req):  # type: ignore[no-untyped-def]
+    """Real canonical resolution/composition mirroring the projection request."""
+    resolution = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    composition = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    return resolution, composition
 
 
 def _project(integrator, request, **kw):  # type: ignore[no-untyped-def]
-    res, comp = _fake_authority(request)
+    res, comp = _canonical_authority(request)
     params: dict = {"resolution": res, "composition": comp}
     params.update(kw)
     return integrator.project(
@@ -393,11 +397,14 @@ def test_resolution_composition_mismatch_fails_closed() -> None:
         permission_decisions=(perm,),
     )
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    res, comp = _fake_authority(req)
-    bad_res = _FakeResolution()
-    bad_res.id = "res:other"
-    bad_res.primary_domain = req.primary_domain
-    bad_res.supporting_domains = req.supporting_domains
+    res, comp = _canonical_authority(req)
+    bad_res = DomainResolutionResult(
+        id="res:other",
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
     with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
         _project(
             integrator,
@@ -409,10 +416,13 @@ def test_resolution_composition_mismatch_fails_closed() -> None:
             resolution=bad_res,
             composition=comp,
         )
-    bad_comp = _FakeComposition()
-    bad_comp.id = "comp:other"
-    bad_comp.resolution_id = res.id
-    bad_comp.primary_domain = req.primary_domain
+    bad_comp = DomainComposition(
+        id="comp:other",
+        resolution_id=res.id,
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
     with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
         _project(
             integrator,
@@ -424,10 +434,13 @@ def test_resolution_composition_mismatch_fails_closed() -> None:
             resolution=res,
             composition=bad_comp,
         )
-    broken_link = _FakeComposition()
-    broken_link.id = comp.id
-    broken_link.resolution_id = "res:unlinked"
-    broken_link.primary_domain = req.primary_domain
+    broken_link = DomainComposition(
+        id=comp.id,
+        resolution_id="res:unlinked",
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
     with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
         _project(
             integrator,
@@ -1651,3 +1664,286 @@ def test_missing_authority_adversarial_downgrade() -> None:
 
     # Proposal binding projected = no
     assert projection.proposal_binding_ids == ()
+
+
+# ── V2 BLOCKER-01: canonical resolution/composition authority binding ───────
+
+
+class _ImpostorResolution:
+    """Duck-typed stand-in with every expected attribute but the canonical type."""
+
+    def __init__(self, req):  # type: ignore[no-untyped-def]
+        self.id = req.resolution_reference_id
+        self.primary_domain = req.primary_domain
+        self.supporting_domains = req.supporting_domains
+
+
+class _ImpostorComposition:
+    """Duck-typed stand-in with every expected attribute but the canonical type."""
+
+    def __init__(self, req):  # type: ignore[no-untyped-def]
+        self.id = req.composition_reference_id
+        self.resolution_id = req.resolution_reference_id
+        self.primary_domain = req.primary_domain
+        self.supporting_domains = req.supporting_domains
+
+
+def test_projection_rejects_impostor_resolution_even_with_matching_identity() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    _res, comp = _canonical_authority(req)
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=_ImpostorResolution(req),
+            composition=comp,
+        )
+
+
+def test_projection_rejects_impostor_composition_even_with_matching_identity() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    res, _comp = _canonical_authority(req)
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=_ImpostorComposition(req),
+        )
+
+
+def test_projection_rejects_supporting_domains_beyond_real_resolution() -> None:
+    # Request/memory_request agree on university+oppositions, but the canonical
+    # resolution grants only university -> escalation must fail closed.
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=(DomainId("university"),),
+    )
+    comp = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=(DomainId("university"),),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=comp,
+        )
+
+
+def test_projection_rejects_composition_domains_differing_from_resolution() -> None:
+    # Request and resolution agree on university+oppositions, but the canonical
+    # composition is narrower -> authority divergence must fail closed.
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    comp = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.COMPOSED,
+        primary_domain=req.primary_domain,
+        supporting_domains=(DomainId("university"),),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=comp,
+        )
+
+
+def test_projection_accepts_real_partial_composition_without_expanding_authority() -> (
+    None
+):
+    # A real canonical PARTIAL composition with the identical active-domain tuple
+    # remains acceptable; PARTIAL must not expand or shrink the granted context.
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res = DomainResolutionResult(
+        id=req.resolution_reference_id,
+        context_id="ctx:mem-kg:1",
+        status=DomainResolutionStatus.RESOLVED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    comp = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.PARTIAL,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+        resolution=res,
+        composition=comp,
+    )
+    assert projection.request_digest == req.digest
+    assert projection.selected_reference_ids == ("ref:1",)
+
+
+def test_projection_rejects_blocked_canonical_composition() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res, _comp = _canonical_authority(req)
+    blocked_comp = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.BLOCKED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+        conflicts=(
+            DomainCompositionConflict(
+                code="block:1",
+                category="authority",
+                domains=(DomainId("university"),),
+                severity="critical",
+                message="Blocking authority conflict",
+                blocking=True,
+            ),
+        ),
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=blocked_comp,
+        )
+
+
+def test_projection_rejects_failed_canonical_composition() -> None:
+    ref = _make_ref("ref:1", "item:1")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:1",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref,),
+        permission_decisions=(perm,),
+    )
+    res, _comp = _canonical_authority(req)
+    failed_comp = DomainComposition(
+        id=req.composition_reference_id,
+        resolution_id=req.resolution_reference_id,
+        status=DomainCompositionStatus.FAILED,
+        primary_domain=req.primary_domain,
+        supporting_domains=req.supporting_domains,
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
+        _project(
+            integrator,
+            req,
+            memory_request=mem_req,
+            view=view,
+            memory_inventory=mem_inv,
+            inventory=inv,
+            resolution=res,
+            composition=failed_comp,
+        )

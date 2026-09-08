@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cmm.cognitive.enums import KnowledgeRelationKind
 from cmm.cognitive.knowledge import Contradiction, KnowledgeRelation
@@ -29,6 +29,10 @@ from cmm.domains.memory_contracts import (
     DomainMemoryView,
     DomainMemoryViewRequest,
 )
+
+if TYPE_CHECKING:
+    from cmm.domains.composition_contracts import DomainComposition
+    from cmm.domains.resolver_contracts import DomainResolutionResult
 
 _HEX64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _PATH_PREFIX = "domain-memory-knowledge-path:"
@@ -933,8 +937,8 @@ class DomainMemoryKnowledgeIntegrator(Protocol):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
-        resolution: Any | None = None,
-        composition: Any | None = None,
+        resolution: DomainResolutionResult | None = None,
+        composition: DomainComposition | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Project authorized canonical knowledge over a resolved Phase 10.18 memory view."""
         ...

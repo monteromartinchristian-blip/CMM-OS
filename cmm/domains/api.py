@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.conflict_resolution import DomainConflictResolver
 from cmm.domains.conflict_resolution_contracts import (
     DomainConflictCase,
@@ -211,8 +212,8 @@ class DomainAPI(Protocol):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
-        resolution: Any | None = None,
-        composition: Any | None = None,
+        resolution: DomainResolutionResult | None = None,
+        composition: DomainComposition | None = None,
     ) -> DomainMemoryKnowledgeProjection: ...
 
 
@@ -540,8 +541,8 @@ class DefaultDomainAPI:
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
-        resolution: Any | None = None,
-        composition: Any | None = None,
+        resolution: DomainResolutionResult | None = None,
+        composition: DomainComposition | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Delegate to the pure ``DomainMemoryKnowledgeIntegrator``."""
         return self._memory_knowledge_integrator.project(

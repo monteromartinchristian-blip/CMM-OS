@@ -8,9 +8,10 @@ Agent Runtime update proposals.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from cmm.cognitive.enums import KnowledgeRelationKind
+from cmm.domains.composition_contracts import DomainComposition
+from cmm.domains.enums import DomainCompositionStatus
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
     DomainMemoryKnowledgeProjectionError,
@@ -37,6 +38,7 @@ from cmm.domains.memory_validation import (
     DefaultDomainMemoryIntegrationValidator,
     DomainMemoryIntegrationValidator,
 )
+from cmm.domains.resolver_contracts import DomainResolutionResult
 
 DEFAULT_DEPENDENCY_RELATION_KINDS: frozenset[str] = frozenset(
     {
@@ -211,8 +213,8 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
-        resolution: Any | None = None,
-        composition: Any | None = None,
+        resolution: DomainResolutionResult | None = None,
+        composition: DomainComposition | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Project authorized canonical knowledge over an authorized Phase 10.18 view."""
         # 1. Structural request / view / memory_request coherence
@@ -243,6 +245,16 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
             raise DomainMemoryKnowledgeAuthorizationError(
                 "resolution and composition authority required"
             )
+        # Canonical authority binding: duck-typed or parallel authority objects
+        # fail closed even when every attribute superficially matches.
+        if type(resolution) is not DomainResolutionResult:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution must be a canonical DomainResolutionResult"
+            )
+        if type(composition) is not DomainComposition:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition must be a canonical DomainComposition"
+            )
         if request.resolution_reference_id != resolution.id:
             raise DomainMemoryKnowledgeAuthorizationError(
                 "resolution reference mismatch"
@@ -255,6 +267,13 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
             raise DomainMemoryKnowledgeAuthorizationError(
                 "composition resolution mismatch"
             )
+        if composition.status not in (
+            DomainCompositionStatus.COMPOSED,
+            DomainCompositionStatus.PARTIAL,
+        ):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition status must be COMPOSED or PARTIAL"
+            )
         if resolution.primary_domain is None or str(resolution.primary_domain) != str(
             request.primary_domain
         ):
@@ -264,6 +283,19 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         if str(composition.primary_domain) != str(request.primary_domain):
             raise DomainMemoryKnowledgeAuthorizationError(
                 "composition primary domain mismatch"
+            )
+        request_supporting = frozenset(str(d) for d in request.supporting_domains)
+        if frozenset(str(d) for d in resolution.supporting_domains) != (
+            request_supporting
+        ):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution supporting domains diverge from request"
+            )
+        if frozenset(str(d) for d in composition.supporting_domains) != (
+            request_supporting
+        ):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition supporting domains diverge from request"
             )
 
         # 2. Authority coherence: requested permission decisions must be covered by memory_request
