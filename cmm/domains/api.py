@@ -211,6 +211,8 @@ class DomainAPI(Protocol):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
+        resolution: Any | None = None,
+        composition: Any | None = None,
     ) -> DomainMemoryKnowledgeProjection: ...
 
 
@@ -538,6 +540,8 @@ class DefaultDomainAPI:
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
+        resolution: Any | None = None,
+        composition: Any | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Delegate to the pure ``DomainMemoryKnowledgeIntegrator``."""
         return self._memory_knowledge_integrator.project(
@@ -546,4 +550,6 @@ class DefaultDomainAPI:
             view=view,
             memory_inventory=memory_inventory,
             inventory=inventory,
+            resolution=resolution,
+            composition=composition,
         )
