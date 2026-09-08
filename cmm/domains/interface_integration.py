@@ -11,20 +11,35 @@ state plus canonical observability authority without ever fabricating content.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
+from cmm.agent_runtime.approval_contracts import ApprovalRequest
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+from cmm.agent_runtime.enums import ApprovalRequestStatus
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.contracts import DomainDefinition
-from cmm.domains.enums import DomainCompositionStatus, DomainResolutionStatus
+from cmm.domains.cross_domain_contracts import (
+    CrossDomainContextSnapshot,
+    CrossDomainResult,
+)
+from cmm.domains.enums import (
+    CrossDomainStatus,
+    DomainCompositionStatus,
+    DomainResolutionStatus,
+)
 from cmm.domains.errors import DomainInterfaceAuthorityError
 from cmm.domains.interface_integration_contracts import (
     ConversationalDomainView,
+    CrossDomainInterfaceView,
     DomainCenterDomainView,
     DomainCenterView,
     DomainInterfaceProjection,
     DomainInterfaceProjectionRequest,
     DomainInterfaceStatus,
     DomainInterfaceViewKind,
+    DomainReviewCenterView,
+    DomainReviewItemView,
 )
 from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeProjection,
@@ -60,6 +75,9 @@ class DomainInterfaceIntegrator(Protocol):
         memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
         registry: DomainRegistry | None = None,
         observability_report: DomainObservabilityReport | None = None,
+        cross_domain_result: CrossDomainResult | None = None,
+        cross_domain_snapshot: CrossDomainContextSnapshot | None = None,
+        approvals: tuple[ApprovalRequest, ...] | None = None,
     ) -> DomainInterfaceProjection:
         raise NotImplementedError
 
@@ -74,6 +92,9 @@ def _validate_authority(
     memory_knowledge: DomainMemoryKnowledgeProjection | None,
     registry: DomainRegistry | None,
     observability_report: DomainObservabilityReport | None,
+    cross_domain_result: CrossDomainResult | None,
+    cross_domain_snapshot: CrossDomainContextSnapshot | None,
+    approvals: tuple[ApprovalRequest, ...] | None,
 ) -> None:
     """Verify exact canonical authority coherence, failing closed on any doubt."""
     if type(resolution) is not DomainResolutionResult:
@@ -147,6 +168,42 @@ def _validate_authority(
         raise DomainInterfaceAuthorityError(
             "observability_report must be a canonical DomainObservabilityReport"
         )
+    if cross_domain_result is not None:
+        if type(cross_domain_result) is not CrossDomainResult:
+            raise DomainInterfaceAuthorityError(
+                "cross_domain_result must be a canonical CrossDomainResult"
+            )
+        if cross_domain_result.composition_id is None:
+            raise DomainInterfaceAuthorityError(
+                "cross-domain result declares no composition binding"
+            )
+        if cross_domain_result.composition_id != composition.id:
+            raise DomainInterfaceAuthorityError(
+                "cross-domain result composition binding mismatch"
+            )
+    if cross_domain_snapshot is not None:
+        if type(cross_domain_snapshot) is not CrossDomainContextSnapshot:
+            raise DomainInterfaceAuthorityError(
+                "cross_domain_snapshot must be a canonical CrossDomainContextSnapshot"
+            )
+        if cross_domain_snapshot.composition_id is None:
+            raise DomainInterfaceAuthorityError(
+                "cross-domain snapshot declares no composition binding"
+            )
+        if cross_domain_snapshot.composition_id != composition.id:
+            raise DomainInterfaceAuthorityError(
+                "cross-domain snapshot composition binding mismatch"
+            )
+    if approvals is not None:
+        if isinstance(approvals, str) or not isinstance(approvals, Sequence):
+            raise DomainInterfaceAuthorityError(
+                "approvals must be a sequence of canonical ApprovalRequest entries"
+            )
+        for approval in approvals:
+            if type(approval) is not ApprovalRequest:
+                raise DomainInterfaceAuthorityError(
+                    "approvals must contain only canonical ApprovalRequest entries"
+                )
 
 
 def _visible_item_ref_ids(plan: DomainPresentationPlan) -> frozenset[str]:
@@ -372,6 +429,223 @@ def _project_domain_center(
     return DomainCenterView(domains=tuple(entries))
 
 
+def _composition_membership(composition: DomainComposition) -> frozenset[str]:
+    refs = {str(composition.primary_domain)}
+    refs.update(str(domain) for domain in composition.supporting_domains)
+    return frozenset(refs)
+
+
+def _authorized_transfer_refs(
+    snapshot: CrossDomainContextSnapshot,
+    membership: frozenset[str],
+) -> tuple[str, ...]:
+    """Identifiers of transfers whose authorization is canonically established.
+
+    Only transfers present in the accepted canonical transfer list whose content
+    is neither private nor sealed and whose endpoints belong to the composed
+    domain set are surfaced; denied transfers never exist in canonical state.
+    """
+    identifiers: set[str] = set()
+    for transfer in snapshot.transfers:
+        if transfer.private or not transfer.transferable:
+            continue
+        if str(transfer.source_domain) not in membership:
+            continue
+        if str(transfer.target_domain) not in membership:
+            continue
+        identifiers.add(transfer.identifier)
+    return tuple(sorted(identifiers))
+
+
+def _canonical_dependencies(
+    result: CrossDomainResult | None,
+    snapshot: CrossDomainContextSnapshot | None,
+) -> tuple[object, ...]:
+    if result is not None:
+        return result.dependencies
+    if snapshot is not None:
+        return snapshot.dependencies
+    return ()
+
+
+def _dependency_refs(
+    dependencies: tuple[object, ...], membership: frozenset[str]
+) -> tuple[str, ...]:
+    refs: set[str] = set()
+    for dependency in dependencies:
+        if str(dependency.source_domain) not in membership:
+            continue
+        if str(dependency.target_domain) not in membership:
+            continue
+        # No canonical dependency id exists upstream; refs copy the canonical
+        # endpoints and the kind verbatim and never relabel the relation.
+        refs.add(
+            f"dependency:{dependency.source_domain.slug}:"
+            f"{dependency.target_domain.slug}:{dependency.kind}"
+        )
+    return tuple(sorted(refs))
+
+
+def _canonical_contradictions(
+    result: CrossDomainResult | None,
+    snapshot: CrossDomainContextSnapshot | None,
+) -> tuple[object, ...]:
+    if result is not None:
+        return result.contradictions
+    if snapshot is not None:
+        return snapshot.contradictions
+    return ()
+
+
+def _unresolved_conflict_refs(
+    contradictions: tuple[object, ...], membership: frozenset[str]
+) -> tuple[str, ...]:
+    refs: set[str] = set()
+    for contradiction in contradictions:
+        if contradiction.resolved:
+            continue
+        if not all(str(domain) in membership for domain in contradiction.domains):
+            continue
+        refs.add(contradiction.id)
+    return tuple(sorted(refs))
+
+
+def _cross_domain_status(
+    composition: DomainComposition,
+    result: CrossDomainResult | None,
+) -> DomainInterfaceStatus:
+    """Map canonical state to interface status without ever strengthening it."""
+    if composition.status is DomainCompositionStatus.PARTIAL:
+        return DomainInterfaceStatus.PARTIAL
+    if result is None:
+        return DomainInterfaceStatus.PENDING
+    if result.status is CrossDomainStatus.COMPLETED:
+        return DomainInterfaceStatus.READY
+    if result.status is CrossDomainStatus.PARTIAL:
+        return DomainInterfaceStatus.PARTIAL
+    if result.status is CrossDomainStatus.LIMIT_REACHED:
+        return DomainInterfaceStatus.PARTIAL
+    # BLOCKED, FAILED and REQUIRES_REVIEW cannot be presented as ready.
+    return DomainInterfaceStatus.BLOCKED
+
+
+def _project_cross_domain(
+    *,
+    composition: DomainComposition,
+    result: CrossDomainResult | None,
+    snapshot: CrossDomainContextSnapshot | None,
+) -> CrossDomainInterfaceView:
+    """Project the already-resolved cross-domain state, never recalculating it."""
+    membership = _composition_membership(composition)
+    transfer_refs = (
+        _authorized_transfer_refs(snapshot, membership) if snapshot is not None else ()
+    )
+    dependency_refs = _dependency_refs(
+        _canonical_dependencies(result, snapshot), membership
+    )
+    conflict_refs = _unresolved_conflict_refs(
+        _canonical_contradictions(result, snapshot), membership
+    )
+    return CrossDomainInterfaceView(
+        primary_domain=str(composition.primary_domain),
+        supporting_domains=tuple(str(d) for d in composition.supporting_domains),
+        transfer_refs=transfer_refs,
+        dependency_refs=dependency_refs,
+        conflict_refs=conflict_refs,
+        consolidated_result_ref=result.id if result is not None else None,
+        status=_cross_domain_status(composition, result),
+    )
+
+
+# Review Center category tokens are view-owned labels for canonical review
+# evidence; upstream defines no review-category enum to reference.
+_REVIEW_CATEGORY_OPERATION_APPROVAL = "operation_approval"
+_REVIEW_CATEGORY_CROSS_DOMAIN_ACCESS = "cross_domain_access"
+_REVIEW_CATEGORY_SENSITIVE_PERSISTENCE = "sensitive_persistence"
+_REVIEW_CATEGORY_EXTERNAL_ACTION = "external_action"
+
+_PERMISSION_REVIEW_CATEGORIES = {
+    PermissionCapability.DOMAIN_CROSS_ACCESS: _REVIEW_CATEGORY_CROSS_DOMAIN_ACCESS,
+    PermissionCapability.SENSITIVE_INFERENCE_PERSIST: (
+        _REVIEW_CATEGORY_SENSITIVE_PERSISTENCE
+    ),
+    PermissionCapability.SEARCH_EXTERNAL: _REVIEW_CATEGORY_EXTERNAL_ACTION,
+    PermissionCapability.MODEL_EXTERNAL: _REVIEW_CATEGORY_EXTERNAL_ACTION,
+    PermissionCapability.COMMUNICATION_EXTERNAL: _REVIEW_CATEGORY_EXTERNAL_ACTION,
+}
+
+_REVIEW_OPEN_STATES = frozenset(
+    {ApprovalRequestStatus.PENDING, ApprovalRequestStatus.POSTPONED}
+)
+
+
+def _review_item_evidence(
+    approval: ApprovalRequest,
+    membership: frozenset[str],
+) -> tuple[str, str, str | None, str | None] | None:
+    """Classify one canonical approval, returning (category, domain, reason_ref, session_ref).
+
+    Typed permission evidence wins when present; only canonical membership and
+    open review states are surfaced. Uncategorizable approvals stay out of the
+    aggregate instead of inventing a review category for them.
+    """
+    if approval.status not in _REVIEW_OPEN_STATES:
+        return None
+    par = approval.permission_requirement
+    if par is not None:
+        if par.domain_id not in membership:
+            return None
+        category = _PERMISSION_REVIEW_CATEGORIES.get(par.action)
+        if category is None:
+            return None
+        return category, par.domain_id, par.reason_code, par.session_id
+    operation_codes = tuple(
+        code for code in approval.reason_codes if code.startswith("domain_operation.")
+    )
+    if not operation_codes:
+        return None
+    metadata = approval.metadata
+    if metadata.get("scope") != "domain_operation":
+        return None
+    primary_domain_id = metadata.get("primary_domain_id")
+    if not isinstance(primary_domain_id, str) or primary_domain_id not in membership:
+        return None
+    return (
+        _REVIEW_CATEGORY_OPERATION_APPROVAL,
+        primary_domain_id,
+        operation_codes[0],
+        None,
+    )
+
+
+def _project_review_center(
+    *,
+    approvals: tuple[ApprovalRequest, ...],
+    composition: DomainComposition,
+) -> DomainReviewCenterView:
+    """Aggregate canonical open review-required references for the composition."""
+    membership = _composition_membership(composition)
+    items: list[DomainReviewItemView] = []
+    for approval in approvals:
+        evidence = _review_item_evidence(approval, membership)
+        if evidence is None:
+            continue
+        category, domain_id, reason_ref, session_ref = evidence
+        items.append(
+            DomainReviewItemView(
+                review_ref=approval.id,
+                category=category,
+                state=approval.status.value,
+                domain_id=domain_id,
+                operation_ref=approval.operation_id,
+                workflow_ref=approval.workflow_id,
+                session_ref=session_ref,
+                reason_ref=reason_ref,
+            )
+        )
+    return DomainReviewCenterView(items=tuple(items))
+
+
 class DefaultDomainInterfaceIntegrator:
     """Default implementation of ``DomainInterfaceIntegrator``.
 
@@ -393,6 +667,9 @@ class DefaultDomainInterfaceIntegrator:
         memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
         registry: DomainRegistry | None = None,
         observability_report: DomainObservabilityReport | None = None,
+        cross_domain_result: CrossDomainResult | None = None,
+        cross_domain_snapshot: CrossDomainContextSnapshot | None = None,
+        approvals: tuple[ApprovalRequest, ...] | None = None,
     ) -> DomainInterfaceProjection:
         _validate_authority(
             request=request,
@@ -403,6 +680,9 @@ class DefaultDomainInterfaceIntegrator:
             memory_knowledge=memory_knowledge,
             registry=registry,
             observability_report=observability_report,
+            cross_domain_result=cross_domain_result,
+            cross_domain_snapshot=cross_domain_snapshot,
+            approvals=approvals,
         )
         requested = frozenset(request.requested_views)
         conversational = None
@@ -418,6 +698,21 @@ class DefaultDomainInterfaceIntegrator:
                 registry=registry,
                 observability_report=observability_report,
             )
+        cross_domain = None
+        if DomainInterfaceViewKind.CROSS_DOMAIN in requested and (
+            cross_domain_result is not None or cross_domain_snapshot is not None
+        ):
+            cross_domain = _project_cross_domain(
+                composition=composition,
+                result=cross_domain_result,
+                snapshot=cross_domain_snapshot,
+            )
+        review_center = None
+        if DomainInterfaceViewKind.REVIEW_CENTER in requested and approvals is not None:
+            review_center = _project_review_center(
+                approvals=approvals,
+                composition=composition,
+            )
         return DomainInterfaceProjection(
             projection_id=f"interface-projection:{request.request_id}",
             request_id=request.request_id,
@@ -427,7 +722,7 @@ class DefaultDomainInterfaceIntegrator:
             conversational=conversational,
             selector=None,
             domain_center=domain_center,
-            cross_domain=None,
-            review_center=None,
+            cross_domain=cross_domain,
+            review_center=review_center,
             content_digest="",
         )

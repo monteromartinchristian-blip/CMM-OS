@@ -8,10 +8,16 @@ presentation visibility, registry lifecycle state and observability authority.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+from cmm.agent_runtime.approval_contracts import ApprovalRequest
+from cmm.agent_runtime.domain_permission_contracts import (
+    PermissionApprovalRequirement,
+    PermissionCapability,
+)
+from cmm.agent_runtime.enums import ApprovalRequestStatus
 from cmm.domains.composition_contracts import (
     DomainComposition,
     DomainCompositionConflict,
@@ -21,7 +27,18 @@ from cmm.domains.contracts import (
     DomainDefinition,
     DomainMetadata,
 )
+from cmm.domains.cross_domain_contracts import (
+    CrossDomainContextSnapshot,
+    CrossDomainContextTransfer,
+    CrossDomainContradiction,
+    CrossDomainDecision,
+    CrossDomainDependency,
+    CrossDomainLimits,
+    CrossDomainResult,
+)
 from cmm.domains.enums import (
+    CrossDomainStage,
+    CrossDomainStatus,
     DomainCompositionStatus,
     DomainKind,
     DomainResolutionStatus,
@@ -32,6 +49,7 @@ from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
 from cmm.domains.interface_integration_contracts import (
     DomainInterfaceProjectionRequest,
+    DomainInterfaceStatus,
     DomainInterfaceViewKind,
 )
 from cmm.domains.observability_contracts import (
@@ -266,6 +284,216 @@ def _make_observability_report(
             generated_at=generated_at, measurements=measurements
         ),
         health_results=(),
+    )
+
+
+def _make_transfer(
+    *,
+    source: str,
+    target: str,
+    identifier: str,
+    kind: str = "finding",
+    private: bool = False,
+    transferable: bool = True,
+) -> CrossDomainContextTransfer:
+    return CrossDomainContextTransfer(
+        source_domain=source,
+        target_domain=target,
+        kind=kind,
+        identifier=identifier,
+        value=f"value:{identifier}",
+        reason="interface projection test transfer",
+        provenance=("interface:test",),
+        private=private,
+        transferable=transferable,
+    )
+
+
+def _make_dependency(
+    *,
+    source: str,
+    target: str,
+    kind: str = "requires",
+    description: str = "domain coordination",
+    blocking: bool = False,
+    satisfied: bool = True,
+) -> CrossDomainDependency:
+    return CrossDomainDependency(
+        source_domain=source,
+        target_domain=target,
+        kind=kind,
+        description=description,
+        blocking=blocking,
+        satisfied=satisfied,
+        provenance=("interface:test",),
+    )
+
+
+def _make_contradiction(
+    contradiction_id: str,
+    *,
+    domains: tuple[str, ...] = ("domain:health", "domain:general"),
+    severity: str = "medium",
+    resolved: bool = False,
+    resolution: str | None = None,
+    requires_review: bool = False,
+) -> CrossDomainContradiction:
+    return CrossDomainContradiction(
+        id=contradiction_id,
+        domains=domains,
+        subject=f"subject of {contradiction_id}",
+        statements=(f"statement of {contradiction_id}",),
+        severity=severity,
+        resolved=resolved,
+        resolution=resolution,
+        requires_review=requires_review,
+        provenance=("interface:test",),
+    )
+
+
+def _make_decision(
+    code: str,
+    *,
+    domain_slug: str | None = None,
+    action: str = "cross-domain coordination decision",
+    blocking: bool = False,
+) -> CrossDomainDecision:
+    return CrossDomainDecision(
+        code=code,
+        stage=CrossDomainStage.DOMAIN_EXECUTION,
+        domain_id=DomainId(slug=domain_slug) if domain_slug is not None else None,
+        action=action,
+        blocking=blocking,
+    )
+
+
+def _make_cross_domain_snapshot(
+    *,
+    composition_id: str | None = "composition:1",
+    transfers: tuple[CrossDomainContextTransfer, ...] = (),
+    dependencies: tuple[CrossDomainDependency, ...] = (),
+    contradictions: tuple[CrossDomainContradiction, ...] = (),
+    decisions: tuple[CrossDomainDecision, ...] = (),
+) -> CrossDomainContextSnapshot:
+    return CrossDomainContextSnapshot(
+        request_id="cross-domain-request:1",
+        composition_id=composition_id,
+        transfers=transfers,
+        dependencies=dependencies,
+        contradictions=contradictions,
+        decisions=decisions,
+        started_at=datetime.now(timezone.utc),
+    )
+
+
+def _make_cross_domain_result(
+    *,
+    result_id: str = "cross-domain-result:1",
+    status: CrossDomainStatus = CrossDomainStatus.COMPLETED,
+    composition_id: str | None = "composition:1",
+    dependencies: tuple[CrossDomainDependency, ...] = (),
+    contradictions: tuple[CrossDomainContradiction, ...] = (),
+    decisions: tuple[CrossDomainDecision, ...] = (),
+    **overrides: object,
+) -> CrossDomainResult:
+    started_at = datetime.now(timezone.utc)
+    values: dict[str, object] = {
+        "id": result_id,
+        "status": status,
+        "objective": "interface projection test objective",
+        "request_id": "cross-domain-request:1",
+        "composition_id": composition_id,
+        "dependencies": dependencies,
+        "contradictions": contradictions,
+        "decisions": decisions,
+        "trace_id": "trace:interface:1",
+        "started_at": started_at,
+        "completed_at": started_at,
+    }
+    values.update(overrides)
+    return CrossDomainResult(**values)
+
+
+def _make_par(
+    *,
+    action: PermissionCapability,
+    requirement_id: str,
+    actor_id: str = "actor:interface:1",
+    session_id: str = "session:1",
+    domain_id: str = "domain:health",
+    resource_id: str | None = "resource:interface:1",
+    operation_id: str | None = None,
+    workflow_id: str | None = None,
+    target_domain: str | None = None,
+    reason_code: str = "approval_required",
+) -> PermissionApprovalRequirement:
+    return PermissionApprovalRequirement(
+        requirement_id=requirement_id,
+        action=action,
+        actor_id=actor_id,
+        session_id=session_id,
+        domain_id=domain_id,
+        resource_id=resource_id,
+        operation_id=operation_id,
+        workflow_id=workflow_id,
+        target_domain=target_domain,
+        fingerprint=f"{requirement_id}:{action.value}:{domain_id}",
+        scope="request",
+        reason_code=reason_code,
+        risk="medium",
+        one_time=True,
+        reusable=False,
+    )
+
+
+def _make_approval(
+    *,
+    approval_id: str,
+    status: ApprovalRequestStatus = ApprovalRequestStatus.PENDING,
+    reason_codes: tuple[str, ...] = (),
+    metadata: dict[str, object] | None = None,
+    permission_requirement: PermissionApprovalRequirement | None = None,
+    operation_id: str | None = None,
+    workflow_id: str | None = None,
+) -> ApprovalRequest:
+    return ApprovalRequest(
+        id=approval_id,
+        title="Review Center interface projection test approval",
+        description="Canonical approval request created for interface projection tests.",
+        requested_by="agent-runtime",
+        reason_codes=reason_codes,
+        metadata=metadata if metadata is not None else {},
+        permission_requirement=permission_requirement,
+        operation_id=operation_id,
+        workflow_id=workflow_id,
+        status=status,
+    )
+
+
+def _make_operation_approval(
+    approval_id: str,
+    *,
+    status: ApprovalRequestStatus = ApprovalRequestStatus.PENDING,
+    reason_code: str = "domain_operation.destructive",
+    metadata_scope: str = "domain_operation",
+    primary_domain: str = "domain:health",
+    supporting_domains: tuple[str, ...] = ("domain:general",),
+    operation_id: str | None = "operation:1",
+    workflow_id: str | None = "workflow:1",
+) -> ApprovalRequest:
+    return _make_approval(
+        approval_id=approval_id,
+        status=status,
+        reason_codes=(reason_code,),
+        metadata=MappingProxyType(
+            {
+                "scope": metadata_scope,
+                "primary_domain_id": primary_domain,
+                "supporting_domain_ids": list(supporting_domains),
+            }
+        ),
+        operation_id=operation_id,
+        workflow_id=workflow_id,
     )
 
 
@@ -547,6 +775,8 @@ class TestRequestedViewKinds:
 
 _CONVERSATIONAL = (DomainInterfaceViewKind.CONVERSATIONAL,)
 _DOMAIN_CENTER = (DomainInterfaceViewKind.DOMAIN_CENTER,)
+_CROSS_DOMAIN = (DomainInterfaceViewKind.CROSS_DOMAIN,)
+_REVIEW_CENTER = (DomainInterfaceViewKind.REVIEW_CENTER,)
 
 
 class TestConversationalProjection:
@@ -1027,4 +1257,652 @@ class TestDomainCenterProjection:
                 request=_make_request(requested_views=_DOMAIN_CENTER),
                 registry=DomainRegistry(),
                 observability_report=fake,
+            )
+
+
+class TestCrossDomainProjection:
+    def test_cross_domain_transfer_authorization_only_surfaces_safe_reference(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        authorized = _make_transfer(
+            source="domain:health",
+            target="domain:general",
+            identifier="knowledge:item:patient-1",
+        )
+        private = _make_transfer(
+            source="domain:health",
+            target="domain:general",
+            identifier="knowledge:item:private-1",
+            private=True,
+        )
+        sealed = _make_transfer(
+            source="domain:health",
+            target="domain:general",
+            identifier="knowledge:item:sealed-1",
+            transferable=False,
+        )
+        foreign = _make_transfer(
+            source="domain:legal",
+            target="domain:general",
+            identifier="knowledge:item:foreign-1",
+        )
+        snapshot = _make_cross_domain_snapshot(
+            transfers=(authorized, private, sealed, foreign),
+            decisions=(
+                _make_decision(
+                    "CONTEXT_TRANSFERRED",
+                    action="transferred finding knowledge:item:patient-1",
+                ),
+                _make_decision(
+                    "CONTEXT_TRANSFER_BLOCKED",
+                    action="transfer blocked for finding knowledge:item:blocked-1",
+                ),
+            ),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_snapshot=snapshot,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.primary_domain == "domain:health"
+        assert view.supporting_domains == ("domain:general",)
+        assert view.transfer_refs == ("knowledge:item:patient-1",)
+        assert "knowledge:item:private-1" not in view.transfer_refs
+        assert "knowledge:item:sealed-1" not in view.transfer_refs
+        assert "knowledge:item:foreign-1" not in view.transfer_refs
+        assert "knowledge:item:blocked-1" not in view.transfer_refs
+        assert view.consolidated_result_ref is None
+
+    def test_cross_domain_result_completed_reports_ready(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            dependencies=(
+                _make_dependency(source="domain:health", target="domain:general"),
+            ),
+            recommendations=("interface:recommendation:1",),
+        )
+        snapshot = _make_cross_domain_snapshot(
+            transfers=(
+                _make_transfer(
+                    source="domain:health",
+                    target="domain:general",
+                    identifier="knowledge:item:patient-1",
+                ),
+            ),
+            dependencies=(
+                _make_dependency(
+                    source="domain:general",
+                    target="domain:health",
+                    description="live dependency",
+                ),
+            ),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=result,
+            cross_domain_snapshot=snapshot,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.status is DomainInterfaceStatus.READY
+        assert view.consolidated_result_ref == result.id
+        assert view.transfer_refs == ("knowledge:item:patient-1",)
+        # The consolidated result is authoritative for relations when both are
+        # provided; the live snapshot never overrides canonical merged state.
+        assert view.dependency_refs == ("dependency:health:general:requires",)
+
+    def test_partial_composition_stays_partial(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            recommendations=("interface:recommendation:1",)
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            composition=_make_composition(status=DomainCompositionStatus.PARTIAL),
+            cross_domain_result=result,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.status is DomainInterfaceStatus.PARTIAL
+
+    def test_cross_domain_result_blocked_reports_blocked(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            status=CrossDomainStatus.BLOCKED,
+            dependencies=(
+                _make_dependency(
+                    source="domain:health",
+                    target="domain:general",
+                    blocking=True,
+                    satisfied=False,
+                ),
+            ),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=result,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.status is DomainInterfaceStatus.BLOCKED
+
+    def test_cross_domain_terminal_statuses_fail_closed(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        failed = _make_cross_domain_result(status=CrossDomainStatus.FAILED)
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=failed,
+        )
+        assert projection.cross_domain is not None
+        assert projection.cross_domain.status is DomainInterfaceStatus.BLOCKED
+
+        limited = _make_cross_domain_result(
+            status=CrossDomainStatus.LIMIT_REACHED,
+            limits=CrossDomainLimits(reached_limits=("iterations",)),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=limited,
+        )
+        assert projection.cross_domain is not None
+        assert projection.cross_domain.status is DomainInterfaceStatus.PARTIAL
+
+        requires_review = _make_cross_domain_result(
+            status=CrossDomainStatus.REQUIRES_REVIEW,
+            contradictions=(
+                _make_contradiction("contradiction:review:1", requires_review=True),
+            ),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=requires_review,
+        )
+        assert projection.cross_domain is not None
+        assert projection.cross_domain.status is DomainInterfaceStatus.BLOCKED
+
+    def test_cross_domain_dependency_kinds_preserved_verbatim(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            dependencies=(
+                _make_dependency(source="domain:health", target="domain:general"),
+                _make_dependency(
+                    source="domain:general",
+                    target="domain:health",
+                    kind="correlation",
+                    description="shared correlation",
+                ),
+            ),
+            recommendations=("interface:recommendation:1",),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=result,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.dependency_refs == (
+            "dependency:general:health:correlation",
+            "dependency:health:general:requires",
+        )
+
+    def test_correlation_never_emitted_as_caused_by(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            dependencies=(
+                _make_dependency(
+                    source="domain:general",
+                    target="domain:health",
+                    kind="correlation",
+                    description="correlated but not caused",
+                ),
+            ),
+            recommendations=("interface:recommendation:1",),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=result,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.dependency_refs == ("dependency:general:health:correlation",)
+        assert "caused_by" not in view.dependency_refs[0]
+        assert "causes" not in view.dependency_refs[0]
+
+    def test_unresolved_conflict_remains_present(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            contradictions=(
+                _make_contradiction("contradiction:unresolved:1"),
+                _make_contradiction(
+                    "contradiction:resolved:1",
+                    resolved=True,
+                    resolution="resolved by canonical authority",
+                ),
+                _make_contradiction(
+                    "contradiction:foreign:1",
+                    domains=("domain:legal", "domain:general"),
+                ),
+            ),
+            recommendations=("interface:recommendation:1",),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_result=result,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        # Unresolved conflicts stay present; resolved and out-of-composition
+        # contradictions are never surfaced as live conflicts.
+        assert view.conflict_refs == ("contradiction:unresolved:1",)
+
+    def test_cross_domain_snapshot_live_state_reported_pending(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        snapshot = _make_cross_domain_snapshot(
+            transfers=(
+                _make_transfer(
+                    source="domain:health",
+                    target="domain:general",
+                    identifier="knowledge:item:patient-1",
+                ),
+            ),
+            dependencies=(
+                _make_dependency(source="domain:health", target="domain:general"),
+            ),
+            contradictions=(_make_contradiction("contradiction:snapshot:1"),),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CROSS_DOMAIN),
+            cross_domain_snapshot=snapshot,
+        )
+        view = projection.cross_domain
+        assert view is not None
+        assert view.status is DomainInterfaceStatus.PENDING
+        assert view.consolidated_result_ref is None
+        assert view.transfer_refs == ("knowledge:item:patient-1",)
+        assert view.dependency_refs == ("dependency:health:general:requires",)
+        assert view.conflict_refs == ("contradiction:snapshot:1",)
+
+    def test_cross_domain_view_not_fabricated_without_canonical_inputs(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        projection = _project_views(
+            env, request=_make_request(requested_views=_CROSS_DOMAIN)
+        )
+        assert projection.cross_domain is None
+
+    def test_cross_domain_rejects_duck_typed_canonical_inputs(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        request = _make_request(requested_views=_CROSS_DOMAIN)
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_result=SimpleNamespace(id="fake"),
+            )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_snapshot=SimpleNamespace(transfers=()),
+            )
+
+    def test_cross_domain_rejects_unbound_or_mismatched_composition_binding(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        request = _make_request(requested_views=_CROSS_DOMAIN)
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_result=_make_cross_domain_result(
+                    composition_id=None,
+                    recommendations=("interface:recommendation:1",),
+                ),
+            )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_result=_make_cross_domain_result(
+                    composition_id="composition:other",
+                    recommendations=("interface:recommendation:1",),
+                ),
+            )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_snapshot=_make_cross_domain_snapshot(
+                    composition_id=None,
+                ),
+            )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                cross_domain_snapshot=_make_cross_domain_snapshot(
+                    composition_id="composition:other",
+                ),
+            )
+
+
+class TestReviewCenterProjection:
+    def test_review_center_projects_pending_operation_approval_with_canonical_ref(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        approval = _make_operation_approval("approval-req:operation:1")
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(approval,),
+        )
+        view = projection.review_center
+        assert view is not None
+        assert len(view.items) == 1
+        item = view.items[0]
+        assert item.review_ref == approval.id
+        assert item.state == approval.status.value
+        assert item.state == "pending"
+        assert item.category == "operation_approval"
+        assert item.domain_id == "domain:health"
+        assert item.operation_ref == "operation:1"
+        assert item.workflow_ref == "workflow:1"
+        assert item.reason_ref == "domain_operation.destructive"
+        assert item.session_ref is None
+
+    def test_review_center_classifies_cross_domain_access_and_sensitive_persistence(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        cross_access = _make_par(
+            action=PermissionCapability.DOMAIN_CROSS_ACCESS,
+            requirement_id="permission-requirement:cross:1",
+            session_id="session:2",
+            domain_id="domain:health",
+            target_domain="domain:general",
+            operation_id="operation:2",
+            workflow_id="workflow:2",
+        )
+        sensitive = _make_par(
+            action=PermissionCapability.SENSITIVE_INFERENCE_PERSIST,
+            requirement_id="permission-requirement:sensitive:1",
+            session_id="session:3",
+            domain_id="domain:general",
+            operation_id="operation:3",
+        )
+        cross_approval = _make_approval(
+            approval_id="approval-req:cross:1",
+            permission_requirement=cross_access,
+            operation_id="operation:2",
+            workflow_id="workflow:2",
+        )
+        sensitive_approval = _make_approval(
+            approval_id="approval-req:sensitive:1",
+            permission_requirement=sensitive,
+            operation_id="operation:3",
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(sensitive_approval, cross_approval),
+        )
+        view = projection.review_center
+        assert view is not None
+        assert [item.review_ref for item in view.items] == [
+            "approval-req:cross:1",
+            "approval-req:sensitive:1",
+        ]
+        by_ref = {item.review_ref: item for item in view.items}
+        cross_item = by_ref["approval-req:cross:1"]
+        assert cross_item.category == "cross_domain_access"
+        assert cross_item.state == cross_approval.status.value
+        assert cross_item.domain_id == "domain:health"
+        assert cross_item.operation_ref == "operation:2"
+        assert cross_item.workflow_ref == "workflow:2"
+        assert cross_item.session_ref == "session:2"
+        assert cross_item.reason_ref == "approval_required"
+        sensitive_item = by_ref["approval-req:sensitive:1"]
+        assert sensitive_item.category == "sensitive_persistence"
+        assert sensitive_item.domain_id == "domain:general"
+        assert sensitive_item.session_ref == "session:3"
+        assert sensitive_item.operation_ref == "operation:3"
+
+    def test_review_center_classifies_external_action_approvals(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        approvals = tuple(
+            _make_approval(
+                approval_id=f"approval-req:external:{index}",
+                permission_requirement=_make_par(
+                    action=action,
+                    requirement_id=f"permission-requirement:external:{index}",
+                    session_id=f"session:{index}",
+                ),
+            )
+            for index, action in enumerate(
+                (
+                    PermissionCapability.SEARCH_EXTERNAL,
+                    PermissionCapability.MODEL_EXTERNAL,
+                    PermissionCapability.COMMUNICATION_EXTERNAL,
+                )
+            )
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=approvals,
+        )
+        view = projection.review_center
+        assert view is not None
+        assert len(view.items) == 3
+        assert all(item.category == "external_action" for item in view.items)
+
+    def test_review_center_includes_postponed_but_excludes_terminal_approvals(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        postponed = _make_operation_approval(
+            "approval-req:operation:postponed:1",
+            status=ApprovalRequestStatus.POSTPONED,
+            reason_code="domain_operation.approval_required",
+        )
+        approved = _make_operation_approval(
+            "approval-req:operation:approved:1",
+            status=ApprovalRequestStatus.APPROVED,
+        )
+        rejected = _make_operation_approval(
+            "approval-req:operation:rejected:1",
+            status=ApprovalRequestStatus.REJECTED,
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(approved, rejected, postponed),
+        )
+        view = projection.review_center
+        assert view is not None
+        assert len(view.items) == 1
+        item = view.items[0]
+        assert item.review_ref == "approval-req:operation:postponed:1"
+        assert item.state == ApprovalRequestStatus.POSTPONED.value
+        assert item.reason_ref == "domain_operation.approval_required"
+
+    def test_review_center_excludes_foreign_domain_approvals(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        foreign = _make_approval(
+            approval_id="approval-req:foreign:1",
+            permission_requirement=_make_par(
+                action=PermissionCapability.DOMAIN_CROSS_ACCESS,
+                requirement_id="permission-requirement:foreign:1",
+                domain_id="domain:finance",
+            ),
+        )
+        foreign_operation = _make_operation_approval(
+            "approval-req:operation:foreign:1",
+            primary_domain="domain:finance",
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(foreign_operation, foreign),
+        )
+        view = projection.review_center
+        assert view is not None
+        assert view.items == ()
+
+    def test_review_center_excludes_approvals_without_typed_canonical_evidence(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        generic = _make_approval(approval_id="approval-req:generic:1")
+        mismatched_scope = _make_operation_approval(
+            "approval-req:operation:scope:1",
+            metadata_scope="operation",
+        )
+        missing_domain = _make_approval(
+            approval_id="approval-req:operation:unbound:1",
+            reason_codes=("domain_operation.destructive",),
+            metadata={"scope": "domain_operation"},
+        )
+        non_review_action = _make_approval(
+            approval_id="approval-req:permission:execute:1",
+            permission_requirement=_make_par(
+                action=PermissionCapability.OPERATION_EXECUTE,
+                requirement_id="permission-requirement:execute:1",
+            ),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(generic, mismatched_scope, missing_domain, non_review_action),
+        )
+        view = projection.review_center
+        assert view is not None
+        assert view.items == ()
+
+    def test_review_center_projection_does_not_mutate_approval_state(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        approvals = (
+            _make_operation_approval("approval-req:operation:1"),
+            _make_approval(
+                approval_id="approval-req:cross:1",
+                permission_requirement=_make_par(
+                    action=PermissionCapability.DOMAIN_CROSS_ACCESS,
+                    requirement_id="permission-requirement:cross:1",
+                ),
+            ),
+        )
+        before = tuple(approval.to_dict() for approval in approvals)
+        request = _make_request(requested_views=_REVIEW_CENTER)
+        first = _project_views(env, request=request, approvals=approvals)
+        assert all(
+            approval.status is ApprovalRequestStatus.PENDING for approval in approvals
+        )
+        assert tuple(approval.to_dict() for approval in approvals) == before
+        second = _project_views(env, request=request, approvals=approvals)
+        assert second.review_center is not None
+        assert first.review_center is not None
+        assert second.review_center.to_dict() == first.review_center.to_dict()
+
+    def test_review_center_orders_items_deterministically_by_review_ref(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        approvals = tuple(
+            _make_operation_approval(f"approval-req:operation:order:{index}")
+            for index in (3, 1, 2)
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=approvals,
+        )
+        view = projection.review_center
+        assert view is not None
+        refs = [item.review_ref for item in view.items]
+        assert refs == sorted(refs)
+        assert refs == [
+            "approval-req:operation:order:1",
+            "approval-req:operation:order:2",
+            "approval-req:operation:order:3",
+        ]
+
+    def test_review_center_view_not_fabricated_without_canonical_approvals(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+        )
+        assert projection.review_center is None
+        empty = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            approvals=(),
+        )
+        assert empty.review_center is not None
+        assert empty.review_center.items == ()
+        unrequested = _project_views(
+            env,
+            request=_make_request(requested_views=_CONVERSATIONAL),
+            approvals=(_make_operation_approval("approval-req:operation:1"),),
+        )
+        assert unrequested.review_center is None
+
+    def test_review_center_rejects_duck_typed_or_non_canonical_approvals(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        request = _make_request(requested_views=_REVIEW_CENTER)
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                approvals=(SimpleNamespace(id="fake"),),
+            )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            _project_views(
+                env,
+                request=request,
+                approvals="approval-req:operation:1",
             )
