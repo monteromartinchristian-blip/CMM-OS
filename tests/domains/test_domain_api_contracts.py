@@ -320,6 +320,8 @@ class _RecordingMemoryKnowledgeIntegrator:
         view: Any,
         memory_inventory: Any,
         inventory: Any,
+        resolution: Any = None,
+        composition: Any = None,
     ) -> Any:
         self.recorded_args = {
             "request": request,
@@ -327,6 +329,8 @@ class _RecordingMemoryKnowledgeIntegrator:
             "view": view,
             "memory_inventory": memory_inventory,
             "inventory": inventory,
+            "resolution": resolution,
+            "composition": composition,
         }
         return self.result
 
@@ -345,12 +349,16 @@ class TestMemoryKnowledgeProjectionDelegation:
         mem_inv = object()
         inv = object()
 
+        resolution = object()
+        composition = object()
         res = api.project_memory_knowledge(
             req,  # type: ignore[arg-type]
             memory_request=mem_req,  # type: ignore[arg-type]
             view=view,  # type: ignore[arg-type]
             memory_inventory=mem_inv,  # type: ignore[arg-type]
             inventory=inv,  # type: ignore[arg-type]
+            resolution=resolution,  # type: ignore[arg-type]
+            composition=composition,  # type: ignore[arg-type]
         )
 
         assert res is fixed_projection
@@ -359,5 +367,5 @@ class TestMemoryKnowledgeProjectionDelegation:
         assert recorder.recorded_args["view"] is view
         assert recorder.recorded_args["memory_inventory"] is mem_inv
         assert recorder.recorded_args["inventory"] is inv
-
-
+        assert recorder.recorded_args["resolution"] is resolution
+        assert recorder.recorded_args["composition"] is composition
