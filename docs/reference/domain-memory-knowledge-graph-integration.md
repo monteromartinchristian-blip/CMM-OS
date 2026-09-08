@@ -12,7 +12,8 @@ AT-DP-044=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
 V1 independent audit = FAIL (docs/audits/phase-10.44-independent-audit-v1.md)
 V2 independent re-audit = FAIL (docs/audits/phase-10.44-independent-reaudit-v2.md)
-V2 findings remediated; independent V3 re-audit pending
+V3 independent re-audit = FAIL (docs/audits/phase-10.44-independent-reaudit-v3.md)
+V3 blockers remediated; independent V4 re-audit pending
 independently audited closure boundary = 10.43 (Phase 10.44 not closed)
 ```
 
@@ -114,9 +115,12 @@ DomainMemoryKnowledgeProjectionRequest
     ├── Verify supporting_domains coherence with the Phase 10.18 request
     ├── Verify temporal_reference coherence with the Phase 10.18 request
     ├── Require explicit caller-supplied canonical resolution + composition
+    ├── Verify exact canonical DomainResolutionResult / DomainComposition types
+    ├── Verify resolution.status == RESOLVED (only final authority projects; AMBIGUOUS/INSUFFICIENT_INFORMATION/BLOCKED/UNSUPPORTED/FAILED fail closed)
     ├── Verify resolution_reference_id == resolution.id
     ├── Verify composition_reference_id == composition.id
     ├── Verify composition.resolution_id == resolution.id
+    ├── Verify memory_request.resolution_reference_id == resolution.id (Phase 10.18 view content-bound to the same canonical resolution identity)
     └── Verify resolution/composition primary domains match the request
     │
     ▼
@@ -200,7 +204,7 @@ DomainMemoryKnowledgeProjectionRequest
 ## 8. Verification Evidence
 
 - `tests/domains/test_domain_memory_knowledge_integration_contracts.py`: 53 unit contract tests (validation, immutability, serialization, round-trips).
-- `tests/domains/test_domain_memory_knowledge_integration.py`: 36 integration tests covering view validation, canonical authority binding (exact canonical `DomainResolutionResult`/`DomainComposition` types with coherent supporting domains; duck-typed impostors fail closed; COMPOSED/PARTIAL accepted, BLOCKED/FAILED rejected), authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
+- `tests/domains/test_domain_memory_knowledge_integration.py`: 42 integration tests covering view validation, canonical authority binding (exact canonical `DomainResolutionResult`/`DomainComposition` types with coherent supporting domains; duck-typed impostors fail closed; only `RESOLVED` resolution status is final authority — `AMBIGUOUS`, `INSUFFICIENT_INFORMATION`, and `BLOCKED` real canonical resolutions fail closed; the Phase 10.18 memory request must carry the same canonical resolution reference as the projection request/resolution/composition, so a stale or unbound memory view is rejected; COMPOSED/PARTIAL accepted, BLOCKED/FAILED rejected), authority coherence, shared identities, relation projection, fail-closed suppression, timelines, contradictions, multi-hop paths, proposal bindings, and DomainAPI delegation.
 - `tests/domains/test_domain_memory_knowledge_architecture.py`: 10 boundary tests verifying 0 AST imports of `cmm.memory`, 0 reverse imports from cognitive/agent_runtime, no parallel owners, no store mutation, and no sensitive leakage.
-- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), the identical proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority with no binding projected and proposal repository decisions/results unchanged, downgraded READ-suppression authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, canonical supersession lineage exclusion pointing at the current reference identity, no merge, succession not contradiction).
-- **Connected Acceptance Output:** `AT-DP-044=PASS_REPORTED` (implementation evidence only; V1 independent audit `FAIL` and V2 independent re-audit `FAIL` recorded; independent verification remains pending V3 re-audit).
+- `tests/domains/test_domain_memory_knowledge_dp044_acceptance.py`: Connected end-to-end acceptance test verifying all 24 positive checkpoints, real `DomainResolutionResult.status == RESOLVED` and the connected resolution chain (`mem_req.resolution_reference_id == req.resolution_reference_id == resolution.id == composition.resolution_id`; `view.request_digest == mem_req.digest`), the real Phase 9 relation-proposal checkpoint (non-empty `relations` with expected `depends_on` target semantics), the identical proposal binding replayed under downgraded (denied/absent) `PROPOSE` authority with no binding projected and proposal repository decisions/results unchanged, downgraded READ-suppression authority adversarial branch, causal adversarial branch, and the genuine old/current incompatible-period temporal adversarial branch (history preserved, current-only truth, canonical supersession lineage exclusion pointing at the current reference identity, no merge, succession not contradiction).
+- **Connected Acceptance Output:** `AT-DP-044=PASS_REPORTED` (implementation evidence only; V1 independent audit `FAIL`, V2 independent re-audit `FAIL`, and V3 independent re-audit `FAIL` recorded; V3 blockers remediated; independent verification remains pending V4 re-audit).
