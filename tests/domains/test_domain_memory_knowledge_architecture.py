@@ -206,14 +206,14 @@ class TestSensitiveFieldSchema:
             relation_id="rel-1",
             source_reference_id="ref:a",
             target_reference_id="ref:b",
-            kind="relates_to",
+            kind="related_to",
         )
         path = DomainMemoryKnowledgePath.create((hop,))
         rel_ref = DomainMemoryKnowledgeRelationRef(
             relation_id="rel-1",
             source_reference_id="ref:a",
             target_reference_id="ref:b",
-            kind="relates_to",
+            kind="related_to",
         )
         contra_ref = DomainMemoryKnowledgeContradictionRef(
             contradiction_id="contra-1",
@@ -236,6 +236,7 @@ class TestSensitiveFieldSchema:
         inv = DomainMemoryKnowledgeInventory()
         proj = DomainMemoryKnowledgeProjection.create(
             request_id="req-1",
+            request_digest="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             memory_view_id="view:req-1:0123456789ab",
             memory_view_digest="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             selected_reference_ids=("ref:a", "ref:b"),

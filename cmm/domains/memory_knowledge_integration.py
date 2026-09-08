@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from typing import Any
+
+from cmm.cognitive.enums import KnowledgeRelationKind
 from cmm.domains.errors import (
     DomainMemoryKnowledgeAuthorizationError,
     DomainMemoryKnowledgeProjectionError,
@@ -38,32 +41,38 @@ from cmm.domains.memory_validation import (
 
 DEFAULT_DEPENDENCY_RELATION_KINDS: frozenset[str] = frozenset(
     {
-        "depends_on",
-        "part_of",
-        "blocks",
-        "enables",
-        "derived_from",
-        "supports",
+        KnowledgeRelationKind.DERIVED_FROM.value,
+        KnowledgeRelationKind.SUPPORTS.value,
+        KnowledgeRelationKind.REFINES.value,
+        KnowledgeRelationKind.SUPERSEDES.value,
     }
 )
 
 DEFAULT_IMPACT_RELATION_KINDS: frozenset[str] = frozenset(
     {
-        "depends_on",
-        "part_of",
-        "blocks",
-        "enables",
-        "derived_from",
-        "supports",
-        "correlated_with",
-        "caused_by",
-        "refines",
-        "supersedes",
-        "related_to",
+        KnowledgeRelationKind.SUPPORTS.value,
+        KnowledgeRelationKind.DERIVED_FROM.value,
+        KnowledgeRelationKind.REFINES.value,
+        KnowledgeRelationKind.SUPERSEDES.value,
+        KnowledgeRelationKind.RELATED_TO.value,
+        KnowledgeRelationKind.EQUIVALENT_TO.value,
     }
 )
 
 DEFAULT_MAX_PATH_DEPTH = 10
+
+
+def _canonical_temporal_anchor(ref: DomainMemoryReference) -> str | None:
+    temporal = ref.temporal
+    if temporal is None:
+        return None
+    if temporal.kind == DomainMemoryTemporalKind.POINT_IN_TIME:
+        return temporal.observed_at
+    if temporal.kind == DomainMemoryTemporalKind.INTERVAL:
+        if temporal.valid_from is None or temporal.valid_to is None:
+            return None
+        return temporal.valid_from
+    return None
 
 
 def _is_shared_identity(
@@ -170,6 +179,19 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
             if memory_validator is not None
             else DefaultDomainMemoryIntegrationValidator()
         )
+        canonical_values = frozenset(item.value for item in KnowledgeRelationKind)
+        if dependency_relation_kinds is not None and not set(
+            dependency_relation_kinds
+        ).issubset(canonical_values):
+            raise DomainMemoryKnowledgeProjectionError(
+                "dependency_relation_kinds must be canonical KnowledgeRelationKind values"
+            )
+        if impact_relation_kinds is not None and not set(
+            impact_relation_kinds
+        ).issubset(canonical_values):
+            raise DomainMemoryKnowledgeProjectionError(
+                "impact_relation_kinds must be canonical KnowledgeRelationKind values"
+            )
         self._dependency_relation_kinds = (
             dependency_relation_kinds
             if dependency_relation_kinds is not None
@@ -190,29 +212,64 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
+        resolution: Any | None = None,
+        composition: Any | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Project authorized canonical knowledge over an authorized Phase 10.18 view."""
         # 1. Structural request / view / memory_request coherence
         if request.memory_view_id != view.view_id:
-            raise DomainMemoryKnowledgeProjectionError(
-                f"memory_view_id mismatch: request={request.memory_view_id}, view={view.view_id}"
-            )
+            raise DomainMemoryKnowledgeProjectionError("memory_view_id mismatch")
         if request.memory_view_digest != view.digest:
-            raise DomainMemoryKnowledgeProjectionError(
-                f"memory_view_digest mismatch: request={request.memory_view_digest}, view={view.digest}"
-            )
+            raise DomainMemoryKnowledgeProjectionError("memory_view_digest mismatch")
         if str(request.primary_domain) != str(view.primary_domain):
-            raise DomainMemoryKnowledgeProjectionError(
-                f"primary_domain mismatch: request={request.primary_domain}, view={view.primary_domain}"
-            )
+            raise DomainMemoryKnowledgeProjectionError("primary_domain mismatch")
         if memory_request.request_id != view.request_id:
             raise DomainMemoryKnowledgeProjectionError(
-                f"memory_request request_id mismatch: mem_req={memory_request.request_id}, view={view.request_id}"
+                "memory_request request_id mismatch"
+            )
+        if str(request.primary_domain) != str(memory_request.primary_domain):
+            raise DomainMemoryKnowledgeProjectionError("primary_domain mismatch")
+        if tuple(request.supporting_domains) != tuple(
+            memory_request.supporting_domains
+        ):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "supporting domains diverge from Phase 10.18 request"
+            )
+        if request.temporal_reference != memory_request.temporal_reference:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "temporal reference diverges from Phase 10.18 request"
+            )
+
+        if resolution is None or composition is None:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution and composition authority required"
+            )
+        if request.resolution_reference_id != resolution.id:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution reference mismatch"
+            )
+        if request.composition_reference_id != composition.id:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition reference mismatch"
+            )
+        if composition.resolution_id != resolution.id:
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition resolution mismatch"
+            )
+        if resolution.primary_domain is None or str(resolution.primary_domain) != str(
+            request.primary_domain
+        ):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "resolution primary domain mismatch"
+            )
+        if str(composition.primary_domain) != str(request.primary_domain):
+            raise DomainMemoryKnowledgeAuthorizationError(
+                "composition primary domain mismatch"
             )
 
         # 2. Authority coherence: requested permission decisions must be covered by memory_request
-        if not set(request.permission_decision_ids).issubset(
-            set(memory_request.permission_decision_ids)
+        if set(request.permission_decision_ids) != set(
+            memory_request.permission_decision_ids
         ):
             raise DomainMemoryKnowledgeAuthorizationError(
                 "Requested permission decisions not present in validated memory request"
@@ -270,9 +327,9 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                     continue
                 if src_ref.reference_id == tgt_ref.reference_id:
                     continue
-                kind_val = (
-                    rel.kind.value if hasattr(rel.kind, "value") else str(rel.kind)
-                )
+                if not isinstance(rel.kind, KnowledgeRelationKind):
+                    continue
+                kind_val = rel.kind.value
                 prov = rel.provenance if rel.provenance else None
                 relation_refs_list.append(
                     DomainMemoryKnowledgeRelationRef(
@@ -309,23 +366,10 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
                     unknown_set.add(r.reference_id)
                     continue
 
-                if (
-                    r.temporal is None
-                    or r.temporal.kind == DomainMemoryTemporalKind.UNKNOWN
-                ):
+                anchor_str = _canonical_temporal_anchor(r)
+                if anchor_str is None:
                     if r.temporal is not None or r.has_unknown_ordering:
                         unknown_set.add(r.reference_id)
-                    continue
-
-                anchor_str = (
-                    r.temporal.valid_from
-                    or r.temporal.observed_at
-                    or r.temporal.last_verified_at
-                    or r.temporal.valid_to
-                    or r.temporal.expires_at
-                )
-                if not anchor_str:
-                    unknown_set.add(r.reference_id)
                     continue
 
                 try:
@@ -428,6 +472,7 @@ class DefaultDomainMemoryKnowledgeIntegrator(DomainMemoryKnowledgeIntegrator):
 
         return DomainMemoryKnowledgeProjection.create(
             request_id=request.request_id,
+            request_digest=request.digest,
             memory_view_id=view.view_id,
             memory_view_digest=view.digest,
             selected_reference_ids=selected_ref_ids,

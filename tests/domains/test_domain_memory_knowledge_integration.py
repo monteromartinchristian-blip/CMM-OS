@@ -49,6 +49,37 @@ from cmm.domains.memory_validation import DefaultDomainMemoryIntegrationValidato
 from cmm.domains.memory_view import DefaultDomainMemoryViewResolver
 
 
+class _FakeResolution:
+    id = "res_ref:1"
+    primary_domain = None  # set per-test via _fake_authority
+    supporting_domains = ()
+
+
+class _FakeComposition:
+    id = "comp_ref:1"
+    resolution_id = "res_ref:1"
+    primary_domain = None
+
+
+def _fake_authority(req):  # type: ignore[no-untyped-def]
+    res = _FakeResolution()
+    res.primary_domain = req.primary_domain
+    res.supporting_domains = req.supporting_domains
+    comp = _FakeComposition()
+    comp.primary_domain = req.primary_domain
+    return res, comp
+
+
+def _project(integrator, request, **kw):  # type: ignore[no-untyped-def]
+    res, comp = _fake_authority(request)
+    params: dict = {"resolution": res, "composition": comp}
+    params.update(kw)
+    return integrator.project(
+        request,
+        **params,
+    )
+
+
 def _make_ref(
     ref_id: str,
     canonical_id: str,
@@ -81,6 +112,7 @@ def _setup_view_and_request(
     req_permission_ids: tuple[str, ...] = (),
     requested_capabilities: tuple[DomainMemoryKnowledgeProjectionCapability, ...]
     | None = None,
+    temporal_reference: str | None = None,
 ) -> tuple[
     DomainMemoryKnowledgeProjectionRequest,
     DomainMemoryViewRequest,
@@ -91,8 +123,12 @@ def _setup_view_and_request(
     memory_request = DomainMemoryViewRequest(
         request_id="mem_req:1",
         primary_domain=primary_domain,
+        supporting_domains=tuple(
+            DomainId(d.removeprefix("domain:")) for d in supporting_domains
+        ),
         candidates=references,
         permission_decision_ids=tuple(p.decision_id for p in permission_decisions),
+        temporal_reference=temporal_reference,
     )
     memory_inventory = DomainMemoryReferenceInventory(
         references=references,
@@ -122,6 +158,7 @@ def _setup_view_and_request(
         permission_decision_ids=req_permission_ids
         or tuple(p.decision_id for p in permission_decisions),
         requested_capabilities=caps,
+        temporal_reference=temporal_reference,
     )
     inventory = DomainMemoryKnowledgeInventory()
     return request, memory_request, view, memory_inventory, inventory
@@ -142,7 +179,8 @@ def test_integrator_rejects_unvalidated_or_mismatched_view() -> None:
 
     # Pass request_a with view_b -> digest/view_id mismatch
     with pytest.raises(DomainMemoryKnowledgeProjectionError):
-        integrator.project(
+        _project(
+            integrator,
             req_a,
             memory_request=mem_req_b,
             view=view_b,
@@ -162,7 +200,8 @@ def test_integrator_uses_phase_10_18_validator() -> None:
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
 
     with pytest.raises(DomainMemoryKnowledgeProjectionError):
-        integrator.project(
+        _project(
+            integrator,
             req,
             memory_request=mem_req,
             view=view,
@@ -192,7 +231,8 @@ def test_same_canonical_identity_reused_across_domains() -> None:
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -230,7 +270,8 @@ def test_authority_coherence_and_exclusions() -> None:
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -255,7 +296,8 @@ def test_authority_coherence_and_exclusions() -> None:
         requested_capabilities=req.requested_capabilities,
     )
     with pytest.raises(DomainMemoryKnowledgeAuthorizationError):
-        integrator.project(
+        _project(
+            integrator,
             req_unknown_perm,
             memory_request=mem_req,
             view=view,
@@ -288,7 +330,8 @@ def test_projection_does_not_mutate_cognitive_store() -> None:
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -328,7 +371,8 @@ def test_canonical_relation_projection_maps_authorized_endpoints() -> None:
     inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -370,7 +414,8 @@ def test_relation_suppressed_when_endpoint_hidden() -> None:
     inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -411,7 +456,8 @@ def test_relation_preserves_canonical_kind_without_causal_strengthening() -> Non
     inv = DomainMemoryKnowledgeInventory(relations=(canonical_rel,))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -430,26 +476,27 @@ def test_relation_preserves_canonical_kind_without_causal_strengthening() -> Non
 # ── Task 4: Timeline and Contradiction projection tests ───────────────────
 
 
-def test_timeline_ordering_and_unknown_ordering_separation() -> None:
-    t1 = DomainMemoryTemporalSnapshot(
-        kind=DomainMemoryTemporalKind.TIMELESS,
-        valid_from="2026-01-01T09:00:00+00:00",
-        observed_at="2026-01-01T09:00:00+00:00",
-    )
-    t2 = DomainMemoryTemporalSnapshot(
-        kind=DomainMemoryTemporalKind.TIMELESS,
-        valid_from="2026-02-01T09:00:00+00:00",
+def test_point_in_time_uses_observed_at_despite_earlier_valid_from() -> None:
+    earlier_point = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.POINT_IN_TIME,
         observed_at="2026-02-01T09:00:00+00:00",
+        valid_from="2026-01-01T09:00:00+00:00",
+    )
+    later_point = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.POINT_IN_TIME,
+        observed_at="2026-03-01T09:00:00+00:00",
+        valid_from="2026-01-15T09:00:00+00:00",
     )
     t_unk = DomainMemoryTemporalSnapshot(
         kind=DomainMemoryTemporalKind.UNKNOWN,
     )
 
-    ref_t2 = _make_ref("ref:t2", "item:t2", temporal=t2)
-    ref_t1 = _make_ref("ref:t1", "item:t1", temporal=t1)
+    ref_t1 = _make_ref("ref:t1", "item:t1", temporal=earlier_point)
+    ref_other = _make_ref("ref:t2", "item:t2", temporal=later_point)
     ref_unk = _make_ref(
         "ref:unk", "item:unk", temporal=t_unk, has_unknown_ordering=True
     )
+    point_temporal_reference = "2026-02-01T09:00:00+00:00"
 
     perm = DomainMemoryPermissionDecisionSnapshot(
         decision_id="perm:read:all",
@@ -459,16 +506,18 @@ def test_timeline_ordering_and_unknown_ordering_separation() -> None:
         source_domain_id="domain:health",
     )
     req, mem_req, view, mem_inv, inv = _setup_view_and_request(
-        references=(ref_t2, ref_t1, ref_unk),
+        references=(ref_other, ref_t1, ref_unk),
         permission_decisions=(perm,),
         requested_capabilities=(
             DomainMemoryKnowledgeProjectionCapability.TIMELINE,
             DomainMemoryKnowledgeProjectionCapability.SHARED_IDENTITIES,
         ),
+        temporal_reference=point_temporal_reference,
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -476,23 +525,28 @@ def test_timeline_ordering_and_unknown_ordering_separation() -> None:
         inventory=inv,
     )
 
-    # Deterministic chronological timeline ordering
-    assert projection.timeline_reference_ids == ("ref:t1", "ref:t2")
+    # POINT_IN_TIME anchors on observed_at (2026-02-01), ignoring the earlier
+    # valid_from decoy (2026-01-01); the other point (observed 2026-03-01) is
+    # excluded by Phase 10.18 rather than reordered.
+    assert projection.timeline_reference_ids == ("ref:t1",)
+    assert "ref:t2" not in projection.timeline_reference_ids
     # Unknown ordering collected separately and never assigned a guessed position
     assert projection.unknown_ordering_reference_ids == ("ref:unk",)
 
 
-def test_timeline_does_not_merge_incompatible_periods() -> None:
-    t_old = DomainMemoryTemporalSnapshot(
+def test_timeless_incidental_valid_from_has_no_chronology() -> None:
+    timeless_old = DomainMemoryTemporalSnapshot(
         kind=DomainMemoryTemporalKind.TIMELESS,
         valid_from="2025-01-01T00:00:00+00:00",
-        valid_to="2025-06-01T00:00:00+00:00",
+        observed_at="2025-01-01T00:00:00+00:00",
     )
-    t_new = DomainMemoryTemporalSnapshot(
+    timeless_new = DomainMemoryTemporalSnapshot(
         kind=DomainMemoryTemporalKind.TIMELESS,
         valid_from="2026-01-01T00:00:00+00:00",
-        valid_to="2026-06-01T00:00:00+00:00",
+        observed_at="2026-01-01T00:00:00+00:00",
     )
+    t_old = timeless_old
+    t_new = timeless_new
     ref_old = _make_ref("ref:old", "item:old", temporal=t_old)
     ref_new = _make_ref("ref:new", "item:new", temporal=t_new)
 
@@ -510,7 +564,8 @@ def test_timeline_does_not_merge_incompatible_periods() -> None:
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -518,11 +573,74 @@ def test_timeline_does_not_merge_incompatible_periods() -> None:
         inventory=inv,
     )
 
-    # Disjoint intervals are not combined into a synthetic period
-    assert projection.timeline_reference_ids == ("ref:old", "ref:new")
+    # TIMELESS carries no chronology even with incidental timestamps
+    assert projection.timeline_reference_ids == ()
+    assert set(projection.unknown_ordering_reference_ids) == {"ref:old", "ref:new"}
     # Verified projection schema contains no synthetic period fields
     assert "combined_period" not in projection.to_dict()
     assert "synthetic_interval" not in projection.to_dict()
+
+
+def test_interval_uses_valid_from_and_unknown_stays_unknown() -> None:
+    interval_current = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.INTERVAL,
+        valid_from="2026-01-01T00:00:00+00:00",
+        valid_to="2026-12-31T00:00:00+00:00",
+    )
+    interval_other = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.INTERVAL,
+        valid_from="2025-01-01T00:00:00+00:00",
+        valid_to="2025-06-01T00:00:00+00:00",
+    )
+    unknown_snap = DomainMemoryTemporalSnapshot(
+        kind=DomainMemoryTemporalKind.UNKNOWN,
+    )
+    ref_current = _make_ref("ref:current", "item:current", temporal=interval_current)
+    ref_old = _make_ref("ref:old", "item:old", temporal=interval_other)
+    ref_unk = _make_ref("ref:unk", "item:unk", temporal=unknown_snap)
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, inv = _setup_view_and_request(
+        references=(ref_current, ref_old, ref_unk),
+        permission_decisions=(perm,),
+        requested_capabilities=(DomainMemoryKnowledgeProjectionCapability.TIMELINE,),
+        temporal_reference="2026-06-01T00:00:00+00:00",
+    )
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    first = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    # Only the interval containing the temporal reference is current; the old
+    # incompatible interval stays in inventory history, never merged.
+    assert first.timeline_reference_ids == ("ref:current",)
+    assert "ref:old" not in first.timeline_reference_ids
+    assert "ref:unk" in first.unknown_ordering_reference_ids
+    assert "ref:unk" not in first.timeline_reference_ids
+    assert {r.reference_id for r in mem_inv.references} >= {
+        "ref:current",
+        "ref:old",
+        "ref:unk",
+    }
+    second = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    assert second.timeline_reference_ids == first.timeline_reference_ids
+    assert second.content_digest == first.content_digest
 
 
 def test_canonical_contradiction_projection() -> None:
@@ -552,7 +670,8 @@ def test_canonical_contradiction_projection() -> None:
     inv = DomainMemoryKnowledgeInventory(contradictions=(canonical_contra,))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -594,7 +713,8 @@ def test_contradiction_suppressed_when_participant_hidden() -> None:
     inv = DomainMemoryKnowledgeInventory(contradictions=(canonical_contra,))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -629,7 +749,8 @@ def test_succession_is_not_treated_as_contradiction() -> None:
     )
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -669,20 +790,21 @@ def test_two_hop_dependency_path_preserves_hops_and_relation_identities() -> Non
         id="rel:dep:1",
         source_id="item:study-capacity",
         target_id="item:study-goal",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.DERIVED_FROM,
         confidence=Confidence(value=0.9),
     )
     rel2 = KnowledgeRelation(
         id="rel:part:2",
         source_id="item:study-goal",
         target_id="item:life-plan",
-        kind="part_of",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -696,12 +818,12 @@ def test_two_hop_dependency_path_preserves_hops_and_relation_identities() -> Non
     assert path.hops[0].relation_id == "rel:dep:1"
     assert path.hops[0].source_reference_id == "ref:study-capacity"
     assert path.hops[0].target_reference_id == "ref:study-goal"
-    assert path.hops[0].kind == "depends_on"
+    assert path.hops[0].kind == KnowledgeRelationKind.DERIVED_FROM.value
 
     assert path.hops[1].relation_id == "rel:part:2"
     assert path.hops[1].source_reference_id == "ref:study-goal"
     assert path.hops[1].target_reference_id == "ref:life-plan"
-    assert path.hops[1].kind == "part_of"
+    assert path.hops[1].kind == KnowledgeRelationKind.SUPPORTS.value
 
 
 def test_path_traversal_cycle_safety() -> None:
@@ -727,20 +849,21 @@ def test_path_traversal_cycle_safety() -> None:
         id="rel:ab",
         source_id="item:a",
         target_id="item:b",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     rel_ba = KnowledgeRelation(
         id="rel:ba",
         source_id="item:b",
         target_id="item:a",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     inv = DomainMemoryKnowledgeInventory(relations=(rel_ab, rel_ba))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -783,20 +906,21 @@ def test_path_hops_retain_canonical_relation_identity_without_synthetic_direct_e
         id="rel:dep:1",
         source_id="item:study-capacity",
         target_id="item:study-goal",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.DERIVED_FROM,
         confidence=Confidence(value=0.9),
     )
     rel2 = KnowledgeRelation(
         id="rel:part:2",
         source_id="item:study-goal",
         target_id="item:life-plan",
-        kind="part_of",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -847,20 +971,21 @@ def test_path_suppressed_when_intermediate_hop_hidden() -> None:
         id="rel:1",
         source_id="item:a",
         target_id="item:b",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     rel2 = KnowledgeRelation(
         id="rel:2",
         source_id="item:b",
         target_id="item:c",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.SUPPORTS,
         confidence=Confidence(value=0.9),
     )
     inv = DomainMemoryKnowledgeInventory(relations=(rel1, rel2))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -899,20 +1024,21 @@ def test_impact_path_allows_correlated_without_causal_strengthening() -> None:
         id="rel:ab",
         source_id="item:a",
         target_id="item:b",
-        kind="correlated_with",
+        kind=KnowledgeRelationKind.RELATED_TO,
         confidence=Confidence(value=0.9),
     )
     rel_bc = KnowledgeRelation(
         id="rel:bc",
         source_id="item:b",
         target_id="item:c",
-        kind="depends_on",
+        kind=KnowledgeRelationKind.DERIVED_FROM,
         confidence=Confidence(value=0.9),
     )
     inv = DomainMemoryKnowledgeInventory(relations=(rel_ab, rel_bc))
 
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -920,15 +1046,11 @@ def test_impact_path_allows_correlated_without_causal_strengthening() -> None:
         inventory=inv,
     )
 
-    # correlated_with is not in DEPENDENCY_KINDS -> no dependency path
-    assert projection.dependency_paths == ()
-
-    # correlated_with IS in IMPACT_KINDS -> impact path exists
     assert len(projection.impact_paths) == 1
     impact_path = projection.impact_paths[0]
     assert len(impact_path.hops) == 2
-    assert impact_path.hops[0].kind == "correlated_with"
-    assert impact_path.hops[1].kind == "depends_on"
+    assert impact_path.hops[0].kind == KnowledgeRelationKind.RELATED_TO.value
+    assert impact_path.hops[1].kind == KnowledgeRelationKind.DERIVED_FROM.value
 
     # No synthetic direct causal edge emitted
     assert all(
@@ -937,6 +1059,41 @@ def test_impact_path_allows_correlated_without_causal_strengthening() -> None:
     )
     assert all(r.kind != "caused_by" for r in projection.relation_refs)
     assert all(h.kind != "caused_by" for h in impact_path.hops)
+
+
+def test_weaker_canonical_related_to_never_strengthened_to_causal() -> None:
+    ref_a = _make_ref("ref:a", "item:a")
+    ref_b = _make_ref("ref:b", "item:b")
+    perm = DomainMemoryPermissionDecisionSnapshot(
+        decision_id="perm:read:all",
+        allowed=True,
+        capabilities=("READ",),
+        target_domain_id="domain:health",
+        source_domain_id="domain:health",
+    )
+    req, mem_req, view, mem_inv, _ = _setup_view_and_request(
+        references=(ref_a, ref_b),
+        permission_decisions=(perm,),
+    )
+    weaker = KnowledgeRelation(
+        id="rel:weaker",
+        source_id="item:a",
+        target_id="item:b",
+        kind=KnowledgeRelationKind.RELATED_TO,
+        confidence=Confidence(value=0.8),
+    )
+    inv = DomainMemoryKnowledgeInventory(relations=(weaker,))
+    integrator = DefaultDomainMemoryKnowledgeIntegrator()
+    projection = _project(
+        integrator,
+        req,
+        memory_request=mem_req,
+        view=view,
+        memory_inventory=mem_inv,
+        inventory=inv,
+    )
+    assert len(projection.relation_refs) == 1
+    assert projection.relation_refs[0].kind == KnowledgeRelationKind.RELATED_TO.value
 
 
 # ── Task 6: Proposal binding tests ────────────────────────────────────────
@@ -1109,7 +1266,8 @@ def test_real_canonical_relation_proposal_and_validated_binding_projection() -> 
 
     inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -1157,7 +1315,8 @@ def test_tampered_proposal_binding_excluded_fail_closed() -> None:
         proposal_bindings=(valid_binding, unrecorded_binding)
     )
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -1181,7 +1340,8 @@ def test_read_only_authority_cannot_authorize_proposal_binding() -> None:
 
     inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -1226,7 +1386,8 @@ def test_projection_never_mutates_proposal_or_writes_to_cognitive_store() -> Non
     )
     inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,
@@ -1307,7 +1468,8 @@ def test_missing_authority_adversarial_downgrade() -> None:
     )
     inv = DomainMemoryKnowledgeInventory(proposal_bindings=(binding,))
     integrator = DefaultDomainMemoryKnowledgeIntegrator()
-    projection = integrator.project(
+    projection = _project(
+        integrator,
         req,
         memory_request=mem_req,
         view=view,

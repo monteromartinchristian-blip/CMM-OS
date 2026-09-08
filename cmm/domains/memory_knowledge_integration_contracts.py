@@ -16,6 +16,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Protocol, runtime_checkable
 
+from cmm.cognitive.enums import KnowledgeRelationKind
 from cmm.cognitive.knowledge import Contradiction, KnowledgeRelation
 from cmm.domains.errors import (
     DomainMemoryKnowledgeContractError,
@@ -32,6 +33,20 @@ from cmm.domains.memory_contracts import (
 _HEX64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _PATH_PREFIX = "domain-memory-knowledge-path:"
 _PROJECTION_PREFIX = "domain-memory-knowledge-projection:"
+
+CANONICAL_RELATION_KINDS = frozenset(item.value for item in KnowledgeRelationKind)
+
+
+def _require_canonical_relation_kind(value: Any, field_name: str) -> str:
+    kind_str = _require_non_blank_str(value, field_name)
+    try:
+        canonical = KnowledgeRelationKind(kind_str)
+    except ValueError:
+        raise DomainMemoryKnowledgeContractError(
+            f"{field_name} must be a canonical KnowledgeRelationKind value"
+        ) from None
+    return canonical.value
+
 
 FORBIDDEN_PAYLOAD_FIELDS = frozenset(
     {
@@ -130,7 +145,7 @@ class DomainMemoryKnowledgeRelationRef:
         rel_id = _require_non_blank_str(self.relation_id, "relation_id")
         src_id = _require_non_blank_str(self.source_reference_id, "source_reference_id")
         tgt_id = _require_non_blank_str(self.target_reference_id, "target_reference_id")
-        k = _require_non_blank_str(self.kind, "kind")
+        k = _require_canonical_relation_kind(self.kind, "kind")
 
         if src_id == tgt_id:
             raise DomainMemoryKnowledgeContractError(
@@ -273,7 +288,7 @@ class DomainMemoryKnowledgePathHop:
         rel_id = _require_non_blank_str(self.relation_id, "relation_id")
         src_id = _require_non_blank_str(self.source_reference_id, "source_reference_id")
         tgt_id = _require_non_blank_str(self.target_reference_id, "target_reference_id")
-        k = _require_non_blank_str(self.kind, "kind")
+        k = _require_canonical_relation_kind(self.kind, "kind")
 
         if src_id == tgt_id:
             raise DomainMemoryKnowledgeContractError(
@@ -467,6 +482,10 @@ class DomainMemoryKnowledgeProjectionRequest:
     session_id: str | None = None
     temporal_reference: str | None = None
 
+    @property
+    def digest(self) -> str:
+        return _sha256_digest(self.to_dict())
+
     def __post_init__(self) -> None:
         req_id = _require_non_blank_str(self.request_id, "request_id")
         mv_id = _require_non_blank_str(self.memory_view_id, "memory_view_id")
@@ -604,6 +623,7 @@ class DomainMemoryKnowledgeProjection:
 
     projection_id: str
     request_id: str
+    request_digest: str
     memory_view_id: str
     memory_view_digest: str
     selected_reference_ids: tuple[str, ...]
@@ -621,6 +641,7 @@ class DomainMemoryKnowledgeProjection:
     def __post_init__(self) -> None:
         p_id = _require_non_blank_str(self.projection_id, "projection_id")
         req_id = _require_non_blank_str(self.request_id, "request_id")
+        req_digest = _require_hex64(self.request_digest, "request_digest")
         mv_id = _require_non_blank_str(self.memory_view_id, "memory_view_id")
         mv_digest = _require_hex64(self.memory_view_digest, "memory_view_digest")
 
@@ -694,6 +715,7 @@ class DomainMemoryKnowledgeProjection:
 
         payload = {
             "request_id": req_id,
+            "request_digest": req_digest,
             "memory_view_id": mv_id,
             "memory_view_digest": mv_digest,
             "selected_reference_ids": list(sel_ids),
@@ -722,6 +744,7 @@ class DomainMemoryKnowledgeProjection:
 
         object.__setattr__(self, "projection_id", p_id)
         object.__setattr__(self, "request_id", req_id)
+        object.__setattr__(self, "request_digest", req_digest)
         object.__setattr__(self, "memory_view_id", mv_id)
         object.__setattr__(self, "memory_view_digest", mv_digest)
         object.__setattr__(self, "selected_reference_ids", sel_ids)
@@ -740,6 +763,7 @@ class DomainMemoryKnowledgeProjection:
         cls,
         *,
         request_id: str,
+        request_digest: str,
         memory_view_id: str,
         memory_view_digest: str,
         selected_reference_ids: Sequence[str],
@@ -768,6 +792,7 @@ class DomainMemoryKnowledgeProjection:
 
         payload = {
             "request_id": request_id,
+            "request_digest": request_digest,
             "memory_view_id": memory_view_id,
             "memory_view_digest": memory_view_digest,
             "selected_reference_ids": list(sel_ids),
@@ -786,6 +811,7 @@ class DomainMemoryKnowledgeProjection:
         return cls(
             projection_id=proj_id,
             request_id=request_id,
+            request_digest=request_digest,
             memory_view_id=memory_view_id,
             memory_view_digest=memory_view_digest,
             selected_reference_ids=sel_ids,
@@ -805,6 +831,7 @@ class DomainMemoryKnowledgeProjection:
         return {
             "projection_id": self.projection_id,
             "request_id": self.request_id,
+            "request_digest": self.request_digest,
             "memory_view_id": self.memory_view_id,
             "memory_view_digest": self.memory_view_digest,
             "selected_reference_ids": list(self.selected_reference_ids),
@@ -827,6 +854,7 @@ class DomainMemoryKnowledgeProjection:
         allowed = {
             "projection_id",
             "request_id",
+            "request_digest",
             "memory_view_id",
             "memory_view_digest",
             "selected_reference_ids",
@@ -866,6 +894,7 @@ class DomainMemoryKnowledgeProjection:
             return cls(
                 projection_id=data["projection_id"],
                 request_id=data["request_id"],
+                request_digest=data["request_digest"],
                 memory_view_id=data["memory_view_id"],
                 memory_view_digest=data["memory_view_digest"],
                 selected_reference_ids=tuple(data.get("selected_reference_ids", ())),
@@ -904,6 +933,8 @@ class DomainMemoryKnowledgeIntegrator(Protocol):
         view: DomainMemoryView,
         memory_inventory: DomainMemoryReferenceInventory,
         inventory: DomainMemoryKnowledgeInventory,
+        resolution: Any | None = None,
+        composition: Any | None = None,
     ) -> DomainMemoryKnowledgeProjection:
         """Project authorized canonical knowledge over a resolved Phase 10.18 memory view."""
         ...

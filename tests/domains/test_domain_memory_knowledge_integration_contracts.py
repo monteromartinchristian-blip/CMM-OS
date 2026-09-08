@@ -82,13 +82,13 @@ def test_relation_ref_valid() -> None:
         relation_id="rel:1",
         source_reference_id="ref:a",
         target_reference_id="ref:b",
-        kind="depends_on",
+        kind="supports",
         provenance_reference="prov:1",
     )
     assert ref.relation_id == "rel:1"
     assert ref.source_reference_id == "ref:a"
     assert ref.target_reference_id == "ref:b"
-    assert ref.kind == "depends_on"
+    assert ref.kind == "supports"
     assert ref.provenance_reference == "prov:1"
 
 
@@ -98,21 +98,21 @@ def test_relation_ref_rejects_blank_ids() -> None:
             relation_id="   ",
             source_reference_id="ref:a",
             target_reference_id="ref:b",
-            kind="depends_on",
+            kind="supports",
         )
     with pytest.raises(DomainMemoryKnowledgeContractError):
         DomainMemoryKnowledgeRelationRef(
             relation_id="rel:1",
             source_reference_id="",
             target_reference_id="ref:b",
-            kind="depends_on",
+            kind="supports",
         )
     with pytest.raises(DomainMemoryKnowledgeContractError):
         DomainMemoryKnowledgeRelationRef(
             relation_id="rel:1",
             source_reference_id="ref:a",
             target_reference_id=" ",
-            kind="depends_on",
+            kind="supports",
         )
 
 
@@ -122,7 +122,35 @@ def test_relation_ref_rejects_self_edge() -> None:
             relation_id="rel:1",
             source_reference_id="ref:1",
             target_reference_id="ref:1",
-            kind="depends_on",
+            kind="supports",
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_kind",
+    ["depends_on", "part_of", "blocks", "enables", "correlated_with", "caused_by", ""],
+)
+def test_relation_ref_rejects_noncanonical_kind(bad_kind: str) -> None:
+    with pytest.raises(DomainMemoryKnowledgeContractError):
+        DomainMemoryKnowledgeRelationRef(
+            relation_id="rel:1",
+            source_reference_id="ref:a",
+            target_reference_id="ref:b",
+            kind=bad_kind,
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_kind",
+    ["depends_on", "part_of", "correlated_with", "caused_by"],
+)
+def test_path_hop_rejects_noncanonical_kind(bad_kind: str) -> None:
+    with pytest.raises(DomainMemoryKnowledgeContractError):
+        DomainMemoryKnowledgePathHop(
+            relation_id="rel:1",
+            source_reference_id="ref:a",
+            target_reference_id="ref:b",
+            kind=bad_kind,
         )
 
 
@@ -251,7 +279,7 @@ def test_path_hop_valid_and_rejects_self_edge() -> None:
         relation_id="rel:1",
         source_reference_id="ref:a",
         target_reference_id="ref:b",
-        kind="depends_on",
+        kind="supports",
     )
     assert hop.relation_id == "rel:1"
     with pytest.raises(DomainMemoryKnowledgeContractError):
@@ -259,13 +287,13 @@ def test_path_hop_valid_and_rejects_self_edge() -> None:
             relation_id="rel:1",
             source_reference_id="ref:a",
             target_reference_id="ref:a",
-            kind="depends_on",
+            kind="supports",
         )
 
 
 def test_path_id_is_bound_to_ordered_hop_content() -> None:
-    hop1 = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "depends_on")
-    hop2 = DomainMemoryKnowledgePathHop("rel:b", "ref:b", "ref:c", "part_of")
+    hop1 = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "supports")
+    hop2 = DomainMemoryKnowledgePathHop("rel:b", "ref:b", "ref:c", "derived_from")
     path1 = DomainMemoryKnowledgePath.create((hop1, hop2))
 
     assert path1.hops == (hop1, hop2)
@@ -273,8 +301,8 @@ def test_path_id_is_bound_to_ordered_hop_content() -> None:
     assert path1.path_id == f"domain-memory-knowledge-path:{path1.content_digest[:16]}"
 
     # Reverse hops (if connected, e.g. ref:c -> ref:b -> ref:a) produces different digest
-    hop2_rev = DomainMemoryKnowledgePathHop("rel:b", "ref:c", "ref:b", "part_of")
-    hop1_rev = DomainMemoryKnowledgePathHop("rel:a", "ref:b", "ref:a", "depends_on")
+    hop2_rev = DomainMemoryKnowledgePathHop("rel:b", "ref:c", "ref:b", "derived_from")
+    hop1_rev = DomainMemoryKnowledgePathHop("rel:a", "ref:b", "ref:a", "supports")
     path2 = DomainMemoryKnowledgePath.create((hop2_rev, hop1_rev))
 
     assert path1.content_digest != path2.content_digest
@@ -287,14 +315,14 @@ def test_path_rejects_empty_hops() -> None:
 
 
 def test_path_rejects_disconnected_hops() -> None:
-    hop1 = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "depends_on")
-    hop2 = DomainMemoryKnowledgePathHop("rel:b", "ref:x", "ref:c", "part_of")
+    hop1 = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "supports")
+    hop2 = DomainMemoryKnowledgePathHop("rel:b", "ref:x", "ref:c", "derived_from")
     with pytest.raises(DomainMemoryKnowledgeContractError):
         DomainMemoryKnowledgePath.create((hop1, hop2))
 
 
 def test_path_rejects_tampered_id_or_digest() -> None:
-    hop = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "depends_on")
+    hop = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "supports")
     valid_path = DomainMemoryKnowledgePath.create((hop,))
     # Tamper with content_digest
     with pytest.raises(DomainMemoryKnowledgeContractError):
@@ -313,7 +341,7 @@ def test_path_rejects_tampered_id_or_digest() -> None:
 
 
 def test_path_serialization_round_trip() -> None:
-    hop = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "depends_on")
+    hop = DomainMemoryKnowledgePathHop("rel:a", "ref:a", "ref:b", "supports")
     path = DomainMemoryKnowledgePath.create((hop,))
     data = path.to_dict()
     restored = DomainMemoryKnowledgePath.from_dict(data)
@@ -462,6 +490,98 @@ def test_request_serialization_rejects_unknown_fields() -> None:
         DomainMemoryKnowledgeProjectionRequest.from_dict(data)
 
 
+def _base_request(**overrides):  # type: ignore[no-untyped-def]
+    params = {
+        "request_id": "req:1",
+        "primary_domain": DomainId("health"),
+        "supporting_domains": (DomainId("university"),),
+        "memory_view_id": "view:1",
+        "memory_view_digest": "a" * 64,
+        "resolution_reference_id": "res:1",
+        "composition_reference_id": "comp:1",
+        "permission_decision_ids": ("perm:1",),
+        "requested_capabilities": (),
+        "trace_id": None,
+        "session_id": None,
+        "temporal_reference": None,
+    }
+    params.update(overrides)
+    return DomainMemoryKnowledgeProjectionRequest(**params)
+
+
+def _request_with(**overrides):  # type: ignore[no-untyped-def]
+    return _base_request(**overrides)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "supporting_domains",
+        "permission_decision_ids",
+        "resolution_reference_id",
+        "composition_reference_id",
+        "temporal_reference",
+        "requested_capabilities",
+        "trace_id",
+        "session_id",
+    ],
+)
+def test_request_digest_binds_authority_field(field: str) -> None:
+    if field == "supporting_domains":
+        alt = _request_with(supporting_domains=(DomainId("oppositions"),))
+    elif field == "permission_decision_ids":
+        alt = _request_with(permission_decision_ids=("perm:2",))
+    elif field == "resolution_reference_id":
+        alt = _request_with(resolution_reference_id="res:2")
+    elif field == "composition_reference_id":
+        alt = _request_with(composition_reference_id="comp:2")
+    elif field == "temporal_reference":
+        alt = _request_with(
+            temporal_reference="2026-09-07T12:00:00+00:00",
+        )
+    elif field == "requested_capabilities":
+        alt = _request_with(
+            requested_capabilities=(
+                DomainMemoryKnowledgeProjectionCapability.RELATIONS,
+            ),
+        )
+    elif field == "trace_id":
+        alt = _request_with(trace_id="trace:2")
+    else:
+        alt = _request_with(session_id="session:2")
+    assert _base_request().digest != alt.digest
+    assert len(alt.digest) == 64
+
+
+def test_request_digest_covers_all_authority_fields() -> None:
+    req = _base_request(
+        supporting_domains=(DomainId("university"), DomainId("oppositions")),
+        permission_decision_ids=("perm:1", "perm:2"),
+        resolution_reference_id="res:9",
+        composition_reference_id="comp:9",
+        trace_id="trace:9",
+        session_id="session:9",
+        temporal_reference="2026-09-07T12:00:00+00:00",
+        requested_capabilities=(DomainMemoryKnowledgeProjectionCapability.RELATIONS,),
+    )
+    payload = req.to_dict()
+    for field in (
+        "request_id",
+        "primary_domain",
+        "supporting_domains",
+        "memory_view_id",
+        "memory_view_digest",
+        "resolution_reference_id",
+        "composition_reference_id",
+        "permission_decision_ids",
+        "requested_capabilities",
+        "trace_id",
+        "session_id",
+        "temporal_reference",
+    ):
+        assert field in payload
+
+
 # ── Projection Result ───────────────────────────────────────────────────────
 
 
@@ -474,6 +594,7 @@ def test_projection_valid_and_content_bound_id() -> None:
     )
     proj = DomainMemoryKnowledgeProjection.create(
         request_id="req:1",
+        request_digest="c" * 64,
         memory_view_id="view:1",
         memory_view_digest="b" * 64,
         selected_reference_ids=("ref:2", "ref:1"),
@@ -490,6 +611,7 @@ def test_projection_valid_and_content_bound_id() -> None:
     assert proj.selected_reference_ids == ("ref:1", "ref:2")
     assert proj.shared_identity_reference_ids == ("ref:1",)
     assert proj.excluded_reference_ids == ("ref:3",)
+    assert proj.request_digest == "c" * 64
     assert len(proj.content_digest) == 64
     assert (
         proj.projection_id
@@ -497,10 +619,43 @@ def test_projection_valid_and_content_bound_id() -> None:
     )
 
 
+def test_projection_binds_request_digest_in_identity() -> None:
+    rel = DomainMemoryKnowledgeRelationRef(
+        relation_id="rel:1",
+        source_reference_id="ref:1",
+        target_reference_id="ref:2",
+        kind="supports",
+    )
+    first = DomainMemoryKnowledgeProjection.create(
+        request_id="req:1",
+        request_digest="c" * 64,
+        memory_view_id="view:1",
+        memory_view_digest="b" * 64,
+        selected_reference_ids=("ref:1",),
+        shared_identity_reference_ids=(),
+        relation_refs=(rel,),
+    )
+    second = DomainMemoryKnowledgeProjection.create(
+        request_id="req:1",
+        request_digest="d" * 64,
+        memory_view_id="view:1",
+        memory_view_digest="b" * 64,
+        selected_reference_ids=("ref:1",),
+        shared_identity_reference_ids=(),
+        relation_refs=(rel,),
+    )
+    assert first.content_digest != second.content_digest
+    assert first.projection_id != second.projection_id
+    assert first.to_dict()["request_digest"] == "c" * 64
+    restored = DomainMemoryKnowledgeProjection.from_dict(first.to_dict())
+    assert restored == first
+
+
 def test_projection_rejects_overlap_between_selected_and_excluded() -> None:
     with pytest.raises(DomainMemoryKnowledgeContractError):
         DomainMemoryKnowledgeProjection.create(
             request_id="req:1",
+            request_digest="c" * 64,
             memory_view_id="view:1",
             memory_view_digest="b" * 64,
             selected_reference_ids=("ref:1", "ref:2"),
@@ -514,6 +669,7 @@ def test_projection_rejects_shared_identity_not_in_selected() -> None:
     with pytest.raises(DomainMemoryKnowledgeContractError):
         DomainMemoryKnowledgeProjection.create(
             request_id="req:1",
+            request_digest="c" * 64,
             memory_view_id="view:1",
             memory_view_digest="b" * 64,
             selected_reference_ids=("ref:1",),
@@ -525,6 +681,7 @@ def test_projection_rejects_shared_identity_not_in_selected() -> None:
 def test_projection_rejects_tampered_id_or_digest() -> None:
     proj = DomainMemoryKnowledgeProjection.create(
         request_id="req:1",
+        request_digest="c" * 64,
         memory_view_id="view:1",
         memory_view_digest="b" * 64,
         selected_reference_ids=("ref:1",),
@@ -535,6 +692,7 @@ def test_projection_rejects_tampered_id_or_digest() -> None:
         DomainMemoryKnowledgeProjection(
             projection_id="domain-memory-knowledge-projection:tampered1234567",
             request_id=proj.request_id,
+            request_digest=proj.request_digest,
             memory_view_id=proj.memory_view_id,
             memory_view_digest=proj.memory_view_digest,
             selected_reference_ids=proj.selected_reference_ids,
@@ -554,6 +712,7 @@ def test_projection_rejects_tampered_id_or_digest() -> None:
 def test_projection_serialization_round_trip() -> None:
     proj = DomainMemoryKnowledgeProjection.create(
         request_id="req:1",
+        request_digest="c" * 64,
         memory_view_id="view:1",
         memory_view_digest="b" * 64,
         selected_reference_ids=("ref:1",),
