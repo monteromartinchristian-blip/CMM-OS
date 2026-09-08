@@ -6124,6 +6124,26 @@ It should have:
 * acciones externas;
 * conflicts unresolvable.
 
+Implementation Status (Phase 10.45):
+- Status: Implemented — independent exact-HEAD audit pending (not closed, not audited)
+- Requirement: `DP-045` (`SRC-R10:R10-C45`)
+- Acceptance: `AT-DP-045=PASS_REPORTED` (`tests/domains/test_domain_interface_dp045_acceptance.py`) — connected implementation evidence only; not yet independently verified (`DP-045=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`; `CLOSURE_ELIGIBLE=NO`)
+- Delivered Architecture:
+  - Thin, stateless, interface-neutral integrator `DefaultDomainInterfaceIntegrator` in `cmm/domains/interface_integration.py`
+  - Immutable frozen/slotted projection contracts in `cmm/domains/interface_integration_contracts.py` (SHA-256 `content_digest` over projection content; `to_dict`/`from_dict` digest-preserving round-trip)
+  - Domain error hierarchy additions `DomainInterface*Error` in `cmm/domains/errors.py`
+  - Public facade seams `DefaultDomainAPI.project_interface` / `submit_interface_intent` in `cmm/domains/api.py`
+  - Five interface-neutral views: `ConversationalDomainView` (presentation-visibility constrained; supporting domains filtered to visible content; confidence = min over visible items; memory proposal refs from the presentation plan group), `DomainSelectorView` (verbatim canonical resolution mirror; READY only when RESOLVED), `DomainCenterView` (verbatim registry lifecycle; `update_status="unknown"` always), `CrossDomainInterfaceView` (membership/permission-bound transfers; canonical `dependency:<src>:<tgt>:<kind>` refs; unresolved membership contradictions; result-first precedence; PARTIAL/PENDING/READY/BLOCKED status derivation), `DomainReviewCenterView` (only PENDING/POSTPONED approvals; strict category mapping incl. `domain_operation.` reason codes; membership-bound)
+  - Selector path: read-only EXPLAIN_SELECTION; AUTO_RESOLVE/SELECT_PRIMARY delegated to the canonical resolver (explicit-domain enforcement for SELECT_PRIMARY); ADD_SUPPORTING delegated to canonical cross-domain permission resolution bound to intent target + primary domain (DENY→BLOCKED, APPROVAL_REQUIRED→PENDING, ALLOW→UNAVAILABLE); WITHDRAW_SUPPORTING/REQUEST_POLICY_CHANGE → UNAVAILABLE with explicit reason tokens; zero composition/session mutation
+  - Exact-canonical-type authority binding (`type(x) is not`) for every input; duck-typed impostors fail closed; RESOLVED-only resolutions; COMPOSED/PARTIAL-only compositions; reference/binding mismatch fail-closed
+  - No UI/CMMChat/Phase 11 seam, no conversational runtime, no renderer, no store/runtime/engine ownership, no parallel infrastructure
+  - Dedicated test inventory: 129 focused Phase 10.45 tests green — 37 contract, 73 integration, 10 API-contract, 8 architecture, 1 connected acceptance (`tests/domains/test_domain_interface_integration_contracts.py`, `test_domain_interface_integration.py`, `test_domain_interface_integration_api.py`, `test_domain_interface_integration_architecture.py`, `test_domain_interface_dp045_acceptance.py`)
+  - Reference documentation: `docs/reference/domain-interface-integration.md`
+  - Specification: `docs/superpowers/specs/2026-09-08-phase-10.45-integration-with-interfaces-design.md`
+  - Implementation plan: `docs/superpowers/plans/2026-09-08-phase-10.45-interface-integration-implementation-plan.md`
+  - `AT-DP-045=PASS` is implementation evidence only
+  - Next action: exact-HEAD independent audit of Phase 10.45; not Phase 10.46.
+
 ⸻
 
 
