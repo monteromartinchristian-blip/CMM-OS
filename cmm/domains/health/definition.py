@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.health.benchmarks import build_health_benchmark_suites
 from cmm.domains.health.catalog import (
     CANONICAL_HEALTH_OPERATION_IDS,
     CANONICAL_HEALTH_RESOURCE_IDS,
@@ -105,6 +106,7 @@ def build_health_domain_definition() -> DomainDefinition:
             tags=("health", "personal", "high-sensitivity"),
             metadata={"phase": "10.20"},
         ),
+        benchmark_suites=build_health_benchmark_suites(),
     )
 
 

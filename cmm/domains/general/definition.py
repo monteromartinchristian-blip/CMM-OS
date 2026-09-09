@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.general.benchmarks import build_general_benchmark_suites
 from cmm.domains.general.catalog import (
     CANONICAL_GENERAL_OPERATION_IDS,
     CANONICAL_GENERAL_RESOURCE_IDS,
@@ -101,6 +102,7 @@ def build_general_domain_definition() -> DomainDefinition:
             tags=("general", "fallback", "core"),
             metadata={"phase": "10.19"},
         ),
+        benchmark_suites=build_general_benchmark_suites(),
     )
 
 

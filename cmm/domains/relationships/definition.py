@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.relationships.benchmarks import (
+    build_relationships_benchmark_suites,
+)
 from cmm.domains.relationships.catalog import (
     CANONICAL_RELATIONSHIPS_OPERATION_IDS,
     CANONICAL_RELATIONSHIPS_RESOURCE_IDS,
@@ -110,6 +113,7 @@ def build_relationships_domain_definition() -> DomainDefinition:
             tags=("relationships", "personal", "high-sensitivity"),
             metadata={"phase": "10.21"},
         ),
+        benchmark_suites=build_relationships_benchmark_suites(),
     )
 
 
