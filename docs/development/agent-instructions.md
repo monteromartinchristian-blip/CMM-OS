@@ -1,15 +1,15 @@
 # Engineering instruction architecture and validation
 
 This is a maintenance and evaluation guide, not a second engineering policy.
-General policy is owned by the portable `Desarrollo/agent-policy/AGENTS.md`.
+General policy is owned by the portable `CMM Code/agent-policy/AGENTS.md`.
 [AGENTS.md](../../AGENTS.md) adds only repository-specific requirements.
 
 ## Loading and ownership
 
 | Surface | Entry / authority | Maintenance |
 | --- | --- | --- |
-| Personal policy | `Desarrollo/agent-policy/AGENTS.md` | Versionable portable source; one maintained copy |
-| Codex | `$CODEX_HOME/AGENTS.md` symlink plus repository root contract | Run `python3 /path/to/Desarrollo/agent-policy/install.py` on each Mac |
+| Personal policy | `CMM Code/agent-policy/AGENTS.md` | Versionable portable source; one maintained copy |
+| Codex | `$CODEX_HOME/AGENTS.md` symlink plus repository root contract | Run `python3 "/path/to/CMM Code/agent-policy/install.py"` on each Mac |
 | Claude Code | [CLAUDE.md](../../CLAUDE.md) routes to root; Graphify is optional | Thin adapter, no copied lifecycle |
 | Copilot | [.github/copilot-instructions.md](../../.github/copilot-instructions.md) routes to root | Thin adapter, no per-model policy |
 | Other host | Explicitly load root contract in its supported instruction mechanism | Check actual loading; a filename alone is not enforcement |
@@ -86,7 +86,7 @@ this conceptual review. Re-run the review when the contract or host loading chan
 | 22 | Task switches implementer to reviewer with unchanged inputs | Reuse inspectable test evidence; review diff against acceptance, not trust a success claim | No redundant test run; new risk or changed inputs invalidate relevant evidence |
 
 | 23 | Clone only CMM OS on another user's machine | Use their host policy and repository contract; do not install this owner's settings | Repository policy remains versioned and self-scoped |
-| 24 | Move Desarrollo or bootstrap a new Mac | Run portable installer; explicit replacement backs up old endpoints | One canonical file, live symlinks, idempotent rerun; restart sessions |
+| 24 | Move CMM Code or bootstrap a new Mac | Run portable installer; explicit replacement backs up old endpoints | One canonical file, live symlinks, idempotent rerun; restart sessions |
 | 25 | Old sync, overlay or Codex override competes with policy | Sync cannot reclaim endpoint; overlay leaves repository policy intact; installer refuses override | Filesystem behavior tests; no silent overwrite or override bypass |
 
 ## Technical validation and red team
@@ -124,16 +124,16 @@ Portable installation uses native Claude imports and the Copilot CLI user entry.
 CMM Code's former global-policy payload and repository-policy overlay ownership
 were retired because they could overwrite this architecture on the next sync.
 Their behavior tests now protect the ownership boundary. No plugin cache changed.
-Bootstrap details and recovery instructions live in `Desarrollo/agent-policy/README.md`.
+Bootstrap details and recovery instructions live in `CMM Code/agent-policy/README.md`.
 
 ## Observed validation for this implementation
 
-- Desarrollo full suite: `python -m pytest -q` — 467 passed, including 12
+- CMM Code full suite: `python -m pytest -q` — 467 passed, including 12
   portable-installer tests and actual sync/overlay ownership behavior.
 - New installer Ruff checks pass. Twelve Ruff findings in pre-existing modified
   infrastructure files were compared against HEAD: no new findings.
 - Codex 0.147.0 `debug prompt-input` loaded general and project policy from the
-  actual sibling CMM OS checkout, and only general policy from Desarrollo.
+  actual sibling CMM OS checkout, and only general policy from CMM Code.
 - A temporary fresh home, copied portable package and unrelated Git project
   location also loaded both policies through Codex without model inference.
 - Actual installation is idempotent. Existing Claude content is preserved;

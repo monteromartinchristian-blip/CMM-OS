@@ -3,10 +3,10 @@
 ## Policy layers
 
 The user's general development policy is maintained in the portable
-`Desarrollo/agent-policy/AGENTS.md`; its installer exposes it through
+`CMM Code/agent-policy/AGENTS.md`; its installer exposes it through
 `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`). Codex loads that global layer separately from
 this repository. Other hosts should read it if present and not already loaded,
-then apply this file. Do not depend on inheritance from a parent `Desarrollo`
+then apply this file. Do not depend on inheritance from any parent workspace
 folder. On another user's machine, use their own host/user policy; do not install
 or copy this owner's configuration. See [host setup and validation](docs/development/agent-instructions.md).
 
