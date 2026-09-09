@@ -19,13 +19,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
+from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.errors import (
     DomainSelectionTransitionContractError,
     DomainSelectionTransitionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.resolution_contracts import DomainResolutionContext
+from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.selection_contracts import DomainSelectionTransition
+from cmm.domains.session_contracts import DomainSessionContext
 
 
 def _require_non_blank_str(value: Any, name: str) -> str:
@@ -352,11 +356,11 @@ class DomainSelectionTransitionCoordinator(Protocol):
 
     def apply(
         self,
-        request,
-        session,
-        resolution,
-        composition,
-        resolution_context,
+        request: DomainSelectionTransitionRequest,
+        session: DomainSessionContext,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
     ) -> DomainSelectionTransitionResult: ...
 
 

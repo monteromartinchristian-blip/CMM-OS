@@ -1295,6 +1295,11 @@ class DefaultDomainInterfaceIntegrator:
                     "accepted transition outcome must carry its canonical "
                     "DomainSelectionTransition"
                 )
+            if not transition.reason_codes:
+                raise DomainInterfaceAuthorityError(
+                    "accepted transition outcome carries a vacuous canonical "
+                    "DomainSelectionTransition with no membership change"
+                )
             return DomainInterfaceIntentResult(
                 intent_id=intent.intent_id,
                 accepted=True,

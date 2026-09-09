@@ -23,9 +23,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any
 
 from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+from cmm.domains.composer import DomainComposer
+from cmm.domains.composition_contracts import (
+    DomainComposition,
+    EffectiveReasoningProfile,
+)
 from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainResolutionStatus,
@@ -33,11 +37,18 @@ from cmm.domains.enums import (
 )
 from cmm.domains.errors import DomainSelectionTransitionContractError
 from cmm.domains.identifiers import DomainId
+from cmm.domains.permission_contracts import (
+    CrossDomainPermissionDecision,
+    CrossDomainPermissionRequest,
+)
 from cmm.domains.resolution_contracts import (
     DomainResolutionContext,
     DomainResolutionPolicy,
 )
+from cmm.domains.resolver import DomainResolver
+from cmm.domains.resolver_contracts import DomainResolutionResult
 from cmm.domains.selection import build_domain_selection_transition
+from cmm.domains.selection_contracts import DomainSelectionTransition
 from cmm.domains.selection_transition_contracts import (
     DomainSelectionTransitionCommandKind,
     DomainSelectionTransitionRequest,
@@ -64,6 +75,7 @@ _REASON_SESSION_CONFLICT = "domain_selection_transition_session_conflict"
 _REASON_RESOLUTION_BLOCKED = "domain_selection_transition_resolution_blocked"
 _REASON_PERMISSION_DENIED = "domain_selection_transition_permission_denied"
 _REASON_PERMISSION_APPROVAL_REQUIRED = "domain_selection_transition_approval_required"
+_REASON_PERMISSION_NON_ALLOW = "domain_selection_transition_permission_non_allow"
 
 
 def _canonical_slug(reference: DomainId | str) -> str:
@@ -85,6 +97,79 @@ def _typed_result(
     )
 
 
+def _effective_profile_from_composition(
+    composition: DomainComposition,
+) -> str | None:
+    """Derive the session effective profile from the canonical composition.
+
+    Mirrors the canonical session-resumer mapping: the composition carries an
+    ``EffectiveReasoningProfile`` object, while the session stores its base
+    profile token. A missing composition profile yields ``None`` rather than a
+    stale inherited value.
+    """
+    profile = composition.effective_profile
+    if profile is None:
+        return None
+    if isinstance(profile, str):
+        return profile
+    if isinstance(profile, EffectiveReasoningProfile):
+        return profile.base_profile
+    return getattr(profile, "name", str(profile))
+
+
+def _effective_rule_ids_from_composition(
+    composition: DomainComposition,
+) -> tuple[str, ...]:
+    """Derive session rule refs from the canonical composition rules."""
+    return tuple(item.identifier for item in composition.rules)
+
+
+def _effective_permission_refs_from_composition(
+    composition: DomainComposition,
+) -> tuple[str, ...]:
+    """Derive session permission refs from the canonical permission set."""
+    permissions = composition.permissions
+    if permissions is None:
+        return ()
+    return tuple(sorted(set(permissions.granted_permissions)))
+
+
+def _effective_workflow_refs_from_composition(
+    composition: DomainComposition,
+) -> tuple[str, ...]:
+    """Derive session workflow refs from the canonical composition workflows."""
+    return tuple(item.identifier for item in composition.workflows)
+
+
+def _effective_operation_ids_from_composition(
+    composition: DomainComposition,
+) -> tuple[str, ...]:
+    """Derive session operation ids from the canonical composition operations."""
+    return tuple(item.identifier for item in composition.operations)
+
+
+def _session_matches_pending_delta(
+    request: DomainSelectionTransitionRequest,
+    session: DomainSessionContext,
+    resolution_supporting: tuple[DomainId, ...],
+) -> bool:
+    """Allow the pre-delta session against a post-delta resolution authority.
+
+    An ADD command is resolved against a rebased authority whose supporting
+    set already contains the target, while the durable session still holds
+    the pre-delta membership. That exact one-delta difference is the legal
+    command shape — not a foreign snapshot — provided identity binding
+    (session/composition/last-resolution ids) already passed. Any other
+    divergence still fails closed. WITHDRAW always requires exact matching.
+    """
+    if request.kind is not DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
+        return False
+    resolution_set = frozenset(str(domain) for domain in resolution_supporting)
+    session_set = frozenset(session.supporting_domains)
+    target = str(request.target_domain)
+    return session_set == (resolution_set - {target})
+
+
 class DefaultDomainSelectionTransitionCoordinator:
     """Canonical coordinator translating membership deltas into revisions.
 
@@ -98,16 +183,20 @@ class DefaultDomainSelectionTransitionCoordinator:
     def __init__(
         self,
         *,
-        resolver: Any,
-        composer: Any,
-        domain_registry: Any,
-        permission_resolver: Any,
-        session_adapter: Any,
+        resolver: DomainResolver,
+        composer: DomainComposer,
+        domain_registry: DomainRegistry,  # noqa: F821 — canonical owner, injected
+        permission_resolver: DomainPermissionResolver,  # noqa: F821 — injected
+        session_adapter: SharedSessionDomainAdapter,  # noqa: F821 — injected
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        """Inject the canonical seams; the coordinator owns none of them."""
-        self._resolver = resolver
-        self._composer = composer
+        """Inject the canonical seams; the coordinator owns none of them.
+
+        Seam authorities are injected, never imported: the quoted annotations
+        below name the canonical owner types without importing them.
+        """
+        self._resolver: DomainResolver = resolver
+        self._composer: DomainComposer = composer
         self._domain_registry = domain_registry
         self._permission_resolver = permission_resolver
         self._session_adapter = session_adapter
@@ -117,8 +206,8 @@ class DefaultDomainSelectionTransitionCoordinator:
         self,
         request: DomainSelectionTransitionRequest,
         session: DomainSessionContext,
-        resolution: Any,
-        composition: Any,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
         resolution_context: DomainResolutionContext,
     ) -> DomainSelectionTransitionResult:
         """Apply one membership delta or fail closed with a typed result.
@@ -127,7 +216,7 @@ class DefaultDomainSelectionTransitionCoordinator:
         not bound to the same canonical authority chain (session, resolution,
         composition) — nothing is ever persisted in that case.
         """
-        self._bind(request, session, resolution, composition)
+        self._bind(request, session, resolution, composition, resolution_context)
 
         precondition = self._check_preconditions(request, session)
         if precondition is not None:
@@ -137,7 +226,7 @@ class DefaultDomainSelectionTransitionCoordinator:
             blocked = self._check_target_lifecycle(request, resolution_context)
             if blocked is not None:
                 return blocked
-            permission = self._check_permission(request)
+            permission = self._check_permission(request, session)
             if permission is not None:
                 return permission
 
@@ -190,24 +279,48 @@ class DefaultDomainSelectionTransitionCoordinator:
         self,
         request: DomainSelectionTransitionRequest,
         session: DomainSessionContext,
-        resolution: Any,
-        composition: Any,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
     ) -> None:
         """Verify the request binds to one canonical authority chain."""
-        if not isinstance(request, DomainSelectionTransitionRequest):
+        if type(request) is not DomainSelectionTransitionRequest:
             raise DomainSelectionTransitionContractError(
                 "request must be a canonical DomainSelectionTransitionRequest",
                 field="request",
             )
-        if not isinstance(session, DomainSessionContext):
+        if type(session) is not DomainSessionContext:
             raise DomainSelectionTransitionContractError(
                 "session must be a canonical DomainSessionContext",
                 field="session",
             )
-        if resolution is None or composition is None:
+        if type(resolution) is not DomainResolutionResult:
             raise DomainSelectionTransitionContractError(
-                "resolution and composition are required for a transition",
+                "resolution must be a canonical DomainResolutionResult",
                 field="resolution",
+            )
+        if type(composition) is not DomainComposition:
+            raise DomainSelectionTransitionContractError(
+                "composition must be a canonical DomainComposition",
+                field="composition",
+            )
+        if type(resolution_context) is not DomainResolutionContext:
+            raise DomainSelectionTransitionContractError(
+                "resolution_context must be a canonical DomainResolutionContext",
+                field="resolution_context",
+            )
+        if resolution.status is not DomainResolutionStatus.RESOLVED:
+            raise DomainSelectionTransitionContractError(
+                "resolution must be RESOLVED for a selection transition",
+                field="resolution",
+            )
+        if composition.status not in (
+            DomainCompositionStatus.COMPOSED,
+            DomainCompositionStatus.PARTIAL,
+        ):
+            raise DomainSelectionTransitionContractError(
+                "composition status must be COMPOSED or PARTIAL",
+                field="composition",
             )
         if request.session_reference_id != session.session_id:
             raise DomainSelectionTransitionContractError(
@@ -233,6 +346,46 @@ class DefaultDomainSelectionTransitionCoordinator:
             raise DomainSelectionTransitionContractError(
                 "composition is not bound to the supplied resolution authority",
                 field="resolution_id",
+            )
+        if session.composition_id != composition.id:
+            raise DomainSelectionTransitionContractError(
+                "session is not bound to the supplied composition authority",
+                field="composition_id",
+            )
+        if resolution.primary_domain is None or session.primary_domain != str(
+            resolution.primary_domain
+        ):
+            raise DomainSelectionTransitionContractError(
+                "session primary domain diverges from the resolution authority",
+                field="primary_domain",
+            )
+        if resolution.primary_domain is None or str(composition.primary_domain) != str(
+            resolution.primary_domain
+        ):
+            raise DomainSelectionTransitionContractError(
+                "composition primary domain diverges from the resolution authority",
+                field="primary_domain",
+            )
+        if frozenset(session.supporting_domains) != frozenset(
+            str(domain) for domain in resolution.supporting_domains
+        ) and not _session_matches_pending_delta(
+            request, session, resolution.supporting_domains
+        ):
+            raise DomainSelectionTransitionContractError(
+                "session supporting domains diverge from the resolution authority",
+                field="supporting_domains",
+            )
+        if frozenset(str(domain) for domain in composition.supporting_domains) != (
+            frozenset(str(domain) for domain in resolution.supporting_domains)
+        ):
+            raise DomainSelectionTransitionContractError(
+                "composition supporting domains diverge from the resolution authority",
+                field="supporting_domains",
+            )
+        if resolution.context_id != resolution_context.id:
+            raise DomainSelectionTransitionContractError(
+                "resolution is not bound to the supplied resolution context",
+                field="resolution_context",
             )
 
     # ── Preconditions ─────────────────────────────────────────────────────────
@@ -302,16 +455,56 @@ class DefaultDomainSelectionTransitionCoordinator:
     def _check_permission(
         self,
         request: DomainSelectionTransitionRequest,
+        session: DomainSessionContext,
     ) -> DomainSelectionTransitionResult | None:
-        """Evaluate the canonical cross-domain permission evidence."""
-        if request.permission_request is None:
+        """Evaluate the canonical cross-domain permission evidence.
+
+        Only the target-specific canonical ALLOW for this command proceeds;
+        DENY blocks, APPROVAL_REQUIRED pends, and any other outcome fails
+        closed without persistence.
+        """
+        evidence = request.permission_request
+        if evidence is None:
             raise DomainSelectionTransitionContractError(
                 "permission evidence is required for ADD_SUPPORTING",
                 field="permission_request",
             )
-        decision = self._permission_resolver.resolve_cross_domain(
-            request.permission_request
-        )
+        if type(evidence) is not CrossDomainPermissionRequest:
+            raise DomainSelectionTransitionContractError(
+                "permission evidence must be a canonical CrossDomainPermissionRequest",
+                field="permission_request",
+            )
+        if evidence.target_domain != request.target_domain.slug and (
+            evidence.target_domain != str(request.target_domain)
+        ):
+            raise DomainSelectionTransitionContractError(
+                "permission evidence does not bind to the transition target",
+                field="permission_request",
+            )
+        if evidence.source_domain != session.primary_domain:
+            raise DomainSelectionTransitionContractError(
+                "permission evidence does not bind to the session primary domain",
+                field="permission_request",
+            )
+        if evidence.session_id != session.session_id:
+            raise DomainSelectionTransitionContractError(
+                "permission evidence does not bind to the session authority",
+                field="permission_request",
+            )
+        decision = self._permission_resolver.resolve_cross_domain(evidence)
+        if type(decision) is not CrossDomainPermissionDecision:
+            raise DomainSelectionTransitionContractError(
+                "permission delegation did not return a canonical "
+                "CrossDomainPermissionDecision",
+                field="permission_request",
+            )
+        if decision.request_id != evidence.request_id:
+            raise DomainSelectionTransitionContractError(
+                "permission decision does not bind to the permission evidence",
+                field="permission_request",
+            )
+        if decision.decision is PermissionOutcome.ALLOW:
+            return None
         if decision.decision is PermissionOutcome.DENY:
             return _typed_result(
                 request,
@@ -326,7 +519,11 @@ class DefaultDomainSelectionTransitionCoordinator:
                 if decision.reasons
                 else _REASON_PERMISSION_APPROVAL_REQUIRED,
             )
-        return None
+        return _typed_result(
+            request,
+            DomainSelectionTransitionStatus.BLOCKED,
+            _REASON_PERMISSION_NON_ALLOW,
+        )
 
     # ── Derived policy + canonical re-resolution ─────────────────────────────
 
@@ -342,6 +539,10 @@ class DefaultDomainSelectionTransitionCoordinator:
         """
         policy = resolution_context.system_policy or DomainResolutionPolicy()
         if request.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
+            if request.target_domain.slug in {
+                domain.slug for domain in policy.required_domains
+            }:
+                return resolution_context
             derived_policy = replace(
                 policy,
                 required_domains=policy.required_domains + (request.target_domain,),
@@ -350,6 +551,10 @@ class DefaultDomainSelectionTransitionCoordinator:
                 resolution_context,
                 system_policy=derived_policy,
             )
+        if request.target_domain.slug in {
+            domain.slug for domain in policy.denied_domains
+        }:
+            return resolution_context
         derived_policy = replace(
             policy,
             denied_domains=policy.denied_domains + (request.target_domain,),
@@ -369,8 +574,8 @@ class DefaultDomainSelectionTransitionCoordinator:
     def _verify_resolution(
         self,
         request: DomainSelectionTransitionRequest,
-        resolution: Any,
-        new_resolution: Any,
+        resolution: DomainResolutionResult,
+        new_resolution: DomainResolutionResult,
     ) -> DomainSelectionTransitionResult | None:
         """Fail closed unless the delta was applied and the primary preserved."""
         if new_resolution.status is not DomainResolutionStatus.RESOLVED:
@@ -391,11 +596,12 @@ class DefaultDomainSelectionTransitionCoordinator:
             )
 
         supporting_slugs = {domain.slug for domain in new_resolution.supporting_domains}
+        previous_slugs = {domain.slug for domain in resolution.supporting_domains}
         target_slug = request.target_domain.slug
         if request.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
-            delta_applied = target_slug in supporting_slugs
+            delta_applied = supporting_slugs == (previous_slugs | {target_slug})
         else:
-            delta_applied = target_slug not in supporting_slugs
+            delta_applied = supporting_slugs == (previous_slugs - {target_slug})
         if not delta_applied:
             return _typed_result(
                 request,
@@ -406,7 +612,9 @@ class DefaultDomainSelectionTransitionCoordinator:
 
     # ── Canonical recomposition ──────────────────────────────────────────────
 
-    def _compose_members(self, new_resolution: Any) -> Any:
+    def _compose_members(
+        self, new_resolution: DomainResolutionResult
+    ) -> DomainComposition:
         """Recompose from the canonical definitions of the resulting members.
 
         ``DomainCompositionContractError`` raised by the canonical composer
@@ -432,11 +640,17 @@ class DefaultDomainSelectionTransitionCoordinator:
         self,
         request: DomainSelectionTransitionRequest,
         session: DomainSessionContext,
-        new_resolution: Any,
-        new_composition: Any,
-        transition: Any,
+        new_resolution: DomainResolutionResult,
+        new_composition: DomainComposition,
+        transition: DomainSelectionTransition,
     ) -> DomainSessionContext:
-        """Build the single next immutable session revision (revision + 1)."""
+        """Build the single next immutable session revision (revision + 1).
+
+        Membership, version, identity and transition-history fields follow the
+        new resolution/composition; composition-derived effective fields are
+        rebuilt from the new composition so removed-domain refs cannot survive;
+        every unrelated session field is preserved unchanged.
+        """
         now = self._clock()
         members = (new_resolution.primary_domain, *new_resolution.supporting_domains)
         domain_versions = {}
@@ -456,6 +670,17 @@ class DefaultDomainSelectionTransitionCoordinator:
             domain_versions=domain_versions,
             composition_id=new_composition.id,
             last_resolution_id=new_resolution.id,
+            effective_profile=_effective_profile_from_composition(new_composition),
+            effective_rule_ids=_effective_rule_ids_from_composition(new_composition),
+            effective_permission_refs=_effective_permission_refs_from_composition(
+                new_composition
+            ),
+            active_workflow_refs=_effective_workflow_refs_from_composition(
+                new_composition
+            ),
+            available_operation_ids=_effective_operation_ids_from_composition(
+                new_composition
+            ),
             domain_transitions=session.domain_transitions
             + (
                 DomainSessionTransition(

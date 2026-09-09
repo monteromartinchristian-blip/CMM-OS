@@ -851,7 +851,16 @@ class TestDomainSelectionTransitionCoordinatorAccept:
         assert transition_record.resolution_id == durable.last_resolution_id
         assert transition_record.composition_id == durable.composition_id
         assert transition_record.occurred_at == NOW
-        assert durable.effective_profile == env.session.effective_profile
+        # V2 MAJOR-03: composition-derived effective fields are rebuilt from
+        # the new canonical composition, never inherited. The fixture
+        # definitions carry no rules/permissions/workflows/profile, so the
+        # canonical derivation is None/empty even though the seed session
+        # carried effective_profile="default".
+        assert durable.effective_profile is None
+        assert durable.effective_rule_ids == ()
+        assert durable.effective_permission_refs == ()
+        assert durable.active_workflow_refs == ()
+        assert durable.available_operation_ids == ()
         assert durable.approval_refs == env.session.approval_refs
         assert durable.partial_result_refs == env.session.partial_result_refs
         assert durable.trace_refs == env.session.trace_refs
@@ -1207,3 +1216,270 @@ class TestDomainSelectionTransitionCoordinatorAuthorityBinding:
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 10.45 Independent Re-audit V2 — targeted RED tests
+#
+# Each test below reproduces one V2 MAJOR independent reproduction and must
+# fail closed with zero persistence. Written first per TDD; implementation
+# follows.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestV2Major01SessionCompositionCoherence:
+    """V2 MAJOR-01: session ↔ composition authority coherence."""
+
+    def test_misbound_session_composition_id_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        misbound_session = dataclasses.replace(
+            env.session, composition_id="composition:foreign"
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=_coordinator_request(env),
+                session=misbound_session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_mismatched_session_primary_raises_and_persists_nothing(self) -> None:
+        env = _CoordinatorEnvironment()
+        mismatched_session = dataclasses.replace(env.session, primary_domain=str(DELTA))
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=_coordinator_request(env),
+                session=mismatched_session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_mismatched_session_supporting_set_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        mismatched_session = dataclasses.replace(
+            env.session, supporting_domains=(str(BETA),)
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=_coordinator_request(env),
+                session=mismatched_session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+
+class TestV2Major02PermissionEvidenceBinding:
+    """V2 MAJOR-02: permission evidence bound to the membership command."""
+
+    def test_mismatched_permission_target_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        mismatched_request = _coordinator_request(
+            env,
+            target_domain=DELTA,
+            permission_target_domain=BETA,
+        )
+        assert mismatched_request.target_domain == DELTA
+        assert mismatched_request.permission_request is not None
+        assert mismatched_request.permission_request.target_domain == str(BETA)
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=mismatched_request,
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_mismatched_permission_source_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        evidence = _permission_request(env)
+        foreign_evidence = dataclasses.replace(
+            evidence, source_domain=str(BETA), request_id=evidence.request_id
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:coordinator:foreign-source",
+            kind=DomainSelectionTransitionCommandKind.ADD_SUPPORTING,
+            target_domain=DELTA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=env.resolution.id,
+            composition_reference_id=env.composition.id,
+            reason="foreign permission source probe",
+            permission_request=foreign_evidence,
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=request,
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_mismatched_permission_session_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        evidence = _permission_request(env)
+        foreign_evidence = dataclasses.replace(
+            evidence, session_id="session:foreign", request_id=evidence.request_id
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:coordinator:foreign-session",
+            kind=DomainSelectionTransitionCommandKind.ADD_SUPPORTING,
+            target_domain=DELTA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=env.resolution.id,
+            composition_reference_id=env.composition.id,
+            reason="foreign permission session probe",
+            permission_request=foreign_evidence,
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=request,
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_non_allow_abstain_outcome_fails_closed_and_persists_nothing(
+        self,
+    ) -> None:
+        from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+        env = _CoordinatorEnvironment()
+
+        class _AbstainPermissionResolver:
+            def resolve_cross_domain(
+                self, request: object
+            ) -> CrossDomainPermissionDecision:
+                assert isinstance(request, CrossDomainPermissionRequest)
+                return CrossDomainPermissionDecision(
+                    request_id=request.request_id,
+                    decision=PermissionOutcome.ABSTAIN,
+                )
+
+        coordinator = DefaultDomainSelectionTransitionCoordinator(
+            resolver=env.resolver,
+            composer=env.composer,
+            domain_registry=env.registry,
+            permission_resolver=_AbstainPermissionResolver(),
+            session_adapter=env.adapter,
+            clock=lambda: NOW,
+        )
+        result = coordinator.apply(
+            request=_coordinator_request(env),
+            session=env.session,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+        )
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_permission_decision_request_id_mismatch_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        from cmm.domains.permission_contracts import CrossDomainPermissionDecision
+
+        env = _CoordinatorEnvironment()
+
+        class _ForeignDecisionPermissionResolver:
+            def resolve_cross_domain(
+                self, request: CrossDomainPermissionRequest
+            ) -> CrossDomainPermissionDecision:
+                return CrossDomainPermissionDecision(
+                    request_id="permission:foreign",
+                    decision=PermissionOutcome.ALLOW,
+                )
+
+        coordinator = DefaultDomainSelectionTransitionCoordinator(
+            resolver=env.resolver,
+            composer=env.composer,
+            domain_registry=env.registry,
+            permission_resolver=_ForeignDecisionPermissionResolver(),
+            session_adapter=env.adapter,
+            clock=lambda: NOW,
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            coordinator.apply(
+                request=_coordinator_request(env),
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+
+class TestV2Major03SessionRevisionCoherence:
+    """V2 MAJOR-03: persisted revision coherent with the new composition."""
+
+    def test_withdrawal_drops_removed_domain_effective_refs(self) -> None:
+        env = _CoordinatorEnvironment()
+        seeded = dataclasses.replace(
+            env.session,
+            revision=2,
+            effective_rule_ids=("beta.rule",),
+            effective_permission_refs=("beta.permission",),
+            active_workflow_refs=("beta.workflow",),
+            available_operation_ids=("beta.operation",),
+        )
+        env.adapter.save_domain_session(
+            seeded, expected_previous_revision=env.session.revision
+        )
+
+        result = _coordinator(env).apply(
+            request=_coordinator_request(
+                env,
+                kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+                target_domain=BETA,
+            ),
+            session=seeded,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+        )
+        assert result.status is DomainSelectionTransitionStatus.ACCEPTED
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 3
+        assert "domain:beta" not in durable.supporting_domains
+        assert "beta.rule" not in durable.effective_rule_ids
+        assert "beta.permission" not in durable.effective_permission_refs
+        assert "beta.workflow" not in durable.active_workflow_refs
+        assert "beta.operation" not in durable.available_operation_ids
