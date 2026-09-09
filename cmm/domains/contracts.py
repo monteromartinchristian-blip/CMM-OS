@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
+from cmm.domains.benchmark_contracts import DomainBenchmarkSuite
 from cmm.domains.enums import DomainKind
 from cmm.domains.errors import (
     DomainContractValidationError,
@@ -694,6 +695,7 @@ _DEFINITION_KNOWN = frozenset(
         "enabled",
         "metadata",
         "model_policy",
+        "benchmark_suites",
     }
 )
 
@@ -726,6 +728,7 @@ class DomainDefinition:
     enabled: bool = True
     metadata: DomainMetadata | None = None
     model_policy: DomainModelPolicy | None = None
+    benchmark_suites: tuple[DomainBenchmarkSuite, ...] = ()
 
     def __post_init__(self) -> None:
         # ── Coerce string ids ────────────────────────────────────────────
@@ -953,6 +956,43 @@ class DomainDefinition:
                 )
             object.__setattr__(self, "model_policy", model_policy)
 
+        # ── Optional benchmark suites ────────────────────────────────────
+        raw_suites = self.benchmark_suites
+        if isinstance(raw_suites, (str, bytes, bytearray)) or not isinstance(
+            raw_suites, Sequence
+        ):
+            raise DomainContractValidationError(
+                "benchmark_suites must be a tuple or list of DomainBenchmarkSuite",
+                field="benchmark_suites",
+            )
+        suites: list[DomainBenchmarkSuite] = []
+        for index, item in enumerate(raw_suites):
+            if isinstance(item, Mapping):
+                try:
+                    item = DomainBenchmarkSuite.from_dict(dict(item))
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "benchmark_suites", index)
+            elif not isinstance(item, DomainBenchmarkSuite):
+                raise DomainContractValidationError(
+                    f"benchmark_suites[{index}] must be a DomainBenchmarkSuite "
+                    f"or mapping, got {type(item).__name__}",
+                    field="benchmark_suites",
+                )
+            if item.domain_id != self.id:
+                raise DomainContractValidationError(
+                    f"benchmark_suites[{index}] domain_id '{item.domain_id}' must "
+                    f"match domain id '{self.id}'",
+                    field="benchmark_suites",
+                )
+            suites.append(item)
+        suite_ids = [suite.id for suite in suites]
+        if len(set(suite_ids)) != len(suite_ids):
+            raise DomainContractValidationError(
+                "benchmark_suites must not contain duplicate suite IDs",
+                field="benchmark_suites",
+            )
+        object.__setattr__(self, "benchmark_suites", tuple(suites))
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -980,6 +1020,7 @@ class DomainDefinition:
             "model_policy": (
                 self.model_policy.to_dict() if self.model_policy is not None else None
             ),
+            "benchmark_suites": [suite.to_dict() for suite in self.benchmark_suites],
         }
 
     @classmethod
@@ -1109,6 +1150,30 @@ class DomainDefinition:
                     field="model_policy",
                 )
 
+        benchmark_suites_raw = data.get("benchmark_suites")
+        if benchmark_suites_raw is None:
+            benchmark_suites_raw = ()
+        if not isinstance(benchmark_suites_raw, (list, tuple)):
+            raise DomainSerializationError(
+                "benchmark_suites must be a list",
+                field="benchmark_suites",
+            )
+        benchmark_suites: list[DomainBenchmarkSuite] = []
+        for index, item in enumerate(benchmark_suites_raw):
+            if isinstance(item, DomainBenchmarkSuite):
+                benchmark_suites.append(item)
+                continue
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"benchmark_suites[{index}] must be a mapping or "
+                    f"DomainBenchmarkSuite, got {type(item).__name__}",
+                    field=f"benchmark_suites[{index}]",
+                )
+            try:
+                benchmark_suites.append(DomainBenchmarkSuite.from_dict(dict(item)))
+            except DomainError as exc:
+                _wrap_nested_error(exc, "benchmark_suites", index)
+
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -1134,6 +1199,7 @@ class DomainDefinition:
             enabled=enabled,
             metadata=metadata,
             model_policy=model_policy,
+            benchmark_suites=tuple(benchmark_suites),
         )
 
 

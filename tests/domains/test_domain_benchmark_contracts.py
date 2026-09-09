@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 from decimal import Decimal
 
 import pytest
@@ -14,8 +14,11 @@ from cmm.domains.benchmark_contracts import (
     export_domain_benchmark_suite,
     import_domain_benchmark_suite,
 )
+from cmm.domains.contracts import DomainDefinition
+from cmm.domains.enums import DomainKind
 from cmm.domains.errors import DomainError
 from cmm.domains.identifiers import DomainId
+from cmm.domains.model_policy_contracts import DomainModelPolicy
 
 _CASE_ID = "benchmark-case:health:clinical-timeline-001"
 _SUITE_ID = "benchmark-suite:health:core"
@@ -446,3 +449,122 @@ def test_import_rejects_non_bytes_payload() -> None:
 def test_import_rejects_invalid_json_payload() -> None:
     with pytest.raises(DomainError):
         import_domain_benchmark_suite(b"{not json")
+
+
+# ── DomainDefinition integration ──────────────────────────────────────────────
+
+
+def _make_definition(**overrides: object) -> DomainDefinition:
+    data: dict[str, object] = {
+        "id": "domain:test",
+        "name": "test",
+        "display_name": "Test",
+        "version": "1.0.0",
+        "kind": DomainKind.PERSONAL,
+        "description": "test domain",
+        "manifest_id": "manifest:test:1.0.0",
+    }
+    data.update(overrides)
+    return DomainDefinition(**data)  # type: ignore[arg-type]
+
+
+def _test_suite(suite_id: str = "benchmark-suite:test:core") -> DomainBenchmarkSuite:
+    return DomainBenchmarkSuite(
+        id=suite_id,
+        domain_id=DomainId(slug="test"),
+        schema_version="1",
+        version="1",
+        cases=(
+            DomainBenchmarkCase(
+                id="benchmark-case:test:core-001",
+                domain_id=DomainId(slug="test"),
+                objective="Representative objective",
+            ),
+        ),
+    )
+
+
+def test_domain_definition_benchmark_suites_default_empty() -> None:
+    assert _make_definition().benchmark_suites == ()
+
+
+def test_benchmark_suites_is_the_last_declared_field() -> None:
+    names = [f.name for f in fields(DomainDefinition)]
+
+    assert names[-1] == "benchmark_suites"
+
+
+def test_old_domain_definition_payload_without_benchmarks_still_loads() -> None:
+    payload = _make_definition().to_dict()
+    payload.pop("benchmark_suites", None)
+
+    restored = DomainDefinition.from_dict(payload)
+
+    assert restored.benchmark_suites == ()
+
+
+def test_domain_definition_round_trips_benchmark_suites() -> None:
+    definition = _make_definition(benchmark_suites=(_test_suite(),))
+
+    payload = definition.to_dict()
+    restored = DomainDefinition.from_dict(payload)
+
+    assert restored.benchmark_suites == definition.benchmark_suites
+    assert restored.to_dict() == payload
+
+
+def test_domain_definition_coerces_benchmark_suite_mappings() -> None:
+    payload = _make_definition().to_dict()
+    payload["benchmark_suites"] = [_test_suite().to_dict()]
+
+    definition = DomainDefinition.from_dict(payload)
+
+    assert definition.benchmark_suites == (_test_suite(),)
+
+
+def test_domain_definition_rejects_suite_for_another_domain() -> None:
+    other = DomainBenchmarkSuite(
+        id="benchmark-suite:other:core",
+        domain_id=DomainId(slug="other"),
+        schema_version="1",
+        version="1",
+        cases=(
+            DomainBenchmarkCase(
+                id="benchmark-case:other:core-001",
+                domain_id=DomainId(slug="other"),
+                objective="Objective",
+            ),
+        ),
+    )
+    with pytest.raises(DomainError):
+        _make_definition(benchmark_suites=(other,))
+
+
+def test_domain_definition_rejects_duplicate_suite_ids() -> None:
+    with pytest.raises(DomainError):
+        _make_definition(benchmark_suites=(_test_suite(), _test_suite()))
+
+
+def test_domain_definition_rejects_invalid_suite_mapping() -> None:
+    payload = _make_definition().to_dict()
+    payload["benchmark_suites"] = [{"id": "benchmark-suite:test:core"}]
+
+    with pytest.raises(DomainError):
+        DomainDefinition.from_dict(payload)
+
+
+def test_model_policy_and_benchmark_suites_coexist() -> None:
+    definition = _make_definition(
+        model_policy=DomainModelPolicy(
+            domain_id="domain:test",
+            require_structured_output=True,
+        ),
+        benchmark_suites=(_test_suite(),),
+    )
+
+    payload = definition.to_dict()
+    restored = DomainDefinition.from_dict(payload)
+
+    assert restored.model_policy == definition.model_policy
+    assert restored.benchmark_suites == definition.benchmark_suites
+    assert restored.to_dict() == payload
