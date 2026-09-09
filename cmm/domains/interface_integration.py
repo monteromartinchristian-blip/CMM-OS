@@ -691,6 +691,7 @@ _REVIEW_CATEGORY_OPERATION_APPROVAL = "operation_approval"
 _REVIEW_CATEGORY_CROSS_DOMAIN_ACCESS = "cross_domain_access"
 _REVIEW_CATEGORY_SENSITIVE_PERSISTENCE = "sensitive_persistence"
 _REVIEW_CATEGORY_EXTERNAL_ACTION = "external_action"
+_REVIEW_CATEGORY_UNRESOLVED_CONFLICT = "unresolved_conflict"
 
 _PERMISSION_REVIEW_CATEGORIES = {
     PermissionCapability.DOMAIN_CROSS_ACCESS: _REVIEW_CATEGORY_CROSS_DOMAIN_ACCESS,
@@ -746,10 +747,39 @@ def _review_item_evidence(
     )
 
 
+def _unresolved_review_conflict_items(
+    contradictions: tuple[object, ...],
+    membership: frozenset[str],
+) -> list[DomainReviewItemView]:
+    """Reference-only Review Center items for canonical review-required conflicts.
+
+    Only contradictions the canonical authority still requires a review for
+    surface here: unresolved, ``requires_review`` and fully inside the session
+    membership. No approval is created, no conflict state is touched and no
+    single domain is attributed to a multi-domain contradiction.
+    """
+    items: list[DomainReviewItemView] = []
+    for contradiction in contradictions:
+        if contradiction.resolved or not contradiction.requires_review:
+            continue
+        if not all(str(domain) in membership for domain in contradiction.domains):
+            continue
+        items.append(
+            DomainReviewItemView(
+                review_ref=contradiction.id,
+                category=_REVIEW_CATEGORY_UNRESOLVED_CONFLICT,
+                state=CrossDomainStatus.REQUIRES_REVIEW.value,
+            )
+        )
+    return items
+
+
 def _project_review_center(
     *,
     approvals: tuple[ApprovalRequest, ...],
     composition: DomainComposition,
+    result: CrossDomainResult | None = None,
+    snapshot: CrossDomainContextSnapshot | None = None,
 ) -> DomainReviewCenterView:
     """Aggregate canonical open review-required references for the composition."""
     membership = _composition_membership(composition)
@@ -771,6 +801,12 @@ def _project_review_center(
                 reason_ref=reason_ref,
             )
         )
+    items.extend(
+        _unresolved_review_conflict_items(
+            _canonical_contradictions(result, snapshot),
+            membership,
+        )
+    )
     return DomainReviewCenterView(items=tuple(items))
 
 
@@ -1033,10 +1069,16 @@ class DefaultDomainInterfaceIntegrator:
                 snapshot=cross_domain_snapshot,
             )
         review_center = None
-        if DomainInterfaceViewKind.REVIEW_CENTER in requested and approvals is not None:
+        if DomainInterfaceViewKind.REVIEW_CENTER in requested and (
+            approvals is not None
+            or cross_domain_result is not None
+            or cross_domain_snapshot is not None
+        ):
             review_center = _project_review_center(
-                approvals=approvals,
+                approvals=() if approvals is None else approvals,
                 composition=composition,
+                result=cross_domain_result,
+                snapshot=cross_domain_snapshot,
             )
         return DomainInterfaceProjection(
             projection_id=f"interface-projection:{request.request_id}",

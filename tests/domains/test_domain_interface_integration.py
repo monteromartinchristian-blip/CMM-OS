@@ -2072,6 +2072,56 @@ class TestReviewCenterProjection:
                 approvals="approval-req:operation:1",
             )
 
+    def test_review_center_surfaces_unresolved_review_required_cross_domain_conflict(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        """A canonical review-required conflict must surface reference-only.
+
+        Mirrors the Independent Audit V1 MAJOR-04 reproduction: a canonical
+        ``CrossDomainResult`` in ``REQUIRES_REVIEW`` carrying an unresolved
+        contradiction with ``requires_review=True`` must appear in the Review
+        Center without any fabricated approval, mutation or single-domain
+        attribution.
+        """
+        env = canonical_projection_fixture
+        needs_review = _make_contradiction(
+            "contradiction:needs-review:1", requires_review=True
+        )
+        resolved_review = _make_contradiction(
+            "contradiction:resolved-review:1",
+            resolved=True,
+            resolution="resolved by canonical conflict authority",
+            requires_review=True,
+        )
+        plain_unresolved = _make_contradiction("contradiction:plain:1")
+        foreign = _make_contradiction(
+            "contradiction:foreign:1",
+            domains=("domain:legal", "domain:general"),
+            requires_review=True,
+        )
+        result = _make_cross_domain_result(
+            status=CrossDomainStatus.REQUIRES_REVIEW,
+            contradictions=(needs_review, resolved_review, plain_unresolved, foreign),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_REVIEW_CENTER),
+            cross_domain_result=result,
+        )
+        view = projection.review_center
+        assert view is not None
+        assert [item.review_ref for item in view.items] == [
+            needs_review.id,
+        ]
+        item = view.items[0]
+        assert item.category == "unresolved_conflict"
+        assert item.state == CrossDomainStatus.REQUIRES_REVIEW.value
+        assert item.domain_id is None
+        assert item.operation_ref is None
+        assert item.workflow_ref is None
+        assert item.session_ref is None
+        assert item.reason_ref is None
+
 
 # ── Phase 10.45 selector delegation fixtures ────────────────────────────────
 
