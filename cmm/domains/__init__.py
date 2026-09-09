@@ -1472,3 +1472,19 @@ from cmm.domains.model_policy_contracts import (
 __all__ += [
     "DomainModelPolicy",
 ]
+
+# ── Phase 10.47 – Domain Benchmark Asset Exports ─────────────────────────────
+
+from cmm.domains.benchmark_contracts import (
+    DomainBenchmarkCase,
+    DomainBenchmarkSuite,
+    export_domain_benchmark_suite,
+    import_domain_benchmark_suite,
+)
+
+__all__ += [
+    "DomainBenchmarkCase",
+    "DomainBenchmarkSuite",
+    "export_domain_benchmark_suite",
+    "import_domain_benchmark_suite",
+]

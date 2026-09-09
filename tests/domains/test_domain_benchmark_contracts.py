@@ -568,3 +568,40 @@ def test_model_policy_and_benchmark_suites_coexist() -> None:
     assert restored.model_policy == definition.model_policy
     assert restored.benchmark_suites == definition.benchmark_suites
     assert restored.to_dict() == payload
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+
+def test_benchmark_contracts_are_exported_from_public_api() -> None:
+    from cmm import domains
+    from cmm.domains import (
+        DomainBenchmarkCase as PublicCase,
+    )
+    from cmm.domains import (
+        DomainBenchmarkSuite as PublicSuite,
+    )
+    from cmm.domains import (
+        export_domain_benchmark_suite as public_export,
+    )
+    from cmm.domains import (
+        import_domain_benchmark_suite as public_import,
+    )
+
+    assert PublicCase is DomainBenchmarkCase
+    assert PublicSuite is DomainBenchmarkSuite
+    assert public_export is export_domain_benchmark_suite
+    assert public_import is import_domain_benchmark_suite
+    for symbol in (
+        "DomainBenchmarkCase",
+        "DomainBenchmarkSuite",
+        "export_domain_benchmark_suite",
+        "import_domain_benchmark_suite",
+    ):
+        assert symbol in domains.__all__
+    for forbidden in (
+        "DomainBenchmarkRegistry",
+        "DomainBenchmarkRunner",
+        "BenchmarkExecutionEngine",
+    ):
+        assert forbidden not in domains.__all__
