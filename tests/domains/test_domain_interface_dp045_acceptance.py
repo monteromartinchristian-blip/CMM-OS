@@ -30,6 +30,16 @@ Then exercises all twelve mandatory adversarial branches:
   11. partial composition → remains partial
   12. absent update authority → update not fabricated
 
+The strengthened connected chain routes selector membership deltas through the
+real Phase 10.45 canonical selection transition coordinator over the shared
+session store: WITHDRAW_SUPPORTING persists exactly one new canonical session
+revision, a stale replay of the same delta fails closed with a typed
+session-conflict verdict and no durable change, and ADD_SUPPORTING under a
+canonical permission ALLOW persists the next revision. Registry, policy and
+approval state stay untouched across every transition; a canonical
+review-required unresolved conflict surfaces in the Review Center; and
+misbound sessions or foreign memory/knowledge projections fail closed.
+
 Emits AT-DP-045=PASS upon full verification of all required invariants.
 """
 
@@ -74,7 +84,10 @@ from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainResolutionStatus,
 )
-from cmm.domains.errors import DomainInterfaceAuthorityError
+from cmm.domains.errors import (
+    DomainInterfaceAuthorityError,
+    DomainSelectionTransitionContractError,
+)
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
@@ -122,6 +135,7 @@ from cmm.domains.permission_contracts import (
     CrossDomainPermissionDecision,
     CrossDomainPermissionRequest,
     DomainPermissionPolicy,
+    PermissionOutcome,
 )
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
@@ -136,8 +150,16 @@ from cmm.domains.resolution_contracts import (
 )
 from cmm.domains.resolver import DefaultDomainResolver
 from cmm.domains.resolver_contracts import DomainScoringPolicy
-from cmm.domains.session_contracts import DomainSessionContext
+from cmm.domains.selection_transition import (
+    DefaultDomainSelectionTransitionCoordinator,
+)
+from cmm.domains.session_contracts import (
+    DomainSessionContext,
+    DomainSessionTransition,
+)
+from cmm.domains.session_persistence import SharedSessionDomainAdapter
 from cmm.domains.university.definition import build_university_domain_definition
+from cmm.runtime.sessions import InMemorySessionStore
 from tests.domains.test_domain_api_contracts import _make_collaborators
 from tests.domains.test_domain_interface_integration import (
     _make_approval,
@@ -309,6 +331,17 @@ def test_at_dp045_connected_acceptance() -> None:
         last_resolution_id=_RESOLUTION_ID,
         updated_at=NOW,
     )
+
+    # The canonical session is durably persisted through the shared session
+    # authority (Phase 10.34 adapter over the shared store) at revision 1.
+    shared_session_store = InMemorySessionStore()
+    session_adapter = SharedSessionDomainAdapter(store=shared_session_store)
+    durable_revision_1 = session_adapter.save_domain_session(session)
+    assert isinstance(durable_revision_1, DomainSessionContext)
+    assert durable_revision_1.to_dict() == session.to_dict()
+    assert durable_revision_1.revision == 1
+    assert durable_revision_1.last_resolution_id == resolution.id
+    assert durable_revision_1.composition_id == _COMPOSITION_ID
 
     generated_at = NOW
     observability_report = _make_observability_report(
@@ -781,7 +814,10 @@ def test_at_dp045_connected_acceptance() -> None:
     assert isinstance(presentation, DomainPresentationPlan)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Step 7: Real Phase 10.15 permission state and selector delegation wiring
+    # Step 7: Real Phase 10.15 permission state and selector delegation wiring.
+    # The university policy also allows selector re-application of the
+    # oppositions domain (exercised through the coordinator chain below);
+    # health stays approval-gated and legal stays denied for the branches.
     # ─────────────────────────────────────────────────────────────────────────
     permission_registry = DomainPermissionRegistry()
     permission_registry.register(
@@ -791,8 +827,8 @@ def test_at_dp045_connected_acceptance() -> None:
             version="1.0.0",
             allowed_capabilities=(PermissionCapability.DOMAIN_CROSS_ACCESS,),
             allow_cross_domain_access=True,
-            allowed_target_domains=("domain:health",),
-            allowed_sensitivity_levels=(SensitivityLevel.CONFIDENTIAL,),
+            allowed_target_domains=("domain:health", "domain:oppositions"),
+            allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
         )
     )
     permission_registry.register(
@@ -803,7 +839,18 @@ def test_at_dp045_connected_acceptance() -> None:
             allowed_capabilities=(PermissionCapability.DOMAIN_CROSS_ACCESS,),
             allow_inbound_cross_domain_access=True,
             allowed_source_domains=(_PRIMARY,),
-            allowed_sensitivity_levels=(SensitivityLevel.CONFIDENTIAL,),
+            allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
+        )
+    )
+    permission_registry.register(
+        DomainPermissionPolicy(
+            policy_id="policy:oppositions:045",
+            domain_id="domain:oppositions",
+            version="1.0.0",
+            allowed_capabilities=(PermissionCapability.DOMAIN_CROSS_ACCESS,),
+            allow_inbound_cross_domain_access=True,
+            allowed_source_domains=(_PRIMARY,),
+            allowed_sensitivity_levels=(SensitivityLevel.INTERNAL,),
         )
     )
     permission_resolver = DomainPermissionResolver(permission_registry)
@@ -827,7 +874,7 @@ def test_at_dp045_connected_acceptance() -> None:
             reason="supporting domain application through domain selector",
             actor_id="actor:045",
             session_id=_SESSION_ID,
-            sensitivity_level=SensitivityLevel.CONFIDENTIAL,
+            sensitivity_level=SensitivityLevel.INTERNAL,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -984,6 +1031,334 @@ def test_at_dp045_connected_acceptance() -> None:
     assert tuple(r.id for r in approval_repo.list_requests()) == approvals_before
     assert approval_repo.list_requests() == approvals
     assert {i.id: i.statement for i in store.list_items()} == store_items_before
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Review Center: a canonical review-required conflict is surfaced
+    # (MAJOR-04 connected evidence)
+    # ─────────────────────────────────────────────────────────────────────────
+    review_conflict_id = "contradiction:045:review"
+    review_result = _make_cross_domain_result(
+        result_id="cross-domain-result:045:review",
+        status=CrossDomainStatus.REQUIRES_REVIEW,
+        composition_id=_COMPOSITION_ID,
+        contradictions=(
+            _make_contradiction(
+                review_conflict_id,
+                domains=(_PRIMARY, "domain:health"),
+                severity="high",
+                resolved=False,
+                requires_review=True,
+            ),
+        ),
+        decisions=(),
+    )
+    review_request = DomainInterfaceProjectionRequest(
+        request_id="interface-request:045:review",
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
+        session_reference_id=_SESSION_ID,
+    )
+    review_projection = api.project_interface(
+        review_request,
+        resolution=resolution,
+        composition=composition,
+        presentation=presentation,
+        session=session,
+        memory_knowledge=mem_projection,
+        memory_knowledge_request=mem_knowledge_req,
+        registry=registry,
+        observability_report=observability_report,
+        cross_domain_result=review_result,
+        cross_domain_snapshot=None,
+        approvals=approvals,
+    )
+    assert isinstance(review_projection, DomainInterfaceProjection)
+    assert review_projection.conversational is not None
+    assert review_projection.conversational.result_refs == (review_result.id,)
+    review_center_projected = review_projection.review_center
+    assert review_center_projected is not None
+    projected_by_ref = {item.review_ref: item for item in review_center_projected.items}
+    assert set(projected_by_ref) == {
+        "approval-req:045:cross:1",
+        "approval-req:045:operation:1",
+        review_conflict_id,
+    }
+    projected_conflict = projected_by_ref[review_conflict_id]
+    assert projected_conflict.category == "unresolved_conflict"
+    assert projected_conflict.state == CrossDomainStatus.REQUIRES_REVIEW.value
+    # The conflict is a reference-only review item: no single domain is
+    # attributed, no approval/operation/workflow is fabricated.
+    assert projected_conflict.domain_id is None
+    assert projected_conflict.operation_ref is None
+    assert projected_conflict.workflow_ref is None
+    assert projected_conflict.session_ref is None
+    assert tuple(r.id for r in approval_repo.list_requests()) == approvals_before
+    assert approval_repo.list_requests() == approvals
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Canonical selection transition coordinator chain (MAJOR-03 evidence)
+    # ─────────────────────────────────────────────────────────────────────────
+    coordinator = DefaultDomainSelectionTransitionCoordinator(
+        resolver=resolver,
+        composer=composer,
+        domain_registry=registry,
+        permission_resolver=permission_resolver,
+        session_adapter=session_adapter,
+        clock=lambda: NOW,
+    )
+    coordinated_collaborators = _make_collaborators()
+    coordinated_collaborators["interface_integrator"] = (
+        DefaultDomainInterfaceIntegrator(
+            resolver=resolver,
+            permission_resolver=permission_resolver,
+            selection_transition_coordinator=coordinator,
+        )
+    )
+    coordinated_api = DefaultDomainAPI(**coordinated_collaborators)
+
+    # The coordinator-backed facade renders the same canonical authority: its
+    # projection of the identical inputs is byte-identical.
+    coordinated_projection = coordinated_api.project_interface(
+        request,
+        resolution=resolution,
+        composition=composition,
+        presentation=presentation,
+        session=session,
+        memory_knowledge=mem_projection,
+        memory_knowledge_request=mem_knowledge_req,
+        registry=registry,
+        observability_report=observability_report,
+        cross_domain_result=result,
+        cross_domain_snapshot=snapshot,
+        approvals=approvals,
+    )
+    assert isinstance(coordinated_projection, DomainInterfaceProjection)
+    assert coordinated_projection.to_dict() == serialized
+    assert coordinated_projection.content_digest == projection.content_digest
+
+    policies_before = tuple(
+        (policy.policy_id, policy.domain_id, policy.version)
+        for policy in permission_registry.list_policies()
+    )
+
+    # WITHDRAW_SUPPORTING: the oppositions domain leaves the membership and
+    # exactly one new canonical session revision is persisted.
+    withdrawal_intent = DomainInterfaceIntent(
+        intent_id="intent:045:withdraw:oppositions",
+        kind=DomainInterfaceIntentKind.WITHDRAW_SUPPORTING,
+        resolution_reference_id=resolution.id,
+        composition_reference_id=composition.id,
+        target_domain="domain:oppositions",
+        session_reference_id=_SESSION_ID,
+        reason="student withdrew the oppositions domain through the selector",
+    )
+    withdrawal_result = coordinated_api.submit_interface_intent(
+        intent=withdrawal_intent,
+        session=session,
+        resolution=resolution,
+        composition=composition,
+        resolution_context=res_context,
+    )
+    assert isinstance(withdrawal_result, DomainInterfaceIntentResult)
+    assert withdrawal_result.accepted is True
+    assert withdrawal_result.status is DomainInterfaceStatus.READY
+    assert withdrawal_result.reason_code == "DOMAIN_SELECTION_REEVALUATED"
+    assert withdrawal_result.resolution_reference_id == resolution.id
+    assert withdrawal_result.composition_reference_id == composition.id
+    durable_after_withdraw = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_after_withdraw is not None
+    assert isinstance(durable_after_withdraw, DomainSessionContext)
+    assert durable_after_withdraw.revision == 2
+    assert durable_after_withdraw.primary_domain == _PRIMARY
+    assert set(durable_after_withdraw.supporting_domains) == {
+        "domain:health",
+        "domain:life-plan",
+    }
+    assert "domain:oppositions" not in durable_after_withdraw.supporting_domains
+    assert durable_after_withdraw.last_resolution_id == resolution.id
+    assert durable_after_withdraw.composition_id == _COMPOSITION_ID
+    assert len(durable_after_withdraw.domain_transitions) == 1
+    withdrawal_record = durable_after_withdraw.domain_transitions[0]
+    assert isinstance(withdrawal_record, DomainSessionTransition)
+    assert withdrawal_record.reason_code == "WITHDRAW_SUPPORTING"
+    assert withdrawal_record.previous_supporting_domains == session.supporting_domains
+    assert set(withdrawal_record.new_supporting_domains) == {
+        "domain:health",
+        "domain:life-plan",
+    }
+    assert withdrawal_record.resolution_id == resolution.id
+    assert withdrawal_record.composition_id == _COMPOSITION_ID
+    assert withdrawal_record.occurred_at == NOW
+
+    # Replaying the same withdrawal from the stale revision-1 session cannot
+    # overwrite the durable revision-2 state: typed conflict, no state change.
+    stale_withdrawal = coordinated_api.submit_interface_intent(
+        intent=withdrawal_intent,
+        session=session,
+        resolution=resolution,
+        composition=composition,
+        resolution_context=res_context,
+    )
+    assert isinstance(stale_withdrawal, DomainInterfaceIntentResult)
+    assert stale_withdrawal.accepted is False
+    assert stale_withdrawal.status is DomainInterfaceStatus.BLOCKED
+    assert (
+        stale_withdrawal.reason_code == "domain_selection_transition_session_conflict"
+    )
+    durable_after_stale = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_after_stale is not None
+    assert durable_after_stale.to_dict() == durable_after_withdraw.to_dict()
+
+    # ADD_SUPPORTING: canonical permission evidence ALLOWs the oppositions
+    # re-application and the next revision is persisted from the durable
+    # revision-2 authority.
+    oppositions_evidence = CrossDomainPermissionRequest(
+        request_id="permission-request:045:oppositions",
+        source_domain=_PRIMARY,
+        target_domain="domain:oppositions",
+        reason="selector re-application of the oppositions domain",
+        actor_id="actor:045",
+        session_id=_SESSION_ID,
+        sensitivity_level=SensitivityLevel.INTERNAL,
+        requires_approval=False,
+    )
+    oppositions_decision = permission_resolver.resolve_cross_domain(
+        oppositions_evidence
+    )
+    assert isinstance(oppositions_decision, CrossDomainPermissionDecision)
+    assert oppositions_decision.decision is PermissionOutcome.ALLOW
+    add_back_intent = DomainInterfaceIntent(
+        intent_id="intent:045:add:oppositions",
+        kind=DomainInterfaceIntentKind.ADD_SUPPORTING,
+        resolution_reference_id=durable_after_withdraw.last_resolution_id,
+        composition_reference_id=durable_after_withdraw.composition_id,
+        target_domain="domain:oppositions",
+        session_reference_id=_SESSION_ID,
+        reason="student re-added the oppositions domain after permission",
+    )
+    add_back_result = coordinated_api.submit_interface_intent(
+        intent=add_back_intent,
+        session=durable_after_withdraw,
+        resolution=resolution,
+        composition=composition,
+        resolution_context=res_context,
+        permission_request=oppositions_evidence,
+    )
+    assert isinstance(add_back_result, DomainInterfaceIntentResult)
+    assert add_back_result.accepted is True
+    assert add_back_result.status is DomainInterfaceStatus.READY
+    assert add_back_result.reason_code == "DOMAIN_SELECTION_REEVALUATED"
+    assert add_back_result.resolution_reference_id == resolution.id
+    assert add_back_result.composition_reference_id == composition.id
+    durable_after_add = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_after_add is not None
+    assert isinstance(durable_after_add, DomainSessionContext)
+    assert durable_after_add.revision == 3
+    assert durable_after_add.primary_domain == _PRIMARY
+    assert set(durable_after_add.supporting_domains) == set(session.supporting_domains)
+    assert durable_after_add.last_resolution_id == resolution.id
+    assert durable_after_add.composition_id == _COMPOSITION_ID
+    assert len(durable_after_add.domain_transitions) == 2
+    add_back_record = durable_after_add.domain_transitions[1]
+    assert isinstance(add_back_record, DomainSessionTransition)
+    assert add_back_record.reason_code == "ADD_SUPPORTING"
+    assert add_back_record.previous_supporting_domains == (
+        durable_after_withdraw.supporting_domains
+    )
+    assert set(add_back_record.new_supporting_domains) == set(
+        session.supporting_domains
+    )
+    assert add_back_record.resolution_id == resolution.id
+    assert add_back_record.composition_id == _COMPOSITION_ID
+    assert add_back_record.occurred_at == NOW
+
+    # Transitions never mutate the domain registry or the permission policy
+    # registry; only the durable session authority advanced.
+    assert _registry_records_state() == registry_before
+    assert (
+        tuple(
+            (policy.policy_id, policy.domain_id, policy.version)
+            for policy in permission_registry.list_policies()
+        )
+        == policies_before
+    )
+    durable_final = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_final is not None
+    assert durable_final.to_dict() == durable_after_add.to_dict()
+
+    # Misbound authority fails closed before any persistence: a foreign
+    # session reference, a session not bound to the resolution authority, a
+    # session bound to another composition, and foreign memory/knowledge
+    # projection bindings are all rejected.
+    with pytest.raises(DomainInterfaceAuthorityError):
+        coordinated_api.submit_interface_intent(
+            intent=dataclasses.replace(
+                withdrawal_intent, session_reference_id="session:other"
+            ),
+            session=session,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=res_context,
+        )
+    with pytest.raises(DomainSelectionTransitionContractError):
+        coordinated_api.submit_interface_intent(
+            intent=withdrawal_intent,
+            session=dataclasses.replace(session, last_resolution_id="res:other"),
+            resolution=resolution,
+            composition=composition,
+            resolution_context=res_context,
+        )
+    with pytest.raises(DomainInterfaceAuthorityError):
+        coordinated_api.project_interface(
+            request,
+            resolution=resolution,
+            composition=composition,
+            session=dataclasses.replace(session, composition_id="composition:other"),
+        )
+    with pytest.raises(DomainInterfaceAuthorityError):
+        coordinated_api.project_interface(
+            request,
+            resolution=resolution,
+            composition=composition,
+            session=dataclasses.replace(session, last_resolution_id="res:other"),
+        )
+    # Memory/knowledge evidence is content-bound to the exact request that
+    # produced it.  A projection paired with a foreign request id, or with a
+    # request re-bound to a foreign resolution authority, fails closed before
+    # projection: the projection digest is tamper-proof, so any mutation of
+    # its request breaks the canonical pairing.
+    with pytest.raises(DomainInterfaceAuthorityError):
+        coordinated_api.project_interface(
+            request,
+            resolution=resolution,
+            composition=composition,
+            memory_knowledge=mem_projection,
+            memory_knowledge_request=dataclasses.replace(
+                mem_knowledge_req, request_id="proj-req-045:foreign"
+            ),
+        )
+    with pytest.raises(DomainInterfaceAuthorityError):
+        coordinated_api.project_interface(
+            request,
+            resolution=resolution,
+            composition=composition,
+            memory_knowledge=mem_projection,
+            memory_knowledge_request=dataclasses.replace(
+                mem_knowledge_req, resolution_reference_id="res:other"
+            ),
+        )
+    # Every rejected authority left every canonical store untouched.
+    assert _registry_records_state() == registry_before
+    assert (
+        tuple(
+            (policy.policy_id, policy.domain_id, policy.version)
+            for policy in permission_registry.list_policies()
+        )
+        == policies_before
+    )
+    durable_untouched = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_untouched is not None
+    assert durable_untouched.to_dict() == durable_after_add.to_dict()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Branch 1: resolution/composition mismatch fails closed
