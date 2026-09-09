@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.life_plan.benchmarks import build_life_plan_benchmark_suites
 from cmm.domains.life_plan.catalog import (
     CANONICAL_LIFE_PLAN_OPERATION_IDS,
     CANONICAL_LIFE_PLAN_RESOURCE_IDS,
@@ -148,6 +149,7 @@ def build_life_plan_domain_definition() -> DomainDefinition:
             ),
             metadata={"phase": "10.29"},
         ),
+        benchmark_suites=build_life_plan_benchmark_suites(),
     )
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.sport.benchmarks import build_sport_benchmark_suites
 from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_OPERATION_IDS,
     CANONICAL_SPORT_RESOURCE_IDS,
@@ -126,6 +127,7 @@ def build_sport_domain_definition() -> DomainDefinition:
             tags=("sport", "training", "exercise", "workout", "fitness", "recovery"),
             metadata={"phase": "10.28"},
         ),
+        benchmark_suites=build_sport_benchmark_suites(),
     )
 
 

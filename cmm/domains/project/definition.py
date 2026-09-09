@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.project.benchmarks import build_project_benchmark_suites
 from cmm.domains.project.catalog import (
     CANONICAL_PROJECT_OPERATION_IDS,
     CANONICAL_PROJECT_RESOURCE_IDS,
@@ -130,6 +131,7 @@ def build_project_domain_definition() -> DomainDefinition:
             ),
             metadata={"phase": "10.30"},
         ),
+        benchmark_suites=build_project_benchmark_suites(),
     )
 
 
