@@ -1156,6 +1156,25 @@ class TestConversationalProjection:
         assert view.confidence is None
         assert view.status.value == "ready"
 
+    def test_conversational_view_surfaces_canonical_cross_domain_result_ref(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        env = canonical_projection_fixture
+        result = _make_cross_domain_result(
+            result_id="cross-domain-result:045",
+            composition_id=env.composition.id,
+            recommendations=("interface:recommendation:1",),
+        )
+        projection = _project_views(
+            env,
+            request=_make_request(requested_views=_CONVERSATIONAL),
+            cross_domain_result=result,
+        )
+        view = projection.conversational
+        assert view is not None
+        assert view.result_refs == ("cross-domain-result:045",)
+        assert view.result_refs == (result.id,)
+
 
 class TestDomainCenterProjection:
     def test_domain_center_active_domain_stays_active(

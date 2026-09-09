@@ -381,6 +381,7 @@ def _project_conversational(
     resolution: DomainResolutionResult,
     composition: DomainComposition,
     presentation: DomainPresentationPlan | None,
+    cross_domain_result: CrossDomainResult | None,
 ) -> ConversationalDomainView:
     """Assemble the authorized conversational view without deriving content."""
     visible_ref_ids = (
@@ -460,8 +461,12 @@ def _project_conversational(
             if presentation is not None
             else ()
         ),
-        # No canonical result carrier exists in this phase: never fabricated.
-        result_refs=(),
+        # Canonical cross-domain result reference, never a fabricated carrier.
+        result_refs=(
+            (cross_domain_result.id,)
+            if cross_domain_result is not None
+            else ()
+        ),
         memory_proposal_refs=refs["memory_proposal_refs"],
         confidence=confidence,
         warning_refs=refs["warning_refs"],
@@ -989,6 +994,7 @@ class DefaultDomainInterfaceIntegrator:
                 resolution=resolution,
                 composition=composition,
                 presentation=presentation,
+                cross_domain_result=cross_domain_result,
             )
         selector = None
         if DomainInterfaceViewKind.SELECTOR in requested:

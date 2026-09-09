@@ -883,7 +883,9 @@ def test_at_dp045_connected_acceptance() -> None:
     assert conversational.memory_proposal_refs == (real_proposal.proposal_id,)
     assert conversational.question_refs == ()
     assert conversational.warning_refs == ()
-    assert conversational.result_refs == ()
+    # MAJOR-02 remediation: the supplied canonical cross-domain result id is
+    # surfaced, never suppressed.
+    assert conversational.result_refs == (result.id,)
     assert conversational.confidence == 0.9
     assert conversational.status is DomainInterfaceStatus.READY
 
