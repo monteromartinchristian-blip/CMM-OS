@@ -1483,3 +1483,230 @@ class TestV2Major03SessionRevisionCoherence:
         assert "beta.permission" not in durable.effective_permission_refs
         assert "beta.workflow" not in durable.active_workflow_refs
         assert "beta.operation" not in durable.available_operation_ids
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 10.45 Independent Re-audit V3 — targeted RED tests
+#
+# V3 MAJOR-01: exact current authority coherence. The pending-delta bypass is
+# removed: a pre-delta session claiming post-delta resolution/composition
+# identity must fail closed, and supporting membership binds as an exact
+# canonical tuple (order included). Every mismatch proves zero persistence —
+# no resolver, composer, or session-adapter side effect. Written first per
+# TDD; implementation follows.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _SpySeams:
+    """Counting wrappers proving zero side effects on authority mismatch."""
+
+    def __init__(self, env: _CoordinatorEnvironment) -> None:
+        self._env = env
+        self.resolve_calls = 0
+        self.compose_calls = 0
+        self.save_calls = 0
+        self._resolver = env.resolver
+        self._composer = env.composer
+        self._adapter = env.adapter
+
+    def resolve(self, context: object) -> object:
+        self.resolve_calls += 1
+        return self._resolver.resolve(context)
+
+    def compose(self, resolution: object, definitions: object) -> object:
+        self.compose_calls += 1
+        return self._composer.compose(resolution, definitions)
+
+    def save_domain_session(
+        self, context: object, expected_previous_revision: int | None = None
+    ) -> object:
+        self.save_calls += 1
+        return self._adapter.save_domain_session(
+            context, expected_previous_revision=expected_previous_revision
+        )
+
+    def load_domain_session(self, session_id: str) -> object:
+        return self._adapter.load_domain_session(session_id)
+
+    def coordinator(self) -> DefaultDomainSelectionTransitionCoordinator:
+        return DefaultDomainSelectionTransitionCoordinator(
+            resolver=self,
+            composer=self,
+            domain_registry=self._env.registry,
+            permission_resolver=self._env.permission_resolver,
+            session_adapter=self,
+            clock=lambda: NOW,
+        )
+
+
+class TestV3Major01ExactAuthorityCoherence:
+    """V3 MAJOR-01: exact session ↔ resolution ↔ composition coherence."""
+
+    def _post_delta_resolution(self, env: _CoordinatorEnvironment) -> object:
+        base_policy = env.context.system_policy or DomainResolutionPolicy()
+        derived = dataclasses.replace(
+            base_policy,
+            required_domains=base_policy.required_domains + (DELTA,),
+        )
+        derived_context = dataclasses.replace(
+            env.context,
+            system_policy=derived,
+        )
+        post = env.resolver.resolve(derived_context)
+        assert post.status is DomainResolutionStatus.RESOLVED
+        assert {str(d) for d in post.supporting_domains} == {
+            str(DELTA),
+            str(BETA),
+            str(GAMMA),
+        }
+        return post
+
+    def _post_delta_composition(
+        self, env: _CoordinatorEnvironment, post_resolution: object
+    ) -> object:
+        definitions_by_slug = {
+            definition.id.slug: definition for definition in _ENV_DEFINITIONS
+        }
+        members = (ALPHA, DELTA, BETA, GAMMA)
+        composition = env.composer.compose(
+            post_resolution,
+            tuple(definitions_by_slug[domain.slug] for domain in members),
+        )
+        assert composition.resolution_id == post_resolution.id
+        return composition
+
+    def test_add_rejects_pre_delta_session_bound_to_post_delta_resolution(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        post_resolution = self._post_delta_resolution(env)
+        post_composition = self._post_delta_composition(env, post_resolution)
+        incoherent_session = dataclasses.replace(
+            env.session,
+            last_resolution_id=post_resolution.id,
+            composition_id=post_composition.id,
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:v3:pre-delta-resolution",
+            kind=DomainSelectionTransitionCommandKind.ADD_SUPPORTING,
+            target_domain=DELTA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=post_resolution.id,
+            composition_reference_id=post_composition.id,
+            reason="v3 pre-delta session bound to post-delta resolution probe",
+            permission_request=_permission_request(env),
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=request,
+                session=incoherent_session,
+                resolution=post_resolution,
+                composition=post_composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_add_rejects_pre_delta_session_bound_to_post_delta_composition(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        post_resolution = self._post_delta_resolution(env)
+        post_composition = self._post_delta_composition(env, post_resolution)
+        incoherent_session = dataclasses.replace(
+            env.session,
+            last_resolution_id=env.resolution.id,
+            composition_id=post_composition.id,
+        )
+        composition_claiming_pre_delta = dataclasses.replace(
+            post_composition, resolution_id=env.resolution.id
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:v3:pre-delta-composition",
+            kind=DomainSelectionTransitionCommandKind.ADD_SUPPORTING,
+            target_domain=DELTA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=env.resolution.id,
+            composition_reference_id=post_composition.id,
+            reason="v3 pre-delta session bound to post-delta composition probe",
+            permission_request=_permission_request(env),
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=request,
+                session=incoherent_session,
+                resolution=env.resolution,
+                composition=composition_claiming_pre_delta,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_transition_rejects_supporting_order_mismatch(self) -> None:
+        env = _CoordinatorEnvironment()
+        reordered_session = dataclasses.replace(
+            env.session,
+            supporting_domains=(str(GAMMA), str(BETA)),
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:v3:order-mismatch",
+            kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+            target_domain=BETA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=env.resolution.id,
+            composition_reference_id=env.composition.id,
+            reason="v3 supporting order mismatch probe",
+            permission_request=None,
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=request,
+                session=reordered_session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_pending_delta_mismatch_never_persists(self) -> None:
+        env = _CoordinatorEnvironment()
+        post_resolution = self._post_delta_resolution(env)
+        post_composition = self._post_delta_composition(env, post_resolution)
+        incoherent_session = dataclasses.replace(
+            env.session,
+            last_resolution_id=post_resolution.id,
+            composition_id=post_composition.id,
+        )
+        request = DomainSelectionTransitionRequest(
+            request_id="transition-request:v3:no-side-effect",
+            kind=DomainSelectionTransitionCommandKind.ADD_SUPPORTING,
+            target_domain=DELTA,
+            session_reference_id=env.session_id,
+            resolution_reference_id=post_resolution.id,
+            composition_reference_id=post_composition.id,
+            reason="v3 pending-delta mismatch never persists probe",
+            permission_request=_permission_request(env),
+        )
+        spies = _SpySeams(env)
+        with pytest.raises(DomainSelectionTransitionContractError):
+            spies.coordinator().apply(
+                request=request,
+                session=incoherent_session,
+                resolution=post_resolution,
+                composition=post_composition,
+                resolution_context=env.context,
+            )
+        assert spies.resolve_calls == 0
+        assert spies.compose_calls == 0
+        assert spies.save_calls == 0
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))

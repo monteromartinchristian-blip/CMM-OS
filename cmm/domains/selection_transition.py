@@ -148,28 +148,6 @@ def _effective_operation_ids_from_composition(
     return tuple(item.identifier for item in composition.operations)
 
 
-def _session_matches_pending_delta(
-    request: DomainSelectionTransitionRequest,
-    session: DomainSessionContext,
-    resolution_supporting: tuple[DomainId, ...],
-) -> bool:
-    """Allow the pre-delta session against a post-delta resolution authority.
-
-    An ADD command is resolved against a rebased authority whose supporting
-    set already contains the target, while the durable session still holds
-    the pre-delta membership. That exact one-delta difference is the legal
-    command shape — not a foreign snapshot — provided identity binding
-    (session/composition/last-resolution ids) already passed. Any other
-    divergence still fails closed. WITHDRAW always requires exact matching.
-    """
-    if request.kind is not DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
-        return False
-    resolution_set = frozenset(str(domain) for domain in resolution_supporting)
-    session_set = frozenset(session.supporting_domains)
-    target = str(request.target_domain)
-    return session_set == (resolution_set - {target})
-
-
 class DefaultDomainSelectionTransitionCoordinator:
     """Canonical coordinator translating membership deltas into revisions.
 
@@ -366,17 +344,17 @@ class DefaultDomainSelectionTransitionCoordinator:
                 "composition primary domain diverges from the resolution authority",
                 field="primary_domain",
             )
-        if frozenset(session.supporting_domains) != frozenset(
+        resolution_supporting = tuple(
             str(domain) for domain in resolution.supporting_domains
-        ) and not _session_matches_pending_delta(
-            request, session, resolution.supporting_domains
-        ):
+        )
+        if tuple(session.supporting_domains) != resolution_supporting:
             raise DomainSelectionTransitionContractError(
                 "session supporting domains diverge from the resolution authority",
                 field="supporting_domains",
             )
-        if frozenset(str(domain) for domain in composition.supporting_domains) != (
-            frozenset(str(domain) for domain in resolution.supporting_domains)
+        if (
+            tuple(str(domain) for domain in composition.supporting_domains)
+            != resolution_supporting
         ):
             raise DomainSelectionTransitionContractError(
                 "composition supporting domains diverge from the resolution authority",

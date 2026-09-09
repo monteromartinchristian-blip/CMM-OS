@@ -1380,6 +1380,131 @@ def test_at_dp045_connected_acceptance() -> None:
             composition=composition,
             resolution_context=res_context,
         )
+    # V3 MAJOR-01: the pending-delta bypass is removed. A pre-delta session
+    # claiming post-delta resolution/composition identity fails closed through
+    # the actual interface path, as does an order-divergent supporting tuple.
+    # The history domain is the genuine addable candidate: the post-delta
+    # resolution is the canonical base resolution with history appended
+    # (genuine canonical type), the post-delta composition is produced by the
+    # real composer over the real definitions, and the stale pre-delta session
+    # is bound to those post-delta identities.
+    from cmm.domains.selection_transition_contracts import (
+        DomainSelectionTransitionCommandKind as _V3Kind,
+    )
+    from cmm.domains.selection_transition_contracts import (
+        DomainSelectionTransitionRequest as _V3TransitionRequest,
+    )
+
+    post_delta_resolution = dataclasses.replace(
+        resolution,
+        id="res-045:post-delta:history",
+        supporting_domains=(*resolution.supporting_domains, DomainId("history")),
+    )
+    assert set(post_delta_resolution.supporting_domains) == {
+        *resolution.supporting_domains,
+        DomainId("history"),
+    }
+    post_delta_composition = composer.compose(
+        post_delta_resolution,
+        tuple(d for d in (*definitions, def_history)),
+    )
+    post_delta_composition = dataclasses.replace(
+        post_delta_composition, id="comp-045:post-delta:history"
+    )
+    assert post_delta_composition.resolution_id == post_delta_resolution.id
+    pre_delta_session = dataclasses.replace(
+        session,
+        last_resolution_id=post_delta_resolution.id,
+        composition_id=post_delta_composition.id,
+    )
+    pending_delta_intent = DomainInterfaceIntent(
+        intent_id="intent:045:add:history:pending-delta",
+        kind=DomainInterfaceIntentKind.ADD_SUPPORTING,
+        resolution_reference_id=post_delta_resolution.id,
+        composition_reference_id=post_delta_composition.id,
+        target_domain="domain:history",
+        session_reference_id=_SESSION_ID,
+        reason="pending-delta authority mismatch probe",
+    )
+    history_evidence = CrossDomainPermissionRequest(
+        request_id="permission-request:045:history:pending-delta",
+        source_domain=_PRIMARY,
+        target_domain="domain:history",
+        reason="pending-delta authority mismatch probe",
+        actor_id="actor:045",
+        session_id=_SESSION_ID,
+        sensitivity_level=SensitivityLevel.INTERNAL,
+        requires_approval=False,
+    )
+    with pytest.raises(DomainSelectionTransitionContractError):
+        coordinated_api.submit_interface_intent(
+            intent=pending_delta_intent,
+            session=pre_delta_session,
+            resolution=post_delta_resolution,
+            composition=post_delta_composition,
+            resolution_context=res_context,
+            permission_request=history_evidence,
+        )
+    with pytest.raises(DomainSelectionTransitionContractError):
+        fresh_coordinator.apply(
+            request=_V3TransitionRequest(
+                request_id="transition:045:pending-delta-direct",
+                kind=_V3Kind.ADD_SUPPORTING,
+                target_domain=DomainId.from_str("domain:history"),
+                session_reference_id=_SESSION_ID,
+                resolution_reference_id=post_delta_resolution.id,
+                composition_reference_id=post_delta_composition.id,
+                reason="pending-delta authority mismatch probe",
+                permission_request=history_evidence,
+            ),
+            session=pre_delta_session,
+            resolution=post_delta_resolution,
+            composition=post_delta_composition,
+            resolution_context=res_context,
+        )
+    # Order-divergent supporting membership is a distinct authority: the same
+    # set in a different tuple order fails closed at the coordinator boundary.
+    reordered_session = dataclasses.replace(
+        session,
+        supporting_domains=tuple(reversed(session.supporting_domains)),
+    )
+    assert set(reordered_session.supporting_domains) == set(session.supporting_domains)
+    assert tuple(reordered_session.supporting_domains) != tuple(
+        session.supporting_domains
+    )
+    with pytest.raises(DomainSelectionTransitionContractError):
+        fresh_coordinator.apply(
+            request=_V3TransitionRequest(
+                request_id="transition:045:order-mismatch",
+                kind=_V3Kind.WITHDRAW_SUPPORTING,
+                target_domain=DomainId.from_str(session.supporting_domains[0]),
+                session_reference_id=_SESSION_ID,
+                resolution_reference_id=resolution.id,
+                composition_reference_id=composition.id,
+                reason="supporting order mismatch probe",
+                permission_request=None,
+            ),
+            session=reordered_session,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=res_context,
+        )
+    with pytest.raises(DomainSelectionTransitionContractError):
+        coordinated_api.submit_interface_intent(
+            intent=withdrawal_intent,
+            session=reordered_session,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=res_context,
+        )
+    # No pending-delta or order-mismatch probe persisted anything: the shared
+    # durable authority still holds exactly the post-withdrawal revision.
+    durable_after_v3_probes = session_adapter.load_domain_session(_SESSION_ID)
+    assert durable_after_v3_probes is not None
+    assert durable_after_v3_probes.to_dict() == durable_after_withdraw.to_dict()
+    fresh_durable_after_v3 = fresh_adapter.load_domain_session(_SESSION_ID)
+    assert fresh_durable_after_v3 is not None
+    assert fresh_durable_after_v3.to_dict() == session.to_dict()
     # V2 MAJOR-02: permission evidence for another domain cannot authorize
     # this command through the coordinator path.
     from cmm.domains.selection_transition_contracts import (
