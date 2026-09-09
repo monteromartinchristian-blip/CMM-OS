@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.45 — Integration with Interfaces**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.45 — Integration with Interfaces**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; audit V4 bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`.
 
 ⸻
 
