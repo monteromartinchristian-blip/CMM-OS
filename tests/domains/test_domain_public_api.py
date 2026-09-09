@@ -720,6 +720,12 @@ class TestPublicAPI:
                 "DomainSelectorView",
             }
         )
+        # Phase 10.46 – model-agnostic domain model policy
+        expected.update(
+            {
+                "DomainModelPolicy",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -729,7 +735,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 610
+        assert len(cmm.domains.__all__) == 611
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""

@@ -1,13 +1,14 @@
 """Phase 10.46 – Agent Runtime adapter for model-agnostic domain policies.
 
-Translates a ``DomainModelPolicy`` into canonical Agent Runtime contracts. The
-adapter never queries provider registries or model catalogs, never selects or
-ranks models, never constructs providers, and never invokes inference.
+The adapter consumes the canonical ``DomainModelPolicy`` attribute surface
+structurally, so ``cmm.agent_runtime`` never imports ``cmm.domains`` and the
+approved one-way dependency (domains → Agent Runtime → kernel.llm) holds.
+
+It never queries provider registries or model catalogs, never selects or ranks
+models, never constructs providers, and never invokes inference.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from cmm.agent_runtime.enums import (
     AgentValidationStage,
@@ -21,12 +22,27 @@ from cmm.agent_runtime.model_requirements_errors import (
 from cmm.agent_runtime.validation_integration_contracts import ValidationRequirement
 from kernel.llm.model_selection import ModelRequirements
 
-if TYPE_CHECKING:  # pragma: no cover - typing-only import
-    from cmm.domains.model_policy_contracts import DomainModelPolicy
-
 DOMAIN_MODEL_POLICY_PHASE = "10.46"
 
 _DOMAIN_SOURCE_PRIORITY = 25
+
+_POLICY_ATTRIBUTE_SURFACE = (
+    "domain_id",
+    "require_reasoning",
+    "require_tool_calling",
+    "require_structured_output",
+    "require_json_mode",
+    "require_json_schema",
+    "require_vision",
+    "require_audio_input",
+    "require_audio_output",
+    "require_embeddings",
+    "minimum_context_window",
+    "require_context_validation",
+    "require_response_validation",
+    "fallback_policy",
+    "metadata",
+)
 
 __all__ = [
     "DOMAIN_MODEL_POLICY_PHASE",
@@ -36,17 +52,18 @@ __all__ = [
 ]
 
 
-def _require_domain_model_policy(policy: object) -> DomainModelPolicy:
-    # Local import keeps ``import cmm.agent_runtime`` free of cmm.domains.
-    from cmm.domains.model_policy_contracts import DomainModelPolicy
+def _require_domain_model_policy(policy: object) -> object:
+    """Fail closed unless the object exposes the canonical policy surface."""
 
-    if not isinstance(policy, DomainModelPolicy):
-        raise ModelRequirementsResolutionError("policy must be a DomainModelPolicy")
+    if not all(hasattr(policy, name) for name in _POLICY_ATTRIBUTE_SURFACE):
+        raise ModelRequirementsResolutionError(
+            "policy must expose the canonical DomainModelPolicy attribute surface"
+        )
     return policy
 
 
 def domain_model_requirement_source(
-    policy: DomainModelPolicy,
+    policy: object,
     *,
     priority: int = _DOMAIN_SOURCE_PRIORITY,
 ) -> ModelRequirementsSource:
@@ -76,7 +93,7 @@ def domain_model_requirement_source(
 
 
 def domain_model_validation_requirements(
-    policy: DomainModelPolicy,
+    policy: object,
 ) -> tuple[ValidationRequirement, ...]:
     """Map domain validation flags to canonical validation requirements."""
 
@@ -119,7 +136,7 @@ def domain_model_validation_requirements(
 
 
 def domain_model_fallback_policy(
-    policy: DomainModelPolicy,
+    policy: object,
 ) -> ModelFallbackPolicy | None:
     """Expose the typed canonical fallback policy declared by the domain."""
 

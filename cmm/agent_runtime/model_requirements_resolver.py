@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from cmm.agent_runtime.model_requirements_contracts import (
     ModelRequirementsSource,
@@ -15,9 +14,6 @@ from cmm.agent_runtime.model_requirements_errors import (
     ModelRequirementsResolutionError,
 )
 from kernel.llm.model_selection import ModelRequirements
-
-if TYPE_CHECKING:  # pragma: no cover - typing-only import
-    from cmm.domains.model_policy_contracts import DomainModelPolicy
 
 _PRIVACY_RANK: dict[str, int] = {
     "REMOTE_ALLOWED": 0,
@@ -193,7 +189,7 @@ def resolve_runtime_model_requirements(
     operation: object | None = None,
     policy_result: object | None = None,
     approval_resolution: object | None = None,
-    domain_policies: Iterable[DomainModelPolicy] = (),
+    domain_policies: Iterable[object] = (),
 ) -> ResolvedModelRequirements:
     """Resolve requirements declared by runtime contracts.
 
@@ -201,7 +197,8 @@ def resolve_runtime_model_requirements(
     through deterministic priorities while every hard constraint is
     combined using the most-restrictive strategy. Domain policies contribute
     objective requirements through the canonical adapter; they never widen a
-    stricter inherited constraint.
+    stricter inherited constraint. Domain policies are consumed structurally so
+    this module never imports ``cmm.domains``.
     """
 
     from cmm.agent_runtime.agent_registry_contracts import AgentDescriptor

@@ -158,6 +158,19 @@ def test_kernel_llm_never_imports_domains() -> None:
     assert offenders == []
 
 
+def test_phase_10_46_runtime_surfaces_never_import_domains() -> None:
+    offenders: list[tuple[str, str]] = []
+
+    for path in (
+        _ADAPTER_PATH,
+        _REPO_ROOT / "cmm" / "agent_runtime" / "model_requirements_resolver.py",
+    ):
+        for module in _domain_imports(_imported_modules_from_file(path)):
+            offenders.append((path.name, module))
+
+    assert offenders == []
+
+
 # ── Anti-fragmentation ────────────────────────────────────────────────────────
 
 
