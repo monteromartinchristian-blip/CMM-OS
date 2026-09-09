@@ -768,9 +768,10 @@ def test_package_boundary_gate():
 
     package_dir = Path(__file__).resolve().parents[2] / "cmm" / "domains" / "concerns"
     modules = sorted(p.name for p in package_dir.glob("*.py") if p.suffix == ".py")
-    assert len(modules) == 14
+    assert len(modules) == 15
     assert set(modules) == {
         "__init__.py",
+        "benchmarks.py",
         "bootstrap.py",
         "catalog.py",
         "definition.py",

@@ -337,6 +337,7 @@ def test_package_boundary_exactly_14_modules():
     )
     assert modules == [
         "__init__.py",
+        "benchmarks.py",
         "bootstrap.py",
         "catalog.py",
         "definition.py",

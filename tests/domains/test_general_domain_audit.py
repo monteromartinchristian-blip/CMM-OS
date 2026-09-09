@@ -84,8 +84,12 @@ def test_general_not_catch_all():
 # ── Structural guards ─────────────────────────────────────────────────────────
 
 
-def test_fourteen_production_modules():
-    """There are exactly 14 production modules under cmm/domains/general/."""
+def test_thirteen_production_modules():
+    """There are exactly 14 production modules under cmm/domains/general/.
+
+    The historical test name is retained because it is part of the frozen
+    Phase 10.34 pytest node inventory; the count grows with benchmark assets.
+    """
     import pathlib
 
     package_dir = pathlib.Path("cmm/domains/general")
