@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.parenthood.benchmarks import build_parenthood_benchmark_suites
 from cmm.domains.parenthood.catalog import (
     CANONICAL_PARENTHOOD_OPERATION_IDS,
     CANONICAL_PARENTHOOD_RESOURCE_IDS,
@@ -145,6 +146,7 @@ def build_parenthood_domain_definition() -> DomainDefinition:
             tags=("parenthood", "paternidad", "family", "child", "parenting"),
             metadata={"phase": "10.27"},
         ),
+        benchmark_suites=build_parenthood_benchmark_suites(),
     )
 
 

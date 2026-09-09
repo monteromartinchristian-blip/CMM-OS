@@ -7,6 +7,7 @@ import time.
 
 from __future__ import annotations
 
+from cmm.domains.concerns.benchmarks import build_concerns_benchmark_suites
 from cmm.domains.concerns.catalog import (
     CANONICAL_CONCERNS_OPERATION_IDS,
     CANONICAL_CONCERNS_RESOURCE_IDS,
@@ -154,6 +155,7 @@ def build_concerns_domain_definition() -> DomainDefinition:
             tags=("concerns", "personal", "support", "reassurance"),
             metadata={"phase": "10.25"},
         ),
+        benchmark_suites=build_concerns_benchmark_suites(),
     )
 
 

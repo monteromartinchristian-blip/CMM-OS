@@ -6,10 +6,13 @@ from collections.abc import Callable
 
 import pytest
 
+from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.health.definition import build_health_domain_definition
+from cmm.domains.languages.definition import build_languages_domain_definition
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
+from cmm.domains.parenthood.definition import build_parenthood_domain_definition
 from cmm.domains.reflection.definition import build_reflection_domain_definition
 from cmm.domains.relationships.definition import build_relationships_domain_definition
 from cmm.domains.university.definition import build_university_domain_definition
@@ -23,6 +26,9 @@ FIRST_PARTY_BUILDERS: tuple[Builder, ...] = (
     build_university_domain_definition,
     build_oppositions_domain_definition,
     build_reflection_domain_definition,
+    build_concerns_domain_definition,
+    build_languages_domain_definition,
+    build_parenthood_domain_definition,
 )
 
 EXPECTED_SUITE_IDS: dict[str, str] = {
@@ -32,7 +38,29 @@ EXPECTED_SUITE_IDS: dict[str, str] = {
     "university": "benchmark-suite:university:core",
     "oppositions": "benchmark-suite:oppositions:core",
     "reflection": "benchmark-suite:reflection:core",
+    "concerns": "benchmark-suite:concerns:core",
+    "languages": "benchmark-suite:languages:core",
+    "parenthood": "benchmark-suite:parenthood:core",
 }
+
+_CONCERNS_ROADMAP_AREAS = frozenset(
+    {
+        "understanding before intervention",
+        "support-need calibration",
+        "emotional validation without fact inflation",
+        "reality / interpretation / fear / scenario separation",
+        "evidence-calibrated reassurance",
+        "uncertainty preservation",
+        "proportional risk",
+        "no catastrophic escalation",
+        "no false reassurance",
+        "recurrence without automatic pathologization",
+        "materially useful questions",
+        "grounded directness",
+        "proportional action",
+        "cross-domain factual and risk handoff",
+    }
+)
 
 
 def _builder_for_slug(slug: str) -> Builder:
@@ -82,3 +110,16 @@ def test_health_sensitive_case_preserves_privacy_and_cost() -> None:
     for case in cases:
         for prohibited in ("invent diagnosis", "change medication"):
             assert prohibited in case.prohibited_behaviors
+
+
+def test_concerns_suite_covers_roadmap_areas() -> None:
+    definition = build_concerns_domain_definition()
+
+    criteria = {
+        criterion
+        for suite in definition.benchmark_suites
+        for case in suite.cases
+        for criterion in case.evaluation_criteria
+    }
+
+    assert _CONCERNS_ROADMAP_AREAS <= criteria

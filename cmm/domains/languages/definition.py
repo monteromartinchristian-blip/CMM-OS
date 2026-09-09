@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.languages.benchmarks import build_languages_benchmark_suites
 from cmm.domains.languages.catalog import (
     CANONICAL_LANGUAGES_OPERATION_IDS,
     CANONICAL_LANGUAGES_RESOURCE_IDS,
@@ -146,6 +147,7 @@ def build_languages_domain_definition() -> DomainDefinition:
             tags=("languages", "personal", "learning", "pedagogy", "idiomas"),
             metadata={"phase": "10.26"},
         ),
+        benchmark_suites=build_languages_benchmark_suites(),
     )
 
 
