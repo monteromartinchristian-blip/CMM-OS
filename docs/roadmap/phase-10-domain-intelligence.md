@@ -6154,68 +6154,72 @@ Implementation Status (Phase 10.45):
 
 10.46 - Domain Model Policies
 
-Objective
+Status
 
-Allow every Domain Pack to declare model preferences and restrictions without coupling domain logic to a concrete provider.
+Implemented and pending independent audit.
+
+PHASE10_46=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
+AT-DP-046=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
+
+DP-046 — User-Controlled, Model-Agnostic Domain Policy
+
+> Domain Packs declare only objective, typed, serializable, and auditable inference and validation requirements. They contain no concrete model/provider identifiers and cannot prefer, prohibit, select, construct, or invoke concrete models or providers. Model choice and reasoning level are user-controlled chat settings. CMM OS performs model selection only when the user explicitly delegates that choice to automatic routing, always through canonical requirements, privacy, budget, availability, evaluation, and routing infrastructure.
 
 Domain Model Policy
 
 ```python
 DomainModelPolicy(
     domain_id="domain:health",
-    default_capability="nuanced_reasoning",
-    preferred_models=[],
-    preferred_providers=[],
-    prohibited_models=[],
-    prohibited_providers=[],
-    local_models=[],
-    premium_fallback=[],
-    privacy_default="SENSITIVE",
-    minimum_quality="high",
-    latency_tolerance="normal",
-    context_requirement="long",
-    require_structured_output=True,
+
+    require_reasoning=False,
     require_tool_calling=False,
-    require_context_validation=True,
-    require_response_validation=True,
-    recommended_budget_eur=None,
+    require_structured_output=False,
+    require_json_mode=False,
+    require_json_schema=False,
+    require_vision=False,
+    require_audio_input=False,
+    require_audio_output=False,
+    require_embeddings=False,
+
+    minimum_context_window=None,
+
+    require_context_validation=False,
+    require_response_validation=False,
+
     fallback_policy=None,
+
     metadata={},
 )
 ```
 
-A domain may define:
+A domain may define only objective requirements:
 
-* preferred and prohibited models;
-* preferred and prohibited providers;
-* default capability;
-* minimum quality;
-* privacy requirements;
-* latency tolerance;
-* context-length requirements;
-* structured-output requirements;
-* tool-calling requirements;
-* multimodal requirements;
-* local-processing preferences;
-* premium fallback;
-* recommended budget;
-* validation requirements;
-* fallback policy.
+* required capabilities (reasoning, tool calling, structured output, JSON mode, JSON schema, vision, audio input/output, embeddings);
+* an optional minimum context window;
+* whether canonical context/response validation stages are required;
+* an optional typed canonical fallback policy;
+* serializable audit metadata.
+
+A domain must **not** define preferred/prohibited models or providers, local model names, concrete premium fallbacks, minimum quality, latency tolerance, a recommended budget, or concrete routing weights. The earlier conceptual roadmap shape for this phase is superseded by the approved model-agnostic design and is not authoritative.
 
 The policy must be combined with:
 
-* global model policy;
-* user policy;
-* session policy;
-* workflow requirements;
-* operation requirements;
-* privacy policy;
+* global/user/session policy;
+* workflow and operation requirements;
+* privacy and permission constraints;
 * economic budget;
-* provider availability.
+* provider/model availability from the canonical ProviderRegistry and ModelCatalog;
+* canonical routing when the user selects AUTO.
 
-The effective policy must preserve the most restrictive privacy, permission, and cost constraints.
+The effective policy must preserve the most restrictive privacy, permission, and cost constraints. A domain policy can never widen a stricter ancestor policy.
 
 A Domain Pack must not select or invoke a provider directly.
+
+Implementation: `cmm/domains/model_policy_contracts.py`, `cmm/domains/contracts.py`, `cmm/agent_runtime/domain_model_policy_adapter.py`, `cmm/agent_runtime/model_requirements_resolver.py`. Reference: `docs/reference/domain-model-policies.md`. Acceptance: `tests/domains/test_domain_model_policy_dp046_acceptance.py`.
+
+Next action: exact-HEAD independent audit of Phase 10.46. Phase 10.47 has not started.
 
 ⸻
 
