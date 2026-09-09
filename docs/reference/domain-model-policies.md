@@ -2,19 +2,24 @@
 
 **Phase:** 10.46 — Domain Model Policies
 **Design Point:** DP-046 — User-Controlled, Model-Agnostic Domain Policy
-**Status:** Implemented; remediation V1 applied; pending independent re-audit V2
+**Status:** Complete; independently re-audited and closed after V2 PASS
 **Design:** `docs/superpowers/specs/2026-09-09-phase-10.46-domain-model-policies-design.md`
 **Plan:** `docs/superpowers/plans/2026-09-09-phase-10.46-domain-model-policies-implementation-plan.md`
 **Remediation amendment:** `docs/superpowers/specs/2026-09-09-phase-10.46-remediation-design-amendment-v1.md`
 **Remediation plan:** `docs/superpowers/plans/2026-09-09-phase-10.46-remediation-v1-implementation-plan.md`
-**Acceptance:** `tests/domains/test_domain_model_policy_dp046_acceptance.py` — `AT-DP-046=PASS_REPORTED`; `AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED`; `AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED`
+**Final independent re-audit:** `docs/audits/phase-10.46-independent-reaudit-v2.md` — `PASS`
+**Audited implementation HEAD:** `f62069cf935fff5bbac6055e5a63d9b0302993a6`
+**Audit bundle SHA-256:** `8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`
+**Audit report commit:** `b2c70a1b7b9f6b4e9e1eb377ebf4c3c45a1197fe`
+**Acceptance:** `tests/domains/test_domain_model_policy_dp046_acceptance.py` — `AT-DP-046=PASS`; premium-neutrality and strict-adapter-boundary remediation independently verified in Re-audit V2
 **Implementation commit:** recorded by Git history on `feature/phase-10-domain-intelligence` (no self-referential placeholder is embedded here).
 
-> Phase 10.46 is implemented and remediated, pending independent re-audit V2. It
-> is **not** closed, audited, or verified. `INDEPENDENT_AUDIT_V1=FAIL`,
-> `REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT`,
-> `DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`,
-> `AT-DP-046=PASS_REPORTED`, `CLOSURE_ELIGIBLE=NO`.
+> Phase 10.46 is complete, independently re-audited and closed after V2 `PASS`.
+> Historical V1 `FAIL` is preserved. V2 reports `BLOCKERS=0`, `MAJORS=0`,
+> `MINORS=0`, `MAJOR_01=VERIFIED_REMEDIATED`,
+> `MAJOR_02=VERIFIED_REMEDIATED`, `DP-046=VERIFIED_EXISTING`,
+> `AT-DP-046=PASS`, and `CLOSURE_ELIGIBLE=YES`.
+> Audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`; bundle SHA-256 `8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`.
 
 ---
 
@@ -331,15 +336,20 @@ abstention) plus the pre-existing reverse-import and public-API guards.
 ## 13. State
 
 ```text
-PHASE10_46=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT
-DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-046=PASS_REPORTED
-AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED
-AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
+PHASE10_46=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+DP-046=VERIFIED_EXISTING
+AT-DP-046=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=f62069cf935fff5bbac6055e5a63d9b0302993a6
+AUDIT_BUNDLE_SHA256=8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a
 ```
 
-Next action: exact-HEAD independent re-audit V2 of Phase 10.46. Phase 10.47 has
-not started.
+Phase 10.46 is closed. Phase 10.47 may begin after verification of the docs-only
+closure commit; Phase 10.47 has not started.

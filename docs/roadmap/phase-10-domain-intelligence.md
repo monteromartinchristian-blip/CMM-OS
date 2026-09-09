@@ -5967,7 +5967,7 @@ same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
 covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
-reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.45.
+reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.46.
 Phase 10.44 is **complete, independently audited and closed** after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`.
 
 ⸻
@@ -6147,7 +6147,7 @@ Implementation Status (Phase 10.45):
   - Specification: `docs/superpowers/specs/2026-09-08-phase-10.45-integration-with-interfaces-design.md`
   - Implementation plan: `docs/superpowers/plans/2026-09-08-phase-10.45-interface-integration-implementation-plan.md`
   - `AT-DP-045=PASS` independently verified in final Re-audit V4; `DP-045=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`
-  - Next action: Phase 10.46 may begin only after final closure verification; Phase 10.46 has not started.
+  - Phase 10.46 subsequently completed and closed after Independent Re-audit V2 PASS; Phase 10.47 is the next unstarted phase.
 
 ⸻
 
@@ -6156,25 +6156,33 @@ Implementation Status (Phase 10.45):
 
 Status
 
-Implemented; remediation V1 applied; pending independent re-audit V2.
+Complete; independently re-audited and closed after Re-audit V2 PASS.
 
-PHASE10_46=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT
-DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-046=PASS_REPORTED
-AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED
-AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
+PHASE10_46=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+DP-046=VERIFIED_EXISTING
+AT-DP-046=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=f62069cf935fff5bbac6055e5a63d9b0302993a6
+AUDIT_BUNDLE_SHA256=8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a
+REAUDIT_V2_REPORT=docs/audits/phase-10.46-independent-reaudit-v2.md
+REAUDIT_V2_REPORT_COMMIT=b2c70a1b7b9f6b4e9e1eb377ebf4c3c45a1197fe
 
 Independent Audit V1 failed with `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`:
 `MAJOR_01=DOMAIN_PREMIUM_PERMISSION_NOT_NEUTRAL` and
-`MAJOR_02=STRUCTURAL_ADAPTER_NOT_FAIL_CLOSED`. Both are remediated: the Domain
-source abstains from premium permission composition through provenance-level
-`contributes_premium_permission=False` (no opinion, not allow and not deny), and
-the import-safe structural adapter now performs strict fail-closed semantic
-validation of the full approved policy surface. V1 audit evidence is preserved
-unmodified in `docs/audits/phase-10.46-independent-audit-v1.md`.
+`MAJOR_02=STRUCTURAL_ADAPTER_NOT_FAIL_CLOSED`. Both were remediated and
+independently verified in Re-audit V2 `PASS`; V2 reports `BLOCKERS=0`,
+`MAJORS=0`, `MINORS=0`, `DP-046=VERIFIED_EXISTING`, `AT-DP-046=PASS`, and
+`CLOSURE_ELIGIBLE=YES`. V1 remains preserved as historical evidence in
+`docs/audits/phase-10.46-independent-audit-v1.md`; final V2 evidence is
+`docs/audits/phase-10.46-independent-reaudit-v2.md`, audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`, bundle SHA-256
+`8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`, audit-report commit `b2c70a1b7b9f6b4e9e1eb377ebf4c3c45a1197fe`.
 
 DP-046 — User-Controlled, Model-Agnostic Domain Policy
 
@@ -6232,7 +6240,7 @@ A Domain Pack must not select or invoke a provider directly.
 
 Implementation: `cmm/domains/model_policy_contracts.py`, `cmm/domains/contracts.py`, `cmm/agent_runtime/domain_model_policy_adapter.py`, `cmm/agent_runtime/model_requirements_resolver.py`. Reference: `docs/reference/domain-model-policies.md`. Acceptance: `tests/domains/test_domain_model_policy_dp046_acceptance.py`.
 
-Next action: exact-HEAD independent re-audit V2 of Phase 10.46. Phase 10.47 has not started.
+Phase 10.46 is closed. Next action: Phase 10.47 may begin after verification of this closure commit; Phase 10.47 has not started.
 
 ⸻
 
