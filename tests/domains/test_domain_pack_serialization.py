@@ -27,6 +27,7 @@ from cmm.domains.manifest import (
     DomainManifest,
     DomainPermissionReference,
 )
+from cmm.domains.model_policy_contracts import DomainModelPolicy
 from cmm.domains.pack import DomainPack, ParsedDomainPack
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -319,6 +320,35 @@ class TestParsedDomainPackSerialization:
         original = ParsedDomainPack(definition=d, manifest=m)
         restored = ParsedDomainPack.from_dict(original.to_dict())
         assert restored.definition.resources == original.definition.resources
+
+    def test_round_trip_definition_with_model_policy(self) -> None:
+        m = _make_minimal_manifest(slug="test", version="1.0")
+        d = DomainDefinition(
+            id="domain:test",
+            name="test",
+            display_name="Test",
+            version="1.0",
+            kind=DomainKind.PERSONAL,
+            description="test",
+            manifest_id="manifest:test:1.0",
+            model_policy=DomainModelPolicy(
+                domain_id="domain:test",
+                require_structured_output=True,
+                minimum_context_window=32_768,
+            ),
+        )
+        original = ParsedDomainPack(definition=d, manifest=m)
+        restored = ParsedDomainPack.from_dict(original.to_dict())
+        assert restored.definition.model_policy == d.model_policy
+        assert restored.to_dict() == original.to_dict()
+
+    def test_round_trip_definition_without_model_policy_is_unchanged(self) -> None:
+        original = ParsedDomainPack(
+            definition=_make_minimal_definition(), manifest=_make_minimal_manifest()
+        )
+        restored = ParsedDomainPack.from_dict(original.to_dict())
+        assert restored.definition.model_policy is None
+        assert restored.to_dict() == original.to_dict()
 
     def test_reject_unknown_fields(self) -> None:
         data = {

@@ -25,6 +25,7 @@ from cmm.domains.identifiers import (
     DomainManifestId,
     DomainResultId,
 )
+from cmm.domains.model_policy_contracts import DomainModelPolicy
 
 # ── Deep freeze / unfreeze helpers ────────────────────────────────────────────
 
@@ -692,6 +693,7 @@ _DEFINITION_KNOWN = frozenset(
         "capabilities",
         "enabled",
         "metadata",
+        "model_policy",
     }
 )
 
@@ -723,6 +725,7 @@ class DomainDefinition:
     capabilities: tuple[DomainCapability, ...] = ()
     enabled: bool = True
     metadata: DomainMetadata | None = None
+    model_policy: DomainModelPolicy | None = None
 
     def __post_init__(self) -> None:
         # ── Coerce string ids ────────────────────────────────────────────
@@ -929,6 +932,27 @@ class DomainDefinition:
                     field="metadata",
                 )
 
+        # ── Optional model policy ────────────────────────────────────────
+        model_policy = self.model_policy
+        if model_policy is not None:
+            if isinstance(model_policy, Mapping):
+                try:
+                    model_policy = DomainModelPolicy.from_dict(dict(model_policy))
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "model_policy")
+            elif not isinstance(model_policy, DomainModelPolicy):
+                raise DomainContractValidationError(
+                    "model_policy must be a DomainModelPolicy, a mapping, or None",
+                    field="model_policy",
+                )
+            if model_policy.domain_id != self.id:
+                raise DomainContractValidationError(
+                    f"model_policy domain_id '{model_policy.domain_id}' must match "
+                    f"domain id '{self.id}'",
+                    field="model_policy",
+                )
+            object.__setattr__(self, "model_policy", model_policy)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -953,6 +977,9 @@ class DomainDefinition:
             "capabilities": [c.to_dict() for c in self.capabilities],
             "enabled": self.enabled,
             "metadata": self.metadata.to_dict() if self.metadata else None,
+            "model_policy": (
+                self.model_policy.to_dict() if self.model_policy is not None else None
+            ),
         }
 
     @classmethod
@@ -1065,6 +1092,23 @@ class DomainDefinition:
         else:
             enabled = True
 
+        model_policy_raw = data.get("model_policy")
+        model_policy: DomainModelPolicy | None = None
+        if model_policy_raw is not None:
+            if isinstance(model_policy_raw, DomainModelPolicy):
+                model_policy = model_policy_raw
+            elif isinstance(model_policy_raw, Mapping):
+                try:
+                    model_policy = DomainModelPolicy.from_dict(dict(model_policy_raw))
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "model_policy")
+            else:
+                raise DomainSerializationError(
+                    "model_policy must be a mapping or DomainModelPolicy, "
+                    f"got {type(model_policy_raw).__name__}",
+                    field="model_policy",
+                )
+
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -1089,6 +1133,7 @@ class DomainDefinition:
             capabilities=_parse_caps(data.get("capabilities"), "capabilities"),
             enabled=enabled,
             metadata=metadata,
+            model_policy=model_policy,
         )
 
 
