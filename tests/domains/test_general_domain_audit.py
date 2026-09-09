@@ -84,8 +84,8 @@ def test_general_not_catch_all():
 # ── Structural guards ─────────────────────────────────────────────────────────
 
 
-def test_thirteen_production_modules():
-    """There are exactly 13 production modules under cmm/domains/general/."""
+def test_fourteen_production_modules():
+    """There are exactly 14 production modules under cmm/domains/general/."""
     import pathlib
 
     package_dir = pathlib.Path("cmm/domains/general")
@@ -94,7 +94,7 @@ def test_thirteen_production_modules():
         for p in package_dir.glob("*.py")
         if p.name != "__init__.py" and not p.name.startswith("_")
     ]
-    assert len(modules) == 13
+    assert len(modules) == 14
 
 
 def test_seventeen_test_modules():

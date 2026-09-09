@@ -726,6 +726,15 @@ class TestPublicAPI:
                 "DomainModelPolicy",
             }
         )
+        # Phase 10.47 – portable domain benchmark assets
+        expected.update(
+            {
+                "DomainBenchmarkCase",
+                "DomainBenchmarkSuite",
+                "export_domain_benchmark_suite",
+                "import_domain_benchmark_suite",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -735,7 +744,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 611
+        assert len(cmm.domains.__all__) == 615
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
