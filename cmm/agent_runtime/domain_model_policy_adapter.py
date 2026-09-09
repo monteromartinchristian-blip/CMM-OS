@@ -7,6 +7,8 @@ ranks models, never constructs providers, and never invokes inference.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from cmm.agent_runtime.enums import (
     AgentValidationStage,
     ValidationRequirementKind,
@@ -17,8 +19,10 @@ from cmm.agent_runtime.model_requirements_errors import (
     ModelRequirementsResolutionError,
 )
 from cmm.agent_runtime.validation_integration_contracts import ValidationRequirement
-from cmm.domains.model_policy_contracts import DomainModelPolicy
 from kernel.llm.model_selection import ModelRequirements
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only import
+    from cmm.domains.model_policy_contracts import DomainModelPolicy
 
 DOMAIN_MODEL_POLICY_PHASE = "10.46"
 
@@ -33,6 +37,9 @@ __all__ = [
 
 
 def _require_domain_model_policy(policy: object) -> DomainModelPolicy:
+    # Local import keeps ``import cmm.agent_runtime`` free of cmm.domains.
+    from cmm.domains.model_policy_contracts import DomainModelPolicy
+
     if not isinstance(policy, DomainModelPolicy):
         raise ModelRequirementsResolutionError("policy must be a DomainModelPolicy")
     return policy
