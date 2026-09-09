@@ -228,6 +228,7 @@ Locations use the original source section and analysis line range. Summaries del
 | `R10-C18-ERRATA` | `SRC-R10` · Phase 10.18 fragmentation-prevention list | — | `DISCARDED` | The apparent permission to create independent copies contradicts the section objective and shared architecture. |
 | `R10-C19-C30` | `SRC-R10` · Phases 10.19–10.30 | `DP-019`–`DP-030` | `PRIMARY` | Defines the sequential Domain Pack set. |
 | `R10-C46` | `SRC-R10` · Phase 10.46 Domain Model Policies | `DP-046` | `PRIMARY` | Model-agnostic domain policy; concrete model/provider preference fields are discarded by the approved DP-046 design. |
+| `R10-C47` | `SRC-R10` · Phase 10.47 Domain Benchmark Suites | `DP-047` | `PRIMARY` | Portable model-agnostic benchmark assets; suite-owned evaluation/privacy/budget engines, concrete candidate models/providers, weighted quality metrics and benchmark runtime/registry are discarded by the approved DP-047 design. |
 | `RM-C10` | `SRC-RM` · Phase 10 overview | `ARC-001`–`ARC-008`; final order | `PRIMARY` | Establishes shared architecture and phase boundary. |
 | `R11-C55` | `SRC-R11` · Phase 11.55 Communication Profiles | `F11-001`, `F11-002` | `PRIMARY` | Separates communication style and renderer from 10.16. |
 

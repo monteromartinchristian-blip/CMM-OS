@@ -6386,6 +6386,32 @@ Each case must support:
 
 Benchmark suites must be versioned, reproducible, exportable, and compatible with the Phase 11 Model Evaluation Framework.
 
+Implementation status (Phase 10.47)
+
+Superseded conceptual fields: `candidate_models` removed by the model-agnostic
+design; `quality_criteria` replaced by unweighted `evaluation_criteria`;
+`evaluation_policy`, `privacy_policy` and `default_budget` removed as suite-owned
+engines. There is no benchmark runner and no benchmark registry: benchmark
+suites belong to `DomainDefinition.benchmark_suites`, and the existing
+`DomainRegistry` remains the only Domain registry. Phase 10.48 owns domain
+quality metrics; Phase 11.36 owns execution, comparison and rankings.
+
+Implementation: `cmm/domains/benchmark_contracts.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.benchmark_suites`); `cmm/domains/<domain>/benchmarks.py` for
+all twelve implemented first-party packs; public exports in
+`cmm/domains/__init__.py`. Reference: `docs/reference/domain-benchmark-suites.md`.
+Acceptance: `tests/domains/test_domain_benchmark_dp047_acceptance.py`.
+Architecture guards: `tests/domains/test_domain_benchmark_architecture.py`.
+
+```text
+PHASE10_47=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
+AT-DP-047=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
+```
+
+Phase 10.47 is implemented and awaiting independent audit. Phase 10.48 has not started.
+
 ⸻
 
 10.48 - Domain Quality Metrics
