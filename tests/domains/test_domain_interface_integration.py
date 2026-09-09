@@ -2840,7 +2840,9 @@ def _delegation_environment(**overrides: object) -> _CoordinatorEnvironment:
     return _CoordinatorEnvironment(**overrides)
 
 
-def _delegation_coordinator(env: _CoordinatorEnvironment) -> DefaultDomainSelectionTransitionCoordinator:
+def _delegation_coordinator(
+    env: _CoordinatorEnvironment,
+) -> DefaultDomainSelectionTransitionCoordinator:
     """Wire the canonical coordinator over the environment's real seams."""
     return DefaultDomainSelectionTransitionCoordinator(
         resolver=env.resolver,
@@ -2902,13 +2904,22 @@ def _delegation_permission_request(
 class TestSelectorMembershipIntentDelegation:
     """ADD/WITHDRAW selector intents complete through the canonical coordinator."""
 
-    def _add_submission(self, env: _CoordinatorEnvironment, integrator, *, permission_request, session=None):
+    def _add_submission(
+        self,
+        env: _CoordinatorEnvironment,
+        integrator,
+        *,
+        permission_request,
+        session=None,
+    ):
         return integrator.submit_intent(
             intent=_delegation_intent(
                 env,
                 DomainInterfaceIntentKind.ADD_SUPPORTING,
                 target_domain=str(DomainId("delta")),
-                session_reference_id=session.session_id if session is not None else None,
+                session_reference_id=session.session_id
+                if session is not None
+                else None,
             ),
             session=session,
             resolution=env.resolution,
@@ -2931,7 +2942,9 @@ class TestSelectorMembershipIntentDelegation:
         before_registry = env.registry_snapshot()
         integrator = _delegation_integrator(env)
 
-        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        result = self._add_submission(
+            env, integrator, permission_request=permission_request, session=env.session
+        )
 
         assert result.accepted is True
         assert result.status is DomainInterfaceStatus.READY
@@ -3001,7 +3014,9 @@ class TestSelectorMembershipIntentDelegation:
         assert expected.reasons
         integrator = _delegation_integrator(env)
 
-        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        result = self._add_submission(
+            env, integrator, permission_request=permission_request, session=env.session
+        )
 
         assert result.accepted is False
         assert result.status is DomainInterfaceStatus.BLOCKED
@@ -3028,7 +3043,9 @@ class TestSelectorMembershipIntentDelegation:
         assert expected.reasons
         integrator = _delegation_integrator(env)
 
-        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        result = self._add_submission(
+            env, integrator, permission_request=permission_request, session=env.session
+        )
 
         assert result.accepted is False
         assert result.status is DomainInterfaceStatus.PENDING
@@ -3111,21 +3128,22 @@ class TestSelectorMembershipIntentDelegation:
             env, target_domain=str(DomainId("delta"))
         )
         integrator = _delegation_integrator(env)
-        first = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        first = self._add_submission(
+            env, integrator, permission_request=permission_request, session=env.session
+        )
         assert first.accepted is True
         assert first.status is DomainInterfaceStatus.READY
 
         # Replaying the same intent with the stale revision-1 authority can no
         # longer commit: the optimistic conflict surfaces as a typed result
         # and the durable revision-2 state is never overwritten.
-        second = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        second = self._add_submission(
+            env, integrator, permission_request=permission_request, session=env.session
+        )
 
         assert second.accepted is False
         assert second.status is DomainInterfaceStatus.BLOCKED
-        assert (
-            second.reason_code
-            == "domain_selection_transition_session_conflict"
-        )
+        assert second.reason_code == "domain_selection_transition_session_conflict"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 2

@@ -294,8 +294,7 @@ class TestSelectionTransitionCoordinatorArchitecture:
         )
         for symbol in symbols:
             assert symbol not in owner_symbols, (
-                f"Coordinator imports owned authority '{symbol}' in "
-                f"{file_path.name}"
+                f"Coordinator imports owned authority '{symbol}' in {file_path.name}"
             )
         source = file_path.read_text(encoding="utf-8")
         for token in ("SessionStore(", "InMemorySessionStore("):

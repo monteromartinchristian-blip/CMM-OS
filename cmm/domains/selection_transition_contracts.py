@@ -153,7 +153,9 @@ class DomainSelectionTransitionRequest:
             self, "request_id", _require_non_blank_str(self.request_id, "request_id")
         )
         object.__setattr__(self, "kind", _coerce_command_kind(self.kind))
-        object.__setattr__(self, "target_domain", _coerce_target_domain(self.target_domain))
+        object.__setattr__(
+            self, "target_domain", _coerce_target_domain(self.target_domain)
+        )
         object.__setattr__(
             self,
             "session_reference_id",
@@ -162,14 +164,20 @@ class DomainSelectionTransitionRequest:
         object.__setattr__(
             self,
             "resolution_reference_id",
-            _require_non_blank_str(self.resolution_reference_id, "resolution_reference_id"),
+            _require_non_blank_str(
+                self.resolution_reference_id, "resolution_reference_id"
+            ),
         )
         object.__setattr__(
             self,
             "composition_reference_id",
-            _require_non_blank_str(self.composition_reference_id, "composition_reference_id"),
+            _require_non_blank_str(
+                self.composition_reference_id, "composition_reference_id"
+            ),
         )
-        object.__setattr__(self, "reason", _normalize_optional_text(self.reason, "reason"))
+        object.__setattr__(
+            self, "reason", _normalize_optional_text(self.reason, "reason")
+        )
         if self.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
             if self.permission_request is None:
                 raise DomainSelectionTransitionContractError(
@@ -237,8 +245,7 @@ class DomainSelectionTransitionRequest:
             )
         except KeyError as exc:
             raise DomainSelectionTransitionSerializationError(
-                "Missing required field in domain selection transition request: "
-                f"{exc}",
+                f"Missing required field in domain selection transition request: {exc}",
                 field=str(exc),
             ) from exc
         except DomainSelectionTransitionContractError as exc:
@@ -268,7 +275,9 @@ class DomainSelectionTransitionResult:
         object.__setattr__(self, "kind", _coerce_command_kind(self.kind))
         object.__setattr__(self, "status", _coerce_status(self.status))
         object.__setattr__(
-            self, "reason_code", _normalize_optional_text(self.reason_code, "reason_code")
+            self,
+            "reason_code",
+            _normalize_optional_text(self.reason_code, "reason_code"),
         )
         if self.status is DomainSelectionTransitionStatus.ACCEPTED:
             if not isinstance(self.transition, DomainSelectionTransition):
@@ -289,7 +298,9 @@ class DomainSelectionTransitionResult:
             "kind": self.kind.value,
             "status": self.status.value,
             "reason_code": self.reason_code,
-            "transition": None if self.transition is None else self.transition.to_dict(),
+            "transition": None
+            if self.transition is None
+            else self.transition.to_dict(),
         }
 
     @classmethod
@@ -321,8 +332,7 @@ class DomainSelectionTransitionResult:
             )
         except KeyError as exc:
             raise DomainSelectionTransitionSerializationError(
-                "Missing required field in domain selection transition result: "
-                f"{exc}",
+                f"Missing required field in domain selection transition result: {exc}",
                 field=str(exc),
             ) from exc
         except DomainSelectionTransitionContractError as exc:

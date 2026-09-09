@@ -353,9 +353,7 @@ class TestDomainSelectionTransitionRequest:
             "resolution_reference_id",
             "composition_reference_id",
         ):
-            with pytest.raises(
-                DomainSelectionTransitionContractError, match=field
-            ):
+            with pytest.raises(DomainSelectionTransitionContractError, match=field):
                 _transition_request(**{field: "  "})
 
     def test_request_rejects_foreign_target_domain(self) -> None:
@@ -364,9 +362,7 @@ class TestDomainSelectionTransitionRequest:
 
     def test_request_normalizes_optional_reason(self) -> None:
         assert _transition_request(reason=None).reason is None
-        assert _transition_request(reason="with evidence").reason == (
-            "with evidence"
-        )
+        assert _transition_request(reason="with evidence").reason == ("with evidence")
         with pytest.raises(DomainSelectionTransitionContractError):
             _transition_request(reason=" ")
 
@@ -501,9 +497,7 @@ class TestDomainSelectionTransitionCoordinatorProtocol:
             )
 
     def test_protocol_accepts_conforming_implementations(self) -> None:
-        assert isinstance(
-            self._SpyCoordinator(), DomainSelectionTransitionCoordinator
-        )
+        assert isinstance(self._SpyCoordinator(), DomainSelectionTransitionCoordinator)
 
     def test_protocol_apply_returns_canonical_result(self) -> None:
         hints = typing.get_type_hints(DomainSelectionTransitionCoordinator.apply)
@@ -525,8 +519,7 @@ GAMMA = DomainId("gamma")
 DELTA = DomainId("delta")
 
 _ENV_DEFINITIONS = tuple(
-    _make_domain_definition(slug)
-    for slug in ("alpha", "beta", "gamma", "delta")
+    _make_domain_definition(slug) for slug in ("alpha", "beta", "gamma", "delta")
 )
 
 
@@ -621,10 +614,7 @@ class _CoordinatorEnvironment:
         }
         self.composition = self.composer.compose(
             self.resolution,
-            tuple(
-                definitions_by_slug[domain.slug]
-                for domain in (ALPHA, BETA, GAMMA)
-            ),
+            tuple(definitions_by_slug[domain.slug] for domain in (ALPHA, BETA, GAMMA)),
         )
         assert self.composition.status in (
             DomainCompositionStatus.COMPOSED,
@@ -635,11 +625,10 @@ class _CoordinatorEnvironment:
         self.session = DomainSessionContext(
             session_id=session_id,
             primary_domain=str(ALPHA),
-            supporting_domains=tuple(str(d) for d in self.resolution.supporting_domains),
-            domain_versions={
-                str(domain): "1.0.0"
-                for domain in (ALPHA, BETA, GAMMA)
-            },
+            supporting_domains=tuple(
+                str(d) for d in self.resolution.supporting_domains
+            ),
+            domain_versions={str(domain): "1.0.0" for domain in (ALPHA, BETA, GAMMA)},
             composition_id=self.composition.id,
             effective_profile="default",
             last_resolution_id=self.resolution.id,
@@ -674,7 +663,9 @@ class _CoordinatorEnvironment:
         )
 
 
-def _coordinator(env: _CoordinatorEnvironment) -> DefaultDomainSelectionTransitionCoordinator:
+def _coordinator(
+    env: _CoordinatorEnvironment,
+) -> DefaultDomainSelectionTransitionCoordinator:
     return DefaultDomainSelectionTransitionCoordinator(
         resolver=env.resolver,
         composer=env.composer,
@@ -725,7 +716,9 @@ def _coordinator_request(
     permission_request: CrossDomainPermissionRequest | None = None
     if kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
         evidence_target = (
-            target_domain if permission_target_domain is None else permission_target_domain
+            target_domain
+            if permission_target_domain is None
+            else permission_target_domain
         )
         permission_request = _permission_request(
             env,
@@ -955,10 +948,7 @@ class TestDomainSelectionTransitionCoordinatorPreconditions:
             permission_target_domain=DELTA,
         )
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
-        assert (
-            result.reason_code
-            == "domain_selection_transition_target_is_primary"
-        )
+        assert result.reason_code == "domain_selection_transition_target_is_primary"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1
@@ -969,9 +959,7 @@ class TestDomainSelectionTransitionCoordinatorPreconditions:
         after_disable = env.registry_snapshot()
         result = _apply(env)
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
-        assert (
-            result.reason_code == "domain_selection_transition_target_disabled"
-        )
+        assert result.reason_code == "domain_selection_transition_target_disabled"
         assert env.registry_snapshot() == after_disable
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
@@ -987,9 +975,7 @@ class TestDomainSelectionTransitionCoordinatorPreconditions:
         after_degrade = env.registry_snapshot()
         result = _apply(env)
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
-        assert (
-            result.reason_code == "domain_selection_transition_target_degraded"
-        )
+        assert result.reason_code == "domain_selection_transition_target_degraded"
         assert env.registry_snapshot() == after_degrade
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
@@ -1003,10 +989,7 @@ class TestDomainSelectionTransitionCoordinatorPreconditions:
             target_domain=DELTA,
         )
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
-        assert (
-            result.reason_code
-            == "domain_selection_transition_target_not_supporting"
-        )
+        assert result.reason_code == "domain_selection_transition_target_not_supporting"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1
@@ -1019,10 +1002,7 @@ class TestDomainSelectionTransitionCoordinatorPreconditions:
             target_domain=ALPHA,
         )
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
-        assert (
-            result.reason_code
-            == "domain_selection_transition_target_is_primary"
-        )
+        assert result.reason_code == "domain_selection_transition_target_is_primary"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1
@@ -1077,10 +1057,7 @@ class TestDomainSelectionTransitionCoordinatorFailClosed:
 
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
         assert result.transition is None
-        assert (
-            result.reason_code
-            == "domain_selection_transition_session_conflict"
-        )
+        assert result.reason_code == "domain_selection_transition_session_conflict"
         durable_after = env.adapter.load_domain_session(env.session_id)
         assert durable_after is not None
         assert durable_after.revision == 2
@@ -1140,10 +1117,7 @@ class TestDomainSelectionTransitionCoordinatorVerifyGuards:
 
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
         assert result.transition is None
-        assert (
-            result.reason_code
-            == "domain_selection_transition_delta_not_applied"
-        )
+        assert result.reason_code == "domain_selection_transition_delta_not_applied"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1
@@ -1169,10 +1143,7 @@ class TestDomainSelectionTransitionCoordinatorVerifyGuards:
 
         assert result.status is DomainSelectionTransitionStatus.BLOCKED
         assert result.transition is None
-        assert (
-            result.reason_code
-            == "domain_selection_transition_primary_changed"
-        )
+        assert result.reason_code == "domain_selection_transition_primary_changed"
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
         assert durable.revision == 1

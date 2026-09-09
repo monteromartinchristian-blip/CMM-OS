@@ -209,15 +209,11 @@ def _validate_authority(
         if session.composition_id is not None and session.composition_id != (
             composition.id
         ):
-            raise DomainInterfaceAuthorityError(
-                "session composition binding mismatch"
-            )
+            raise DomainInterfaceAuthorityError("session composition binding mismatch")
         if session.last_resolution_id is not None and session.last_resolution_id != (
             resolution.id
         ):
-            raise DomainInterfaceAuthorityError(
-                "session resolution binding mismatch"
-            )
+            raise DomainInterfaceAuthorityError("session resolution binding mismatch")
         if resolution.primary_domain is None or session.primary_domain != str(
             resolution.primary_domain
         ):
@@ -237,7 +233,8 @@ def _validate_authority(
             )
         if (
             memory_knowledge_request is None
-            or type(memory_knowledge_request) is not DomainMemoryKnowledgeProjectionRequest
+            or type(memory_knowledge_request)
+            is not DomainMemoryKnowledgeProjectionRequest
         ):
             raise DomainInterfaceAuthorityError(
                 "memory_knowledge requires its canonical "
@@ -477,9 +474,7 @@ def _project_conversational(
         ),
         # Canonical cross-domain result reference, never a fabricated carrier.
         result_refs=(
-            (cross_domain_result.id,)
-            if cross_domain_result is not None
-            else ()
+            (cross_domain_result.id,) if cross_domain_result is not None else ()
         ),
         memory_proposal_refs=refs["memory_proposal_refs"],
         confidence=confidence,

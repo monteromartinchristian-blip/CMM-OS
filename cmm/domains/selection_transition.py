@@ -63,9 +63,7 @@ _REASON_RECOMPOSITION_BLOCKED = "domain_selection_transition_recomposition_block
 _REASON_SESSION_CONFLICT = "domain_selection_transition_session_conflict"
 _REASON_RESOLUTION_BLOCKED = "domain_selection_transition_resolution_blocked"
 _REASON_PERMISSION_DENIED = "domain_selection_transition_permission_denied"
-_REASON_PERMISSION_APPROVAL_REQUIRED = (
-    "domain_selection_transition_approval_required"
-)
+_REASON_PERMISSION_APPROVAL_REQUIRED = "domain_selection_transition_approval_required"
 
 
 def _canonical_slug(reference: DomainId | str) -> str:
@@ -346,8 +344,7 @@ class DefaultDomainSelectionTransitionCoordinator:
         if request.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
             derived_policy = replace(
                 policy,
-                required_domains=policy.required_domains
-                + (request.target_domain,),
+                required_domains=policy.required_domains + (request.target_domain,),
             )
             return replace(
                 resolution_context,
@@ -393,9 +390,7 @@ class DefaultDomainSelectionTransitionCoordinator:
                 _REASON_PRIMARY_CHANGED,
             )
 
-        supporting_slugs = {
-            domain.slug for domain in new_resolution.supporting_domains
-        }
+        supporting_slugs = {domain.slug for domain in new_resolution.supporting_domains}
         target_slug = request.target_domain.slug
         if request.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
             delta_applied = target_slug in supporting_slugs
