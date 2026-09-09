@@ -6156,12 +6156,25 @@ Implementation Status (Phase 10.45):
 
 Status
 
-Implemented and pending independent audit.
+Implemented; remediation V1 applied; pending independent re-audit V2.
 
 PHASE10_46=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT
 DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-046=PASS_REPORTED
+AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED
+AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
+INDEPENDENT_AUDIT_V1=FAIL
+
+Independent Audit V1 failed with `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`:
+`MAJOR_01=DOMAIN_PREMIUM_PERMISSION_NOT_NEUTRAL` and
+`MAJOR_02=STRUCTURAL_ADAPTER_NOT_FAIL_CLOSED`. Both are remediated: the Domain
+source abstains from premium permission composition through provenance-level
+`contributes_premium_permission=False` (no opinion, not allow and not deny), and
+the import-safe structural adapter now performs strict fail-closed semantic
+validation of the full approved policy surface. V1 audit evidence is preserved
+unmodified in `docs/audits/phase-10.46-independent-audit-v1.md`.
 
 DP-046 — User-Controlled, Model-Agnostic Domain Policy
 
@@ -6219,7 +6232,7 @@ A Domain Pack must not select or invoke a provider directly.
 
 Implementation: `cmm/domains/model_policy_contracts.py`, `cmm/domains/contracts.py`, `cmm/agent_runtime/domain_model_policy_adapter.py`, `cmm/agent_runtime/model_requirements_resolver.py`. Reference: `docs/reference/domain-model-policies.md`. Acceptance: `tests/domains/test_domain_model_policy_dp046_acceptance.py`.
 
-Next action: exact-HEAD independent audit of Phase 10.46. Phase 10.47 has not started.
+Next action: exact-HEAD independent re-audit V2 of Phase 10.46. Phase 10.47 has not started.
 
 ⸻
 

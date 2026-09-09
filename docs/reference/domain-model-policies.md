@@ -2,14 +2,18 @@
 
 **Phase:** 10.46 — Domain Model Policies
 **Design Point:** DP-046 — User-Controlled, Model-Agnostic Domain Policy
-**Status:** Implemented; pending independent audit
+**Status:** Implemented; remediation V1 applied; pending independent re-audit V2
 **Design:** `docs/superpowers/specs/2026-09-09-phase-10.46-domain-model-policies-design.md`
 **Plan:** `docs/superpowers/plans/2026-09-09-phase-10.46-domain-model-policies-implementation-plan.md`
-**Acceptance:** `tests/domains/test_domain_model_policy_dp046_acceptance.py` — `AT-DP-046=PASS_REPORTED`
+**Remediation amendment:** `docs/superpowers/specs/2026-09-09-phase-10.46-remediation-design-amendment-v1.md`
+**Remediation plan:** `docs/superpowers/plans/2026-09-09-phase-10.46-remediation-v1-implementation-plan.md`
+**Acceptance:** `tests/domains/test_domain_model_policy_dp046_acceptance.py` — `AT-DP-046=PASS_REPORTED`; `AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED`; `AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED`
 **Implementation commit:** recorded by Git history on `feature/phase-10-domain-intelligence` (no self-referential placeholder is embedded here).
 
-> Phase 10.46 is implemented and pending independent audit. It is **not** closed,
-> audited, or verified. `DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`,
+> Phase 10.46 is implemented and remediated, pending independent re-audit V2. It
+> is **not** closed, audited, or verified. `INDEPENDENT_AUDIT_V1=FAIL`,
+> `REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT`,
+> `DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`,
 > `AT-DP-046=PASS_REPORTED`, `CLOSURE_ELIGIBLE=NO`.
 
 ---
@@ -107,6 +111,27 @@ adapter never queries a provider registry or model catalog, never selects or
 ranks models, never constructs or invokes providers, and never inspects keys or
 subscriptions.
 
+### Strict fail-closed structural validation
+
+One private validator guards every public adapter seam and the
+`resolve_runtime_model_requirements(domain_policies=...)` path. A full-shape
+object that merely exposes the attribute names is rejected unless its values
+satisfy the canonical policy semantics:
+
+- `domain_id` must be a canonical `domain:<slug>` identifier (lowercase ASCII
+  slug, hyphen-separated, no leading/trailing/consecutive hyphens);
+- every approved boolean must satisfy `type(value) is bool` (no `"true"`,
+  `"false"`, `0`, `1`, or `None`);
+- `minimum_context_window` must be `None` or `type(value) is int and value > 0`;
+- `fallback_policy` must be `None` or a real canonical `ModelFallbackPolicy`
+  (no duck typing);
+- `metadata` must be a real `Mapping`;
+- every approved attribute must be present.
+
+Invalid input raises the existing `ModelRequirementsResolutionError`; the
+adapter never coerces, repairs, infers, or ignores malformed values, and it
+imports no domain module.
+
 Requirements mapping injects **only** objective capability/context fields:
 
 ```text
@@ -114,9 +139,11 @@ minimum_context_window, reasoning, tool_calling, structured_output,
 json_mode, json_schema, vision, audio_input, audio_output, embeddings
 ```
 
-The domain never injects `allowed_providers`, `excluded_providers`, `privacy`,
-cost ceilings, or `premium_allowed`. Provenance is
-`source_kind="domain"`, `source_id=<domain id>`, `priority=25`.
+The domain source does not participate in premium permission composition
+(`contributes_premium_permission=False`), so it expresses **no opinion** on
+premium permission — neither allow nor deny. It also never injects
+`allowed_providers`, `excluded_providers`, `privacy`, or cost ceilings. Provenance
+is `source_kind="domain"`, `source_id=<domain id>`, `priority=25`.
 
 ## 5. Composition
 
@@ -125,9 +152,33 @@ canonical requirement source per domain policy and then calls the existing
 `resolve_model_requirements()` unchanged. All canonical most-restrictive
 semantics remain in force: capabilities accumulate, minimum context resolves to
 the greatest minimum, provider allowlists intersect, exclusions union, privacy
-resolves to the strictest value, cost ceilings resolve to the smallest, premium
-requires every source to allow it, and conflicts fail closed. A domain policy
-can never widen a stricter ancestor constraint.
+resolves to the strictest value, cost ceilings resolve to the smallest, and
+conflicts fail closed. A domain policy can never widen a stricter ancestor
+constraint.
+
+### Premium participation
+
+Canonical `ModelRequirementsSource` carries a provenance-level
+`contributes_premium_permission: bool = True` flag:
+
+```text
+True  -> this source participates in premium allow/deny composition
+False -> this source has NO OPINION on premium permission
+```
+
+Existing sources keep their semantics by default. The Domain source opts out
+with `False`, so premium permission is resolved only across participating
+sources. The required truth table holds:
+
+```text
+authoritative allow + neutral domain = allow
+authoritative deny  + neutral domain = deny
+neutral domain only                  = fail-closed deny
+adding/removing a neutral domain source never changes premium authority
+```
+
+The stored `ModelRequirements.premium_allowed=False` default on a neutral source
+is not an authoritative denial; the participation flag determines authority.
 
 ## 6. Validation mapping
 
@@ -169,28 +220,58 @@ benchmarking, Model Gateway, new provider registry/model catalog/router/fallback
 engine/budget engine/privacy engine, provider API clients, and any
 domain → concrete model/provider map remain out of scope.
 
-## 10. Verification evidence (this implementation run)
+## 10. Remediation V1 — audit findings
+
+Independent Audit V1 result (historical, preserved):
 
 ```text
-FOCUSED_PHASE_10_46=105 passed
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=2
+MINORS=0
+MAJOR_01=DOMAIN_PREMIUM_PERMISSION_NOT_NEUTRAL
+MAJOR_02=STRUCTURAL_ADAPTER_NOT_FAIL_CLOSED
+```
+
+- **MAJOR-01** was remediated by adding provenance-level
+  `contributes_premium_permission` to `ModelRequirementsSource` (default `True`),
+  making the resolver compose premium only across participating sources, and
+  making the Domain source opt out (`False`). The Domain source now abstains; it
+  neither allows nor denies premium.
+- **MAJOR-02** was remediated by replacing attribute-presence-only structural
+  validation with strict import-safe semantic validation of the full approved
+  policy surface, shared by every adapter seam and the runtime resolver path.
+
+`docs/audits/phase-10.46-independent-audit-v1.md` and the V1 bundle
+`phase-10.46-audit-2c0a729d5217b018950109f33407b39687cca2e6.tar.gz` are
+unmodified historical evidence.
+
+## 11. Verification evidence (remediation run)
+
+```text
+FOCUSED_REMEDIATION=294 passed
+  tests/agent_runtime/test_model_requirements_contracts.py
+  tests/agent_runtime/test_model_requirements_resolver.py
+  tests/agent_runtime/test_domain_model_policy_adapter.py
   tests/domains/test_domain_model_policy_contracts.py
   tests/domains/test_domain_model_policy_definition_serialization.py
   tests/domains/test_domain_model_policy_architecture.py
   tests/domains/test_domain_model_policy_dp046_acceptance.py
-  tests/agent_runtime/test_domain_model_policy_adapter.py
-MODEL_REQUIREMENTS_REGRESSIONS=192 passed
-DOMAIN_SUBSYSTEM=10091 passed
-AGENT_RUNTIME_SUBSYSTEM=3454 passed
+MODEL_REQUIREMENTS_REGRESSIONS=207 passed
+DOMAIN_SUBSYSTEM=10104 passed
+AGENT_RUNTIME_SUBSYSTEM=3590 passed
 LLM_SUBSYSTEM=99 passed
-GLOBAL_SUITE=15716 passed
-RUFF=pass (declared changed-file scope: 14 changed Python files)
-FORMAT=pass (declared changed-file scope: 14 changed Python files)
+GLOBAL_SUITE=15865 passed
+RUFF_CHANGED_FILES=pass (8 remediation-changed Python files)
+FORMAT_CHANGED_FILES=pass (8 remediation-changed Python files)
 COMPILEALL=pass
 GIT_DIFF_CHECK=pass
-IMPORT_BOUNDARY=pass (kernel.llm imports no cmm.domains)
-ANTI_FRAGMENTATION=pass (no parallel router/registry/catalog/fallback/gateway)
-AGENT_RUNTIME_REVERSE_IMPORTS=pass (cmm.agent_runtime imports no cmm.domains)
+IMPORT_BOUNDARY=pass (agent_runtime and kernel.llm import no cmm.domains)
+ANTI_FRAGMENTATION=pass (no parallel router/registry/catalog/fallback/gateway/premium resolver)
 ```
+
+The earlier V1 implementation-run counts (105 focused / 192 regressions /
+10091 domains / 3454 agent-runtime / 99 llm / 15716 global) remain historical.
 
 AT-DP-046 scenarios (real canonical components: representative Health definition
 via `dataclasses.replace`, `ProviderRegistry`, `ModelCatalog`, `ModelRouter`,
@@ -203,16 +284,31 @@ AT-DP-046-C_AUTO=PASS_REPORTED
 AT-DP-046-D_CATALOG_REPLACEMENT=PASS_REPORTED
 AT-DP-046-E_MULTI_DOMAIN=PASS_REPORTED
 AT-DP-046-VALIDATION_BINDINGS=PASS_REPORTED
+AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED
+AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED
 ```
 
-Note on the repository-wide Ruff gate: `ruff check cmm kernel tests` is red at
-the Phase 10.46 starting HEAD as well (813 findings; 257 files unformatted) under
-the installed Ruff 0.16.2 expanded default rule set. No Phase 10.46 file is among
+Direct production probes (no mocks):
+
+```text
+ALLOW_PLUS_NEUTRAL_DOMAIN=True
+DENY_PLUS_NEUTRAL_DOMAIN=False
+NEUTRAL_DOMAIN_ONLY=False
+NEUTRALITY_INVARIANT=True
+REQUIREMENT_SOURCE=REJECTED
+VALIDATION_REQUIREMENTS=REJECTED
+FALLBACK_POLICY=REJECTED
+RUNTIME_RESOLUTION=REJECTED
+```
+
+Note on the repository-wide Ruff gate: `ruff check cmm kernel tests` remains red
+at the same pre-existing baseline (813 findings; 257 files unformatted) under the
+installed Ruff 0.16.2 expanded default rule set; no remediation file is among
 them. The project's declared check
 ([`CONTRIBUTING.md`](../../CONTRIBUTING.md)) scopes Ruff to changed Python files
-and passes for all 14 changed files.
+and passes for all 8 remediation-changed files.
 
-## 11. Architecture invariants
+## 12. Architecture invariants
 
 ```text
 DOMAIN_CONCRETE_MODEL_IDS=NONE
@@ -221,22 +317,29 @@ NEW_DOMAIN_MODEL_ROUTER=NO
 NEW_DOMAIN_PROVIDER_REGISTRY=NO
 NEW_DOMAIN_MODEL_CATALOG=NO
 NEW_DOMAIN_FALLBACK_ENGINE=NO
+NEW_PREMIUM_RESOLVER=NO
 KERNEL_TO_DOMAINS_IMPORT=NO
+AGENT_RUNTIME_TO_DOMAINS_IMPORT=NO
 PHASE_10_47_IMPLEMENTED=NO
 ```
 
 Guards: `tests/domains/test_domain_model_policy_architecture.py` (AST/import
-inspection with detector-calibration tests) plus the pre-existing reverse-import
-and public-API guards.
+inspection with detector-calibration tests, including no
+`source_kind == "domain"` premium special-case and explicit Domain premium
+abstention) plus the pre-existing reverse-import and public-API guards.
 
-## 12. State
+## 13. State
 
 ```text
 PHASE10_46=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+REMEDIATION_V1=IMPLEMENTED_PENDING_REAUDIT
 DP-046=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-046=PASS_REPORTED
+AT-DP-046-PREMIUM-NEUTRALITY=PASS_REPORTED
+AT-DP-046-STRICT-ADAPTER-BOUNDARY=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
+INDEPENDENT_AUDIT_V1=FAIL
 ```
 
-Next action: exact-HEAD independent audit of Phase 10.46. Phase 10.47 has not
-started.
+Next action: exact-HEAD independent re-audit V2 of Phase 10.46. Phase 10.47 has
+not started.
