@@ -89,6 +89,7 @@ def domain_model_requirement_source(
         source_id=str(validated.domain_id),
         requirements=requirements,
         priority=priority,
+        contributes_premium_permission=False,
     )
 
 

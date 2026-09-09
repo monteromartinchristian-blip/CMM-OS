@@ -570,9 +570,9 @@ def test_runtime_resolution_composes_domain_policy_source() -> None:
     assert resolved.effective.minimum_context_window == 64_000
     assert resolved.effective.allowed_providers == ("local", "remote")
     assert resolved.effective.maximum_input_cost_per_million == Decimal("2.00")
-    # A domain source never injects premium permission; the canonical
-    # most-restrictive rule therefore keeps premium disabled.
-    assert resolved.effective.premium_allowed is False
+    # A neutral domain source abstains from premium permission composition, so
+    # the authoritative operation allow is preserved.
+    assert resolved.effective.premium_allowed is True
 
 
 def test_runtime_resolution_supports_domain_policies_alone() -> None:

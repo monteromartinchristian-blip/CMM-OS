@@ -61,8 +61,16 @@ def test_domain_policy_maps_to_neutral_provider_independent_requirements() -> No
     assert source.requirements.excluded_providers == ()
     assert source.requirements.privacy == "REMOTE_ALLOWED"
     assert source.requirements.premium_allowed is False
+    assert source.contributes_premium_permission is False
     assert source.requirements.maximum_input_cost_per_million is None
     assert source.requirements.maximum_output_cost_per_million is None
+
+
+def test_domain_model_requirement_source_abstains_from_premium() -> None:
+    source = domain_model_requirement_source(_policy())
+
+    assert source.contributes_premium_permission is False
+    assert source.requirements.premium_allowed is False
 
 
 def test_domain_policy_maps_every_objective_capability_boolean() -> None:
