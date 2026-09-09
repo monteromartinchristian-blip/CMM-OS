@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from cmm.agent_runtime.domain_model_policy_adapter import (
@@ -17,6 +19,9 @@ from cmm.agent_runtime.model_fallback_contracts import ModelFallbackPolicy
 from cmm.agent_runtime.model_requirements_contracts import ModelRequirementsSource
 from cmm.agent_runtime.model_requirements_errors import (
     ModelRequirementsResolutionError,
+)
+from cmm.agent_runtime.model_requirements_resolver import (
+    resolve_runtime_model_requirements,
 )
 from cmm.agent_runtime.validation_integration_contracts import ValidationRequirement
 from cmm.domains.model_policy_contracts import DomainModelPolicy
@@ -189,3 +194,171 @@ def test_adapter_functions_are_exported_from_agent_runtime() -> None:
     ):
         assert getattr(runtime, function.__name__) is function
         assert function.__name__ in runtime.__all__
+
+
+# ── Phase 10.46 remediation V1 – strict fail-closed structural validation ─────
+
+
+class _FullShapePolicy:
+    domain_id = "domain:health"
+
+    require_reasoning = False
+    require_tool_calling = False
+    require_structured_output = False
+    require_json_mode = False
+    require_json_schema = False
+    require_vision = False
+    require_audio_input = False
+    require_audio_output = False
+    require_embeddings = False
+
+    minimum_context_window = None
+
+    require_context_validation = False
+    require_response_validation = False
+
+    fallback_policy = None
+    metadata: ClassVar[dict[str, object]] = {}
+
+
+def _full_shape(**overrides: object) -> _FullShapePolicy:
+    policy = _FullShapePolicy()
+    for name, value in overrides.items():
+        setattr(policy, name, value)
+    return policy
+
+
+_BOOLEAN_POLICY_FIELDS = (
+    "require_reasoning",
+    "require_tool_calling",
+    "require_structured_output",
+    "require_json_mode",
+    "require_json_schema",
+    "require_vision",
+    "require_audio_input",
+    "require_audio_output",
+    "require_embeddings",
+    "require_context_validation",
+    "require_response_validation",
+)
+
+_ADAPTER_SEAMS = (
+    pytest.param(domain_model_requirement_source, id="requirement_source"),
+    pytest.param(domain_model_validation_requirements, id="validation_requirements"),
+    pytest.param(domain_model_fallback_policy, id="fallback_policy"),
+)
+
+_INVALID_DOMAIN_IDS = (
+    "not-a-domain-id",
+    "domain:",
+    "DOMAIN:health",
+    "domain:Health",
+    "domain:health space",
+    "domain:/health",
+    "",
+    None,
+    1,
+)
+
+
+def test_full_shape_policy_is_accepted() -> None:
+    source = domain_model_requirement_source(_full_shape())
+
+    assert source.source_kind == "domain"
+    assert source.source_id == "domain:health"
+
+
+def test_adapter_rejects_missing_surface() -> None:
+    class _MissingSurface:
+        domain_id = "domain:health"
+
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_requirement_source(_MissingSurface())
+
+
+@pytest.mark.parametrize("seam", _ADAPTER_SEAMS)
+@pytest.mark.parametrize("domain_id", _INVALID_DOMAIN_IDS)
+def test_adapter_seams_reject_invalid_domain_id(
+    seam: object, domain_id: object
+) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        seam(_full_shape(domain_id=domain_id))  # type: ignore[operator]
+
+
+@pytest.mark.parametrize("field_name", _BOOLEAN_POLICY_FIELDS)
+@pytest.mark.parametrize("value", ("true", "false", 1, 0, None))
+def test_adapter_rejects_non_bool_flags(field_name: str, value: object) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_requirement_source(_full_shape(**{field_name: value}))
+
+
+@pytest.mark.parametrize("seam", _ADAPTER_SEAMS)
+def test_adapter_seams_validate_boolean_surface(seam: object) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        seam(_full_shape(require_reasoning="false"))  # type: ignore[operator]
+
+
+def test_string_false_validation_flag_is_rejected_not_ignored() -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_validation_requirements(
+            _full_shape(require_context_validation="false")
+        )
+
+
+@pytest.mark.parametrize("value", (0, -1, True, False, 1.5, "32768"))
+def test_adapter_rejects_invalid_context_window(value: object) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_requirement_source(_full_shape(minimum_context_window=value))
+
+
+@pytest.mark.parametrize("value", (None, 1, 32768))
+def test_adapter_accepts_valid_context_window(value: object) -> None:
+    source = domain_model_requirement_source(_full_shape(minimum_context_window=value))
+
+    assert source.requirements.minimum_context_window == (value or 1)
+
+
+@pytest.mark.parametrize("seam", _ADAPTER_SEAMS)
+@pytest.mark.parametrize("value", ("not-a-fallback-policy", object(), {}, []))
+def test_adapter_seams_reject_invalid_fallback_policy(
+    seam: object, value: object
+) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        seam(_full_shape(fallback_policy=value))  # type: ignore[operator]
+
+
+def test_adapter_accepts_canonical_fallback_policy() -> None:
+    fallback = ModelFallbackPolicy(id="domain-health-fallback")
+
+    assert (
+        domain_model_fallback_policy(_full_shape(fallback_policy=fallback)) is fallback
+    )
+
+
+@pytest.mark.parametrize("value", (None, "metadata", [], 1))
+def test_adapter_rejects_invalid_metadata(value: object) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_requirement_source(_full_shape(metadata=value))
+
+
+def test_adapter_accepts_mapping_metadata() -> None:
+    source = domain_model_requirement_source(_full_shape(metadata={"phase": "10.46"}))
+
+    assert source.source_id == "domain:health"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    (
+        {"domain_id": "not-a-domain-id"},
+        {"require_reasoning": "false"},
+        {"minimum_context_window": 0},
+        {"fallback_policy": "bad"},
+        {"metadata": None},
+    ),
+)
+def test_runtime_resolution_rejects_invalid_full_shape(
+    invalid: dict[str, object],
+) -> None:
+    with pytest.raises(ModelRequirementsResolutionError):
+        resolve_runtime_model_requirements(domain_policies=(_full_shape(**invalid),))

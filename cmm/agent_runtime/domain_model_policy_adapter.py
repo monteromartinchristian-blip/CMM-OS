@@ -10,6 +10,9 @@ models, never constructs providers, and never invokes inference.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+
 from cmm.agent_runtime.enums import (
     AgentValidationStage,
     ValidationRequirementKind,
@@ -26,8 +29,10 @@ DOMAIN_MODEL_POLICY_PHASE = "10.46"
 
 _DOMAIN_SOURCE_PRIORITY = 25
 
-_POLICY_ATTRIBUTE_SURFACE = (
-    "domain_id",
+_DOMAIN_ID_PREFIX = "domain:"
+_SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+
+_POLICY_BOOLEAN_SURFACE = (
     "require_reasoning",
     "require_tool_calling",
     "require_structured_output",
@@ -37,9 +42,14 @@ _POLICY_ATTRIBUTE_SURFACE = (
     "require_audio_input",
     "require_audio_output",
     "require_embeddings",
-    "minimum_context_window",
     "require_context_validation",
     "require_response_validation",
+)
+
+_POLICY_ATTRIBUTE_SURFACE = (
+    "domain_id",
+    *_POLICY_BOOLEAN_SURFACE,
+    "minimum_context_window",
     "fallback_policy",
     "metadata",
 )
@@ -53,12 +63,45 @@ __all__ = [
 
 
 def _require_domain_model_policy(policy: object) -> object:
-    """Fail closed unless the object exposes the canonical policy surface."""
+    """Fail closed unless the object exposes the canonical, valid policy surface."""
 
     if not all(hasattr(policy, name) for name in _POLICY_ATTRIBUTE_SURFACE):
         raise ModelRequirementsResolutionError(
             "policy must expose the canonical DomainModelPolicy attribute surface"
         )
+
+    domain_id = policy.domain_id
+    text = domain_id if isinstance(domain_id, str) else str(domain_id)
+    if not text.startswith(_DOMAIN_ID_PREFIX) or not _SLUG_PATTERN.fullmatch(
+        text[len(_DOMAIN_ID_PREFIX) :]
+    ):
+        raise ModelRequirementsResolutionError(
+            "policy domain_id must be a canonical 'domain:<slug>' identifier"
+        )
+
+    for name in _POLICY_BOOLEAN_SURFACE:
+        if type(getattr(policy, name)) is not bool:
+            raise ModelRequirementsResolutionError(f"policy {name} must be a bool")
+
+    context_window = policy.minimum_context_window
+    if context_window is not None and (
+        type(context_window) is not int or context_window <= 0
+    ):
+        raise ModelRequirementsResolutionError(
+            "policy minimum_context_window must be None or a positive integer"
+        )
+
+    fallback_policy = policy.fallback_policy
+    if fallback_policy is not None and not isinstance(
+        fallback_policy, ModelFallbackPolicy
+    ):
+        raise ModelRequirementsResolutionError(
+            "policy fallback_policy must be None or a ModelFallbackPolicy"
+        )
+
+    if not isinstance(policy.metadata, Mapping):
+        raise ModelRequirementsResolutionError("policy metadata must be a mapping")
+
     return policy
 
 
