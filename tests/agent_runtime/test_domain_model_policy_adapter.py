@@ -169,3 +169,15 @@ def test_domain_policy_fallback_defaults_to_none() -> None:
 def test_adapter_rejects_non_policy_objects(function: object) -> None:
     with pytest.raises(ModelRequirementsResolutionError):
         function("domain:health")  # type: ignore[operator]
+
+
+def test_adapter_functions_are_exported_from_agent_runtime() -> None:
+    import cmm.agent_runtime as runtime
+
+    for function in (
+        domain_model_fallback_policy,
+        domain_model_requirement_source,
+        domain_model_validation_requirements,
+    ):
+        assert getattr(runtime, function.__name__) is function
+        assert function.__name__ in runtime.__all__

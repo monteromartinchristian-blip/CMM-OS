@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from cmm.agent_runtime.model_requirements_contracts import (
     ModelRequirementsSource,
@@ -14,6 +15,9 @@ from cmm.agent_runtime.model_requirements_errors import (
     ModelRequirementsResolutionError,
 )
 from kernel.llm.model_selection import ModelRequirements
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only import
+    from cmm.domains.model_policy_contracts import DomainModelPolicy
 
 _PRIVACY_RANK: dict[str, int] = {
     "REMOTE_ALLOWED": 0,
@@ -189,12 +193,15 @@ def resolve_runtime_model_requirements(
     operation: object | None = None,
     policy_result: object | None = None,
     approval_resolution: object | None = None,
+    domain_policies: Iterable[DomainModelPolicy] = (),
 ) -> ResolvedModelRequirements:
     """Resolve requirements declared by runtime contracts.
 
     Layers without requirements are ignored. Precedence is represented
     through deterministic priorities while every hard constraint is
-    combined using the most-restrictive strategy.
+    combined using the most-restrictive strategy. Domain policies contribute
+    objective requirements through the canonical adapter; they never widen a
+    stricter inherited constraint.
     """
 
     from cmm.agent_runtime.agent_registry_contracts import AgentDescriptor
@@ -296,6 +303,14 @@ def resolve_runtime_model_requirements(
                 "approval_resolution must be an ApprovalResolution or None"
             )
         sources.extend(approval_model_requirement_sources(approval_resolution))
+
+    if domain_policies:
+        from cmm.agent_runtime.domain_model_policy_adapter import (
+            domain_model_requirement_source,
+        )
+
+        for policy in domain_policies:
+            sources.append(domain_model_requirement_source(policy))
 
     if not sources:
         raise ModelRequirementsResolutionError(

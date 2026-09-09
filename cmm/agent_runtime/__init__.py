@@ -2761,3 +2761,19 @@ __all__ += [
     "ProviderLocation",
     "intersect_permission_layers",
 ]
+
+# ── Phase 10.46 – Domain Model Policy Adapter Exports ────────────────────────
+
+from cmm.agent_runtime.domain_model_policy_adapter import (
+    DOMAIN_MODEL_POLICY_PHASE,
+    domain_model_fallback_policy,
+    domain_model_requirement_source,
+    domain_model_validation_requirements,
+)
+
+__all__ += [
+    "DOMAIN_MODEL_POLICY_PHASE",
+    "domain_model_fallback_policy",
+    "domain_model_requirement_source",
+    "domain_model_validation_requirements",
+]

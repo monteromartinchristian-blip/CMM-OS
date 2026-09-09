@@ -1462,3 +1462,13 @@ __all__ += [
     "DomainReviewItemView",
     "DomainSelectorView",
 ]
+
+# ── Phase 10.46 – Domain Model Policy Exports ────────────────────────────────
+
+from cmm.domains.model_policy_contracts import (
+    DomainModelPolicy,
+)
+
+__all__ += [
+    "DomainModelPolicy",
+]

@@ -240,3 +240,10 @@ def test_domain_model_policy_round_trips_typed_fallback_policy() -> None:
     restored = DomainModelPolicy.from_dict(payload)
     assert restored.fallback_policy == fallback
     assert restored == policy
+
+
+def test_domain_model_policy_is_exported_from_domains_package() -> None:
+    from cmm import domains
+
+    assert domains.DomainModelPolicy is DomainModelPolicy
+    assert "DomainModelPolicy" in domains.__all__
