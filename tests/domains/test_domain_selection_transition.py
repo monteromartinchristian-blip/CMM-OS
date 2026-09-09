@@ -1,31 +1,60 @@
-from datetime import datetime, timezone
-
 import dataclasses
+import itertools
 import json
 import typing
 from dataclasses import FrozenInstanceError
+from datetime import datetime, timezone
 
 import pytest
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+from cmm.domains.composer import DefaultDomainComposer
+from cmm.domains.enums import (
+    DomainCompositionStatus,
+    DomainResolutionStatus,
+)
 from cmm.domains.errors import (
+    DomainCompositionContractError,
     DomainSelectionTransitionContractError,
     DomainSelectionTransitionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
 from cmm.domains.permission_contracts import CrossDomainPermissionRequest
+from cmm.domains.permission_registry import DomainPermissionRegistry
+from cmm.domains.permission_resolution import DomainPermissionResolver
+from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_contracts import (
     DomainResolutionContext,
+    DomainResolutionKnowledgeItem,
+    DomainResolutionPolicy,
+    DomainResolutionResource,
     DomainResolutionSignal,
 )
 from cmm.domains.resolver import DefaultDomainResolver
+from cmm.domains.resolver_contracts import DomainScoringPolicy
 from cmm.domains.selection import build_domain_selection_transition
 from cmm.domains.selection_contracts import DomainSelectionTransition
+from cmm.domains.selection_transition import (
+    DefaultDomainSelectionTransitionCoordinator,
+)
 from cmm.domains.selection_transition_contracts import (
     DomainSelectionTransitionCommandKind,
     DomainSelectionTransitionCoordinator,
     DomainSelectionTransitionRequest,
     DomainSelectionTransitionResult,
     DomainSelectionTransitionStatus,
+)
+from cmm.domains.session_contracts import (
+    DomainSessionContext,
+    DomainSessionTransition,
+)
+from cmm.domains.session_persistence import SharedSessionDomainAdapter
+from cmm.runtime.sessions import InMemorySessionStore
+from tests.domains.test_domain_interface_integration import (
+    _make_domain_definition,
+    _mark_degraded,
+    _register_inbound_policy,
+    _register_outbound_policy,
 )
 
 GENERAL = DomainId.from_str("domain:general")
@@ -479,3 +508,731 @@ class TestDomainSelectionTransitionCoordinatorProtocol:
     def test_protocol_apply_returns_canonical_result(self) -> None:
         hints = typing.get_type_hints(DomainSelectionTransitionCoordinator.apply)
         assert hints["return"] is DomainSelectionTransitionResult
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 10.45 MAJOR-03 — canonical selection transition coordinator
+#
+# Connected coordinator tests: real DomainRegistry + real DefaultDomainResolver
+# + real DefaultDomainComposer + real DomainPermissionResolver + real
+# SharedSessionDomainAdapter over the shared InMemorySessionStore, mirroring
+# test_domain_interface_dp045_acceptance.py.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ALPHA = DomainId("alpha")
+BETA = DomainId("beta")
+GAMMA = DomainId("gamma")
+DELTA = DomainId("delta")
+
+_ENV_DEFINITIONS = tuple(
+    _make_domain_definition(slug)
+    for slug in ("alpha", "beta", "gamma", "delta")
+)
+
+
+class _CoordinatorEnvironment:
+    """Canonical connected environment for coordinator tests.
+
+    The registry holds four enabled definitions (alpha primary, beta/gamma
+    supporting, delta addable).  Scoring is calibrated deterministically:
+
+      beta/gamma carry one resource each (resource weight 40); delta carries
+      one knowledge item (weight 15) which keeps delta eligible (score floor
+      10) while outside the supporting margin (60) from the explicit primary
+      alpha (score 100).  Base resolution therefore selects exactly
+      (beta, gamma) and a required-delta re-resolution selects
+      (delta, beta, gamma).
+    """
+
+    def __init__(
+        self,
+        *,
+        session_id: str = "session:coordinator:1",
+        authorize_delta: bool = True,
+        system_policy: DomainResolutionPolicy | None = None,
+        outbound_targets: tuple[str, ...] = (str(DELTA),),
+    ) -> None:
+        self.session_id = session_id
+        resolution_ids = itertools.count(1)
+        composition_ids = itertools.count(1)
+
+        self.registry = DomainRegistry()
+        for definition in _ENV_DEFINITIONS:
+            self.registry.register(definition)
+            self.registry.enable(definition.id.slug)
+        self.registry_snapshot_before: tuple[tuple[object, ...], ...] = ()
+
+        self.resolver = DefaultDomainResolver(
+            fallback_domain=GENERAL,
+            scoring_policy=DomainScoringPolicy(
+                max_supporting_domains=3, supporting_margin=60.0
+            ),
+            clock=lambda: NOW,
+            id_factory=lambda: f"resolution:coordinator:{next(resolution_ids)}",
+        )
+        self.composer = DefaultDomainComposer(
+            id_factory=lambda: f"composition:coordinator:{next(composition_ids)}",
+            clock=lambda: NOW,
+        )
+
+        authorized = (ALPHA, BETA, GAMMA)
+        if authorize_delta:
+            authorized = (ALPHA, BETA, GAMMA, DELTA)
+        self.context = DomainResolutionContext(
+            id="context:coordinator:1",
+            user_input="coordinator connected transition fixture",
+            explicit_domains=(ALPHA,),
+            available_domains=(ALPHA, BETA, GAMMA, DELTA),
+            authorized_domains=authorized,
+            resources=(
+                DomainResolutionResource(
+                    id="resource:beta",
+                    resource_type="document",
+                    source="user",
+                    domain_ids=(BETA,),
+                ),
+                DomainResolutionResource(
+                    id="resource:gamma",
+                    resource_type="document",
+                    source="user",
+                    domain_ids=(GAMMA,),
+                ),
+            ),
+            knowledge_items=(
+                DomainResolutionKnowledgeItem(
+                    id="knowledge:delta",
+                    knowledge_type="document",
+                    source="user",
+                    domain_ids=(DELTA,),
+                    relevance=1.0,
+                ),
+            ),
+            system_policy=system_policy,
+            created_at=NOW,
+        )
+
+        self.resolution = self.resolver.resolve(self.context)
+        assert self.resolution.status is DomainResolutionStatus.RESOLVED
+        assert self.resolution.primary_domain == ALPHA
+        assert self.resolution.supporting_domains == (BETA, GAMMA)
+
+        definitions_by_slug = {
+            definition.id.slug: definition for definition in _ENV_DEFINITIONS
+        }
+        self.composition = self.composer.compose(
+            self.resolution,
+            tuple(
+                definitions_by_slug[domain.slug]
+                for domain in (ALPHA, BETA, GAMMA)
+            ),
+        )
+        assert self.composition.status in (
+            DomainCompositionStatus.COMPOSED,
+            DomainCompositionStatus.PARTIAL,
+        )
+        assert self.composition.resolution_id == self.resolution.id
+
+        self.session = DomainSessionContext(
+            session_id=session_id,
+            primary_domain=str(ALPHA),
+            supporting_domains=tuple(str(d) for d in self.resolution.supporting_domains),
+            domain_versions={
+                str(domain): "1.0.0"
+                for domain in (ALPHA, BETA, GAMMA)
+            },
+            composition_id=self.composition.id,
+            effective_profile="default",
+            last_resolution_id=self.resolution.id,
+            updated_at=NOW,
+        )
+
+        self.store = InMemorySessionStore()
+        self.adapter = SharedSessionDomainAdapter(store=self.store)
+        self.adapter.save_domain_session(self.session)
+        durable = self.adapter.load_domain_session(session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+        self.permission_registry = DomainPermissionRegistry()
+        _register_outbound_policy(
+            self.permission_registry,
+            domain_id=str(ALPHA),
+            allowed_target_domains=outbound_targets,
+        )
+        _register_inbound_policy(self.permission_registry, domain_id=str(DELTA))
+        self.permission_resolver = DomainPermissionResolver(self.permission_registry)
+
+    def registry_snapshot(self) -> tuple[tuple[object, ...], ...]:
+        return tuple(
+            (
+                record.domain_id,
+                record.status.value,
+                record.definition.enabled,
+                str(record.definition.version),
+            )
+            for record in self.registry.list_records()
+        )
+
+
+def _coordinator(env: _CoordinatorEnvironment) -> DefaultDomainSelectionTransitionCoordinator:
+    return DefaultDomainSelectionTransitionCoordinator(
+        resolver=env.resolver,
+        composer=env.composer,
+        domain_registry=env.registry,
+        permission_resolver=env.permission_resolver,
+        session_adapter=env.adapter,
+        clock=lambda: NOW,
+    )
+
+
+def _permission_request(
+    env: _CoordinatorEnvironment,
+    *,
+    target_domain: DomainId = DELTA,
+    requires_approval: bool = False,
+) -> CrossDomainPermissionRequest:
+    return CrossDomainPermissionRequest(
+        request_id=f"permission:{env.session_id}:{target_domain.slug}",
+        source_domain=env.session.primary_domain,
+        target_domain=str(target_domain),
+        reason="supporting domain application through the canonical coordinator",
+        actor_id="actor:coordinator",
+        session_id=env.session_id,
+        requires_approval=requires_approval,
+        sensitivity_level="internal",
+    )
+
+
+def _coordinator_request(
+    env: _CoordinatorEnvironment,
+    *,
+    kind: DomainSelectionTransitionCommandKind = (
+        DomainSelectionTransitionCommandKind.ADD_SUPPORTING
+    ),
+    target_domain: DomainId = DELTA,
+    requires_approval: bool = False,
+    request_id: str = "transition-request:coordinator:1",
+    permission_target_domain: DomainId | None = None,
+) -> DomainSelectionTransitionRequest:
+    """Build an ADD/WITHDRAW request against the coordinator environment.
+
+    ADD requests always carry canonical cross-domain permission evidence.
+    ``permission_target_domain`` overrides the evidence target when it cannot
+    equal the request target (canonical cross-domain evidence is never
+    self-referential); it only probes precondition ordering, where the
+    coordinator must reject the request before any permission evaluation.
+    """
+    permission_request: CrossDomainPermissionRequest | None = None
+    if kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING:
+        evidence_target = (
+            target_domain if permission_target_domain is None else permission_target_domain
+        )
+        permission_request = _permission_request(
+            env,
+            target_domain=evidence_target,
+            requires_approval=requires_approval,
+        )
+    return DomainSelectionTransitionRequest(
+        request_id=request_id,
+        kind=kind,
+        target_domain=target_domain,
+        session_reference_id=env.session_id,
+        resolution_reference_id=env.resolution.id,
+        composition_reference_id=env.composition.id,
+        reason="user asked through the domain selector",
+        permission_request=permission_request,
+    )
+
+
+def _apply(
+    env: _CoordinatorEnvironment,
+    *,
+    kind: DomainSelectionTransitionCommandKind = (
+        DomainSelectionTransitionCommandKind.ADD_SUPPORTING
+    ),
+    target_domain: DomainId = DELTA,
+    requires_approval: bool = False,
+    request_id: str = "transition-request:coordinator:1",
+    session=None,
+    resolution=None,
+    composition=None,
+    permission_target_domain: DomainId | None = None,
+) -> DomainSelectionTransitionResult:
+    return _coordinator(env).apply(
+        request=_coordinator_request(
+            env,
+            kind=kind,
+            target_domain=target_domain,
+            requires_approval=requires_approval,
+            request_id=request_id,
+            permission_target_domain=permission_target_domain,
+        ),
+        session=env.session if session is None else session,
+        resolution=env.resolution if resolution is None else resolution,
+        composition=env.composition if composition is None else composition,
+        resolution_context=env.context,
+    )
+
+
+class TestDomainSelectionTransitionCoordinatorAccept:
+    def test_add_supporting_allow_applies_canonical_transition(self) -> None:
+        env = _CoordinatorEnvironment()
+        expected = env.permission_resolver.resolve_cross_domain(
+            _permission_request(env)
+        )
+        assert expected.decision is PermissionOutcome.ALLOW
+        before_registry = env.registry_snapshot()
+
+        result = _apply(env)
+
+        assert result.request_id == "transition-request:coordinator:1"
+        assert result.kind is DomainSelectionTransitionCommandKind.ADD_SUPPORTING
+        assert result.status is DomainSelectionTransitionStatus.ACCEPTED
+        assert result.reason_code is None
+        assert result.transition is not None
+        assert result.transition.previous_resolution_id == env.resolution.id
+        assert result.transition.new_resolution_id != env.resolution.id
+        assert result.transition.previous_primary_domain == ALPHA
+        assert result.transition.new_primary_domain == ALPHA
+        assert result.transition.primary_changed is False
+        assert result.transition.supporting_changed is True
+        assert result.transition.previous_supporting_domains == (BETA, GAMMA)
+        assert result.transition.new_supporting_domains == (DELTA, BETA, GAMMA)
+        assert "DOMAIN_SELECTION_COMPOSITION_CHANGED" in (
+            result.transition.reason_codes
+        )
+        assert result.transition.requires_recomposition is True
+        assert env.registry_snapshot() == before_registry
+
+    def test_withdraw_supporting_applies_canonical_transition(self) -> None:
+        env = _CoordinatorEnvironment()
+        before_registry = env.registry_snapshot()
+
+        result = _apply(
+            env,
+            kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+            target_domain=BETA,
+        )
+
+        assert result.status is DomainSelectionTransitionStatus.ACCEPTED
+        assert result.transition is not None
+        assert result.transition.supporting_changed is True
+        assert result.transition.previous_supporting_domains == (BETA, GAMMA)
+        assert result.transition.new_supporting_domains == (GAMMA,)
+        assert env.registry_snapshot() == before_registry
+
+    def test_transition_persists_exactly_one_new_session_revision(self) -> None:
+        env = _CoordinatorEnvironment()
+        result = _apply(env)
+
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == env.session.revision + 1 == 2
+        assert durable.session_id == env.session.session_id
+        assert durable.primary_domain == str(ALPHA)
+        assert durable.supporting_domains == (
+            str(DELTA),
+            str(BETA),
+            str(GAMMA),
+        )
+        assert durable.composition_id != env.composition.id
+        assert durable.last_resolution_id == result.transition.new_resolution_id
+        assert durable.domain_versions == {
+            str(domain): "1.0.0" for domain in (ALPHA, DELTA, BETA, GAMMA)
+        }
+        assert len(durable.domain_transitions) == 1
+        transition_record = durable.domain_transitions[0]
+        assert isinstance(transition_record, DomainSessionTransition)
+        assert transition_record.previous_primary_domain == str(ALPHA)
+        assert transition_record.new_primary_domain == str(ALPHA)
+        assert transition_record.previous_supporting_domains == (
+            str(BETA),
+            str(GAMMA),
+        )
+        assert transition_record.new_supporting_domains == (
+            str(DELTA),
+            str(BETA),
+            str(GAMMA),
+        )
+        assert transition_record.reason_code == "ADD_SUPPORTING"
+        assert transition_record.resolution_id == durable.last_resolution_id
+        assert transition_record.composition_id == durable.composition_id
+        assert transition_record.occurred_at == NOW
+        assert durable.effective_profile == env.session.effective_profile
+        assert durable.approval_refs == env.session.approval_refs
+        assert durable.partial_result_refs == env.session.partial_result_refs
+        assert durable.trace_refs == env.session.trace_refs
+        assert durable.metadata == env.session.metadata
+
+    def test_transition_does_not_mutate_registry(self) -> None:
+        env = _CoordinatorEnvironment()
+        before = env.registry_snapshot()
+        _apply(env)
+        assert env.registry_snapshot() == before
+        _apply(
+            env,
+            kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+            target_domain=BETA,
+        )
+        assert env.registry_snapshot() == before
+        _apply(env, target_domain=BETA)  # add already-supporting fails closed
+        assert env.registry_snapshot() == before
+
+    def test_transition_does_not_mutate_original_policy(self) -> None:
+        for policy in (None, DomainResolutionPolicy()):
+            env = _CoordinatorEnvironment(system_policy=policy)
+            before_policy = env.context.system_policy
+            before_context = env.context.to_dict()
+            _apply(env)
+            assert env.context.system_policy == before_policy
+            assert env.context.to_dict() == before_context
+            _apply(
+                env,
+                kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+                target_domain=BETA,
+            )
+            assert env.context.system_policy == before_policy
+            assert env.context.to_dict() == before_context
+
+
+class TestDomainSelectionTransitionCoordinatorPermission:
+    def test_add_supporting_permission_deny_blocks(self) -> None:
+        env = _CoordinatorEnvironment(outbound_targets=())
+        request = _permission_request(env)
+        expected = env.permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.DENY
+        assert expected.reasons
+        before_registry = env.registry_snapshot()
+
+        result = _apply(env)
+
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        assert result.reason_code == expected.reasons[0]
+        assert env.registry_snapshot() == before_registry
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_add_supporting_approval_required_stays_pending(self) -> None:
+        env = _CoordinatorEnvironment()
+        request = _permission_request(env, requires_approval=True)
+        expected = env.permission_resolver.resolve_cross_domain(request)
+        assert expected.decision is PermissionOutcome.APPROVAL_REQUIRED
+        assert expected.reasons
+        before_registry = env.registry_snapshot()
+
+        result = _apply(env, requires_approval=True)
+
+        assert result.status is DomainSelectionTransitionStatus.PENDING
+        assert result.transition is None
+        assert result.reason_code == expected.reasons[0]
+        assert env.registry_snapshot() == before_registry
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+
+class TestDomainSelectionTransitionCoordinatorPreconditions:
+    def test_add_supporting_target_already_supporting_blocks(self) -> None:
+        env = _CoordinatorEnvironment()
+        result = _apply(env, target_domain=BETA)
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code
+            == "domain_selection_transition_target_already_supporting"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_add_supporting_target_is_primary_blocks(self) -> None:
+        env = _CoordinatorEnvironment()
+        result = _apply(
+            env,
+            target_domain=ALPHA,
+            permission_target_domain=DELTA,
+        )
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code
+            == "domain_selection_transition_target_is_primary"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_add_supporting_target_disabled_blocks(self) -> None:
+        env = _CoordinatorEnvironment()
+        env.registry.disable("delta")
+        after_disable = env.registry_snapshot()
+        result = _apply(env)
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code == "domain_selection_transition_target_disabled"
+        )
+        assert env.registry_snapshot() == after_disable
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_add_supporting_target_degraded_when_policy_forbids_blocks(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment(
+            system_policy=DomainResolutionPolicy(allow_degraded=False)
+        )
+        _mark_degraded(env.registry, "delta")
+        after_degrade = env.registry_snapshot()
+        result = _apply(env)
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code == "domain_selection_transition_target_degraded"
+        )
+        assert env.registry_snapshot() == after_degrade
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_withdraw_supporting_target_not_supporting_blocks(self) -> None:
+        env = _CoordinatorEnvironment()
+        result = _apply(
+            env,
+            kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+            target_domain=DELTA,
+        )
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code
+            == "domain_selection_transition_target_not_supporting"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_withdraw_supporting_target_is_primary_blocks(self) -> None:
+        env = _CoordinatorEnvironment()
+        result = _apply(
+            env,
+            kind=DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING,
+            target_domain=ALPHA,
+        )
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert (
+            result.reason_code
+            == "domain_selection_transition_target_is_primary"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+
+class TestDomainSelectionTransitionCoordinatorFailClosed:
+    def test_transition_does_not_persist_on_resolution_failure(self) -> None:
+        env = _CoordinatorEnvironment(authorize_delta=False)
+        expected = env.permission_resolver.resolve_cross_domain(
+            _permission_request(env)
+        )
+        assert expected.decision is PermissionOutcome.ALLOW
+        before_registry = env.registry_snapshot()
+
+        result = _apply(env)
+
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        assert result.reason_code == "DOMAIN_UNAUTHORIZED_REJECTED"
+        assert env.registry_snapshot() == before_registry
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_transition_does_not_persist_on_composition_failure(self) -> None:
+        env = _CoordinatorEnvironment()
+        env.registry.disable("beta")
+        after_disable = env.registry_snapshot()
+
+        with pytest.raises(DomainCompositionContractError):
+            _apply(env)
+
+        assert env.registry_snapshot() == after_disable
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_transition_reports_optimistic_session_revision_conflict(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        advanced = dataclasses.replace(env.session, revision=2)
+        env.adapter.save_domain_session(
+            advanced, expected_previous_revision=env.session.revision
+        )
+        durable_before = env.adapter.load_domain_session(env.session_id)
+        assert durable_before is not None
+        assert durable_before.revision == 2
+
+        result = _apply(env)
+
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        assert (
+            result.reason_code
+            == "domain_selection_transition_session_conflict"
+        )
+        durable_after = env.adapter.load_domain_session(env.session_id)
+        assert durable_after is not None
+        assert durable_after.revision == 2
+        assert durable_after.to_dict() == durable_before.to_dict()
+
+
+class _DropDeltaResolver:
+    """Real-resolver delegate producing RESOLVED results without the delta."""
+
+    def __init__(self, delegate: DefaultDomainResolver) -> None:
+        self._delegate = delegate
+
+    def resolve(self, context: DomainResolutionContext) -> object:
+        result = self._delegate.resolve(context)
+        if result.status is not DomainResolutionStatus.RESOLVED:
+            return result
+        return dataclasses.replace(
+            result,
+            supporting_domains=tuple(
+                domain for domain in result.supporting_domains if domain != DELTA
+            ),
+        )
+
+
+class _ShiftPrimaryResolver:
+    """Real-resolver delegate fabricating a primary change on re-resolution."""
+
+    def __init__(self, delegate: DefaultDomainResolver) -> None:
+        self._delegate = delegate
+
+    def resolve(self, context: DomainResolutionContext) -> object:
+        result = self._delegate.resolve(context)
+        if result.status is not DomainResolutionStatus.RESOLVED:
+            return result
+        return dataclasses.replace(result, primary_domain=DELTA)
+
+
+class TestDomainSelectionTransitionCoordinatorVerifyGuards:
+    def test_transition_blocks_when_membership_delta_not_applied(self) -> None:
+        env = _CoordinatorEnvironment()
+        coordinator = DefaultDomainSelectionTransitionCoordinator(
+            resolver=_DropDeltaResolver(env.resolver),
+            composer=env.composer,
+            domain_registry=env.registry,
+            permission_resolver=env.permission_resolver,
+            session_adapter=env.adapter,
+            clock=lambda: NOW,
+        )
+
+        result = coordinator.apply(
+            request=_coordinator_request(env),
+            session=env.session,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+        )
+
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        assert (
+            result.reason_code
+            == "domain_selection_transition_delta_not_applied"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_transition_blocks_when_primary_would_change(self) -> None:
+        env = _CoordinatorEnvironment()
+        coordinator = DefaultDomainSelectionTransitionCoordinator(
+            resolver=_ShiftPrimaryResolver(env.resolver),
+            composer=env.composer,
+            domain_registry=env.registry,
+            permission_resolver=env.permission_resolver,
+            session_adapter=env.adapter,
+            clock=lambda: NOW,
+        )
+
+        result = coordinator.apply(
+            request=_coordinator_request(env),
+            session=env.session,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+        )
+
+        assert result.status is DomainSelectionTransitionStatus.BLOCKED
+        assert result.transition is None
+        assert (
+            result.reason_code
+            == "domain_selection_transition_primary_changed"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+
+class TestDomainSelectionTransitionCoordinatorAuthorityBinding:
+    def test_request_reference_mismatch_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        request = _coordinator_request(env)
+        mismatched = dataclasses.replace(
+            request, resolution_reference_id="resolution:coordinator:other"
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=mismatched,
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_session_resolution_mismatch_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        mismatched_session = dataclasses.replace(
+            env.session, last_resolution_id="resolution:coordinator:other"
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=_coordinator_request(env),
+                session=mismatched_session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_composition_resolution_mismatch_raises_and_persists_nothing(
+        self,
+    ) -> None:
+        env = _CoordinatorEnvironment()
+        mismatched_composition = dataclasses.replace(
+            env.composition, resolution_id="resolution:coordinator:other"
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            _coordinator(env).apply(
+                request=_coordinator_request(env),
+                session=env.session,
+                resolution=env.resolution,
+                composition=mismatched_composition,
+                resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
