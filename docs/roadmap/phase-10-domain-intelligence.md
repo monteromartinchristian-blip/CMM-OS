@@ -5359,7 +5359,7 @@ health → ephemeral deterministic report.
 * Audit V6 bundle SHA-256: `401d7fa4eb1b3ee057fed9e1fd2b299804de43e5c383271bd249e4ad1ca3c56c`.
 * Closure gates: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-037=VERIFIED_EXISTING`; `AT-DP-037=PASS`.
 * The independently audited boundary now extends through Phase 10.37.
-* The independently audited Domain Intelligence boundary now extends through **Phase 10.44 — Integration with Memory and Knowledge Graph**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`.
+* The independently audited Domain Intelligence boundary now extends through **Phase 10.45 — Integration with Interfaces**. Final independent re-audit **V4** = `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `548b3fbaee6a0c67458121d60402ab909f0886c2`; audit V4 bundle SHA-256 `c3aed79cee4f1e7369b5c7f9b61ceda31a4f62b12818f5a40f72a2a274199d38`.
 
 ⸻
 
@@ -5967,7 +5967,7 @@ same `AgentValidationAdapter` (PRE-only travels pre-mutation; nested/src-layout
 covered; no top-level heuristic), snapshot/derivation uncertainty fails closed,
 and post-validation rejection uses canonical rollback restoration
 (`CheckpointRestorationRollbackExecutor`);
-reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.44.
+reference `docs/reference/domain-validation-integration.md`. The independently audited Domain Intelligence boundary now extends through Phase 10.45.
 Phase 10.44 is **complete, independently audited and closed** after final independent re-audit **V4** `PASS`: `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`.
 
 ⸻
@@ -6125,12 +6125,13 @@ It should have:
 * conflicts unresolvable.
 
 Implementation Status (Phase 10.45):
-- Status: Implemented; Independent Audit V1 `FAIL` (4 MAJOR) remediated; Independent Re-audit V2 `FAIL` (3 MAJOR) remediated; Independent Re-audit V3 `FAIL` (1 MAJOR: pending-delta authority bypass with supporting-order set semantics) remediated — independent exact-HEAD Re-audit V4 pending (not closed, not re-audited; `PHASE10_45=REMEDIATED_PENDING_INDEPENDENT_REAUDIT`)
+- Status: Complete — independently audited and closed after final Independent Re-audit V4 `PASS` (`PHASE10_45=CLOSED`)
 - Requirement: `DP-045` (`SRC-R10:R10-C45`)
-- Acceptance: `AT-DP-045=PASS_REPORTED` (`tests/domains/test_domain_interface_dp045_acceptance.py`) — strengthened connected implementation evidence only, re-audit pending (`DP-045=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`; `CLOSURE_ELIGIBLE=NO`)
+- Acceptance: `AT-DP-045=PASS` (`tests/domains/test_domain_interface_dp045_acceptance.py`) — independently verified in final Re-audit V4 (`DP-045=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`)
 - Audit V1 evidence: `docs/audits/phase-10.45-independent-audit-v1.md` (FAIL, 4 MAJOR); `docs/audits/phase-10.45-major-03-architectural-block-evidence.md`; amendment `docs/superpowers/specs/2026-09-09-phase-10.45-major-03-selection-transition-amendment.md`; remediation plan `docs/superpowers/plans/2026-09-09-phase-10.45-audit-v1-remediation-plan.md`
 - Audit V2 evidence: `docs/audits/phase-10.45-independent-reaudit-v2.md` (FAIL, 3 MAJOR: incomplete selection-transition authority binding, unbound permission evidence with non-ALLOW fall-through, composition-incoherent persisted revision)
 - Audit V3 evidence: `docs/audits/phase-10.45-independent-reaudit-v3.md` (FAIL, 1 MAJOR: pre/post-delta authority exception bypassing exact session coherence, plus supporting-order set semantics)
+- Final Re-audit V4 evidence: `docs/audits/phase-10.45-independent-final-reaudit-v4.md` (`PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`; audit-report commit `8122cc3398dce05cbc69dcb11d97f1b080ec5e59`)
 - Delivered Architecture:
   - Thin, stateless, interface-neutral integrator `DefaultDomainInterfaceIntegrator` in `cmm/domains/interface_integration.py`
   - Immutable frozen/slotted projection contracts in `cmm/domains/interface_integration_contracts.py` (SHA-256 `content_digest` over projection content; `to_dict`/`from_dict` digest-preserving round-trip)
@@ -6145,8 +6146,8 @@ Implementation Status (Phase 10.45):
   - Reference documentation: `docs/reference/domain-interface-integration.md`
   - Specification: `docs/superpowers/specs/2026-09-08-phase-10.45-integration-with-interfaces-design.md`
   - Implementation plan: `docs/superpowers/plans/2026-09-08-phase-10.45-interface-integration-implementation-plan.md`
-  - `AT-DP-045=PASS` is strengthened implementation evidence only; independent verification is the pending Re-audit V4
-  - Next action: independent exact-HEAD Re-audit V4 of the remediated Phase 10.45 HEAD; not Phase 10.46.
+  - `AT-DP-045=PASS` independently verified in final Re-audit V4; `DP-045=VERIFIED_EXISTING`; `CLOSURE_ELIGIBLE=YES`
+  - Next action: Phase 10.46 may begin only after final closure verification; Phase 10.46 has not started.
 
 ⸻
 
