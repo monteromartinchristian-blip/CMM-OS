@@ -48,6 +48,7 @@ from cmm.domains.interface_integration_contracts import (
 )
 from cmm.domains.memory_knowledge_integration_contracts import (
     DomainMemoryKnowledgeProjection,
+    DomainMemoryKnowledgeProjectionRequest,
 )
 from cmm.domains.observability_contracts import DomainObservabilityReport
 from cmm.domains.permission_contracts import (
@@ -101,6 +102,7 @@ class DomainInterfaceIntegrator(Protocol):
         presentation: DomainPresentationPlan | None = None,
         session: DomainSessionContext | None = None,
         memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
+        memory_knowledge_request: DomainMemoryKnowledgeProjectionRequest | None = None,
         registry: DomainRegistry | None = None,
         observability_report: DomainObservabilityReport | None = None,
         cross_domain_result: CrossDomainResult | None = None,
@@ -129,6 +131,7 @@ def _validate_authority(
     presentation: DomainPresentationPlan | None,
     session: DomainSessionContext | None,
     memory_knowledge: DomainMemoryKnowledgeProjection | None,
+    memory_knowledge_request: DomainMemoryKnowledgeProjectionRequest | None,
     registry: DomainRegistry | None,
     observability_report: DomainObservabilityReport | None,
     cross_domain_result: CrossDomainResult | None,
@@ -189,12 +192,79 @@ def _validate_authority(
             or session.session_id != request.session_reference_id
         ):
             raise DomainInterfaceAuthorityError("session reference mismatch")
+        if session.composition_id is not None and session.composition_id != (
+            composition.id
+        ):
+            raise DomainInterfaceAuthorityError(
+                "session composition binding mismatch"
+            )
+        if session.last_resolution_id is not None and session.last_resolution_id != (
+            resolution.id
+        ):
+            raise DomainInterfaceAuthorityError(
+                "session resolution binding mismatch"
+            )
+        if resolution.primary_domain is None or session.primary_domain != str(
+            resolution.primary_domain
+        ):
+            raise DomainInterfaceAuthorityError(
+                "session primary domain diverges from resolution"
+            )
+        if frozenset(session.supporting_domains) != frozenset(
+            str(d) for d in composition.supporting_domains
+        ):
+            raise DomainInterfaceAuthorityError(
+                "session supporting domains diverge from composition"
+            )
+    if memory_knowledge is not None:
+        if type(memory_knowledge) is not DomainMemoryKnowledgeProjection:
+            raise DomainInterfaceAuthorityError(
+                "memory_knowledge must be a canonical DomainMemoryKnowledgeProjection"
+            )
+        if (
+            memory_knowledge_request is None
+            or type(memory_knowledge_request) is not DomainMemoryKnowledgeProjectionRequest
+        ):
+            raise DomainInterfaceAuthorityError(
+                "memory_knowledge requires its canonical "
+                "DomainMemoryKnowledgeProjectionRequest"
+            )
+        if memory_knowledge.request_id != memory_knowledge_request.request_id:
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection request binding mismatch"
+            )
+        if memory_knowledge.request_digest != memory_knowledge_request.digest:
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection request digest mismatch"
+            )
+        if memory_knowledge_request.resolution_reference_id != resolution.id:
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection resolution binding mismatch"
+            )
+        if memory_knowledge_request.composition_reference_id != composition.id:
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection composition binding mismatch"
+            )
+        if str(memory_knowledge_request.primary_domain) != str(
+            resolution.primary_domain
+        ):
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection primary domain diverges from resolution"
+            )
+        if frozenset(str(d) for d in memory_knowledge_request.supporting_domains) != (
+            frozenset(str(d) for d in composition.supporting_domains)
+        ):
+            raise DomainInterfaceAuthorityError(
+                "memory/knowledge projection supporting domains diverge from "
+                "composition"
+            )
     if (
-        memory_knowledge is not None
-        and type(memory_knowledge) is not DomainMemoryKnowledgeProjection
+        memory_knowledge_request is not None
+        and type(memory_knowledge_request) is not DomainMemoryKnowledgeProjectionRequest
     ):
         raise DomainInterfaceAuthorityError(
-            "memory_knowledge must be a canonical DomainMemoryKnowledgeProjection"
+            "memory_knowledge_request must be a canonical "
+            "DomainMemoryKnowledgeProjectionRequest"
         )
     if registry is not None and type(registry) is not DomainRegistry:
         raise DomainInterfaceAuthorityError(
@@ -891,6 +961,7 @@ class DefaultDomainInterfaceIntegrator:
         presentation: DomainPresentationPlan | None = None,
         session: DomainSessionContext | None = None,
         memory_knowledge: DomainMemoryKnowledgeProjection | None = None,
+        memory_knowledge_request: DomainMemoryKnowledgeProjectionRequest | None = None,
         registry: DomainRegistry | None = None,
         observability_report: DomainObservabilityReport | None = None,
         cross_domain_result: CrossDomainResult | None = None,
@@ -904,6 +975,7 @@ class DefaultDomainInterfaceIntegrator:
             presentation=presentation,
             session=session,
             memory_knowledge=memory_knowledge,
+            memory_knowledge_request=memory_knowledge_request,
             registry=registry,
             observability_report=observability_report,
             cross_domain_result=cross_domain_result,

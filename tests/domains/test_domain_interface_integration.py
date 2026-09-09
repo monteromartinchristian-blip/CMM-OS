@@ -55,6 +55,10 @@ from cmm.domains.interface_integration_contracts import (
     DomainInterfaceStatus,
     DomainInterfaceViewKind,
 )
+from cmm.domains.memory_knowledge_integration_contracts import (
+    DomainMemoryKnowledgeProjection,
+    DomainMemoryKnowledgeProjectionRequest,
+)
 from cmm.domains.observability_contracts import (
     DomainMetricMeasurement,
     DomainMetricsSnapshot,
@@ -509,6 +513,38 @@ def _make_operation_approval(
     )
 
 
+def _make_memory_knowledge_request(
+    **overrides: object,
+) -> DomainMemoryKnowledgeProjectionRequest:
+    values: dict[str, object] = {
+        "request_id": "memory-knowledge-request:1",
+        "primary_domain": DomainId("health"),
+        "supporting_domains": (DomainId("general"),),
+        "memory_view_id": "memory-view:1",
+        "memory_view_digest": "0" * 64,
+        "resolution_reference_id": "resolution:1",
+        "composition_reference_id": "composition:1",
+        "permission_decision_ids": (),
+        "requested_capabilities": (),
+    }
+    values.update(overrides)
+    return DomainMemoryKnowledgeProjectionRequest(**values)
+
+
+def _make_memory_knowledge_projection(
+    request: DomainMemoryKnowledgeProjectionRequest,
+) -> DomainMemoryKnowledgeProjection:
+    return DomainMemoryKnowledgeProjection.create(
+        request_id=request.request_id,
+        request_digest=request.digest,
+        memory_view_id=request.memory_view_id,
+        memory_view_digest=request.memory_view_digest,
+        selected_reference_ids=(),
+        shared_identity_reference_ids=(),
+        relation_refs=(),
+    )
+
+
 def _project_views(env: _CanonicalProjectionEnvironment, **overrides: object):
     kwargs: dict[str, object] = {
         "request": env.request,
@@ -751,6 +787,93 @@ class TestAuthorityBinding:
             }
         )
         assert projection.request_id == env.request.request_id
+
+    def test_projection_rejects_session_composition_mismatch(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        session = DomainSessionContext(
+            session_id="session:1",
+            primary_domain="domain:health",
+            supporting_domains=("domain:general",),
+            composition_id="composition:other",
+        )
+        env = canonical_projection_fixture
+        with pytest.raises(DomainInterfaceAuthorityError):
+            env.integrator.project(**{**env.project_kwargs, "session": session})
+
+    def test_projection_rejects_session_resolution_mismatch(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        session = DomainSessionContext(
+            session_id="session:1",
+            primary_domain="domain:health",
+            supporting_domains=("domain:general",),
+            composition_id="composition:1",
+            last_resolution_id="resolution:other",
+        )
+        env = canonical_projection_fixture
+        with pytest.raises(DomainInterfaceAuthorityError):
+            env.integrator.project(**{**env.project_kwargs, "session": session})
+
+    def test_projection_rejects_session_primary_domain_mismatch(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        session = DomainSessionContext(
+            session_id="session:1",
+            primary_domain="domain:legal",
+            composition_id="composition:1",
+            last_resolution_id="resolution:1",
+        )
+        env = canonical_projection_fixture
+        with pytest.raises(DomainInterfaceAuthorityError):
+            env.integrator.project(**{**env.project_kwargs, "session": session})
+
+    def test_projection_rejects_session_supporting_domain_mismatch(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        session = DomainSessionContext(
+            session_id="session:1",
+            primary_domain="domain:health",
+            supporting_domains=("domain:general", "domain:legal"),
+            composition_id="composition:1",
+            last_resolution_id="resolution:1",
+        )
+        env = canonical_projection_fixture
+        with pytest.raises(DomainInterfaceAuthorityError):
+            env.integrator.project(**{**env.project_kwargs, "session": session})
+
+    def test_projection_rejects_foreign_memory_knowledge_projection(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        memory_request = _make_memory_knowledge_request()
+        foreign_request = _make_memory_knowledge_request(
+            request_id="memory-knowledge-request:foreign"
+        )
+        projection = _make_memory_knowledge_projection(foreign_request)
+        env = canonical_projection_fixture
+        with pytest.raises(DomainInterfaceAuthorityError):
+            env.integrator.project(
+                **{
+                    **env.project_kwargs,
+                    "memory_knowledge": projection,
+                    "memory_knowledge_request": memory_request,
+                }
+            )
+
+    def test_projection_accepts_bound_memory_knowledge_projection(
+        self, canonical_projection_fixture: _CanonicalProjectionEnvironment
+    ) -> None:
+        memory_request = _make_memory_knowledge_request()
+        projection = _make_memory_knowledge_projection(memory_request)
+        env = canonical_projection_fixture
+        result = env.integrator.project(
+            **{
+                **env.project_kwargs,
+                "memory_knowledge": projection,
+                "memory_knowledge_request": memory_request,
+            }
+        )
+        assert result.request_id == env.request.request_id
 
 
 class TestProjectionPurity:

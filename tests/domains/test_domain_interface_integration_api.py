@@ -40,6 +40,7 @@ class _RecordingInterfaceIntegrator:
         presentation: Any = None,
         session: Any = None,
         memory_knowledge: Any = None,
+        memory_knowledge_request: Any = None,
         registry: Any = None,
         observability_report: Any = None,
         cross_domain_result: Any = None,
@@ -53,6 +54,7 @@ class _RecordingInterfaceIntegrator:
             "presentation": presentation,
             "session": session,
             "memory_knowledge": memory_knowledge,
+            "memory_knowledge_request": memory_knowledge_request,
             "registry": registry,
             "observability_report": observability_report,
             "cross_domain_result": cross_domain_result,
@@ -110,6 +112,7 @@ class TestInterfaceProjectionDelegation:
         presentation = object()
         session = object()
         memory_knowledge = object()
+        memory_knowledge_request = object()
         registry = object()
         observability_report = object()
         cross_domain_result = object()
@@ -123,6 +126,7 @@ class TestInterfaceProjectionDelegation:
             presentation=presentation,  # type: ignore[arg-type]
             session=session,  # type: ignore[arg-type]
             memory_knowledge=memory_knowledge,  # type: ignore[arg-type]
+            memory_knowledge_request=memory_knowledge_request,  # type: ignore[arg-type]
             registry=registry,  # type: ignore[arg-type]
             observability_report=observability_report,  # type: ignore[arg-type]
             cross_domain_result=cross_domain_result,  # type: ignore[arg-type]
@@ -138,6 +142,7 @@ class TestInterfaceProjectionDelegation:
         assert recorded["presentation"] is presentation
         assert recorded["session"] is session
         assert recorded["memory_knowledge"] is memory_knowledge
+        assert recorded["memory_knowledge_request"] is memory_knowledge_request
         assert recorded["registry"] is registry
         assert recorded["observability_report"] is observability_report
         assert recorded["cross_domain_result"] is cross_domain_result
@@ -165,6 +170,7 @@ class TestInterfaceProjectionDelegation:
             "presentation",
             "session",
             "memory_knowledge",
+            "memory_knowledge_request",
             "registry",
             "observability_report",
             "cross_domain_result",
