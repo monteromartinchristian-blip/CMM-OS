@@ -12,13 +12,21 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from decimal import Decimal
+from typing import ClassVar
+
+import pytest
 
 from cmm.agent_runtime.domain_model_policy_adapter import (
+    domain_model_fallback_policy,
+    domain_model_requirement_source,
     domain_model_validation_requirements,
 )
 from cmm.agent_runtime.enums import (
     AgentValidationStage,
     ValidationRequirementKind,
+)
+from cmm.agent_runtime.model_requirements_errors import (
+    ModelRequirementsResolutionError,
 )
 from cmm.agent_runtime.model_requirements_resolver import (
     resolve_runtime_model_requirements,
@@ -424,3 +432,123 @@ def test_validation_bindings_connect_to_canonical_stages() -> None:
     assert post_execution_request.fingerprint
     assert pre_execution_request.stage is AgentValidationStage.PRE_EXECUTION
     assert post_execution_request.stage is AgentValidationStage.POST_EXECUTION
+
+
+# ── Remediation V1 – MAJOR-01 premium neutrality acceptance ───────────────────
+
+
+def test_at_dp_046_premium_neutrality_uses_real_canonical_components() -> None:
+    health = _representative_health_definition()
+
+    allow_operation = OperationDescriptor(
+        name="llm.reason",
+        description="Premium allowed by an authoritative source",
+        model_requirements=ModelRequirements(premium_allowed=True),
+    )
+    deny_operation = OperationDescriptor(
+        name="llm.reason",
+        description="Premium denied by an authoritative source",
+        model_requirements=ModelRequirements(premium_allowed=False),
+    )
+
+    allow_only = resolve_runtime_model_requirements(operation=allow_operation)
+    allow_with_domain = resolve_runtime_model_requirements(
+        operation=allow_operation,
+        domain_policies=(health.model_policy,),
+    )
+    deny_with_domain = resolve_runtime_model_requirements(
+        operation=deny_operation,
+        domain_policies=(health.model_policy,),
+    )
+    domain_only = resolve_runtime_model_requirements(
+        domain_policies=(health.model_policy,)
+    )
+
+    assert allow_only.effective.premium_allowed is True
+    assert allow_with_domain.effective.premium_allowed is True
+    assert deny_with_domain.effective.premium_allowed is False
+    assert domain_only.effective.premium_allowed is False
+    assert (
+        allow_with_domain.effective.premium_allowed
+        == allow_only.effective.premium_allowed
+    )
+
+    domain_source = next(
+        source for source in allow_with_domain.sources if source.source_kind == "domain"
+    )
+    assert domain_source.contributes_premium_permission is False
+    assert domain_source.requirements.premium_allowed is False
+
+
+# ── Remediation V1 – MAJOR-02 strict adapter boundary acceptance ──────────────
+
+
+class _ValidFullShapePolicy:
+    domain_id = "domain:health"
+    require_reasoning = False
+    require_tool_calling = False
+    require_structured_output = False
+    require_json_mode = False
+    require_json_schema = False
+    require_vision = False
+    require_audio_input = False
+    require_audio_output = False
+    require_embeddings = False
+    minimum_context_window = None
+    require_context_validation = False
+    require_response_validation = False
+    fallback_policy = None
+    metadata: ClassVar[dict[str, object]] = {}
+
+
+class _InvalidFullShapePolicy(_ValidFullShapePolicy):
+    domain_id = "not-a-domain-id"
+    require_reasoning = "false"
+    minimum_context_window = 0
+    fallback_policy = "not-a-fallback-policy"
+
+
+_INVALID_FIELD_OVERRIDES = (
+    {"domain_id": "domain:Health"},
+    {"require_context_validation": "false"},
+    {"minimum_context_window": -1},
+    {"fallback_policy": {}},
+    {"metadata": None},
+)
+
+
+def _full_shape_with(**overrides: object) -> _ValidFullShapePolicy:
+    policy = _ValidFullShapePolicy()
+    for name, value in overrides.items():
+        setattr(policy, name, value)
+    return policy
+
+
+def test_at_dp_046_strict_adapter_boundary_accepts_valid_full_shape() -> None:
+    source = domain_model_requirement_source(_ValidFullShapePolicy())
+
+    assert source.source_kind == "domain"
+    assert source.source_id == "domain:health"
+
+
+def test_at_dp_046_strict_adapter_boundary_rejects_all_seams() -> None:
+    invalid = _InvalidFullShapePolicy()
+
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_requirement_source(invalid)
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_validation_requirements(invalid)
+    with pytest.raises(ModelRequirementsResolutionError):
+        domain_model_fallback_policy(invalid)
+    with pytest.raises(ModelRequirementsResolutionError):
+        resolve_runtime_model_requirements(domain_policies=(invalid,))
+
+
+@pytest.mark.parametrize("overrides", _INVALID_FIELD_OVERRIDES)
+def test_at_dp_046_strict_adapter_boundary_rejects_invalid_field(
+    overrides: dict[str, object],
+) -> None:
+    policy = _full_shape_with(**overrides)
+
+    with pytest.raises(ModelRequirementsResolutionError):
+        resolve_runtime_model_requirements(domain_policies=(policy,))

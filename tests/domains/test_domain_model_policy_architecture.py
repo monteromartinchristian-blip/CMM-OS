@@ -237,3 +237,72 @@ def test_parallel_owner_detector_accepts_canonical_names() -> None:
     names = _class_names(ast.parse("class DomainModelPolicy:\n    pass\n"))
 
     assert not any(_PARALLEL_OWNER_PATTERN.search(name) for name in names)
+
+
+# ── Remediation V1 – premium participation boundaries ─────────────────────────
+
+
+_RESOLVER_PATH = _REPO_ROOT / "cmm" / "agent_runtime" / "model_requirements_resolver.py"
+
+
+def test_resolver_has_no_source_kind_premium_special_case() -> None:
+    tree = ast.parse(_RESOLVER_PATH.read_text(encoding="utf-8"))
+    offenders: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            for operand in (node.left, *node.comparators):
+                if isinstance(operand, ast.Attribute) and operand.attr == "source_kind":
+                    offenders.append(operand.attr)
+
+    assert offenders == []
+
+
+def test_domain_adapter_explicitly_abstains_from_premium() -> None:
+    tree = ast.parse(_ADAPTER_PATH.read_text(encoding="utf-8"))
+    values: list[object] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "contributes_premium_permission":
+                    values.append(keyword.value)
+
+    assert len(values) == 1
+    value = values[0]
+    assert isinstance(value, ast.Constant)
+    assert value.value is False
+
+
+def test_kernel_llm_has_no_premium_participation_logic() -> None:
+    offenders: list[str] = []
+
+    for path in sorted((_REPO_ROOT / "kernel" / "llm").rglob("*.py")):
+        if "contributes_premium_permission" in path.read_text(encoding="utf-8"):
+            offenders.append(path.name)
+
+    assert offenders == []
+
+
+def test_kernel_premium_flag_remains_plain_bool() -> None:
+    from kernel.llm.model_selection import ModelRequirements
+
+    premium_field = next(
+        field for field in fields(ModelRequirements) if field.name == "premium_allowed"
+    )
+
+    assert str(premium_field.type) == "bool"
+    assert ModelRequirements().premium_allowed is False
+
+
+def test_premium_special_case_detector_is_calibrated() -> None:
+    tree = ast.parse("if source.source_kind == 'domain':\n    pass\n")
+    offenders = [
+        operand.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        for operand in (node.left, *node.comparators)
+        if isinstance(operand, ast.Attribute) and operand.attr == "source_kind"
+    ]
+
+    assert offenders == ["source_kind"]
