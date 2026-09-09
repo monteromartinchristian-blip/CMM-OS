@@ -1,8 +1,8 @@
 """Phase 10.46 – Agent Runtime adapter for model-agnostic domain policies.
 
 The adapter consumes the canonical ``DomainModelPolicy`` attribute surface
-structurally, so ``cmm.agent_runtime`` never imports ``cmm.domains`` and the
-approved one-way dependency (domains → Agent Runtime → kernel.llm) holds.
+structurally, so this package never imports the Domain Intelligence package and
+the approved one-way dependency (domains → Agent Runtime → kernel.llm) holds.
 
 It never queries provider registries or model catalogs, never selects or ranks
 models, never constructs providers, and never invokes inference.

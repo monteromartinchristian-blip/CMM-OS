@@ -198,7 +198,7 @@ def resolve_runtime_model_requirements(
     combined using the most-restrictive strategy. Domain policies contribute
     objective requirements through the canonical adapter; they never widen a
     stricter inherited constraint. Domain policies are consumed structurally so
-    this module never imports ``cmm.domains``.
+    this module never imports the Domain Intelligence package.
     """
 
     from cmm.agent_runtime.agent_registry_contracts import AgentDescriptor
