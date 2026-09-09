@@ -810,6 +810,26 @@ class DomainInterfaceIntentError(
     code = "DOMAIN_INTERFACE_INTENT_ERROR"
 
 
+# ── Phase 10.45 MAJOR-03 – Domain Selection Transition Errors ───────────────
+
+
+class DomainSelectionTransitionError(DomainError):
+    code = "DOMAIN_SELECTION_TRANSITION_ERROR"
+
+
+class DomainSelectionTransitionContractError(
+    DomainSelectionTransitionError,
+    ValueError,
+):
+    code = "DOMAIN_SELECTION_TRANSITION_CONTRACT_ERROR"
+
+
+class DomainSelectionTransitionSerializationError(
+    DomainSelectionTransitionError,
+):
+    code = "DOMAIN_SELECTION_TRANSITION_SERIALIZATION_ERROR"
+
+
 # ── Phase 10.13 – Domain Operation Errors ───────────────────────────────────
 
 
@@ -1138,6 +1158,9 @@ __all__ = [
     "DomainRuleExecutionError",
     "DomainRuleSelectionError",
     "DomainRuleSerializationError",
+    "DomainSelectionTransitionContractError",
+    "DomainSelectionTransitionError",
+    "DomainSelectionTransitionSerializationError",
     "DomainSerializationError",
     "DomainSessionContractError",
     "DomainSessionError",
