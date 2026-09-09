@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import fields
 
 import pytest
 
+from cmm.domains.benchmark_contracts import (
+    DomainBenchmarkCase,
+    DomainBenchmarkSuite,
+    export_domain_benchmark_suite,
+    import_domain_benchmark_suite,
+)
 from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.general.definition import build_general_domain_definition
@@ -152,3 +159,116 @@ def test_project_suite_covers_roadmap_areas() -> None:
         "validation",
         "error correction",
     } <= criteria
+
+
+# ── Conformance hardening ─────────────────────────────────────────────────────
+
+_FORBIDDEN_AUTHORITY_KEYS = frozenset(
+    {
+        "model",
+        "model_id",
+        "model_ids",
+        "model_family",
+        "models",
+        "candidate_models",
+        "preferred_models",
+        "prohibited_models",
+        "provider",
+        "provider_id",
+        "provider_ids",
+        "providers",
+        "candidate_providers",
+        "preferred_providers",
+        "prohibited_providers",
+        "routing_weight",
+        "routing_weights",
+    }
+)
+
+_FORBIDDEN_CONTRACT_FIELDS = frozenset(
+    {
+        "candidate_models",
+        "candidate_providers",
+        "preferred_models",
+        "preferred_providers",
+        "weight",
+        "minimum_score",
+        "blocking",
+        "aggregate_score",
+    }
+)
+
+_FORBIDDEN_CONTENT_MARKERS = (
+    "/Users/",
+    "BEGIN PRIVATE KEY",
+    "api_key",
+    "Authorization: Bearer",
+)
+
+
+def _normalize_key(key: str) -> str:
+    import re
+
+    key = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)
+    key = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", key)
+    return re.sub(r"[^A-Za-z0-9]+", "_", key).strip("_").lower()
+
+
+def _iter_mapping_keys(value: object) -> Iterator[str]:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            if isinstance(key, str):
+                yield key
+            yield from _iter_mapping_keys(nested)
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            yield from _iter_mapping_keys(nested)
+
+
+def test_first_party_domain_count_is_twelve() -> None:
+    assert len(FIRST_PARTY_BUILDERS) == 12
+    slugs = {builder().id.slug for builder in FIRST_PARTY_BUILDERS}
+    assert len(slugs) == 12
+
+
+def test_first_party_contracts_expose_no_authority_or_quality_fields() -> None:
+    case_fields = {f.name for f in fields(DomainBenchmarkCase)}
+    suite_fields = {f.name for f in fields(DomainBenchmarkSuite)}
+
+    assert not (case_fields & _FORBIDDEN_CONTRACT_FIELDS)
+    assert not (suite_fields & _FORBIDDEN_CONTRACT_FIELDS)
+
+    for builder in FIRST_PARTY_BUILDERS:
+        for suite in builder().benchmark_suites:
+            payload = suite.to_dict()
+            for metadata in (
+                payload["metadata"],
+                *(case["metadata"] for case in payload["cases"]),
+            ):
+                for key in _iter_mapping_keys(metadata):
+                    assert _normalize_key(key) not in _FORBIDDEN_AUTHORITY_KEYS
+
+
+def test_first_party_assets_contain_no_secrets_or_local_paths() -> None:
+    for builder in FIRST_PARTY_BUILDERS:
+        for suite in builder().benchmark_suites:
+            text = export_domain_benchmark_suite(suite).decode("utf-8")
+            for marker in _FORBIDDEN_CONTENT_MARKERS:
+                assert marker not in text
+            for case in suite.cases:
+                assert case.objective.strip()
+
+
+def test_first_party_export_is_deterministic_and_round_trips() -> None:
+    for builder in FIRST_PARTY_BUILDERS:
+        for suite in builder().benchmark_suites:
+            first = export_domain_benchmark_suite(suite)
+            assert first == export_domain_benchmark_suite(suite)
+            restored = import_domain_benchmark_suite(first)
+            assert restored == suite
+            assert restored.content_digest == suite.content_digest
+
+
+def test_first_party_builders_are_pure_and_deterministic() -> None:
+    for builder in FIRST_PARTY_BUILDERS:
+        assert builder().benchmark_suites == builder().benchmark_suites
