@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 from cmm.agent_runtime.domain_permission_contracts import PermissionOutcome
+from cmm.domains.api import DefaultDomainAPI
 from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.enums import (
     DomainCompositionStatus,
@@ -19,6 +20,11 @@ from cmm.domains.errors import (
     DomainSelectionTransitionSerializationError,
 )
 from cmm.domains.identifiers import DomainId
+from cmm.domains.interface_integration import DefaultDomainInterfaceIntegrator
+from cmm.domains.interface_integration_contracts import (
+    DomainInterfaceIntent,
+    DomainInterfaceIntentKind,
+)
 from cmm.domains.permission_contracts import CrossDomainPermissionRequest
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
@@ -1669,6 +1675,50 @@ class TestV3Major01ExactAuthorityCoherence:
                 resolution=env.resolution,
                 composition=env.composition,
                 resolution_context=env.context,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (str(BETA), str(GAMMA))
+
+    def test_interface_add_rejects_pending_delta_authority_mismatch(
+        self,
+    ) -> None:
+        from tests.domains.test_domain_api_contracts import _make_collaborators
+
+        env = _CoordinatorEnvironment()
+        post_resolution = self._post_delta_resolution(env)
+        post_composition = self._post_delta_composition(env, post_resolution)
+        incoherent_session = dataclasses.replace(
+            env.session,
+            last_resolution_id=post_resolution.id,
+            composition_id=post_composition.id,
+        )
+        coordinator = _coordinator(env)
+        collaborators = _make_collaborators()
+        collaborators["interface_integrator"] = DefaultDomainInterfaceIntegrator(
+            resolver=env.resolver,
+            permission_resolver=env.permission_resolver,
+            selection_transition_coordinator=coordinator,
+        )
+        api = DefaultDomainAPI(**collaborators)
+        intent = DomainInterfaceIntent(
+            intent_id="intent:v3:pending-delta",
+            kind=DomainInterfaceIntentKind.ADD_SUPPORTING,
+            resolution_reference_id=post_resolution.id,
+            composition_reference_id=post_composition.id,
+            target_domain=str(DELTA),
+            session_reference_id=env.session_id,
+            reason="v3 interface pending-delta authority mismatch probe",
+        )
+        with pytest.raises(DomainSelectionTransitionContractError):
+            api.submit_interface_intent(
+                intent=intent,
+                session=incoherent_session,
+                resolution=post_resolution,
+                composition=post_composition,
+                resolution_context=env.context,
+                permission_request=_permission_request(env),
             )
         durable = env.adapter.load_domain_session(env.session_id)
         assert durable is not None
