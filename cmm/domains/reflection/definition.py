@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.reflection.benchmarks import build_reflection_benchmark_suites
 from cmm.domains.reflection.catalog import (
     CANONICAL_REFLECTION_OPERATION_IDS,
     CANONICAL_REFLECTION_RESOURCE_IDS,
@@ -115,6 +116,7 @@ def build_reflection_domain_definition() -> DomainDefinition:
             tags=("reflection", "personal", "hypothesis", "ambivalence"),
             metadata={"phase": "10.24"},
         ),
+        benchmark_suites=build_reflection_benchmark_suites(),
     )
 
 

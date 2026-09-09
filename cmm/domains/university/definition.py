@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.university.benchmarks import build_university_benchmark_suites
 from cmm.domains.university.catalog import (
     CANONICAL_UNIVERSITY_OPERATION_IDS,
     CANONICAL_UNIVERSITY_RESOURCE_IDS,
@@ -108,6 +109,7 @@ def build_university_domain_definition() -> DomainDefinition:
             tags=("university", "academic", "planning", "personal"),
             metadata={"phase": "10.22"},
         ),
+        benchmark_suites=build_university_benchmark_suites(),
     )
 
 

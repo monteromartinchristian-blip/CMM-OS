@@ -9,7 +9,10 @@ import pytest
 from cmm.domains.contracts import DomainDefinition
 from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.health.definition import build_health_domain_definition
+from cmm.domains.oppositions.definition import build_oppositions_domain_definition
+from cmm.domains.reflection.definition import build_reflection_domain_definition
 from cmm.domains.relationships.definition import build_relationships_domain_definition
+from cmm.domains.university.definition import build_university_domain_definition
 
 Builder = Callable[[], DomainDefinition]
 
@@ -17,12 +20,18 @@ FIRST_PARTY_BUILDERS: tuple[Builder, ...] = (
     build_general_domain_definition,
     build_health_domain_definition,
     build_relationships_domain_definition,
+    build_university_domain_definition,
+    build_oppositions_domain_definition,
+    build_reflection_domain_definition,
 )
 
 EXPECTED_SUITE_IDS: dict[str, str] = {
     "general": "benchmark-suite:general:core",
     "health": "benchmark-suite:health:core",
     "relationships": "benchmark-suite:relationships:core",
+    "university": "benchmark-suite:university:core",
+    "oppositions": "benchmark-suite:oppositions:core",
+    "reflection": "benchmark-suite:reflection:core",
 }
 
 

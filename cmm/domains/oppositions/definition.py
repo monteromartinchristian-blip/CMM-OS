@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
+from cmm.domains.oppositions.benchmarks import (
+    build_oppositions_benchmark_suites,
+)
 from cmm.domains.oppositions.catalog import (
     CANONICAL_OPPOSITION_OPERATION_IDS,
     CANONICAL_OPPOSITION_RESOURCE_IDS,
@@ -118,6 +121,7 @@ def build_oppositions_domain_definition() -> DomainDefinition:
             tags=("oppositions", "public-body", "planning", "personal"),
             metadata={"phase": "10.23"},
         ),
+        benchmark_suites=build_oppositions_benchmark_suites(),
     )
 
 
