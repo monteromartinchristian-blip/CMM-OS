@@ -38,7 +38,10 @@ def build_manifest_for_definition(definition: DomainDefinition) -> DomainManifes
         workflows=tuple(_component(c) for c in definition.workflows),
         validators=tuple(_component(c) for c in definition.validators),
         permissions=(
-            DomainPermissionReference(required_permissions=definition.permissions)
+            DomainPermissionReference(
+                policy="permissions.py",
+                required_permissions=definition.permissions,
+            )
             if definition.permissions
             else None
         ),
