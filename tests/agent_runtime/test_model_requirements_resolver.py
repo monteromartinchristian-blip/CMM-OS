@@ -682,3 +682,79 @@ def test_phase_10_46_adapter_exports() -> None:
     for name in expected:
         assert hasattr(runtime, name)
         assert name in runtime.__all__
+
+
+# ── Phase 10.46 remediation V1 – premium participation neutrality ─────────────
+
+
+def _neutral_domain_source() -> ModelRequirementsSource:
+    return ModelRequirementsSource(
+        source_kind="domain",
+        source_id="domain:health",
+        requirements=ModelRequirements(),
+        contributes_premium_permission=False,
+    )
+
+
+def test_neutral_domain_source_does_not_cancel_premium_allow() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+
+    resolved = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is True
+
+
+def test_neutral_domain_source_does_not_cancel_premium_deny() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=False),
+    )
+
+    resolved = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is False
+
+
+def test_only_neutral_domain_source_keeps_premium_fail_closed() -> None:
+    resolved = resolve_model_requirements((_neutral_domain_source(),))
+
+    assert resolved.effective.premium_allowed is False
+
+
+def test_adding_neutral_domain_source_does_not_change_premium_authority() -> None:
+    operation = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:test",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+
+    without_domain = resolve_model_requirements((operation,))
+    with_domain = resolve_model_requirements((operation, _neutral_domain_source()))
+
+    assert (
+        with_domain.effective.premium_allowed
+        == without_domain.effective.premium_allowed
+    )
+    assert with_domain.effective.premium_allowed is True
+
+
+def test_participating_deny_still_wins_over_participating_allow() -> None:
+    allow = ModelRequirementsSource(
+        source_kind="operation",
+        source_id="operation:allow",
+        requirements=ModelRequirements(premium_allowed=True),
+    )
+    deny = ModelRequirementsSource(
+        source_kind="goal",
+        source_id="goal:deny",
+        requirements=ModelRequirements(premium_allowed=False),
+    )
+
+    resolved = resolve_model_requirements((allow, deny, _neutral_domain_source()))
+
+    assert resolved.effective.premium_allowed is False

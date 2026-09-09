@@ -131,11 +131,16 @@ def resolve_model_requirements(
         for field_name in _CAPABILITY_FIELDS
     }
 
-    premium_allowed = all(
-        source.requirements.premium_allowed for source in ordered_sources
+    premium_sources = tuple(
+        source for source in ordered_sources if source.contributes_premium_permission
+    )
+    premium_allowed = (
+        all(source.requirements.premium_allowed for source in premium_sources)
+        if premium_sources
+        else False
     )
     premium_requested = any(
-        source.requirements.premium_allowed for source in ordered_sources
+        source.requirements.premium_allowed for source in premium_sources
     )
 
     try:
