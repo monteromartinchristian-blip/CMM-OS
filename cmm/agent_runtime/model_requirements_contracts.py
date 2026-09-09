@@ -125,6 +125,7 @@ class ModelRequirementsSource:
     requirements: ModelRequirements
     priority: int = 0
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    contributes_premium_permission: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_kind, str) or not self.source_kind.strip():
@@ -143,6 +144,10 @@ class ModelRequirementsSource:
             raise InvalidModelRequirementsContractError("priority must be an integer")
         if not isinstance(self.metadata, Mapping):
             raise InvalidModelRequirementsContractError("metadata must be a mapping")
+        if type(self.contributes_premium_permission) is not bool:
+            raise InvalidModelRequirementsContractError(
+                "contributes_premium_permission must be a bool"
+            )
 
         object.__setattr__(self, "source_kind", self.source_kind.strip())
         object.__setattr__(self, "source_id", self.source_id.strip())
@@ -159,6 +164,7 @@ class ModelRequirementsSource:
             "requirements": model_requirements_to_dict(self.requirements),
             "priority": self.priority,
             "metadata": dict(self.metadata),
+            "contributes_premium_permission": self.contributes_premium_permission,
         }
 
     @classmethod
@@ -172,6 +178,9 @@ class ModelRequirementsSource:
             requirements=model_requirements_from_dict(data.get("requirements", {})),
             priority=int(data.get("priority", 0)),
             metadata=data.get("metadata", {}),
+            contributes_premium_permission=data.get(
+                "contributes_premium_permission", True
+            ),
         )
 
 
