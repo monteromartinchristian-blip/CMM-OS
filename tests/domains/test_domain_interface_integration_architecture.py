@@ -4,7 +4,13 @@ Asserts Phase 10.45 stays a thin integration boundary:
 - No parallel infrastructure owner classes (registry, store, repository,
   session store, workflow engine, approval store, permission engine, memory,
   knowledge graph, observability store, update service, runtime,
-  orchestrator).
+  orchestrator) — including for the canonical selection transition
+  coordinator (no transition store, repository or interface-owned authority).
+- The coordinator owns no persistence: it calls the injected shared session
+  adapter but never instantiates or imports a store.
+- Dependency direction is mandatory:
+  ``interface_integration → selection_transition → resolver/composer/
+  permission/session`` and never the reverse.
 - No UI/frontend/transport framework imports (Swift/SwiftUI, React, web
   servers) and no transport primitives introduced by the phase.
 - No direct ``cmm.memory`` / ``TechnicalMemory`` / ``cmm.cognitive`` access
@@ -24,6 +30,8 @@ DOMAINS_DIR = REPO_ROOT / "cmm" / "domains"
 PHASE_10_45_FILES = (
     DOMAINS_DIR / "interface_integration_contracts.py",
     DOMAINS_DIR / "interface_integration.py",
+    DOMAINS_DIR / "selection_transition_contracts.py",
+    DOMAINS_DIR / "selection_transition.py",
     DOMAINS_DIR / "api.py",
     DOMAINS_DIR / "errors.py",
 )
@@ -40,6 +48,8 @@ EARLIER_PHASE_MODULES = tuple(
         "__init__.py",
         "interface_integration.py",
         "interface_integration_contracts.py",
+        "selection_transition.py",
+        "selection_transition_contracts.py",
     }
 )
 
@@ -57,6 +67,13 @@ FORBIDDEN_CLASS_TOKENS = (
     "InterfaceUpdateService",
     "InterfaceRuntime",
     "InterfaceOrchestrator",
+    "InterfaceSelectionStore",
+    "InterfaceCompositionEngine",
+    "InterfaceResolver",
+    "InterfaceReviewStore",
+    "InterfaceMemoryStore",
+    "SelectionTransitionStore",
+    "SelectionTransitionRepository",
 )
 
 FORBIDDEN_OWNER_SUFFIXES = ("Store", "Repository", "Engine")
@@ -234,3 +251,60 @@ class TestDependencyDirection:
                 assert "interface_integration" not in module, (
                     f"Illegal Phase 10.45 import '{module}' in {file_path.name}"
                 )
+                assert "selection_transition" not in module, (
+                    f"Illegal Phase 10.45 import '{module}' in {file_path.name}"
+                )
+
+    def test_selection_transition_never_imports_interface_modules(self) -> None:
+        for file_path in (
+            DOMAINS_DIR / "selection_transition.py",
+            DOMAINS_DIR / "selection_transition_contracts.py",
+        ):
+            modules = _imported_module_names(_parse(file_path))
+            for module in modules:
+                assert "interface_integration" not in module, (
+                    f"Illegal reverse dependency '{module}' in {file_path.name}"
+                )
+
+    def test_interface_integration_imports_selection_transition_contracts(
+        self,
+    ) -> None:
+        """The delegation seam imports the coordinator contracts, never reverse."""
+        modules = _imported_module_names(
+            _parse(DOMAINS_DIR / "interface_integration.py")
+        )
+        assert any("selection_transition_contracts" in module for module in modules)
+
+
+class TestSelectionTransitionCoordinatorArchitecture:
+    """Ensure the coordinator owns no store, registry or parallel authority."""
+
+    def test_coordinator_imports_no_store_or_authority_owner(self) -> None:
+        file_path = DOMAINS_DIR / "selection_transition.py"
+        tree = _parse(file_path)
+        symbols = _imported_symbol_names(tree)
+        owner_symbols = (
+            "SessionStore",
+            "InMemorySessionStore",
+            "DomainRegistry",
+            "DomainPermissionRegistry",
+            "DefaultDomainResolver",
+            "DefaultDomainComposer",
+            "SharedSessionDomainAdapter",
+        )
+        for symbol in symbols:
+            assert symbol not in owner_symbols, (
+                f"Coordinator imports owned authority '{symbol}' in "
+                f"{file_path.name}"
+            )
+        source = file_path.read_text(encoding="utf-8")
+        for token in ("SessionStore(", "InMemorySessionStore("):
+            assert token not in source, (
+                f"Coordinator instantiates a store in {file_path.name}"
+            )
+
+    def test_coordinator_may_call_injected_session_adapter_only(self) -> None:
+        """The adapter itself remains injected: no direct store calls."""
+        file_path = DOMAINS_DIR / "selection_transition.py"
+        source = file_path.read_text(encoding="utf-8")
+        assert "session_adapter" in source

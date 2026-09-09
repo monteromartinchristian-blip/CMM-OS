@@ -3,17 +3,18 @@
 Thin, stateless, interface-neutral integration boundary over canonical Domain
 Intelligence authority. ``project()`` verifies canonical coherence and returns
 immutable interface projections; ``submit_intent()`` delegates selector
-intents only to existing canonical authority (resolver and permission
-evaluator) and never mutates canonical state. View assembly is read-only over
-the canonical inputs passed in: conversational state honors presentation
-display visibility, and the Domain Center read-projects registry lifecycle
-state plus canonical observability authority without ever fabricating content.
+intents only to existing canonical authority (resolver, permission evaluator
+and the canonical selection transition coordinator for membership deltas) and
+never mutates canonical state itself. View assembly is read-only over the
+canonical inputs passed in: conversational state honors presentation display
+visibility, and the Domain Center read-projects registry lifecycle state plus
+canonical observability authority without ever fabricating content.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from cmm.agent_runtime.approval_contracts import ApprovalRequest
 from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
@@ -30,6 +31,7 @@ from cmm.domains.enums import (
     DomainResolutionStatus,
 )
 from cmm.domains.errors import DomainInterfaceAuthorityError
+from cmm.domains.identifiers import DomainId
 from cmm.domains.interface_integration_contracts import (
     ConversationalDomainView,
     CrossDomainInterfaceView,
@@ -66,7 +68,18 @@ from cmm.domains.registry import DomainRegistry
 from cmm.domains.resolution_contracts import DomainResolutionContext
 from cmm.domains.resolver import DomainResolver
 from cmm.domains.resolver_contracts import DomainResolutionResult
+from cmm.domains.selection_transition_contracts import (
+    DomainSelectionTransitionCommandKind,
+    DomainSelectionTransitionRequest,
+    DomainSelectionTransitionResult,
+    DomainSelectionTransitionStatus,
+)
 from cmm.domains.session_contracts import DomainSessionContext
+
+if TYPE_CHECKING:
+    from cmm.domains.selection_transition_contracts import (
+        DomainSelectionTransitionCoordinator,
+    )
 
 # Interface-owned outcome tokens used only where no canonical authority
 # produced a reason: they state the missing Phase 10 seam explicitly and never
@@ -115,6 +128,7 @@ class DomainInterfaceIntegrator(Protocol):
         self,
         *,
         intent: DomainInterfaceIntent,
+        session: DomainSessionContext | None = None,
         resolution: DomainResolutionResult,
         composition: DomainComposition,
         resolution_context: DomainResolutionContext,
@@ -943,9 +957,9 @@ class DefaultDomainInterfaceIntegrator:
     """Default implementation of ``DomainInterfaceIntegrator``.
 
     Stateless: ``project()`` performs no store lookups and no writes, and
-    ``submit_intent()`` delegates only through the injected canonical resolver
-    and permission evaluator. View assembly blocks are added incrementally
-    over canonical inputs only.
+    ``submit_intent()`` delegates only through the injected canonical resolver,
+    permission evaluator and selection transition coordinator. View assembly
+    blocks are added incrementally over canonical inputs only.
     """
 
     def __init__(
@@ -953,9 +967,13 @@ class DefaultDomainInterfaceIntegrator:
         *,
         resolver: DomainResolver | None = None,
         permission_resolver: DomainPermissionResolver | None = None,
+        selection_transition_coordinator: (
+            DomainSelectionTransitionCoordinator | None
+        ) = None,
     ) -> None:
         self._resolver = resolver
         self._permission_resolver = permission_resolver
+        self._selection_transition_coordinator = selection_transition_coordinator
 
     def project(
         self,
@@ -1038,6 +1056,7 @@ class DefaultDomainInterfaceIntegrator:
         self,
         *,
         intent: DomainInterfaceIntent,
+        session: DomainSessionContext | None = None,
         resolution: DomainResolutionResult,
         composition: DomainComposition,
         resolution_context: DomainResolutionContext,
@@ -1072,6 +1091,15 @@ class DefaultDomainInterfaceIntegrator:
                 reason_code=_REASON_POLICY_CHANGE_UNAVAILABLE,
             )
         if intent.kind is DomainInterfaceIntentKind.WITHDRAW_SUPPORTING:
+            if self._selection_transition_coordinator is not None:
+                return self._delegate_membership_transition(
+                    intent=intent,
+                    session=session,
+                    resolution=resolution,
+                    composition=composition,
+                    resolution_context=resolution_context,
+                    permission_request=permission_request,
+                )
             membership = {str(domain) for domain in composition.supporting_domains}
             if intent.target_domain not in membership:
                 raise DomainInterfaceAuthorityError(
@@ -1121,13 +1149,6 @@ class DefaultDomainInterfaceIntegrator:
                     "add_supporting intent requires canonical cross-domain "
                     "permission evidence"
                 )
-            if self._permission_resolver is None:
-                return _unsupported_verdict(
-                    intent=intent,
-                    resolution=resolution,
-                    composition=composition,
-                    reason_code=_REASON_PERMISSION_EVALUATOR_UNAVAILABLE,
-                )
             if (
                 permission_request.source_domain != str(resolution.primary_domain)
                 or permission_request.target_domain != intent.target_domain
@@ -1135,6 +1156,22 @@ class DefaultDomainInterfaceIntegrator:
                 raise DomainInterfaceAuthorityError(
                     "permission evidence does not bind to the intent target "
                     "and composed primary domain"
+                )
+            if self._selection_transition_coordinator is not None:
+                return self._delegate_membership_transition(
+                    intent=intent,
+                    session=session,
+                    resolution=resolution,
+                    composition=composition,
+                    resolution_context=resolution_context,
+                    permission_request=permission_request,
+                )
+            if self._permission_resolver is None:
+                return _unsupported_verdict(
+                    intent=intent,
+                    resolution=resolution,
+                    composition=composition,
+                    reason_code=_REASON_PERMISSION_EVALUATOR_UNAVAILABLE,
                 )
             decision = self._permission_resolver.resolve_cross_domain(
                 permission_request
@@ -1152,4 +1189,92 @@ class DefaultDomainInterfaceIntegrator:
             )
         raise DomainInterfaceAuthorityError(
             f"unsupported selector intent kind: {intent.kind.value}"
+        )
+
+    def _delegate_membership_transition(
+        self,
+        *,
+        intent: DomainInterfaceIntent,
+        session: DomainSessionContext | None,
+        resolution: DomainResolutionResult,
+        composition: DomainComposition,
+        resolution_context: DomainResolutionContext,
+        permission_request: CrossDomainPermissionRequest | None,
+    ) -> DomainInterfaceIntentResult:
+        """Submit one typed membership request and project the typed result.
+
+        The interface performs no transition algorithm: it binds the intent to
+        the supplied canonical session authority, submits the typed request to
+        the injected coordinator, and projects the coordinator's typed outcome
+        verbatim. Misbound authorities raise; the coordinator's canonical
+        contract errors propagate unchanged.
+        """
+        if self._selection_transition_coordinator is None:
+            raise DomainInterfaceAuthorityError(
+                "membership transition requires the canonical selection "
+                "transition coordinator"
+            )
+        if type(session) is not DomainSessionContext:
+            raise DomainInterfaceAuthorityError(
+                "session must be a canonical DomainSessionContext"
+            )
+        if (
+            intent.session_reference_id is not None
+            and intent.session_reference_id != session.session_id
+        ):
+            raise DomainInterfaceAuthorityError(
+                "intent session reference does not match the session authority"
+            )
+        if intent.kind is DomainInterfaceIntentKind.WITHDRAW_SUPPORTING:
+            command_kind = DomainSelectionTransitionCommandKind.WITHDRAW_SUPPORTING
+        else:
+            command_kind = DomainSelectionTransitionCommandKind.ADD_SUPPORTING
+        request = DomainSelectionTransitionRequest(
+            request_id=f"transition:{intent.intent_id}",
+            kind=command_kind,
+            target_domain=DomainId.from_str(intent.target_domain),
+            session_reference_id=session.session_id,
+            resolution_reference_id=intent.resolution_reference_id,
+            composition_reference_id=intent.composition_reference_id,
+            reason=intent.reason,
+            permission_request=permission_request,
+        )
+        canonical = self._selection_transition_coordinator.apply(
+            request=request,
+            session=session,
+            resolution=resolution,
+            composition=composition,
+            resolution_context=resolution_context,
+        )
+        if type(canonical) is not DomainSelectionTransitionResult:
+            raise DomainInterfaceAuthorityError(
+                "transition delegation did not return a canonical "
+                "DomainSelectionTransitionResult"
+            )
+        if canonical.status is DomainSelectionTransitionStatus.ACCEPTED:
+            transition = canonical.transition
+            if transition is None:
+                raise DomainInterfaceAuthorityError(
+                    "accepted transition outcome must carry its canonical "
+                    "DomainSelectionTransition"
+                )
+            return DomainInterfaceIntentResult(
+                intent_id=intent.intent_id,
+                accepted=True,
+                status=DomainInterfaceStatus.READY,
+                resolution_reference_id=resolution.id,
+                composition_reference_id=composition.id,
+                reason_code=transition.reason_codes[0],
+            )
+        if canonical.status is DomainSelectionTransitionStatus.PENDING:
+            status = DomainInterfaceStatus.PENDING
+        else:
+            status = DomainInterfaceStatus.BLOCKED
+        return DomainInterfaceIntentResult(
+            intent_id=intent.intent_id,
+            accepted=False,
+            status=status,
+            resolution_reference_id=resolution.id,
+            composition_reference_id=composition.id,
+            reason_code=canonical.reason_code,
         )

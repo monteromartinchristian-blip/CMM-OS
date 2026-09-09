@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import MappingProxyType, SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -90,7 +91,17 @@ from cmm.domains.resolver_contracts import (
     DomainResolutionReason,
     DomainResolutionResult,
 )
+from cmm.domains.selection_transition import (
+    DefaultDomainSelectionTransitionCoordinator,
+)
 from cmm.domains.session_contracts import DomainSessionContext
+
+if TYPE_CHECKING:
+    # Static reference only; runtime construction stays lazy below because
+    # test_domain_selection_transition imports fixtures from this module.
+    from tests.domains.test_domain_selection_transition import (
+        _CoordinatorEnvironment,
+    )
 
 
 def _make_presentation(**overrides: object) -> DomainPresentationPlan:
@@ -2465,10 +2476,10 @@ class TestSelectorIntentSubmission:
         assert result.status is DomainInterfaceStatus.PENDING
         assert result.reason_code == expected.reasons[0]
 
-    def test_add_supporting_intent_allowed_permission_still_requires_later_platform(
+    def test_add_supporting_intent_without_coordinator_dependency_stays_unavailable(
         self, canonical_projection_fixture: _CanonicalProjectionEnvironment
     ) -> None:
-        """Canonical ALLOW establishes eligibility; application has no Phase 10 seam."""
+        """ALLOW eligibility without a wired coordinator: no write seam exists."""
         env = canonical_projection_fixture
         permission_registry = DomainPermissionRegistry()
         _register_outbound_policy(
@@ -2597,10 +2608,10 @@ class TestSelectorIntentSubmission:
         assert env.resolution.to_dict() == before_resolution
         assert env.composition.to_dict() == before_composition
 
-    def test_withdraw_supporting_intent_unavailable_for_current_member(
+    def test_withdraw_supporting_intent_without_coordinator_dependency_stays_unavailable(
         self, canonical_projection_fixture: _CanonicalProjectionEnvironment
     ) -> None:
-        """Withdrawal delegates to a selection/session seam Phase 10 does not own."""
+        """Withdrawal without a wired coordinator: no write seam exists."""
         env = canonical_projection_fixture
         integrator = DefaultDomainInterfaceIntegrator()
         result = integrator.submit_intent(
@@ -2619,7 +2630,12 @@ class TestSelectorIntentSubmission:
     def test_withdraw_supporting_intent_rejects_unbound_target(
         self, canonical_projection_fixture: _CanonicalProjectionEnvironment
     ) -> None:
-        """A target outside the composed membership is an incoherent request."""
+        """Without a coordinator, an unbound withdrawal is an incoherent request.
+
+        A wired coordinator is the canonical authority for membership
+        preconditions; the interface raises only when no coordinator exists to
+        decide them (see the delegation tests below for the typed outcome).
+        """
         env = canonical_projection_fixture
         integrator = DefaultDomainInterfaceIntegrator()
         with pytest.raises(DomainInterfaceAuthorityError):
@@ -2753,3 +2769,318 @@ class TestSelectorIntentSubmission:
         assert result.accepted is False
         assert result.status is DomainInterfaceStatus.UNAVAILABLE
         assert result.reason_code == "domain_selector_resolver_unavailable"
+
+
+# ── Phase 10.45 MAJOR-03 selector delegation (canonical coordinator) ────────
+
+_DELEGATION_CLOCK = datetime(2026, 8, 27, 18, 0, tzinfo=timezone.utc)
+
+
+def _delegation_environment(**overrides: object) -> _CoordinatorEnvironment:
+    """Fresh connected canonical environment for delegation tests.
+
+    The environment (and the coordinator fixture module behind it) is imported
+    lazily because ``test_domain_selection_transition`` imports shared fixtures
+    from this module; a module-level import would cycle during collection.
+    """
+    from tests.domains.test_domain_selection_transition import (
+        _CoordinatorEnvironment,
+    )
+
+    return _CoordinatorEnvironment(**overrides)
+
+
+def _delegation_coordinator(env: _CoordinatorEnvironment) -> DefaultDomainSelectionTransitionCoordinator:
+    """Wire the canonical coordinator over the environment's real seams."""
+    return DefaultDomainSelectionTransitionCoordinator(
+        resolver=env.resolver,
+        composer=env.composer,
+        domain_registry=env.registry,
+        permission_resolver=env.permission_resolver,
+        session_adapter=env.adapter,
+        clock=lambda: _DELEGATION_CLOCK,
+    )
+
+
+def _delegation_integrator(
+    env: _CoordinatorEnvironment,
+) -> DefaultDomainInterfaceIntegrator:
+    """Interface integrator with the full canonical delegation seam wired."""
+    return DefaultDomainInterfaceIntegrator(
+        resolver=env.resolver,
+        permission_resolver=env.permission_resolver,
+        selection_transition_coordinator=_delegation_coordinator(env),
+    )
+
+
+def _delegation_intent(
+    env: _CoordinatorEnvironment,
+    kind: DomainInterfaceIntentKind,
+    *,
+    target_domain: str,
+    session_reference_id: str | None = None,
+) -> DomainInterfaceIntent:
+    return DomainInterfaceIntent(
+        intent_id="intent:selector:delegation:1",
+        kind=kind,
+        resolution_reference_id=env.resolution.id,
+        composition_reference_id=env.composition.id,
+        target_domain=target_domain,
+        session_reference_id=session_reference_id,
+        reason="user requested a membership change through the domain selector",
+    )
+
+
+def _delegation_permission_request(
+    env: _CoordinatorEnvironment,
+    *,
+    target_domain: str,
+    requires_approval: bool = False,
+) -> CrossDomainPermissionRequest:
+    return CrossDomainPermissionRequest(
+        request_id=f"permission:{env.session_id}:selector-delegation",
+        source_domain=env.session.primary_domain,
+        target_domain=target_domain,
+        reason="add a supporting domain through the domain selector",
+        actor_id="actor:selector-delegation",
+        session_id=env.session_id,
+        requires_approval=requires_approval,
+        sensitivity_level="internal",
+    )
+
+
+class TestSelectorMembershipIntentDelegation:
+    """ADD/WITHDRAW selector intents complete through the canonical coordinator."""
+
+    def _add_submission(self, env: _CoordinatorEnvironment, integrator, *, permission_request, session=None):
+        return integrator.submit_intent(
+            intent=_delegation_intent(
+                env,
+                DomainInterfaceIntentKind.ADD_SUPPORTING,
+                target_domain=str(DomainId("delta")),
+                session_reference_id=session.session_id if session is not None else None,
+            ),
+            session=session,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+            permission_request=permission_request,
+        )
+
+    def test_add_supporting_allowed_intent_completes_through_coordinator(
+        self,
+    ) -> None:
+        env = _delegation_environment()
+        permission_request = _delegation_permission_request(
+            env, target_domain=str(DomainId("delta"))
+        )
+        expected = env.permission_resolver.resolve_cross_domain(permission_request)
+        assert expected.decision is PermissionOutcome.ALLOW
+        before_resolution = env.resolution.to_dict()
+        before_composition = env.composition.to_dict()
+        before_registry = env.registry_snapshot()
+        integrator = _delegation_integrator(env)
+
+        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+
+        assert result.accepted is True
+        assert result.status is DomainInterfaceStatus.READY
+        assert result.intent_id == "intent:selector:delegation:1"
+        assert result.reason_code == "DOMAIN_SELECTION_REEVALUATED"
+        assert result.resolution_reference_id == env.resolution.id
+        assert result.composition_reference_id == env.composition.id
+        # The delegation never mutates the interface inputs or the registry.
+        assert env.resolution.to_dict() == before_resolution
+        assert env.composition.to_dict() == before_composition
+        assert env.registry_snapshot() == before_registry
+        # Exactly one new canonical session revision persists through the
+        # shared session store with the delta applied.
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == env.session.revision + 1 == 2
+        assert durable.primary_domain == env.session.primary_domain
+        assert durable.supporting_domains == (
+            str(DomainId("delta")),
+            str(DomainId("beta")),
+            str(DomainId("gamma")),
+        )
+        assert len(durable.domain_transitions) == 1
+        assert durable.domain_transitions[0].reason_code == "ADD_SUPPORTING"
+        assert env.session.revision == 1
+
+    def test_withdraw_supporting_intent_completes_through_coordinator(
+        self,
+    ) -> None:
+        env = _delegation_environment()
+        integrator = _delegation_integrator(env)
+
+        result = integrator.submit_intent(
+            intent=_delegation_intent(
+                env,
+                DomainInterfaceIntentKind.WITHDRAW_SUPPORTING,
+                target_domain=str(DomainId("beta")),
+                session_reference_id=env.session_id,
+            ),
+            session=env.session,
+            resolution=env.resolution,
+            composition=env.composition,
+            resolution_context=env.context,
+        )
+
+        assert result.accepted is True
+        assert result.status is DomainInterfaceStatus.READY
+        assert result.reason_code == "DOMAIN_SELECTION_REEVALUATED"
+        assert result.resolution_reference_id == env.resolution.id
+        assert result.composition_reference_id == env.composition.id
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 2
+        assert durable.supporting_domains == (str(DomainId("gamma")),)
+        assert len(durable.domain_transitions) == 1
+        assert durable.domain_transitions[0].reason_code == "WITHDRAW_SUPPORTING"
+
+    def test_add_supporting_deny_verdict_preserved_through_coordinator(
+        self,
+    ) -> None:
+        env = _delegation_environment(outbound_targets=())
+        permission_request = _delegation_permission_request(
+            env, target_domain=str(DomainId("delta"))
+        )
+        expected = env.permission_resolver.resolve_cross_domain(permission_request)
+        assert expected.decision is PermissionOutcome.DENY
+        assert expected.reasons
+        integrator = _delegation_integrator(env)
+
+        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.BLOCKED
+        assert result.reason_code == expected.reasons[0]
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+        assert durable.supporting_domains == (
+            str(DomainId("beta")),
+            str(DomainId("gamma")),
+        )
+
+    def test_add_supporting_approval_required_verdict_preserved_through_coordinator(
+        self,
+    ) -> None:
+        env = _delegation_environment()
+        permission_request = _delegation_permission_request(
+            env,
+            target_domain=str(DomainId("delta")),
+            requires_approval=True,
+        )
+        expected = env.permission_resolver.resolve_cross_domain(permission_request)
+        assert expected.decision is PermissionOutcome.APPROVAL_REQUIRED
+        assert expected.reasons
+        integrator = _delegation_integrator(env)
+
+        result = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+
+        assert result.accepted is False
+        assert result.status is DomainInterfaceStatus.PENDING
+        assert result.reason_code == expected.reasons[0]
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_membership_intent_without_session_authority_fails_closed(
+        self,
+    ) -> None:
+        env = _delegation_environment()
+        permission_request = _delegation_permission_request(
+            env, target_domain=str(DomainId("delta"))
+        )
+        integrator = _delegation_integrator(env)
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_delegation_intent(
+                    env,
+                    DomainInterfaceIntentKind.ADD_SUPPORTING,
+                    target_domain=str(DomainId("delta")),
+                ),
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+                permission_request=permission_request,
+            )
+        duck_typed = SimpleNamespace(
+            session_id=env.session_id,
+            revision=1,
+            primary_domain=env.session.primary_domain,
+        )
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_delegation_intent(
+                    env,
+                    DomainInterfaceIntentKind.ADD_SUPPORTING,
+                    target_domain=str(DomainId("delta")),
+                ),
+                session=duck_typed,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+                permission_request=permission_request,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_membership_intent_session_reference_mismatch_fails_closed(
+        self,
+    ) -> None:
+        env = _delegation_environment()
+        permission_request = _delegation_permission_request(
+            env, target_domain=str(DomainId("delta"))
+        )
+        integrator = _delegation_integrator(env)
+        with pytest.raises(DomainInterfaceAuthorityError):
+            integrator.submit_intent(
+                intent=_delegation_intent(
+                    env,
+                    DomainInterfaceIntentKind.ADD_SUPPORTING,
+                    target_domain=str(DomainId("delta")),
+                    session_reference_id="session:selector:other",
+                ),
+                session=env.session,
+                resolution=env.resolution,
+                composition=env.composition,
+                resolution_context=env.context,
+                permission_request=permission_request,
+            )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 1
+
+    def test_stale_session_authority_surfaces_optimistic_conflict(self) -> None:
+        env = _delegation_environment()
+        permission_request = _delegation_permission_request(
+            env, target_domain=str(DomainId("delta"))
+        )
+        integrator = _delegation_integrator(env)
+        first = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+        assert first.accepted is True
+        assert first.status is DomainInterfaceStatus.READY
+
+        # Replaying the same intent with the stale revision-1 authority can no
+        # longer commit: the optimistic conflict surfaces as a typed result
+        # and the durable revision-2 state is never overwritten.
+        second = self._add_submission(env, integrator, permission_request=permission_request, session=env.session)
+
+        assert second.accepted is False
+        assert second.status is DomainInterfaceStatus.BLOCKED
+        assert (
+            second.reason_code
+            == "domain_selection_transition_session_conflict"
+        )
+        durable = env.adapter.load_domain_session(env.session_id)
+        assert durable is not None
+        assert durable.revision == 2
+        assert durable.supporting_domains == (
+            str(DomainId("delta")),
+            str(DomainId("beta")),
+            str(DomainId("gamma")),
+        )

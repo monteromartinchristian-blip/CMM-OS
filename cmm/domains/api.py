@@ -255,6 +255,7 @@ class DomainAPI(Protocol):
         self,
         *,
         intent: DomainInterfaceIntent,
+        session: DomainSessionContext | None = None,
         resolution: DomainResolutionResult,
         composition: DomainComposition,
         resolution_context: DomainResolutionContext,
@@ -644,6 +645,7 @@ class DefaultDomainAPI:
         self,
         *,
         intent: DomainInterfaceIntent,
+        session: DomainSessionContext | None = None,
         resolution: DomainResolutionResult,
         composition: DomainComposition,
         resolution_context: DomainResolutionContext,
@@ -652,6 +654,7 @@ class DefaultDomainAPI:
         """Delegate one selector intent to canonical authority."""
         return self._interface_integrator.submit_intent(
             intent=intent,
+            session=session,
             resolution=resolution,
             composition=composition,
             resolution_context=resolution_context,

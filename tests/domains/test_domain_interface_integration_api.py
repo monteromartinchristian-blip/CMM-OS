@@ -67,6 +67,7 @@ class _RecordingInterfaceIntegrator:
         self,
         *,
         intent: Any,
+        session: Any = None,
         resolution: Any,
         composition: Any,
         resolution_context: Any,
@@ -74,6 +75,7 @@ class _RecordingInterfaceIntegrator:
     ) -> Any:
         self.recorded_submit = {
             "intent": intent,
+            "session": session,
             "resolution": resolution,
             "composition": composition,
             "resolution_context": resolution_context,
@@ -192,6 +194,7 @@ class TestInterfaceIntentDelegation:
         api = _make_api(recorder)
 
         intent = object()
+        session = object()
         resolution = object()
         composition = object()
         resolution_context = object()
@@ -199,6 +202,7 @@ class TestInterfaceIntentDelegation:
 
         result = api.submit_interface_intent(  # type: ignore[arg-type]
             intent=intent,
+            session=session,
             resolution=resolution,
             composition=composition,
             resolution_context=resolution_context,
@@ -208,12 +212,15 @@ class TestInterfaceIntentDelegation:
         assert result is fixed_result
         recorded = recorder.recorded_submit
         assert recorded["intent"] is intent
+        assert recorded["session"] is session
         assert recorded["resolution"] is resolution
         assert recorded["composition"] is composition
         assert recorded["resolution_context"] is resolution_context
         assert recorded["permission_request"] is permission_request
 
-    def test_submit_interface_intent_forwards_omitted_permission_request(self) -> None:
+    def test_submit_interface_intent_forwards_omitted_session_and_permission(
+        self,
+    ) -> None:
         recorder = _RecordingInterfaceIntegrator()
         api = _make_api(recorder)
 
@@ -230,6 +237,7 @@ class TestInterfaceIntentDelegation:
 
         recorded = recorder.recorded_submit
         assert recorded["intent"] is intent
+        assert recorded["session"] is None
         assert recorded["resolution"] is resolution
         assert recorded["composition"] is composition
         assert recorded["resolution_context"] is resolution_context
