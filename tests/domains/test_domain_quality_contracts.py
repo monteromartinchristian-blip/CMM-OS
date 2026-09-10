@@ -430,11 +430,30 @@ def test_high_aggregate_cannot_compensate_blocking_failure():
 
 
 def test_assessment_weight_normalization_does_not_require_unit_sum():
-    a = _metric(weight=Decimal("0.5"), minimum_score=Decimal("0.5"))
-    b = _usefulness_metric(weight=Decimal("0.5"), minimum_score=Decimal("0.5"))
-    assessment = assess_domain_quality((a, b), (_build(a, "1.0"), _build(b, "0.5")))
-    assert assessment.aggregate_score == Decimal("0.75")
-    assert assessment.passed is True
+    a = _metric(weight=Decimal("0.1"), minimum_score=Decimal("0.5"))
+    b = _usefulness_metric(weight=Decimal("0.3"), minimum_score=Decimal("0.5"))
+    results = (_build(a, "1.0"), _build(b, "0.5"))
+
+    values = []
+    for precision in (10, 28, 50):
+        with localcontext(Context(prec=precision)):
+            values.append(assess_domain_quality((a, b), results).aggregate_score)
+
+    assert values == [Decimal("0.625")] * 3
+
+
+def test_non_terminating_weighted_ratio_is_context_independent():
+    a = _metric(weight=Decimal("0.1"), minimum_score=Decimal(0))
+    b = _usefulness_metric(weight=Decimal("0.2"), minimum_score=Decimal(0))
+    results = (_build(a, Decimal(0)), _build(b, Decimal(1)))
+
+    aggregates = []
+    for precision in (10, 28, 50):
+        with localcontext(Context(prec=precision)):
+            aggregates.append(assess_domain_quality((a, b), results).aggregate_score)
+
+    assert aggregates[0] == aggregates[1] == aggregates[2]
+    assert Decimal("0.66") < aggregates[0] < Decimal("0.67")
 
 
 _MUTATIONS = {
