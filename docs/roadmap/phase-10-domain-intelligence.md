@@ -6526,11 +6526,16 @@ Results must preserve:
 * confidence;
 * human-review results.
 
-Implementation status (Phase 10.48)
+Closure status (Phase 10.48)
 
-Phase 10.48 is implemented. Independent Audit V1 returned `FAIL` with
-`BLOCKERS=0`, `MAJORS=2` and `MINORS=2`; the four findings were remediated by
-Remediation V1, which is reported complete and ready for Independent Re-audit V2.
+Phase 10.48 is complete, independently re-audited and closed after final
+Independent Re-audit V4 `PASS`. Historical Independent Audit V1 and Re-audits
+V2/V3 `FAIL` remain preserved. All findings are independently verified
+remediated with `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
+`CLOSURE_ELIGIBLE=YES`. Audited implementation HEAD: `dc94090147daaaaaee71250bb411d903666f6b13`. Final
+audit bundle SHA-256: `00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085`.
+
 A Domain Pack declares immutable, domain-owned quality policy through
 `DomainDefinition.quality_metrics`, reusing the canonical `DomainRegistry` and
 the existing declarative Domain Pack parser; already-produced evidence is
@@ -6555,35 +6560,38 @@ Remediation V1 plan:
 Baseline-aware Ruff/format verifier:
 `scripts/audit/verify_phase_10_48_ruff_baseline.py`. Independent Re-audit V2:
 `docs/audits/phase-10.48-independent-reaudit-v2.md`. Independent Re-audit V3:
-`docs/audits/phase-10.48-independent-reaudit-v3.md`.
+`docs/audits/phase-10.48-independent-reaudit-v3.md`. Final Independent Re-audit
+V4: `docs/audits/phase-10.48-independent-reaudit-v4.md` (`PASS`; audit-report commit `3e652884062dc5adc0a56859efd7f3ab5b9dfbd5`).
 
 ```text
-PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4
+PHASE10_48=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
 BLOCKERS=0
 MAJORS=0
-MINORS=1
+MINORS=0
 MAJOR_01=VERIFIED_REMEDIATED
 MAJOR_02=VERIFIED_REMEDIATED
 MINOR_01=VERIFIED_REMEDIATED
 MINOR_02=VERIFIED_REMEDIATED
 MINOR_03=VERIFIED_REMEDIATED
-MINOR_04=REMEDIATED_REPORTED
+MINOR_04=VERIFIED_REMEDIATED
 DP-048=VERIFIED_EXISTING
 AT-DP-048=PASS
-CLOSURE_ELIGIBLE=NO
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=dc94090147daaaaaee71250bb411d903666f6b13
+AUDIT_V4_BUNDLE_SHA256=00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085
+REAUDIT_V4_REPORT=docs/audits/phase-10.48-independent-reaudit-v4.md
+REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
 ```
 
-Phase 10.48 is not closed. Phase 10.49 has not started. Independent
-Re-audit V3 verified `DP-048`, `AT-DP-048`, all four V1 findings and
-`MINOR_03`, but returned `FAIL` for docs-only `MINOR_04`. That finding is
-now `REMEDIATED_REPORTED`. Closure requires Independent Re-audit V4
-reporting `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
-`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
-`CLOSURE_ELIGIBLE=YES`; only then may a separate docs-only closure commit
-be made.
+Phase 10.48 is complete, independently re-audited and closed after final
+Independent Re-audit V4 `PASS`. Historical V1/V2/V3 failures remain preserved.
+Phase 10.49 has not started; it may begin only after this docs-only closure
+commit is independently verified clean and the repository invariants remain
+satisfied.
 
 ⸻
 

@@ -3,7 +3,7 @@
 **Phase:** 10.48 — Domain Quality Metrics
 **Design Point:** `DP-048` — Declarative, Domain-Owned Quality Policy and Deterministic Assessment
 **Acceptance Test:** `AT-DP-048` — Connected Domain Quality Metrics Acceptance
-**Status:** `PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4` · `INDEPENDENT_AUDIT_V1=FAIL` · `INDEPENDENT_REAUDIT_V2=FAIL` · `INDEPENDENT_REAUDIT_V3=FAIL` · `MINOR_04=REMEDIATED_REPORTED` · `DP-048=VERIFIED_EXISTING` · `AT-DP-048=PASS` · `CLOSURE_ELIGIBLE=NO`
+**Status:** `PHASE10_48=CLOSED` · `INDEPENDENT_REAUDIT_V4=PASS` · `BLOCKERS=0` · `MAJORS=0` · `MINORS=0` · `DP-048=VERIFIED_EXISTING` · `AT-DP-048=PASS` · `CLOSURE_ELIGIBLE=YES`
 
 > A Domain Pack declares what quality means. External evaluation produces evidence
 > later. Phase 10.48 validates and deterministically aggregates that evidence
@@ -454,29 +454,31 @@ observability repurposing; or any Phase 10.49–10.53 and Phase 11 behaviour.
 ## 19. Status
 
 ```text
-PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4
+PHASE10_48=CLOSED
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
 INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=PASS
 BLOCKERS=0
 MAJORS=0
-MINORS=1
+MINORS=0
 MAJOR_01=VERIFIED_REMEDIATED
 MAJOR_02=VERIFIED_REMEDIATED
 MINOR_01=VERIFIED_REMEDIATED
 MINOR_02=VERIFIED_REMEDIATED
 MINOR_03=VERIFIED_REMEDIATED
-MINOR_04=REMEDIATED_REPORTED
+MINOR_04=VERIFIED_REMEDIATED
 DP-048=VERIFIED_EXISTING
 AT-DP-048=PASS
-CLOSURE_ELIGIBLE=NO
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=dc94090147daaaaaee71250bb411d903666f6b13
+AUDIT_V4_BUNDLE_SHA256=00e42f1fc43c4d09b3f966d9bae55d0fef1ceb6a9a24aaa0a4df5aff8ca17085
+REAUDIT_V4_REPORT=docs/audits/phase-10.48-independent-reaudit-v4.md
+REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
 ```
 
-Independent Audit V1 and Re-audits V2/V3 remain preserved as historical
-evidence. Re-audit V3 verified `DP-048`, `AT-DP-048`, all four V1 findings
-and `MINOR_03`, but returned `FAIL` for docs-only `MINOR_04`. That finding
-is now `REMEDIATED_REPORTED`. Phase closure requires Independent Re-audit V4
-reporting `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
-`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
-`CLOSURE_ELIGIBLE=YES`. Only after that PASS may a separate docs-only
-closure commit be made.
+Phase 10.48 is complete, independently re-audited and closed after final
+Independent Re-audit V4 `PASS`. Historical Independent Audit V1 and Re-audits
+V2/V3 `FAIL` remain preserved. All findings are independently verified
+remediated. Phase 10.49 has not started and may begin only after the Phase
+10.48 closure commit and clean repository state are verified.
