@@ -475,3 +475,78 @@ def test_scenario_j_model_policy_and_benchmark_suites_coexist() -> None:
     assert restored.model_policy == definition.model_policy
     assert restored.benchmark_suites == definition.benchmark_suites
     assert restored.to_dict() == payload
+
+
+# ── Remediation V1 regression surface ─────────────────────────────────────────
+
+
+def test_remediation_v1_major_findings_are_guarded(tmp_path: Path) -> None:
+    """Single regression surface for the three Independent Audit V1 MAJORs."""
+    source = build_health_domain_definition()
+
+    # MAJOR_01 — declarative pack -> canonical loader -> benchmark_suites.
+    domain_dir = tmp_path / source.id.slug
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": source.id.slug,
+                "version": source.version,
+                "name": source.name,
+                "display_name": source.display_name,
+                "description": source.description,
+                "author": "tester",
+                "license": "MIT",
+                "benchmark_suites": [
+                    suite.to_dict() for suite in source.benchmark_suites
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = DeclarativeDomainLoader(
+        manifest_reader=JsonDomainManifestReader(),
+        registry=DomainRegistry(),
+    ).load(make_candidate(domain_dir, source.id.slug, source.version))
+    assert loaded.pack is not None
+    assert loaded.pack.definition.benchmark_suites == source.benchmark_suites
+
+    # MAJOR_02 — schema property names legal; metadata authority aliases rejected.
+    schema_case = DomainBenchmarkCase(
+        id="benchmark-case:health:v1-schema-001",
+        domain_id="domain:health",
+        objective="Objective",
+        required_schema={
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+    )
+    assert schema_case.required_schema is not None
+    for alias in (
+        "preferred_model",
+        "candidate_provider",
+        "preferredModel",
+        "preferred-model",
+        "routingWeight",
+    ):
+        with pytest.raises(DomainError):
+            DomainBenchmarkCase(
+                id="benchmark-case:health:v1-alias-001",
+                domain_id="domain:health",
+                objective="Objective",
+                metadata={alias: "x"},
+            )
+
+    # MAJOR_03 — semantically equal costs share export bytes and digest.
+    equal_suites = []
+    for cost in (Decimal("0.25"), Decimal("0.250"), Decimal("2.5E-1")):
+        case_payload = source.benchmark_suites[0].cases[0].to_dict()
+        case_payload["maximum_cost_eur"] = str(cost)
+        suite_payload = source.benchmark_suites[0].to_dict()
+        suite_payload["cases"] = [case_payload]
+        equal_suites.append(DomainBenchmarkSuite.from_dict(suite_payload))
+    assert len({export_domain_benchmark_suite(s) for s in equal_suites}) == 1
+    assert len({s.content_digest for s in equal_suites}) == 1
