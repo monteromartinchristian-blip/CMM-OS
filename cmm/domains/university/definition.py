@@ -11,6 +11,7 @@ from cmm.domains.university.catalog import (
     CANONICAL_UNIVERSITY_RULE_IDS,
     CANONICAL_UNIVERSITY_WORKFLOW_IDS,
 )
+from cmm.domains.university.quality_metrics import build_university_quality_metrics
 
 UNIVERSITY_DOMAIN_ID = "domain:university"
 UNIVERSITY_DOMAIN_VERSION = "1.0.0"
@@ -110,6 +111,7 @@ def build_university_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.22"},
         ),
         benchmark_suites=build_university_benchmark_suites(),
+        quality_metrics=build_university_quality_metrics(),
     )
 
 

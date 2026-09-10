@@ -13,6 +13,9 @@ from cmm.domains.relationships.catalog import (
     CANONICAL_RELATIONSHIPS_RULE_IDS,
     CANONICAL_RELATIONSHIPS_WORKFLOW_IDS,
 )
+from cmm.domains.relationships.quality_metrics import (
+    build_relationships_quality_metrics,
+)
 
 RELATIONSHIPS_DOMAIN_ID = "domain:relationships"
 RELATIONSHIPS_DOMAIN_VERSION = "1.0.0"
@@ -114,6 +117,7 @@ def build_relationships_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.21"},
         ),
         benchmark_suites=build_relationships_benchmark_suites(),
+        quality_metrics=build_relationships_quality_metrics(),
     )
 
 

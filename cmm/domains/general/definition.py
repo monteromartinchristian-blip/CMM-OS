@@ -11,6 +11,7 @@ from cmm.domains.general.catalog import (
     CANONICAL_GENERAL_RULE_IDS,
     CANONICAL_GENERAL_WORKFLOW_IDS,
 )
+from cmm.domains.general.quality_metrics import build_general_quality_metrics
 
 GENERAL_DOMAIN_ID = "domain:general"
 GENERAL_DOMAIN_VERSION = "1.0.0"
@@ -103,6 +104,7 @@ def build_general_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.19"},
         ),
         benchmark_suites=build_general_benchmark_suites(),
+        quality_metrics=build_general_quality_metrics(),
     )
 
 
