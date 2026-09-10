@@ -735,6 +735,19 @@ class TestPublicAPI:
                 "import_domain_benchmark_suite",
             }
         )
+        # Phase 10.48 – domain-owned quality policy and deterministic assessment
+        expected.update(
+            {
+                "DomainQualityAssessment",
+                "DomainQualityHumanReviewResult",
+                "DomainQualityMetric",
+                "DomainQualityMetricResult",
+                "assess_domain_quality",
+                "build_domain_quality_metric_result",
+                "export_domain_quality_assessment",
+                "import_domain_quality_assessment",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -744,7 +757,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 615
+        assert len(cmm.domains.__all__) == 623
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
