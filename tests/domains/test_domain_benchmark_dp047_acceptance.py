@@ -185,6 +185,19 @@ def test_scenario_c_deterministic_export_and_round_trip() -> None:
     assert restored.content_digest == suite.content_digest
 
 
+def test_scenario_c_semantically_equal_costs_export_and_digest_identically() -> None:
+    suite = build_health_domain_definition().benchmark_suites[0]
+    suites = []
+    for cost in (Decimal("0.25"), Decimal("0.250"), Decimal("2.5E-1")):
+        payload = suite.to_dict()
+        payload["cases"][0]["maximum_cost_eur"] = str(cost)
+        suites.append(DomainBenchmarkSuite.from_dict(payload))
+
+    assert all(equal_suite == suites[0] for equal_suite in suites)
+    assert len({export_domain_benchmark_suite(s) for s in suites}) == 1
+    assert len({s.content_digest for s in suites}) == 1
+
+
 # ── Scenario D — semantic mutation changes identity ───────────────────────────
 
 

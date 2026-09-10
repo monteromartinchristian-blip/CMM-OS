@@ -405,6 +405,63 @@ def test_maximum_cost_serializes_as_canonical_decimal_string() -> None:
     assert _health_case(maximum_cost_eur=None).to_dict()["maximum_cost_eur"] is None
 
 
+def _cost_suite(value: Decimal) -> DomainBenchmarkSuite:
+    return _health_suite(cases=(_health_case(maximum_cost_eur=value),))
+
+
+@pytest.mark.parametrize(
+    "costs",
+    (
+        (Decimal("0.25"), Decimal("0.250"), Decimal("2.5E-1")),
+        (Decimal(1000), Decimal("1E+3"), Decimal("1000.000")),
+        (Decimal(0), Decimal("0.0"), Decimal("-0"), Decimal("-0.000")),
+    ),
+)
+def test_semantically_equal_costs_serialize_export_and_digest_identically(
+    costs: tuple[Decimal, ...],
+) -> None:
+    suites = [_cost_suite(cost) for cost in costs]
+
+    assert all(suite == suites[0] for suite in suites)
+    serialized = {suite.to_dict()["cases"][0]["maximum_cost_eur"] for suite in suites}
+    assert len(serialized) == 1
+    assert len({export_domain_benchmark_suite(suite) for suite in suites}) == 1
+    assert len({suite.content_digest for suite in suites}) == 1
+
+
+def test_distinct_costs_remain_distinct_in_export_and_digest() -> None:
+    lower = _cost_suite(Decimal("0.25"))
+    higher = _cost_suite(Decimal("0.26"))
+
+    assert lower != higher
+    assert (
+        lower.to_dict()["cases"][0]["maximum_cost_eur"]
+        != higher.to_dict()["cases"][0]["maximum_cost_eur"]
+    )
+    assert export_domain_benchmark_suite(lower) != export_domain_benchmark_suite(higher)
+    assert lower.content_digest != higher.content_digest
+
+
+@pytest.mark.parametrize(
+    ("value", "canonical"),
+    (
+        (Decimal("0.25"), "0.25"),
+        (Decimal("0.250"), "0.25"),
+        (Decimal(1000), "1000"),
+        (Decimal("1E+3"), "1000"),
+        (Decimal("-0.000"), "0"),
+    ),
+)
+def test_canonical_cost_round_trip_is_numerically_exact(
+    value: Decimal, canonical: str
+) -> None:
+    suite = _cost_suite(value)
+    serialized = suite.to_dict()["cases"][0]["maximum_cost_eur"]
+
+    assert serialized == canonical
+    assert Decimal(serialized) == value
+
+
 @pytest.mark.parametrize(
     "field_name",
     ("id", "domain_id", "objective"),

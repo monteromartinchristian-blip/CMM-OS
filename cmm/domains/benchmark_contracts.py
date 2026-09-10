@@ -249,6 +249,20 @@ def _require_maximum_cost(value: Any, field_name: str) -> Decimal | None:
     return value
 
 
+def _canonical_decimal_text(value: Decimal) -> str:
+    """Canonical numeric-value decimal text (never caller scale, never float)."""
+    if value == 0:
+        return "0"
+
+    normalized = value.normalize()
+    text = format(normalized, "f")
+
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+
+    return text
+
+
 def _maximum_cost_from_dict(value: Any, field_name: str) -> Decimal | None:
     if value is None:
         return None
@@ -470,7 +484,7 @@ class DomainBenchmarkCase:
             "sensitivity": self.sensitivity,
             "privacy_requirement": self.privacy_requirement,
             "maximum_cost_eur": (
-                str(self.maximum_cost_eur)
+                _canonical_decimal_text(self.maximum_cost_eur)
                 if self.maximum_cost_eur is not None
                 else None
             ),
