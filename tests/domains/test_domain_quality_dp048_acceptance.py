@@ -23,6 +23,7 @@ from cmm.domains.contracts import DomainDefinition
 from cmm.domains.errors import (
     DomainContractValidationError,
     DomainError,
+    DomainSerializationError,
 )
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.health.quality_metrics import build_health_quality_metrics
@@ -446,6 +447,42 @@ def test_scenario_h_altered_derived_state_fails_closed() -> None:
     payload["aggregate_score"] = "0.123"
     with pytest.raises(DomainError):
         import_domain_quality_assessment(json.dumps(payload).encode("utf-8"))
+
+
+def test_scenario_h_malformed_nested_human_review_notes_fail_closed() -> None:
+    metrics = build_health_quality_metrics()
+    prudence = next(metric for metric in metrics if metric.name == "prudence")
+
+    review = DomainQualityHumanReviewResult(
+        id="quality-review:health:prudence:malformed",
+        schema_version="1",
+        status="accepted",
+        notes=("valid",),
+    )
+
+    results = tuple(
+        build_domain_quality_metric_result(
+            metric,
+            score=Decimal("0.95"),
+            evaluator_version="1",
+            confidence=Decimal("0.90"),
+            human_review_results=(review,) if metric.id == prudence.id else (),
+        )
+        for metric in metrics
+    )
+
+    assessment = assess_domain_quality(metrics, results)
+    payload = assessment.to_dict()
+
+    prudence_payload = next(
+        result
+        for result in payload["metric_results"]
+        if result["metric_id"] == prudence.id
+    )
+    prudence_payload["human_review_results"][0]["notes"] = "not-a-list"
+
+    with pytest.raises(DomainSerializationError):
+        DomainQualityAssessment.from_dict(payload)
 
 
 # ── Scenario I — observability isolation ──────────────────────────────────────
