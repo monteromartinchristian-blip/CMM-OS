@@ -204,9 +204,7 @@ def test_domain_sources_never_define_prohibited_execution_functions() -> None:
     assert violations == [], violations
 
 
-@pytest.mark.parametrize(
-    "path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p)
-)
+@pytest.mark.parametrize("path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p))
 def test_phase_10_49_surface_has_no_parallel_knowledge_infrastructure(
     path: Path,
 ) -> None:
@@ -236,9 +234,7 @@ def test_cognitive_integration_still_owns_the_canonical_builder() -> None:
 def test_cognitive_integration_does_not_define_a_builder() -> None:
     tree = _parse(_DOMAINS_DIR / "cognitive_integration.py")
 
-    assert [
-        name for name in _defined_names(tree) if name.endswith("Builder")
-    ] == []
+    assert [name for name in _defined_names(tree) if name.endswith("Builder")] == []
 
 
 def test_validation_helper_returns_the_canonical_package_type() -> None:
@@ -257,9 +253,7 @@ def test_validation_helper_returns_the_canonical_package_type() -> None:
 # ── Provider / runtime / network isolation ────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p)
-)
+@pytest.mark.parametrize("path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p))
 def test_phase_10_49_surface_imports_no_provider_or_runtime_authority(
     path: Path,
 ) -> None:
@@ -280,9 +274,7 @@ def test_phase_10_49_surface_imports_no_provider_or_runtime_authority(
     assert violations == [], f"{_relative(path)} imports {violations}"
 
 
-@pytest.mark.parametrize(
-    "path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p)
-)
+@pytest.mark.parametrize("path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p))
 def test_phase_10_49_surface_has_no_network_or_persistence_imports(
     path: Path,
 ) -> None:
@@ -295,14 +287,10 @@ def test_phase_10_49_surface_has_no_network_or_persistence_imports(
 # ── Canonical fragmentation owner reuse ───────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p)
-)
+@pytest.mark.parametrize("path", _PHASE_10_49_SURFACE, ids=lambda p: _relative(p))
 def test_canonical_fragmentation_owner_reports_no_findings(path: Path) -> None:
     """Reuse the canonical ``domain.fragmentation`` owner; never a parallel one."""
-    findings = analyze_fragmentation(
-        path.read_text(encoding="utf-8"), _relative(path)
-    )
+    findings = analyze_fragmentation(path.read_text(encoding="utf-8"), _relative(path))
 
     assert findings == [], findings
 
@@ -335,7 +323,9 @@ def test_first_party_schema_modules_are_declarative_only() -> None:
             for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
-        classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+        classes = [
+            node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+        ]
 
         assert functions == [f"build_{path.parent.name}_knowledge_package_schema"], (
             _relative(path),
