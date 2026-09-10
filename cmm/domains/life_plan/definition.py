@@ -15,6 +15,9 @@ from cmm.domains.life_plan.catalog import (
     CANONICAL_LIFE_PLAN_RULE_IDS,
     CANONICAL_LIFE_PLAN_WORKFLOW_IDS,
 )
+from cmm.domains.life_plan.knowledge_package import (
+    build_life_plan_knowledge_package_schema,
+)
 from cmm.domains.life_plan.quality_metrics import build_life_plan_quality_metrics
 
 LIFE_PLAN_DOMAIN_ID = "domain:life-plan"
@@ -152,6 +155,7 @@ def build_life_plan_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_life_plan_benchmark_suites(),
         quality_metrics=build_life_plan_quality_metrics(),
+        knowledge_package_schema=build_life_plan_knowledge_package_schema(),
     )
 
 

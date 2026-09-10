@@ -19,6 +19,9 @@ from cmm.domains.project.catalog import (
     PROJECT_MANIFEST_ID,
     PROJECT_PROFILE_NAME,
 )
+from cmm.domains.project.knowledge_package import (
+    build_project_knowledge_package_schema,
+)
 from cmm.domains.project.quality_metrics import build_project_quality_metrics
 
 PROJECT_RESOURCE_IDS: tuple[str, ...] = CANONICAL_PROJECT_RESOURCE_IDS
@@ -134,6 +137,7 @@ def build_project_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_project_benchmark_suites(),
         quality_metrics=build_project_quality_metrics(),
+        knowledge_package_schema=build_project_knowledge_package_schema(),
     )
 
 

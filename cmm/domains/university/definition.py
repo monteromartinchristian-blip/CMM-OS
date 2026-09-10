@@ -11,6 +11,9 @@ from cmm.domains.university.catalog import (
     CANONICAL_UNIVERSITY_RULE_IDS,
     CANONICAL_UNIVERSITY_WORKFLOW_IDS,
 )
+from cmm.domains.university.knowledge_package import (
+    build_university_knowledge_package_schema,
+)
 from cmm.domains.university.quality_metrics import build_university_quality_metrics
 
 UNIVERSITY_DOMAIN_ID = "domain:university"
@@ -112,6 +115,7 @@ def build_university_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_university_benchmark_suites(),
         quality_metrics=build_university_quality_metrics(),
+        knowledge_package_schema=build_university_knowledge_package_schema(),
     )
 
 

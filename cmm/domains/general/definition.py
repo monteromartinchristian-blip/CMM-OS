@@ -11,6 +11,9 @@ from cmm.domains.general.catalog import (
     CANONICAL_GENERAL_RULE_IDS,
     CANONICAL_GENERAL_WORKFLOW_IDS,
 )
+from cmm.domains.general.knowledge_package import (
+    build_general_knowledge_package_schema,
+)
 from cmm.domains.general.quality_metrics import build_general_quality_metrics
 
 GENERAL_DOMAIN_ID = "domain:general"
@@ -105,6 +108,7 @@ def build_general_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_general_benchmark_suites(),
         quality_metrics=build_general_quality_metrics(),
+        knowledge_package_schema=build_general_knowledge_package_schema(),
     )
 
 

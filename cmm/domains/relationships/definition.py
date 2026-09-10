@@ -13,6 +13,9 @@ from cmm.domains.relationships.catalog import (
     CANONICAL_RELATIONSHIPS_RULE_IDS,
     CANONICAL_RELATIONSHIPS_WORKFLOW_IDS,
 )
+from cmm.domains.relationships.knowledge_package import (
+    build_relationships_knowledge_package_schema,
+)
 from cmm.domains.relationships.quality_metrics import (
     build_relationships_quality_metrics,
 )
@@ -118,6 +121,7 @@ def build_relationships_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_relationships_benchmark_suites(),
         quality_metrics=build_relationships_quality_metrics(),
+        knowledge_package_schema=build_relationships_knowledge_package_schema(),
     )
 
 

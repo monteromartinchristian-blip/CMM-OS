@@ -16,7 +16,12 @@ from cmm.domains.reflection.catalog import (
     CANONICAL_REFLECTION_RULE_IDS,
     CANONICAL_REFLECTION_WORKFLOW_IDS,
 )
-from cmm.domains.reflection.quality_metrics import build_reflection_quality_metrics
+from cmm.domains.reflection.knowledge_package import (
+    build_reflection_knowledge_package_schema,
+)
+from cmm.domains.reflection.quality_metrics import (
+    build_reflection_quality_metrics,
+)
 
 REFLECTION_DOMAIN_ID = "domain:reflection"
 REFLECTION_DOMAIN_VERSION = "1.0.0"
@@ -119,6 +124,7 @@ def build_reflection_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_reflection_benchmark_suites(),
         quality_metrics=build_reflection_quality_metrics(),
+        knowledge_package_schema=build_reflection_knowledge_package_schema(),
     )
 
 

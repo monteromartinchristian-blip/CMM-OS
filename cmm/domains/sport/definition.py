@@ -15,6 +15,9 @@ from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_RULE_IDS,
     CANONICAL_SPORT_WORKFLOW_IDS,
 )
+from cmm.domains.sport.knowledge_package import (
+    build_sport_knowledge_package_schema,
+)
 from cmm.domains.sport.quality_metrics import build_sport_quality_metrics
 
 SPORT_DOMAIN_ID = "domain:sport"
@@ -130,6 +133,7 @@ def build_sport_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_sport_benchmark_suites(),
         quality_metrics=build_sport_quality_metrics(),
+        knowledge_package_schema=build_sport_knowledge_package_schema(),
     )
 
 

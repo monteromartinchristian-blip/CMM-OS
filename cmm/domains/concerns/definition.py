@@ -14,6 +14,9 @@ from cmm.domains.concerns.catalog import (
     CANONICAL_CONCERNS_RULE_IDS,
     CANONICAL_CONCERNS_WORKFLOW_IDS,
 )
+from cmm.domains.concerns.knowledge_package import (
+    build_concerns_knowledge_package_schema,
+)
 from cmm.domains.concerns.quality_metrics import build_concerns_quality_metrics
 from cmm.domains.contracts import DomainCapability, DomainDefinition, DomainMetadata
 from cmm.domains.enums import DomainKind
@@ -158,6 +161,7 @@ def build_concerns_domain_definition() -> DomainDefinition:
         ),
         benchmark_suites=build_concerns_benchmark_suites(),
         quality_metrics=build_concerns_quality_metrics(),
+        knowledge_package_schema=build_concerns_knowledge_package_schema(),
     )
 
 
