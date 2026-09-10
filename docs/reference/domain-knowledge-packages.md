@@ -514,7 +514,54 @@ does not mean the whole repository is globally Ruff-clean. `GLOBAL_RUFF` and
 `GLOBAL_FORMAT` are reported as `PASS` only when the measured global debt is
 actually zero.
 
-## 20. Status
+## 20. Pre-audit gate evidence
+
+Measured on the frozen implementation HEAD (see §21) from a clean worktree.
+
+```text
+FOCUSED_PHASE_10_49_TESTS=317
+FOCUSED_PHASE_10_49_RESULT=PASS
+REGRESSION_GATE_TESTS=1328
+REGRESSION_GATE_RESULT=PASS
+DOMAIN_SUITE_TESTS=10967
+DOMAIN_SUITE_FAILURES=0
+DOMAIN_SUITE_ERRORS=0
+GLOBAL_SUITE_TESTS=16728
+GLOBAL_SUITE_FAILURES=0
+GLOBAL_SUITE_ERRORS=0
+COMPILEALL=PASS
+BASELINE_AWARE_GATE=PASS
+CLAUSE_COVERAGE=PASS
+DIFF_HYGIENE=CLEAN
+```
+
+The focused gate is the ten Phase 10.49 test files (eight contract/behaviour
+files, the architecture guard, the DP-049 connected acceptance, the baseline
+gate decision tests and the clause-coverage ledger invariant). The regression
+gate is the Phase 8 knowledge-package, Phase 10.39 fragmentation, Phase 10.40
+cognitive-integration, Phase 10.44 memory/knowledge, Phase 10.46–10.48
+model-policy/benchmark/quality and Domain Pack/SDK inventories. The global gate
+is the canonical `python -m pytest -ra` over `tests`.
+
+Execution-environment note: the local WorkBuddy sandbox brokers filesystem
+operations that leave the session workspace to a host process, which adds
+roughly thirty seconds of latency per operation and makes workspace-resident
+suite execution impractically slow. The suite evidence above was therefore
+produced against an exact `git archive` export / clone of the same clean HEAD
+(`c85b7f5833e0af541c6cb34afdbeb7dbf270560e`), executed with the repository's own
+`.venv` interpreter. Two workspace-resident false positives were isolated and
+are **not** Phase 10.49 defects:
+
+* `tests/domains/test_domain_sdk_packager.py::test_packager_preserves_competing_destination_created_at_publication`
+  — the sandbox `os.link` interceptor raises `PermissionError` (EEXIST) instead
+  of `FileExistsError`, so the packager's specific handler does not fire. The
+  same test passes against the identical tree outside the brokered path.
+* The Phase 10.34 session lifecycle fixtures perform many brokered `mkdir`
+  calls, which stalls suite progress without failing.
+
+Both pass in the unbrokered run recorded above.
+
+## 21. Status
 
 ```text
 PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
