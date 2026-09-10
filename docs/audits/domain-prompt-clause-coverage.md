@@ -229,16 +229,17 @@ Locations use the original source section and analysis line range. Summaries del
 | `R10-C19-C30` | `SRC-R10` · Phases 10.19–10.30 | `DP-019`–`DP-030` | `PRIMARY` | Defines the sequential Domain Pack set. |
 | `R10-C46` | `SRC-R10` · Phase 10.46 Domain Model Policies | `DP-046` | `PRIMARY` | Model-agnostic domain policy; concrete model/provider preference fields are discarded by the approved DP-046 design. |
 | `R10-C47` | `SRC-R10` · Phase 10.47 Domain Benchmark Suites | `DP-047` | `PRIMARY` | Portable model-agnostic benchmark assets; suite-owned evaluation/privacy/budget engines, concrete candidate models/providers, weighted quality metrics and benchmark runtime/registry are discarded by the approved DP-047 design. |
+| `R10-C48` | `SRC-R10` · Phase 10.48 Domain Quality Metrics | `DP-048` | `PRIMARY` | Domain-owned declarative quality metrics define weights, thresholds, blocking semantics and deterministic aggregation of already-produced evidence; evaluator/model/provider execution, comparison, ranking, regression detection and routing remain outside Phase 10.48. |
 | `RM-C10` | `SRC-RM` · Phase 10 overview | `ARC-001`–`ARC-008`; final order | `PRIMARY` | Establishes shared architecture and phase boundary. |
 | `R11-C55` | `SRC-R11` · Phase 11.55 Communication Profiles | `F11-001`, `F11-002` | `PRIMARY` | Separates communication style and renderer from 10.16. |
 
 ## 8. Final coverage check
 
-The counts below cover the 102 prompt clauses and 51 specification, preflight, and roadmap clauses listed above.
+The counts below cover the 102 prompt clauses and 53 specification, preflight, and roadmap clauses listed above.
 
 ```text
-total_clauses = 153
-covered_clauses = 153
+total_clauses = 155
+covered_clauses = 155
 unclassified_clauses = 0
 duplicate_primary_mappings = 0
 ```
