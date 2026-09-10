@@ -85,11 +85,11 @@ def test_general_not_catch_all():
 
 
 def test_thirteen_production_modules():
-    """There are exactly 15 production modules under cmm/domains/general/.
+    """There are exactly 16 production modules under cmm/domains/general/.
 
     The historical test name is retained because it is part of the frozen
-    Phase 10.34 pytest node inventory; the count grows with benchmark and
-    quality-policy assets.
+    Phase 10.34 pytest node inventory; the count grows with benchmark,
+    quality-policy and knowledge-package-schema assets.
     """
     import pathlib
 
@@ -99,7 +99,7 @@ def test_thirteen_production_modules():
         for p in package_dir.glob("*.py")
         if p.name != "__init__.py" and not p.name.startswith("_")
     ]
-    assert len(modules) == 15
+    assert len(modules) == 16
 
 
 def test_seventeen_test_modules():

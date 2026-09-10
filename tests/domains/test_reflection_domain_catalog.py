@@ -141,6 +141,7 @@ def test_package_boundary_exactly_14_modules():
         "catalog.py",
         "definition.py",
         "integration.py",
+        "knowledge_package.py",
         "memory.py",
         "operations.py",
         "permissions.py",

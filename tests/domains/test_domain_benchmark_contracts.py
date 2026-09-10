@@ -716,11 +716,16 @@ def test_domain_definition_benchmark_suites_default_empty() -> None:
 
 
 def test_benchmark_suites_precedes_only_the_phase_10_48_quality_metrics_field() -> None:
-    # Phase 10.48 appends `quality_metrics` after `benchmark_suites`; no other
-    # field may be declared in between or after it.
+    # Phase 10.48 appends `quality_metrics` after `benchmark_suites`; Phase
+    # 10.49 appends `knowledge_package_schema` after it.  No other field may be
+    # declared in between.
     names = [f.name for f in fields(DomainDefinition)]
 
-    assert names[-2:] == ["benchmark_suites", "quality_metrics"]
+    assert names[-3:] == [
+        "benchmark_suites",
+        "quality_metrics",
+        "knowledge_package_schema",
+    ]
 
 
 def test_old_domain_definition_payload_without_benchmarks_still_loads() -> None:
