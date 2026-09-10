@@ -609,6 +609,10 @@ _DECLARATIVE_KNOWN = frozenset(
         "tags",
         "author",
         "license",
+        # Definition-level asset carried by the canonical declarative pack
+        # path; parsed by ParsedDomainPack.from_declarative_dict, not stored
+        # on the manifest itself.
+        "benchmark_suites",
     }
 )
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 from dataclasses import fields, replace
 from decimal import Decimal
 from pathlib import Path
@@ -24,27 +25,32 @@ from cmm.domains.benchmark_contracts import (
 )
 from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.contracts import DomainDefinition
-from cmm.domains.enums import DomainKind, DomainPackKind
+from cmm.domains.enums import DomainKind, DomainLoadStatus, DomainPackKind
 from cmm.domains.errors import DomainError
 from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.languages.definition import build_languages_domain_definition
 from cmm.domains.life_plan.definition import build_life_plan_domain_definition
+from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.manifest import (
     DomainComponentReference,
     DomainManifest,
     DomainPermissionReference,
 )
+from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.model_policy_contracts import DomainModelPolicy
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.pack import ParsedDomainPack
 from cmm.domains.parenthood.definition import build_parenthood_domain_definition
 from cmm.domains.project.definition import build_project_domain_definition
 from cmm.domains.reflection.definition import build_reflection_domain_definition
+from cmm.domains.registry import DomainRegistry
 from cmm.domains.relationships.definition import build_relationships_domain_definition
 from cmm.domains.sport.definition import build_sport_domain_definition
 from cmm.domains.university.definition import build_university_domain_definition
+
+from ._loader_helpers import make_candidate
 
 FIRST_PARTY_BUILDERS = (
     build_general_domain_definition,
@@ -120,7 +126,40 @@ def test_scenario_a_every_first_party_definition_has_suite_and_case() -> None:
 # ── Scenario B — Domain Pack connected round-trip ─────────────────────────────
 
 
-def test_scenario_b_pack_round_trip_preserves_real_benchmark_suites() -> None:
+def test_scenario_b_declarative_loader_preserves_real_benchmark_suites(
+    tmp_path: Path,
+) -> None:
+    source = build_health_domain_definition()
+    payload = {
+        "id": source.id.slug,
+        "version": source.version,
+        "name": source.name,
+        "display_name": source.display_name,
+        "description": source.description,
+        "author": "tester",
+        "license": "MIT",
+        "benchmark_suites": [suite.to_dict() for suite in source.benchmark_suites],
+    }
+    domain_dir = tmp_path / source.id.slug
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    candidate = make_candidate(domain_dir, source.id.slug, source.version)
+    loader = DeclarativeDomainLoader(
+        manifest_reader=JsonDomainManifestReader(),
+        registry=DomainRegistry(),
+    )
+
+    result = loader.load(candidate)
+
+    assert result.status == DomainLoadStatus.LOADED
+    assert result.pack is not None
+    loaded_suites = result.pack.definition.benchmark_suites
+    assert loaded_suites == source.benchmark_suites
+    assert loaded_suites
+    assert all(suite.cases for suite in loaded_suites)
+
+
+def test_scenario_b_supplemental_python_pack_round_trip_preserves_benchmarks() -> None:
     definition = build_health_domain_definition()
     parsed = _parsed(definition)
 

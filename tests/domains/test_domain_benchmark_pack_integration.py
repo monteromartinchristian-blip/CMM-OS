@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from cmm.domains.benchmark_contracts import DomainBenchmarkCase, DomainBenchmarkSuite
 from cmm.domains.contracts import DomainDefinition
-from cmm.domains.enums import DomainKind, DomainPackKind
+from cmm.domains.enums import DomainKind, DomainLoadStatus, DomainPackKind
 from cmm.domains.errors import DomainError
 from cmm.domains.identifiers import DomainId, DomainManifestId
+from cmm.domains.loader import DeclarativeDomainLoader
 from cmm.domains.manifest import (
     DomainComponentReference,
     DomainManifest,
     DomainPermissionReference,
 )
+from cmm.domains.manifest_reader import JsonDomainManifestReader
 from cmm.domains.pack import DomainPack, ParsedDomainPack
+from cmm.domains.registry import DomainRegistry
+
+from ._loader_helpers import make_candidate
 
 
 def _component(component_id: str) -> DomainComponentReference:
@@ -238,3 +245,208 @@ def test_manifest_domain_mismatch_still_fails_with_benchmark_suites() -> None:
             pack_kind=DomainPackKind.INTERNAL,
         )
         ParsedDomainPack(definition=definition, manifest=manifest)
+
+
+# ── Declarative Domain Pack benchmark path (MAJOR-01) ─────────────────────────
+
+
+def _declarative_payload() -> dict[str, Any]:
+    return {
+        "id": "university",
+        "version": "1.0.0",
+        "name": "university",
+        "display_name": "University",
+        "description": "university domain",
+        "author": "tester",
+        "license": "MIT",
+        "benchmark_suites": [
+            {
+                "id": "benchmark-suite:university:core",
+                "domain_id": "domain:university",
+                "schema_version": "1",
+                "version": "1",
+                "cases": [
+                    {
+                        "id": "benchmark-case:university:core-001",
+                        "domain_id": "domain:university",
+                        "objective": "Representative objective",
+                        "metadata": {"fixture_kind": "synthetic"},
+                    }
+                ],
+                "metadata": {"scope": "core"},
+            }
+        ],
+    }
+
+
+def test_declarative_pack_preserves_benchmark_suites() -> None:
+    parsed = ParsedDomainPack.from_declarative_dict(_declarative_payload())
+
+    assert len(parsed.definition.benchmark_suites) == 1
+    suite = parsed.definition.benchmark_suites[0]
+    assert suite.id == "benchmark-suite:university:core"
+    assert len(suite.cases) == 1
+    assert suite.cases[0].id == "benchmark-case:university:core-001"
+
+
+def test_declarative_pack_without_benchmark_suites_stays_backward_compatible() -> None:
+    payload = _declarative_payload()
+    del payload["benchmark_suites"]
+
+    parsed = ParsedDomainPack.from_declarative_dict(payload)
+
+    assert parsed.definition.benchmark_suites == ()
+
+
+@pytest.mark.parametrize(
+    "container",
+    (
+        "not-a-list",
+        {"id": "benchmark-suite:university:core"},
+        42,
+    ),
+)
+def test_declarative_pack_rejects_invalid_benchmark_suites_container(
+    container: object,
+) -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"] = container
+
+    with pytest.raises(DomainError) as excinfo:
+        ParsedDomainPack.from_declarative_dict(payload)
+
+    assert excinfo.value.field == "benchmark_suites"
+
+
+def test_declarative_pack_rejects_non_mapping_suite_entry() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"] = ["not-a-mapping"]
+
+    with pytest.raises(DomainError) as excinfo:
+        ParsedDomainPack.from_declarative_dict(payload)
+
+    assert excinfo.value.field == "benchmark_suites[0]"
+
+
+def test_declarative_pack_rejects_unknown_suite_field() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"][0]["candidate_models"] = ["x"]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_unknown_case_field() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"][0]["cases"][0]["unexpected_field"] = True
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_suite_definition_domain_mismatch() -> None:
+    payload = _declarative_payload()
+    suite_payload = payload["benchmark_suites"][0]
+    suite_payload["id"] = "benchmark-suite:other:core"
+    suite_payload["domain_id"] = "domain:other"
+    suite_payload["cases"][0]["id"] = "benchmark-case:other:core-001"
+    suite_payload["cases"][0]["domain_id"] = "domain:other"
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_case_suite_domain_mismatch() -> None:
+    payload = _declarative_payload()
+    case_payload = payload["benchmark_suites"][0]["cases"][0]
+    case_payload["id"] = "benchmark-case:other:core-001"
+    case_payload["domain_id"] = "domain:other"
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_duplicate_suite_ids() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"] = [
+        payload["benchmark_suites"][0],
+        copy.deepcopy(payload["benchmark_suites"][0]),
+    ]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_duplicate_case_ids() -> None:
+    payload = _declarative_payload()
+    case_payload = payload["benchmark_suites"][0]["cases"][0]
+    payload["benchmark_suites"][0]["cases"] = [
+        case_payload,
+        copy.deepcopy(case_payload),
+    ]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+@pytest.mark.parametrize("invalid_cost", ("-1", "not-a-decimal"))
+def test_declarative_pack_rejects_invalid_maximum_cost(invalid_cost: str) -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"][0]["cases"][0]["maximum_cost_eur"] = invalid_cost
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_reserved_metadata_authority_key() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"][0]["metadata"] = {"preferred_providers": ["x"]}
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+# ── Real declarative loader path (MAJOR-01 connected evidence) ────────────────
+
+
+def test_real_declarative_loader_preserves_benchmark_suites(tmp_path: Path) -> None:
+    domain_dir = tmp_path / "university"
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "manifest.json").write_text(
+        json.dumps(_declarative_payload()), encoding="utf-8"
+    )
+    candidate = make_candidate(domain_dir, "university", "1.0.0")
+    loader = DeclarativeDomainLoader(
+        manifest_reader=JsonDomainManifestReader(),
+        registry=DomainRegistry(),
+    )
+
+    result = loader.load(candidate)
+
+    assert result.status == DomainLoadStatus.LOADED
+    assert result.pack is not None
+    suites = result.pack.definition.benchmark_suites
+    assert len(suites) == 1
+    assert suites[0].id == "benchmark-suite:university:core"
+    assert len(suites[0].cases) == 1
+
+
+def test_real_declarative_loader_rejects_malformed_benchmark_suites(
+    tmp_path: Path,
+) -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"][0]["cases"][0]["maximum_cost_eur"] = "-1"
+    domain_dir = tmp_path / "university"
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    candidate = make_candidate(domain_dir, "university", "1.0.0")
+    loader = DeclarativeDomainLoader(
+        manifest_reader=JsonDomainManifestReader(),
+        registry=DomainRegistry(),
+    )
+
+    result = loader.load(candidate)
+
+    assert result.status == DomainLoadStatus.FAILED
+    assert result.pack is None
+    assert result.errors

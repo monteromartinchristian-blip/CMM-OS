@@ -12,6 +12,7 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Any
 
+from cmm.domains.benchmark_contracts import DomainBenchmarkSuite
 from cmm.domains.contracts import (
     DomainConflict,
     DomainDefinition,
@@ -511,6 +512,27 @@ class ParsedDomainPack:
 
         def_confs = tuple(parse_decl_conf(c) for c in data.get("conflicts", ()))
 
+        benchmark_suites_raw = data.get("benchmark_suites")
+        if benchmark_suites_raw is None:
+            benchmark_suites_raw = ()
+        if isinstance(benchmark_suites_raw, (str, bytes, bytearray)) or not isinstance(
+            benchmark_suites_raw, (list, tuple)
+        ):
+            raise DomainSerializationError(
+                "Declarative field 'benchmark_suites' must be a list or tuple, "
+                f"got {type(benchmark_suites_raw).__name__}",
+                field="benchmark_suites",
+            )
+        benchmark_suites: list[DomainBenchmarkSuite] = []
+        for index, item in enumerate(benchmark_suites_raw):
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"benchmark_suites[{index}] must be a mapping, "
+                    f"got {type(item).__name__}",
+                    field=f"benchmark_suites[{index}]",
+                )
+            benchmark_suites.append(DomainBenchmarkSuite.from_dict(dict(item)))
+
         definition = DomainDefinition(
             id=domain_id_raw,
             name=name,
@@ -533,6 +555,7 @@ class ParsedDomainPack:
             capabilities=tuple(data.get("capabilities", ())),
             enabled=True,
             metadata=metadata,
+            benchmark_suites=tuple(benchmark_suites),
         )
 
         return cls(definition=definition, manifest=manifest)
