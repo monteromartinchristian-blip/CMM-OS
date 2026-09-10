@@ -1037,6 +1037,37 @@ class InvalidDomainObservabilityEvidenceError(InvalidDomainObservabilityContract
     code = "DOMAIN_OBSERVABILITY_EVIDENCE_INVALID"
 
 
+# Phase 10.49 – Domain Knowledge Packages
+class DomainKnowledgePackageError(DomainError):
+    """Base error for Domain-owned knowledge package schema operations."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_ERROR"
+
+
+class DomainKnowledgePackageContractError(DomainKnowledgePackageError):
+    """Raised when a Domain knowledge package schema contract is invalid."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_CONTRACT_ERROR"
+
+
+class DomainKnowledgePackageSerializationError(DomainKnowledgePackageContractError):
+    """Raised when a Domain knowledge package schema payload is malformed."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_SERIALIZATION_ERROR"
+
+
+class DomainKnowledgePackageCompositionError(DomainKnowledgePackageError):
+    """Raised when multi-domain schema composition is irreconcilable."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_COMPOSITION_ERROR"
+
+
+class DomainKnowledgePackageValidationError(DomainKnowledgePackageError):
+    """Raised when a canonical KnowledgePackage violates a schema."""
+
+    code = "DOMAIN_KNOWLEDGE_PACKAGE_VALIDATION_ERROR"
+
+
 __all__ = [
     "CrossDomainConfigurationError",
     "CrossDomainContractError",
@@ -1076,6 +1107,11 @@ __all__ = [
     "DomainInterfaceIntentError",
     "DomainInterfaceSerializationError",
     "DomainInterfaceVisibilityError",
+    "DomainKnowledgePackageCompositionError",
+    "DomainKnowledgePackageContractError",
+    "DomainKnowledgePackageError",
+    "DomainKnowledgePackageSerializationError",
+    "DomainKnowledgePackageValidationError",
     "DomainLoadFailed",
     "DomainLoadRejected",
     "DomainLoadRollbackFailed",
