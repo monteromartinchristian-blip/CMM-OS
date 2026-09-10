@@ -51,15 +51,21 @@ _RESERVED_AUTHORITY_KEYS = frozenset(
         "model_ids",
         "model_family",
         "models",
+        "candidate_model",
         "candidate_models",
+        "preferred_model",
         "preferred_models",
+        "prohibited_model",
         "prohibited_models",
         "provider",
         "provider_id",
         "provider_ids",
         "providers",
+        "candidate_provider",
         "candidate_providers",
+        "preferred_provider",
         "preferred_providers",
+        "prohibited_provider",
         "prohibited_providers",
         "routing_weight",
         "routing_weights",
@@ -147,13 +153,30 @@ def _thaw_json(value: Any) -> Any:
 
 
 def _require_json_mapping(value: Any, field_name: str) -> MappingProxyType[str, Any]:
+    """Validate a generic JSON-safe mapping and deep-freeze it.
+
+    No model/provider authority semantics: schema property names such as
+    ``provider`` or ``model`` are ordinary data, not routing authority.
+    """
     if not isinstance(value, Mapping):
         raise DomainContractValidationError(
             f"{field_name} must be a mapping", field=field_name
         )
-    _reject_reserved_authority_keys(value, field_name)
     _require_json_value(value, field_name)
     return _freeze_json(value)
+
+
+def _require_benchmark_metadata(
+    value: Any, field_name: str
+) -> MappingProxyType[str, Any]:
+    """Validate benchmark metadata, rejecting model/provider authority keys.
+
+    Applies the generic JSON-safety rules plus a recursive, normalized
+    reserved-authority-key scan over metadata keys only.
+    """
+    frozen = _require_json_mapping(value, field_name)
+    _reject_reserved_authority_keys(value, field_name)
+    return frozen
 
 
 def _require_optional_json_mapping(
@@ -423,7 +446,7 @@ class DomainBenchmarkCase:
             _require_strict_bool(self.human_review_required, "human_review_required"),
         )
         object.__setattr__(
-            self, "metadata", _require_json_mapping(self.metadata, "metadata")
+            self, "metadata", _require_benchmark_metadata(self.metadata, "metadata")
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -571,7 +594,7 @@ class DomainBenchmarkSuite:
             )
         object.__setattr__(self, "cases", tuple(cases))
         object.__setattr__(
-            self, "metadata", _require_json_mapping(self.metadata, "metadata")
+            self, "metadata", _require_benchmark_metadata(self.metadata, "metadata")
         )
 
     @property

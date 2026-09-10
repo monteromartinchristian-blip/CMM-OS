@@ -299,6 +299,65 @@ def test_scenario_f_contracts_expose_no_model_or_provider_authority() -> None:
         )
 
 
+def test_scenario_f_required_schema_allows_model_and_provider_properties() -> None:
+    case = DomainBenchmarkCase(
+        id="benchmark-case:health:output-schema-001",
+        domain_id="domain:health",
+        objective="Objective",
+        required_schema={
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+            },
+        },
+    )
+
+    assert case.required_schema is not None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"preferred_model": "x"},
+        {"candidate_model": "x"},
+        {"preferred_provider": "x"},
+        {"candidate_provider": "x"},
+        {"preferredModel": "x"},
+        {"candidateProvider": "x"},
+        {"preferred-model": "x"},
+        {"routingWeight": 1},
+        {"policy": {"preferredModel": "x"}},
+    ),
+)
+def test_scenario_f_metadata_authority_aliases_fail_closed(
+    metadata: dict[str, object],
+) -> None:
+    with pytest.raises(DomainError):
+        DomainBenchmarkCase(
+            id="benchmark-case:health:authority-alias-001",
+            domain_id="domain:health",
+            objective="Objective",
+            metadata=metadata,
+        )
+
+
+def test_scenario_f_ordinary_prose_metadata_is_accepted() -> None:
+    case = DomainBenchmarkCase(
+        id="benchmark-case:health:prose-001",
+        domain_id="domain:health",
+        objective="Objective",
+        metadata={
+            "description": (
+                "Checks whether the response names a healthcare provider "
+                "and explains the model output."
+            )
+        },
+    )
+
+    assert case.metadata["description"].startswith("Checks whether")
+
+
 # ── Scenario G — Phase 10.48 boundary ─────────────────────────────────────────
 
 

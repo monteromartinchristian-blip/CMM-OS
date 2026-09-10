@@ -270,6 +270,28 @@ def test_case_accepts_json_metadata_and_schema() -> None:
     assert json.loads(json.dumps(case.to_dict())) == case.to_dict()
 
 
+def test_required_schema_allows_provider_property_name() -> None:
+    case = _health_case(
+        required_schema={
+            "type": "object",
+            "properties": {"provider": {"type": "string"}},
+        }
+    )
+
+    assert case.required_schema is not None
+
+
+def test_required_schema_allows_model_property_name() -> None:
+    case = _health_case(
+        required_schema={
+            "type": "object",
+            "properties": {"model": {"type": "string"}},
+        }
+    )
+
+    assert case.required_schema is not None
+
+
 # ── Model/provider authority prohibition ──────────────────────────────────────
 
 
@@ -277,26 +299,39 @@ def test_case_accepts_json_metadata_and_schema() -> None:
     "metadata",
     (
         {"candidate_models": ["x"]},
+        {"candidate_model": "x"},
         {"model_id": "x"},
         {"model": "x"},
         {"models": ["x"]},
+        {"preferred_model": "x"},
         {"preferred_models": ["x"]},
+        {"prohibited_model": "x"},
         {"prohibited_models": ["x"]},
         {"modelId": "x"},
         {"ModelID": "x"},
         {"candidateModels": ["x"]},
+        {"preferredModel": "x"},
+        {"candidateModel": "x"},
+        {"preferred-model": "x"},
+        {"PREFERRED_MODEL": "x"},
         {"provider": "x"},
         {"provider_id": "x"},
         {"providerId": "x"},
         {"providers": ["x"]},
         {"candidate_providers": ["x"]},
+        {"candidate_provider": "x"},
+        {"preferred_provider": "x"},
         {"preferred_providers": ["x"]},
+        {"prohibited_provider": "x"},
         {"prohibited_providers": ["x"]},
+        {"candidateProvider": "x"},
         {"routing_weight": 1},
         {"routing_weights": {"a": 1}},
         {"routingWeight": 1},
         {"model-family": "x"},
         {"nested": {"candidate_models": ["x"]}},
+        {"nested": {"preferredModel": "x"}},
+        {"policy": {"candidateProvider": "x"}},
     ),
 )
 def test_benchmark_metadata_rejects_model_provider_authority(
@@ -311,12 +346,31 @@ def test_suite_metadata_rejects_model_provider_authority() -> None:
         _health_suite(metadata={"candidate_models": ["x"]})
 
 
+def test_suite_metadata_rejects_nested_authority_aliases() -> None:
+    with pytest.raises(DomainError):
+        _health_suite(metadata={"policy": {"preferredModel": "x"}})
+
+
 def test_metadata_allows_innocent_prose_values() -> None:
     case = _health_case(
         metadata={"note": "the model of care matters", "model_reviewed": "no"}
     )
 
     assert case.metadata["note"] == "the model of care matters"
+
+
+def test_metadata_allows_ordinary_prose_mentioning_model_and_provider() -> None:
+    case = _health_case(
+        metadata={
+            "description": (
+                "Checks whether the response names a healthcare provider "
+                "and explains the model output."
+            ),
+            "modeling_notes": "provider_context_description",
+        }
+    )
+
+    assert case.metadata["modeling_notes"] == "provider_context_description"
 
 
 # ── Serialization ─────────────────────────────────────────────────────────────
