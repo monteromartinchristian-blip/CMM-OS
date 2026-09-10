@@ -15,6 +15,7 @@ from cmm.domains.life_plan.catalog import (
     CANONICAL_LIFE_PLAN_RULE_IDS,
     CANONICAL_LIFE_PLAN_WORKFLOW_IDS,
 )
+from cmm.domains.life_plan.quality_metrics import build_life_plan_quality_metrics
 
 LIFE_PLAN_DOMAIN_ID = "domain:life-plan"
 LIFE_PLAN_DOMAIN_VERSION = "1.0.0"
@@ -150,6 +151,7 @@ def build_life_plan_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.29"},
         ),
         benchmark_suites=build_life_plan_benchmark_suites(),
+        quality_metrics=build_life_plan_quality_metrics(),
     )
 
 

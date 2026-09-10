@@ -16,6 +16,9 @@ from cmm.domains.parenthood.catalog import (
     CANONICAL_PARENTHOOD_RULE_IDS,
     CANONICAL_PARENTHOOD_WORKFLOW_IDS,
 )
+from cmm.domains.parenthood.quality_metrics import (
+    build_parenthood_quality_metrics,
+)
 
 PARENTHOOD_DOMAIN_ID = "domain:parenthood"
 PARENTHOOD_DOMAIN_VERSION = "1.0.0"
@@ -147,6 +150,7 @@ def build_parenthood_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.27"},
         ),
         benchmark_suites=build_parenthood_benchmark_suites(),
+        quality_metrics=build_parenthood_quality_metrics(),
     )
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import pathlib
 from decimal import Decimal
 
 import pytest
@@ -14,8 +16,14 @@ from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.health.quality_metrics import build_health_quality_metrics
 from cmm.domains.languages.definition import build_languages_domain_definition
 from cmm.domains.languages.quality_metrics import build_languages_quality_metrics
+from cmm.domains.life_plan.definition import build_life_plan_domain_definition
+from cmm.domains.life_plan.quality_metrics import build_life_plan_quality_metrics
 from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.oppositions.quality_metrics import build_oppositions_quality_metrics
+from cmm.domains.parenthood.definition import build_parenthood_domain_definition
+from cmm.domains.parenthood.quality_metrics import build_parenthood_quality_metrics
+from cmm.domains.project.definition import build_project_domain_definition
+from cmm.domains.project.quality_metrics import build_project_quality_metrics
 from cmm.domains.reflection.definition import build_reflection_domain_definition
 from cmm.domains.reflection.quality_metrics import build_reflection_quality_metrics
 from cmm.domains.relationships.definition import (
@@ -24,6 +32,8 @@ from cmm.domains.relationships.definition import (
 from cmm.domains.relationships.quality_metrics import (
     build_relationships_quality_metrics,
 )
+from cmm.domains.sport.definition import build_sport_domain_definition
+from cmm.domains.sport.quality_metrics import build_sport_quality_metrics
 from cmm.domains.university.definition import build_university_domain_definition
 from cmm.domains.university.quality_metrics import build_university_quality_metrics
 
@@ -88,6 +98,49 @@ EXPECTED: dict[str, tuple[tuple[str, str, str, bool], ...]] = {
         ("usefulness", "0.15", "0.70", False),
         ("clarity", "0.15", "0.70", False),
     ),
+    "parenthood": (
+        ("factual-fidelity", "0.25", "0.85", True),
+        ("sensitivity", "0.20", "0.80", False),
+        ("prudence", "0.20", "0.85", True),
+        ("temporal-correctness", "0.15", "0.75", False),
+        ("privacy-compliance", "0.20", "0.90", True),
+    ),
+    "sport": (
+        ("factual-fidelity", "0.25", "0.80", True),
+        ("temporal-correctness", "0.20", "0.75", False),
+        ("plan-quality", "0.20", "0.75", False),
+        ("usefulness", "0.20", "0.70", False),
+        ("instruction-compliance", "0.15", "0.75", True),
+    ),
+    "life-plan": (
+        ("contextual-fidelity", "0.20", "0.80", False),
+        ("feasibility", "0.25", "0.80", True),
+        ("tradeoff-quality", "0.20", "0.75", False),
+        ("temporal-correctness", "0.15", "0.75", False),
+        ("plan-quality", "0.20", "0.75", False),
+    ),
+    "project": (
+        ("correctness", "0.25", "0.90", True),
+        ("architectural-consistency", "0.20", "0.85", True),
+        ("validation-quality", "0.20", "0.90", True),
+        ("tool-calling-quality", "0.20", "0.85", True),
+        ("structured-output", "0.15", "0.80", False),
+    ),
+}
+
+IMPLEMENTED_QUALITY_DOMAINS = {
+    "general",
+    "health",
+    "relationships",
+    "university",
+    "oppositions",
+    "reflection",
+    "concerns",
+    "languages",
+    "parenthood",
+    "sport",
+    "life-plan",
+    "project",
 }
 
 DEFINITION_BUILDERS = {
@@ -99,6 +152,10 @@ DEFINITION_BUILDERS = {
     "reflection": build_reflection_domain_definition,
     "concerns": build_concerns_domain_definition,
     "languages": build_languages_domain_definition,
+    "parenthood": build_parenthood_domain_definition,
+    "sport": build_sport_domain_definition,
+    "life-plan": build_life_plan_domain_definition,
+    "project": build_project_domain_definition,
 }
 
 FACTORY_BUILDERS = {
@@ -110,6 +167,10 @@ FACTORY_BUILDERS = {
     "reflection": build_reflection_quality_metrics,
     "concerns": build_concerns_quality_metrics,
     "languages": build_languages_quality_metrics,
+    "parenthood": build_parenthood_quality_metrics,
+    "sport": build_sport_quality_metrics,
+    "life-plan": build_life_plan_quality_metrics,
+    "project": build_project_quality_metrics,
 }
 
 
@@ -156,3 +217,21 @@ def test_domain_definition_attaches_catalog(slug: str) -> None:
 
     assert definition.quality_metrics == FACTORY_BUILDERS[slug]()
     assert definition.benchmark_suites
+
+
+def test_implemented_catalog_inventory_is_exactly_twelve() -> None:
+    assert set(EXPECTED) == IMPLEMENTED_QUALITY_DOMAINS
+    assert set(FACTORY_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
+    assert set(DEFINITION_BUILDERS) == IMPLEMENTED_QUALITY_DOMAINS
+    assert len(IMPLEMENTED_QUALITY_DOMAINS) == 12
+
+
+@pytest.mark.parametrize("slug", ("mental_health", "neurodivergence"))
+def test_future_domain_quality_catalogs_are_absent(slug: str) -> None:
+    package_dir = pathlib.Path("cmm/domains") / slug
+    assert not (package_dir / "quality_metrics.py").exists()
+    try:
+        spec = importlib.util.find_spec(f"cmm.domains.{slug}.quality_metrics")
+    except ModuleNotFoundError:
+        spec = None
+    assert spec is None

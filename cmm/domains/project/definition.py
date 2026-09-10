@@ -19,6 +19,7 @@ from cmm.domains.project.catalog import (
     PROJECT_MANIFEST_ID,
     PROJECT_PROFILE_NAME,
 )
+from cmm.domains.project.quality_metrics import build_project_quality_metrics
 
 PROJECT_RESOURCE_IDS: tuple[str, ...] = CANONICAL_PROJECT_RESOURCE_IDS
 PROJECT_RULE_IDS: tuple[str, ...] = CANONICAL_PROJECT_RULE_IDS
@@ -132,6 +133,7 @@ def build_project_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.30"},
         ),
         benchmark_suites=build_project_benchmark_suites(),
+        quality_metrics=build_project_quality_metrics(),
     )
 
 

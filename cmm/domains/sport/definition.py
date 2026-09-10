@@ -15,6 +15,7 @@ from cmm.domains.sport.catalog import (
     CANONICAL_SPORT_RULE_IDS,
     CANONICAL_SPORT_WORKFLOW_IDS,
 )
+from cmm.domains.sport.quality_metrics import build_sport_quality_metrics
 
 SPORT_DOMAIN_ID = "domain:sport"
 SPORT_DOMAIN_VERSION = "1.0.0"
@@ -128,6 +129,7 @@ def build_sport_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.28"},
         ),
         benchmark_suites=build_sport_benchmark_suites(),
+        quality_metrics=build_sport_quality_metrics(),
     )
 
 
