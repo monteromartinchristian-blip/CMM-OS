@@ -3,7 +3,7 @@
 **Phase:** 10.47 — Domain Benchmark Suites
 **Design Point:** `DP-047` — Portable, Model-Agnostic Domain Benchmark Suites
 **Acceptance:** `AT-DP-047` — Connected Domain Benchmark Asset Acceptance
-**Status:** `PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT`
+**Status:** `PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT`
 
 > **Domains define representative evidence cases. Phase 10.48 defines how domain
 > quality is measured. Phase 11 executes and compares models.**
@@ -245,28 +245,39 @@ SRC-R10:R10-C47
     → AT-DP-047
 ```
 
-## 12. Remediation V1 status
+## 12. Remediation V2 status
 
 Independent Audit V1 returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`
 (`docs/audits/phase-10.47-independent-audit-v1.md`, preserved as historical
-evidence). The three findings are remediated and pending independent re-audit:
+evidence).
 
-| Finding | Remediation |
+Corrected Independent Re-audit V2 returned `FAIL` with `BLOCKERS=0`, `MAJORS=2`,
+`MINORS=0` (`docs/audits/phase-10.47-independent-reaudit-v2.md`, preserved as
+historical evidence). `MAJOR_01` was independently verified remediated,
+`MAJOR_04` was withdrawn as a false positive, and `MAJOR_02`/`MAJOR_03` were not
+independently verified remediated. Remediation V2 therefore closes exactly
+`MAJOR_02` and `MAJOR_03`:
+
+| Finding | Remediation V2 |
 | --- | --- |
-| `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING` | `benchmark_suites` is a supported declarative Domain Pack field; suites parse through `DomainBenchmarkSuite.from_dict` and travel through the canonical declarative parser, loader, registry and rollback path |
-| `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED` | Generic JSON schema freezing is separated from metadata authority validation; `required_schema` accepts `provider`/`model` property names while metadata rejects normalized singular/camel/kebab authority aliases recursively |
-| `MAJOR_03=NON_CANONICAL_COST_DIGEST` | `maximum_cost_eur` serializes by numeric `Decimal` value, so semantically equal costs produce identical export bytes and digest |
+| `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING` | Verified remediated by Re-audit V2 and preserved regression-only: `benchmark_suites` remains a supported declarative Domain Pack field parsed through `DomainBenchmarkSuite.from_dict` and the canonical declarative parser, loader, registry and rollback path |
+| `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED` | Metadata authority detection now applies a narrow deterministic authority grammar over normalized keys, rejecting compound authority aliases such as `preferred_model_id`, `candidate_provider_id`, `model_preference`, `routing_model` and their camel/kebab/space and nested variants, while `required_schema` and descriptive keys such as `modeling_notes` remain accepted |
+| `MAJOR_03=NON_CANONICAL_COST_DIGEST` | `maximum_cost_eur` canonical text is derived exactly from the stored `Decimal` coefficient and exponent, so serialization preserves all significant digits and is independent of ambient `decimal` context precision |
 
 ```text
-PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT
+PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT
+
 INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+
 BLOCKERS=0
-MAJORS=3_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJORS=2_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
 MINORS=0
 
-MAJOR_01=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_01=VERIFIED_REMEDIATED
 MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
 MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_04=WITHDRAWN_FALSE_POSITIVE
 
 DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-047=PASS_REPORTED
@@ -274,4 +285,5 @@ CLOSURE_ELIGIBLE=NO
 PHASE10_48=NOT_STARTED
 ```
 
-Independent Re-audit V2 remains pending. Phase 10.48 has not started.
+Remediation V2 is implemented and awaiting independent Re-audit V3. Phase 10.48
+has not started.

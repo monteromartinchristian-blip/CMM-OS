@@ -15,7 +15,8 @@ The roadmap distinguishes clearly between:
 > **Phase 10.44:** complete, independently audited and closed after final independent re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-044=VERIFIED_EXISTING`; `AT-DP-044=PASS`; `CLOSURE_ELIGIBLE=YES`<br>
 > **Phase 10.45:** complete, independently audited and closed after final Independent Re-audit **V4** `PASS`; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `DP-045=VERIFIED_EXISTING`; `AT-DP-045=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `e13a19810ee6f024f1e93dc115c2d32f8ebca835`; bundle SHA-256 `89dd21fd019c04875d214252e27f9a14fd39b9ec572cdd179f4b12cdd5057212`<br>
 > **Phase 10.46:** complete, independently re-audited and closed after Re-audit **V2** `PASS`; historical V1 `FAIL` preserved; `BLOCKERS=0`; `MAJORS=0`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=VERIFIED_REMEDIATED`; `DP-046=VERIFIED_EXISTING`; `AT-DP-046=PASS`; `CLOSURE_ELIGIBLE=YES`; audited implementation HEAD `f62069cf935fff5bbac6055e5a63d9b0302993a6`; bundle SHA-256 `8a7b57f88880092946038a236d3c802f1ea14e7b06e54150fe34928d11686e0a`; final report `docs/audits/phase-10.46-independent-reaudit-v2.md`<br>
-> **Next action:** Phase 10.47 is implemented and pending independent audit; Phase 10.48 has not started<br>
+> **Phase 10.47:** `PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT`; independent Re-audit **V3** pending; `INDEPENDENT_AUDIT_V1=FAIL`; `INDEPENDENT_REAUDIT_V2=FAIL`; `BLOCKERS=0`; `MAJORS=2_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION`; `MINORS=0`; `MAJOR_01=VERIFIED_REMEDIATED`; `MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION`; `MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION`; `MAJOR_04=WITHDRAWN_FALSE_POSITIVE`; `DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION`; `AT-DP-047=PASS_REPORTED`; `CLOSURE_ELIGIBLE=NO`<br>
+> **Next action:** Phase 10.47 remediation V2 awaits independent Re-audit V3; Phase 10.48 has not started<br>
 
 ---
 

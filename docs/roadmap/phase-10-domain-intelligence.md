@@ -6404,31 +6404,43 @@ Acceptance: `tests/domains/test_domain_benchmark_dp047_acceptance.py`.
 Architecture guards: `tests/domains/test_domain_benchmark_architecture.py`.
 
 Independent Audit V1 (`docs/audits/phase-10.47-independent-audit-v1.md`)
-returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`. Remediation V1 fixes
-exactly those three MAJOR findings:
+returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`. Corrected Independent
+Re-audit V2 (`docs/audits/phase-10.47-independent-reaudit-v2.md`) returned `FAIL`
+with `BLOCKERS=0`, `MAJORS=2`, `MINORS=0`; `MAJOR_01` was independently verified
+remediated, `MAJOR_04` was withdrawn as a false positive, and `MAJOR_02`/
+`MAJOR_03` remained not verified remediated. Remediation V2 therefore closes
+exactly those two findings:
 
-- `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING`: `benchmark_suites` is now a
-  supported declarative Domain Pack field parsed through the canonical
+- `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING`: verified remediated and
+  preserved regression-only; `benchmark_suites` remains a supported declarative
+  Domain Pack field parsed through the canonical
   `ParsedDomainPack.from_declarative_dict` → `DomainBenchmarkSuite.from_dict` →
   `DomainDefinition` → existing loader/registry/rollback path.
-- `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED`: generic JSON schema
-  freezing is separated from metadata authority validation; `required_schema`
-  accepts `provider`/`model` property names while `metadata` rejects normalized
-  singular/camel/kebab authority aliases recursively.
-- `MAJOR_03=NON_CANONICAL_COST_DIGEST`: `maximum_cost_eur` serializes by numeric
-  `Decimal` value, so semantically equal costs produce identical export bytes and
-  SHA-256 content digest.
+- `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED`: metadata authority
+  detection now applies a narrow deterministic authority grammar over normalized
+  keys, rejecting compound authority aliases such as `preferred_model_id`,
+  `candidate_provider_id`, `model_preference`, `routing_model` and their
+  camel/kebab/space and nested variants, while `required_schema` and descriptive
+  keys such as `modeling_notes` remain accepted.
+- `MAJOR_03=NON_CANONICAL_COST_DIGEST`: `maximum_cost_eur` canonical text is
+  derived exactly from the stored `Decimal` coefficient and exponent, so
+  serialization preserves all significant digits and is independent of ambient
+  `decimal` context precision.
 
 ```text
-PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT
+PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT
+
 INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+
 BLOCKERS=0
-MAJORS=3_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJORS=2_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
 MINORS=0
 
-MAJOR_01=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_01=VERIFIED_REMEDIATED
 MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
 MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_04=WITHDRAWN_FALSE_POSITIVE
 
 DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-047=PASS_REPORTED
@@ -6436,7 +6448,7 @@ CLOSURE_ELIGIBLE=NO
 PHASE10_48=NOT_STARTED
 ```
 
-Phase 10.47 remediation V1 is implemented and awaiting independent Re-audit V2. Phase 10.48 has not started.
+Phase 10.47 remediation V2 is implemented and awaiting independent Re-audit V3. Phase 10.48 has not started.
 
 ⸻
 
