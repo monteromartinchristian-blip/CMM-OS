@@ -44,31 +44,36 @@ _CASE_ID_RE = re.compile(rf"^benchmark-case:({_SLUG_PATTERN}):({_SLUG_PATTERN})$
 
 # ── Reserved model/provider authority keys ────────────────────────────────────
 
-_RESERVED_AUTHORITY_KEYS = frozenset(
+# Explicit identifiers that are reserved verbatim after normalization.
+_EXPLICIT_RESERVED_AUTHORITY_KEYS = frozenset(
     {
         "model",
+        "models",
         "model_id",
         "model_ids",
         "model_family",
-        "models",
-        "candidate_model",
-        "candidate_models",
-        "preferred_model",
-        "preferred_models",
-        "prohibited_model",
-        "prohibited_models",
         "provider",
+        "providers",
         "provider_id",
         "provider_ids",
-        "providers",
-        "candidate_provider",
-        "candidate_providers",
-        "preferred_provider",
-        "preferred_providers",
-        "prohibited_provider",
-        "prohibited_providers",
         "routing_weight",
         "routing_weights",
+    }
+)
+
+# Narrow tokenized authority grammar (no substring or fuzzy matching).
+# Singular and plural subject nouns are both reserved authority names.
+_AUTHORITY_QUALIFIERS = frozenset({"candidate", "preferred", "prohibited"})
+_AUTHORITY_SUBJECTS = frozenset({"model", "models", "provider", "providers"})
+_AUTHORITY_ID_SUFFIXES = frozenset({"id", "ids"})
+_AUTHORITY_PREFERENCE_TOKENS = frozenset(
+    {
+        "candidate",
+        "candidates",
+        "preference",
+        "preferences",
+        "preferred",
+        "prohibited",
     }
 )
 
@@ -83,6 +88,54 @@ def _normalize_key(key: str) -> str:
     return _NON_IDENTIFIER.sub("_", key).strip("_").lower()
 
 
+def _is_reserved_authority_key(normalized_key: str) -> bool:
+    """Deterministic, auditable model/provider authority-key predicate.
+
+    Applies the narrow compound-authority grammar over exact normalized tokens;
+    unrelated descriptive keys are never rejected on substring grounds.
+    """
+    if normalized_key in _EXPLICIT_RESERVED_AUTHORITY_KEYS:
+        return True
+
+    parts = normalized_key.split("_")
+    head = parts[0]
+    tail = parts[-1]
+
+    # (candidate|preferred|prohibited)_(model|provider)[_(id|ids)]
+    if (
+        head in _AUTHORITY_QUALIFIERS
+        and len(parts) in (2, 3)
+        and parts[1] in _AUTHORITY_SUBJECTS
+        and (len(parts) == 2 or tail in _AUTHORITY_ID_SUFFIXES)
+    ):
+        return True
+
+    # (model|provider)_(candidate|candidates|preference|preferences|preferred|prohibited)
+    if (
+        head in _AUTHORITY_SUBJECTS
+        and len(parts) == 2
+        and tail in _AUTHORITY_PREFERENCE_TOKENS
+    ):
+        return True
+
+    # (model|provider)_(candidate|preferred|prohibited)_(id|ids)
+    if (
+        head in _AUTHORITY_SUBJECTS
+        and len(parts) == 3
+        and parts[1] in _AUTHORITY_QUALIFIERS
+        and tail in _AUTHORITY_ID_SUFFIXES
+    ):
+        return True
+
+    # routing_(model|provider)[_(id|ids)]
+    return (
+        head == "routing"
+        and len(parts) in (2, 3)
+        and parts[1] in _AUTHORITY_SUBJECTS
+        and (len(parts) == 2 or tail in _AUTHORITY_ID_SUFFIXES)
+    )
+
+
 def _reject_reserved_authority_keys(value: Any, field_name: str) -> None:
     """Reject model/provider-selection keys in metadata at any depth.
 
@@ -90,7 +143,7 @@ def _reject_reserved_authority_keys(value: Any, field_name: str) -> None:
     """
     if isinstance(value, Mapping):
         for key, nested in value.items():
-            if isinstance(key, str) and _normalize_key(key) in _RESERVED_AUTHORITY_KEYS:
+            if isinstance(key, str) and _is_reserved_authority_key(_normalize_key(key)):
                 raise DomainContractValidationError(
                     f"{field_name} must not declare model/provider authority key {key!r}",
                     field=field_name,

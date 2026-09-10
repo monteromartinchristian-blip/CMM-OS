@@ -351,6 +351,82 @@ def test_suite_metadata_rejects_nested_authority_aliases() -> None:
         _health_suite(metadata={"policy": {"preferredModel": "x"}})
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"preferred_model_id": "x"},
+        {"candidate_model_id": "x"},
+        {"prohibited_model_id": "x"},
+        {"preferred_model_ids": ["x"]},
+        {"candidate_model_ids": ["x"]},
+        {"prohibited_model_ids": ["x"]},
+        {"preferred_provider_id": "x"},
+        {"candidate_provider_id": "x"},
+        {"prohibited_provider_id": "x"},
+        {"preferred_provider_ids": ["x"]},
+        {"candidate_provider_ids": ["x"]},
+        {"prohibited_provider_ids": ["x"]},
+        {"model_preference": "x"},
+        {"provider_preference": "x"},
+        {"model_candidate": "x"},
+        {"provider_candidates": ["x"]},
+        {"routing_model": "x"},
+        {"routing_provider": "x"},
+        {"routing_model_id": "x"},
+        {"routing_provider_ids": ["x"]},
+    ),
+)
+def test_benchmark_metadata_rejects_compound_authority_aliases(
+    metadata: dict[str, object],
+) -> None:
+    with pytest.raises(DomainError):
+        _health_case(metadata=metadata)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"preferredModelId": "x"},
+        {"PreferredModelId": "x"},
+        {"preferred-model-id": "x"},
+        {"preferred model id": "x"},
+        {"candidateProviderId": "x"},
+        {"prohibitedProviderIds": ["x"]},
+        {"routingProvider": "x"},
+        {"routingProviderId": "x"},
+        {"ModelPreference": "x"},
+    ),
+)
+def test_benchmark_metadata_rejects_normalized_compound_authority_aliases(
+    metadata: dict[str, object],
+) -> None:
+    with pytest.raises(DomainError):
+        _health_case(metadata=metadata)
+
+
+def test_benchmark_metadata_rejects_nested_compound_authority_aliases() -> None:
+    with pytest.raises(DomainError):
+        _health_case(metadata={"evaluation": {"preferredModelId": "provider/model-x"}})
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"modeling_notes": "x"},
+        {"provider_context_description": "x"},
+        {"model_output_description": "x"},
+        {"provider_response_format": "x"},
+        {"routing_explanation": "x"},
+    ),
+)
+def test_benchmark_metadata_accepts_descriptive_model_provider_keys(
+    metadata: dict[str, object],
+) -> None:
+    case = _health_case(metadata=metadata)
+
+    assert set(case.metadata) == set(metadata)
+
+
 def test_metadata_allows_innocent_prose_values() -> None:
     case = _health_case(
         metadata={"note": "the model of care matters", "model_reviewed": "no"}
