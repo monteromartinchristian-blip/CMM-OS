@@ -6386,7 +6386,7 @@ Each case must support:
 
 Benchmark suites must be versioned, reproducible, exportable, and compatible with the Phase 11 Model Evaluation Framework.
 
-Implementation status (Phase 10.47)
+Closure status (Phase 10.47)
 
 Superseded conceptual fields: `candidate_models` removed by the model-agnostic
 design; `quality_criteria` replaced by unweighted `evaluation_criteria`;
@@ -6428,27 +6428,34 @@ exactly those two findings:
   `decimal` context precision.
 
 ```text
-PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT
+PHASE10_47=CLOSED
 
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=FAIL
+INDEPENDENT_REAUDIT_V5=PASS
 
 BLOCKERS=0
-MAJORS=2_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJORS=0
 MINORS=0
 
+MINOR_01=VERIFIED_REMEDIATED
 MAJOR_01=VERIFIED_REMEDIATED
-MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
-MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
 MAJOR_04=WITHDRAWN_FALSE_POSITIVE
 
-DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-047=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
+DP-047=VERIFIED_EXISTING
+AT-DP-047=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=5babd930c9aa01d2a92ab6bd48f70f8a20ed71a0
+AUDIT_V5_BUNDLE_SHA256=2544e6d9e737e7a50dde5c9745df1865b2143ba1f7b2fbfdccec6ed4785b5396
+REAUDIT_V5_REPORT_COMMIT=a4d542a2561ee986129f0e34713c6fb6065e3d8b
 PHASE10_48=NOT_STARTED
 ```
 
-Phase 10.47 remediation V2 is implemented and awaiting independent Re-audit V3. Phase 10.48 has not started.
+Phase 10.47 is complete, independently re-audited and closed after final Re-audit V5 `PASS`. Historical V1/V2/V3/V4 failures remain preserved. Phase 10.48 has not started.
 
 ⸻
 

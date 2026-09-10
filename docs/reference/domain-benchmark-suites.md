@@ -3,7 +3,7 @@
 **Phase:** 10.47 — Domain Benchmark Suites
 **Design Point:** `DP-047` — Portable, Model-Agnostic Domain Benchmark Suites
 **Acceptance:** `AT-DP-047` — Connected Domain Benchmark Asset Acceptance
-**Status:** `PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT`
+**Status:** `PHASE10_47=CLOSED`
 
 > **Domains define representative evidence cases. Phase 10.48 defines how domain
 > quality is measured. Phase 11 executes and compares models.**
@@ -245,45 +245,46 @@ SRC-R10:R10-C47
     → AT-DP-047
 ```
 
-## 12. Remediation V2 status
+## 12. Final audit and closure status
 
-Independent Audit V1 returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`
-(`docs/audits/phase-10.47-independent-audit-v1.md`, preserved as historical
-evidence).
+Audit history is preserved in full:
 
-Corrected Independent Re-audit V2 returned `FAIL` with `BLOCKERS=0`, `MAJORS=2`,
-`MINORS=0` (`docs/audits/phase-10.47-independent-reaudit-v2.md`, preserved as
-historical evidence). `MAJOR_01` was independently verified remediated,
-`MAJOR_04` was withdrawn as a false positive, and `MAJOR_02`/`MAJOR_03` were not
-independently verified remediated. Remediation V2 therefore closes exactly
-`MAJOR_02` and `MAJOR_03`:
+- Independent Audit V1: `FAIL` (`BLOCKERS=0`, `MAJORS=3`, `MINORS=0`).
+- Corrected Independent Re-audit V2: `FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`); `MAJOR_01` verified remediated and `MAJOR_04` withdrawn as a false positive.
+- Independent Re-audit V3: `FAIL` with implementation, `DP-047` and `AT-DP-047` independently verified; one documentation-only MINOR remained.
+- Independent Re-audit V4: `FAIL`; the documentation MINOR was only partially remediated.
+- Independent Re-audit V5: `PASS`; the final documentation MINOR was independently verified remediated.
 
-| Finding | Remediation V2 |
-| --- | --- |
-| `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING` | Verified remediated by Re-audit V2 and preserved regression-only: `benchmark_suites` remains a supported declarative Domain Pack field parsed through `DomainBenchmarkSuite.from_dict` and the canonical declarative parser, loader, registry and rollback path |
-| `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED` | Metadata authority detection now applies a narrow deterministic authority grammar over normalized keys, rejecting compound authority aliases such as `preferred_model_id`, `candidate_provider_id`, `model_preference`, `routing_model` and their camel/kebab/space and nested variants, while `required_schema` and descriptive keys such as `modeling_notes` remain accepted |
-| `MAJOR_03=NON_CANONICAL_COST_DIGEST` | `maximum_cost_eur` canonical text is derived exactly from the stored `Decimal` coefficient and exponent, so serialization preserves all significant digits and is independent of ambient `decimal` context precision |
+Final closure state:
 
 ```text
-PHASE10_47=REMEDIATION_V2_IMPLEMENTED_PENDING_REAUDIT
+PHASE10_47=CLOSED
 
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+INDEPENDENT_REAUDIT_V4=FAIL
+INDEPENDENT_REAUDIT_V5=PASS
 
 BLOCKERS=0
-MAJORS=2_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJORS=0
 MINORS=0
 
+MINOR_01=VERIFIED_REMEDIATED
 MAJOR_01=VERIFIED_REMEDIATED
-MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
-MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=VERIFIED_REMEDIATED
 MAJOR_04=WITHDRAWN_FALSE_POSITIVE
 
-DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-047=PASS_REPORTED
-CLOSURE_ELIGIBLE=NO
+DP-047=VERIFIED_EXISTING
+AT-DP-047=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_IMPLEMENTATION_HEAD=5babd930c9aa01d2a92ab6bd48f70f8a20ed71a0
+AUDIT_V5_BUNDLE_SHA256=2544e6d9e737e7a50dde5c9745df1865b2143ba1f7b2fbfdccec6ed4785b5396
+REAUDIT_V5_REPORT_COMMIT=a4d542a2561ee986129f0e34713c6fb6065e3d8b
 PHASE10_48=NOT_STARTED
 ```
 
-Remediation V2 is implemented and awaiting independent Re-audit V3. Phase 10.48
-has not started.
+Final independent audit report: `docs/audits/phase-10.47-independent-reaudit-v5.md`.
+
+Phase 10.48 has not started.
