@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Context, Decimal, localcontext
 
 import pytest
 
-from cmm.domains.errors import DomainContractValidationError
+from cmm.domains.errors import (
+    DomainContractValidationError,
+    DomainSerializationError,
+)
 from cmm.domains.identifiers import DomainId
 from cmm.domains.quality_contracts import (
+    DomainQualityAssessment,
     DomainQualityHumanReviewResult,
     DomainQualityMetric,
+    DomainQualityMetricResult,
+    assess_domain_quality,
+    build_domain_quality_metric_result,
+    export_domain_quality_assessment,
+    import_domain_quality_assessment,
 )
 
 
@@ -249,3 +259,336 @@ def test_metric_metadata_allows_contract_owned_concepts():
 def test_metric_metadata_must_be_json_safe():
     with pytest.raises(DomainContractValidationError):
         _metric(metadata={"bad": object()})
+
+
+# ── Task 2 – metric results, assessment, export/import ────────────────────────
+
+
+def _build(metric, score, confidence="0.90", evaluator_version="1", **kwargs):
+    return build_domain_quality_metric_result(
+        metric,
+        score=Decimal(score) if isinstance(score, str) else score,
+        evaluator_version=evaluator_version,
+        confidence=Decimal(confidence) if isinstance(confidence, str) else confidence,
+        **kwargs,
+    )
+
+
+def _usefulness_metric(**overrides):
+    data = {
+        "id": "quality-metric:health:usefulness",
+        "name": "usefulness",
+        "evaluator_id": "evaluator:usefulness",
+        "weight": Decimal("0.25"),
+        "minimum_score": Decimal("0.80"),
+        "blocking": False,
+    }
+    data.update(overrides)
+    return _metric(**data)
+
+
+def test_build_metric_result_snapshots_declared_policy():
+    metric = _metric()
+    result = build_domain_quality_metric_result(
+        metric,
+        score=Decimal("0.91"),
+        evaluator_version="3",
+        confidence=Decimal("0.94"),
+        human_review_results=(),
+    )
+    assert isinstance(result, DomainQualityMetricResult)
+    assert result.metric_id == metric.id
+    assert result.domain_id == metric.domain_id
+    assert result.metric_version == metric.version
+    assert result.metric_name == metric.name
+    assert result.weight == metric.weight
+    assert result.minimum_score == metric.minimum_score
+    assert result.blocking is True
+    assert result.evaluator_id == metric.evaluator_id
+    assert result.evaluator_version == "3"
+    assert result.threshold_passed is True
+    assert result.blocking_failure is False
+
+
+def test_build_metric_result_flags_below_threshold_blocking_failure():
+    result = _build(_metric(), "0.89")
+    assert result.threshold_passed is False
+    assert result.blocking_failure is True
+
+
+@pytest.mark.parametrize("value", [1, 0.9, True, "0.9"])
+def test_metric_result_builder_rejects_non_decimal_score(value):
+    with pytest.raises(DomainContractValidationError):
+        build_domain_quality_metric_result(
+            _metric(),
+            score=value,
+            evaluator_version="1",
+            confidence=Decimal("0.9"),
+        )
+
+
+@pytest.mark.parametrize("value", [1, 0.9, True, "0.9"])
+def test_metric_result_builder_rejects_non_decimal_confidence(value):
+    with pytest.raises(DomainContractValidationError):
+        build_domain_quality_metric_result(
+            _metric(),
+            score=Decimal("0.9"),
+            evaluator_version="1",
+            confidence=value,
+        )
+
+
+def test_metric_result_rejects_malformed_id_and_empty_versions():
+    valid = _build(_metric(), "0.9")
+    with pytest.raises(DomainContractValidationError):
+        replace(valid, metric_id="benchmark-case:health:prudence")
+    with pytest.raises(DomainContractValidationError):
+        replace(valid, evaluator_version="  ")
+
+
+def test_assessment_uses_normalized_weighted_mean():
+    a = _metric(
+        id="quality-metric:health:factual-fidelity",
+        name="factual-fidelity",
+        evaluator_id="evaluator:factual-fidelity",
+        weight=Decimal("0.75"),
+        minimum_score=Decimal("0.80"),
+        blocking=False,
+    )
+    b = _metric(
+        id="quality-metric:health:prudence",
+        name="prudence",
+        evaluator_id="evaluator:prudence",
+        weight=Decimal("0.25"),
+        minimum_score=Decimal("0.80"),
+        blocking=True,
+    )
+    ra = _build(a, "1.00", confidence="0.90")
+    rb = _build(b, "0.79", confidence="1.00")
+
+    assessment = assess_domain_quality((a, b), (ra, rb))
+
+    assert assessment.aggregate_score == Decimal("0.9475")
+    assert assessment.confidence == Decimal("0.925")
+    assert assessment.blocking_failures == (b.id,)
+    assert assessment.passed is False
+    assert [r.metric_id for r in assessment.metric_results] == [a.id, b.id]
+
+
+def test_high_aggregate_cannot_compensate_blocking_failure():
+    blocking = _metric(weight=Decimal("0.01"), minimum_score=Decimal("0.90"))
+    other = _usefulness_metric(weight=Decimal("0.99"), minimum_score=Decimal(0))
+    results = (
+        _build(blocking, "0.89", confidence=Decimal(1)),
+        _build(other, Decimal(1), confidence=Decimal(1)),
+    )
+    assessment = assess_domain_quality((blocking, other), results)
+    assert assessment.aggregate_score == Decimal("0.9989")
+    assert assessment.blocking_failures == (blocking.id,)
+    assert assessment.passed is False
+
+
+def test_assessment_weight_normalization_does_not_require_unit_sum():
+    a = _metric(weight=Decimal("0.5"), minimum_score=Decimal("0.5"))
+    b = _usefulness_metric(weight=Decimal("0.5"), minimum_score=Decimal("0.5"))
+    assessment = assess_domain_quality((a, b), (_build(a, "1.0"), _build(b, "0.5")))
+    assert assessment.aggregate_score == Decimal("0.75")
+    assert assessment.passed is True
+
+
+_MUTATIONS = {
+    "version": ("metric_version", "9"),
+    "name": ("metric_name", "other"),
+    "weight": ("weight", Decimal("0.5")),
+    "threshold": ("minimum_score", Decimal("0.1")),
+    "blocking": ("blocking", False),
+    "evaluator": ("evaluator_id", "evaluator:other"),
+}
+
+
+@pytest.mark.parametrize("mutation", sorted(_MUTATIONS))
+def test_assessment_rejects_policy_mismatch(mutation):
+    metric = _metric()
+    result = _build(metric, "0.95")
+    field, value = _MUTATIONS[mutation]
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((metric,), (replace(result, **{field: value}),))
+
+
+def test_assessment_rejects_result_with_wrong_domain():
+    result = _build(_metric(), "0.95")
+    with pytest.raises(DomainContractValidationError):
+        replace(result, domain_id=DomainId(slug="relationships"))
+
+
+def test_assessment_rejects_missing_result():
+    a, b = _metric(), _usefulness_metric()
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((a, b), (_build(a, "0.95"),))
+
+
+def test_assessment_rejects_unexpected_result():
+    a = _metric()
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality(
+            (a,), (_build(a, "0.95"), _build(_usefulness_metric(), "0.9"))
+        )
+
+
+def test_assessment_rejects_duplicate_metric_ids():
+    a = _metric()
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((a, a), (_build(a, "0.95"),))
+
+
+def test_assessment_rejects_duplicate_result_ids():
+    a = _metric()
+    result = _build(a, "0.95")
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((a,), (result, result))
+
+
+def test_assessment_rejects_empty_metrics():
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((), ())
+
+
+def test_assessment_rejects_mixed_domains():
+    a = _metric()
+    other = _metric(
+        id="quality-metric:relationships:usefulness",
+        domain_id=DomainId(slug="relationships"),
+        name="usefulness",
+        evaluator_id="evaluator:usefulness",
+    )
+    with pytest.raises(DomainContractValidationError):
+        assess_domain_quality((a, other), (_build(a, "0.95"), _build(other, "0.95")))
+
+
+def test_assessment_rejects_caller_controlled_derived_state():
+    a = _metric()
+    assessment = assess_domain_quality((a,), (_build(a, "0.95"),))
+
+    with pytest.raises(DomainContractValidationError):
+        DomainQualityAssessment(
+            domain_id=assessment.domain_id,
+            schema_version=assessment.schema_version,
+            metric_results=assessment.metric_results,
+            aggregate_score=assessment.aggregate_score + Decimal("0.01"),
+            confidence=assessment.confidence,
+            blocking_failures=assessment.blocking_failures,
+            passed=assessment.passed,
+        )
+    with pytest.raises(DomainContractValidationError):
+        DomainQualityAssessment(
+            domain_id=assessment.domain_id,
+            schema_version=assessment.schema_version,
+            metric_results=assessment.metric_results,
+            aggregate_score=assessment.aggregate_score,
+            confidence=assessment.confidence,
+            blocking_failures=assessment.blocking_failures,
+            passed=not assessment.passed,
+        )
+    with pytest.raises(DomainContractValidationError):
+        DomainQualityAssessment(
+            domain_id=assessment.domain_id,
+            schema_version=assessment.schema_version,
+            metric_results=assessment.metric_results,
+            aggregate_score=assessment.aggregate_score,
+            confidence=assessment.confidence,
+            blocking_failures=(a.id,),
+            passed=assessment.passed,
+        )
+
+
+def test_assessment_is_decimal_context_independent():
+    a = _metric(weight=Decimal("0.123456789012345678901234567890"))
+    b = _usefulness_metric(weight=Decimal("0.876543210987654321098765432110"))
+    results = (
+        _build(
+            a,
+            "0.8123456789012345678901234567891",
+            confidence="0.7123456789012345678901234567891",
+        ),
+        _build(
+            b,
+            "0.5123456789012345678901234567891",
+            confidence="0.6123456789012345678901234567891",
+        ),
+    )
+    assessments = []
+    payloads = []
+    for precision in (10, 28, 50):
+        with localcontext(Context(prec=precision)):
+            assessment = assess_domain_quality((a, b), results)
+            assessments.append(assessment)
+            payloads.append(export_domain_quality_assessment(assessment))
+    assert assessments[0] == assessments[1] == assessments[2]
+    assert payloads[0] == payloads[1] == payloads[2]
+
+
+def test_assessment_export_is_deterministic_and_round_trips():
+    a = _metric()
+    review = DomainQualityHumanReviewResult(
+        id="quality-review:health:prudence:001",
+        schema_version="1",
+        status="accepted",
+        score=Decimal("0.97"),
+        confidence=Decimal("0.99"),
+        reviewer_ref="reviewer:human",
+        notes=("Prudence preserved.",),
+    )
+    assessment = assess_domain_quality(
+        (a,), (_build(a, "0.95", human_review_results=(review,)),)
+    )
+    payload = export_domain_quality_assessment(assessment)
+    assert isinstance(payload, bytes)
+    assert export_domain_quality_assessment(assessment) == payload
+    assert import_domain_quality_assessment(payload) == assessment
+
+
+def test_import_rejects_non_bytes_payload():
+    with pytest.raises(DomainSerializationError):
+        import_domain_quality_assessment("not-bytes")  # type: ignore[arg-type]
+
+
+def test_import_rejects_invalid_utf8():
+    with pytest.raises(DomainSerializationError):
+        import_domain_quality_assessment(b"\xff\xfe\xfd")
+
+
+def test_import_rejects_invalid_json():
+    with pytest.raises(DomainSerializationError):
+        import_domain_quality_assessment(b"{not json")
+
+
+def test_import_rejects_non_object_payload():
+    with pytest.raises(DomainSerializationError):
+        import_domain_quality_assessment(b"[1, 2, 3]")
+
+
+def test_import_rejects_unknown_fields():
+    a = _metric()
+    import json
+
+    payload = json.loads(
+        export_domain_quality_assessment(
+            assess_domain_quality((a,), (_build(a, "0.95"),))
+        )
+    )
+    payload["unexpected"] = 1
+    with pytest.raises(DomainSerializationError):
+        import_domain_quality_assessment(json.dumps(payload).encode("utf-8"))
+
+
+def test_import_preserves_high_precision_values_exactly():
+    weight = Decimal("0.123456789012345678901234567890")
+    score = Decimal("0.987654321098765432109876543210")
+    a = _metric(weight=weight)
+    b = _usefulness_metric(weight=Decimal(1) - weight)
+    assessment = assess_domain_quality((a, b), (_build(a, score), _build(b, "0.5")))
+    restored = import_domain_quality_assessment(
+        export_domain_quality_assessment(assessment)
+    )
+    assert restored == assessment
+    assert restored.aggregate_score == assessment.aggregate_score

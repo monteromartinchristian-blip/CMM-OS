@@ -12,6 +12,7 @@ elsewhere. It never executes a benchmark, evaluator, model or provider.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
@@ -28,8 +29,14 @@ from cmm.domains.errors import (
 from cmm.domains.identifiers import DomainId, _validate_slug
 
 __all__ = [
+    "DomainQualityAssessment",
     "DomainQualityHumanReviewResult",
     "DomainQualityMetric",
+    "DomainQualityMetricResult",
+    "assess_domain_quality",
+    "build_domain_quality_metric_result",
+    "export_domain_quality_assessment",
+    "import_domain_quality_assessment",
 ]
 
 JsonValue: TypeAlias = (
@@ -767,3 +774,678 @@ class DomainQualityHumanReviewResult:
             )
         except DomainContractValidationError as exc:
             raise _wrap_validation_error(exc) from exc
+
+
+# ── DomainQualityMetricResult ─────────────────────────────────────────────────
+
+_RESULT_KNOWN = frozenset(
+    {
+        "metric_id",
+        "domain_id",
+        "schema_version",
+        "metric_version",
+        "metric_name",
+        "score",
+        "weight",
+        "minimum_score",
+        "blocking",
+        "evaluator_id",
+        "evaluator_version",
+        "confidence",
+        "human_review_results",
+        "metadata",
+    }
+)
+
+
+def _require_review_tuple(value: Any, field_name: str) -> tuple[Any, ...]:
+    if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
+        raise DomainContractValidationError(
+            f"{field_name} must be a tuple or list of DomainQualityHumanReviewResult",
+            field=field_name,
+        )
+    reviews: list[Any] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, DomainQualityHumanReviewResult):
+            raise DomainContractValidationError(
+                f"{field_name}[{index}] must be a DomainQualityHumanReviewResult, "
+                f"got {type(item).__name__}",
+                field=field_name,
+            )
+        reviews.append(item)
+    review_ids = [review.id for review in reviews]
+    if len(set(review_ids)) != len(review_ids):
+        raise DomainContractValidationError(
+            f"{field_name} must not contain duplicate review IDs", field=field_name
+        )
+    return tuple(reviews)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainQualityMetricResult:
+    """Immutable evidence that snapshots the exact policy that produced it."""
+
+    metric_id: str
+    domain_id: DomainId
+    schema_version: str
+    metric_version: str
+    metric_name: str
+    score: Decimal
+    weight: Decimal
+    minimum_score: Decimal
+    blocking: bool
+    evaluator_id: str
+    evaluator_version: str
+    confidence: Decimal
+    human_review_results: tuple[DomainQualityHumanReviewResult, ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        domain_id = _coerce_domain_id(self.domain_id, "domain_id")
+        object.__setattr__(self, "domain_id", domain_id)
+        object.__setattr__(
+            self,
+            "metric_id",
+            _require_quality_metric_id(self.metric_id, domain_id, "metric_id"),
+        )
+        object.__setattr__(
+            self,
+            "schema_version",
+            _require_non_empty_str(self.schema_version, "schema_version"),
+        )
+        object.__setattr__(
+            self,
+            "metric_version",
+            _require_non_empty_str(self.metric_version, "metric_version"),
+        )
+        object.__setattr__(
+            self, "metric_name", _require_non_empty_str(self.metric_name, "metric_name")
+        )
+        object.__setattr__(
+            self,
+            "score",
+            _require_decimal(self.score, "score", minimum=_ZERO, maximum=_ONE),
+        )
+        object.__setattr__(
+            self,
+            "weight",
+            _require_decimal(
+                self.weight, "weight", exclusive_minimum=_ZERO, maximum=_ONE
+            ),
+        )
+        object.__setattr__(
+            self,
+            "minimum_score",
+            _require_decimal(
+                self.minimum_score, "minimum_score", minimum=_ZERO, maximum=_ONE
+            ),
+        )
+        object.__setattr__(
+            self, "blocking", _require_strict_bool(self.blocking, "blocking")
+        )
+        object.__setattr__(
+            self,
+            "evaluator_id",
+            _require_non_empty_str(self.evaluator_id, "evaluator_id"),
+        )
+        object.__setattr__(
+            self,
+            "evaluator_version",
+            _require_non_empty_str(self.evaluator_version, "evaluator_version"),
+        )
+        object.__setattr__(
+            self,
+            "confidence",
+            _require_decimal(
+                self.confidence, "confidence", minimum=_ZERO, maximum=_ONE
+            ),
+        )
+        object.__setattr__(
+            self,
+            "human_review_results",
+            _require_review_tuple(self.human_review_results, "human_review_results"),
+        )
+        object.__setattr__(
+            self, "metadata", _require_quality_metadata(self.metadata, "metadata")
+        )
+
+    @property
+    def threshold_passed(self) -> bool:
+        """Derived: the score met or exceeded the declared minimum."""
+        return self.score >= self.minimum_score
+
+    @property
+    def blocking_failure(self) -> bool:
+        """Derived: a blocking metric missed its declared minimum."""
+        return self.blocking and not self.threshold_passed
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize deterministically to a JSON-compatible dictionary."""
+        return {
+            "metric_id": self.metric_id,
+            "domain_id": str(self.domain_id),
+            "schema_version": self.schema_version,
+            "metric_version": self.metric_version,
+            "metric_name": self.metric_name,
+            "score": _canonical_decimal_text(self.score),
+            "weight": _canonical_decimal_text(self.weight),
+            "minimum_score": _canonical_decimal_text(self.minimum_score),
+            "blocking": self.blocking,
+            "evaluator_id": self.evaluator_id,
+            "evaluator_version": self.evaluator_version,
+            "confidence": _canonical_decimal_text(self.confidence),
+            "human_review_results": [
+                review.to_dict() for review in self.human_review_results
+            ],
+            "metadata": _thaw_json(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainQualityMetricResult:
+        """Deserialize strictly, rejecting unknown or forbidden fields."""
+        if not isinstance(data, Mapping):
+            raise DomainSerializationError(
+                "DomainQualityMetricResult.from_dict requires a mapping", field="data"
+            )
+        _reject_unknown_fields(data, _RESULT_KNOWN, "DomainQualityMetricResult")
+        missing = {
+            "metric_id",
+            "domain_id",
+            "schema_version",
+            "metric_version",
+            "metric_name",
+            "score",
+            "weight",
+            "minimum_score",
+            "blocking",
+            "evaluator_id",
+            "evaluator_version",
+            "confidence",
+        } - set(data.keys())
+        if missing:
+            raise DomainSerializationError(
+                "DomainQualityMetricResult.from_dict missing required fields: "
+                f"{sorted(missing)}",
+                field="data",
+            )
+        reviews_raw = data.get("human_review_results", ())
+        if reviews_raw is None:
+            reviews_raw = ()
+        if isinstance(reviews_raw, (str, bytes, bytearray)) or not isinstance(
+            reviews_raw, (list, tuple)
+        ):
+            raise DomainSerializationError(
+                "human_review_results must be a list", field="human_review_results"
+            )
+        reviews: list[DomainQualityHumanReviewResult] = []
+        for index, item in enumerate(reviews_raw):
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"human_review_results[{index}] must be a mapping, "
+                    f"got {type(item).__name__}",
+                    field=f"human_review_results[{index}]",
+                )
+            try:
+                reviews.append(DomainQualityHumanReviewResult.from_dict(dict(item)))
+            except DomainContractValidationError as exc:
+                raise _wrap_validation_error(exc) from exc
+        try:
+            return cls(
+                metric_id=data["metric_id"],
+                domain_id=data["domain_id"],
+                schema_version=data["schema_version"],
+                metric_version=data["metric_version"],
+                metric_name=data["metric_name"],
+                score=_decimal_from_dict(
+                    data["score"], "score", minimum=_ZERO, maximum=_ONE
+                ),
+                weight=_decimal_from_dict(
+                    data["weight"], "weight", exclusive_minimum=_ZERO, maximum=_ONE
+                ),
+                minimum_score=_decimal_from_dict(
+                    data["minimum_score"], "minimum_score", minimum=_ZERO, maximum=_ONE
+                ),
+                blocking=data["blocking"],
+                evaluator_id=data["evaluator_id"],
+                evaluator_version=data["evaluator_version"],
+                confidence=_decimal_from_dict(
+                    data["confidence"], "confidence", minimum=_ZERO, maximum=_ONE
+                ),
+                human_review_results=tuple(reviews),
+                metadata=data.get("metadata", {}),
+            )
+        except DomainContractValidationError as exc:
+            raise _wrap_validation_error(exc) from exc
+
+
+def build_domain_quality_metric_result(
+    metric: DomainQualityMetric,
+    *,
+    score: Decimal,
+    evaluator_version: str,
+    confidence: Decimal,
+    human_review_results: Sequence[DomainQualityHumanReviewResult] = (),
+    metadata: Mapping[str, Any] | None = None,
+) -> DomainQualityMetricResult:
+    """Snapshot a declared metric policy into supplied evidence.
+
+    Only the *observed* values (``score``, ``evaluator_version``,
+    ``confidence``, evidence, metadata) come from the caller. Identity,
+    version, name, weight, threshold, blocking flag and evaluator ID are
+    copied from the declared metric and cannot be overridden.
+    """
+    if not isinstance(metric, DomainQualityMetric):
+        raise DomainContractValidationError(
+            "metric must be a DomainQualityMetric", field="metric"
+        )
+    return DomainQualityMetricResult(
+        metric_id=metric.id,
+        domain_id=metric.domain_id,
+        schema_version=metric.schema_version,
+        metric_version=metric.version,
+        metric_name=metric.name,
+        score=score,
+        weight=metric.weight,
+        minimum_score=metric.minimum_score,
+        blocking=metric.blocking,
+        evaluator_id=metric.evaluator_id,
+        evaluator_version=evaluator_version,
+        confidence=confidence,
+        human_review_results=tuple(human_review_results),
+        metadata={} if metadata is None else metadata,
+    )
+
+
+# ── DomainQualityAssessment ───────────────────────────────────────────────────
+
+_ASSESSMENT_KNOWN = frozenset(
+    {
+        "domain_id",
+        "schema_version",
+        "metric_results",
+        "aggregate_score",
+        "confidence",
+        "blocking_failures",
+        "passed",
+        "metadata",
+    }
+)
+
+
+def _require_metric_result_tuple(
+    value: Any, field_name: str
+) -> tuple[DomainQualityMetricResult, ...]:
+    if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
+        raise DomainContractValidationError(
+            f"{field_name} must be a tuple or list of DomainQualityMetricResult",
+            field=field_name,
+        )
+    if not value:
+        raise DomainContractValidationError(
+            f"{field_name} must contain at least one result", field=field_name
+        )
+    results: list[DomainQualityMetricResult] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, DomainQualityMetricResult):
+            raise DomainContractValidationError(
+                f"{field_name}[{index}] must be a DomainQualityMetricResult, "
+                f"got {type(item).__name__}",
+                field=field_name,
+            )
+        results.append(item)
+    result_ids = [result.metric_id for result in results]
+    if len(set(result_ids)) != len(result_ids):
+        raise DomainContractValidationError(
+            f"{field_name} must not contain duplicate metric IDs", field=field_name
+        )
+    return tuple(results)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainQualityAssessment:
+    """Immutable, deterministic aggregate of already-produced metric evidence."""
+
+    domain_id: DomainId
+    schema_version: str
+    metric_results: tuple[DomainQualityMetricResult, ...]
+    aggregate_score: Decimal
+    confidence: Decimal
+    blocking_failures: tuple[str, ...]
+    passed: bool
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        domain_id = _coerce_domain_id(self.domain_id, "domain_id")
+        object.__setattr__(self, "domain_id", domain_id)
+        object.__setattr__(
+            self,
+            "schema_version",
+            _require_non_empty_str(self.schema_version, "schema_version"),
+        )
+        results = _require_metric_result_tuple(self.metric_results, "metric_results")
+        object.__setattr__(self, "metric_results", results)
+        for index, result in enumerate(results):
+            if result.domain_id != domain_id:
+                raise DomainContractValidationError(
+                    f"metric_results[{index}] domain_id '{result.domain_id}' must "
+                    f"match assessment domain_id '{domain_id}'",
+                    field="metric_results",
+                )
+
+        expected_aggregate = _weighted_mean(
+            [(result.score, result.weight) for result in results]
+        )
+        expected_confidence = _weighted_mean(
+            [(result.confidence, result.weight) for result in results]
+        )
+        expected_failures = tuple(
+            result.metric_id for result in results if result.blocking_failure
+        )
+
+        aggregate_score = _require_decimal(
+            self.aggregate_score, "aggregate_score", minimum=_ZERO, maximum=_ONE
+        )
+        confidence = _require_decimal(
+            self.confidence, "confidence", minimum=_ZERO, maximum=_ONE
+        )
+        if aggregate_score != expected_aggregate:
+            raise DomainContractValidationError(
+                "aggregate_score must equal the canonical weighted mean "
+                f"{expected_aggregate}, got {aggregate_score}",
+                field="aggregate_score",
+            )
+        if confidence != expected_confidence:
+            raise DomainContractValidationError(
+                "confidence must equal the canonical weighted mean "
+                f"{expected_confidence}, got {confidence}",
+                field="confidence",
+            )
+        object.__setattr__(self, "aggregate_score", aggregate_score)
+        object.__setattr__(self, "confidence", confidence)
+
+        blocking_failures = _require_str_tuple(
+            self.blocking_failures, "blocking_failures"
+        )
+        if blocking_failures != expected_failures:
+            raise DomainContractValidationError(
+                "blocking_failures must equal the canonical derived failures "
+                f"{expected_failures}",
+                field="blocking_failures",
+            )
+        object.__setattr__(self, "blocking_failures", blocking_failures)
+
+        passed = _require_strict_bool(self.passed, "passed")
+        if passed is not (not expected_failures):
+            raise DomainContractValidationError(
+                f"passed must be {not expected_failures} for this evidence",
+                field="passed",
+            )
+        object.__setattr__(self, "passed", passed)
+        object.__setattr__(
+            self, "metadata", _require_quality_metadata(self.metadata, "metadata")
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize deterministically to a JSON-compatible dictionary."""
+        return {
+            "domain_id": str(self.domain_id),
+            "schema_version": self.schema_version,
+            "metric_results": [result.to_dict() for result in self.metric_results],
+            "aggregate_score": _canonical_decimal_text(self.aggregate_score),
+            "confidence": _canonical_decimal_text(self.confidence),
+            "blocking_failures": list(self.blocking_failures),
+            "passed": self.passed,
+            "metadata": _thaw_json(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DomainQualityAssessment:
+        """Deserialize strictly, rejecting unknown or forbidden fields."""
+        if not isinstance(data, Mapping):
+            raise DomainSerializationError(
+                "DomainQualityAssessment.from_dict requires a mapping", field="data"
+            )
+        _reject_unknown_fields(data, _ASSESSMENT_KNOWN, "DomainQualityAssessment")
+        missing = {
+            "domain_id",
+            "schema_version",
+            "metric_results",
+            "aggregate_score",
+            "confidence",
+            "blocking_failures",
+            "passed",
+        } - set(data.keys())
+        if missing:
+            raise DomainSerializationError(
+                "DomainQualityAssessment.from_dict missing required fields: "
+                f"{sorted(missing)}",
+                field="data",
+            )
+        results_raw = data["metric_results"]
+        if isinstance(results_raw, (str, bytes, bytearray)) or not isinstance(
+            results_raw, (list, tuple)
+        ):
+            raise DomainSerializationError(
+                "metric_results must be a list", field="metric_results"
+            )
+        results: list[DomainQualityMetricResult] = []
+        for index, item in enumerate(results_raw):
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"metric_results[{index}] must be a mapping, "
+                    f"got {type(item).__name__}",
+                    field=f"metric_results[{index}]",
+                )
+            try:
+                results.append(DomainQualityMetricResult.from_dict(dict(item)))
+            except DomainContractValidationError as exc:
+                raise _wrap_validation_error(exc) from exc
+
+        blocking_failures_raw = data["blocking_failures"]
+        if isinstance(blocking_failures_raw, (str, bytes, bytearray)) or not isinstance(
+            blocking_failures_raw, (list, tuple)
+        ):
+            raise DomainSerializationError(
+                "blocking_failures must be a list", field="blocking_failures"
+            )
+        try:
+            return cls(
+                domain_id=data["domain_id"],
+                schema_version=data["schema_version"],
+                metric_results=tuple(results),
+                aggregate_score=_decimal_from_dict(
+                    data["aggregate_score"],
+                    "aggregate_score",
+                    minimum=_ZERO,
+                    maximum=_ONE,
+                ),
+                confidence=_decimal_from_dict(
+                    data["confidence"], "confidence", minimum=_ZERO, maximum=_ONE
+                ),
+                blocking_failures=tuple(blocking_failures_raw),
+                passed=data["passed"],
+                metadata=data.get("metadata", {}),
+            )
+        except DomainContractValidationError as exc:
+            raise _wrap_validation_error(exc) from exc
+
+
+def _require_policy_binding(
+    metric: DomainQualityMetric, result: DomainQualityMetricResult
+) -> None:
+    """Fail closed unless the evidence snapshots the declared policy exactly."""
+    if result.domain_id != metric.domain_id:
+        raise DomainContractValidationError(
+            f"result '{result.metric_id}' domain_id '{result.domain_id}' must match "
+            f"declared domain '{metric.domain_id}'",
+            field="metric_results",
+        )
+    mismatches: list[str] = []
+    if result.metric_version != metric.version:
+        mismatches.append("metric_version")
+    if result.metric_name != metric.name:
+        mismatches.append("metric_name")
+    if result.weight != metric.weight:
+        mismatches.append("weight")
+    if result.minimum_score != metric.minimum_score:
+        mismatches.append("minimum_score")
+    if result.blocking is not metric.blocking:
+        mismatches.append("blocking")
+    if result.evaluator_id != metric.evaluator_id:
+        mismatches.append("evaluator_id")
+    if mismatches:
+        raise DomainContractValidationError(
+            f"result '{result.metric_id}' does not match the declared policy "
+            f"(fields: {sorted(mismatches)})",
+            field="metric_results",
+            details={"metric_id": result.metric_id, "fields": sorted(mismatches)},
+        )
+
+
+def assess_domain_quality(
+    metrics: Sequence[DomainQualityMetric],
+    results: Sequence[DomainQualityMetricResult],
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> DomainQualityAssessment:
+    """Deterministically aggregate already-produced evidence for a declared policy.
+
+    Validation and arithmetic only: no benchmark, evaluator, model or provider
+    is ever executed, and the ambient decimal context cannot change the result.
+    """
+    if isinstance(metrics, (str, bytes, bytearray)) or not isinstance(
+        metrics, Sequence
+    ):
+        raise DomainContractValidationError(
+            "metrics must be a tuple or list of DomainQualityMetric", field="metrics"
+        )
+    if not metrics:
+        raise DomainContractValidationError(
+            "metrics must contain at least one declared metric", field="metrics"
+        )
+    declared: list[DomainQualityMetric] = []
+    for index, metric in enumerate(metrics):
+        if not isinstance(metric, DomainQualityMetric):
+            raise DomainContractValidationError(
+                f"metrics[{index}] must be a DomainQualityMetric, "
+                f"got {type(metric).__name__}",
+                field="metrics",
+            )
+        declared.append(metric)
+    declared_ids = [metric.id for metric in declared]
+    if len(set(declared_ids)) != len(declared_ids):
+        raise DomainContractValidationError(
+            "metrics must not contain duplicate metric IDs", field="metrics"
+        )
+    domain_id = declared[0].domain_id
+    for metric in declared:
+        if metric.domain_id != domain_id:
+            raise DomainContractValidationError(
+                "all declared metrics must belong to the same domain",
+                field="metrics",
+            )
+
+    if isinstance(results, (str, bytes, bytearray)) or not isinstance(
+        results, Sequence
+    ):
+        raise DomainContractValidationError(
+            "results must be a tuple or list of DomainQualityMetricResult",
+            field="results",
+        )
+    provided: list[DomainQualityMetricResult] = []
+    for index, result in enumerate(results):
+        if not isinstance(result, DomainQualityMetricResult):
+            raise DomainContractValidationError(
+                f"results[{index}] must be a DomainQualityMetricResult, "
+                f"got {type(result).__name__}",
+                field="results",
+            )
+        provided.append(result)
+    provided_ids = [result.metric_id for result in provided]
+    if len(set(provided_ids)) != len(provided_ids):
+        raise DomainContractValidationError(
+            "results must not contain duplicate metric IDs", field="results"
+        )
+
+    declared_set = set(declared_ids)
+    provided_set = set(provided_ids)
+    missing = sorted(declared_set - provided_set)
+    if missing:
+        raise DomainContractValidationError(
+            f"missing declared metric results: {missing}",
+            field="results",
+            details={"missing": missing},
+        )
+    unexpected = sorted(provided_set - declared_set)
+    if unexpected:
+        raise DomainContractValidationError(
+            f"unexpected metric results: {unexpected}",
+            field="results",
+            details={"unexpected": unexpected},
+        )
+
+    by_id = {result.metric_id: result for result in provided}
+    ordered: list[DomainQualityMetricResult] = []
+    for metric in declared:
+        result = by_id[metric.id]
+        _require_policy_binding(metric, result)
+        ordered.append(result)
+
+    aggregate_score = _weighted_mean(
+        [(result.score, result.weight) for result in ordered]
+    )
+    confidence = _weighted_mean(
+        [(result.confidence, result.weight) for result in ordered]
+    )
+    blocking_failures = tuple(
+        result.metric_id for result in ordered if result.blocking_failure
+    )
+
+    return DomainQualityAssessment(
+        domain_id=domain_id,
+        schema_version=declared[0].schema_version,
+        metric_results=tuple(ordered),
+        aggregate_score=aggregate_score,
+        confidence=confidence,
+        blocking_failures=blocking_failures,
+        passed=not blocking_failures,
+        metadata={} if metadata is None else metadata,
+    )
+
+
+# ── Deterministic assessment export / import ──────────────────────────────────
+
+
+def export_domain_quality_assessment(assessment: DomainQualityAssessment) -> bytes:
+    """Export an assessment as canonical UTF-8 JSON bytes (deterministic)."""
+    if not isinstance(assessment, DomainQualityAssessment):
+        raise DomainContractValidationError(
+            "export_domain_quality_assessment requires a DomainQualityAssessment",
+            field="assessment",
+        )
+    payload = json.dumps(
+        assessment.to_dict(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return payload.encode("utf-8")
+
+
+def import_domain_quality_assessment(payload: bytes) -> DomainQualityAssessment:
+    """Import an assessment from canonical JSON bytes, failing closed on defect."""
+    if not isinstance(payload, (bytes, bytearray)):
+        raise DomainSerializationError(
+            "import_domain_quality_assessment requires bytes", field="payload"
+        )
+    try:
+        data = json.loads(bytes(payload).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DomainSerializationError(
+            f"invalid domain quality assessment payload: {exc}", field="payload"
+        ) from exc
+    if not isinstance(data, Mapping):
+        raise DomainSerializationError(
+            "domain quality assessment payload must be a JSON object", field="payload"
+        )
+    return DomainQualityAssessment.from_dict(data)
