@@ -141,13 +141,15 @@ semantics).
 ### 3.1 Context-independent assessment arithmetic
 
 The normalized weighted means are computed with exact rational arithmetic
-(`fractions.Fraction`) and reconstructed as `Decimal` from the exact
-coefficient/exponent tuple. Finite `Decimal` operands therefore never lose
-precision regardless of ambient context precision. A non-terminating ratio
-(impossible for the bounded operations over finite decimals in practice) is
-rounded deterministically under a local context whose precision is derived from
-the operand magnitudes with `ROUND_HALF_EVEN`. The process-global decimal
-context is never mutated.
+(`fractions.Fraction`) and reconstructed as `Decimal`. Weighted operands are
+converted exactly to rational values before division. When the normalized
+rational has a terminating decimal expansion, reconstruction is exact. Finite
+`Decimal` inputs can still produce a non-terminating normalized ratio (for
+example, a value equivalent to `2/3`); in that case the contract uses
+deterministic bounded `ROUND_HALF_EVEN` reconstruction derived from operand
+magnitudes. The result is therefore independent of the process-global decimal
+context even when exact finite `Decimal` representation is impossible, and the
+process-global decimal context is never mutated.
 
 Tests prove identical behaviour under `prec=10`, `prec=28` and `prec=50`.
 
