@@ -748,6 +748,16 @@ class TestPublicAPI:
                 "import_domain_quality_assessment",
             }
         )
+        # Phase 10.49 – declarative domain knowledge package schemas
+        expected.update(
+            {
+                "DomainKnowledgePackageFieldPolicy",
+                "DomainKnowledgePackageSchema",
+                "EffectiveDomainKnowledgePackageSchema",
+                "compose_domain_knowledge_package_schemas",
+                "validate_domain_knowledge_package",
+            }
+        )
         assert set(cmm.domains.__all__) == expected
 
     def test_all_symbols_accessible_from_package(self) -> None:
@@ -757,7 +767,7 @@ class TestPublicAPI:
 
     def test_no_unexpected_symbols_in_package(self) -> None:
         """Ensure we have exactly the right number of public symbols."""
-        assert len(cmm.domains.__all__) == 623
+        assert len(cmm.domains.__all__) == 628
 
     def test_domain_status_all_values(self) -> None:
         """Verify DomainStatus enum values via package access."""
@@ -842,6 +852,74 @@ class TestPhase1038PublicSurface:
             "evaluate_domain_trust_permission",
         }
         assert forbidden_public.isdisjoint(set(cmm.domains.__all__))
+
+
+class TestPhase1049PublicSurface:
+    """Phase 10.49 — knowledge package schema contracts and pure helpers only."""
+
+    def test_contracts_and_pure_helpers_exported(self) -> None:
+        from cmm.domains.knowledge_package_composition import (
+            compose_domain_knowledge_package_schemas,
+        )
+        from cmm.domains.knowledge_package_contracts import (
+            DomainKnowledgePackageFieldPolicy,
+            DomainKnowledgePackageSchema,
+            EffectiveDomainKnowledgePackageSchema,
+        )
+        from cmm.domains.knowledge_package_validation import (
+            validate_domain_knowledge_package,
+        )
+
+        assert (
+            cmm.domains.DomainKnowledgePackageFieldPolicy
+            is DomainKnowledgePackageFieldPolicy
+        )
+        assert cmm.domains.DomainKnowledgePackageSchema is DomainKnowledgePackageSchema
+        assert (
+            cmm.domains.EffectiveDomainKnowledgePackageSchema
+            is EffectiveDomainKnowledgePackageSchema
+        )
+        assert (
+            cmm.domains.compose_domain_knowledge_package_schemas
+            is compose_domain_knowledge_package_schemas
+        )
+        assert (
+            cmm.domains.validate_domain_knowledge_package
+            is validate_domain_knowledge_package
+        )
+
+    def test_approved_symbols_in_all(self) -> None:
+        approved = {
+            "DomainKnowledgePackageFieldPolicy",
+            "DomainKnowledgePackageSchema",
+            "EffectiveDomainKnowledgePackageSchema",
+            "compose_domain_knowledge_package_schemas",
+            "validate_domain_knowledge_package",
+        }
+        assert approved <= set(cmm.domains.__all__)
+
+    def test_no_parallel_knowledge_package_infrastructure_exported(self) -> None:
+        forbidden = {
+            "DomainKnowledgePackageBuilder",
+            "DomainKnowledgePackageRegistry",
+            "DomainKnowledgeRegistry",
+            "DomainKnowledgePackageLoader",
+            "DomainKnowledgeLoader",
+            "DomainKnowledgePackageResolver",
+            "DomainKnowledgeResolver",
+            "DomainKnowledgePackageStore",
+            "DomainKnowledgeStore",
+            "DomainKnowledgePackageRuntime",
+            "DomainKnowledgeRuntime",
+            "DomainKnowledgePackageEngine",
+            "DomainKnowledgeEngine",
+        }
+        assert forbidden.isdisjoint(set(cmm.domains.__all__))
+
+    def test_import_creates_no_knowledge_package_state(self) -> None:
+        assert not hasattr(cmm.domains, "_knowledge_package_registry")
+        assert not hasattr(cmm.domains, "_knowledge_package_store")
+        assert not hasattr(cmm.domains, "_knowledge_package_builder")
 
 
 class TestPhase1038ImportSafety:

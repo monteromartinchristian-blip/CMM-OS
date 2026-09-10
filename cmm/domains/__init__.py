@@ -1512,3 +1512,25 @@ __all__ += [
     "export_domain_quality_assessment",
     "import_domain_quality_assessment",
 ]
+
+# ── Phase 10.49 – Domain Knowledge Package Schema Exports ────────────────────
+
+from cmm.domains.knowledge_package_composition import (
+    compose_domain_knowledge_package_schemas,
+)
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageFieldPolicy,
+    DomainKnowledgePackageSchema,
+    EffectiveDomainKnowledgePackageSchema,
+)
+from cmm.domains.knowledge_package_validation import (
+    validate_domain_knowledge_package,
+)
+
+__all__ += [
+    "DomainKnowledgePackageFieldPolicy",
+    "DomainKnowledgePackageSchema",
+    "EffectiveDomainKnowledgePackageSchema",
+    "compose_domain_knowledge_package_schemas",
+    "validate_domain_knowledge_package",
+]
