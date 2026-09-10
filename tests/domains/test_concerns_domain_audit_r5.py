@@ -43,10 +43,10 @@ def _concerns_modules() -> list[Path]:
 
 
 def test_concerns_package_has_no_import_from_any_specialized_domain_package():
-    """AST import scan over all 15 Concerns modules: zero imports from any
+    """AST import scan over all 16 Concerns modules: zero imports from any
     sibling specialized domain package (I-004)."""
     modules = _concerns_modules()
-    assert len(modules) == 15, [m.name for m in modules]
+    assert len(modules) == 16, [m.name for m in modules]
     violations: list[str] = []
     for module in modules:
         tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))

@@ -18,6 +18,7 @@ from cmm.domains.oppositions.catalog import (
     CANONICAL_OPPOSITION_RULE_IDS,
     CANONICAL_OPPOSITION_WORKFLOW_IDS,
 )
+from cmm.domains.oppositions.quality_metrics import build_oppositions_quality_metrics
 
 OPPOSITIONS_DOMAIN_ID = "domain:oppositions"
 OPPOSITIONS_DOMAIN_VERSION = "1.0.0"
@@ -122,6 +123,7 @@ def build_oppositions_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.23"},
         ),
         benchmark_suites=build_oppositions_benchmark_suites(),
+        quality_metrics=build_oppositions_quality_metrics(),
     )
 
 

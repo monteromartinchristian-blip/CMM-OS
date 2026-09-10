@@ -16,6 +16,7 @@ from cmm.domains.languages.catalog import (
     CANONICAL_LANGUAGES_RULE_IDS,
     CANONICAL_LANGUAGES_WORKFLOW_IDS,
 )
+from cmm.domains.languages.quality_metrics import build_languages_quality_metrics
 
 LANGUAGES_DOMAIN_ID = "domain:languages"
 LANGUAGES_DOMAIN_VERSION = "1.0.0"
@@ -148,6 +149,7 @@ def build_languages_domain_definition() -> DomainDefinition:
             metadata={"phase": "10.26"},
         ),
         benchmark_suites=build_languages_benchmark_suites(),
+        quality_metrics=build_languages_quality_metrics(),
     )
 
 

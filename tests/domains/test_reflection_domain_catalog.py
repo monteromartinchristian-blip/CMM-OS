@@ -146,6 +146,7 @@ def test_package_boundary_exactly_14_modules():
         "permissions.py",
         "presentation.py",
         "profile.py",
+        "quality_metrics.py",
         "resources.py",
         "rules.py",
         "trace.py",

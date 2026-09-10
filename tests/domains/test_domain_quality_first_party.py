@@ -6,10 +6,18 @@ from decimal import Decimal
 
 import pytest
 
+from cmm.domains.concerns.definition import build_concerns_domain_definition
+from cmm.domains.concerns.quality_metrics import build_concerns_quality_metrics
 from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.general.quality_metrics import build_general_quality_metrics
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.health.quality_metrics import build_health_quality_metrics
+from cmm.domains.languages.definition import build_languages_domain_definition
+from cmm.domains.languages.quality_metrics import build_languages_quality_metrics
+from cmm.domains.oppositions.definition import build_oppositions_domain_definition
+from cmm.domains.oppositions.quality_metrics import build_oppositions_quality_metrics
+from cmm.domains.reflection.definition import build_reflection_domain_definition
+from cmm.domains.reflection.quality_metrics import build_reflection_quality_metrics
 from cmm.domains.relationships.definition import (
     build_relationships_domain_definition,
 )
@@ -49,6 +57,37 @@ EXPECTED: dict[str, tuple[tuple[str, str, str, bool], ...]] = {
         ("plan-quality", "0.20", "0.75", False),
         ("factual-fidelity", "0.10", "0.80", False),
     ),
+    "oppositions": (
+        ("official-source-fidelity", "0.25", "0.90", True),
+        ("temporal-correctness", "0.25", "0.90", True),
+        ("requirement-precision", "0.20", "0.85", True),
+        ("contextual-continuity", "0.15", "0.75", False),
+        ("usefulness", "0.15", "0.70", False),
+    ),
+    "reflection": (
+        ("epistemic-separation", "0.25", "0.80", True),
+        ("ambiguity-preservation", "0.20", "0.75", False),
+        ("contextual-continuity", "0.20", "0.75", False),
+        ("depth", "0.20", "0.65", False),
+        ("user-agency", "0.15", "0.80", True),
+    ),
+    "concerns": (
+        ("contextual-understanding", "0.15", "0.75", False),
+        ("support-need-calibration", "0.15", "0.80", True),
+        ("epistemic-separation", "0.15", "0.85", True),
+        ("reassurance-calibration", "0.15", "0.85", True),
+        ("proportional-risk", "0.15", "0.90", True),
+        ("useful-questioning", "0.10", "0.70", False),
+        ("non-pathologizing-recurrence", "0.075", "0.85", True),
+        ("user-agency", "0.075", "0.80", True),
+    ),
+    "languages": (
+        ("linguistic-correctness", "0.30", "0.80", True),
+        ("level-alignment", "0.20", "0.75", False),
+        ("instruction-compliance", "0.20", "0.80", True),
+        ("usefulness", "0.15", "0.70", False),
+        ("clarity", "0.15", "0.70", False),
+    ),
 }
 
 DEFINITION_BUILDERS = {
@@ -56,6 +95,10 @@ DEFINITION_BUILDERS = {
     "health": build_health_domain_definition,
     "relationships": build_relationships_domain_definition,
     "university": build_university_domain_definition,
+    "oppositions": build_oppositions_domain_definition,
+    "reflection": build_reflection_domain_definition,
+    "concerns": build_concerns_domain_definition,
+    "languages": build_languages_domain_definition,
 }
 
 FACTORY_BUILDERS = {
@@ -63,6 +106,10 @@ FACTORY_BUILDERS = {
     "health": build_health_quality_metrics,
     "relationships": build_relationships_quality_metrics,
     "university": build_university_quality_metrics,
+    "oppositions": build_oppositions_quality_metrics,
+    "reflection": build_reflection_quality_metrics,
+    "concerns": build_concerns_quality_metrics,
+    "languages": build_languages_quality_metrics,
 }
 
 
