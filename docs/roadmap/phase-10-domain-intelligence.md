@@ -6403,15 +6403,40 @@ all twelve implemented first-party packs; public exports in
 Acceptance: `tests/domains/test_domain_benchmark_dp047_acceptance.py`.
 Architecture guards: `tests/domains/test_domain_benchmark_architecture.py`.
 
+Independent Audit V1 (`docs/audits/phase-10.47-independent-audit-v1.md`)
+returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`. Remediation V1 fixes
+exactly those three MAJOR findings:
+
+- `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING`: `benchmark_suites` is now a
+  supported declarative Domain Pack field parsed through the canonical
+  `ParsedDomainPack.from_declarative_dict` → `DomainBenchmarkSuite.from_dict` →
+  `DomainDefinition` → existing loader/registry/rollback path.
+- `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED`: generic JSON schema
+  freezing is separated from metadata authority validation; `required_schema`
+  accepts `provider`/`model` property names while `metadata` rejects normalized
+  singular/camel/kebab authority aliases recursively.
+- `MAJOR_03=NON_CANONICAL_COST_DIGEST`: `maximum_cost_eur` serializes by numeric
+  `Decimal` value, so semantically equal costs produce identical export bytes and
+  SHA-256 content digest.
+
 ```text
-PHASE10_47=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=3_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MINORS=0
+
+MAJOR_01=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+
 DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-047=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
 PHASE10_48=NOT_STARTED
 ```
 
-Phase 10.47 is implemented and awaiting independent audit. Phase 10.48 has not started.
+Phase 10.47 remediation V1 is implemented and awaiting independent Re-audit V2. Phase 10.48 has not started.
 
 ⸻
 

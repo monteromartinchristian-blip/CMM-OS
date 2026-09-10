@@ -3,7 +3,7 @@
 **Phase:** 10.47 — Domain Benchmark Suites
 **Design Point:** `DP-047` — Portable, Model-Agnostic Domain Benchmark Suites
 **Acceptance:** `AT-DP-047` — Connected Domain Benchmark Asset Acceptance
-**Status:** `PHASE10_47=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`
+**Status:** `PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT`
 
 > **Domains define representative evidence cases. Phase 10.48 defines how domain
 > quality is measured. Phase 11 executes and compares models.**
@@ -245,14 +245,33 @@ SRC-R10:R10-C47
     → AT-DP-047
 ```
 
-## 12. Pre-audit status
+## 12. Remediation V1 status
+
+Independent Audit V1 returned `FAIL` with `BLOCKERS=0`, `MAJORS=3`, `MINORS=0`
+(`docs/audits/phase-10.47-independent-audit-v1.md`, preserved as historical
+evidence). The three findings are remediated and pending independent re-audit:
+
+| Finding | Remediation |
+| --- | --- |
+| `MAJOR_01=DECLARATIVE_PACK_BENCHMARK_PATH_MISSING` | `benchmark_suites` is a supported declarative Domain Pack field; suites parse through `DomainBenchmarkSuite.from_dict` and travel through the canonical declarative parser, loader, registry and rollback path |
+| `MAJOR_02=BENCHMARK_AUTHORITY_VALIDATION_MISSCOPED` | Generic JSON schema freezing is separated from metadata authority validation; `required_schema` accepts `provider`/`model` property names while metadata rejects normalized singular/camel/kebab authority aliases recursively |
+| `MAJOR_03=NON_CANONICAL_COST_DIGEST` | `maximum_cost_eur` serializes by numeric `Decimal` value, so semantically equal costs produce identical export bytes and digest |
 
 ```text
-PHASE10_47=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_47=REMEDIATION_V1_IMPLEMENTED_PENDING_REAUDIT
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=3_REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MINORS=0
+
+MAJOR_01=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_02=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+MAJOR_03=REMEDIATED_PENDING_INDEPENDENT_VERIFICATION
+
 DP-047=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-047=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
 PHASE10_48=NOT_STARTED
 ```
 
-Independent audit remains pending. Phase 10.48 has not started.
+Independent Re-audit V2 remains pending. Phase 10.48 has not started.
