@@ -12,7 +12,7 @@ import copy
 import importlib
 import json
 from dataclasses import fields, replace
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -198,6 +198,46 @@ def test_scenario_c_semantically_equal_costs_export_and_digest_identically() -> 
     assert len({s.content_digest for s in suites}) == 1
 
 
+@pytest.mark.parametrize(
+    "cost",
+    (
+        Decimal("123456789012345678901234567890.123456789"),
+        Decimal("0.123456789012345678901234567890123456789"),
+        Decimal("1E+30"),
+    ),
+)
+def test_scenario_c_high_precision_costs_round_trip_exactly(cost: Decimal) -> None:
+    suite = build_health_domain_definition().benchmark_suites[0]
+    payload = copy.deepcopy(suite.to_dict())
+    payload["cases"][0]["maximum_cost_eur"] = str(cost)
+
+    restored = DomainBenchmarkSuite.from_dict(payload)
+    serialized = restored.cases[0].to_dict()["maximum_cost_eur"]
+
+    assert Decimal(serialized) == cost
+
+
+def test_scenario_c_cost_serialization_is_context_independent() -> None:
+    suite = build_health_domain_definition().benchmark_suites[0]
+    payload = copy.deepcopy(suite.to_dict())
+    payload["cases"][0]["maximum_cost_eur"] = "123456789012345678901234567890.123456789"
+
+    payloads: list[dict[str, object]] = []
+    exports: list[bytes] = []
+    digests: list[str] = []
+    for precision in (10, 28, 50):
+        with localcontext() as ctx:
+            ctx.prec = precision
+            restored = DomainBenchmarkSuite.from_dict(payload)
+            payloads.append(restored.to_dict())
+            exports.append(export_domain_benchmark_suite(restored))
+            digests.append(restored.content_digest)
+
+    assert payloads[0] == payloads[1] == payloads[2]
+    assert exports[0] == exports[1] == exports[2]
+    assert digests[0] == digests[1] == digests[2]
+
+
 # ── Scenario D — semantic mutation changes identity ───────────────────────────
 
 
@@ -341,6 +381,27 @@ def test_scenario_f_required_schema_allows_model_and_provider_properties() -> No
         {"preferred-model": "x"},
         {"routingWeight": 1},
         {"policy": {"preferredModel": "x"}},
+        {"preferred_model_id": "x"},
+        {"candidate_model_id": "x"},
+        {"prohibited_model_id": "x"},
+        {"preferred_provider_id": "x"},
+        {"candidate_provider_id": "x"},
+        {"prohibited_provider_id": "x"},
+        {"model_preference": "x"},
+        {"provider_preference": "x"},
+        {"model_candidate": "x"},
+        {"provider_candidates": ["x"]},
+        {"routing_model": "x"},
+        {"routing_provider": "x"},
+        {"routing_model_id": "x"},
+        {"routing_provider_ids": ["x"]},
+        {"preferredModelId": "x"},
+        {"PreferredModelId": "x"},
+        {"preferred-model-id": "x"},
+        {"preferred model id": "x"},
+        {"candidateProviderId": "x"},
+        {"routingProvider": "x"},
+        {"policy": {"preferredModelId": "provider/model-x"}},
     ),
 )
 def test_scenario_f_metadata_authority_aliases_fail_closed(
@@ -353,6 +414,29 @@ def test_scenario_f_metadata_authority_aliases_fail_closed(
             objective="Objective",
             metadata=metadata,
         )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"modeling_notes": "x"},
+        {"provider_context_description": "x"},
+        {"model_output_description": "x"},
+        {"provider_response_format": "x"},
+        {"routing_explanation": "x"},
+    ),
+)
+def test_scenario_f_descriptive_model_provider_metadata_is_accepted(
+    metadata: dict[str, object],
+) -> None:
+    case = DomainBenchmarkCase(
+        id="benchmark-case:health:descriptive-metadata-001",
+        domain_id="domain:health",
+        objective="Objective",
+        metadata=metadata,
+    )
+
+    assert set(case.metadata) == set(metadata)
 
 
 def test_scenario_f_ordinary_prose_metadata_is_accepted() -> None:
