@@ -24,15 +24,24 @@ def build_sport_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="sport"),
         version="1",
         required_sections=("objective",),
+        # Sport discipline. Canonical Sport semantics track load, readiness and
+        # measurement over time (`measurement_trend`, `readiness_snapshot`,
+        # `recovery`), so recorded facts and observed current performance both
+        # require non-unknown temporal scope, and observed performance must
+        # retain its resource provenance. Sport does not claim Health authority
+        # (`health_constraint`), so it applies no medical evidence floor and
+        # requires no factual section.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+                require_temporal_scope=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="observations",
                 allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+                require_provenance=True,
+                require_temporal_scope=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="inferences",

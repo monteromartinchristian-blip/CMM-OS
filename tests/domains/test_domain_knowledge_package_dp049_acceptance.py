@@ -36,6 +36,7 @@ from cmm.cognitive import (
     Confidence,
     Contradiction,
     ContradictionSeverity,
+    Evidence,
     ExistingResourceAdapter,
     InMemoryKnowledgeStore,
     KnowledgeExtractorRegistry,
@@ -53,6 +54,8 @@ from cmm.cognitive import (
     ResourceSourceKind,
     ResourceTemporalScope,
     SensitivityLevel,
+    TemporalScope,
+    TemporalScopeKind,
 )
 from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
 from cmm.domains.cognitive_integration_contracts import (
@@ -231,7 +234,14 @@ def _resource_input(binding: DomainResourceBinding) -> DomainCognitiveResourceIn
 
 
 def _store() -> InMemoryKnowledgeStore:
-    """Seed two matching facts and one canonical contradiction."""
+    """Seed two matching facts and one canonical contradiction.
+
+    Each fact carries canonical Phase 8 provenance (``Evidence`` bound to the
+    source resource) and a non-unknown ``TemporalScope``, because Health's
+    canonical semantics require documented, sourced and temporally valid
+    clinical information. The Health schema therefore exercises its provenance
+    and temporal floor against this fixture instead of skipping it.
+    """
     store = InMemoryKnowledgeStore()
     for item in (
         KnowledgeItem(
@@ -243,6 +253,19 @@ def _store() -> InMemoryKnowledgeStore:
             confidence=Confidence(0.91, source="clinical-registry-01"),
             resource_id="resource-049",
             sensitivity=SensitivityLevel.HIGHLY_SENSITIVE,
+            evidence=(
+                Evidence(
+                    id="evidence-049-a",
+                    resource_id="resource-049",
+                    fragment=("The follow-up appointment is scheduled for October 15."),
+                    confidence=Confidence(0.9),
+                ),
+            ),
+            temporal_scope=TemporalScope(
+                kind=TemporalScopeKind.POINT_IN_TIME,
+                observed_at=OBSERVED_AT,
+                last_verified_at=LAST_VERIFIED_AT,
+            ),
             created_at=NOW,
             updated_at=NOW,
         ),
@@ -255,6 +278,19 @@ def _store() -> InMemoryKnowledgeStore:
             confidence=Confidence(0.72, source="clinical-registry-02"),
             resource_id="resource-049",
             sensitivity=SensitivityLevel.HIGHLY_SENSITIVE,
+            evidence=(
+                Evidence(
+                    id="evidence-049-b",
+                    resource_id="resource-049",
+                    fragment=("Which clinic is the appointment at?"),
+                    confidence=Confidence(0.9),
+                ),
+            ),
+            temporal_scope=TemporalScope(
+                kind=TemporalScopeKind.POINT_IN_TIME,
+                observed_at=OBSERVED_AT,
+                last_verified_at=LAST_VERIFIED_AT,
+            ),
             created_at=NOW,
             updated_at=NOW,
         ),

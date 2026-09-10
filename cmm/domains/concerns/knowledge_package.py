@@ -24,10 +24,15 @@ def build_concerns_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="concerns"),
         version="1",
         required_sections=("objective",),
+        # Concerns discipline. Canonical Concerns semantics require the support
+        # process to keep what is not known visible (`contextual_question`,
+        # `uncertainty_preservation`) and never to force closure. A Concerns
+        # package must therefore record its missing information explicitly,
+        # while uncertainty and contradictions stay visible and no factual
+        # section is required.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
             ),
             DomainKnowledgePackageFieldPolicy(
@@ -41,6 +46,10 @@ def build_concerns_knowledge_package_schema() -> DomainKnowledgePackageSchema:
             DomainKnowledgePackageFieldPolicy(
                 field_name="hypotheses",
                 preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="missing_information",
+                required_non_empty=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="contradictions",

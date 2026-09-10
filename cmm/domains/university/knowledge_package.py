@@ -24,11 +24,19 @@ def build_university_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="university"),
         version="1",
         required_sections=("objective",),
+        # University discipline. Canonical University semantics preserve source
+        # authority by attribute (`academic_source_authority`) and treat
+        # deadlines, regulations and current academic state as temporally valid
+        # (`academic_deadline`). Academic facts must therefore retain provenance
+        # and non-unknown temporal scope; interpretations stay uncertain and
+        # contradictions stay visible. Observations carry no extra floor, so the
+        # shape is deliberately distinct from Health.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+                require_provenance=True,
+                require_temporal_scope=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="observations",

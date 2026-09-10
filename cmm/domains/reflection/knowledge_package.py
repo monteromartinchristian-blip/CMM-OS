@@ -24,10 +24,15 @@ def build_reflection_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="reflection"),
         version="1",
         required_sections=("objective",),
+        # Reflection discipline. Canonical Reflection semantics keep beliefs and
+        # open questions at their own epistemic level (`open_question`,
+        # `no_forced_conclusion`) and never adopt a decision. Non-categorised
+        # knowledge is therefore restricted to opinions and open questions —
+        # decisions are not a Reflection output — and no factual section is
+        # required, because reflection must not manufacture certainty.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
             ),
             DomainKnowledgePackageFieldPolicy(
@@ -41,6 +46,13 @@ def build_reflection_knowledge_package_schema() -> DomainKnowledgePackageSchema:
             DomainKnowledgePackageFieldPolicy(
                 field_name="hypotheses",
                 preserve_uncertainty=True,
+            ),
+            DomainKnowledgePackageFieldPolicy(
+                field_name="other_knowledge",
+                allowed_knowledge_kinds=(
+                    KnowledgeKind.OPINION,
+                    KnowledgeKind.QUESTION,
+                ),
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="contradictions",

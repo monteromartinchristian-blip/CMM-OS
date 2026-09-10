@@ -24,10 +24,14 @@ def build_general_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="general"),
         version="1",
         required_sections=("objective",),
+        # General is the broad fallback Domain. It keeps the canonical epistemic
+        # kind discipline plus uncertainty/contradiction preservation that every
+        # Domain inherits, but declares no Domain-specific evidence floor: a
+        # valid canonical Phase 8 package may legitimately carry observations
+        # without facts, so no section or field is required non-empty.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
             ),
             DomainKnowledgePackageFieldPolicy(

@@ -8,11 +8,15 @@ import pathlib
 
 import pytest
 
-from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel
+from cmm.cognitive.contracts import Confidence
+from cmm.cognitive.enums import KnowledgeKind, SensitivityLevel, TemporalScopeKind
+from cmm.cognitive.knowledge import Evidence, KnowledgeItem, TemporalScope
+from cmm.cognitive.knowledge_packages import KnowledgePackage
 from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.concerns.knowledge_package import (
     build_concerns_knowledge_package_schema,
 )
+from cmm.domains.errors import DomainKnowledgePackageValidationError
 from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.general.knowledge_package import (
     build_general_knowledge_package_schema,
@@ -20,6 +24,12 @@ from cmm.domains.general.knowledge_package import (
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.health.knowledge_package import (
     build_health_knowledge_package_schema,
+)
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageSchema,
+)
+from cmm.domains.knowledge_package_validation import (
+    validate_domain_knowledge_package,
 )
 from cmm.domains.languages.definition import build_languages_domain_definition
 from cmm.domains.languages.knowledge_package import (
@@ -54,9 +64,6 @@ from cmm.domains.relationships.knowledge_package import (
 from cmm.domains.sport.definition import build_sport_domain_definition
 from cmm.domains.sport.knowledge_package import (
     build_sport_knowledge_package_schema,
-)
-from cmm.domains.knowledge_package_contracts import (
-    DomainKnowledgePackageSchema,
 )
 from cmm.domains.university.definition import build_university_domain_definition
 from cmm.domains.university.knowledge_package import (
@@ -198,6 +205,11 @@ def test_schema_round_trips(slug: str) -> None:
 
 @pytest.mark.parametrize("slug", sorted(EXPECTED))
 def test_schema_requires_objective_and_declares_epistemic_discipline(slug: str) -> None:
+    """Every schema keeps the canonical epistemic kind discipline.
+
+    This is the *shared* canonical layer only. Domain-specific restrictions are
+    asserted separately; they must not be assumed uniform.
+    """
     schema = SCHEMA_BUILDERS[slug]()
 
     assert "objective" in schema.required_sections
@@ -210,10 +222,95 @@ def test_schema_requires_objective_and_declares_epistemic_discipline(slug: str) 
     )
     assert policies["inferences"].preserve_uncertainty is True
     assert policies["hypotheses"].preserve_uncertainty is True
-    assert policies["contradictions"].preserve_contradictions is True
 
 
-def test_first_party_knowledge_package_policies_are_meaningfully_domain_specific() -> None:
+def test_contradiction_preservation_follows_domain_semantics() -> None:
+    """Contradiction visibility is declared only where the Domain has such a rule.
+
+    Languages declares no canonical contradiction rule, so it deliberately does
+    not inherit contradiction preservation. The other eleven Domains do.
+    """
+    schemas = _all_first_party_schemas()
+    preserving = {
+        slug
+        for slug, schema in schemas.items()
+        if any(policy.preserve_contradictions for policy in schema.field_policies)
+    }
+
+    assert preserving == set(EXPECTED) - {"languages"}
+
+
+def test_general_and_health_declare_substantively_different_policies() -> None:
+    """General stays broad; Health requires provenance and currentness."""
+    schemas = _all_first_party_schemas()
+    general = schemas["general"]
+    health = schemas["health"]
+
+    assert _normalized_policy_body(general) != _normalized_policy_body(health)
+
+    general_policies = {policy.field_name: policy for policy in general.field_policies}
+    health_policies = {policy.field_name: policy for policy in health.field_policies}
+
+    assert general_policies["facts"].required_non_empty is False
+    assert general_policies["facts"].require_provenance is False
+    assert general_policies["facts"].require_temporal_scope is False
+    assert general.minimum_sensitivity is not health.minimum_sensitivity
+
+    assert health_policies["facts"].required_non_empty is True
+    assert health_policies["facts"].require_provenance is True
+    assert health_policies["facts"].require_temporal_scope is True
+    assert health_policies["observations"].require_provenance is True
+    assert health_policies["observations"].require_temporal_scope is True
+
+
+def test_health_schema_enforces_its_evidence_floor() -> None:
+    """Health's declared provenance/temporal floor is enforced, not decorative."""
+    health_schema = SCHEMA_BUILDERS["health"]()
+
+    bare_fact = KnowledgeItem(
+        id="fact:bare",
+        statement="A clinical claim recorded without provenance",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.9),
+        sensitivity=SensitivityLevel.SENSITIVE,
+    )
+    unsupported = KnowledgePackage(
+        id="knowledge-package:health-bare-fact",
+        objective="Review health information",
+        facts=(bare_fact,),
+    )
+
+    with pytest.raises(DomainKnowledgePackageValidationError):
+        validate_domain_knowledge_package(unsupported, health_schema)
+
+    evidenced_fact = KnowledgeItem(
+        id="fact:evidenced",
+        statement="A clinical claim recorded with provenance",
+        kind=KnowledgeKind.FACT,
+        confidence=Confidence(0.9),
+        sensitivity=SensitivityLevel.SENSITIVE,
+        evidence=(
+            Evidence(
+                id="evidence:1",
+                resource_id="resource:1",
+                fragment="clinical source fragment",
+                confidence=Confidence(0.9),
+            ),
+        ),
+        temporal_scope=TemporalScope(kind=TemporalScopeKind.CURRENT),
+    )
+    supported = KnowledgePackage(
+        id="knowledge-package:health-evidenced-fact",
+        objective="Review health information",
+        facts=(evidenced_fact,),
+    )
+
+    assert validate_domain_knowledge_package(supported, health_schema) is supported
+
+
+def test_first_party_knowledge_package_policies_are_meaningfully_domain_specific() -> (
+    None
+):
     """The twelve schemas must not collapse into one normalized policy body."""
     schemas = _all_first_party_schemas()
 

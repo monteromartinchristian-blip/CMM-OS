@@ -24,15 +24,23 @@ def build_parenthood_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="parenthood"),
         version="1",
         required_sections=("objective",),
+        # Parenthood discipline. Canonical Parenthood semantics make legal and
+        # administrative validity explicitly temporal (`legal_temporal_
+        # validity`) and separate medical from legal reasoning, while keeping
+        # parental uncertainty visible (`parental_uncertainty`,
+        # `uncertainties_and_boundaries`). Recorded facts must retain provenance
+        # and non-unknown temporal scope; observations must retain provenance.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+                require_provenance=True,
+                require_temporal_scope=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="observations",
                 allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+                require_provenance=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="inferences",

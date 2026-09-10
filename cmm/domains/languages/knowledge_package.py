@@ -24,15 +24,23 @@ def build_languages_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         domain_id=DomainId(slug="languages"),
         version="1",
         required_sections=("objective",),
+        # Languages discipline. Canonical Languages semantics require every
+        # proficiency claim to be evidenced (`language_level_evidence`,
+        # `progression_evidence`) and distinguish certified proficiency from
+        # estimated proficiency and observed performance. Recorded facts and
+        # observed performance must therefore retain provenance. Languages has
+        # no contradiction rule in its canonical rule set, so it does not
+        # inherit contradiction preservation automatically.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
+                require_provenance=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="observations",
                 allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+                require_provenance=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="inferences",
@@ -41,10 +49,6 @@ def build_languages_knowledge_package_schema() -> DomainKnowledgePackageSchema:
             DomainKnowledgePackageFieldPolicy(
                 field_name="hypotheses",
                 preserve_uncertainty=True,
-            ),
-            DomainKnowledgePackageFieldPolicy(
-                field_name="contradictions",
-                preserve_contradictions=True,
             ),
         ),
         minimum_sensitivity=SensitivityLevel.INTERNAL,

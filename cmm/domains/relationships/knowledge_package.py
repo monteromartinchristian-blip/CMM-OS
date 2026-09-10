@@ -24,15 +24,22 @@ def build_relationships_knowledge_package_schema() -> DomainKnowledgePackageSche
         domain_id=DomainId(slug="relationships"),
         version="1",
         required_sections=("objective",),
+        # Relationships discipline. Canonical Relationships semantics separate
+        # observed behaviour from user interpretation (`separate_facts_
+        # interpretations`) and forbid inferring intent (`do_not_infer_intent`).
+        # Observed interaction evidence must therefore retain its provenance,
+        # while the Domain deliberately does not force factual certainty:
+        # ambivalence and hypotheses are legitimate (`ambivalence_preservation`,
+        # `pattern_without_certainty`).
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
-                required_non_empty=True,
                 allowed_knowledge_kinds=(KnowledgeKind.FACT,),
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="observations",
                 allowed_knowledge_kinds=(KnowledgeKind.OBSERVATION,),
+                require_provenance=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="inferences",
