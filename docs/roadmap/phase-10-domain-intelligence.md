@@ -6526,6 +6526,39 @@ Results must preserve:
 * confidence;
 * human-review results.
 
+Implementation status (Phase 10.48)
+
+Phase 10.48 is implemented and pending independent audit. A Domain Pack declares
+immutable, domain-owned quality policy through `DomainDefinition.quality_metrics`,
+reusing the canonical `DomainRegistry` and the existing declarative Domain Pack
+parser; already-produced evidence is validated and aggregated deterministically
+by pure helper functions. No benchmark, evaluator, model or provider is
+executed, and no quality registry, loader, resolver, store, runtime or engine is
+introduced.
+
+Implementation: `cmm/domains/quality_contracts.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.quality_metrics`); `cmm/domains/pack.py` and
+`cmm/domains/manifest.py` (canonical declarative `quality_metrics`);
+`cmm/domains/<domain>/quality_metrics.py` for all twelve implemented first-party
+packs. Reference: `docs/reference/domain-quality-metrics.md`. Focused tests:
+`tests/domains/test_domain_quality_contracts.py`,
+`tests/domains/test_domain_quality_pack_integration.py`,
+`tests/domains/test_domain_quality_first_party.py`. Architecture guards:
+`tests/domains/test_domain_quality_architecture.py`. Acceptance:
+`tests/domains/test_domain_quality_dp048_acceptance.py`.
+
+```text
+PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+DP-048=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
+AT-DP-048=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
+```
+
+Phase 10.48 is not closed. Phase 10.49 has not started. Closure requires an
+independent audit reporting `BLOCKERS=0`, `MAJORS=0`, `DP-048=VERIFIED_EXISTING`,
+`AT-DP-048=PASS` and `CLOSURE_ELIGIBLE=YES`; only then may a separate docs-only
+closure commit be made.
+
 ⸻
 
 10.49 - Domain Knowledge Packages
