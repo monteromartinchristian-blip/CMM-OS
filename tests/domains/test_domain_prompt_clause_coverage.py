@@ -35,6 +35,7 @@ def test_domain_prompt_clause_coverage_is_complete_and_self_consistent():
     clause_ids = _clause_ids(text)
 
     assert clause_ids.count("R10-C48") == 1
+    assert clause_ids.count("R10-C49") == 1
     assert len(clause_ids) == len(set(clause_ids))
 
     assert _counter(text, "total_clauses") == len(clause_ids)

@@ -6589,9 +6589,8 @@ REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
 
 Phase 10.48 is complete, independently re-audited and closed after final
 Independent Re-audit V4 `PASS`. Historical V1/V2/V3 failures remain preserved.
-Phase 10.49 has not started; it may begin only after this docs-only closure
-commit is independently verified clean and the repository invariants remain
-satisfied.
+Phase 10.49 has since been implemented on top of that closure baseline and is
+awaiting independent audit; its implementation status is recorded below.
 
 ⸻
 
@@ -6660,6 +6659,79 @@ Domains may add fields but must not:
 * duplicate stored knowledge.
 
 A package may be composed across domains through explicit schemas and permission intersection.
+
+Implementation status (Phase 10.49)
+
+Phase 10.49 is implemented and awaiting independent audit. It declares an
+immutable, versioned Domain specialization of the canonical Phase 8
+`KnowledgePackage`. A schema may only narrow or reject; it never grants
+execution, provider, network, file, resource, cross-domain, approval, privacy
+or permission authority. The canonical `KnowledgePackageBuilder` remains the
+only package construction path.
+
+```text
+PHASE10_48=CLOSED
+PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+
+DOMAIN_KNOWLEDGE_PACKAGE_SCHEMA=IMPLEMENTED
+EFFECTIVE_SCHEMA_COMPOSITION=IMPLEMENTED
+CANONICAL_KNOWLEDGE_PACKAGE_VALIDATION=IMPLEMENTED
+CANONICAL_BUILDER=KnowledgePackageBuilder
+PARALLEL_BUILDER=NONE
+PARALLEL_REGISTRY=NONE
+PARALLEL_LOADER=NONE
+PARALLEL_RESOLVER=NONE
+PARALLEL_STORE=NONE
+PARALLEL_RUNTIME=NONE
+PARALLEL_ENGINE=NONE
+
+FIRST_PARTY_SCHEMAS=12
+MENTAL_HEALTH_SCHEMA=NOT_IMPLEMENTED
+NEURODIVERGENCE_SCHEMA=NOT_IMPLEMENTED
+
+DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
+AT-DP-049=PASS_REPORTED
+```
+
+Contract types: `DomainKnowledgePackageFieldPolicy`,
+`DomainKnowledgePackageSchema`, `EffectiveDomainKnowledgePackageSchema`. Pure
+helpers: `compose_domain_knowledge_package_schemas`,
+`validate_domain_knowledge_package`.
+
+Canonical sensitivity floors are explicit rank mappings over the existing
+Cognitive `SensitivityLevel` — never enum declaration order, and never a new
+Domain privacy enum. First-party floors: Health, Relationships, Reflection,
+Concerns, Parenthood, Sport and Life Plan `SENSITIVE`; University, Oppositions,
+Languages, Project and General `INTERNAL`. General, Sport and Life Plan are
+derived one-to-one from each Domain's own declared
+`memory_policy.sensitivity_limit`; composition takes the strongest floor and
+can never lower it.
+
+Implementation: `cmm/domains/knowledge_package_contracts.py`;
+`cmm/domains/knowledge_package_composition.py`;
+`cmm/domains/knowledge_package_validation.py`; `cmm/domains/contracts.py`
+(`DomainDefinition.knowledge_package_schema`); `cmm/domains/pack.py` and
+`cmm/domains/manifest.py` (canonical declarative `knowledge_package_schema`);
+`cmm/domains/cognitive_integration_contracts.py` and
+`cmm/domains/cognitive_integration.py` (optional post-construction validation);
+`cmm/domains/<domain>/knowledge_package.py` for all twelve implemented
+first-party packs. Reference: `docs/reference/domain-knowledge-packages.md`.
+Focused tests: `tests/domains/test_domain_knowledge_package_contracts.py`,
+`tests/domains/test_domain_knowledge_package_pack_integration.py`,
+`tests/domains/test_domain_knowledge_package_composition.py`,
+`tests/domains/test_domain_knowledge_package_validation.py`,
+`tests/domains/test_domain_knowledge_package_cognitive_integration.py`,
+`tests/domains/test_domain_knowledge_package_first_party.py`. Architecture
+guards: `tests/domains/test_domain_knowledge_package_architecture.py`.
+Acceptance: `tests/domains/test_domain_knowledge_package_dp049_acceptance.py`.
+Design:
+`docs/superpowers/specs/2026-09-10-phase-10.49-domain-knowledge-packages-design.md`.
+Plan:
+`docs/superpowers/plans/2026-09-10-phase-10.49-domain-knowledge-packages-implementation-plan.md`.
+
+Domain Privacy Defaults remain owned by Phase 10.50; Phase 10.49 deliberately
+does not introduce processing-policy defaults. Mental Health and Neurodivergence
+schemas remain deferred and absent.
 
 ⸻
 

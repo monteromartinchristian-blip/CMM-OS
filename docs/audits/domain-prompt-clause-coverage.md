@@ -230,16 +230,17 @@ Locations use the original source section and analysis line range. Summaries del
 | `R10-C46` | `SRC-R10` · Phase 10.46 Domain Model Policies | `DP-046` | `PRIMARY` | Model-agnostic domain policy; concrete model/provider preference fields are discarded by the approved DP-046 design. |
 | `R10-C47` | `SRC-R10` · Phase 10.47 Domain Benchmark Suites | `DP-047` | `PRIMARY` | Portable model-agnostic benchmark assets; suite-owned evaluation/privacy/budget engines, concrete candidate models/providers, weighted quality metrics and benchmark runtime/registry are discarded by the approved DP-047 design. |
 | `R10-C48` | `SRC-R10` · Phase 10.48 Domain Quality Metrics | `DP-048` | `PRIMARY` | Domain-owned declarative quality metrics define weights, thresholds, blocking semantics and deterministic aggregation of already-produced evidence; evaluator/model/provider execution, comparison, ranking, regression detection and routing remain outside Phase 10.48. |
+| `R10-C49` | `SRC-R10` · Phase 10.49 Domain Knowledge Packages | `DP-049` | `PRIMARY` | Domain Packs declaratively specialize the canonical Phase 8 `KnowledgePackage` through immutable, versioned, serializable schemas that only narrow (required/optional/prohibited sections, per-field policies, admissible epistemic kinds, preserved uncertainty and contradictions, minimum sensitivity floor), compose deterministically and most-restrictively, and validate the canonical package through the canonical Cognitive sensitivity ordering and privacy resolution; a parallel knowledge builder/registry/loader/resolver/store/runtime/engine and any second knowledge truth are discarded by the approved DP-049 design. |
 | `RM-C10` | `SRC-RM` · Phase 10 overview | `ARC-001`–`ARC-008`; final order | `PRIMARY` | Establishes shared architecture and phase boundary. |
 | `R11-C55` | `SRC-R11` · Phase 11.55 Communication Profiles | `F11-001`, `F11-002` | `PRIMARY` | Separates communication style and renderer from 10.16. |
 
 ## 8. Final coverage check
 
-The counts below cover the 102 prompt clauses and 53 specification, preflight, and roadmap clauses listed above.
+The counts below cover the 102 prompt clauses and 54 specification, preflight, and roadmap clauses listed above.
 
 ```text
-total_clauses = 155
-covered_clauses = 155
+total_clauses = 156
+covered_clauses = 156
 unclassified_clauses = 0
 duplicate_primary_mappings = 0
 ```
