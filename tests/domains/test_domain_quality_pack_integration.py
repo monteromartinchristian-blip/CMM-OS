@@ -14,6 +14,7 @@ from cmm.domains.errors import DomainContractValidationError, DomainError
 from cmm.domains.identifiers import DomainId
 from cmm.domains.manifest import DomainManifest
 from cmm.domains.model_policy_contracts import DomainModelPolicy
+from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.quality_contracts import DomainQualityMetric
 
 
@@ -168,3 +169,142 @@ def test_definition_round_trips_model_policy_benchmarks_and_quality_together() -
     assert restored.benchmark_suites == definition.benchmark_suites
     assert restored.quality_metrics == definition.quality_metrics
     assert restored.to_dict() == payload
+
+
+# ── Declarative Domain Pack path (Task 4) ─────────────────────────────────────
+
+
+def _declarative_payload() -> dict[str, Any]:
+    return {
+        "id": "university",
+        "version": "1.0.0",
+        "name": "university",
+        "display_name": "University",
+        "description": "university domain",
+        "author": "tester",
+        "license": "MIT",
+        "quality_metrics": [_quality_metric().to_dict()],
+    }
+
+
+def test_declarative_pack_preserves_quality_metrics() -> None:
+    parsed = ParsedDomainPack.from_declarative_dict(_declarative_payload())
+
+    assert parsed.definition.quality_metrics == (_quality_metric(),)
+
+
+def test_declarative_pack_without_quality_metrics_stays_backward_compatible() -> None:
+    payload = _declarative_payload()
+    del payload["quality_metrics"]
+
+    parsed = ParsedDomainPack.from_declarative_dict(payload)
+
+    assert parsed.definition.quality_metrics == ()
+
+
+@pytest.mark.parametrize(
+    "container",
+    (
+        "quality-metric:university:factual-fidelity",
+        {"id": "quality-metric:university:factual-fidelity"},
+        42,
+    ),
+)
+def test_declarative_pack_rejects_invalid_quality_metrics_container(
+    container: object,
+) -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"] = container
+
+    with pytest.raises(DomainError) as excinfo:
+        ParsedDomainPack.from_declarative_dict(payload)
+
+    assert excinfo.value.field == "quality_metrics"
+
+
+def test_declarative_pack_rejects_non_mapping_quality_metric_item() -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"] = ["not-a-mapping"]
+
+    with pytest.raises(DomainError) as excinfo:
+        ParsedDomainPack.from_declarative_dict(payload)
+
+    assert excinfo.value.field == "quality_metrics[0]"
+
+
+def test_declarative_pack_rejects_quality_metric_domain_mismatch() -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"] = [_quality_metric("relationships").to_dict()]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_duplicate_quality_metric_ids() -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"] = [
+        _quality_metric().to_dict(),
+        _quality_metric().to_dict(),
+    ]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_unknown_quality_metric_field() -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"][0]["candidate_models"] = ["x"]
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_rejects_reserved_quality_metadata_authority_key() -> None:
+    payload = _declarative_payload()
+    payload["quality_metrics"][0]["metadata"] = {"preferred_providers": ["x"]}
+
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(payload)
+
+
+def test_declarative_pack_preserves_benchmarks_and_quality_together() -> None:
+    payload = _declarative_payload()
+    payload["benchmark_suites"] = [
+        _suite("benchmark-suite:university:core", "university").to_dict()
+    ]
+
+    parsed = ParsedDomainPack.from_declarative_dict(payload)
+
+    assert len(parsed.definition.benchmark_suites) == 1
+    assert parsed.definition.quality_metrics == (_quality_metric(),)
+
+
+# ── Canonical pack round-trip preservation ────────────────────────────────────
+
+
+def test_parsed_pack_round_trip_preserves_quality_metrics() -> None:
+    definition = _definition(quality_metrics=(_quality_metric(),))
+    parsed = ParsedDomainPack(definition=definition, manifest=_manifest_for(definition))
+
+    restored = ParsedDomainPack.from_dict(parsed.to_dict())
+
+    assert restored.definition.quality_metrics == definition.quality_metrics
+    assert restored.to_dict() == parsed.to_dict()
+
+
+def test_domain_pack_round_trip_preserves_quality_metrics() -> None:
+    definition = _definition(
+        benchmark_suites=(_suite("benchmark-suite:university:core", "university"),),
+        quality_metrics=(_quality_metric(),),
+    )
+    pack = DomainPack(
+        definition=definition,
+        manifest=_manifest_for(definition),
+        root_path="/opt/university",
+    )
+
+    restored = DomainPack.from_dict(pack.to_dict())
+
+    assert restored.definition.quality_metrics == definition.quality_metrics
+    assert restored.definition.benchmark_suites == definition.benchmark_suites
+    assert restored.to_dict() == pack.to_dict()

@@ -35,6 +35,7 @@ from cmm.domains.manifest import (
     DomainManifest,
     _normalize_root_path_lexical,
 )
+from cmm.domains.quality_contracts import DomainQualityMetric
 
 # ── Coherence validation shared between ParsedDomainPack and DomainPack ────────
 
@@ -533,6 +534,27 @@ class ParsedDomainPack:
                 )
             benchmark_suites.append(DomainBenchmarkSuite.from_dict(dict(item)))
 
+        quality_metrics_raw = data.get("quality_metrics")
+        if quality_metrics_raw is None:
+            quality_metrics_raw = ()
+        if isinstance(quality_metrics_raw, (str, bytes, bytearray)) or not isinstance(
+            quality_metrics_raw, (list, tuple)
+        ):
+            raise DomainSerializationError(
+                "Declarative field 'quality_metrics' must be a list or tuple, "
+                f"got {type(quality_metrics_raw).__name__}",
+                field="quality_metrics",
+            )
+        quality_metrics: list[DomainQualityMetric] = []
+        for index, item in enumerate(quality_metrics_raw):
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"quality_metrics[{index}] must be a mapping, "
+                    f"got {type(item).__name__}",
+                    field=f"quality_metrics[{index}]",
+                )
+            quality_metrics.append(DomainQualityMetric.from_dict(dict(item)))
+
         definition = DomainDefinition(
             id=domain_id_raw,
             name=name,
@@ -556,6 +578,7 @@ class ParsedDomainPack:
             enabled=True,
             metadata=metadata,
             benchmark_suites=tuple(benchmark_suites),
+            quality_metrics=tuple(quality_metrics),
         )
 
         return cls(definition=definition, manifest=manifest)

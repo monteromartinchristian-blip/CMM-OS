@@ -613,6 +613,7 @@ _DECLARATIVE_KNOWN = frozenset(
         # path; parsed by ParsedDomainPack.from_declarative_dict, not stored
         # on the manifest itself.
         "benchmark_suites",
+        "quality_metrics",
     }
 )
 
