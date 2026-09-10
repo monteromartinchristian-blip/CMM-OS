@@ -3,7 +3,7 @@
 **Phase:** 10.48 — Domain Quality Metrics
 **Design Point:** `DP-048` — Declarative, Domain-Owned Quality Policy and Deterministic Assessment
 **Acceptance Test:** `AT-DP-048` — Connected Domain Quality Metrics Acceptance
-**Status:** `PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` · `DP-048=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION` · `AT-DP-048=PASS_REPORTED` · `CLOSURE_ELIGIBLE=NO`
+**Status:** `PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4` · `INDEPENDENT_AUDIT_V1=FAIL` · `INDEPENDENT_REAUDIT_V2=FAIL` · `INDEPENDENT_REAUDIT_V3=FAIL` · `MINOR_04=REMEDIATED_REPORTED` · `DP-048=VERIFIED_EXISTING` · `AT-DP-048=PASS` · `CLOSURE_ELIGIBLE=NO`
 
 > A Domain Pack declares what quality means. External evaluation produces evidence
 > later. Phase 10.48 validates and deterministically aggregates that evidence
@@ -454,12 +454,29 @@ observability repurposing; or any Phase 10.49–10.53 and Phase 11 behaviour.
 ## 19. Status
 
 ```text
-PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP-048=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
-AT-DP-048=PASS_REPORTED
+PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
+BLOCKERS=0
+MAJORS=0
+MINORS=1
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+MINOR_02=VERIFIED_REMEDIATED
+MINOR_03=VERIFIED_REMEDIATED
+MINOR_04=REMEDIATED_REPORTED
+DP-048=VERIFIED_EXISTING
+AT-DP-048=PASS
 CLOSURE_ELIGIBLE=NO
 ```
 
-Phase closure requires an independent audit reporting `BLOCKERS=0`, `MAJORS=0`,
-`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and `CLOSURE_ELIGIBLE=YES`. Only
-after that PASS may a separate docs-only closure commit be made.
+Independent Audit V1 and Re-audits V2/V3 remain preserved as historical
+evidence. Re-audit V3 verified `DP-048`, `AT-DP-048`, all four V1 findings
+and `MINOR_03`, but returned `FAIL` for docs-only `MINOR_04`. That finding
+is now `REMEDIATED_REPORTED`. Phase closure requires Independent Re-audit V4
+reporting `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
+`CLOSURE_ELIGIBLE=YES`. Only after that PASS may a separate docs-only
+closure commit be made.

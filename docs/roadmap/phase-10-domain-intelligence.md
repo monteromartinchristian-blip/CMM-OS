@@ -6554,12 +6554,14 @@ Remediation V1 plan:
 `docs/superpowers/plans/2026-09-10-phase-10.48-remediation-v1-implementation-plan.md`.
 Baseline-aware Ruff/format verifier:
 `scripts/audit/verify_phase_10_48_ruff_baseline.py`. Independent Re-audit V2:
-`docs/audits/phase-10.48-independent-reaudit-v2.md`.
+`docs/audits/phase-10.48-independent-reaudit-v2.md`. Independent Re-audit V3:
+`docs/audits/phase-10.48-independent-reaudit-v3.md`.
 
 ```text
-PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V3
+PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V4
 INDEPENDENT_AUDIT_V1=FAIL
 INDEPENDENT_REAUDIT_V2=FAIL
+INDEPENDENT_REAUDIT_V3=FAIL
 BLOCKERS=0
 MAJORS=0
 MINORS=1
@@ -6567,19 +6569,21 @@ MAJOR_01=VERIFIED_REMEDIATED
 MAJOR_02=VERIFIED_REMEDIATED
 MINOR_01=VERIFIED_REMEDIATED
 MINOR_02=VERIFIED_REMEDIATED
-MINOR_03=REMEDIATED_REPORTED
+MINOR_03=VERIFIED_REMEDIATED
+MINOR_04=REMEDIATED_REPORTED
 DP-048=VERIFIED_EXISTING
 AT-DP-048=PASS
 CLOSURE_ELIGIBLE=NO
 ```
 
 Phase 10.48 is not closed. Phase 10.49 has not started. Independent
-Re-audit V2 verified `DP-048`, `AT-DP-048`, and all four V1 findings but
-returned `FAIL` for docs-only `MINOR_03`. That finding is now
-`REMEDIATED_REPORTED`. Closure requires Independent Re-audit V3 reporting
-`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `DP-048=VERIFIED_EXISTING`,
-`AT-DP-048=PASS` and `CLOSURE_ELIGIBLE=YES`; only then may a separate
-docs-only closure commit be made.
+Re-audit V3 verified `DP-048`, `AT-DP-048`, all four V1 findings and
+`MINOR_03`, but returned `FAIL` for docs-only `MINOR_04`. That finding is
+now `REMEDIATED_REPORTED`. Closure requires Independent Re-audit V4
+reporting `BLOCKERS=0`, `MAJORS=0`, `MINORS=0`,
+`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and
+`CLOSURE_ELIGIBLE=YES`; only then may a separate docs-only closure commit
+be made.
 
 ⸻
 
