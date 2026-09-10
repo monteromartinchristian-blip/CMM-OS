@@ -457,6 +457,13 @@ docs/superpowers/specs/2026-09-10-phase-10.49-domain-knowledge-packages-design.m
 docs/superpowers/plans/2026-09-10-phase-10.49-domain-knowledge-packages-implementation-plan.md
 ```
 
+Audit tooling:
+
+```text
+scripts/audit/verify_phase_10_49_ruff_baseline.py
+tests/domains/test_phase_10_49_remediation_gates.py
+```
+
 `AT-DP-049` covers canonical registry discovery, real first-party ownership,
 canonical pack round-trip, effective schema composition, canonical package
 construction, semantics preservation, valid-schema acceptance, fail-closed
@@ -473,7 +480,41 @@ Domain Pack parser; validator resolution or execution; model/provider invocation
 knowledge extraction or materialization; persistence; or any Phase 10.50–10.53
 and Phase 11 behaviour.
 
-## 19. Status
+## 19. Baseline-aware Ruff/format gate
+
+`scripts/audit/verify_phase_10_49_ruff_baseline.py` reuses the Phase 10.48
+methodology: it materialises the pinned baseline
+(`BASELINE_HEAD=6f9deeb37b6e3237bea4564c5e5607249eb12b70`) read-only through
+`git archive`, measures whole-repository Ruff lint and format debt on both the
+baseline and the current tree, and requires every Python file changed since the
+baseline to be fully Ruff- and format-clean.
+
+```text
+RUFF_VERSION
+BASELINE_HEAD
+GLOBAL_RUFF_BASELINE / GLOBAL_RUFF_CURRENT
+GLOBAL_FORMAT_BASELINE / GLOBAL_FORMAT_CURRENT
+CHANGED_PYTHON_FILES
+CHANGED_PYTHON_RUFF_VIOLATIONS
+CHANGED_PYTHON_FORMAT_FILES
+CHANGED_PYTHON_RUFF
+CHANGED_PYTHON_FORMAT
+NO_NEW_RUFF_REGRESSIONS
+NO_NEW_FORMAT_REGRESSIONS
+BASELINE_AWARE_GATE
+```
+
+The gate fails closed (exit `2`) when the measured Ruff version is not the
+pinned `0.16.2`, because lint and format results are not comparable across Ruff
+releases. It never mutates branches, the index, the working tree or stored
+history, and never uses `shell=True`.
+
+`BASELINE_AWARE_GATE=PASS` means Phase 10.49 added no new Ruff or format debt; it
+does not mean the whole repository is globally Ruff-clean. `GLOBAL_RUFF` and
+`GLOBAL_FORMAT` are reported as `PASS` only when the measured global debt is
+actually zero.
+
+## 20. Status
 
 ```text
 PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
