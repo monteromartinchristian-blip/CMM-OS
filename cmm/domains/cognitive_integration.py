@@ -44,6 +44,9 @@ from cmm.domains.errors import (
     DomainCognitiveIntegrationBlockedError,
     DomainCognitiveIntegrationContractError,
 )
+from cmm.domains.knowledge_package_validation import (
+    validate_domain_knowledge_package,
+)
 from cmm.domains.presentation_contracts import (
     DomainPresentationEpistemicKind,
     DomainPresentationItemRef,
@@ -215,6 +218,10 @@ class DefaultDomainCognitiveIntegrator:
             request=request,
             adapted_resources=adapted_resources,
         )
+        if request.knowledge_package_schema is not None:
+            package = validate_domain_knowledge_package(
+                package, request.knowledge_package_schema
+            )
         reasoning_context = _build_reasoning_context(
             request=request,
             package=package,

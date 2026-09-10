@@ -23,6 +23,10 @@ from cmm.domains.errors import (
     DomainCognitiveIntegrationContractError,
     DomainContractValidationError,
 )
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageSchema,
+    EffectiveDomainKnowledgePackageSchema,
+)
 from cmm.domains.presentation_contracts import DomainPresentationItemRef
 from cmm.domains.profile_contracts import ResolvedDomainProfile
 from cmm.domains.resource_contracts import (
@@ -173,6 +177,9 @@ class DomainCognitiveIntegrationRequest:
     security_rules: tuple[str, ...] = ()
     requested_rule_ids: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    knowledge_package_schema: (
+        DomainKnowledgePackageSchema | EffectiveDomainKnowledgePackageSchema | None
+    ) = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -244,6 +251,16 @@ class DomainCognitiveIntegrationRequest:
                 _unique_non_blank_strings(getattr(self, field_name), field_name),
             )
         object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
+
+        if self.knowledge_package_schema is not None and not isinstance(
+            self.knowledge_package_schema,
+            (DomainKnowledgePackageSchema, EffectiveDomainKnowledgePackageSchema),
+        ):
+            raise DomainCognitiveIntegrationContractError(
+                "knowledge_package_schema must be a DomainKnowledgePackageSchema, "
+                "an EffectiveDomainKnowledgePackageSchema, or None",
+                field="knowledge_package_schema",
+            )
 
 
 @dataclass(frozen=True, slots=True)
