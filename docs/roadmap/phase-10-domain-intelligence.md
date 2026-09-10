@@ -6671,7 +6671,13 @@ only package construction path.
 
 ```text
 PHASE10_48=CLOSED
-PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2
+MAJOR_01=REMEDIATED_REPORTED
+MAJOR_02=REMEDIATED_REPORTED
+MINOR_01=REMEDIATED_REPORTED
+DOMAIN_SPECIFIC_FIRST_PARTY_POLICIES=PASS
+NON_FACT_CANONICAL_PACKAGE_COMPATIBILITY=PASS_WHERE_DOMAIN_POLICY_ALLOWS
+RESOLVED_CONTRADICTION_PRESERVATION=PASS
 
 DOMAIN_KNOWLEDGE_PACKAGE_SCHEMA=IMPLEMENTED
 EFFECTIVE_SCHEMA_COMPOSITION=IMPLEMENTED
@@ -6691,6 +6697,7 @@ NEURODIVERGENCE_SCHEMA=NOT_IMPLEMENTED
 
 DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-049=PASS_REPORTED
+CLOSURE_ELIGIBLE=NO
 ```
 
 Contract types: `DomainKnowledgePackageFieldPolicy`,
@@ -6702,9 +6709,13 @@ Canonical sensitivity floors are explicit rank mappings over the existing
 Cognitive `SensitivityLevel` — never enum declaration order, and never a new
 Domain privacy enum. First-party floors: Health, Relationships, Reflection,
 Concerns, Parenthood, Sport and Life Plan `SENSITIVE`; University, Oppositions,
-Languages, Project and General `INTERNAL`. General, Sport and Life Plan are
-derived one-to-one from each Domain's own declared
-`memory_policy.sensitivity_limit`; composition takes the strongest floor and
+Languages, Project and General `INTERNAL`.
+
+`minimum_sensitivity` and `memory_policy.sensitivity_limit` are separate
+contracts. The schema floor is not derived one-to-one from memory policy; in
+five Domains (Health, Relationships, University, Oppositions, Reflection) the
+schema floor is lower than the memory limit, and in one (Languages) it is
+higher. Composition takes the strongest floor by explicit canonical rank and
 can never lower it.
 
 Implementation: `cmm/domains/knowledge_package_contracts.py`;

@@ -313,35 +313,45 @@ general, health, relationships, university, oppositions, reflection, concerns,
 languages, parenthood, sport, life-plan, project
 ```
 
-Every first-party schema shares the same approved policy shape:
+Each first-party schema has a distinct policy body derived from its Domain's
+existing canonical semantics:
 
-* `required_sections=("objective",)`;
-* `facts` — `KnowledgeKind.FACT`, `required_non_empty=True`;
-* `observations` — `KnowledgeKind.OBSERVATION`;
-* `inferences` — `preserve_uncertainty=True`;
-* `hypotheses` — `preserve_uncertainty=True`;
-* `contradictions` — `preserve_contradictions=True`.
+* **general** — broad fallback, no required factual section;
+* **health** — documented facts require provenance and temporal validity;
+* **relationships** — observed interaction evidence must retain provenance;
+* **university** — academic facts require source authority and temporal validity;
+* **oppositions** — official call provenance plus current temporal state;
+* **reflection** — non-categorised knowledge restricted to opinions and open
+  questions (never decisions), no forced certainty;
+* **concerns** — missing information must be recorded explicitly;
+* **languages** — proficiency claims require provenance; no contradiction rule
+  inherited automatically;
+* **parenthood** — legal and medical facts require provenance and temporal scope;
+* **sport** — performance data requires temporal scope and resource provenance;
+* **life_plan** — active goals required; external assumptions must carry provenance;
+* **project** — progress evidence and observed state must retain provenance;
+  decisions and questions only for non-categorised knowledge.
 
-| Domain | Schema ID | `minimum_sensitivity` |
-| --- | --- | --- |
-| general | `knowledge-package-schema:general` | `INTERNAL` |
-| health | `knowledge-package-schema:health` | `SENSITIVE` |
-| relationships | `knowledge-package-schema:relationships` | `SENSITIVE` |
-| university | `knowledge-package-schema:university` | `INTERNAL` |
-| oppositions | `knowledge-package-schema:oppositions` | `INTERNAL` |
-| reflection | `knowledge-package-schema:reflection` | `SENSITIVE` |
-| concerns | `knowledge-package-schema:concerns` | `SENSITIVE` |
-| languages | `knowledge-package-schema:languages` | `INTERNAL` |
-| parenthood | `knowledge-package-schema:parenthood` | `SENSITIVE` |
-| sport | `knowledge-package-schema:sport` | `SENSITIVE` |
-| life_plan | `knowledge-package-schema:life_plan` | `SENSITIVE` |
-| project | `knowledge-package-schema:project` | `INTERNAL` |
+`minimum_sensitivity` and `memory_policy.sensitivity_limit` are **separate**
+contracts. `minimum_sensitivity` is a schema floor applied to every package
+validated against that Domain. `memory_policy.sensitivity_limit` governs how
+memory proposals are classified in that Domain. They are not one-to-one
+derivations.
 
-Each floor is set to that Domain's own declared
-`memory_policy.sensitivity_limit`, so the schema floor is monotone with existing
-canonical Domain policy and never grants a lower floor than the Domain already
-declares. The floor is a constraint only; it never raises a package's effective
-sensitivity.
+| Domain | Schema ID | `minimum_sensitivity` | `memory_policy.sensitivity_limit` | Rationale |
+| --- | --- | --- | --- | --- |
+| general | `knowledge-package-schema:general` | `INTERNAL` | `internal` | Matched |
+| health | `knowledge-package-schema:health` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| relationships | `knowledge-package-schema:relationships` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| university | `knowledge-package-schema:university` | `INTERNAL` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| oppositions | `knowledge-package-schema:oppositions` | `INTERNAL` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| reflection | `knowledge-package-schema:reflection` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| concerns | `knowledge-package-schema:concerns` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
+| languages | `knowledge-package-schema:languages` | `INTERNAL` | `PERSONAL` | Schema floor > memory limit |
+| parenthood | `knowledge-package-schema:parenthood` | `SENSITIVE` | `SENSITIVE` | Matched |
+| sport | `knowledge-package-schema:sport` | `SENSITIVE` | `SENSITIVE` | Matched |
+| life_plan | `knowledge-package-schema:life_plan` | `SENSITIVE` | `SENSITIVE` | Matched |
+| project | `knowledge-package-schema:project` | `INTERNAL` | `INTERNAL` | Matched |
 
 `domain:mental-health` and `domain:neurodivergence` knowledge package schemas
 remain out of scope until Phases 10.52/10.53.
@@ -564,7 +574,13 @@ Both pass in the unbrokered run recorded above.
 ## 21. Status
 
 ```text
-PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2
+MAJOR_01=REMEDIATED_REPORTED
+MAJOR_02=REMEDIATED_REPORTED
+MINOR_01=REMEDIATED_REPORTED
+DOMAIN_SPECIFIC_FIRST_PARTY_POLICIES=PASS
+NON_FACT_CANONICAL_PACKAGE_COMPATIBILITY=PASS_WHERE_DOMAIN_POLICY_ALLOWS
+RESOLVED_CONTRADICTION_PRESERVATION=PASS
 DOMAIN_KNOWLEDGE_PACKAGE_SCHEMA=IMPLEMENTED
 EFFECTIVE_SCHEMA_COMPOSITION=IMPLEMENTED
 CANONICAL_KNOWLEDGE_PACKAGE_VALIDATION=IMPLEMENTED

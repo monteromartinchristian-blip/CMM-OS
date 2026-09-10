@@ -89,7 +89,9 @@ from cmm.domains.knowledge_package_contracts import (
 from cmm.domains.knowledge_package_validation import (
     validate_domain_knowledge_package,
 )
+from cmm.domains.life_plan.definition import build_life_plan_domain_definition
 from cmm.domains.manifest import DomainComponentReference, DomainManifest
+from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.profile_contracts import (
     DomainMemoryPolicy,
@@ -98,6 +100,9 @@ from cmm.domains.profile_contracts import (
     DomainQuestionPolicy,
     DomainTemporalPolicy,
     ResolvedDomainProfile,
+)
+from cmm.domains.relationships.definition import (
+    build_relationships_domain_definition,
 )
 from cmm.domains.resource_contracts import (
     DomainResourceBinding,
@@ -748,6 +753,110 @@ def test_dp049_resolved_contradiction_preserved_without_mutation() -> None:
     assert package.serialize() == before
     assert package.contradictions[0].status is ContradictionStatus.RESOLVED
     assert _store_state(store) == store_before
+
+
+def test_dp049_real_first_party_schemas_are_substantively_differentiated() -> None:
+    """Two real schemas must differ in policy body, not merely in identity.
+
+    Health and Relationships are both ``SENSITIVE``, so the difference proven
+    here cannot be attributed to ``id``, ``domain_id``, ``metadata`` or
+    ``minimum_sensitivity``.
+    """
+    health = build_health_domain_definition().knowledge_package_schema
+    relationships = build_relationships_domain_definition().knowledge_package_schema
+    assert isinstance(health, DomainKnowledgePackageSchema)
+    assert isinstance(relationships, DomainKnowledgePackageSchema)
+
+    # Same sensitivity floor, so sensitivity cannot explain the difference.
+    assert health.minimum_sensitivity is SensitivityLevel.SENSITIVE
+    assert relationships.minimum_sensitivity is SensitivityLevel.SENSITIVE
+    assert health.id != relationships.id
+    assert health.domain_id != relationships.domain_id
+
+    health_policies = {policy.field_name: policy for policy in health.field_policies}
+    relationship_policies = {
+        policy.field_name: policy for policy in relationships.field_policies
+    }
+
+    assert health.field_policies != relationships.field_policies
+
+    # Health demands documented, sourced, temporally valid clinical evidence.
+    assert health_policies["facts"].required_non_empty is True
+    assert health_policies["facts"].require_provenance is True
+    assert health_policies["facts"].require_temporal_scope is True
+    assert health_policies["observations"].require_provenance is True
+    assert health_policies["observations"].require_temporal_scope is True
+
+    # Relationships keeps factual certainty optional and fences only observed
+    # interaction evidence.
+    assert relationship_policies["facts"].required_non_empty is False
+    assert relationship_policies["facts"].require_provenance is False
+    assert relationship_policies["facts"].require_temporal_scope is False
+    assert relationship_policies["observations"].require_provenance is True
+    assert relationship_policies["observations"].require_temporal_scope is False
+
+
+def test_dp049_distinct_policy_composition_is_most_restrictive() -> None:
+    """Composing two real schemas must carry the most-restrictive combination.
+
+    Oppositions and Life Plan contribute genuinely different restrictions, so
+    the effective schema must reflect both sources rather than either one.
+    """
+    oppositions = build_oppositions_domain_definition().knowledge_package_schema
+    life_plan = build_life_plan_domain_definition().knowledge_package_schema
+    assert isinstance(oppositions, DomainKnowledgePackageSchema)
+    assert isinstance(life_plan, DomainKnowledgePackageSchema)
+    assert oppositions.field_policies != life_plan.field_policies
+
+    effective = compose_domain_knowledge_package_schemas((oppositions, life_plan))
+    assert isinstance(effective, EffectiveDomainKnowledgePackageSchema)
+    assert effective == compose_domain_knowledge_package_schemas(
+        (life_plan, oppositions)
+    )
+
+    effective_policies = {
+        policy.field_name: policy for policy in effective.field_policies
+    }
+    source_policies = [
+        {policy.field_name: policy for policy in schema.field_policies}
+        for schema in (oppositions, life_plan)
+    ]
+
+    # Every effective field policy is the most-restrictive combination.
+    for field_name, policy in effective_policies.items():
+        contributing = [
+            policies[field_name]
+            for policies in source_policies
+            if field_name in policies
+        ]
+        assert policy.required_non_empty == any(
+            item.required_non_empty for item in contributing
+        )
+        assert policy.require_provenance == any(
+            item.require_provenance for item in contributing
+        )
+        assert policy.require_temporal_scope == any(
+            item.require_temporal_scope for item in contributing
+        )
+        assert policy.preserve_uncertainty == any(
+            item.preserve_uncertainty for item in contributing
+        )
+        assert policy.preserve_contradictions == any(
+            item.preserve_contradictions for item in contributing
+        )
+
+    # Oppositions contributes the temporal floor on recorded state.
+    assert effective_policies["facts"].require_temporal_scope is True
+    assert effective_policies["observations"].require_temporal_scope is True
+    # Life Plan contributes the active-goal requirement.
+    assert effective_policies["active_goals"].required_non_empty is True
+
+    # Neither source alone carries both restrictions.
+    assert "active_goals" not in source_policies[0]
+    assert source_policies[1]["facts"].require_temporal_scope is False
+
+    # The strongest floor wins and can never be lowered.
+    assert effective.minimum_sensitivity is SensitivityLevel.SENSITIVE
 
 
 @pytest.mark.parametrize("reverse", (False, True))
