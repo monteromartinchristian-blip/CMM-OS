@@ -3,7 +3,7 @@
 **Phase:** 10.49 — Domain Knowledge Packages
 **Design Point:** `DP-049` — Declarative Domain Specialization of the Canonical Phase 8 KnowledgePackage
 **Acceptance Test:** `AT-DP-049` — Connected Domain Knowledge Package Acceptance
-**Status:** `PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` · `DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION` · `AT-DP-049=PASS_REPORTED` · `BLOCKERS=0` · `MAJORS=0` · `MINORS=0` · `CLOSURE_ELIGIBLE=NO` (independent audit pending)
+**Status:** `PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2` · `DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION` · `AT-DP-049=PASS_REPORTED` · `BLOCKERS=0` · `MAJORS=0` · `MINORS=0` · `CLOSURE_ELIGIBLE=NO` (independent re-audit V2 pending)
 
 > A Domain Pack declares how the canonical Phase 8 `KnowledgePackage` must be
 > shaped for that domain. The declaration can only **narrow** — require, restrict

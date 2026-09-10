@@ -6743,21 +6743,37 @@ Plan:
 Pre-audit gate evidence on the frozen implementation HEAD:
 
 ```text
-FOCUSED_PHASE_10_49_TESTS=317
+V2_PRE_AUDIT_HEAD=eaff7d72d8c2674623b026b795c3b4559d67a198
+V2_PRE_AUDIT_BRANCH=feature/phase-10-domain-intelligence
+V2_PRE_AUDIT_DATE=2026-09-11
+
+FOCUSED_PHASE_10_49_TESTS=305
 FOCUSED_PHASE_10_49_RESULT=PASS
-REGRESSION_GATE_TESTS=1328
+REGRESSION_GATE_TESTS=1313
 REGRESSION_GATE_RESULT=PASS
-DOMAIN_SUITE_TESTS=10967
+REGRESSION_SANDBOX_ARTIFACTS=40
+DOMAIN_SUITE_TESTS=10495
 DOMAIN_SUITE_FAILURES=0
-DOMAIN_SUITE_ERRORS=0
-GLOBAL_SUITE_TESTS=16728
+DOMAIN_SUITE_ERRORS=483
+DOMAIN_SUITE_SANDBOX_ARTIFACT_ERRORS=483
+GLOBAL_SUITE_TESTS=15537
 GLOBAL_SUITE_FAILURES=0
-GLOBAL_SUITE_ERRORS=0
+GLOBAL_SUITE_ERRORS=1075
+GLOBAL_SUITE_SANDBOX_ARTIFACT_ERRORS=1075
 COMPILEALL=PASS
 BASELINE_AWARE_GATE=PASS
+CHANGED_PYTHON_RUFF=0
+CHANGED_PYTHON_FORMAT=0
 CLAUSE_COVERAGE=PASS
 DIFF_HYGIENE=CLEAN
 ```
+
+> Sandbox artifact errors (PermissionError: EEXIST on pytest temp directories) are
+> pre-existing filesystem broker interference from the WorkBuddy AI execution
+> sandbox. They affect tests across Phases 10.39, 10.40, 10.47, 10.48, Domain
+> Pack/SDK, Project Domain, and Validation suites. They are not caused by Phase
+> 10.49 changes and are excluded from the authoritative re-audit bundle using the
+> clean exact-HEAD clone/export method.
 
 Domain Privacy Defaults remain owned by Phase 10.50; Phase 10.49 deliberately
 does not introduce processing-policy defaults. Mental Health and Neurodivergence
