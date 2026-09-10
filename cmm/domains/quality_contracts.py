@@ -769,7 +769,7 @@ class DomainQualityHumanReviewResult:
                     data.get("confidence"), "confidence", minimum=_ZERO, maximum=_ONE
                 ),
                 reviewer_ref=data.get("reviewer_ref"),
-                notes=tuple(data.get("notes", ()) or ()),
+                notes=data.get("notes", ()),
                 metadata=data.get("metadata", {}),
             )
         except DomainContractValidationError as exc:

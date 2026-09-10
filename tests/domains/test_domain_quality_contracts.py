@@ -155,6 +155,47 @@ def test_human_review_optional_fields_and_round_trip():
 
 
 @pytest.mark.parametrize(
+    "notes",
+    [
+        "abc",
+        b"abc",
+        bytearray(b"abc"),
+        {"a": "x", "b": "y"},
+        123,
+        True,
+        1.25,
+        None,
+        ["ok", 1],
+        [["nested"]],
+    ],
+)
+def test_human_review_from_dict_rejects_malformed_notes_fail_closed(notes):
+    payload = DomainQualityHumanReviewResult(
+        id="quality-review:health:prudence:malformed",
+        schema_version="1",
+        status="accepted",
+        notes=("valid",),
+    ).to_dict()
+    payload["notes"] = notes
+
+    with pytest.raises(DomainSerializationError):
+        DomainQualityHumanReviewResult.from_dict(payload)
+
+
+def test_human_review_from_dict_accepts_serialized_list_of_notes():
+    payload = DomainQualityHumanReviewResult(
+        id="quality-review:health:prudence:list",
+        schema_version="1",
+        status="accepted",
+        notes=("one", "two"),
+    ).to_dict()
+
+    assert payload["notes"] == ["one", "two"]
+    restored = DomainQualityHumanReviewResult.from_dict(payload)
+    assert restored.notes == ("one", "two")
+
+
+@pytest.mark.parametrize(
     "field,value",
     [
         ("score", 1),
