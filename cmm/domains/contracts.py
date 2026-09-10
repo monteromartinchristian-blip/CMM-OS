@@ -27,6 +27,7 @@ from cmm.domains.identifiers import (
     DomainResultId,
 )
 from cmm.domains.model_policy_contracts import DomainModelPolicy
+from cmm.domains.quality_contracts import DomainQualityMetric
 
 # ── Deep freeze / unfreeze helpers ────────────────────────────────────────────
 
@@ -696,6 +697,7 @@ _DEFINITION_KNOWN = frozenset(
         "metadata",
         "model_policy",
         "benchmark_suites",
+        "quality_metrics",
     }
 )
 
@@ -729,6 +731,7 @@ class DomainDefinition:
     metadata: DomainMetadata | None = None
     model_policy: DomainModelPolicy | None = None
     benchmark_suites: tuple[DomainBenchmarkSuite, ...] = ()
+    quality_metrics: tuple[DomainQualityMetric, ...] = ()
 
     def __post_init__(self) -> None:
         # ── Coerce string ids ────────────────────────────────────────────
@@ -993,6 +996,43 @@ class DomainDefinition:
             )
         object.__setattr__(self, "benchmark_suites", tuple(suites))
 
+        # ── Optional quality metrics ─────────────────────────────────────
+        raw_quality = self.quality_metrics
+        if isinstance(raw_quality, (str, bytes, bytearray)) or not isinstance(
+            raw_quality, Sequence
+        ):
+            raise DomainContractValidationError(
+                "quality_metrics must be a tuple or list of DomainQualityMetric",
+                field="quality_metrics",
+            )
+        quality_metrics: list[DomainQualityMetric] = []
+        for index, item in enumerate(raw_quality):
+            if isinstance(item, Mapping):
+                try:
+                    item = DomainQualityMetric.from_dict(dict(item))
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "quality_metrics", index)
+            elif not isinstance(item, DomainQualityMetric):
+                raise DomainContractValidationError(
+                    f"quality_metrics[{index}] must be a DomainQualityMetric "
+                    f"or mapping, got {type(item).__name__}",
+                    field="quality_metrics",
+                )
+            if item.domain_id != self.id:
+                raise DomainContractValidationError(
+                    f"quality_metrics[{index}] domain_id '{item.domain_id}' must "
+                    f"match domain id '{self.id}'",
+                    field="quality_metrics",
+                )
+            quality_metrics.append(item)
+        metric_ids = [metric.id for metric in quality_metrics]
+        if len(set(metric_ids)) != len(metric_ids):
+            raise DomainContractValidationError(
+                "quality_metrics must not contain duplicate metric IDs",
+                field="quality_metrics",
+            )
+        object.__setattr__(self, "quality_metrics", tuple(quality_metrics))
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -1021,6 +1061,7 @@ class DomainDefinition:
                 self.model_policy.to_dict() if self.model_policy is not None else None
             ),
             "benchmark_suites": [suite.to_dict() for suite in self.benchmark_suites],
+            "quality_metrics": [metric.to_dict() for metric in self.quality_metrics],
         }
 
     @classmethod
@@ -1174,6 +1215,30 @@ class DomainDefinition:
             except DomainError as exc:
                 _wrap_nested_error(exc, "benchmark_suites", index)
 
+        quality_metrics_raw = data.get("quality_metrics")
+        if quality_metrics_raw is None:
+            quality_metrics_raw = ()
+        if not isinstance(quality_metrics_raw, (list, tuple)):
+            raise DomainSerializationError(
+                "quality_metrics must be a list",
+                field="quality_metrics",
+            )
+        quality_metrics: list[DomainQualityMetric] = []
+        for index, item in enumerate(quality_metrics_raw):
+            if isinstance(item, DomainQualityMetric):
+                quality_metrics.append(item)
+                continue
+            if not isinstance(item, Mapping):
+                raise DomainSerializationError(
+                    f"quality_metrics[{index}] must be a mapping or "
+                    f"DomainQualityMetric, got {type(item).__name__}",
+                    field=f"quality_metrics[{index}]",
+                )
+            try:
+                quality_metrics.append(DomainQualityMetric.from_dict(dict(item)))
+            except DomainError as exc:
+                _wrap_nested_error(exc, "quality_metrics", index)
+
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -1200,6 +1265,7 @@ class DomainDefinition:
             metadata=metadata,
             model_policy=model_policy,
             benchmark_suites=tuple(benchmark_suites),
+            quality_metrics=tuple(quality_metrics),
         )
 
 

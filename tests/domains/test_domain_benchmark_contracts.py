@@ -715,10 +715,12 @@ def test_domain_definition_benchmark_suites_default_empty() -> None:
     assert _make_definition().benchmark_suites == ()
 
 
-def test_benchmark_suites_is_the_last_declared_field() -> None:
+def test_benchmark_suites_precedes_only_the_phase_10_48_quality_metrics_field() -> None:
+    # Phase 10.48 appends `quality_metrics` after `benchmark_suites`; no other
+    # field may be declared in between or after it.
     names = [f.name for f in fields(DomainDefinition)]
 
-    assert names[-1] == "benchmark_suites"
+    assert names[-2:] == ["benchmark_suites", "quality_metrics"]
 
 
 def test_old_domain_definition_payload_without_benchmarks_still_loads() -> None:
