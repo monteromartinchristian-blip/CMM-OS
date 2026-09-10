@@ -1488,3 +1488,27 @@ __all__ += [
     "export_domain_benchmark_suite",
     "import_domain_benchmark_suite",
 ]
+
+# ── Phase 10.48 – Domain Quality Policy Exports ──────────────────────────────
+
+from cmm.domains.quality_contracts import (
+    DomainQualityAssessment,
+    DomainQualityHumanReviewResult,
+    DomainQualityMetric,
+    DomainQualityMetricResult,
+    assess_domain_quality,
+    build_domain_quality_metric_result,
+    export_domain_quality_assessment,
+    import_domain_quality_assessment,
+)
+
+__all__ += [
+    "DomainQualityAssessment",
+    "DomainQualityHumanReviewResult",
+    "DomainQualityMetric",
+    "DomainQualityMetricResult",
+    "assess_domain_quality",
+    "build_domain_quality_metric_result",
+    "export_domain_quality_assessment",
+    "import_domain_quality_assessment",
+]

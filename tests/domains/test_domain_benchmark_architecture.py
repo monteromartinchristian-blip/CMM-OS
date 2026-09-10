@@ -1,9 +1,14 @@
 """Phase 10.47 — architecture guards for Domain benchmark assets.
 
 These guards are intentionally narrow: they protect the Phase 10.47 boundary
-(no benchmark runtime/registry, no model/provider authority, no Phase 10.48
-quality metrics, no reverse dependency) without banning unrelated pre-existing
-Agent Runtime evaluation infrastructure.
+(no benchmark runtime/registry, no model/provider authority, no quality
+weighting attached to benchmark assets, no reverse dependency) without banning
+unrelated pre-existing Agent Runtime evaluation infrastructure.
+
+Phase 10.48 introduces the canonical `DomainQualityMetric` type in
+``cmm/domains/quality_contracts.py``. That type is owned by the quality layer,
+not by benchmark assets; the boundary this module protects is that benchmark
+sources never gain quality weighting.
 """
 
 from __future__ import annotations
@@ -33,7 +38,6 @@ _FORBIDDEN_PRODUCTION_NAMES = (
     "ModelBenchmarkRouter",
     "BenchmarkProviderAdapter",
     "BenchmarkModelClient",
-    "DomainQualityMetric",
 )
 
 _FORBIDDEN_BENCHMARK_IMPORTS = (
