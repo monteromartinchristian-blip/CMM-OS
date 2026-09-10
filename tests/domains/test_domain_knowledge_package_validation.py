@@ -370,25 +370,55 @@ def test_validation_does_not_infer_contradiction_erasure_from_absence() -> None:
     assert validate_domain_knowledge_package(package, schema) is package
 
 
-def test_validation_rejects_resolved_contradiction_when_preserved() -> None:
+def _package_with_contradiction(status: ContradictionStatus) -> KnowledgePackage:
+    """Build a canonical package holding one contradiction with ``status``."""
+    resolved = status is ContradictionStatus.RESOLVED
     contradiction = Contradiction(
         item_a_id="item:a",
         item_b_id="item:b",
-        status=ContradictionStatus.RESOLVED,
-        preferred_id="item:a",
-        preference_reason="Stronger evidence",
+        status=status,
+        preferred_id="item:a" if resolved else None,
+        preference_reason="Stronger evidence" if resolved else None,
     )
-    package = _package(contradictions=(contradiction,))
-    schema = _schema(
-        policies=(
-            DomainKnowledgePackageFieldPolicy(
-                field_name="contradictions", preserve_contradictions=True
+    return _package(contradictions=(contradiction,))
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ContradictionStatus.UNRESOLVED,
+        ContradictionStatus.RESOLVED,
+        ContradictionStatus.DEFERRED,
+        ContradictionStatus.ACKNOWLEDGED,
+    ],
+)
+def test_preserve_contradictions_accepts_canonical_status_without_mutation(
+    status: ContradictionStatus,
+) -> None:
+    """Every canonical status stays representable and unmutated under preservation.
+
+    A contradiction that is still present in ``package.contradictions`` has not
+    been erased, whatever its status. Resolution is not erasure, so Phase 10.49
+    must not reject a canonical status or rewrite it.
+    """
+    package = _package_with_contradiction(status)
+    before = package.serialize()
+
+    validated = validate_domain_knowledge_package(
+        package,
+        _schema(
+            policies=(
+                DomainKnowledgePackageFieldPolicy(
+                    field_name="contradictions",
+                    preserve_contradictions=True,
+                ),
             ),
-        )
+        ),
     )
 
-    with pytest.raises(DomainKnowledgePackageValidationError):
-        validate_domain_knowledge_package(package, schema)
+    assert validated is package
+    assert package.serialize() == before
+    assert package.contradictions[0].status is status
 
 
 def test_validation_does_not_infer_uncertainty_erasure_from_absence() -> None:

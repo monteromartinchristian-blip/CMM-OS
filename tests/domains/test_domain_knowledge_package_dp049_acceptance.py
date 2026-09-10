@@ -36,6 +36,7 @@ from cmm.cognitive import (
     Confidence,
     Contradiction,
     ContradictionSeverity,
+    ContradictionStatus,
     Evidence,
     ExistingResourceAdapter,
     InMemoryKnowledgeStore,
@@ -706,6 +707,47 @@ def test_dp049_general_accepts_canonical_observation_only_package() -> None:
     assert package.observations
 
     assert validate_domain_knowledge_package(package, general_schema) is package
+
+
+def test_dp049_resolved_contradiction_preserved_without_mutation() -> None:
+    """A canonical resolved contradiction is preserved unchanged.
+
+    The package is produced by the real connected path (canonical builder via
+    ``DefaultDomainCognitiveIntegrator``) and validated against the real Health
+    schema, which declares ``preserve_contradictions=True``. A resolved
+    contradiction that is still present in ``package.contradictions`` has not
+    been erased: resolution is visibility, not erasure, so validation must
+    return the identical object with identical serialization and status.
+    """
+    health = build_health_domain_definition()
+    health_schema = health.knowledge_package_schema
+    assert isinstance(health_schema, DomainKnowledgePackageSchema)
+    policies = {policy.field_name: policy for policy in health_schema.field_policies}
+    assert policies["contradictions"].preserve_contradictions is True
+
+    store = _store()
+    store_before = _store_state(store)
+    integrator = _integrator(store)
+    result = integrator.integrate(
+        _request(_binding(), knowledge_package_schema=health_schema)
+    )
+    built = result.knowledge_package
+
+    resolved = replace(
+        built.contradictions[0],
+        status=ContradictionStatus.RESOLVED,
+        preferred_id="fact-049-a",
+        preference_reason="Stronger clinical source",
+    )
+    package = replace(built, contradictions=(resolved,))
+    before = package.serialize()
+
+    validated = validate_domain_knowledge_package(package, health_schema)
+
+    assert validated is package
+    assert package.serialize() == before
+    assert package.contradictions[0].status is ContradictionStatus.RESOLVED
+    assert _store_state(store) == store_before
 
 
 @pytest.mark.parametrize("reverse", (False, True))

@@ -5,12 +5,15 @@
 free and fail-closed: on success it returns the exact same object, and it never
 mutates, repairs, stores or rebuilds the package.
 
-Preservation semantics are deliberately positive-evidence-only: a
-``preserve_uncertainty`` / ``preserve_contradictions`` requirement is never
-violated merely because a section is empty. It is violated only when the package
-itself shows that uncertainty or a contradiction was collapsed — an
-inference/hypothesis asserted at absolute certainty, or a contradiction marked
-resolved.
+Preservation semantics are deliberately positive-evidence-only and
+non-mutating: a ``preserve_uncertainty`` / ``preserve_contradictions``
+requirement is never violated merely because a section is empty, and canonical
+contradiction statuses are never rejected or rewritten. Uncertainty preservation
+is violated only when the package itself collapses uncertainty into absolute
+certainty — an inference/hypothesis asserted with confidence ``1.0``.
+Contradiction preservation is satisfied whenever canonical contradiction
+evidence remains present and unchanged, whatever its canonical status:
+resolution is visibility, not erasure.
 
 Opaque validator references are never resolved or executed. This module never
 grants permission, privacy, provider or execution authority.
@@ -22,7 +25,6 @@ from collections.abc import Mapping, Sequence, Sized
 from typing import Any, NoReturn
 
 from cmm.cognitive.enums import (
-    ContradictionStatus,
     KnowledgeKind,
     TemporalScopeKind,
 )
@@ -186,22 +188,17 @@ def _validate_uncertainty(
             )
 
 
-def _validate_contradictions(
-    package: KnowledgePackage, policy: DomainKnowledgePackageFieldPolicy
-) -> None:
-    # Absence is never treated as contradiction erasure.
+def _validate_contradictions(package: KnowledgePackage) -> None:
+    # Absence is never treated as contradiction erasure, and no canonical status
+    # is rejected. A contradiction that is still present in the package has not
+    # been erased, whether it is unresolved, resolved, deferred or acknowledged.
+    # Phase 10.49 does not decide contradiction truth, never mutates status and
+    # never infers hidden contradictions from an empty collection.
     for contradiction in package.contradictions:
         if not isinstance(contradiction, Contradiction):
             _fail(
                 "contradictions must contain canonical Contradiction values",
                 field="contradictions",
-            )
-        if contradiction.status is ContradictionStatus.RESOLVED:
-            _fail(
-                f"contradiction {contradiction.id!r} is resolved; preservation "
-                "forbids erasing contradiction visibility",
-                field="contradictions",
-                details={"contradiction_id": contradiction.id},
             )
 
 
@@ -234,7 +231,7 @@ def _validate_field_policies(
         if policy.preserve_uncertainty:
             _validate_uncertainty(policy, value)
         if policy.preserve_contradictions:
-            _validate_contradictions(package, policy)
+            _validate_contradictions(package)
 
 
 def _validate_minimum_sensitivity(
