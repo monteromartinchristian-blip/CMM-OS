@@ -71,6 +71,7 @@ from cmm.domains.errors import (
     DomainKnowledgePackageCompositionError,
     DomainKnowledgePackageValidationError,
 )
+from cmm.domains.general.definition import build_general_domain_definition
 from cmm.domains.health.definition import build_health_domain_definition
 from cmm.domains.identifiers import DomainId
 from cmm.domains.knowledge_package_composition import (
@@ -630,6 +631,45 @@ def test_at_dp049_connected_acceptance() -> None:
 
 
 # ── Scenario H: irreconcilable conflict fails in both input orders ────────────
+
+
+def test_dp049_general_accepts_canonical_observation_only_package() -> None:
+    """A canonical non-fact package must be accepted where Domain policy allows.
+
+    General is the broad compatibility Domain: it must not force a factual
+    section merely because the common V1 template did. The package below is a
+    valid canonical Phase 8 ``KnowledgePackage`` with an objective and
+    observations but no facts.
+    """
+    general = build_general_domain_definition()
+    general_schema = general.knowledge_package_schema
+    assert isinstance(general_schema, DomainKnowledgePackageSchema)
+    assert str(general_schema.domain_id) == "domain:general"
+
+    package = KnowledgePackage(
+        id="knowledge-package:dp049-observation-only",
+        objective="Review general information",
+        domain="domain:general",
+        observations=(
+            KnowledgeItem(
+                id="observation-049-a",
+                statement=(
+                    "General information review: the reported situation is stable."
+                ),
+                kind=KnowledgeKind.OBSERVATION,
+                confidence=Confidence(0.6),
+                sensitivity=SensitivityLevel.INTERNAL,
+                created_at=NOW,
+                updated_at=NOW,
+            ),
+        ),
+        created_at=NOW,
+    )
+
+    assert package.facts == ()
+    assert package.observations
+
+    assert validate_domain_knowledge_package(package, general_schema) is package
 
 
 @pytest.mark.parametrize("reverse", (False, True))

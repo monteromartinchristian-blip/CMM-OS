@@ -55,6 +55,9 @@ from cmm.domains.sport.definition import build_sport_domain_definition
 from cmm.domains.sport.knowledge_package import (
     build_sport_knowledge_package_schema,
 )
+from cmm.domains.knowledge_package_contracts import (
+    DomainKnowledgePackageSchema,
+)
 from cmm.domains.university.definition import build_university_domain_definition
 from cmm.domains.university.knowledge_package import (
     build_university_knowledge_package_schema,
@@ -125,6 +128,29 @@ DEFINITION_BUILDERS = {
     "project": build_project_domain_definition,
 }
 
+
+def _all_first_party_schemas() -> dict[str, DomainKnowledgePackageSchema]:
+    """Build every approved first-party schema, keyed by slug."""
+    return {slug: builder() for slug, builder in SCHEMA_BUILDERS.items()}
+
+
+def _normalized_policy_body(
+    schema: DomainKnowledgePackageSchema,
+) -> tuple[object, ...]:
+    """Normalize a schema to its semantic policy body.
+
+    Identity, sensitivity and metadata are deliberately excluded: they are
+    per-Domain labels, not evidence of Domain-specific package policy.
+    """
+    return (
+        schema.required_sections,
+        schema.optional_sections,
+        schema.prohibited_sections,
+        tuple(policy.to_dict() for policy in schema.field_policies),
+        schema.validator_refs,
+    )
+
+
 _FORBIDDEN_SERIALIZATION_TOKENS = (
     "model",
     "provider",
@@ -185,6 +211,15 @@ def test_schema_requires_objective_and_declares_epistemic_discipline(slug: str) 
     assert policies["inferences"].preserve_uncertainty is True
     assert policies["hypotheses"].preserve_uncertainty is True
     assert policies["contradictions"].preserve_contradictions is True
+
+
+def test_first_party_knowledge_package_policies_are_meaningfully_domain_specific() -> None:
+    """The twelve schemas must not collapse into one normalized policy body."""
+    schemas = _all_first_party_schemas()
+
+    shapes = {repr(_normalized_policy_body(schema)) for schema in schemas.values()}
+
+    assert len(shapes) >= 4
 
 
 @pytest.mark.parametrize("slug", sorted(EXPECTED))
