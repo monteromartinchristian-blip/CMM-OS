@@ -303,12 +303,25 @@ def _require_maximum_cost(value: Any, field_name: str) -> Decimal | None:
 
 
 def _canonical_decimal_text(value: Decimal) -> str:
-    """Canonical numeric-value decimal text (never caller scale, never float)."""
+    """Exact, context-independent fixed-point text for a benchmark cost.
+
+    Built directly from the stored coefficient and exponent so ambient
+    ``decimal`` context precision can never round or reformat the value.
+    """
     if value == 0:
         return "0"
 
-    normalized = value.normalize()
-    text = format(normalized, "f")
+    _, digits, exponent = value.as_tuple()
+    coefficient = "".join(str(digit) for digit in digits)
+
+    if exponent >= 0:
+        text = coefficient + "0" * exponent
+    else:
+        point = len(coefficient) + exponent
+        if point > 0:
+            text = f"{coefficient[:point]}.{coefficient[point:]}"
+        else:
+            text = f"0.{'0' * -point}{coefficient}"
 
     if "." in text:
         text = text.rstrip("0").rstrip(".")

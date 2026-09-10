@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import FrozenInstanceError, fields
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -536,6 +536,46 @@ def test_canonical_cost_round_trip_is_numerically_exact(
 
     assert serialized == canonical
     assert Decimal(serialized) == value
+
+
+_HIGH_PRECISION_COST = Decimal("123456789012345678901234567890.123456789")
+_LONG_FRACTION_COST = Decimal("0.123456789012345678901234567890123456789")
+
+
+@pytest.mark.parametrize(
+    "value",
+    (_HIGH_PRECISION_COST, _LONG_FRACTION_COST),
+)
+def test_high_precision_costs_round_trip_exactly(value: Decimal) -> None:
+    serialized = _cost_suite(value).to_dict()["cases"][0]["maximum_cost_eur"]
+
+    assert Decimal(serialized) == value
+
+
+def test_large_positive_exponent_cost_serializes_exact_fixed_point() -> None:
+    value = Decimal("1E+30")
+    serialized = _cost_suite(value).to_dict()["cases"][0]["maximum_cost_eur"]
+
+    assert serialized == "1000000000000000000000000000000"
+    assert Decimal(serialized) == value
+
+
+def test_decimal_serialization_is_independent_of_ambient_decimal_context() -> None:
+    payloads: list[dict[str, object]] = []
+    exports: list[bytes] = []
+    digests: list[str] = []
+
+    for precision in (10, 28, 50):
+        with localcontext() as ctx:
+            ctx.prec = precision
+            suite = _cost_suite(_HIGH_PRECISION_COST)
+            payloads.append(suite.to_dict())
+            exports.append(export_domain_benchmark_suite(suite))
+            digests.append(suite.content_digest)
+
+    assert payloads[0] == payloads[1] == payloads[2]
+    assert exports[0] == exports[1] == exports[2]
+    assert digests[0] == digests[1] == digests[2]
 
 
 @pytest.mark.parametrize(
