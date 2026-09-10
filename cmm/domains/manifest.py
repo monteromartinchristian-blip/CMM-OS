@@ -614,6 +614,7 @@ _DECLARATIVE_KNOWN = frozenset(
         # on the manifest itself.
         "benchmark_suites",
         "quality_metrics",
+        "knowledge_package_schema",
     }
 )
 

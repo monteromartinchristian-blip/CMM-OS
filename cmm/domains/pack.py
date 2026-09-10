@@ -31,6 +31,7 @@ from cmm.domains.errors import (
     DomainContractValidationError,
     DomainSerializationError,
 )
+from cmm.domains.knowledge_package_contracts import DomainKnowledgePackageSchema
 from cmm.domains.manifest import (
     DomainManifest,
     _normalize_root_path_lexical,
@@ -555,6 +556,22 @@ class ParsedDomainPack:
                 )
             quality_metrics.append(DomainQualityMetric.from_dict(dict(item)))
 
+        knowledge_package_schema_raw = data.get("knowledge_package_schema")
+        knowledge_package_schema: DomainKnowledgePackageSchema | None = None
+        if knowledge_package_schema_raw is not None:
+            if isinstance(knowledge_package_schema_raw, DomainKnowledgePackageSchema):
+                knowledge_package_schema = knowledge_package_schema_raw
+            elif isinstance(knowledge_package_schema_raw, Mapping):
+                knowledge_package_schema = DomainKnowledgePackageSchema.from_dict(
+                    dict(knowledge_package_schema_raw)
+                )
+            else:
+                raise DomainSerializationError(
+                    "Declarative field 'knowledge_package_schema' must be a mapping, "
+                    f"got {type(knowledge_package_schema_raw).__name__}",
+                    field="knowledge_package_schema",
+                )
+
         definition = DomainDefinition(
             id=domain_id_raw,
             name=name,
@@ -579,6 +596,7 @@ class ParsedDomainPack:
             metadata=metadata,
             benchmark_suites=tuple(benchmark_suites),
             quality_metrics=tuple(quality_metrics),
+            knowledge_package_schema=knowledge_package_schema,
         )
 
         return cls(definition=definition, manifest=manifest)

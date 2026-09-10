@@ -26,6 +26,7 @@ from cmm.domains.identifiers import (
     DomainManifestId,
     DomainResultId,
 )
+from cmm.domains.knowledge_package_contracts import DomainKnowledgePackageSchema
 from cmm.domains.model_policy_contracts import DomainModelPolicy
 from cmm.domains.quality_contracts import DomainQualityMetric
 
@@ -698,6 +699,7 @@ _DEFINITION_KNOWN = frozenset(
         "model_policy",
         "benchmark_suites",
         "quality_metrics",
+        "knowledge_package_schema",
     }
 )
 
@@ -732,6 +734,7 @@ class DomainDefinition:
     model_policy: DomainModelPolicy | None = None
     benchmark_suites: tuple[DomainBenchmarkSuite, ...] = ()
     quality_metrics: tuple[DomainQualityMetric, ...] = ()
+    knowledge_package_schema: DomainKnowledgePackageSchema | None = None
 
     def __post_init__(self) -> None:
         # ── Coerce string ids ────────────────────────────────────────────
@@ -1033,6 +1036,33 @@ class DomainDefinition:
             )
         object.__setattr__(self, "quality_metrics", tuple(quality_metrics))
 
+        # ── Optional knowledge package schema ────────────────────────────
+        knowledge_package_schema = self.knowledge_package_schema
+        if knowledge_package_schema is not None:
+            if isinstance(knowledge_package_schema, Mapping):
+                try:
+                    knowledge_package_schema = DomainKnowledgePackageSchema.from_dict(
+                        dict(knowledge_package_schema)
+                    )
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "knowledge_package_schema")
+            elif not isinstance(knowledge_package_schema, DomainKnowledgePackageSchema):
+                raise DomainContractValidationError(
+                    "knowledge_package_schema must be a "
+                    "DomainKnowledgePackageSchema, a mapping, or None",
+                    field="knowledge_package_schema",
+                )
+            if knowledge_package_schema.domain_id != self.id:
+                raise DomainContractValidationError(
+                    f"knowledge_package_schema.domain_id "
+                    f"'{knowledge_package_schema.domain_id}' must match "
+                    f"domain id '{self.id}'",
+                    field="knowledge_package_schema",
+                )
+            object.__setattr__(
+                self, "knowledge_package_schema", knowledge_package_schema
+            )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -1062,6 +1092,11 @@ class DomainDefinition:
             ),
             "benchmark_suites": [suite.to_dict() for suite in self.benchmark_suites],
             "quality_metrics": [metric.to_dict() for metric in self.quality_metrics],
+            "knowledge_package_schema": (
+                self.knowledge_package_schema.to_dict()
+                if self.knowledge_package_schema is not None
+                else None
+            ),
         }
 
     @classmethod
@@ -1239,6 +1274,26 @@ class DomainDefinition:
             except DomainError as exc:
                 _wrap_nested_error(exc, "quality_metrics", index)
 
+        knowledge_package_schema_raw = data.get("knowledge_package_schema")
+        knowledge_package_schema: DomainKnowledgePackageSchema | None = None
+        if knowledge_package_schema_raw is not None:
+            if isinstance(knowledge_package_schema_raw, DomainKnowledgePackageSchema):
+                knowledge_package_schema = knowledge_package_schema_raw
+            elif isinstance(knowledge_package_schema_raw, Mapping):
+                try:
+                    knowledge_package_schema = DomainKnowledgePackageSchema.from_dict(
+                        dict(knowledge_package_schema_raw)
+                    )
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "knowledge_package_schema")
+            else:
+                raise DomainSerializationError(
+                    "knowledge_package_schema must be a mapping or "
+                    "DomainKnowledgePackageSchema, got "
+                    f"{type(knowledge_package_schema_raw).__name__}",
+                    field="knowledge_package_schema",
+                )
+
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -1266,6 +1321,7 @@ class DomainDefinition:
             model_policy=model_policy,
             benchmark_suites=tuple(benchmark_suites),
             quality_metrics=tuple(quality_metrics),
+            knowledge_package_schema=knowledge_package_schema,
         )
 
 
