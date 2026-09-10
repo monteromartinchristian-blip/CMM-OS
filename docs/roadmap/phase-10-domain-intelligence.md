@@ -6528,13 +6528,15 @@ Results must preserve:
 
 Implementation status (Phase 10.48)
 
-Phase 10.48 is implemented and pending independent audit. A Domain Pack declares
-immutable, domain-owned quality policy through `DomainDefinition.quality_metrics`,
-reusing the canonical `DomainRegistry` and the existing declarative Domain Pack
-parser; already-produced evidence is validated and aggregated deterministically
-by pure helper functions. No benchmark, evaluator, model or provider is
-executed, and no quality registry, loader, resolver, store, runtime or engine is
-introduced.
+Phase 10.48 is implemented. Independent Audit V1 returned `FAIL` with
+`BLOCKERS=0`, `MAJORS=2` and `MINORS=2`; the four findings were remediated by
+Remediation V1, which is reported complete and ready for Independent Re-audit V2.
+A Domain Pack declares immutable, domain-owned quality policy through
+`DomainDefinition.quality_metrics`, reusing the canonical `DomainRegistry` and
+the existing declarative Domain Pack parser; already-produced evidence is
+validated and aggregated deterministically by pure helper functions. No
+benchmark, evaluator, model or provider is executed, and no quality registry,
+loader, resolver, store, runtime or engine is introduced.
 
 Implementation: `cmm/domains/quality_contracts.py`; `cmm/domains/contracts.py`
 (`DomainDefinition.quality_metrics`); `cmm/domains/pack.py` and
@@ -6545,19 +6547,33 @@ packs. Reference: `docs/reference/domain-quality-metrics.md`. Focused tests:
 `tests/domains/test_domain_quality_pack_integration.py`,
 `tests/domains/test_domain_quality_first_party.py`. Architecture guards:
 `tests/domains/test_domain_quality_architecture.py`. Acceptance:
-`tests/domains/test_domain_quality_dp048_acceptance.py`.
+`tests/domains/test_domain_quality_dp048_acceptance.py`. Audit V1:
+`docs/audits/phase-10.48-independent-audit-v1.md`. Remediation V1 design:
+`docs/superpowers/specs/2026-09-10-phase-10.48-remediation-v1-design.md`.
+Remediation V1 plan:
+`docs/superpowers/plans/2026-09-10-phase-10.48-remediation-v1-implementation-plan.md`.
+Baseline-aware Ruff/format verifier:
+`scripts/audit/verify_phase_10_48_ruff_baseline.py`.
 
 ```text
-PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_48=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=2
+MINORS=2
+MAJOR_01=REMEDIATED_REPORTED
+MAJOR_02=REMEDIATED_REPORTED
+MINOR_01=REMEDIATED_REPORTED
+MINOR_02=REMEDIATED_REPORTED
 DP-048=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION
 AT-DP-048=PASS_REPORTED
 CLOSURE_ELIGIBLE=NO
 ```
 
-Phase 10.48 is not closed. Phase 10.49 has not started. Closure requires an
-independent audit reporting `BLOCKERS=0`, `MAJORS=0`, `DP-048=VERIFIED_EXISTING`,
-`AT-DP-048=PASS` and `CLOSURE_ELIGIBLE=YES`; only then may a separate docs-only
-closure commit be made.
+Phase 10.48 is not closed. Phase 10.49 has not started. Closure requires
+Independent Re-audit V2 reporting `BLOCKERS=0`, `MAJORS=0`,
+`DP-048=VERIFIED_EXISTING`, `AT-DP-048=PASS` and `CLOSURE_ELIGIBLE=YES`; only
+then may a separate docs-only closure commit be made.
 
 ⸻
 
