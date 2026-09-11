@@ -27,9 +27,11 @@ def build_life_plan_knowledge_package_schema() -> DomainKnowledgePackageSchema:
         # Life Plan discipline. Canonical Life Plan semantics coordinate active
         # goals and their dependencies (`goal_dependency`, `decision_status`)
         # and qualify external assumptions from supporting domains with
-        # minimized, purpose-bound projections. A Life Plan package must
-        # therefore carry active goals, and its recorded facts must retain
-        # provenance; scenarios and alternatives stay explicitly uncertain.
+        # minimized, purpose-bound projections. Recorded facts must therefore
+        # retain provenance, while scenarios and alternatives stay explicitly
+        # uncertain and contradictions remain visible. Goal state is not
+        # hard-required: the canonical package construction path cannot populate
+        # it, so a package carries active goals only when a caller supplies them.
         field_policies=(
             DomainKnowledgePackageFieldPolicy(
                 field_name="facts",
@@ -47,10 +49,6 @@ def build_life_plan_knowledge_package_schema() -> DomainKnowledgePackageSchema:
             DomainKnowledgePackageFieldPolicy(
                 field_name="hypotheses",
                 preserve_uncertainty=True,
-            ),
-            DomainKnowledgePackageFieldPolicy(
-                field_name="active_goals",
-                required_non_empty=True,
             ),
             DomainKnowledgePackageFieldPolicy(
                 field_name="contradictions",
