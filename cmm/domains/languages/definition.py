@@ -19,6 +19,7 @@ from cmm.domains.languages.catalog import (
 from cmm.domains.languages.knowledge_package import (
     build_languages_knowledge_package_schema,
 )
+from cmm.domains.languages.privacy import build_languages_privacy_policy
 from cmm.domains.languages.quality_metrics import build_languages_quality_metrics
 
 LANGUAGES_DOMAIN_ID = "domain:languages"
@@ -154,6 +155,7 @@ def build_languages_domain_definition() -> DomainDefinition:
         benchmark_suites=build_languages_benchmark_suites(),
         quality_metrics=build_languages_quality_metrics(),
         knowledge_package_schema=build_languages_knowledge_package_schema(),
+        privacy_policy=build_languages_privacy_policy(),
     )
 
 

@@ -14,6 +14,7 @@ from cmm.domains.university.catalog import (
 from cmm.domains.university.knowledge_package import (
     build_university_knowledge_package_schema,
 )
+from cmm.domains.university.privacy import build_university_privacy_policy
 from cmm.domains.university.quality_metrics import build_university_quality_metrics
 
 UNIVERSITY_DOMAIN_ID = "domain:university"
@@ -116,6 +117,7 @@ def build_university_domain_definition() -> DomainDefinition:
         benchmark_suites=build_university_benchmark_suites(),
         quality_metrics=build_university_quality_metrics(),
         knowledge_package_schema=build_university_knowledge_package_schema(),
+        privacy_policy=build_university_privacy_policy(),
     )
 
 

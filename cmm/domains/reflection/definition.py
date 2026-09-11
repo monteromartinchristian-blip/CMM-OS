@@ -19,6 +19,7 @@ from cmm.domains.reflection.catalog import (
 from cmm.domains.reflection.knowledge_package import (
     build_reflection_knowledge_package_schema,
 )
+from cmm.domains.reflection.privacy import build_reflection_privacy_policy
 from cmm.domains.reflection.quality_metrics import (
     build_reflection_quality_metrics,
 )
@@ -125,6 +126,7 @@ def build_reflection_domain_definition() -> DomainDefinition:
         benchmark_suites=build_reflection_benchmark_suites(),
         quality_metrics=build_reflection_quality_metrics(),
         knowledge_package_schema=build_reflection_knowledge_package_schema(),
+        privacy_policy=build_reflection_privacy_policy(),
     )
 
 

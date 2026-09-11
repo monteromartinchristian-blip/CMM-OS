@@ -14,6 +14,7 @@ from cmm.domains.health.catalog import (
 from cmm.domains.health.knowledge_package import (
     build_health_knowledge_package_schema,
 )
+from cmm.domains.health.privacy import build_health_privacy_policy
 from cmm.domains.health.quality_metrics import build_health_quality_metrics
 
 HEALTH_DOMAIN_ID = "domain:health"
@@ -113,6 +114,7 @@ def build_health_domain_definition() -> DomainDefinition:
         benchmark_suites=build_health_benchmark_suites(),
         quality_metrics=build_health_quality_metrics(),
         knowledge_package_schema=build_health_knowledge_package_schema(),
+        privacy_policy=build_health_privacy_policy(),
     )
 
 

@@ -21,6 +21,7 @@ from cmm.domains.oppositions.catalog import (
 from cmm.domains.oppositions.knowledge_package import (
     build_oppositions_knowledge_package_schema,
 )
+from cmm.domains.oppositions.privacy import build_oppositions_privacy_policy
 from cmm.domains.oppositions.quality_metrics import (
     build_oppositions_quality_metrics,
 )
@@ -130,6 +131,7 @@ def build_oppositions_domain_definition() -> DomainDefinition:
         benchmark_suites=build_oppositions_benchmark_suites(),
         quality_metrics=build_oppositions_quality_metrics(),
         knowledge_package_schema=build_oppositions_knowledge_package_schema(),
+        privacy_policy=build_oppositions_privacy_policy(),
     )
 
 

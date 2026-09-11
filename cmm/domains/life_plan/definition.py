@@ -18,6 +18,7 @@ from cmm.domains.life_plan.catalog import (
 from cmm.domains.life_plan.knowledge_package import (
     build_life_plan_knowledge_package_schema,
 )
+from cmm.domains.life_plan.privacy import build_life_plan_privacy_policy
 from cmm.domains.life_plan.quality_metrics import build_life_plan_quality_metrics
 
 LIFE_PLAN_DOMAIN_ID = "domain:life-plan"
@@ -156,6 +157,7 @@ def build_life_plan_domain_definition() -> DomainDefinition:
         benchmark_suites=build_life_plan_benchmark_suites(),
         quality_metrics=build_life_plan_quality_metrics(),
         knowledge_package_schema=build_life_plan_knowledge_package_schema(),
+        privacy_policy=build_life_plan_privacy_policy(),
     )
 
 

@@ -19,6 +19,7 @@ from cmm.domains.parenthood.catalog import (
 from cmm.domains.parenthood.knowledge_package import (
     build_parenthood_knowledge_package_schema,
 )
+from cmm.domains.parenthood.privacy import build_parenthood_privacy_policy
 from cmm.domains.parenthood.quality_metrics import (
     build_parenthood_quality_metrics,
 )
@@ -155,6 +156,7 @@ def build_parenthood_domain_definition() -> DomainDefinition:
         benchmark_suites=build_parenthood_benchmark_suites(),
         quality_metrics=build_parenthood_quality_metrics(),
         knowledge_package_schema=build_parenthood_knowledge_package_schema(),
+        privacy_policy=build_parenthood_privacy_policy(),
     )
 
 

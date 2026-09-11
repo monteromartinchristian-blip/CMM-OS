@@ -16,6 +16,7 @@ from cmm.domains.relationships.catalog import (
 from cmm.domains.relationships.knowledge_package import (
     build_relationships_knowledge_package_schema,
 )
+from cmm.domains.relationships.privacy import build_relationships_privacy_policy
 from cmm.domains.relationships.quality_metrics import (
     build_relationships_quality_metrics,
 )
@@ -122,6 +123,7 @@ def build_relationships_domain_definition() -> DomainDefinition:
         benchmark_suites=build_relationships_benchmark_suites(),
         quality_metrics=build_relationships_quality_metrics(),
         knowledge_package_schema=build_relationships_knowledge_package_schema(),
+        privacy_policy=build_relationships_privacy_policy(),
     )
 
 
