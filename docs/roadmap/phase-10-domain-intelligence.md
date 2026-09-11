@@ -6590,7 +6590,7 @@ REAUDIT_V4_REPORT_COMMIT=3e652884062dc5adc0a56859efd7f3ab5b9dfbd5
 Phase 10.48 is complete, independently re-audited and closed after final
 Independent Re-audit V4 `PASS`. Historical V1/V2/V3 failures remain preserved.
 Phase 10.49 has since been implemented on top of that closure baseline and is
-awaiting independent audit; its implementation status is recorded below.
+awaiting independent re-audit V3; its implementation status is recorded below.
 
 ⸻
 
@@ -6662,8 +6662,8 @@ A package may be composed across domains through explicit schemas and permission
 
 Implementation status (Phase 10.49)
 
-Phase 10.49 is implemented and awaiting independent audit. It declares an
-immutable, versioned Domain specialization of the canonical Phase 8
+Phase 10.49 is implemented and remediated, awaiting independent re-audit V3. It
+declares an immutable, versioned Domain specialization of the canonical Phase 8
 `KnowledgePackage`. A schema may only narrow or reject; it never grants
 execution, provider, network, file, resource, cross-domain, approval, privacy
 or permission authority. The canonical `KnowledgePackageBuilder` remains the
@@ -6671,11 +6671,18 @@ only package construction path.
 
 ```text
 PHASE10_48=CLOSED
-PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2
-MAJOR_01=REMEDIATED_REPORTED
-MAJOR_02=REMEDIATED_REPORTED
+PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V3
+
+MAJOR_01=VERIFIED_REMEDIATED_IN_V2
+MAJOR_02=VERIFIED_REMEDIATED_IN_V2
+MAJOR_03=REMEDIATED_REPORTED
 MINOR_01=REMEDIATED_REPORTED
+MINOR_02=REMEDIATED_REPORTED
+MINOR_03=REMEDIATED_REPORTED
+
+FIRST_PARTY_REQUIRED_FIELD_REACHABILITY=PASS
 DOMAIN_SPECIFIC_FIRST_PARTY_POLICIES=PASS
+UNIQUE_FIRST_PARTY_POLICY_SHAPES=11
 NON_FACT_CANONICAL_PACKAGE_COMPATIBILITY=PASS_WHERE_DOMAIN_POLICY_ALLOWS
 RESOLVED_CONTRADICTION_PRESERVATION=PASS
 
@@ -6714,9 +6721,9 @@ Languages, Project and General `INTERNAL`.
 `minimum_sensitivity` and `memory_policy.sensitivity_limit` are separate
 contracts. The schema floor is not derived one-to-one from memory policy; in
 five Domains (Health, Relationships, University, Oppositions, Reflection) the
-schema floor is lower than the memory limit, and in one (Languages) it is
-higher. Composition takes the strongest floor by explicit canonical rank and
-can never lower it.
+schema floor is lower than the memory limit, and in Languages (INTERNAL floor
+vs PERSONAL memory limit) it is also lower. Composition takes the strongest
+floor by explicit canonical rank and can never lower it.
 
 Implementation: `cmm/domains/knowledge_package_contracts.py`;
 `cmm/domains/knowledge_package_composition.py`;
@@ -6743,33 +6750,16 @@ Plan:
 Pre-audit gate evidence on the frozen implementation HEAD:
 
 ```text
-V2_PRE_AUDIT_HEAD=eaff7d72d8c2674623b026b795c3b4559d67a198
-V2_PRE_AUDIT_BRANCH=feature/phase-10-domain-intelligence
-V2_PRE_AUDIT_DATE=2026-09-11
-
-FOCUSED_PHASE_10_49_TESTS=305
-FOCUSED_PHASE_10_49_RESULT=PASS
-REGRESSION_GATE_TESTS=1313
-REGRESSION_GATE_RESULT=PASS
-REGRESSION_SANDBOX_ARTIFACTS=40
-DOMAIN_SUITE_TESTS=10495
-DOMAIN_SUITE_FAILURES=0
-DOMAIN_SUITE_ERRORS=483
-DOMAIN_SUITE_SANDBOX_ARTIFACT_ERRORS=483
-GLOBAL_SUITE_TESTS=15537
-GLOBAL_SUITE_FAILURES=0
-GLOBAL_SUITE_ERRORS=1075
-GLOBAL_SUITE_SANDBOX_ARTIFACT_ERRORS=1075
-COMPILEALL=PASS
-BASELINE_AWARE_GATE=PASS
-CHANGED_PYTHON_RUFF=0
-CHANGED_PYTHON_FORMAT=0
-CLAUSE_COVERAGE=PASS
-DIFF_HYGIENE=CLEAN
+V3_FINAL_GATE_COUNTS=PENDING_FINAL_EXACT_HEAD_RUN
 ```
 
+The single authoritative V3 pre-audit gate set is frozen after the final
+exact-HEAD run and is recorded identically across the live Phase 10.49 surfaces.
+Independent-audit severity counts are never published before the independent
+re-audit supplies them.
+
 > Sandbox artifact errors (PermissionError: EEXIST on pytest temp directories) are
-> pre-existing filesystem broker interference from the WorkBuddy AI execution
+> pre-existing filesystem broker interference from the local AI execution
 > sandbox. They affect tests across Phases 10.39, 10.40, 10.47, 10.48, Domain
 > Pack/SDK, Project Domain, and Validation suites. They are not caused by Phase
 > 10.49 changes and are excluded from the authoritative re-audit bundle using the

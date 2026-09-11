@@ -3,7 +3,7 @@
 **Phase:** 10.49 — Domain Knowledge Packages
 **Design Point:** `DP-049` — Declarative Domain Specialization of the Canonical Phase 8 KnowledgePackage
 **Acceptance Test:** `AT-DP-049` — Connected Domain Knowledge Package Acceptance
-**Status:** `PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2` · `DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION` · `AT-DP-049=PASS_REPORTED` · `BLOCKERS=0` · `MAJORS=0` · `MINORS=0` · `CLOSURE_ELIGIBLE=NO` (independent re-audit V2 pending)
+**Status:** `PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V3` · `DP-049=IMPLEMENTED_PENDING_INDEPENDENT_VERIFICATION` · `AT-DP-049=PASS_REPORTED` · `CLOSURE_ELIGIBLE=NO` (independent re-audit V3 pending; no independent severity counts are published before that audit)
 
 > A Domain Pack declares how the canonical Phase 8 `KnowledgePackage` must be
 > shaped for that domain. The declaration can only **narrow** — require, restrict
@@ -292,11 +292,20 @@ if request.knowledge_package_schema is not None:
     )
 ```
 
-The seam runs **after** the canonical `KnowledgePackageBuilder` has produced the
-package and the canonical cognitive validation has passed. The Domain schema
-therefore constrains an already-built canonical package; it never replaces the
-builder, the extraction pipeline, the privacy resolver or the cognitive
-validation rules.
+The canonical order inside `DefaultDomainCognitiveIntegrator.integrate(...)` is:
+
+```text
+canonical resource adaptation
+    → KnowledgePackageBuilder.build(...)
+    → validate_domain_knowledge_package(...)
+    → canonical CognitiveValidator validation
+    → downstream cognition
+```
+
+The Domain schema seam therefore runs **after** canonical package construction
+and **before** canonical `CognitiveValidator` validation. The Domain schema
+constrains an already-built canonical package; it never replaces the builder,
+the extraction pipeline, the privacy resolver or the cognitive validation rules.
 
 The request field is validated as a canonical `DomainKnowledgePackageSchema`
 (or `None`); any other type fails closed at the contract boundary.
@@ -313,8 +322,11 @@ general, health, relationships, university, oppositions, reflection, concerns,
 languages, parenthood, sport, life-plan, project
 ```
 
-Each first-party schema has a distinct policy body derived from its Domain's
-existing canonical semantics:
+Each first-party schema declares a policy body derived from its Domain's
+existing canonical semantics. The twelve schemas remain substantively
+domain-specific rather than collapsing into one template: eleven distinct
+normalized policy bodies, with Concerns and General sharing the same normalized
+body while differing in sensitivity floor.
 
 * **general** — broad fallback, no required factual section;
 * **health** — documented facts require provenance and temporal validity;
@@ -323,14 +335,21 @@ existing canonical semantics:
 * **oppositions** — official call provenance plus current temporal state;
 * **reflection** — non-categorised knowledge restricted to opinions and open
   questions (never decisions), no forced certainty;
-* **concerns** — missing information must be recorded explicitly;
+* **concerns** — uncertainty and contradictions stay visible, no factual section
+  is required, and no field is hard-required;
 * **languages** — proficiency claims require provenance; no contradiction rule
   inherited automatically;
 * **parenthood** — legal and medical facts require provenance and temporal scope;
 * **sport** — performance data requires temporal scope and resource provenance;
-* **life_plan** — active goals required; external assumptions must carry provenance;
+* **life_plan** — recorded facts must retain provenance; no field is hard-required;
 * **project** — progress evidence and observed state must retain provenance;
   decisions and questions only for non-categorised knowledge.
+
+A hard requirement (`required_non_empty` or `minimum_items`) is only declared
+where the canonical construction path can actually populate the field. No
+first-party schema requires `active_goals` or `missing_information`, because the
+canonical `KnowledgePackageBuilder` invoked by the Domain ↔ Cognitive seam never
+populates either; requiring them would make every real package unbuildable.
 
 `minimum_sensitivity` and `memory_policy.sensitivity_limit` are **separate**
 contracts. `minimum_sensitivity` is a schema floor applied to every package
@@ -347,7 +366,7 @@ derivations.
 | oppositions | `knowledge-package-schema:oppositions` | `INTERNAL` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
 | reflection | `knowledge-package-schema:reflection` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
 | concerns | `knowledge-package-schema:concerns` | `SENSITIVE` | `HIGHLY_SENSITIVE` | Schema floor < memory limit |
-| languages | `knowledge-package-schema:languages` | `INTERNAL` | `PERSONAL` | Schema floor > memory limit |
+| languages | `knowledge-package-schema:languages` | `INTERNAL` | `PERSONAL` | Schema floor is less restrictive than memory limit |
 | parenthood | `knowledge-package-schema:parenthood` | `SENSITIVE` | `SENSITIVE` | Matched |
 | sport | `knowledge-package-schema:sport` | `SENSITIVE` | `SENSITIVE` | Matched |
 | life_plan | `knowledge-package-schema:life_plan` | `SENSITIVE` | `SENSITIVE` | Matched |
@@ -526,23 +545,13 @@ actually zero.
 
 ## 20. Pre-audit gate evidence
 
-Measured on the frozen implementation HEAD (see §21) from a clean worktree.
+The single authoritative V3 pre-audit gate set is frozen after the final
+exact-HEAD run and is recorded identically across the live Phase 10.49 surfaces.
+Independent-audit severity counts are never published here before the
+independent re-audit supplies them.
 
 ```text
-FOCUSED_PHASE_10_49_TESTS=317
-FOCUSED_PHASE_10_49_RESULT=PASS
-REGRESSION_GATE_TESTS=1328
-REGRESSION_GATE_RESULT=PASS
-DOMAIN_SUITE_TESTS=10967
-DOMAIN_SUITE_FAILURES=0
-DOMAIN_SUITE_ERRORS=0
-GLOBAL_SUITE_TESTS=16728
-GLOBAL_SUITE_FAILURES=0
-GLOBAL_SUITE_ERRORS=0
-COMPILEALL=PASS
-BASELINE_AWARE_GATE=PASS
-CLAUSE_COVERAGE=PASS
-DIFF_HYGIENE=CLEAN
+V3_FINAL_GATE_COUNTS=PENDING_FINAL_EXACT_HEAD_RUN
 ```
 
 The focused gate is the ten Phase 10.49 test files (eight contract/behaviour
@@ -553,14 +562,13 @@ cognitive-integration, Phase 10.44 memory/knowledge, Phase 10.46–10.48
 model-policy/benchmark/quality and Domain Pack/SDK inventories. The global gate
 is the canonical `python -m pytest -ra` over `tests`.
 
-Execution-environment note: the local WorkBuddy sandbox brokers filesystem
-operations that leave the session workspace to a host process, which adds
-roughly thirty seconds of latency per operation and makes workspace-resident
-suite execution impractically slow. The suite evidence above was therefore
-produced against an exact `git archive` export / clone of the same clean HEAD
-(`c85b7f5833e0af541c6cb34afdbeb7dbf270560e`), executed with the repository's own
-`.venv` interpreter. Two workspace-resident false positives were isolated and
-are **not** Phase 10.49 defects:
+Execution-environment note: the local sandbox brokers filesystem operations that
+leave the session workspace to a host process, which adds latency per operation
+and makes workspace-resident suite execution impractically slow. Suite evidence
+is therefore produced against an exact `git archive` export / clone of the same
+clean committed HEAD, executed with the repository's own `.venv` interpreter.
+Workspace-resident false positives previously isolated and **not** Phase 10.49
+defects:
 
 * `tests/domains/test_domain_sdk_packager.py::test_packager_preserves_competing_destination_created_at_publication`
   — the sandbox `os.link` interceptor raises `PermissionError` (EEXIST) instead
@@ -569,16 +577,23 @@ are **not** Phase 10.49 defects:
 * The Phase 10.34 session lifecycle fixtures perform many brokered `mkdir`
   calls, which stalls suite progress without failing.
 
-Both pass in the unbrokered run recorded above.
+Both pass in the unbrokered run.
 
 ## 21. Status
 
 ```text
-PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V2
-MAJOR_01=REMEDIATED_REPORTED
-MAJOR_02=REMEDIATED_REPORTED
+PHASE10_49=IMPLEMENTED_PENDING_INDEPENDENT_REAUDIT_V3
+
+MAJOR_01=VERIFIED_REMEDIATED_IN_V2
+MAJOR_02=VERIFIED_REMEDIATED_IN_V2
+MAJOR_03=REMEDIATED_REPORTED
 MINOR_01=REMEDIATED_REPORTED
+MINOR_02=REMEDIATED_REPORTED
+MINOR_03=REMEDIATED_REPORTED
+
+FIRST_PARTY_REQUIRED_FIELD_REACHABILITY=PASS
 DOMAIN_SPECIFIC_FIRST_PARTY_POLICIES=PASS
+UNIQUE_FIRST_PARTY_POLICY_SHAPES=11
 NON_FACT_CANONICAL_PACKAGE_COMPATIBILITY=PASS_WHERE_DOMAIN_POLICY_ALLOWS
 RESOLVED_CONTRADICTION_PRESERVATION=PASS
 DOMAIN_KNOWLEDGE_PACKAGE_SCHEMA=IMPLEMENTED
