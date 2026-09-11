@@ -7909,12 +7909,16 @@ express this. The executable 28-block owner matrix is
 boundary guard is `tests/domains/test_domain_core_conformance_architecture.py`;
 and the reference is `docs/reference/domain-core-conformance.md`.
 
-Pre-audit status (independent audit still pending):
-`PHASE10_51=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT`, `DP-051=PASS_REPORTED`,
-`AT-DP-051=PASS_REPORTED`, `CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT`.
-`NEW_PRODUCTION_FILES=0`, `PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase
-10.52 and 10.53 remain `NOT_STARTED`; Phase 11 remains out of scope. Closure and
-any stronger closed-state marker require an independent audit `PASS`.
+Final closure status: Independent Audit V1 `FAIL` identified one documentary
+major and one documentary minor; both were remediated without production or test
+changes. Independent Re-audit V2 is `PASS`: `PHASE10_51=CLOSED`,
+`BLOCKERS=0`, `MAJORS=0`, `MINORS=0`, `MAJOR_01=VERIFIED_REMEDIATED`,
+`MINOR_01=VERIFIED_REMEDIATED`, `DP-051=VERIFIED_EXISTING`,
+`AT-DP-051=PASS`, `CLOSURE_ELIGIBLE=YES`. Audited remediation HEAD
+`9e8057dbeb628e6afef3558abe0cef5996fa41fe`; Re-audit V2 bundle SHA-256 `3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603`; final report
+`docs/audits/phase-10.51-independent-reaudit-v2.md`; report commit `98bc0a42f0b3d6d722a0621589b1358cf14a7f25`. `NEW_PRODUCTION_FILES=0`,
+`PRODUCTION_CHANGES=NONE`, `GAP_RED_COUNT=0`. Phase 10.52 and 10.53 remain
+`NOT_STARTED`; Phase 11 remains out of scope.
 
 ⸻
 

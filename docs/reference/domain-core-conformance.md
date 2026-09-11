@@ -202,21 +202,32 @@ PRODUCTION_CHANGES=NONE
 GAP_RED_COUNT=0
 ```
 
-## Implementation status
+## Closure status
 
 ```text
-PHASE10_51=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
-DP-051=PASS_REPORTED
-AT-DP-051=PASS_REPORTED
-CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT
+PHASE10_51=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MINOR_01=VERIFIED_REMEDIATED
+DP-051=VERIFIED_EXISTING
+AT-DP-051=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_REMEDIATION_HEAD=9e8057dbeb628e6afef3558abe0cef5996fa41fe
+REAUDIT_V2_BUNDLE_SHA256=3c936b7e772be1230314fe25af918b01765541d3b4a02b76beb11c968d286603
+REAUDIT_V2_REPORT_COMMIT=98bc0a42f0b3d6d722a0621589b1358cf14a7f25
 ```
 
-These markers remain below audit strength by design: the stronger closure-grade
-markers (verified-existing, closure-eligible, and closed) may only be recorded
-after an independent audit `PASS` (`BLOCKERS=0`, `MAJORS=0`). Next is the
-independent ChatGPT audit of this exact-HEAD bundle, **not** Phase 10.52.
+Phase 10.51 is independently re-audited and closed. Audit V1 remains preserved
+as historical `FAIL` evidence; Re-audit V2 is the authoritative closure result.
+No production or test changes were required by remediation. Phase 10.52 remains
+`NOT_STARTED` and is only eligible for a fresh repository inspection after this
+docs-only closure commit.
 
-## Final pre-audit verification
+## Historical final pre-audit verification
 
 <!-- phase-10.51-final-pre-audit-verification:start -->
 
@@ -248,7 +259,8 @@ AT-DP-051=PASS_REPORTED
 CLOSURE_ELIGIBLE=UNKNOWN_PENDING_INDEPENDENT_AUDIT
 ```
 
-The next action is independent ChatGPT audit of the exact committed implementation
-bundle. Phase 10.52 and Phase 10.53 remain not started.
+This block is preserved as historical pre-audit evidence. The subsequent
+Independent Audit V1 `FAIL`, documentary remediation, and Independent Re-audit
+V2 `PASS` are the authoritative closure history.
 
 <!-- phase-10.51-final-pre-audit-verification:end -->
