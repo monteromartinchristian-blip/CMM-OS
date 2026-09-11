@@ -23,7 +23,17 @@ from dataclasses import dataclass
 from enum import Enum
 from importlib import import_module
 
+from cmm.agent_runtime.domain_permission_contracts import PermissionCapability
+from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.contracts import DomainDefinition
+from cmm.domains.identifiers import DomainId
+from cmm.domains.permission_contracts import DomainPermissionRequest
+from cmm.domains.project.bootstrap import (
+    ProjectDomainBootstrap,
+    build_standard_project_domain_bootstrap,
+)
+from cmm.domains.project.catalog import PROJECT_DOMAIN_ID
+from cmm.domains.resolution_contracts import DomainResolutionContext
 
 
 class CoreConformanceClassification(str, Enum):
@@ -597,6 +607,16 @@ DEFERRED_DOMAIN_IDS: frozenset[str] = frozenset(
     }
 )
 
+#: Required AT-DP-051 aggregate closure evidence.
+HISTORICAL_AGGREGATE_BASELINE: dict[str, object] = {
+    "HISTORICAL_BLOCKS": 28,
+    "UNMAPPED_REQUIRED_BLOCKS": 0,
+    "PARALLEL_OWNER_REQUIRED": 0,
+    "FIRST_PARTY_PRE_10_52_DOMAINS": 12,
+    "DEFERRED_DOMAIN_PACKS": 2,
+    "PHASE11_PLATFORM_DEFERRED": True,
+}
+
 #: Historical block numbers that the pre-10.52 core must satisfy now.
 REQUIRED_BLOCKS: tuple[int, ...] = tuple(range(1, 29))
 
@@ -761,23 +781,250 @@ def iter_owner_modules() -> Iterator[str]:
         yield from requirement.owner_modules
 
 
+# ── Shared connected-journey helpers (AT-DP-051 and integration tests) ────────
+# These call existing production owners directly; they own no behaviour.
+
+
+def connected_bootstrap() -> ProjectDomainBootstrap:
+    """The official Project bootstrap, with the primary Domain enabled."""
+    bootstrap = build_standard_project_domain_bootstrap()
+    bootstrap.domain_registry.enable(PROJECT_DOMAIN_ID)
+    return bootstrap
+
+
+def resolve_project(
+    bootstrap: ProjectDomainBootstrap,
+    *,
+    context_id: str = "ctx:conformance:1",
+    explicit: tuple[str, ...] = (PROJECT_DOMAIN_ID,),
+):
+    """Resolve through the canonical DefaultDomainResolver."""
+    available = tuple(definition.id for definition in bootstrap.domain_registry.list())
+    context = DomainResolutionContext(
+        id=context_id,
+        user_input="plan my project milestones",
+        explicit_domains=tuple(DomainId.from_str(slug) for slug in explicit),
+        available_domains=available,
+        authorized_domains=available,
+    )
+    return bootstrap.resolver.resolve(context)
+
+
+def compose_resolution(bootstrap: ProjectDomainBootstrap, resolution):
+    """Compose through the canonical DefaultDomainComposer."""
+    definitions = tuple(
+        bootstrap.domain_registry.get_required(str(domain_id))
+        for domain_id in (resolution.primary_domain, *resolution.supporting_domains)
+    )
+    return DefaultDomainComposer().compose(resolution, definitions)
+
+
+def operation_execute_request(
+    *,
+    request_id: str = "req:conformance:op",
+    operation_id: str = "project.review_status",
+    operation_version: str = "1.0.0",
+) -> DomainPermissionRequest:
+    """A canonical operation-execution permission request."""
+    from cmm.domains.project.catalog import PROJECT_DOMAIN_ID as _PROJECT
+
+    return DomainPermissionRequest(
+        request_id=request_id,
+        action=PermissionCapability.OPERATION_EXECUTE,
+        domain_id=_PROJECT,
+        actor_id="actor:conformance",
+        session_id="session:conformance",
+        operation_id=operation_id,
+        operation_version=operation_version,
+    )
+
+
+def canonical_cognitive_resource_input(now):
+    """A resolved Phase 8 canonical resource as Domain cognitive input."""
+    from cmm.cognitive import (
+        Confidence,
+        Resource,
+        ResourceInput,
+        ResourceKind,
+        ResourcePermission,
+        ResourcePermissionOperation,
+        ResourceProvenance,
+        ResourceSourceKind,
+        ResourceTemporalScope,
+        SensitivityLevel,
+    )
+    from cmm.domains.cognitive_integration_contracts import (
+        DomainCognitiveResourceInput,
+    )
+    from cmm.domains.enums import DomainResourceResolutionStatus
+    from cmm.domains.resource_contracts import (
+        DomainResourceBinding,
+        DomainResourceResolution,
+    )
+
+    payload = Resource(
+        id="resource-1",
+        domain=PROJECT_DOMAIN_ID,
+        kind=ResourceKind.DOCUMENT,
+        source=ResourceSourceKind.USER_INPUT,
+        content="The project plan is stable.",
+        provenance=ResourceProvenance(
+            source_type=ResourceSourceKind.USER_INPUT,
+            source_id="source-1",
+            retrieved_at=now,
+        ),
+        reliability=Confidence(0.99, source="adapter"),
+        temporal_scope=ResourceTemporalScope(
+            content_created_at=now, observed_at=now, ingested_at=now
+        ),
+        sensitivity=SensitivityLevel.INTERNAL,
+        permissions=(
+            ResourcePermission(
+                allowed_operations=(
+                    ResourcePermissionOperation.READ,
+                    ResourcePermissionOperation.INFER,
+                )
+            ),
+        ),
+        created_at=now,
+        updated_at=now,
+    )
+    binding = DomainResourceBinding(
+        id="binding-1",
+        resource_id="resource-1",
+        definition_id="definition-1",
+        domain_id=DomainId("project"),
+        adapter="existing_resource",
+        provenance=("domain-source-1",),
+        sensitivity=SensitivityLevel.INTERNAL,
+        temporal_scope={
+            "valid_from": now,
+            "valid_until": now,
+            "observed_at": now,
+            "last_verified_at": now,
+        },
+        source_priority=17,
+        reliability=0.73,
+    )
+    resolution = DomainResourceResolution(
+        id="resolution-1",
+        resource_id=binding.resource_id,
+        status=DomainResourceResolutionStatus.RESOLVED,
+        trace_id="resolution-trace-1",
+        resolved_at=now,
+        bindings=(binding,),
+    )
+    return DomainCognitiveResourceInput(
+        resolution=resolution,
+        binding=binding,
+        source=ResourceInput(
+            id=binding.resource_id,
+            source_kind=ResourceSourceKind.USER_INPUT,
+            payload=payload,
+            sensitivity=binding.sensitivity,
+        ),
+        extractor_name="plain_text",
+    )
+
+
+def canonical_project_profile(now):
+    """A ResolvedDomainProfile for the canonical Project Domain."""
+    from cmm.domains.enums import DomainReasoningDepth
+    from cmm.domains.profile_contracts import (
+        DomainMemoryPolicy,
+        DomainPresentationPolicy,
+        DomainProductionPolicy,
+        DomainQuestionPolicy,
+        DomainTemporalPolicy,
+        ResolvedDomainProfile,
+    )
+
+    return ResolvedDomainProfile(
+        id="profile-1",
+        primary_domain=DomainId("project"),
+        supporting_domains=(),
+        profile_names=("ProjectProfile",),
+        required_rules=(),
+        optional_rules=(),
+        prohibited_rules=(),
+        allowed_resource_kinds=None,
+        priority_resource_kinds=(),
+        prohibited_resource_kinds=(),
+        minimum_confidence=0.8,
+        reasoning_depth=DomainReasoningDepth.DEEP,
+        allowed_inferences=None,
+        prohibited_inferences=(),
+        maximum_questions=3,
+        escalation_rules=(),
+        prohibited_actions=(),
+        question_policy=DomainQuestionPolicy(),
+        presentation_policy=DomainPresentationPolicy(),
+        memory_policy=DomainMemoryPolicy(),
+        temporal_policy=DomainTemporalPolicy(),
+        production_policy=DomainProductionPolicy(),
+        permissions=None,
+        modifications=(),
+        trace_id="profile-trace-1",
+        resolved_at=now,
+    )
+
+
+def canonical_project_privacy_evidence(now):
+    """PrivacyDecisionTraceEvidence from the canonical 10.50 Project path."""
+    from cmm.cognitive.privacy import (
+        PrivacyOperation,
+        PrivacyOperationContext,
+        ProcessingLocation,
+        evaluate_privacy_operation,
+        resolve_effective_privacy_metadata,
+    )
+    from cmm.domains.privacy_policy_contracts import project_domain_privacy_metadata
+    from cmm.domains.project.privacy import build_project_privacy_policy
+    from cmm.domains.trace_contracts import PrivacyDecisionTraceEvidence
+
+    metadata = project_domain_privacy_metadata(
+        build_project_privacy_policy(),
+        processing_location=ProcessingLocation.REMOTE,
+    )
+    effective = resolve_effective_privacy_metadata(metadata).effective
+    decision = evaluate_privacy_operation(
+        effective,
+        PrivacyOperation.PROCESS_REMOTE,
+        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, at=now),
+    )
+    return PrivacyDecisionTraceEvidence.from_privacy_decision(
+        domain_id=PROJECT_DOMAIN_ID,
+        operation=PrivacyOperation.PROCESS_REMOTE,
+        decision=decision,
+    )
+
+
 __all__ = [
     "CORE_CONFORMANCE_REQUIREMENTS",
     "DEFERRED_DOMAIN_IDS",
     "DEFERRED_DOMAIN_PACKAGE_PATHS",
     "FIRST_PARTY_DOMAIN_IDS",
     "FORBIDDEN_PARALLEL_OWNER_NAMES",
+    "HISTORICAL_AGGREGATE_BASELINE",
     "LATE_ADDITIVE_DEFINITION_FIELDS",
+    "PROJECT_DOMAIN_ID",
     "REQUIRED_BLOCKS",
     "CoreConformanceClassification",
     "CoreConformanceRequirement",
+    "canonical_cognitive_resource_input",
+    "canonical_project_privacy_evidence",
+    "canonical_project_profile",
+    "compose_resolution",
+    "connected_bootstrap",
     "deferred_classification_count",
     "first_party_definition_builders",
     "gap_red_requirements",
     "historical_block_count",
     "iter_owner_modules",
     "load_first_party_definitions",
+    "operation_execute_request",
     "parallel_owner_required_count",
     "required_blocks",
+    "resolve_project",
     "unmapped_required_blocks",
 ]

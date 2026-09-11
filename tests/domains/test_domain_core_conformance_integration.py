@@ -43,37 +43,18 @@ from cmm.cognitive import (
     KnowledgeKind,
     KnowledgePackage,
     PlainTextKnowledgeExtractor,
-    Resource,
     ResourceAdapterRegistry,
-    ResourceInput,
-    ResourceKind,
-    ResourcePermission,
-    ResourcePermissionOperation,
-    ResourceProvenance,
-    ResourceSourceKind,
-    ResourceTemporalScope,
     SensitivityLevel,
-)
-from cmm.cognitive.privacy import (
-    PrivacyOperation,
-    PrivacyOperationContext,
-    ProcessingLocation,
-    evaluate_privacy_operation,
-    resolve_effective_privacy_metadata,
 )
 from cmm.domains.cognitive_integration import DefaultDomainCognitiveIntegrator
 from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveIntegrationRequest,
-    DomainCognitiveResourceInput,
 )
-from cmm.domains.composer import DefaultDomainComposer
 from cmm.domains.composition_contracts import DomainComposition
 from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainOperationStatus,
-    DomainReasoningDepth,
     DomainResolutionStatus,
-    DomainResourceResolutionStatus,
 )
 from cmm.domains.errors import DomainOperationRegistryError
 from cmm.domains.identifiers import DomainId
@@ -98,17 +79,7 @@ from cmm.domains.operation_availability import (
 from cmm.domains.permission_contracts import DomainPermissionRequest
 from cmm.domains.permission_registry import DomainPermissionRegistry
 from cmm.domains.permission_resolution import DomainPermissionResolver
-from cmm.domains.privacy_policy_contracts import project_domain_privacy_metadata
-from cmm.domains.profile_contracts import (
-    DomainMemoryPolicy,
-    DomainPresentationPolicy,
-    DomainProductionPolicy,
-    DomainQuestionPolicy,
-    DomainTemporalPolicy,
-    ResolvedDomainProfile,
-)
 from cmm.domains.project.bootstrap import (
-    ProjectDomainBootstrap,
     build_standard_project_domain_bootstrap,
 )
 from cmm.domains.project.catalog import PROJECT_DOMAIN_ID
@@ -120,11 +91,6 @@ from cmm.domains.project.memory import (
 )
 from cmm.domains.project.operations import build_project_operation_definitions
 from cmm.domains.project.privacy import build_project_privacy_policy
-from cmm.domains.resolution_contracts import DomainResolutionContext
-from cmm.domains.resource_contracts import (
-    DomainResourceBinding,
-    DomainResourceResolution,
-)
 from cmm.domains.rule_execution import DefaultDomainRuleExecutor
 from cmm.domains.rule_selection import DefaultDomainRuleSelector
 from cmm.domains.trace_assembler import DomainTraceAssembler
@@ -147,59 +113,17 @@ from cmm.workflows.enums import WorkflowAvailabilityStatus
 
 NOW = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
 
-# ── Connected-journey helpers (reuse the official bootstrap, never rewire) ────
+# ── Connected-journey helpers come from the shared Phase 10.51 support ────────
 
-
-def connected_bootstrap() -> ProjectDomainBootstrap:
-    """The official Project bootstrap, with the primary Domain enabled."""
-    bootstrap = build_standard_project_domain_bootstrap()
-    bootstrap.domain_registry.enable(PROJECT_DOMAIN_ID)
-    return bootstrap
-
-
-def resolve_project(
-    bootstrap: ProjectDomainBootstrap,
-    *,
-    context_id: str = "ctx:conformance:1",
-    explicit: tuple[str, ...] = (PROJECT_DOMAIN_ID,),
-):
-    """Resolve through the canonical DefaultDomainResolver."""
-    available = tuple(definition.id for definition in bootstrap.domain_registry.list())
-    context = DomainResolutionContext(
-        id=context_id,
-        user_input="plan my project milestones",
-        explicit_domains=tuple(DomainId.from_str(slug) for slug in explicit),
-        available_domains=available,
-        authorized_domains=available,
-    )
-    return bootstrap.resolver.resolve(context)
-
-
-def compose_resolution(bootstrap: ProjectDomainBootstrap, resolution):
-    """Compose through the canonical DefaultDomainComposer."""
-    definitions = tuple(
-        bootstrap.domain_registry.get_required(str(domain_id))
-        for domain_id in (resolution.primary_domain, *resolution.supporting_domains)
-    )
-    return DefaultDomainComposer().compose(resolution, definitions)
-
-
-def operation_execute_request(
-    *,
-    request_id: str = "req:conformance:op",
-    operation_id: str = "project.review_status",
-    operation_version: str = "1.0.0",
-) -> DomainPermissionRequest:
-    return DomainPermissionRequest(
-        request_id=request_id,
-        action=PermissionCapability.OPERATION_EXECUTE,
-        domain_id=PROJECT_DOMAIN_ID,
-        actor_id="actor:conformance",
-        session_id="session:conformance",
-        operation_id=operation_id,
-        operation_version=operation_version,
-    )
-
+from tests.domains.domain_core_conformance_support import (
+    canonical_cognitive_resource_input,
+    canonical_project_privacy_evidence,
+    canonical_project_profile,
+    compose_resolution,
+    connected_bootstrap,
+    operation_execute_request,
+    resolve_project,
+)
 
 # ── Block 3/6/7: registry -> resolution -> composition are connected ──────────
 
@@ -421,103 +345,6 @@ def test_project_workflow_resolution_denies_when_a_required_permission_is_denied
 # ── Blocks 28/17: Cognitive + Knowledge Package projection ────────────────────
 
 
-def _cognitive_resource_input() -> DomainCognitiveResourceInput:
-    payload = Resource(
-        id="resource-1",
-        domain=PROJECT_DOMAIN_ID,
-        kind=ResourceKind.DOCUMENT,
-        source=ResourceSourceKind.USER_INPUT,
-        content="The project plan is stable.",
-        provenance=ResourceProvenance(
-            source_type=ResourceSourceKind.USER_INPUT,
-            source_id="source-1",
-            retrieved_at=NOW,
-        ),
-        reliability=Confidence(0.99, source="adapter"),
-        temporal_scope=ResourceTemporalScope(
-            content_created_at=NOW, observed_at=NOW, ingested_at=NOW
-        ),
-        sensitivity=SensitivityLevel.INTERNAL,
-        permissions=(
-            ResourcePermission(
-                allowed_operations=(
-                    ResourcePermissionOperation.READ,
-                    ResourcePermissionOperation.INFER,
-                )
-            ),
-        ),
-        created_at=NOW,
-        updated_at=NOW,
-    )
-    binding = DomainResourceBinding(
-        id="binding-1",
-        resource_id="resource-1",
-        definition_id="definition-1",
-        domain_id=DomainId("project"),
-        adapter="existing_resource",
-        provenance=("domain-source-1",),
-        sensitivity=SensitivityLevel.INTERNAL,
-        temporal_scope={
-            "valid_from": NOW,
-            "valid_until": NOW,
-            "observed_at": NOW,
-            "last_verified_at": NOW,
-        },
-        source_priority=17,
-        reliability=0.73,
-    )
-    resolution = DomainResourceResolution(
-        id="resolution-1",
-        resource_id=binding.resource_id,
-        status=DomainResourceResolutionStatus.RESOLVED,
-        trace_id="resolution-trace-1",
-        resolved_at=NOW,
-        bindings=(binding,),
-    )
-    return DomainCognitiveResourceInput(
-        resolution=resolution,
-        binding=binding,
-        source=ResourceInput(
-            id=binding.resource_id,
-            source_kind=ResourceSourceKind.USER_INPUT,
-            payload=payload,
-            sensitivity=binding.sensitivity,
-        ),
-        extractor_name="plain_text",
-    )
-
-
-def _project_profile() -> ResolvedDomainProfile:
-    return ResolvedDomainProfile(
-        id="profile-1",
-        primary_domain=DomainId("project"),
-        supporting_domains=(),
-        profile_names=("ProjectProfile",),
-        required_rules=(),
-        optional_rules=(),
-        prohibited_rules=(),
-        allowed_resource_kinds=None,
-        priority_resource_kinds=(),
-        prohibited_resource_kinds=(),
-        minimum_confidence=0.8,
-        reasoning_depth=DomainReasoningDepth.DEEP,
-        allowed_inferences=None,
-        prohibited_inferences=(),
-        maximum_questions=3,
-        escalation_rules=(),
-        prohibited_actions=(),
-        question_policy=DomainQuestionPolicy(),
-        presentation_policy=DomainPresentationPolicy(),
-        memory_policy=DomainMemoryPolicy(),
-        temporal_policy=DomainTemporalPolicy(),
-        production_policy=DomainProductionPolicy(),
-        permissions=None,
-        modifications=(),
-        trace_id="profile-trace-1",
-        resolved_at=NOW,
-    )
-
-
 def test_cognitive_integration_projects_a_canonical_knowledge_package():
     adapter_registry = ResourceAdapterRegistry()
     adapter_registry.register(ExistingResourceAdapter())
@@ -566,8 +393,8 @@ def test_cognitive_integration_projects_a_canonical_knowledge_package():
         resolution_result_id="resolution-result-1",
         objective="Review project plan",
         composition=composition,
-        profile=_project_profile(),
-        resources=(_cognitive_resource_input(),),
+        profile=canonical_project_profile(NOW),
+        resources=(canonical_cognitive_resource_input(NOW),),
         actor_id="actor-1",
         session_id="session-1",
         effective_permissions=("resource:read", "resource:infer"),
@@ -607,21 +434,7 @@ def test_first_party_knowledge_package_schemas_compose_with_a_sensitivity_floor(
 
 
 def _project_privacy_evidence() -> PrivacyDecisionTraceEvidence:
-    metadata = project_domain_privacy_metadata(
-        build_project_privacy_policy(),
-        processing_location=ProcessingLocation.REMOTE,
-    )
-    effective = resolve_effective_privacy_metadata(metadata).effective
-    decision = evaluate_privacy_operation(
-        effective,
-        PrivacyOperation.PROCESS_REMOTE,
-        PrivacyOperationContext(processing_location=ProcessingLocation.REMOTE, at=NOW),
-    )
-    return PrivacyDecisionTraceEvidence.from_privacy_decision(
-        domain_id=PROJECT_DOMAIN_ID,
-        operation=PrivacyOperation.PROCESS_REMOTE,
-        decision=decision,
-    )
+    return canonical_project_privacy_evidence(NOW)
 
 
 def test_privacy_decision_evidence_is_reference_only_with_no_raw_leak():
