@@ -1124,6 +1124,7 @@ from cmm.domains.trace_contracts import (
     DomainTraceValidationCode,
     DomainTraceValidationResult,
     DomainTraceValidationState,
+    PrivacyDecisionTraceEvidence,
 )
 from cmm.domains.trace_validation import (
     DefaultDomainTraceReferenceValidator,
@@ -1244,6 +1245,7 @@ __all__ += [
     "PermissionGateOutcome",
     "PermissionGateReason",
     "PermissionGateResult",
+    "PrivacyDecisionTraceEvidence",
     "build_initial_permission_catalog",
     "evaluate_domain_operation",
     "evaluate_domain_policy",

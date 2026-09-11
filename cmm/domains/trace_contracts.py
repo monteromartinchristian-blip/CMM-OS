@@ -13,6 +13,11 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from cmm.cognitive.privacy import (
+    PrivacyDecision,
+    PrivacyDecisionStatus,
+    PrivacyOperation,
+)
 from cmm.domains.errors import (
     DomainSerializationError,
     DomainTraceContractError,
@@ -688,6 +693,155 @@ class CrossDomainTraceReference:
 
 
 @dataclass(frozen=True, slots=True)
+class PrivacyDecisionTraceEvidence:
+    """Safe, content-addressed audit projection of one canonical ``PrivacyDecision``.
+
+    Carries only the non-sensitive outcome of a real Phase 8 privacy decision so
+    a Domain Trace can reference it without embedding reasons, metadata, the
+    operation context or any raw payload. Its ``decision_id`` is derived from the
+    safe fields, so no caller can choose an arbitrary identity.
+    """
+
+    decision_id: str
+    domain_id: DomainId
+    operation: PrivacyOperation
+    allowed: bool
+    status: PrivacyDecisionStatus
+    reason_code: str
+    requires_redaction: bool
+    requires_approval: bool
+    excluded: bool
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "decision_id", _identifier(self.decision_id, "decision_id")
+        )
+        object.__setattr__(self, "domain_id", _domain_id(self.domain_id, "domain_id"))
+        if not isinstance(self.operation, PrivacyOperation):
+            object.__setattr__(self, "operation", PrivacyOperation(self.operation))
+        if not isinstance(self.status, PrivacyDecisionStatus):
+            object.__setattr__(self, "status", PrivacyDecisionStatus(self.status))
+        object.__setattr__(
+            self, "reason_code", _identifier(self.reason_code, "reason_code")
+        )
+        for name in ("allowed", "requires_redaction", "requires_approval", "excluded"):
+            if not isinstance(getattr(self, name), bool):
+                raise DomainTraceContractError(f"{name} must be a boolean", field=name)
+        if self.decision_id != self._canonical_decision_id():
+            raise DomainTraceContractError(
+                "decision_id must be the content-addressed safe decision identity",
+                field="decision_id",
+            )
+
+    def _safe_payload(self) -> dict[str, Any]:
+        return {
+            "domain_id": str(self.domain_id),
+            "operation": self.operation.value,
+            "allowed": self.allowed,
+            "status": self.status.value,
+            "reason_code": self.reason_code,
+            "requires_redaction": self.requires_redaction,
+            "requires_approval": self.requires_approval,
+            "excluded": self.excluded,
+        }
+
+    def _canonical_decision_id(self) -> str:
+        digest = hashlib.sha256(
+            _canonical_json(self._safe_payload()).encode("utf-8")
+        ).hexdigest()
+        return f"privacy-decision:{digest[:24]}"
+
+    @classmethod
+    def from_privacy_decision(
+        cls,
+        *,
+        domain_id: DomainId | str,
+        operation: PrivacyOperation,
+        decision: PrivacyDecision,
+    ) -> PrivacyDecisionTraceEvidence:
+        """Bind a real canonical ``PrivacyDecision`` to safe trace evidence."""
+        if not isinstance(decision, PrivacyDecision):
+            raise DomainTraceContractError(
+                "decision must be a canonical PrivacyDecision", field="decision"
+            )
+        canonical_domain = _domain_id(domain_id, "domain_id")
+        canonical_operation = (
+            operation
+            if isinstance(operation, PrivacyOperation)
+            else PrivacyOperation(operation)
+        )
+        payload = {
+            "domain_id": str(canonical_domain),
+            "operation": canonical_operation.value,
+            "allowed": decision.allowed,
+            "status": decision.status.value,
+            "reason_code": decision.reason_code,
+            "requires_redaction": decision.requires_redaction,
+            "requires_approval": decision.requires_approval,
+            "excluded": decision.excluded,
+        }
+        digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+        return cls(
+            decision_id=f"privacy-decision:{digest[:24]}",
+            domain_id=canonical_domain,
+            operation=canonical_operation,
+            allowed=decision.allowed,
+            status=decision.status,
+            reason_code=decision.reason_code,
+            requires_redaction=decision.requires_redaction,
+            requires_approval=decision.requires_approval,
+            excluded=decision.excluded,
+        )
+
+    def to_reference(self) -> DomainTraceReference:
+        """Return the reference-only trace handle for this evidence."""
+        return DomainTraceReference(
+            ref_id=self.decision_id,
+            kind=DomainTraceReferenceKind.PRIVACY_DECISION,
+            domain_id=self.domain_id,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "decision_id": self.decision_id,
+            "domain_id": str(self.domain_id),
+            "operation": self.operation.value,
+            "allowed": self.allowed,
+            "status": self.status.value,
+            "reason_code": self.reason_code,
+            "requires_redaction": self.requires_redaction,
+            "requires_approval": self.requires_approval,
+            "excluded": self.excluded,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PrivacyDecisionTraceEvidence:
+        _strict_keys(data, set(cls.__dataclass_fields__), cls.__name__)
+        try:
+            return cls(
+                decision_id=data["decision_id"],
+                domain_id=data["domain_id"],
+                operation=data["operation"],
+                allowed=data["allowed"],
+                status=data["status"],
+                reason_code=data["reason_code"],
+                requires_redaction=data["requires_redaction"],
+                requires_approval=data["requires_approval"],
+                excluded=data["excluded"],
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            DomainSerializationError,
+            DomainTraceContractError,
+        ) as exc:
+            raise DomainTraceSerializationError(
+                "invalid PrivacyDecisionTraceEvidence payload", field="data"
+            ) from exc
+
+
+@dataclass(frozen=True, slots=True)
 class DomainTraceReferences:
     """Closed, typed global reference categories."""
 
@@ -1129,6 +1283,7 @@ class DomainTraceReferenceInventory:
     expected_supporting_domains: tuple[DomainId, ...] = ()
     domain_results: tuple[DomainResultTraceReference, ...] = ()
     cross_domain_results: tuple[CrossDomainTraceReference, ...] = ()
+    privacy_decisions: tuple[PrivacyDecisionTraceEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         refs = tuple(
@@ -1211,6 +1366,46 @@ class DomainTraceReferenceInventory:
             "cross_domain_results",
             tuple(sorted(cross, key=lambda item: item.result_id)),
         )
+        privacy = tuple(
+            item
+            if isinstance(item, PrivacyDecisionTraceEvidence)
+            else PrivacyDecisionTraceEvidence.from_dict(item)
+            for item in self.privacy_decisions
+        )
+        if len({item.decision_id for item in privacy}) != len(privacy):
+            raise DomainTraceContractError(
+                "inventory privacy decision evidence must not duplicate",
+                field="privacy_decisions",
+            )
+        bound_ids = {item.decision_id for item in privacy}
+        for evidence in privacy:
+            reference = next(
+                (item for item in refs if item.ref_id == evidence.decision_id), None
+            )
+            if (
+                reference is None
+                or reference.kind is not DomainTraceReferenceKind.PRIVACY_DECISION
+                or reference.domain_id != evidence.domain_id
+            ):
+                raise DomainTraceContractError(
+                    "privacy decision evidence must be bound by exactly one "
+                    "matching PRIVACY_DECISION reference",
+                    field="privacy_decisions",
+                )
+        if any(
+            item.kind is DomainTraceReferenceKind.PRIVACY_DECISION
+            and item.ref_id not in bound_ids
+            for item in refs
+        ):
+            raise DomainTraceContractError(
+                "PRIVACY_DECISION references require authoritative evidence",
+                field="references",
+            )
+        object.__setattr__(
+            self,
+            "privacy_decisions",
+            tuple(sorted(privacy, key=lambda item: item.decision_id)),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1225,6 +1420,7 @@ class DomainTraceReferenceInventory:
             "cross_domain_results": [
                 item.to_dict() for item in self.cross_domain_results
             ],
+            "privacy_decisions": [item.to_dict() for item in self.privacy_decisions],
         }
 
     @property
@@ -1259,6 +1455,10 @@ class DomainTraceReferenceInventory:
                 cross_domain_results=tuple(
                     CrossDomainTraceReference.from_dict(item)
                     for item in data.get("cross_domain_results", ())
+                ),
+                privacy_decisions=tuple(
+                    PrivacyDecisionTraceEvidence.from_dict(item)
+                    for item in data.get("privacy_decisions", ())
                 ),
             )
         except (
