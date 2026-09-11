@@ -74,12 +74,20 @@ from cmm.domains.relationships.definition import (
     build_relationships_domain_definition,
 )
 from cmm.domains.sport.definition import build_sport_domain_definition
+from cmm.domains.trace_assembler import DomainTraceAssembler
 from cmm.domains.trace_contracts import (
+    DomainTraceAssemblyRequest,
+    DomainTraceContribution,
     DomainTraceDomainSelection,
     DomainTraceReference,
     DomainTraceReferenceInventory,
     DomainTraceReferenceKind,
+    DomainTraceReferences,
+    DomainTraceRole,
+    DomainTraceValidationCode,
+    PrivacyDecisionTraceEvidence,
 )
+from cmm.domains.trace_validation import DefaultDomainTraceReferenceValidator
 from cmm.domains.university.definition import build_university_domain_definition
 
 NOW = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
@@ -198,6 +206,58 @@ def _policy(
     }
     values.update(overrides)
     return DomainPermissionPolicy(**values)  # type: ignore[arg-type]
+
+
+def _privacy_global_references() -> tuple[DomainTraceReference, ...]:
+    return (
+        DomainTraceReference(
+            "resolution-context:050", DomainTraceReferenceKind.RESOLUTION_CONTEXT
+        ),
+        DomainTraceReference(
+            "resolution-result:050", DomainTraceReferenceKind.RESOLUTION_RESULT
+        ),
+        DomainTraceReference("composition:050", DomainTraceReferenceKind.COMPOSITION),
+    )
+
+
+def _privacy_trace(
+    evidence: PrivacyDecisionTraceEvidence,
+    *,
+    reference: DomainTraceReference | None = None,
+):
+    ref = reference if reference is not None else evidence.to_reference()
+    return DomainTraceAssembler().assemble(
+        DomainTraceAssemblyRequest(
+            request_id="request:dp050",
+            primary_domain=evidence.domain_id,
+            contributions=(
+                DomainTraceContribution(
+                    evidence.domain_id, DomainTraceRole.PRIMARY, (ref,)
+                ),
+            ),
+            references=DomainTraceReferences(
+                "resolution-context:050", "resolution-result:050", "composition:050"
+            ),
+            started_at=NOW,
+            completed_at=NOW.replace(second=1),
+        )
+    )
+
+
+def _privacy_inventory(
+    evidence: PrivacyDecisionTraceEvidence,
+) -> DomainTraceReferenceInventory:
+    return DomainTraceReferenceInventory(
+        references=(*_privacy_global_references(), evidence.to_reference()),
+        expected_primary_domain=evidence.domain_id,
+        resolution_result_domains=DomainTraceDomainSelection(
+            "resolution-result:050", evidence.domain_id
+        ),
+        composition_domains=DomainTraceDomainSelection(
+            "composition:050", evidence.domain_id
+        ),
+        privacy_decisions=(evidence,),
+    )
 
 
 def test_at_dp050_connected_acceptance() -> None:
@@ -643,32 +703,78 @@ def test_at_dp050_connected_acceptance() -> None:
     assert privacy_denied.allowed is False
     cp.checkpoint("11-permission-authority")
 
-    # ── Scenario K: trace evidence is reference-only ──────────────────────
+    # ── Scenario K: real canonical decision bound to safe trace evidence ───
     decision = privacy_denied
-    reference = DomainTraceReference(
-        ref_id=f"privacy-decision:{health_resource.id}",
-        kind=DomainTraceReferenceKind.PRIVACY_DECISION,
+    evidence = PrivacyDecisionTraceEvidence.from_privacy_decision(
         domain_id="domain:health",
+        operation=PrivacyOperation.PROCESS_REMOTE,
+        decision=decision,
     )
-    inventory = DomainTraceReferenceInventory(
-        references=(reference,),
-        expected_primary_domain="domain:health",
-        resolution_result_domains=DomainTraceDomainSelection(
-            source_id="resolution-result:050", primary_domain="domain:health"
-        ),
-        composition_domains=DomainTraceDomainSelection(
-            source_id="composition:050", primary_domain="domain:health"
-        ),
+    reference = evidence.to_reference()
+    inventory = _privacy_inventory(evidence)
+    trace = _privacy_trace(evidence)
+    validator = DefaultDomainTraceReferenceValidator()
+
+    # a real canonical decision was used, and status/reason stay auditable
+    assert decision.allowed is False
+    assert evidence.allowed is decision.allowed
+    assert evidence.status is decision.status
+    assert evidence.reason_code == decision.reason_code
+    assert evidence.operation is PrivacyOperation.PROCESS_REMOTE
+    assert evidence.domain_id == health.id
+
+    # the reference is derived from the evidence identity, never fabricated
+    assert reference.ref_id == evidence.decision_id
+    assert reference.kind is DomainTraceReferenceKind.PRIVACY_DECISION
+    assert reference.domain_id == evidence.domain_id
+    assert reference in inventory.references
+    assert inventory.privacy_decisions == (evidence,)
+
+    # the real validator accepts the legitimate production binding
+    accepted = validator.validate(trace, inventory)
+    assert accepted.valid, accepted.codes
+
+    # fake reference fails closed
+    fake = DomainTraceReference(
+        ref_id="privacy-decision:000000000000000000000000",
+        kind=DomainTraceReferenceKind.PRIVACY_DECISION,
+        domain_id=evidence.domain_id,
+    )
+    fake_result = validator.validate(
+        _privacy_trace(evidence, reference=fake), inventory
+    )
+    assert not fake_result.valid
+    assert (
+        DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH in fake_result.codes
     )
 
-    assert inventory.references == (reference,)
-    assert inventory.references[0].kind is DomainTraceReferenceKind.PRIVACY_DECISION
+    # stale evidence fails closed
+    stale_evidence = PrivacyDecisionTraceEvidence.from_privacy_decision(
+        domain_id="domain:health",
+        operation=PrivacyOperation.PROCESS_REMOTE,
+        decision=domain_only_decision,
+    )
+    assert stale_evidence.decision_id != evidence.decision_id
+    stale_result = validator.validate(trace, _privacy_inventory(stale_evidence))
+    assert not stale_result.valid
+    assert (
+        DomainTraceValidationCode.PRIVACY_DECISION_PAIRING_MISMATCH
+        in stale_result.codes
+    )
 
-    serialized = repr(inventory.to_dict())
-    assert decision.reason_code not in serialized
-    for forbidden in ("allowed_providers", "prohibited_providers", "sensitivity"):
-        assert forbidden not in serialized
-    cp.checkpoint("12-trace-reference-only")
+    # no raw decision payload, metadata or reason text reaches trace/reference
+    reference_payload = repr(reference.to_dict())
+    inventory_payload = repr(inventory.to_dict())
+    trace_payload = repr(trace.to_dict())
+    for payload in (reference_payload, inventory_payload, trace_payload):
+        assert decision.reasons[0] not in payload
+        assert "allowed_providers" not in payload
+        assert "prohibited_providers" not in payload
+        assert "sensitivity" not in payload
+        assert "prompt" not in payload
+        assert "provider_request" not in payload
+    assert set(reference.to_dict()) == {"ref_id", "kind", "domain_id"}
+    cp.checkpoint("12-trace-evidence-binding")
 
     assert cp.points == [
         "01-first-party-inventory",
@@ -682,7 +788,7 @@ def test_at_dp050_connected_acceptance() -> None:
         "09-restrictions-survive",
         "10-provider-restrictions",
         "11-permission-authority",
-        "12-trace-reference-only",
+        "12-trace-evidence-binding",
     ]
 
 
@@ -815,3 +921,37 @@ def test_at_dp050_general_definition_is_a_real_registry_member() -> None:
     assert registered.privacy_policy is None
     assert registry.get("domain:general").privacy_policy is None
     assert registered.kind is DomainKind.CORE or registered.kind is DomainKind.PERSONAL
+
+
+def test_at_dp050_declarative_pack_rejects_nested_privacy_adversarial_input() -> None:
+    """MAJOR-01: the real declarative Pack path fails closed on nested authority/secrets."""
+    health = build_health_domain_definition()
+
+    def _declarative() -> dict[str, object]:
+        return {
+            "id": "health",
+            "version": health.version,
+            "name": health.name,
+            "display_name": health.display_name,
+            "description": health.description,
+            "author": "CMM OS",
+            "license": "internal",
+            "privacy_policy": health.privacy_policy.to_dict(),
+        }
+
+    assert (
+        ParsedDomainPack.from_declarative_dict(_declarative()).definition.privacy_policy
+        == health.privacy_policy
+    )
+
+    nested_authority = _declarative()
+    nested_authority["privacy_policy"]["default_privacy"]["allow_cross_domain"] = True
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(nested_authority)
+
+    nested_secret = _declarative()
+    nested_secret["privacy_policy"]["default_privacy"]["metadata"] = {
+        "api_key": "SHOULD_NOT_SURVIVE"
+    }
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(nested_secret)
