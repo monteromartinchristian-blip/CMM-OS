@@ -1534,3 +1534,15 @@ __all__ += [
     "compose_domain_knowledge_package_schemas",
     "validate_domain_knowledge_package",
 ]
+
+# ── Phase 10.50 – Domain Privacy Policy Exports ──────────────────────────────
+
+from cmm.domains.privacy_policy_contracts import (
+    DomainPrivacyPolicy,
+    project_domain_privacy_metadata,
+)
+
+__all__ += [
+    "DomainPrivacyPolicy",
+    "project_domain_privacy_metadata",
+]

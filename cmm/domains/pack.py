@@ -36,6 +36,7 @@ from cmm.domains.manifest import (
     DomainManifest,
     _normalize_root_path_lexical,
 )
+from cmm.domains.privacy_policy_contracts import DomainPrivacyPolicy
 from cmm.domains.quality_contracts import DomainQualityMetric
 
 # ── Coherence validation shared between ParsedDomainPack and DomainPack ────────
@@ -572,6 +573,20 @@ class ParsedDomainPack:
                     field="knowledge_package_schema",
                 )
 
+        privacy_policy_raw = data.get("privacy_policy")
+        privacy_policy: DomainPrivacyPolicy | None = None
+        if privacy_policy_raw is not None:
+            if isinstance(privacy_policy_raw, DomainPrivacyPolicy):
+                privacy_policy = privacy_policy_raw
+            elif isinstance(privacy_policy_raw, Mapping):
+                privacy_policy = DomainPrivacyPolicy.from_dict(dict(privacy_policy_raw))
+            else:
+                raise DomainSerializationError(
+                    "Declarative field 'privacy_policy' must be a mapping, "
+                    f"got {type(privacy_policy_raw).__name__}",
+                    field="privacy_policy",
+                )
+
         definition = DomainDefinition(
             id=domain_id_raw,
             name=name,
@@ -597,6 +612,7 @@ class ParsedDomainPack:
             benchmark_suites=tuple(benchmark_suites),
             quality_metrics=tuple(quality_metrics),
             knowledge_package_schema=knowledge_package_schema,
+            privacy_policy=privacy_policy,
         )
 
         return cls(definition=definition, manifest=manifest)

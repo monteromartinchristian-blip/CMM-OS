@@ -28,6 +28,7 @@ from cmm.domains.identifiers import (
 )
 from cmm.domains.knowledge_package_contracts import DomainKnowledgePackageSchema
 from cmm.domains.model_policy_contracts import DomainModelPolicy
+from cmm.domains.privacy_policy_contracts import DomainPrivacyPolicy
 from cmm.domains.quality_contracts import DomainQualityMetric
 
 # ── Deep freeze / unfreeze helpers ────────────────────────────────────────────
@@ -700,6 +701,7 @@ _DEFINITION_KNOWN = frozenset(
         "benchmark_suites",
         "quality_metrics",
         "knowledge_package_schema",
+        "privacy_policy",
     }
 )
 
@@ -735,6 +737,7 @@ class DomainDefinition:
     benchmark_suites: tuple[DomainBenchmarkSuite, ...] = ()
     quality_metrics: tuple[DomainQualityMetric, ...] = ()
     knowledge_package_schema: DomainKnowledgePackageSchema | None = None
+    privacy_policy: DomainPrivacyPolicy | None = None
 
     def __post_init__(self) -> None:
         # ── Coerce string ids ────────────────────────────────────────────
@@ -1063,6 +1066,27 @@ class DomainDefinition:
                 self, "knowledge_package_schema", knowledge_package_schema
             )
 
+        # ── Optional domain privacy policy ───────────────────────────────
+        privacy_policy = self.privacy_policy
+        if privacy_policy is not None:
+            if isinstance(privacy_policy, Mapping):
+                try:
+                    privacy_policy = DomainPrivacyPolicy.from_dict(dict(privacy_policy))
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "privacy_policy")
+            elif not isinstance(privacy_policy, DomainPrivacyPolicy):
+                raise DomainContractValidationError(
+                    "privacy_policy must be a DomainPrivacyPolicy, a mapping, or None",
+                    field="privacy_policy",
+                )
+            if privacy_policy.domain_id != self.id:
+                raise DomainContractValidationError(
+                    f"privacy_policy.domain_id '{privacy_policy.domain_id}' must "
+                    f"match domain id '{self.id}'",
+                    field="privacy_policy",
+                )
+            object.__setattr__(self, "privacy_policy", privacy_policy)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
@@ -1095,6 +1119,11 @@ class DomainDefinition:
             "knowledge_package_schema": (
                 self.knowledge_package_schema.to_dict()
                 if self.knowledge_package_schema is not None
+                else None
+            ),
+            "privacy_policy": (
+                self.privacy_policy.to_dict()
+                if self.privacy_policy is not None
                 else None
             ),
         }
@@ -1294,6 +1323,25 @@ class DomainDefinition:
                     field="knowledge_package_schema",
                 )
 
+        privacy_policy_raw = data.get("privacy_policy")
+        privacy_policy: DomainPrivacyPolicy | None = None
+        if privacy_policy_raw is not None:
+            if isinstance(privacy_policy_raw, DomainPrivacyPolicy):
+                privacy_policy = privacy_policy_raw
+            elif isinstance(privacy_policy_raw, Mapping):
+                try:
+                    privacy_policy = DomainPrivacyPolicy.from_dict(
+                        dict(privacy_policy_raw)
+                    )
+                except DomainError as exc:
+                    _wrap_nested_error(exc, "privacy_policy")
+            else:
+                raise DomainSerializationError(
+                    "privacy_policy must be a mapping or DomainPrivacyPolicy, got "
+                    f"{type(privacy_policy_raw).__name__}",
+                    field="privacy_policy",
+                )
+
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -1322,6 +1370,7 @@ class DomainDefinition:
             benchmark_suites=tuple(benchmark_suites),
             quality_metrics=tuple(quality_metrics),
             knowledge_package_schema=knowledge_package_schema,
+            privacy_policy=privacy_policy,
         )
 
 

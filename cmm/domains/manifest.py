@@ -615,6 +615,7 @@ _DECLARATIVE_KNOWN = frozenset(
         "benchmark_suites",
         "quality_metrics",
         "knowledge_package_schema",
+        "privacy_policy",
     }
 )
 

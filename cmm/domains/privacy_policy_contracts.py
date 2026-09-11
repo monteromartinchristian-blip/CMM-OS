@@ -21,12 +21,10 @@ from typing import Any
 
 from cmm.cognitive.privacy import PrivacyMetadata, ProcessingLocation
 from cmm.domains.errors import (
-    DomainContractValidationError,
     DomainPrivacyPolicyContractError,
     DomainPrivacyPolicySerializationError,
 )
 from cmm.domains.identifiers import DomainId
-from cmm.domains.registry_contracts import _reject_sensitive_keys
 
 __all__ = [
     "DOMAIN_PRIVACY_POLICY_SCHEMA_VERSION",
@@ -35,6 +33,33 @@ __all__ = [
 ]
 
 DOMAIN_PRIVACY_POLICY_SCHEMA_VERSION = "1"
+
+# Mirrors ``cmm.domains.registry_contracts`` sensitive-key vocabulary so the
+# Domain privacy contract fails closed on credential-like declarative metadata
+# without importing the ``contracts`` module that owns ``DomainDefinition``.
+_SENSITIVE_EXACT_WORDS = frozenset(
+    {
+        "secret",
+        "secrets",
+        "password",
+        "passwords",
+        "token",
+        "tokens",
+        "credential",
+        "credentials",
+        "apikey",
+        "api_key",
+        "privatekey",
+        "private_key",
+        "auth_token",
+        "authtoken",
+        "access_key",
+        "accesskey",
+        "secret_key",
+        "secretkey",
+    }
+)
+_SENSITIVE_KEY_PARTS = frozenset({"secret", "password", "token", "credential"})
 
 _KNOWN = frozenset(
     {
@@ -132,14 +157,24 @@ def _thaw_json(value: Any) -> Any:
 
 
 def _reject_sensitive_metadata(value: Any, field_name: str) -> None:
-    """Apply the canonical Domain sensitive-key predicate at every depth."""
+    """Reject credential/secret-like metadata keys at every depth.
+
+    Mirrors the canonical Domain sensitive-key predicate owned by
+    ``cmm.domains.registry_contracts`` locally (as ``knowledge_package_contracts``
+    does for the reserved authority-key boundary) so this contract module stays
+    free of the ``contracts`` import cycle.
+    """
     if isinstance(value, Mapping):
-        try:
-            _reject_sensitive_keys(value, field_name)
-        except DomainContractValidationError as exc:
-            raise DomainPrivacyPolicyContractError(
-                exc.message, field=field_name, details=dict(exc.details)
-            ) from exc
+        for key in value:
+            lower = key.lower().replace("-", "_").replace(" ", "_")
+            if lower in _SENSITIVE_EXACT_WORDS or any(
+                part in _SENSITIVE_KEY_PARTS for part in lower.split("_")
+            ):
+                raise DomainPrivacyPolicyContractError(
+                    f"{field_name} contains sensitive key: {key!r}",
+                    field=field_name,
+                    details={"key": key},
+                )
         for nested in value.values():
             _reject_sensitive_metadata(nested, field_name)
     elif isinstance(value, (list, tuple)):
