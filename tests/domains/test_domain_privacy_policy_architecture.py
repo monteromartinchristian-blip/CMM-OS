@@ -17,6 +17,13 @@ from pathlib import Path
 
 import pytest
 
+from cmm.cognitive.privacy import PrivacyPolicy
+from cmm.domains.privacy_policy_contracts import DomainPrivacyPolicy
+from cmm.domains.trace_contracts import (
+    DomainTrace,
+    DomainTraceReference,
+    PrivacyDecisionTraceEvidence,
+)
 from cmm.domains.validation_fragmentation import analyze_fragmentation
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +49,25 @@ PROHIBITED_PRODUCTION_NAMES = frozenset(
         "DomainPrivacyTraceStore",
         "DomainPrivacyTraceRegistry",
         "DomainPrivacyTraceAssembler",
+        "PrivacyDecisionTraceStore",
+        "PrivacyDecisionTraceRegistry",
+        "PrivacyDecisionTraceResolver",
+        "PrivacyDecisionTraceAssembler",
+    }
+)
+
+# The safe, closed audit projection fields of a real PrivacyDecision.
+SAFE_PRIVACY_EVIDENCE_FIELDS = frozenset(
+    {
+        "decision_id",
+        "domain_id",
+        "operation",
+        "allowed",
+        "status",
+        "reason_code",
+        "requires_redaction",
+        "requires_approval",
+        "excluded",
     }
 )
 
@@ -252,3 +278,41 @@ def test_canonical_fragmentation_owner_reports_no_findings(path: Path) -> None:
     findings = analyze_fragmentation(path.read_text(encoding="utf-8"), _relative(path))
 
     assert findings == [], findings
+
+
+# ── Remediation V1 guards ─────────────────────────────────────────────────────
+
+
+def test_privacy_policy_has_no_sensitive_member() -> None:
+    assert not hasattr(PrivacyPolicy, "SENSITIVE")
+    assert "SENSITIVE" not in {member.name for member in PrivacyPolicy}
+
+
+def test_domain_privacy_policy_has_no_cross_domain_authority_field() -> None:
+    fields = set(DomainPrivacyPolicy.__dataclass_fields__)
+
+    assert "allow_cross_domain" not in fields
+    assert not any("cross_domain" in name for name in fields)
+
+
+def test_domain_trace_carries_no_raw_privacy_metadata_field() -> None:
+    fields = set(DomainTrace.__dataclass_fields__)
+
+    assert "privacy_metadata" not in fields
+    assert not any("privacy" in name for name in fields)
+
+
+def test_domain_trace_reference_has_no_decision_payload_fields() -> None:
+    assert set(DomainTraceReference.__dataclass_fields__) == {
+        "ref_id",
+        "kind",
+        "domain_id",
+    }
+
+
+def test_privacy_decision_trace_evidence_is_a_closed_safe_projection() -> None:
+    fields = set(PrivacyDecisionTraceEvidence.__dataclass_fields__)
+
+    assert fields == SAFE_PRIVACY_EVIDENCE_FIELDS
+    for forbidden in ("reasons", "metadata", "privacy_metadata", "actor_id"):
+        assert forbidden not in fields
