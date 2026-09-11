@@ -10,12 +10,15 @@ Executable source of the owner matrix:
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 
+from cmm.domains.contracts import DomainDefinition
 from tests.domains.domain_core_conformance_support import (
     CORE_CONFORMANCE_REQUIREMENTS,
     DEFERRED_DOMAIN_IDS,
     FIRST_PARTY_DOMAIN_IDS,
+    LATE_ADDITIVE_DEFINITION_FIELDS,
     CoreConformanceClassification,
     first_party_definition_builders,
     load_first_party_definitions,
@@ -150,3 +153,87 @@ def test_all_pre_10_52_first_party_definitions_are_unique() -> None:
     assert len(definitions) == 12
     assert {str(item.id) for item in definitions} == set(FIRST_PARTY_DOMAIN_IDS)
     assert len({str(item.id) for item in definitions}) == 12
+
+
+def test_canonical_definition_exposes_late_additive_fields() -> None:
+    """Phases 10.46–10.50 added fields to one contract, never a second one."""
+    fields = {f.name: f for f in dataclasses.fields(DomainDefinition)}
+    assert set(LATE_ADDITIVE_DEFINITION_FIELDS).issubset(fields)
+    for field_name in LATE_ADDITIVE_DEFINITION_FIELDS:
+        field = fields[field_name]
+        is_additive = (
+            field.default is not dataclasses.MISSING
+            or field.default_factory is not dataclasses.MISSING
+        )
+        assert is_additive, field_name
+
+
+def test_every_first_party_definition_uses_the_same_canonical_contract() -> None:
+    definitions = load_first_party_definitions()
+    assert len(definitions) == 12
+    for definition in definitions:
+        assert isinstance(definition, DomainDefinition)
+
+
+def test_late_policy_and_evidence_fields_coexist_on_every_definition() -> None:
+    from cmm.domains.benchmark_contracts import DomainBenchmarkSuite
+    from cmm.domains.knowledge_package_contracts import (
+        DomainKnowledgePackageSchema,
+    )
+    from cmm.domains.quality_contracts import DomainQualityMetric
+
+    for definition in load_first_party_definitions():
+        slug = str(definition.id)
+        assert definition.benchmark_suites, slug
+        assert all(
+            isinstance(suite, DomainBenchmarkSuite)
+            for suite in definition.benchmark_suites
+        ), slug
+        assert definition.quality_metrics, slug
+        assert all(
+            isinstance(metric, DomainQualityMetric)
+            for metric in definition.quality_metrics
+        ), slug
+        assert isinstance(
+            definition.knowledge_package_schema, DomainKnowledgePackageSchema
+        ), slug
+        # model_policy is an optional additive field; absence is conformant.
+        assert definition.model_policy is None or hasattr(
+            definition.model_policy, "to_dict"
+        ), slug
+
+
+def test_general_keeps_its_approved_no_privacy_default_case() -> None:
+    from cmm.domains.privacy_policy_contracts import DomainPrivacyPolicy
+
+    definitions = {str(d.id): d for d in load_first_party_definitions()}
+    assert definitions["domain:general"].privacy_policy is None
+
+    declaring = [
+        definition
+        for definition in definitions.values()
+        if definition.privacy_policy is not None
+    ]
+    assert len(declaring) == 11
+    for definition in declaring:
+        assert isinstance(definition.privacy_policy, DomainPrivacyPolicy)
+        assert definition.privacy_policy.domain_id == definition.id
+
+
+def test_first_party_definitions_register_through_the_canonical_registry() -> None:
+    from cmm.domains.registry import DomainRegistry
+
+    for definition in load_first_party_definitions():
+        registry = DomainRegistry()
+        registered = registry.register(definition)
+        domain_id = str(definition.id)
+        assert registry.contains(domain_id), domain_id
+        assert str(registered.id) == domain_id
+        assert registry.get_required(domain_id).id == definition.id
+
+
+def test_no_deferred_domain_id_is_present_among_first_party_definitions() -> None:
+    loaded_ids = {str(definition.id) for definition in load_first_party_definitions()}
+    assert loaded_ids.isdisjoint(DEFERRED_DOMAIN_IDS)
+    assert "domain:mental-health" not in loaded_ids
+    assert "domain:neurodivergence" not in loaded_ids
