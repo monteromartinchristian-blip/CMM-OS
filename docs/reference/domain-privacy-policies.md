@@ -3,7 +3,7 @@
 **Phase:** 10.50 — Domain Privacy Policies
 **Design Point:** `DP-050` — Domain Privacy Defaults
 **Acceptance Test:** `AT-DP-050` — Connected Domain Privacy Acceptance
-**Status:** `PHASE10_50=IMPLEMENTED_REMEDIATED_PENDING_INDEPENDENT_REAUDIT_V2` · `MAJOR_01=REMEDIATED_PENDING_VERIFICATION` · `MAJOR_02=REMEDIATED_PENDING_VERIFICATION` · `DP-050=PASS_REPORTED` · `AT-DP-050=PASS_REPORTED` (Independent Audit V1 returned `FAIL` with `BLOCKERS=0`/`MAJORS=2`; Remediation V1 is implemented and locally verified, but independent re-audit V2 is still pending, so no closure, severity counts or verified-remediation claims are made)
+**Status:** `PHASE10_50=CLOSED` · `INDEPENDENT_AUDIT_V1=FAIL` · `INDEPENDENT_REAUDIT_V2=PASS` · `BLOCKERS=0` · `MAJORS=0` · `MINORS=0` · `MAJOR_01=VERIFIED_REMEDIATED` · `MAJOR_02=VERIFIED_REMEDIATED` · `MAJOR_03=WITHDRAWN_FALSE_POSITIVE` · `DP-050=VERIFIED_EXISTING` · `AT-DP-050=PASS` · `CLOSURE_ELIGIBLE=YES` (audited remediation HEAD `45dd5550635d56956b3ae073ddac60568ba8aac6`; Re-audit V2 bundle SHA-256 `e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace`; final report `docs/audits/phase-10.50-independent-reaudit-v2.md`; audit-report commit `526650d382c69b81d01064f28d69d1bcbda7bed9`)
 
 > A Domain Pack declares the privacy posture its content starts from. The
 > declaration can only **restrict** — it never grants remote, provider, export,
@@ -374,14 +374,25 @@ authoritative resolver and the existing validator enforces the pairing. No
 test-only or free-form privacy-decision ID remains on the canonical success
 path.
 
-Remediation state before Independent Re-audit V2:
+Final independently verified closure state:
 
 ```text
-PHASE10_50=IMPLEMENTED_REMEDIATED_PENDING_INDEPENDENT_REAUDIT_V2
-MAJOR_01=REMEDIATED_PENDING_VERIFICATION
-MAJOR_02=REMEDIATED_PENDING_VERIFICATION
-DP-050=PASS_REPORTED
-AT-DP-050=PASS_REPORTED
+PHASE10_50=CLOSED
+INDEPENDENT_AUDIT_V1=FAIL
+INDEPENDENT_REAUDIT_V2=PASS
+BLOCKERS=0
+MAJORS=0
+MINORS=0
+MAJOR_01=VERIFIED_REMEDIATED
+MAJOR_02=VERIFIED_REMEDIATED
+MAJOR_03=WITHDRAWN_FALSE_POSITIVE
+DP-050=VERIFIED_EXISTING
+AT-DP-050=PASS
+CLOSURE_ELIGIBLE=YES
+AUDITED_REMEDIATION_HEAD=45dd5550635d56956b3ae073ddac60568ba8aac6
+REAUDIT_V2_BUNDLE_SHA256=e426a9afe0cd72fd774df687deedd1741a9a0d0c9073b2f9df540380fc2bdace
+FINAL_AUDIT_REPORT=docs/audits/phase-10.50-independent-reaudit-v2.md
+AUDIT_REPORT_COMMIT=526650d382c69b81d01064f28d69d1bcbda7bed9
 ```
 
 ## 14. Anti-fragmentation
