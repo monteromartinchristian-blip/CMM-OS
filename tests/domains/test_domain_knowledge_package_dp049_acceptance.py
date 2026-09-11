@@ -64,6 +64,7 @@ from cmm.domains.cognitive_integration_contracts import (
     DomainCognitiveResourceInput,
 )
 from cmm.domains.composition_contracts import DomainComposition
+from cmm.domains.concerns.definition import build_concerns_domain_definition
 from cmm.domains.enums import (
     DomainCompositionStatus,
     DomainKind,
@@ -91,7 +92,6 @@ from cmm.domains.knowledge_package_validation import (
 )
 from cmm.domains.life_plan.definition import build_life_plan_domain_definition
 from cmm.domains.manifest import DomainComponentReference, DomainManifest
-from cmm.domains.oppositions.definition import build_oppositions_domain_definition
 from cmm.domains.pack import DomainPack, ParsedDomainPack
 from cmm.domains.profile_contracts import (
     DomainMemoryPolicy,
@@ -796,22 +796,106 @@ def test_dp049_real_first_party_schemas_are_substantively_differentiated() -> No
     assert relationship_policies["observations"].require_temporal_scope is False
 
 
+def test_dp049_life_plan_canonical_path_reachability() -> None:
+    """A real Life Plan package must be buildable and valid on the canonical path.
+
+    Life Plan semantics are expressed with reachable policies only: recorded
+    facts must retain provenance. The schema must not hard-require
+    ``active_goals``, because the canonical ``KnowledgePackageBuilder`` invoked
+    by ``DefaultDomainCognitiveIntegrator`` never populates that field. The
+    package built through the real seam therefore carries no active goals while
+    the real Life Plan schema still accepts it.
+    """
+    life_plan = build_life_plan_domain_definition()
+    life_plan_schema = life_plan.knowledge_package_schema
+    assert isinstance(life_plan_schema, DomainKnowledgePackageSchema)
+    assert str(life_plan_schema.domain_id) == "domain:life-plan"
+
+    life_plan_policies = {
+        policy.field_name: policy for policy in life_plan_schema.field_policies
+    }
+    # Life Plan declares no hard field requirement at all.
+    assert not any(
+        policy.required_non_empty for policy in life_plan_schema.field_policies
+    )
+    assert life_plan_policies["facts"].require_provenance is True
+
+    store = _store()
+    store_before = _store_state(store)
+    integrator = _integrator(store)
+    result = integrator.integrate(
+        _request(_binding(), knowledge_package_schema=life_plan_schema)
+    )
+
+    package = result.knowledge_package
+    assert package is not None
+    assert type(package) is KnowledgePackage
+    # Builder-unreachable goal state stays empty, yet validation succeeds.
+    assert package.active_goals == ()
+    assert validate_domain_knowledge_package(package, life_plan_schema) is package
+    assert _store_state(store) == store_before
+
+
+def test_dp049_concerns_canonical_path_reachability() -> None:
+    """A real Concerns package must be buildable and valid on the canonical path.
+
+    Concerns semantics are expressed with reachable policies only: uncertainty
+    and contradictions stay visible. The schema must not hard-require
+    ``missing_information``, because the canonical
+    ``DomainCognitiveIntegrationRequest`` seam cannot carry it. The package built
+    through the real seam therefore records no missing information while the real
+    Concerns schema still accepts it.
+    """
+    concerns = build_concerns_domain_definition()
+    concerns_schema = concerns.knowledge_package_schema
+    assert isinstance(concerns_schema, DomainKnowledgePackageSchema)
+    assert str(concerns_schema.domain_id) == "domain:concerns"
+
+    concerns_policies = {
+        policy.field_name: policy for policy in concerns_schema.field_policies
+    }
+    # Concerns declares no hard field requirement at all.
+    assert not any(
+        policy.required_non_empty for policy in concerns_schema.field_policies
+    )
+    assert "missing_information" not in concerns_policies
+    assert concerns_policies["contradictions"].preserve_contradictions is True
+
+    store = _store()
+    store_before = _store_state(store)
+    integrator = _integrator(store)
+    result = integrator.integrate(
+        _request(_binding(), knowledge_package_schema=concerns_schema)
+    )
+
+    package = result.knowledge_package
+    assert type(package) is KnowledgePackage
+    # Integration-unreachable missing information stays empty; contradictions
+    # stay visible and validation succeeds.
+    assert package.missing_information == ()
+    assert package.contradictions
+    assert validate_domain_knowledge_package(package, concerns_schema) is package
+    assert _store_state(store) == store_before
+
+
 def test_dp049_distinct_policy_composition_is_most_restrictive() -> None:
     """Composing two real schemas must carry the most-restrictive combination.
 
-    Oppositions and Life Plan contribute genuinely different restrictions, so
-    the effective schema must reflect both sources rather than either one.
+    Life Plan and Relationships contribute genuinely different, reachable
+    restrictions: Life Plan fences recorded facts behind provenance while
+    Relationships fences observed evidence behind provenance. Neither source
+    alone carries both, so the effective schema must reflect both.
     """
-    oppositions = build_oppositions_domain_definition().knowledge_package_schema
     life_plan = build_life_plan_domain_definition().knowledge_package_schema
-    assert isinstance(oppositions, DomainKnowledgePackageSchema)
+    relationships = build_relationships_domain_definition().knowledge_package_schema
     assert isinstance(life_plan, DomainKnowledgePackageSchema)
-    assert oppositions.field_policies != life_plan.field_policies
+    assert isinstance(relationships, DomainKnowledgePackageSchema)
+    assert life_plan.field_policies != relationships.field_policies
 
-    effective = compose_domain_knowledge_package_schemas((oppositions, life_plan))
+    effective = compose_domain_knowledge_package_schemas((life_plan, relationships))
     assert isinstance(effective, EffectiveDomainKnowledgePackageSchema)
     assert effective == compose_domain_knowledge_package_schemas(
-        (life_plan, oppositions)
+        (relationships, life_plan)
     )
 
     effective_policies = {
@@ -819,7 +903,7 @@ def test_dp049_distinct_policy_composition_is_most_restrictive() -> None:
     }
     source_policies = [
         {policy.field_name: policy for policy in schema.field_policies}
-        for schema in (oppositions, life_plan)
+        for schema in (life_plan, relationships)
     ]
 
     # Every effective field policy is the most-restrictive combination.
@@ -845,15 +929,15 @@ def test_dp049_distinct_policy_composition_is_most_restrictive() -> None:
             item.preserve_contradictions for item in contributing
         )
 
-    # Oppositions contributes the temporal floor on recorded state.
-    assert effective_policies["facts"].require_temporal_scope is True
-    assert effective_policies["observations"].require_temporal_scope is True
-    # Life Plan contributes the active-goal requirement.
-    assert effective_policies["active_goals"].required_non_empty is True
+    # Life Plan contributes the provenance floor on recorded facts only.
+    assert effective_policies["facts"].require_provenance is True
+    assert effective_policies["facts"].require_temporal_scope is False
+    # Relationships contributes the provenance floor on observed evidence.
+    assert effective_policies["observations"].require_provenance is True
 
     # Neither source alone carries both restrictions.
-    assert "active_goals" not in source_policies[0]
-    assert source_policies[1]["facts"].require_temporal_scope is False
+    assert source_policies[0]["observations"].require_provenance is False
+    assert source_policies[1]["facts"].require_provenance is False
 
     # The strongest floor wins and can never be lowered.
     assert effective.minimum_sensitivity is SensitivityLevel.SENSITIVE
