@@ -402,6 +402,7 @@ class DomainTraceReferenceKind(str, Enum):
     WORKFLOW_RUN = "workflow_run"
     WORKFLOW_RESULT = "workflow_result"
     PERMISSION_DECISION = "permission_decision"
+    PRIVACY_DECISION = "privacy_decision"
     APPROVAL_REQUEST = "approval_request"
     APPROVAL_DECISION = "approval_decision"
     EVIDENCE = "evidence"
