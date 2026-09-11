@@ -24,6 +24,8 @@ from __future__ import annotations
 import dataclasses
 from datetime import datetime, timezone
 
+import pytest
+
 from cmm.agent_runtime.domain_permission_contracts import (
     PermissionCapability,
     PermissionOutcome,
@@ -796,3 +798,219 @@ def test_memory_proposal_binding_is_proposal_only_and_fails_closed_on_downgrade(
     downgraded = validator.validate_binding(binding, downgraded_inventory)
     assert downgraded.is_valid is False
     assert downgraded.code is DomainMemoryValidationCode.INVALID_PERMISSION_DENIED
+
+
+# ── Block 25: SDK builds/tests/packages without a second runtime ──────────────
+
+
+def test_sdk_scaffold_validate_and_package_reuse_canonical_owners(tmp_path):
+    import tarfile
+
+    from cmm.domains.enums import DomainValidationStatus
+    from cmm.domains.sdk import (
+        DomainPackager,
+        DomainScaffolder,
+        DomainTestHarness,
+        validate_domain_path,
+    )
+
+    pack_root = tmp_path / "conformance-pack"
+    DomainScaffolder().create("conformance-pack", destination=pack_root)
+    assert (pack_root / "manifest.json").is_file()
+
+    result = validate_domain_path(pack_root)
+    assert result.status in (
+        DomainValidationStatus.PASSED,
+        DomainValidationStatus.WARNING,
+    )
+
+    harness_result = DomainTestHarness().validate(pack_root)
+    assert harness_result.manifest_valid is True
+    assert harness_result.fragmentation_valid is True
+
+    # Transient artifacts must never enter the package.
+    transient = pack_root / "__pycache__"
+    transient.mkdir()
+    (transient / "leak.pyc").write_text("x", encoding="utf-8")
+
+    archive = DomainPackager().pack(pack_root, output=tmp_path / "out.tar.gz")
+    with tarfile.open(archive, "r:gz") as tar:
+        names = tar.getnames()
+    assert "manifest.json" in names
+    assert not any("__pycache__" in name or name.endswith(".pyc") for name in names)
+
+
+def test_canonical_declarative_pack_carries_late_additive_fields():
+    """The single ParsedDomainPack path forwards the 10.46–10.50 surfaces."""
+    from cmm.domains.health.definition import build_health_domain_definition
+    from cmm.domains.pack import ParsedDomainPack
+
+    health = build_health_domain_definition()
+    declarative = {
+        "id": "health",
+        "version": health.version,
+        "name": health.name,
+        "display_name": health.display_name,
+        "description": health.description,
+        "author": "CMM OS",
+        "license": "internal",
+        "privacy_policy": health.privacy_policy.to_dict(),
+        "knowledge_package_schema": health.knowledge_package_schema.to_dict(),
+        "benchmark_suites": [suite.to_dict() for suite in health.benchmark_suites],
+        "quality_metrics": [metric.to_dict() for metric in health.quality_metrics],
+    }
+    parsed = ParsedDomainPack.from_declarative_dict(declarative)
+
+    assert parsed.definition.privacy_policy == health.privacy_policy
+    assert parsed.definition.knowledge_package_schema == health.knowledge_package_schema
+    assert parsed.definition.benchmark_suites == health.benchmark_suites
+    assert parsed.definition.quality_metrics == health.quality_metrics
+
+
+# ── Block 26: API and CLI present canonical state, owning no authority ────────
+
+
+def test_domain_api_facade_derives_from_the_canonical_registry():
+    from cmm.domains.api import DefaultDomainAPI
+    from cmm.domains.project.definition import build_project_domain_definition
+    from tests.domains.test_domain_api_contracts import _make_collaborators
+
+    collaborators = _make_collaborators()
+    registry = collaborators["domain_registry"]
+    api = DefaultDomainAPI(**collaborators)
+
+    assert api.list_domains() == registry.list()
+
+    project = registry.register(build_project_domain_definition())
+    assert any(definition.id == project.id for definition in api.list_domains())
+    assert api.get_domain(PROJECT_DOMAIN_ID).version == project.version
+
+    # Same registry object underneath: unregistering removes it from the facade.
+    registry.unregister(str(project.id), project.version)
+    assert api.get_domain(PROJECT_DOMAIN_ID) is None
+
+
+def test_domain_cli_validate_delegates_to_canonical_validation(tmp_path, capsys):
+    import argparse
+
+    from cmm.domains.sdk import DomainScaffolder
+    from cmm.domains.sdk.cli import handle_domain_cli
+
+    pack_root = tmp_path / "cli-pack"
+    DomainScaffolder().create("cli-pack", destination=pack_root)
+
+    exit_code = handle_domain_cli(
+        argparse.Namespace(domain_subcommand="validate", path=str(pack_root))
+    )
+    assert exit_code == 0
+    printed = capsys.readouterr().out
+    assert "cli-pack" in printed
+    assert "Status:" in printed
+
+
+# ── Block 27: trust ceilings deny; they never grant authority ─────────────────
+
+
+def test_trust_ceiling_cannot_expand_permission_authority():
+    from cmm.domains.project.permissions import build_project_permission_policy
+    from cmm.domains.trust_contracts import DomainTrustLevel, DomainTrustPolicy
+
+    registry = DomainPermissionRegistry()
+    registry.register(build_project_permission_policy())
+    request = operation_execute_request(request_id="req:trust")
+
+    without_trust = DomainPermissionResolver(registry).resolve(request)
+    assert without_trust.effective_permissions.decision is PermissionOutcome.ALLOW
+
+    blocked = DomainTrustPolicy(
+        domain_id=PROJECT_DOMAIN_ID,
+        trust_level=DomainTrustLevel.BLOCKED,
+        authorized_source_ids=(),
+    )
+    with_blocked_trust = DomainPermissionResolver(
+        registry, trust_policy_lookup=lambda domain_id: blocked
+    ).resolve(request)
+    assert with_blocked_trust.effective_permissions.decision is PermissionOutcome.DENY
+
+    trusted_ceiling = DomainTrustPolicy(
+        domain_id=PROJECT_DOMAIN_ID,
+        trust_level=DomainTrustLevel.TRUSTED,
+        authorized_source_ids=("source:any",),
+    )
+    publication = DomainPermissionResolver(
+        registry, trust_policy_lookup=lambda domain_id: trusted_ceiling
+    ).resolve(
+        DomainPermissionRequest(
+            request_id="req:trust-publication",
+            action=PermissionCapability.PUBLICATION,
+            domain_id=PROJECT_DOMAIN_ID,
+            actor_id="actor:conformance",
+            session_id="session:conformance",
+        )
+    )
+    assert publication.effective_permissions.decision is PermissionOutcome.DENY
+
+
+def test_security_guard_rejects_declarative_authority_forgery():
+    from cmm.domains.errors import DomainError
+    from cmm.domains.pack import ParsedDomainPack
+
+    forged = {
+        "id": "health",
+        "version": "1.0.0",
+        "name": "Health",
+        "display_name": "Health",
+        "description": "Health domain",
+        "author": "CMM OS",
+        "license": "internal",
+        "privacy_policy": build_project_privacy_policy().to_dict(),
+    }
+    forged["privacy_policy"]["default_privacy"]["allow_cross_domain"] = True
+    with pytest.raises(DomainError):
+        ParsedDomainPack.from_declarative_dict(forged)
+
+
+# ── Block 27: observability is a read-only projection over evidence ───────────
+
+
+def test_observability_reports_no_evidence_as_unavailable_not_zero():
+    from cmm.domains.observability_contracts import DomainMetricStatus
+    from cmm.domains.observability_metrics import (
+        DomainMetricsCalculator,
+        DomainObservabilityEvidence,
+    )
+
+    snapshot = DomainMetricsCalculator().calculate(
+        DomainObservabilityEvidence(), generated_at=NOW
+    )
+    assert snapshot.measurements
+    for measurement in snapshot.measurements:
+        assert measurement.status is DomainMetricStatus.UNAVAILABLE
+        assert measurement.value is None
+        assert measurement.evidence_reference_ids == ()
+
+
+def test_observability_health_is_a_read_only_projection():
+    from cmm.domains.observability_contracts import DomainHealthStatus
+    from cmm.domains.observability_health import DomainHealthChecker
+
+    bootstrap = connected_bootstrap()
+    checker = DomainHealthChecker(
+        domain_registry=bootstrap.domain_registry,
+        resource_registry=bootstrap.resource_registry,
+        rule_registry=bootstrap.rule_registry,
+        operation_registry=bootstrap.operation_registry,
+        workflow_registry=bootstrap.workflow_registry,
+        permission_registry=bootstrap.permission_registry,
+        manifest_validation_lookup=lambda domain_id: None,
+        clock=lambda: NOW,
+    )
+    registry_state_before = bootstrap.domain_registry.snapshot_state()
+
+    result = checker.check(PROJECT_DOMAIN_ID)
+    assert isinstance(result.status, DomainHealthStatus)
+    # Health reads state; it never mutates the canonical registries.
+    assert bootstrap.domain_registry.snapshot_state() == registry_state_before
+
+    missing = checker.check("domain:conformance-missing")
+    assert missing.status is not DomainHealthStatus.HEALTHY
