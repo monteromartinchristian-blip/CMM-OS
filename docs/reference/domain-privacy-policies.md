@@ -3,7 +3,7 @@
 **Phase:** 10.50 — Domain Privacy Policies
 **Design Point:** `DP-050` — Domain Privacy Defaults
 **Acceptance Test:** `AT-DP-050` — Connected Domain Privacy Acceptance
-**Status:** `PHASE10_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT` · `DP-050=PASS_REPORTED` · `AT-DP-050=PASS_REPORTED` (no independent audit has been performed; no closure or severity counts are claimed)
+**Status:** `PHASE10_50=IMPLEMENTED_REMEDIATED_PENDING_INDEPENDENT_REAUDIT_V2` · `MAJOR_01=REMEDIATED_PENDING_VERIFICATION` · `MAJOR_02=REMEDIATED_PENDING_VERIFICATION` · `DP-050=PASS_REPORTED` · `AT-DP-050=PASS_REPORTED` (Independent Audit V1 returned `FAIL` with `BLOCKERS=0`/`MAJORS=2`; Remediation V1 is implemented and locally verified, but independent re-audit V2 is still pending, so no closure, severity counts or verified-remediation claims are made)
 
 > A Domain Pack declares the privacy posture its content starts from. The
 > declaration can only **restrict** — it never grants remote, provider, export,
@@ -258,13 +258,50 @@ contract is extended additively with:
 PRIVACY_DECISION = "privacy_decision"
 ```
 
-Trace representation stays **reference-only**: it carries the canonical privacy
-decision identity by reference and never copies sensitive content, restricted
-values, provider payloads, prompts, source documents, secrets, chain of thought
-or a complete `PrivacyMetadata` blob.
+Trace representation stays **reference-only**: `DomainTraceReference` carries
+only `ref_id`, `kind` and `domain_id` and never copies sensitive content,
+restricted values, provider payloads, prompts, source documents, secrets, chain
+of thought or a complete `PrivacyMetadata` blob.
+
+The reference is **not** a free-form label. A real production binding turns a
+canonical `PrivacyDecision` produced by `evaluate_privacy_operation(...)` into a
+deterministic, content-addressed safe evidence projection:
+
+```text
+real canonical PrivacyDecision
+    ↓  PrivacyDecisionTraceEvidence.from_privacy_decision(domain_id=…, operation=…, decision=…)
+safe PrivacyDecisionTraceEvidence   (decision_id = "privacy-decision:<sha256[:24]>")
+    ↓  evidence.to_reference()
+DomainTraceReference(ref_id=evidence.decision_id, kind=PRIVACY_DECISION, domain_id=evidence.domain_id)
+    ↓
+DomainTraceReferenceInventory(references=…, privacy_decisions=(evidence,))
+    ↓
+DefaultDomainTraceReferenceValidator
+```
+
+`PrivacyDecisionTraceEvidence` carries only `decision_id`, `domain_id`,
+`operation`, `allowed`, `status`, `reason_code`, `requires_redaction`,
+`requires_approval` and `excluded`. It deliberately excludes
+`PrivacyDecision.reasons`, `PrivacyDecision.metadata`, `PrivacyMetadata`,
+`PrivacyOperationContext.actor_id`/`provider_id`, prompts, resource/source
+content, provider request/response payloads, credentials, tokens and
+chain-of-thought. The identity is recomputed from the safe fields, so a caller
+cannot choose an arbitrary `decision_id`, and deserialization rejects any
+mismatch.
+
+The authoritative external inventory is the resolver: every inventory
+`PRIVACY_DECISION` reference requires exactly one matching evidence item and
+every evidence item requires exactly one matching reference of kind
+`PRIVACY_DECISION` in the same Domain. Orphan evidence, unbound references,
+duplicate evidence, domain mismatch and kind mismatch all fail closed, and
+`DefaultDomainTraceReferenceValidator` reports
+`privacy_decision_pairing_mismatch` when the actual trace references and the
+authoritative inventory evidence disagree (fake, stale or mismatched binding).
 
 No `DomainPrivacyTrace`, `DomainPrivacyTraceStore`,
-`DomainPrivacyTraceRegistry` or `DomainPrivacyTraceAssembler` is created.
+`DomainPrivacyTraceRegistry`, `DomainPrivacyTraceAssembler`,
+`PrivacyDecisionTraceStore`, `PrivacyDecisionTraceRegistry`,
+`PrivacyDecisionTraceResolver` or `PrivacyDecisionTraceAssembler` is created.
 
 ## 13. `DP-050` and `AT-DP-050`
 
@@ -282,8 +319,9 @@ exercises real canonical components end to end — real first-party
 `DomainDefinition` objects, the real `DomainRegistry`, the canonical
 `ParsedDomainPack` path, the real `KnowledgePackageBuilder`,
 `privacy_from_knowledge_package`, `resolve_effective_privacy_metadata`,
-`evaluate_privacy_operation`, the real Phase 10.15 permission stack and the real
-Domain Trace reference contracts — across scenarios A–K:
+`evaluate_privacy_operation`, the real Phase 10.15 permission stack, the real
+production privacy-decision trace binding and the real
+`DefaultDomainTraceReferenceValidator` — across scenarios A–K:
 
 | Scenario | Proves |
 |---|---|
@@ -297,7 +335,54 @@ Domain Trace reference contracts — across scenarios A–K:
 | H | Phase 10.15 permissions remain authoritative in both directions. |
 | I | The exact 12-Domain inventory with 11 declared policies and General as the explicit no-default case. |
 | J | Deterministic declarative round trip through the canonical pack path with no second parser. |
-| K | Safe privacy-decision trace reference with no raw restricted payload. |
+| K | A real canonical `PrivacyDecision` is projected by production code into a deterministic, content-addressed `PrivacyDecisionTraceEvidence`; the authoritative inventory and the real validator accept the legitimate binding, fake/stale bindings fail closed with `privacy_decision_pairing_mismatch`, and no raw decision payload, metadata or reason text reaches the trace or reference. |
+
+`AT-DP-050` additionally proves the MAJOR-01 adversarial declarative cases
+through the real `ParsedDomainPack` path: a nested `allow_cross_domain` inside
+`default_privacy` and a nested `default_privacy.metadata.api_key` are both
+rejected.
+
+### 13.1 Remediation V1 boundaries
+
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`) and
+Remediation V1 addresses exactly those two findings.
+
+**MAJOR-01 — nested `default_privacy` fail-closed.** The Domain declarative
+adapter in `cmm/domains/privacy_policy_contracts.py` now validates the exact
+canonical serialized `PrivacyMetadata` field set before delegating to the
+tolerant canonical `PrivacyMetadata.from_mapping(...)`:
+
+```text
+raw Domain Pack mapping
+    ↓  strict nested field allowlist (unknown keys rejected, incl. allow_cross_domain)
+    ↓  strict nested credential/secret-like metadata rejection (recursive)
+canonical PrivacyMetadata.from_mapping(...)
+```
+
+The direct-constructor path is protected the same way: an already-instantiated
+`PrivacyMetadata` whose `metadata` carries credential-like keys is rejected by
+`DomainPrivacyPolicy.__post_init__`, reusing the existing Phase 10.50
+sensitive-key vocabulary. Errors never include the secret value. Canonical
+Phase 8 `PrivacyMetadata.from_mapping(...)` semantics are unchanged — the
+Domain adapter is stricter than the tolerant canonical parser, not a
+replacement for it.
+
+**MAJOR-02 — canonical privacy-decision trace binding.** Described in section
+12: a real `PrivacyDecision` is projected into deterministic safe evidence, the
+reference is derived from the evidence identity, the inventory is the
+authoritative resolver and the existing validator enforces the pairing. No
+test-only or free-form privacy-decision ID remains on the canonical success
+path.
+
+Remediation state before Independent Re-audit V2:
+
+```text
+PHASE10_50=IMPLEMENTED_REMEDIATED_PENDING_INDEPENDENT_REAUDIT_V2
+MAJOR_01=REMEDIATED_PENDING_VERIFICATION
+MAJOR_02=REMEDIATED_PENDING_VERIFICATION
+DP-050=PASS_REPORTED
+AT-DP-050=PASS_REPORTED
+```
 
 ## 14. Anti-fragmentation
 
@@ -310,16 +395,23 @@ DomainPrivacyResolver        absent
 DomainPrivacyRegistry        absent
 DomainPrivacyStore           absent
 DomainPrivacyRuntime         absent
+PrivacyDecisionTraceStore    absent
+PrivacyDecisionTraceRegistry absent
+PrivacyDecisionTraceResolver absent
+PrivacyDecisionTraceAssembler absent
 privacy_engine.py            absent
 privacy_resolver.py          absent
 privacy_registry.py          absent
 privacy_store.py             absent
 privacy_runtime.py           absent
 PrivacyPolicy redefinition   absent
+PrivacyPolicy.SENSITIVE      absent
 SensitivityLevel redefinition absent
 allow_cross_domain           absent
 provider/model routing ids   absent
 cmm.cognitive -> cmm.domains dependency  absent
+DomainTrace raw PrivacyMetadata field    absent
+DomainTraceReference reasons/metadata field absent
 ```
 
 The canonical `domain.fragmentation` owner is reused rather than re-implemented.

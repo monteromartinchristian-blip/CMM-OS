@@ -6887,23 +6887,47 @@ Domains must not:
 
 Implementation status (Phase 10.50)
 
-Phase 10.50 is implemented and reported, pending independent audit. It declares
-one additive, immutable, versioned `DomainPrivacyPolicy` per first-party Domain
-that projects into the canonical Phase 8 `PrivacyMetadata` and participates in
-canonical most-restrictive resolution and operation evaluation. The Domain
-policy is a restrictive input only: it never grants remote, provider, export,
-cache or approval authority, never weakens `LOCAL_ONLY`, and never replaces the
-canonical Phase 8 privacy owner or the Phase 10.15 permission chain.
+Phase 10.50 is implemented and remediated, pending independent re-audit V2.
+Independent Audit V1 returned `FAIL` (`BLOCKERS=0`, `MAJORS=2`, `MINORS=0`):
+nested `default_privacy` was not fail-closed at the Domain declarative
+boundary, and `PRIVACY_DECISION` trace references were not canonically bound to
+an auditable `PrivacyDecision`. Remediation V1 addresses exactly those two
+findings. It declares one additive, immutable, versioned `DomainPrivacyPolicy`
+per first-party Domain that projects into the canonical Phase 8
+`PrivacyMetadata` and participates in canonical most-restrictive resolution and
+operation evaluation. The Domain policy is a restrictive input only: it never
+grants remote, provider, export, cache or approval authority, never weakens
+`LOCAL_ONLY`, and never replaces the canonical Phase 8 privacy owner or the
+Phase 10.15 permission chain.
 
 ```text
 PHASE10_49=CLOSED
-PHASE10_50=IMPLEMENTED_PENDING_INDEPENDENT_AUDIT
+PHASE10_50=IMPLEMENTED_REMEDIATED_PENDING_INDEPENDENT_REAUDIT_V2
+
+INDEPENDENT_AUDIT_V1=FAIL
+BLOCKERS=0
+MAJORS=2
+MINORS=0
+
+MAJOR_01=REMEDIATED_PENDING_VERIFICATION
+MAJOR_02=REMEDIATED_PENDING_VERIFICATION
 
 DP-050=PASS_REPORTED
 AT-DP-050=PASS_REPORTED
 
 DOMAIN_PRIVACY_POLICY_CONTRACT=PASS
 CANONICAL_PRIVACY_METADATA_REUSE=PASS
+NESTED_DEFAULT_PRIVACY_UNKNOWN_FIELDS=REJECTED
+NESTED_ALLOW_CROSS_DOMAIN=REJECTED
+NESTED_PRIVACY_SECRET_METADATA=REJECTED
+DIRECT_CONSTRUCTOR_SECRET_METADATA=REJECTED
+PHASE8_PRIVACY_GLOBAL_BEHAVIOR_CHANGED=NO
+PRIVACY_DECISION_SAFE_EVIDENCE=PASS
+PRIVACY_DECISION_ID=DETERMINISTIC_CONTENT_ADDRESSED
+PRIVACY_DECISION_REFERENCE_BOUND=PASS
+PRIVACY_DECISION_INVENTORY_BINDING=PASS
+PRIVACY_DECISION_FAKE_REFERENCE=REJECTED
+PRIVACY_DECISION_RAW_PAYLOAD_IN_TRACE=NO
 PARALLEL_PRIVACY_ENGINE=NONE
 PARALLEL_PRIVACY_RESOLVER=NONE
 PARALLEL_PRIVACY_REGISTRY=NONE
@@ -6922,17 +6946,31 @@ through canonical `PrivacyPolicy.LOCAL_ONLY` plus canonical
 `SensitivityLevel.SENSITIVE`. Phase 10.50 does not add
 `PrivacyPolicy.SENSITIVE`, does not add `allow_cross_domain`, and does not
 create `DomainPrivacyEngine`, `DomainPrivacyResolver`, `DomainPrivacyRegistry`,
-`DomainPrivacyStore` or `DomainPrivacyRuntime`.
+`DomainPrivacyStore`, `DomainPrivacyRuntime`, `PrivacyDecisionTraceStore`,
+`PrivacyDecisionTraceRegistry`, `PrivacyDecisionTraceResolver` or
+`PrivacyDecisionTraceAssembler`.
+
+The MAJOR-01 remediation validates the exact canonical serialized
+`PrivacyMetadata` field set and rejects credential/secret-like nested metadata
+at the Domain declarative boundary before delegating to the tolerant canonical
+`PrivacyMetadata.from_mapping(...)`, and applies the same protection to the
+direct-constructor path; Phase 8 global parser semantics are unchanged. The
+MAJOR-02 remediation binds a real canonical `PrivacyDecision` to a
+deterministic content-addressed `PrivacyDecisionTraceEvidence`, derives the
+`PRIVACY_DECISION` reference from the evidence identity, and enforces the
+pairing through the existing authoritative `DomainTraceReferenceInventory` and
+`DefaultDomainTraceReferenceValidator`.
 
 Twelve first-party Domains are implemented; eleven declare an explicit privacy
 policy. General is the explicit no-Domain-wide-default case, so its privacy is
 resolved per resource/package/operation/context and absence of a Domain policy
 never becomes `REMOTE_ALLOWED`.
 
-Independent-audit severity counts are never published before the independent
-audit supplies them. Phase 10.50 is not closed; `DP-050=VERIFIED_EXISTING`,
-`AT-DP-050=PASS` and `CLOSURE_ELIGIBLE=YES` may only be recorded after that
-independent audit passes. Reference: `docs/reference/domain-privacy-policies.md`.
+Independent-audit severity counts are only published where the independent
+audit supplies them. Phase 10.50 is not closed; `MAJOR_01=VERIFIED_REMEDIATED`,
+`MAJOR_02=VERIFIED_REMEDIATED`, `DP-050=VERIFIED_EXISTING`, `AT-DP-050=PASS`
+and `CLOSURE_ELIGIBLE=YES` may only be recorded after Independent Re-audit V2
+passes. Reference: `docs/reference/domain-privacy-policies.md`.
 
 ⸻
 
